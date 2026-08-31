@@ -825,3 +825,70 @@ test('an all-succeeded batch settles from stored evidence alone', async () => {
     globalThis.fetch = original
   }
 })
+
+test('the generic finalizer keeps a fully released Continuity provider failure classified as error', async () => {
+  const project = await pm.createProject({ name: 'Generic Continuity failure finalization' })
+  let auditorCalls = 0
+  registerJobCancellationAuditor('continuity_render', async () => {
+    auditorCalls++
+    return 'complete'
+  })
+  jq.registerExecutor('continuity_render', async runningJob => {
+    const now = new Date().toISOString()
+    runningJob.remote_cancellations = {
+      'image.generation:fleet-failed': {
+        status: 'confirmed',
+        operation: 'image.generation',
+        provider_job_id: 'fleet-failed',
+        requested_at: now,
+        updated_at: now,
+        cancelled: false,
+      },
+    }
+    await jq.recordGenStudioJob(runningJob.job_id, {
+      id: 'fleet-failed',
+      operation: 'image.generation',
+      state: 'failed',
+      failure_code: 'SITE_CAPACITY_UNAVAILABLE',
+      reserved_credits: 7,
+      settled_credits: 0,
+      released_credits: 7,
+      updated_at: now,
+    })
+  })
+  await jq.setQueuePaused(false)
+
+  let lanePumps = 0
+  let releaseObserved!: () => void
+  const released = new Promise<void>(resolve => { releaseObserved = resolve })
+  const stopObserving = jq._observeQueuePumpsForTesting(type => {
+    if (type === 'continuity_render' && ++lanePumps === 2) releaseObserved()
+  })
+  let queued!: Job
+  try {
+    queued = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'continuity_render',
+      episode_id: 'EP0001',
+      title: 'Generic finalizer regression',
+      params: {},
+    })
+    await released
+  } finally {
+    stopObserving()
+  }
+  const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+  let persistedStatus = ''
+  const persistDeadline = Date.now() + 2_000
+  while (Date.now() < persistDeadline && !['done', 'error'].includes(persistedStatus)) {
+    const persisted = JSON.parse(await fs.readFile(jobsFile, 'utf8'))
+    persistedStatus = persisted.jobs.find((item: Job) => item.job_id === queued.job_id)?.status || ''
+    if (!['done', 'error'].includes(persistedStatus)) await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.ok(['done', 'error'].includes(persistedStatus), 'generic finalizer result was not persisted')
+
+  const finalized = jq.getJob(queued.job_id)!
+  assert.equal(finalized.status, 'error')
+  assert.match(finalized.error || '', /provider task failed/i)
+  assert.equal(auditorCalls, 0)
+})

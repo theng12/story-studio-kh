@@ -38,6 +38,8 @@ import {
   type ContentPackProjectPinOptions,
 } from '../content-packs/project-pins.js'
 import { runWithJobContentPackProvenance } from '../content-packs/job-provenance-context.js'
+import { readManifest } from './task-manifest.js'
+import { isDecodableImage } from '../lib/image-validation.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -817,11 +819,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       job.status = 'cancelled'
       job.error = null
       job.output_lines.push('GenStudio confirmed cancellation for every provider task.')
-    } else if (evidence.some(entry => (
-      entry.state === 'failed'
-      && entry.cancelled !== true
-      && (job.type !== 'continuity_render' || !isSafelyRetryableStallImageFailure(entry))
-    ))) {
+    } else if (evidence.some(entry => entry.state === 'failed' && entry.cancelled !== true)) {
       job.status = 'error'
       job.error = 'A GenStudio provider task failed after cancellation reconciliation. Provider evidence is retained.'
       job.output_lines.push(job.error)
@@ -846,10 +844,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         + 'Every other request settled. Retry resubmits only what is missing.'
       job.result = { ...(job.result || {}), provider_settled: 'never-created', repair_required: true }
       job.output_lines.push(job.error)
-    } else if (evidence.length && evidence.every(entry => (
-      entry.state === 'succeeded'
-      || (job.type === 'continuity_render' && isSafelyRetryableStallImageFailure(entry))
-    ))) {
+    } else if (evidence.length && evidence.every(entry => entry.state === 'succeeded')) {
       const auditor = getJobCancellationAuditor(job.type)
       if (!auditor) {
         job.output_lines.push('Provider work settled, but no output auditor is registered. Keeping this job running until output can be verified.')
@@ -1590,10 +1585,15 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
         && job.pause_origin === 'queue'
       )),
     )
+    const stallLanes = await recoverSafelySettledStallJobs(
+      [...jobs.values()].filter(job => (
+        job.project_slug === projectSlug && job.status === 'paused' && job.pause_origin === 'stall'
+      )),
+      undefined,
+      false,
+    )
+    for (const type of stallLanes) released.lanes.add(type)
     for (const type of released.lanes) pump(type)
-    await recoverSafelySettledStallJobs([...jobs.values()].filter(job => (
-      job.project_slug === projectSlug && job.status === 'paused' && job.pause_origin === 'stall'
-    )))
   })()
   loadingProjects.set(projectSlug, loading)
   try {
@@ -1838,6 +1838,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       max_attempts: retryPolicy.max_attempts,
     }
     job.status = 'running'
+    job.local_execution_complete = false
     job.pause_requested = false
     job.started_at ||= new Date().toISOString()
     jobs.set(job.job_id, job)
@@ -2121,18 +2122,53 @@ function hasSafeTerminalStallEvidence(job: Job): boolean {
   })
 }
 
+async function hasDurableContinuityStallManifestOwnership(job: Job): Promise<boolean> {
+  if (!job.output_dir || !Array.isArray(job.params?.scene_ids) || !job.params.scene_ids.length) return false
+  const sceneIds = [...new Set(job.params.scene_ids)]
+  if (!sceneIds.every(sceneId => typeof sceneId === 'string' && sceneId && path.basename(sceneId) === sceneId)) return false
+
+  const checkpoint = job.params.genstudio_recovery
+  if (checkpoint?.version !== 1 || checkpoint.route !== 'genstudio' || !checkpoint.assets) return false
+  const manifest = await readManifest(job.output_dir)
+  for (const sceneId of sceneIds) {
+    const filename = `${sceneId}.png`
+    if (await isDecodableImage(path.join(job.output_dir, filename))) continue
+    const manifestEntry = manifest.tasks[filename]
+    const checkpointEntry = checkpoint.assets[filename]
+    if (
+      manifestEntry?.operation !== 'image'
+      || !manifestEntry.task_id
+      || !manifestEntry.idempotency_key
+      || checkpointEntry?.operation !== 'image'
+      || checkpointEntry.job_id !== manifestEntry.task_id
+      || checkpointEntry.idempotency_key !== manifestEntry.idempotency_key
+    ) return false
+    const matchingEvidence = (job.genstudio_jobs || []).filter(entry => (
+      entry.operation === 'image.generation' && entry.id === manifestEntry.task_id
+    ))
+    if (matchingEvidence.length !== 1) return false
+    if (matchingEvidence[0]!.request?.idempotency_key !== manifestEntry.idempotency_key) return false
+  }
+  return true
+}
+
 /** Rejoin only evidence-proven stall holds through the ordinary durable lane. */
 async function recoverSafelySettledStallJobs(
   selected: Job[],
   afterEligibilityForTesting?: (eligibleJobIds: string[]) => void | Promise<void>,
-): Promise<void> {
-  if (queuePaused) return
-  const eligible = selected.filter(hasSafeTerminalStallEvidence)
+  pumpReleased = true,
+): Promise<Set<JobType>> {
+  if (queuePaused) return new Set()
+  const eligible: Job[] = []
+  for (const job of selected.filter(hasSafeTerminalStallEvidence)) {
+    if (await hasDurableContinuityStallManifestOwnership(job)) eligible.push(job)
+  }
   if (afterEligibilityForTesting && eligible.length) {
     await afterEligibilityForTesting(eligible.map(job => job.job_id))
   }
   const released = await transitionPausedJobsToQueuedByProject(eligible)
-  for (const type of released.lanes) pump(type)
+  if (pumpReleased) for (const type of released.lanes) pump(type)
+  return released.lanes
 }
 
 /** Test-only entry to prove repeated eligible recovery triggers stay idempotent. */

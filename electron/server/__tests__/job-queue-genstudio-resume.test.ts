@@ -397,17 +397,35 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
   async function writeFixture(job: Job): Promise<{ jobsFile: string; manifestDir: string }> {
     const jobsFile = path.join(tempDir, 'projects', job.project_slug, 'jobs.json')
     const manifestDir = path.join(tempDir, 'stall-manifests', job.job_id)
+    const idempotencyKey = job.genstudio_jobs![0]!.request?.idempotency_key || `story-image-${job.job_id}`
+    job.genstudio_jobs![0]!.request = {
+      method: 'POST', path: '/v1/images/generations', captured_at: new Date().toISOString(),
+      idempotency_key: idempotencyKey,
+    }
     await recordTaskStrict(manifestDir, `${sceneId}.png`, {
       provider: 'genstudio-image',
       task_id: job.genstudio_jobs![0]!.id,
       submitted_at: new Date().toISOString(),
       input_hash: 'sha256:stable-scene-fixture',
       request_scope: 'missing',
-      idempotency_key: `story-image-${job.job_id}`,
+      idempotency_key: idempotencyKey,
       operation: 'image',
       last_state: job.genstudio_jobs![0]!.state,
     })
     job.output_dir = manifestDir
+    job.params.genstudio_recovery = {
+      version: 1,
+      route: 'genstudio',
+      assets: {
+        [`${sceneId}.png`]: {
+          operation: 'image',
+          idempotency_key: idempotencyKey,
+          job_id: job.genstudio_jobs![0]!.id,
+          state: job.genstudio_jobs![0]!.state,
+          updated_at: new Date().toISOString(),
+        },
+      },
+    }
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
     return { jobsFile, manifestDir }
   }
@@ -486,7 +504,15 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
     assert.ok(entry.task_id)
     assert.ok(entry.idempotency_key)
     await fs.rm(outputPath)
-    return { project, episodeId, params, outputDir, outputPath, entry, runContinuityRenderJob }
+    return {
+      project,
+      episodeId,
+      params: { ...params, scene_ids: [sceneId] },
+      outputDir,
+      outputPath,
+      entry,
+      runContinuityRenderJob,
+    }
   }
 
   test('the production Continuity executor reclaims the exact succeeded manifest task once', async () => {
@@ -523,6 +549,64 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
       await service.close()
     }
   })
+
+  for (const damagedManifest of ['missing', 'corrupt', 'wrong-file', 'wrong-task', 'wrong-request', 'missing-request'] as const) {
+    test(`automatic production recovery fails closed for a ${damagedManifest} Continuity manifest`, async () => {
+      const service = await startMockGenStudioService()
+      let executorStarts = 0
+      try {
+        const seeded = await seedProductionContinuityRender(service, `Unsafe ${damagedManifest} recovery`)
+        const manifestPath = path.join(seeded.outputDir, '.task-manifest.json')
+        if (damagedManifest === 'missing') await fs.rm(manifestPath)
+        else if (damagedManifest === 'corrupt') await fs.writeFile(manifestPath, '{not-json')
+        else if (damagedManifest === 'wrong-file') {
+          await fs.rm(manifestPath)
+          await recordTaskStrict(seeded.outputDir, 'different-scene.png', seeded.entry)
+        } else if (damagedManifest === 'wrong-task') {
+          await recordTaskStrict(seeded.outputDir, `${sceneId}.png`, { ...seeded.entry, task_id: 'foreign-provider-task' })
+        } else if (damagedManifest === 'wrong-request') {
+          await recordTaskStrict(seeded.outputDir, `${sceneId}.png`, { ...seeded.entry, idempotency_key: 'foreign-request-key' })
+        }
+
+        const job = stalledRender(`stall-${damagedManifest}-manifest`, seeded.project.slug, seeded.entry.task_id, {
+          episode_id: seeded.episodeId,
+          params: seeded.params,
+          output_dir: seeded.outputDir,
+          genstudio_jobs: [providerEvidence(seeded.entry.task_id, 'succeeded', {
+            request: damagedManifest === 'missing-request' ? undefined : {
+              method: 'POST', path: '/v1/images/generations', captured_at: new Date().toISOString(),
+              idempotency_key: seeded.entry.idempotency_key,
+            },
+          })],
+        })
+        const jobsFile = path.join(tempDir, 'projects', seeded.project.slug, 'jobs.json')
+        await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+        jq.registerExecutor('continuity_render', async queuedJob => {
+          executorStarts++
+          await seeded.runContinuityRenderJob(queuedJob)
+        })
+        service.queueScenario('image', { states: ['succeeded'] })
+        const submissionsBeforeRecovery = service.providerSubmissionCount('image')
+        service.requests.length = 0
+
+        await jq.getJobs(seeded.project.slug)
+        await waitFor(() => {
+          const status = jq.getJob(job.job_id)?.status
+          return status === 'paused' || status === 'done' || status === 'error'
+        }, `${damagedManifest} manifest recovery did not settle`)
+
+        assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+        assert.equal(jq.getJob(job.job_id)?.pause_origin, 'stall')
+        assert.equal(executorStarts, 0)
+        assert.equal(service.providerSubmissionCount('image'), submissionsBeforeRecovery)
+        assert.equal(service.requests.some(request => (
+          request.method === 'POST' && request.path === '/v1/images/generations'
+        )), false)
+      } finally {
+        await service.close()
+      }
+    })
+  }
 
   test('the production executor alone retries a fully released fleet refusal under a derived identity', async () => {
     const service = await startMockGenStudioService()
@@ -562,6 +646,11 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
         if (url.origin === service.baseUrl && url.pathname === '/v1/images/generations'
           && (init?.method || 'GET').toUpperCase() === 'POST') {
           assert.equal(executorStarts, 1, 'the recovery controller must not submit before normal executor admission')
+          assert.equal(
+            jq.getJob(job.job_id)?.local_execution_complete,
+            false,
+            'a resumed executor must establish its own local execution boundary',
+          )
         }
         return originalFetch(input, init)
       }
@@ -754,6 +843,42 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
       if (jq.isQueuePaused()) await jq.setQueuePaused(false)
       await service.close()
     }
+  })
+
+  test('one project load pumps a mixed queue and stall lane once', async () => {
+    const project = await pm.createProject({ name: 'Mixed queue and stall lane load' })
+    const queueJob = stalledRender('mixed-load-queue', project.slug, 'mixed-queue-task', {
+      pause_origin: 'queue',
+    })
+    const stallJob = stalledRender('mixed-load-stall', project.slug, 'mixed-stall-task')
+    const { jobsFile } = await writeFixture(queueJob)
+    await writeFixture(stallJob)
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [queueJob, stallJob] }))
+
+    let releaseExecutors!: () => void
+    const held = new Promise<void>(resolve => { releaseExecutors = resolve })
+    const executions: string[] = []
+    jq.registerExecutor('continuity_render', async job => {
+      executions.push(job.job_id)
+      await held
+    })
+    await jq.setQueuePaused(false)
+    let lanePumps = 0
+    const stopObserving = jq._observeQueuePumpsForTesting(type => {
+      if (type === 'continuity_render') lanePumps++
+    })
+    try {
+      await jq.getJobs(project.slug)
+    } finally {
+      stopObserving()
+      releaseExecutors()
+    }
+    await Promise.all([
+      waitForDone(queueJob.job_id, jobsFile),
+      waitForDone(stallJob.job_id, jobsFile),
+    ])
+    assert.equal(lanePumps, 1)
+    assert.deepEqual(new Set(executions), new Set([queueJob.job_id, stallJob.job_id]))
   })
 
   test('unstable identity, cancellation context, and unsafe settlement all fail closed', async () => {
