@@ -114,8 +114,10 @@ empty. The process audit found no surviving `run-backend-tests` or focused
 
 ## Independent-review correction
 
-Commit `52cf1f721e47676c3170bc305129eb2cf687ffc1`
-(`fix: harden stalled render recovery evidence`) resolves both findings in
+Commits `52cf1f721e47676c3170bc305129eb2cf687ffc1`
+(`fix: harden stalled render recovery evidence`) and
+`2512861bc61046fbf151d0c4b634eba365d77905`
+(`test: prove concurrent stall recovery eligibility`) resolve both findings in
 `task-3-review.md`. This appendix supersedes the earlier repeated-trigger and
 test-executor evidence above where the independent review found those fixtures
 non-discriminating.
@@ -153,10 +155,13 @@ The corrected matrix then added the missing positive and discriminating paths:
   The original task and request identities remain retained in the Story job;
   the manifest alone advances to the new task/key used for the missing scene.
 - Two direct calls to the evidence-gated recovery action while the same durable
-  terminal job was eligible produced one executor run, one durable Story job,
-  submission count **1 → 1**, and zero generation POSTs. The production action
-  still has only its two authoritative call sites: persisted load and completed
-  reconciliation; the direct export is test-only.
+  terminal job was eligible both passed the real terminal-evidence predicate
+  before either admission mutation began. They produced one executor run, one
+  durable Story job, submission count **1 → 1**, and zero generation POSTs.
+  Tightening this proof first produced a focused **15 passed, 1 failed of 16**
+  RED (`0 !== 2` eligibility callbacks). The production action still has only
+  its two authoritative call sites: persisted load and completed
+  reconciliation; the direct export and post-predicate callback are test-only.
 - Manual and legacy originless records were exercised while the global queue
   was running and remained paused. An otherwise unsafe queue-origin record was
   independently released through the Task 2 queue invariant and executed once,
@@ -167,7 +172,7 @@ The corrected matrix then added the missing positive and discriminating paths:
   partially released, cancelled, placeholder, and non-image evidence remain
   terminally unsafe.
 
-Final fresh GREEN after commit `52cf1f72`:
+Final fresh GREEN after commit `2512861b`:
 
 ```text
 node scripts/testing/run-backend-tests.mjs \
