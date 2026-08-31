@@ -204,8 +204,11 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
  * to a channel or preset. Corrupt hand-edited storage fails closed.
  */
 export async function getPaidImageReplacementSetting(): Promise<PaidImageReplacementSetting> {
+  const settings = await readSettings()
   return parsePaidImageReplacementSetting(
-    await getAppSetting(PAID_IMAGE_REPLACEMENT_KEY),
+    settings && typeof settings === 'object' && !Array.isArray(settings)
+      ? settings[PAID_IMAGE_REPLACEMENT_KEY]
+      : undefined,
     'default',
   )
 }

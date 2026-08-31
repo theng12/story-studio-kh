@@ -2934,8 +2934,6 @@ export interface EnqueueOptions {
   episode_id: string
   title?: string
   params?: Record<string, any>
-  /** Set only by async production enqueue after reading the machine setting. */
-  paid_image_replacement?: PaidImageReplacementPolicySnapshot
   /** Server-only replacement scope for a terminal GenStudio chat retry. */
   genstudio_chat_retry_scope?: string
   /** Server-only exact replay marker for unresolved GenStudio chat evidence. */
@@ -2953,8 +2951,20 @@ export interface EnqueueOptions {
   dedupeParams?: (params: any) => boolean
 }
 
+/** Internal insertion-only options. Public enqueue callers cannot set policy. */
+interface EnqueuePreparedOptions extends EnqueueOptions {
+  paid_image_replacement?: PaidImageReplacementPolicySnapshot
+}
+
+function withoutPaidImageReplacementParam(params: EnqueueOptions['params']): EnqueueOptions['params'] {
+  if (!params || !Object.prototype.hasOwnProperty.call(params, 'paid_image_replacement')) return params
+  const sanitized = { ...params }
+  delete sanitized.paid_image_replacement
+  return sanitized
+}
+
 function enqueuePrepared(
-  opts: EnqueueOptions,
+  opts: EnqueuePreparedOptions,
   contentPackProvenance: Job['content_pack_provenance'] = [],
 ): Job {
   if (projectRemovalInProgress.has(opts.project_slug)) {
@@ -3060,7 +3070,14 @@ export async function enqueue(
       snapshotted_at: new Date().toISOString(),
     }))
     : undefined
-  return enqueuePrepared({ ...opts, ...(paid_image_replacement ? { paid_image_replacement } : {}) }, provenance)
+  const safeOpts: EnqueueOptions = { ...opts }
+  delete (safeOpts as EnqueueOptions & { paid_image_replacement?: unknown }).paid_image_replacement
+  const { params, ...enqueueOpts } = safeOpts
+  return enqueuePrepared({
+    ...enqueueOpts,
+    ...(params ? { params: withoutPaidImageReplacementParam(params) } : {}),
+    ...(paid_image_replacement ? { paid_image_replacement } : {}),
+  }, provenance)
 }
 
 export async function getJobs(projectSlug: string): Promise<Job[]> {

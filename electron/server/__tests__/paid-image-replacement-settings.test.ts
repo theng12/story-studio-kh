@@ -18,6 +18,18 @@ import { useTempDataDir } from './_helpers.js'
 let temp: Awaited<ReturnType<typeof useTempDataDir>>
 let app: express.Express
 
+async function waitForPersistedJobs(file: string, count: number): Promise<any[]> {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    try {
+      const jobs = JSON.parse(await fs.readFile(file, 'utf8')).jobs
+      if (Array.isArray(jobs) && jobs.length >= count) return jobs
+    } catch { /* write has not completed yet */ }
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.fail(`Timed out waiting for ${count} persisted jobs`)
+}
+
 before(async () => {
   temp = await useTempDataDir()
   const { router } = await import('../routes/app-settings.js')
@@ -101,6 +113,19 @@ test('paid image replacement defaults, validates exactly, and exposes only the f
     { enabled: false, additional_credit_ceiling: null },
     'absent or malformed storage must fail closed to the exact off default',
   )
+
+  try {
+    for (const root of [null, 50, 'not-an-object']) {
+      await fs.writeFile(path.join(temp.dir, 'app-settings.json'), JSON.stringify(root))
+      assert.deepEqual(
+        await settings.getPaidImageReplacementSetting(),
+        { enabled: false, additional_credit_ceiling: null },
+        'a malformed JSON root must fail closed without weakening the shared store',
+      )
+    }
+  } finally {
+    await fs.writeFile(path.join(temp.dir, 'app-settings.json'), '{}')
+  }
 })
 
 test('only supported image enqueue snapshots the machine policy outside request params', async () => {
@@ -111,17 +136,25 @@ test('only supported image enqueue snapshots the machine policy outside request 
   await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 50 })
 
   const project = await projects.createProject({ name: 'Paid policy snapshot boundary' })
+  const callerPolicy = {
+    enabled: false,
+    wait_minutes: 0,
+    max_replacements_per_asset: 99,
+    additional_credit_ceiling: 1,
+    snapshotted_at: 'caller-controlled',
+  }
   const serverSnapshot = async (type: any, episode: string) => queue.enqueue({
     project_slug: project.slug,
     type,
     episode_id: episode,
     title: type,
     params: { paid_image_replacement: { enabled: false, additional_credit_ceiling: 1 } },
-  })
+    paid_image_replacement: callerPolicy,
+  } as any)
 
   for (const [index, type] of ['continuity_render', 'image_pool_generate', 'thumb_images'].entries()) {
     const job = await serverSnapshot(type, `SUPPORTED-${index}`)
-    assert.deepEqual(job.params.paid_image_replacement, { enabled: false, additional_credit_ceiling: 1 })
+    assert.equal(job.params.paid_image_replacement, undefined, 'caller params must not persist paid authority')
     assert.equal(job.paid_image_replacement?.enabled, true)
     assert.equal(job.paid_image_replacement?.additional_credit_ceiling, 50)
     assert.equal(job.paid_image_replacement?.wait_minutes, 30)
@@ -137,6 +170,15 @@ test('only supported image enqueue snapshots the machine policy outside request 
   for (const [index, type] of ['audio', 'subtitles_transcribe', 'music_generate', 'video', 'broll_normalize', 'image_prompts'].entries()) {
     const job = await serverSnapshot(type, `UNSUPPORTED-${index}`)
     assert.equal(job.paid_image_replacement, undefined, `${type} must never receive the paid image policy`)
+    assert.equal(job.params.paid_image_replacement, undefined, `${type} must not persist caller policy params`)
+  }
+
+  const persisted = await waitForPersistedJobs(path.join(temp.dir, 'projects', project.slug, 'jobs.json'), 10)
+  for (const job of persisted) {
+    assert.equal(job.params.paid_image_replacement, undefined, 'jobs.json must not preserve caller policy params')
+    if (!['continuity_render', 'image_pool_generate', 'thumb_images'].includes(job.type)) {
+      assert.equal(job.paid_image_replacement, undefined, 'jobs.json must not preserve caller policy on unsupported work')
+    }
   }
 })
 
