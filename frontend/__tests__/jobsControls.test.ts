@@ -402,3 +402,8 @@ test('Paused controls give filters and actions separate wrapping room on narrow 
   assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.status-filters \{ flex: 1 1 100%; min-width: 0; \}/)
   assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.status-bar > \.btn \{ flex: 1 1 auto; \}/)
 })
+
+test('Jobs keeps every sort control reachable on narrow layouts', () => {
+  assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.sort-bar \{ flex-wrap: wrap; min-width: 0; \}/)
+  assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.sort-label \{ flex: 1 1 100%; margin-right: 0; \}/)
+})

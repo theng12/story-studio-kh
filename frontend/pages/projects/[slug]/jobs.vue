@@ -3396,6 +3396,8 @@ async function clearFinished() {
   .job-actions { margin-left: auto; }
   .project-filter { width: 100%; }
   .project-filter select { min-width: 0; flex: 1; }
+  .sort-bar { flex-wrap: wrap; min-width: 0; }
+  .sort-label { flex: 1 1 100%; margin-right: 0; }
   .status-filters { flex: 1 1 100%; min-width: 0; }
   .status-bar > .btn { flex: 1 1 auto; }
   .job-stat-telemetry {
