@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.89 — 2026-08-31
+
+- **Job timing stays in one dependable place while work is running.** The last-progress reading now remains pinned to the card’s right edge whether Story Studio can estimate time remaining or is still gathering enough evidence to do so. Its quiet state is easier to scan with a subtle information treatment, and a stale reading now carries the same treatment with a clearer warning signal. The timing group also moves cleanly to its own right-aligned row on compact screens.
+
 ## v1.4.88 — 2026-08-31
 
 - **Jobs now say what needs attention instead of exposing internal Error and Failed state names.** Cards, filters, batch summaries, action help, and completion notices use the next useful customer action. The underlying queue states, retry and repair safety, settlement evidence, and full diagnostics under Technical details are unchanged.

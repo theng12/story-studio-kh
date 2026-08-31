@@ -512,14 +512,21 @@
           </span>
           <!-- Measured, never assumed — see useJobEta.ts. Absent until this
                job's own rate or its class's median can support one. -->
-          <span v-if="jobEta(job)" class="job-stat-eta">{{ jobEta(job) }}</span>
-          <!-- "when did something last actually happen". A quiet card is the
-               reason this page gets opened; silence must be legible. -->
           <span
-            v-if="jobFreshness(job)"
-            class="job-stat-fresh"
-            :class="{ 'is-stale': jobProgressStale(job) }"
-          >{{ jobFreshness(job) }}</span>
+            v-if="jobEta(job) || jobFreshness(job)"
+            class="job-stat-telemetry"
+            role="group"
+            aria-label="Job timing"
+          >
+            <span v-if="jobEta(job)" class="job-stat-eta">{{ jobEta(job) }}</span>
+            <!-- "when did something last actually happen". A quiet card is the
+                 reason this page gets opened; silence must be legible. -->
+            <span
+              v-if="jobFreshness(job)"
+              class="job-stat-fresh"
+              :class="{ 'is-stale': jobProgressStale(job) }"
+            >{{ jobFreshness(job) }}</span>
+          </span>
         </div>
 
         <!-- Money: three figures, nothing else. The per-item ledger that used
@@ -3141,8 +3148,15 @@ async function clearFinished() {
 .job-stat.is-inflight strong { color: var(--accent); }
 .job-stat.is-finished strong { color: var(--success, #3fb950); }
 .job-stat.is-muted strong { color: var(--text-muted); font-weight: 600; }
-.job-stat-eta {
+.job-stat-telemetry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
   margin-left: auto;
+}
+.job-stat-eta {
   padding: 2px 9px;
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
   border-radius: 999px;
@@ -3150,8 +3164,20 @@ async function clearFinished() {
   font-weight: 600;
   white-space: nowrap;
 }
-.job-stat-fresh { color: var(--text-muted); white-space: nowrap; }
-.job-stat-fresh.is-stale { color: var(--warning, rgb(202, 138, 4)); font-weight: 600; }
+.job-stat-fresh {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--text-secondary) 20%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-secondary) 7%, transparent);
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.job-stat-fresh.is-stale {
+  border: 1px solid color-mix(in srgb, var(--warning, rgb(202, 138, 4)) 42%, var(--border));
+  background: color-mix(in srgb, var(--warning, rgb(202, 138, 4)) 12%, transparent);
+  color: var(--warning, rgb(202, 138, 4));
+}
 
 /* Money: three figures, always the same three, always in the same order. */
 .job-money {
@@ -3321,5 +3347,11 @@ async function clearFinished() {
   .job-actions { margin-left: auto; }
   .project-filter { width: 100%; }
   .project-filter select { min-width: 0; flex: 1; }
+  .job-stat-telemetry {
+    flex-basis: 100%;
+    width: 100%;
+    max-width: 100%;
+    justify-content: flex-end;
+  }
 }
 </style>
