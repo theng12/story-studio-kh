@@ -87,6 +87,41 @@ function paidJob(projectSlug: string, attempt: PaidImageReplacementAttempt): Job
   }
 }
 
+function committedJob(
+  projectSlug: string,
+  attempt: PaidImageReplacementAttempt,
+  state: 'committed' | 'submitted' = 'committed',
+): Job {
+  attempt.state = state
+  attempt.replacement_scope = `scope-${state}`
+  attempt.quoted_credits = 3
+  attempt.price_version = 'price-v1'
+  attempt.replacement_committed_at = new Date(NOW).toISOString()
+  if (state === 'submitted') attempt.replacement_task_id = 'replacement-task-1'
+  return paidJob(projectSlug, attempt)
+}
+
+function addReplacementEvidence(job: Job, taskId = 'replacement-task-1'): void {
+  job.genstudio_jobs = [{
+    id: taskId,
+    operation: 'image.generation',
+    state: 'succeeded',
+    updated_at: new Date(NOW).toISOString(),
+  }]
+}
+
+async function writePersistedJob(job: Job): Promise<void> {
+  await fs.writeFile(
+    path.join(tempDir, 'projects', job.project_slug, 'jobs.json'),
+    JSON.stringify({ jobs: [job] }),
+  )
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  return { promise: new Promise<void>(done => { resolve = done }), resolve }
+}
+
 function waitForUpdate(jobId: string, status: Job['status']): Promise<Job> {
   return new Promise(resolve => {
     const onUpdate = (job: Job) => {
@@ -306,6 +341,640 @@ describe('durable paid image waits across boot', () => {
       assert.equal(entry.replacement_committed_at, attempt.replacement_committed_at)
       assert.equal((entry as any).replacement_task_id, undefined, 'submitted task identity remains jobs.json-only')
     }
+  })
+
+  test('canonical repair rejects conflicting roots, manifest authority, and submitted task mismatches', async () => {
+    await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+    const { resolveContinuityRenderOutputDir } = await import('../generators/continuity-render.js')
+    const pools = await import('../services/broll-pool-manager.js')
+    const cases: Array<{ name: string; setup: () => Promise<Job> }> = [
+      {
+        name: 'conflicting continuity output_dir',
+        setup: async () => {
+          const project = await pm.createProject({ name: 'repair conflicting continuity output' })
+          const root = await resolveContinuityRenderOutputDir(project.slug, 'EP0001')
+          const attempt = paidAttempt(root, 'committed')
+          const job = committedJob(project.slug, attempt)
+          job.output_dir = path.join(tempDir, 'wrong-continuity-output')
+          addReplacementEvidence(job)
+          await seedOriginalManifest(attempt)
+          return job
+        },
+      },
+      {
+        name: 'wrong continuity canonical path',
+        setup: async () => {
+          const project = await pm.createProject({ name: 'repair wrong continuity root' })
+          const canonical = await resolveContinuityRenderOutputDir(project.slug, 'EP0001')
+          const attempt = paidAttempt(path.join(canonical, 'foreign'), 'committed')
+          const job = committedJob(project.slug, attempt)
+          job.output_dir = canonical
+          addReplacementEvidence(job)
+          await seedOriginalManifest(attempt)
+          return job
+        },
+      },
+      {
+        name: 'wrong thumbnail root',
+        setup: async () => {
+          const project = await pm.createProject({ name: 'repair wrong thumbnail root' })
+          const attempt = paidAttempt(path.join(tempDir, 'wrong-thumb-root'), 'committed')
+          const job = committedJob(project.slug, attempt)
+          job.type = 'thumb_images'
+          addReplacementEvidence(job)
+          await seedOriginalManifest(attempt)
+          return job
+        },
+      },
+      {
+        name: 'wrong image-pool root',
+        setup: async () => {
+          const project = await pm.createProject({ name: 'repair wrong image pool root' })
+          const root = path.join(tempDir, 'image-pool-root')
+          await fs.mkdir(root, { recursive: true })
+          const pool = await pools.createPool({ name: `repair-image-${fixtureId}`, folder_path: root, media: 'image' })
+          const attempt = paidAttempt(path.join(tempDir, 'wrong-image-pool-root'), 'committed')
+          const job = committedJob(project.slug, attempt)
+          job.type = 'image_pool_generate'
+          job.params = { ...job.params, pool_id: pool.id, run_id: 'stable-run' }
+          addReplacementEvidence(job)
+          await seedOriginalManifest(attempt)
+          return job
+        },
+      },
+      {
+        name: 'non-image pool',
+        setup: async () => {
+          const project = await pm.createProject({ name: 'repair non image pool' })
+          const root = path.join(tempDir, 'video-pool-root')
+          await fs.mkdir(root, { recursive: true })
+          const pool = await pools.createPool({ name: `repair-video-${fixtureId}`, folder_path: root, media: 'video' })
+          const attempt = paidAttempt(root, 'committed')
+          const job = committedJob(project.slug, attempt)
+          job.type = 'image_pool_generate'
+          job.params = { ...job.params, pool_id: pool.id, run_id: 'stable-run' }
+          addReplacementEvidence(job)
+          await seedOriginalManifest(attempt)
+          return job
+        },
+      },
+      {
+        name: 'conflicting manifest commitment',
+        setup: async () => {
+          const project = await pm.createProject({ name: 'repair manifest conflict' })
+          const root = await resolveContinuityRenderOutputDir(project.slug, 'EP0001')
+          const attempt = paidAttempt(root, 'committed')
+          const job = committedJob(project.slug, attempt)
+          job.output_dir = root
+          addReplacementEvidence(job)
+          await seedOriginalManifest(attempt)
+          const entry = (await readManifest(root)).tasks[attempt.manifest_key]!
+          await recordPaidImageReplacementStrict(root, attempt.manifest_key, {
+            ...entry,
+            replacement_of_task_id: attempt.original_task_id,
+            replacement_scope: 'conflicting-scope',
+          })
+          return job
+        },
+      },
+      {
+        name: 'manifest-only commitment',
+        setup: async () => {
+          const project = await pm.createProject({ name: 'repair manifest only authority' })
+          const root = await resolveContinuityRenderOutputDir(project.slug, 'EP0001')
+          const attempt = paidAttempt(root)
+          const job = paidJob(project.slug, attempt)
+          job.output_dir = root
+          addReplacementEvidence(job)
+          await seedOriginalManifest(attempt)
+          const entry = (await readManifest(root)).tasks[attempt.manifest_key]!
+          await recordPaidImageReplacementStrict(root, attempt.manifest_key, {
+            ...entry,
+            replacement_of_task_id: attempt.original_task_id,
+            replacement_scope: 'manifest-only-scope',
+          })
+          return job
+        },
+      },
+      {
+        name: 'submitted task evidence mismatch',
+        setup: async () => {
+          const project = await pm.createProject({ name: 'repair submitted mismatch' })
+          const root = await resolveContinuityRenderOutputDir(project.slug, 'EP0001')
+          const attempt = paidAttempt(root, 'submitted')
+          const job = committedJob(project.slug, attempt, 'submitted')
+          job.output_dir = root
+          addReplacementEvidence(job, 'different-replacement-task')
+          await seedOriginalManifest(attempt)
+          return job
+        },
+      },
+    ]
+
+    for (const scenario of cases) {
+      const job = await scenario.setup()
+      await writePersistedJob(job)
+      let executions = 0
+      jq.registerExecutor(job.type, async running => {
+        if (running.project_slug === job.project_slug) executions++
+      })
+      await jq.resumeInterruptedJobsAtBoot()
+      assert.equal(executions, 0, scenario.name)
+      assert.equal(jq.getJob(job.job_id)?.status, 'error', scenario.name)
+    }
+
+    const matchingProject = await pm.createProject({ name: 'repair submitted match' })
+    const matchingRoot = await resolveContinuityRenderOutputDir(matchingProject.slug, 'EP0001')
+    const matchingAttempt = paidAttempt(matchingRoot, 'submitted')
+    const matchingJob = committedJob(matchingProject.slug, matchingAttempt, 'submitted')
+    matchingJob.output_dir = matchingRoot
+    addReplacementEvidence(matchingJob, matchingAttempt.replacement_task_id!)
+    await seedOriginalManifest(matchingAttempt)
+    await writePersistedJob(matchingJob)
+    let matchingExecutions = 0
+    const matchingStarted = deferred()
+    jq.registerExecutor('continuity_render', async running => {
+      if (running.project_slug === matchingProject.slug) {
+        matchingExecutions++
+        matchingStarted.resolve()
+      }
+    })
+    await jq.resumeInterruptedJobsAtBoot()
+    await matchingStarted.promise
+    assert.equal(matchingExecutions, 1, 'matching submitted jobs.json evidence repairs and resumes')
+  })
+
+  test('paid-result persistence, emission, and timer faults fail closed without retry or downstream work', async () => {
+    const failures = ['persist', 'emit', 'timer'] as const
+    for (const failure of failures) {
+      const project = await pm.createProject({ name: `paid result ${failure} fault` })
+      const root = path.join(tempDir, 'paid-result-faults', project.slug)
+      const attempt = paidAttempt(root)
+      await seedOriginalManifest(attempt)
+      await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+      let executions = 0
+      let scheduleObserved!: () => void
+      const scheduleObservedPromise = new Promise<void>(resolve => { scheduleObserved = resolve })
+      const failureObserved = deferred()
+      let persistCalls = 0
+      const restore = jq._setPaidImageWaitRuntimeForTesting({
+        nowMs: () => NOW,
+        persistWait: async () => {
+          persistCalls++
+          if (persistCalls === 2) failureObserved.resolve()
+          if (failure === 'persist') throw new Error('injected paid-result persist fault')
+        },
+        emitWait: () => {
+          if (failure === 'emit') throw new Error('injected paid-result subscriber fault')
+        },
+        setTimer: () => {
+          scheduleObserved()
+          if (failure === 'timer') throw new Error('injected paid-result timer fault')
+          return 1
+        },
+        clearTimer: () => {},
+      })
+      try {
+        jq.registerExecutor('continuity_render', async running => {
+          if (running.project_slug !== project.slug) return
+          executions++
+          applyPaidWait(running, attempt)
+          running.result = { complete: false }
+          return { kind: 'paid-image-wait' }
+        })
+        const job = jq.enqueuePreparedForTest({
+          project_slug: project.slug,
+          type: 'continuity_render',
+          episode_id: 'EP-FAULT',
+          title: failure,
+          params: { pipeline_chain: [{ type: 'script-only' }] },
+        })
+        if (failure === 'timer') await scheduleObservedPromise
+        await failureObserved.promise
+        const terminal = jq.getJob(job.job_id)!
+        assert.equal(executions, 1, failure)
+        assert.equal(terminal.status, 'error', failure)
+        assert.equal(terminal.local_execution_complete, false, failure)
+        assert.equal(terminal.auto_retry?.attempt, 1, failure)
+        assert.match(terminal.error || '', /No automatic retry/, failure)
+        assert.equal((await jq.getJobs(project.slug)).length, 1, `${failure}: no completion/finalizer/pipeline job`)
+      } finally { restore() }
+    }
+  })
+
+  test('a valid paid-result snapshot is persisted and emitted as exact running null false state', async () => {
+    const project = await pm.createProject({ name: 'paid result exact snapshot' })
+    const root = path.join(tempDir, 'paid-result-exact', project.slug)
+    const attempt = paidAttempt(root)
+    await seedOriginalManifest(attempt)
+    await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+    const persisted: Job[] = []
+    const emitted: Job[] = []
+    let scheduled!: () => void
+    const scheduledPromise = new Promise<void>(resolve => { scheduled = resolve })
+    const restore = jq._setPaidImageWaitRuntimeForTesting({
+      nowMs: () => NOW,
+      persistWait: async (job: Job) => { persisted.push(structuredClone(job)) },
+      emitWait: (job: Job) => { emitted.push(structuredClone(job)) },
+      setTimer: () => { scheduled(); return 1 },
+      clearTimer: () => {},
+    })
+    try {
+      jq.registerExecutor('continuity_render', async running => {
+        if (running.project_slug !== project.slug) return
+        applyPaidWait(running, attempt)
+        return { kind: 'paid-image-wait' }
+      })
+      const job = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'continuity_render', episode_id: 'EP-EXACT', title: 'exact', params: {} })
+      await scheduledPromise
+      assert.deepEqual(
+        persisted.map(job => [job.status, job.finished_at, job.local_execution_complete]),
+        [['running', null, false]],
+      )
+      assert.deepEqual(
+        emitted.map(job => [job.status, job.finished_at, job.local_execution_complete]),
+        [['running', null, false]],
+      )
+      assert.equal(jq.isDuplicate(project.slug, job.episode_id, job.type), true)
+    } finally { restore() }
+  })
+
+  test('boot and duplicate due delivery wait for one durable requeue and preserve recovery FIFO', async () => {
+    jq.setImageEpisodeConcurrency(1)
+    const blockerProject = await pm.createProject({ name: 'paid due race blocker' })
+    const paidProject = await pm.createProject({ name: 'paid due race recovery' })
+    const root = path.join(tempDir, 'paid-due-race', paidProject.slug)
+    const attempt = paidAttempt(root)
+    const paid = paidJob(paidProject.slug, attempt)
+    await seedOriginalManifest(attempt)
+    await writePersistedJob(paid)
+    await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+
+    const blockerRelease = deferred()
+    const blockerStarted = deferred()
+    const paidStarted = deferred()
+    const freshStarted = deferred()
+    const order: string[] = []
+    jq.registerExecutor('continuity_render', async running => {
+      if (running.project_slug === blockerProject.slug && running.episode_id === 'BLOCK') {
+        order.push('blocker')
+        blockerStarted.resolve()
+        await blockerRelease.promise
+      } else if (running.job_id === paid.job_id) {
+        order.push('paid')
+        assert.equal(running.started_at, paid.started_at)
+        paidStarted.resolve()
+      } else if (running.project_slug === blockerProject.slug && running.episode_id === 'FRESH') {
+        order.push('fresh')
+        freshStarted.resolve()
+      }
+    })
+    jq.enqueuePreparedForTest({ project_slug: blockerProject.slug, type: 'continuity_render', episode_id: 'BLOCK', title: 'blocker', params: {} })
+    await blockerStarted.promise
+    jq.enqueuePreparedForTest({ project_slug: blockerProject.slug, type: 'continuity_render', episode_id: 'FRESH', title: 'fresh', params: {} })
+
+    let now = NOW
+    const timers: Array<() => void> = []
+    const persistEntered = deferred()
+    const persistRelease = deferred()
+    const requeueInserted = deferred()
+    let paidPersists = 0
+    const restore = jq._setPaidImageWaitRuntimeForTesting({
+      nowMs: () => now,
+      setTimer: callback => { timers.push(callback); return timers.length },
+      clearTimer: () => {},
+      persistWait: async job => {
+        if (job.job_id !== paid.job_id || job.status !== 'queued') return
+        paidPersists++
+        persistEntered.resolve()
+        await persistRelease.promise
+        await jq.checkpointJobState(job)
+      },
+      emitWait: job => { if (job.job_id === paid.job_id && job.status === 'queued') requeueInserted.resolve() },
+    })
+    try {
+      await jq.resumeInterruptedJobsAtBoot()
+      assert.equal(timers.length, 1)
+      now = DUE
+      timers[0]()
+      timers[0]()
+      const repeatedBoot = jq.resumeInterruptedJobsAtBoot()
+      await persistEntered.promise
+      assert.equal(order.includes('paid'), false, 'persistence must finish before enqueue')
+      assert.equal(jq.getJob(paid.job_id)?.status, 'running')
+      persistRelease.resolve()
+      await repeatedBoot
+      await requeueInserted.promise
+      blockerRelease.resolve()
+      await paidStarted.promise
+      await freshStarted.promise
+      assert.equal(paidPersists, 1)
+      assert.deepEqual(order, ['blocker', 'paid', 'fresh'])
+    } finally {
+      blockerRelease.resolve()
+      persistRelease.resolve()
+      restore()
+      jq.setImageEpisodeConcurrency(1)
+    }
+  })
+
+  test('a due requeue persistence failure never inserts or executes the paid job', async () => {
+    const project = await pm.createProject({ name: 'paid due persistence failure' })
+    const root = path.join(tempDir, 'paid-due-persist-failure', project.slug)
+    const attempt = paidAttempt(root)
+    const job = paidJob(project.slug, attempt)
+    await seedOriginalManifest(attempt)
+    await writePersistedJob(job)
+    await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+    let now = NOW
+    const timers: Array<() => void> = []
+    let executions = 0
+    const persistAttempted = deferred()
+    const restore = jq._setPaidImageWaitRuntimeForTesting({
+      nowMs: () => now,
+      setTimer: callback => { timers.push(callback); return timers.length },
+      clearTimer: () => {},
+      persistWait: async queued => {
+        if (queued.job_id === job.job_id && queued.status === 'queued') {
+          persistAttempted.resolve()
+          throw new Error('injected due persistence failure')
+        }
+      },
+      emitWait: () => {},
+    })
+    try {
+      jq.registerExecutor('continuity_render', async running => {
+        if (running.project_slug === project.slug) executions++
+      })
+      await jq.resumeInterruptedJobsAtBoot()
+      now = DUE
+      timers[0]()
+      await persistAttempted.promise
+      await Promise.resolve()
+      assert.equal(executions, 0)
+      assert.equal(jq.getJob(job.job_id)?.status, 'running')
+      const durable = JSON.parse(await fs.readFile(path.join(tempDir, 'projects', project.slug, 'jobs.json'), 'utf8')).jobs[0]
+      assert.equal(durable.status, 'running')
+      assert.deepEqual(durable.paid_image_replacement_attempts, [attempt])
+    } finally { restore() }
+  })
+
+  test('loader precedence preserves explicit pause before paid wait and paid wait before ordinary image recovery', async () => {
+    await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+    const pausedProject = await pm.createProject({ name: 'paid loader pause precedence' })
+    const pausedRoot = path.join(tempDir, 'paid-loader-pause', pausedProject.slug)
+    const pausedAttempt = paidAttempt(pausedRoot)
+    const paused = paidJob(pausedProject.slug, pausedAttempt)
+    paused.pause_requested = true
+    await seedOriginalManifest(pausedAttempt)
+    await writePersistedJob(paused)
+
+    const recoveryProject = await pm.createProject({ name: 'paid loader recovery precedence' })
+    const recoveryRoot = path.join(tempDir, 'paid-loader-recovery', recoveryProject.slug)
+    const recoveryAttempt = paidAttempt(recoveryRoot)
+    const recovery = paidJob(recoveryProject.slug, recoveryAttempt)
+    addReplacementEvidence(recovery)
+    await seedOriginalManifest(recoveryAttempt)
+    await writePersistedJob(recovery)
+
+    const timers: string[] = []
+    let executions = 0
+    const restore = jq._setPaidImageWaitRuntimeForTesting({
+      nowMs: () => NOW,
+      setTimer: (_callback, _delay) => { timers.push('timer'); return timers.length },
+      clearTimer: () => {},
+    })
+    try {
+      jq.registerExecutor('continuity_render', async running => {
+        if (running.project_slug === pausedProject.slug || running.project_slug === recoveryProject.slug) executions++
+      })
+      await jq.resumeInterruptedJobsAtBoot()
+      assert.equal(jq.getJob(paused.job_id)?.status, 'paused')
+      assert.equal(jq.getJob(recovery.job_id)?.status, 'running')
+      assert.equal(jq.getJob(recovery.job_id)?.finished_at, null)
+      assert.equal(executions, 0)
+      assert.equal(timers.length, 1, 'only the valid unpaused wait schedules')
+    } finally { restore() }
+  })
+
+  test('independent Off, pause, terminal clear, commitment, requeue, and invalidation paths remove due work safely', async (suite) => {
+    const bootWait = async (name: string) => {
+      const project = await pm.createProject({ name })
+      const root = path.join(tempDir, 'paid-cleanup-matrix', project.slug)
+      const attempt = paidAttempt(root)
+      const job = paidJob(project.slug, attempt)
+      await seedOriginalManifest(attempt)
+      await writePersistedJob(job)
+      await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+      let now = NOW
+      const timers: Array<() => void> = []
+      let cleared = 0
+      const timerCleared = deferred()
+      let executions = 0
+      const executed = deferred()
+      const restore = jq._setPaidImageWaitRuntimeForTesting({
+        nowMs: () => now,
+        setTimer: callback => { timers.push(callback); return timers.length },
+        clearTimer: () => { cleared++; timerCleared.resolve() },
+      })
+      jq.registerExecutor('continuity_render', async running => {
+        if (running.project_slug === project.slug) {
+          executions++
+          executed.resolve()
+        }
+      })
+      await jq.resumeInterruptedJobsAtBoot()
+      assert.equal(timers.length, 1)
+      return {
+        project, root, attempt, job, timers,
+        due: () => { now = DUE },
+        executions: () => executions,
+        cleared: () => cleared,
+        timerCleared,
+        executed,
+        restore,
+      }
+    }
+
+    await suite.test('Off', async () => {
+      const fixture = await bootWait('cleanup Off')
+      try {
+        await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 10 })
+        await fixture.timerCleared.promise
+        fixture.due()
+        fixture.timers[0]()
+        await Promise.resolve()
+        assert.equal(fixture.executions(), 0)
+        const durable = JSON.parse(await fs.readFile(path.join(tempDir, 'projects', fixture.project.slug, 'jobs.json'), 'utf8')).jobs[0]
+        assert.deepEqual(durable.paid_image_replacement_attempts, [fixture.attempt])
+        assert.ok((await readManifest(fixture.root)).tasks[fixture.attempt.manifest_key])
+      } finally { fixture.restore() }
+    })
+
+    await suite.test('pause', async () => {
+      const fixture = await bootWait('cleanup pause')
+      try {
+        await jq.pauseJob(fixture.job.job_id, 'manual')
+        assert.equal(fixture.cleared(), 1)
+        fixture.due()
+        fixture.timers[0]()
+        await Promise.resolve()
+        assert.equal(fixture.executions(), 0)
+        assert.deepEqual(jq.getJob(fixture.job.job_id)?.paid_image_replacement_attempts, [fixture.attempt])
+        assert.ok((await readManifest(fixture.root)).tasks[fixture.attempt.manifest_key])
+      } finally { fixture.restore() }
+    })
+
+    await suite.test('cancel', async () => {
+      jq.setImageEpisodeConcurrency(1)
+      const project = await pm.createProject({ name: 'cleanup cancel' })
+      const blockerRelease = deferred()
+      const blockerStarted = deferred()
+      jq.registerExecutor('continuity_render', async running => {
+        if (running.episode_id === 'CANCEL-BLOCKER') {
+          blockerStarted.resolve()
+          await blockerRelease.promise
+        }
+      })
+      jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'continuity_render', episode_id: 'CANCEL-BLOCKER', title: 'blocker', params: {} })
+      await blockerStarted.promise
+      const queued = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'continuity_render', episode_id: 'CANCEL-ME', title: 'cancel me', params: {} })
+      let cleared = 0
+      const restoreRuntime = jq._setPaidImageWaitRuntimeForTesting({ clearTimer: () => { cleared++ } })
+      const restoreTimer = jq._seedPaidImageWaitTimerForTesting(queued.job_id, 'cancel-timer')
+      try {
+        const cancelled = await jq.requestJobCancellation(project.slug, queued.job_id)
+        assert.equal(cancelled.status, 'cancelled')
+        assert.equal(cleared, 1)
+      } finally {
+        blockerRelease.resolve()
+        restoreTimer()
+        restoreRuntime()
+      }
+    })
+
+    await suite.test('ordinary terminalization', async () => {
+      const project = await pm.createProject({ name: 'cleanup terminalization' })
+      const executorStarted = deferred()
+      const executorRelease = deferred()
+      jq.registerExecutor('continuity_render', async running => {
+        if (running.project_slug !== project.slug) return
+        executorStarted.resolve()
+        await executorRelease.promise
+        throw new Error('injected terminalization')
+      })
+      const terminalPromise = new Promise<Job>(resolve => {
+        const onUpdate = (updated: Job) => {
+          if (updated.project_slug !== project.slug || updated.status !== 'error') return
+          jq.jobEvents.off('update', onUpdate)
+          resolve(updated)
+        }
+        jq.jobEvents.on('update', onUpdate)
+      })
+      const job = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'continuity_render', episode_id: 'TERMINALIZE', title: 'terminalize', params: {} })
+      await executorStarted.promise
+      let cleared = 0
+      const restoreRuntime = jq._setPaidImageWaitRuntimeForTesting({ clearTimer: () => { cleared++ } })
+      const restoreTimer = jq._seedPaidImageWaitTimerForTesting(job.job_id, 'terminal-timer')
+      try {
+        executorRelease.resolve()
+        await terminalPromise
+        assert.equal(cleared, 1)
+      } finally {
+        executorRelease.resolve()
+        restoreTimer()
+        restoreRuntime()
+      }
+    })
+
+    await suite.test('clear', async () => {
+      const project = await pm.createProject({ name: 'cleanup clear' })
+      const executorStarted = deferred()
+      const executorRelease = deferred()
+      jq.registerExecutor('continuity_render', async running => {
+        if (running.project_slug !== project.slug) return
+        executorStarted.resolve()
+        await executorRelease.promise
+      })
+      const job = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'continuity_render', episode_id: 'CLEAR', title: 'clear', params: {} })
+      await executorStarted.promise
+      const done = waitForUpdate(job.job_id, 'done')
+      executorRelease.resolve()
+      await done
+      let cleared = 0
+      const restoreRuntime = jq._setPaidImageWaitRuntimeForTesting({ clearTimer: () => { cleared++ } })
+      const restoreTimer = jq._seedPaidImageWaitTimerForTesting(job.job_id, 'clear-timer')
+      try {
+        assert.equal(jq.removeTerminalJob(project.slug, job.job_id), true)
+        assert.equal(cleared, 1)
+      } finally {
+        restoreTimer()
+        restoreRuntime()
+      }
+    })
+
+    await suite.test('terminalization and clear', async () => {
+      const fixture = await bootWait('cleanup terminal clear')
+      try {
+        const terminal = await jq.forceAbandonJob(fixture.project.slug, fixture.job.job_id)
+        assert.equal(terminal.status, 'cancelled')
+        assert.equal(fixture.cleared(), 1)
+        assert.equal(jq.removeTerminalJob(fixture.project.slug, fixture.job.job_id), true)
+        fixture.due()
+        fixture.timers[0]()
+        await Promise.resolve()
+        assert.equal(fixture.executions(), 0)
+        assert.ok((await readManifest(fixture.root)).tasks[fixture.attempt.manifest_key], 'timer cleanup never deletes artifacts/evidence')
+      } finally { fixture.restore() }
+    })
+
+    await suite.test('commitment invalidates the delivered timer', async () => {
+      const fixture = await bootWait('cleanup commitment')
+      try {
+        const durable = JSON.parse(await fs.readFile(path.join(tempDir, 'projects', fixture.project.slug, 'jobs.json'), 'utf8'))
+        const attempt = durable.jobs[0].paid_image_replacement_attempts[0]
+        attempt.state = 'committed'
+        attempt.replacement_scope = 'scope-committed-elsewhere'
+        attempt.quoted_credits = 3
+        attempt.price_version = 'price-v1'
+        attempt.replacement_committed_at = new Date(NOW).toISOString()
+        await fs.writeFile(path.join(tempDir, 'projects', fixture.project.slug, 'jobs.json'), JSON.stringify(durable))
+        fixture.due()
+        fixture.timers[0]()
+        fixture.timers[0]()
+        await Promise.resolve()
+        await Promise.resolve()
+        assert.equal(fixture.executions(), 0)
+        assert.equal(jq.getJob(fixture.job.job_id)?.status, 'running')
+      } finally { fixture.restore() }
+    })
+
+    await suite.test('due requeue consumes one timer delivery', async () => {
+      const fixture = await bootWait('cleanup due requeue')
+      try {
+        fixture.due()
+        fixture.timers[0]()
+        fixture.timers[0]()
+        await fixture.executed.promise
+        assert.equal(fixture.executions(), 1)
+      } finally { fixture.restore() }
+    })
+
+    await suite.test('invalid predicate prevents delivered due work', async () => {
+      const fixture = await bootWait('cleanup invalid predicate')
+      try {
+        const durable = JSON.parse(await fs.readFile(path.join(tempDir, 'projects', fixture.project.slug, 'jobs.json'), 'utf8'))
+        durable.jobs[0].paid_image_replacement.enabled = false
+        await fs.writeFile(path.join(tempDir, 'projects', fixture.project.slug, 'jobs.json'), JSON.stringify(durable))
+        fixture.due()
+        fixture.timers[0]()
+        fixture.timers[0]()
+        await Promise.resolve()
+        await Promise.resolve()
+        assert.equal(fixture.executions(), 0)
+        assert.equal(jq.getJob(fixture.job.job_id)?.status, 'running')
+      } finally { fixture.restore() }
+    })
   })
 
   test('keeps a valid before-due wait running without consuming an image lane', async () => {

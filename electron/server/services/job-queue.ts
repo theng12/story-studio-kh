@@ -1528,11 +1528,15 @@ interface PaidImageWaitRuntime {
   nowMs: () => number
   setTimer: (callback: () => void, delayMs: number) => PaidImageWaitTimer
   clearTimer: (timer: PaidImageWaitTimer) => void
+  persistWait: (job: Job) => Promise<void>
+  emitWait: (job: Job) => void
 }
 const defaultPaidImageWaitRuntime: PaidImageWaitRuntime = {
   nowMs: () => Date.now(),
   setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
   clearTimer: timer => clearTimeout(timer as ReturnType<typeof setTimeout>),
+  persistWait: job => persistJob(job),
+  emitWait: job => emitUpdate(job),
 }
 let paidImageWaitRuntime = defaultPaidImageWaitRuntime
 const paidImageWaitTimers = new Map<string, PaidImageWaitTimer>()
@@ -1575,6 +1579,16 @@ export function _setPaidImageWaitRuntimeForTesting(
     for (const timer of paidImageWaitTimers.values()) paidImageWaitRuntime.clearTimer(timer)
     paidImageWaitTimers.clear()
     paidImageWaitRuntime = previous
+  }
+}
+
+/** Test-only stale-timer fixture for independent lifecycle cleanup checks. */
+export function _seedPaidImageWaitTimerForTesting(jobId: string, timer: PaidImageWaitTimer): () => void {
+  const previous = paidImageWaitTimers.get(jobId)
+  paidImageWaitTimers.set(jobId, timer)
+  return () => {
+    if (paidImageWaitTimers.get(jobId) === timer) paidImageWaitTimers.delete(jobId)
+    if (previous !== undefined) paidImageWaitTimers.set(jobId, previous)
   }
 }
 
@@ -1721,14 +1735,14 @@ async function requeuePaidImageWaitIfDueNow(job: Job): Promise<boolean> {
   next.finished_at = null
   next.error = null
   try {
-    await persistJob(next)
+    await paidImageWaitRuntime.persistWait(next)
   } catch {
     return false
   }
   Object.assign(job, next)
   jobs.set(next.job_id, job)
   queues[next.type].pending.push(job)
-  emitUpdate(job)
+  paidImageWaitRuntime.emitWait(job)
   if (IMAGE_EPISODE_TYPES.has(next.type)) pumpImageEpisodeGroup(imageEpisodeConcurrency)
   else pump(next.type)
   return true
@@ -1761,8 +1775,8 @@ async function failPaidImageWaitResult(job: Job): Promise<void> {
   job.local_execution_complete = false
   job.error = 'Paid image replacement wait was revoked or could not be durably scheduled. No automatic retry was attempted.'
   job.output_lines.push(job.error)
-  try { await persistJob(job) } catch { /* the in-memory terminal state still blocks retry */ }
-  try { emitUpdate(job) } catch { /* a subscriber cannot re-enter retry */ }
+  try { await paidImageWaitRuntime.persistWait(job) } catch { /* the in-memory terminal state still blocks retry */ }
+  try { paidImageWaitRuntime.emitWait(job) } catch { /* a subscriber cannot re-enter retry */ }
 }
 
 async function repairAndRequeuePaidImageCommit(job: Job): Promise<boolean> {
@@ -1825,7 +1839,7 @@ async function repairAndRequeuePaidImageCommit(job: Job): Promise<boolean> {
   next.status = 'queued'
   next.finished_at = null
   next.error = null
-  try { await persistJob(next) } catch { return false }
+  try { await paidImageWaitRuntime.persistWait(next) } catch { return false }
   Object.assign(job, next)
   jobs.set(job.job_id, job)
   if (!pendingContains(job.type, job.job_id)) queues[job.type].pending.push(job)
@@ -1854,6 +1868,27 @@ async function resolvePaidImageRepairRoot(job: Job): Promise<string | null> {
   const canonical = path.resolve(await resolveContinuityRenderOutputDir(job.project_slug, episode, paths.episode_dir))
   if (typeof job.output_dir === 'string' && path.resolve(job.output_dir) !== canonical) return null
   return canonical
+}
+
+function hasPaidImageCommitAttempt(job: Job): boolean {
+  return (job.paid_image_replacement_attempts || []).some(attempt => (
+    attempt.state === 'committed' || attempt.state === 'submitted'
+  ))
+}
+
+async function hasManifestOnlyPaidImageCommitment(attempt: PaidImageReplacementAttempt): Promise<boolean> {
+  try {
+    const entry = (await readManifest(attempt.manifest_dir)).tasks[attempt.manifest_key]
+    return Boolean(entry && [
+      entry.replacement_of_task_id,
+      entry.replacement_scope,
+      entry.replacement_quoted_credits,
+      entry.replacement_price_version,
+      entry.replacement_committed_at,
+    ].some(value => value !== undefined))
+  } catch {
+    return false
+  }
 }
 
 // ── Lazy load persisted jobs on first access ────────────────────────────────
@@ -1932,6 +1967,18 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             // Repair only an absent manifest mirror, never the reverse.
             if (await repairAndRequeuePaidImageCommit(j)) {
               resumedTypes.add(j.type as JobType)
+              continue
+            }
+            if (hasPaidImageCommitAttempt(j)
+              || (paidWait && await hasManifestOnlyPaidImageCommitment(paidWait.attempt))) {
+              j.status = 'error'
+              j.error = 'Paid image replacement recovery evidence was invalid after restart; no automatic retry was attempted.'
+              j.finished_at = new Date().toISOString()
+              j.local_execution_complete = false
+              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+              j.output_lines.push(j.error)
+              jobs.set(j.job_id, j)
+              try { await paidImageWaitRuntime.persistWait(j) } catch {}
               continue
             }
             const genStudioRecovery = j.params?.genstudio_recovery
@@ -2406,8 +2453,8 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             // failure: never enter local retry, completion, or chaining after
             // a generator has declared the durable paid-wait boundary.
             try {
-              await persistJob(job)
-              emitUpdate(job)
+              await paidImageWaitRuntime.persistWait(job)
+              paidImageWaitRuntime.emitWait(job)
               if (!await schedulePaidImageWait(job)) await failPaidImageWaitResult(job)
             } catch {
               await failPaidImageWaitResult(job)
