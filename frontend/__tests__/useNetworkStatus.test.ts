@@ -18,6 +18,7 @@ import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { transform } from 'esbuild'
 
 // ── Controllable fetch stub (happy-dom supplies a real fetch; we override) ──
 
@@ -40,6 +41,29 @@ const composableSource = readFileSync(
   fileURLToPath(new URL('../composables/useNetworkStatus.ts', import.meta.url)),
   'utf8',
 )
+
+function sleep(ms: number) { return new Promise<void>(resolve => setTimeout(resolve, ms)) }
+
+async function useClientNetworkStatus(): Promise<ReturnType<typeof useNetworkStatus>> {
+  const vueUrl = await import.meta.resolve('vue')
+  const transformed = await transform(
+    composableSource.replace('import.meta.client', 'true'),
+    { loader: 'ts', format: 'esm' },
+  )
+  const clientModule = await import(`data:text/javascript;base64,${Buffer.from(
+    transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
+  ).toString('base64')}`) as typeof import('../composables/useNetworkStatus.js')
+
+  // The client branch owns a real 20-second interval. Keep this behavioral
+  // test from leaving a process-level timer behind while exercising it.
+  const originalSetInterval = globalThis.setInterval
+  ;(globalThis as any).setInterval = () => 0
+  try {
+    return clientModule.useNetworkStatus()
+  } finally {
+    globalThis.setInterval = originalSetInterval
+  }
+}
 
 beforeEach(() => {
   fetchCalls = []
@@ -115,9 +139,34 @@ describe('useNetworkStatus', () => {
     assert.equal(fetchCalls.filter(url => url.includes('/api/system/queue/')).length, 0)
   })
 
-  test('browser online/offline events still nudge health probes', () => {
-    assert.match(composableSource, /window\.addEventListener\('online', refresh\)/)
-    assert.match(composableSource, /window\.addEventListener\('offline', refresh\)/)
+  test('browser offline event re-probes health and updates status', async () => {
+    const { online, refresh } = await useClientNetworkStatus()
+    await refresh()
+    fetchCalls = []
+    handler = () => ({ ok: false, status: 500 })
+
+    window.dispatchEvent(new Event('offline'))
+    await sleep(0)
+
+    assert.equal(fetchCalls.filter(url => url === '/api/health').length, 1,
+      'offline event triggers a health probe')
+    assert.equal(online.value, false, 'offline event reflects failed health probe')
+  })
+
+  test('browser online event re-probes health and updates status', async () => {
+    const { online, refresh } = await useClientNetworkStatus()
+    handler = () => ({ ok: false, status: 500 })
+    await refresh()
+    assert.equal(online.value, false)
+    fetchCalls = []
+    handler = () => ({ ok: true, status: 200 })
+
+    window.dispatchEvent(new Event('online'))
+    await sleep(0)
+
+    assert.equal(fetchCalls.filter(url => url === '/api/health').length, 1,
+      'online event triggers a health probe')
+    assert.equal(online.value, true, 'online event reflects successful health probe')
   })
 
   test('navigator.onLine=false is IGNORED — the backend probe decides (v1.0.190 fix)', async () => {
