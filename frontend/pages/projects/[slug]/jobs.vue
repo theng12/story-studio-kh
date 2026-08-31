@@ -3355,4 +3355,14 @@ async function clearFinished() {
     justify-content: flex-end;
   }
 }
+
+@media (max-width: 260px) {
+  .job-stat-fresh {
+    box-sizing: border-box;
+    max-width: 100%;
+    white-space: normal;
+    text-align: right;
+    line-height: 1.35;
+  }
+}
 </style>

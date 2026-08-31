@@ -328,6 +328,11 @@ describe('the staleness threshold is measured, not written down', () => {
     assert.match(staleStyles, /background:/)
     assert.match(staleStyles, /color:\s*var\(--warning/)
     assert.match(freshnessStyles, /color:\s*var\(--text-secondary\)/)
+    const ultraNarrowFreshness = page.match(/@media \(max-width: 260px\)\s*\{[\s\S]*?\.job-stat-fresh\s*\{([^}]*)\}/)?.[1] || ''
+    assert.match(ultraNarrowFreshness, /max-width:\s*100%/)
+    assert.match(ultraNarrowFreshness, /white-space:\s*normal/)
+    assert.match(ultraNarrowFreshness, /text-align:\s*right/)
+    assert.match(ultraNarrowFreshness, /line-height:/)
     assert.match(page, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.job-stat-telemetry\s*\{[\s\S]*?flex-basis:\s*100%[\s\S]*?justify-content:\s*flex-end/)
   })
 })
