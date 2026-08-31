@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import { useTempDataDir } from './_helpers.js'
@@ -301,6 +301,10 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
       asset: { assetKey: 'thumbnail:1', manifestDir: root, manifestKey: 'missing.png', outputPath: path.join(root, 'missing.png'), owningRoot: root, trustedOriginal: original, modelId: 'image-paid-v1', apiKey: 'test-key' },
       now: () => new Date('2026-08-31T00:00:00.000Z'),
       persistence: {
+        inspectAuthoritativeJob: async (_project: string, id: string, inspect: (authoritative: Job) => boolean) => {
+          const authoritative = jobs.get(id)
+          return authoritative ? inspect(structuredClone(authoritative)) : null
+        },
         loadAuthoritativeJob: async (_project: string, id: string) => structuredClone(jobs.get(id) || null),
         writeAuthoritativeJob: async (next: Job) => { writes.push('job'); jobs.set(next.job_id, structuredClone(next)) },
         readManifest: async (dir: string) => structuredClone(manifests.get(dir)!),
@@ -356,6 +360,78 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     assert.equal(zero.result.action, 'safe-zero-settlement-retry')
     assert.equal(zero.writes.filter(write => write === 'job').length, 0)
     assert.equal(zero.writes.filter(write => write === 'manifest').length, 0)
+  })
+
+  await suite.test('production safe-zero inspection is byte-stable under the shared checkpoint lock', async () => {
+    const queue = await import('../services/job-queue.js')
+    const productionJob = { ...job(), job_id: 'paid-job-production-zero', project_slug: 'paid-project-production-zero' }
+    const projectDir = path.join(temp.dir, 'projects', productionJob.project_slug)
+    const jobsFile = path.join(projectDir, 'jobs.json')
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(jobsFile, `${JSON.stringify({ jobs: [productionJob] }, null, 2)}\n`)
+    const beforeBytes = await readFile(jobsFile)
+    const beforeStat = await stat(jobsFile, { bigint: true })
+    let manifestWrites = 0
+    let postCalls = 0
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_request: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') postCalls++
+      throw new Error('the zero-settlement decision must not fetch')
+    }) as typeof globalThis.fetch
+    try {
+      const productionZero = await policy.decidePaidImageReplacement({
+        job: structuredClone(productionJob),
+        asset: { assetKey: 'thumbnail:1', manifestDir: root, manifestKey: 'missing.png', outputPath: path.join(root, 'missing.png'), owningRoot: root, trustedOriginal: original, modelId: 'image-paid-v1', apiKey: 'test-key' },
+        now: () => new Date('2026-08-31T00:00:00.000Z'),
+        persistence: {
+          inspectAuthoritativeJob: (projectSlug: string, jobId: string, inspect: (authoritative: Job) => boolean) => (
+            queue.inspectAuthoritativeJob(projectSlug, jobId, inspect)
+          ),
+          loadAuthoritativeJob: async () => { throw new Error('safe zero must use the locked inspector') },
+          writeAuthoritativeJob: async () => { throw new Error('safe zero must not write jobs.json') },
+          readManifest: async () => ({ schema_version: 1, tasks: { 'missing.png': manifestEntry() } }),
+          writeManifestStrict: async () => { manifestWrites++ },
+        },
+        dependencies: {
+          readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
+          artifactExists: async () => false,
+          getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
+          resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
+          refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5, local_waiting: 0, submitting: 0, submissions_in_window: 0, submission_block_reason: null, refreshed_at: '2026-08-31T00:00:00.000Z' }),
+        },
+      })
+      assert.equal(productionZero.action, 'safe-zero-settlement-retry')
+      assert.notEqual(productionZero.action, 'commit')
+      assert.deepEqual(await readFile(jobsFile), beforeBytes, 'the real jobs.json bytes must remain unchanged')
+      const afterStat = await stat(jobsFile, { bigint: true })
+      assert.equal(afterStat.ino, beforeStat.ino, 'the atomic writer must not replace jobs.json')
+      assert.equal(afterStat.mtimeNs, beforeStat.mtimeNs, 'the zero-settlement inspection must not write jobs.json')
+      assert.equal(manifestWrites, 0)
+      assert.equal(postCalls, 0)
+
+      let checkpointFinished = false
+      let checkpoint!: Promise<void>
+      const inspectedEmpty = await queue.inspectAuthoritativeJob(productionJob.project_slug, productionJob.job_id, (authoritative) => {
+        const concurrent = { ...authoritative, output_lines: ['normal checkpoint'] }
+        checkpoint = queue.checkpointJobState(concurrent).then(() => { checkpointFinished = true })
+        assert.equal(checkpointFinished, false, 'normal persistence must remain queued while the inspection predicate holds the shared lock')
+        return authoritative.output_lines.length === 0
+      })
+      assert.equal(inspectedEmpty, true)
+      await checkpoint
+      assert.deepEqual(JSON.parse(await readFile(jobsFile, 'utf8')).jobs[0].output_lines, ['normal checkpoint'])
+      await assert.rejects(
+        queue.inspectAuthoritativeJob(
+          productionJob.project_slug,
+          productionJob.job_id,
+          (async () => true) as unknown as (authoritative: Job) => boolean,
+        ),
+        /synchronous/,
+        'the shared file lock must not await an asynchronous inspection callback',
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   await suite.test('persists immutable positive-settlement clocks', async () => {
@@ -559,7 +635,7 @@ void test('paid image commitment rechecks immutable evidence and every durable r
     const manifest: { schema_version: 1; tasks: Record<string, TaskManifestEntry> } = { schema_version: 1, tasks: { 'missing.png': entry() } }
     const decide = async (overrides: Record<string, unknown> = {}) => policy.decidePaidImageReplacement({
       job: durable, asset: { assetKey: 'asset-round-two', manifestDir: root, manifestKey: 'missing.png', outputPath: path.join(root, 'missing.png'), owningRoot: root, trustedOriginal: original, modelId: 'image-paid-v1', apiKey: 'key' }, now: () => new Date('2026-08-31T00:00:00.000Z'),
-      persistence: { loadAuthoritativeJob: async () => structuredClone(durable), writeAuthoritativeJob: async (next: Job) => { Object.assign(durable, structuredClone(next)) }, readManifest: async () => structuredClone(manifest), writeManifestStrict: async (_dir: string, key: string, next: TaskManifestEntry) => { manifest.tasks[key] = next } },
+      persistence: { inspectAuthoritativeJob: async (_project: string, _id: string, inspect: (authoritative: Job) => boolean) => inspect(structuredClone(durable)), loadAuthoritativeJob: async () => structuredClone(durable), writeAuthoritativeJob: async (next: Job) => { Object.assign(durable, structuredClone(next)) }, readManifest: async () => structuredClone(manifest), writeManifestStrict: async (_dir: string, key: string, next: TaskManifestEntry) => { manifest.tasks[key] = next } },
       dependencies: { readControl: async () => goodControl, artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 1, priceVersion: 'price-v1', basis: 'published-rate' as const }), refreshAdmission: async () => admission() },
       ...overrides,
     })
@@ -662,6 +738,7 @@ void test('paid image commitment rechecks immutable evidence and every durable r
     let manifestWrites = 0
     const changed = { ...goodControl, settled_credits: 0, released_credits: 9 }
     const result = await due(fixture, { persistence: {
+      inspectAuthoritativeJob: async (_project: string, _id: string, inspect: (authoritative: Job) => boolean) => inspect(structuredClone(fixture.durable)),
       loadAuthoritativeJob: async () => structuredClone(fixture.durable), writeAuthoritativeJob: async (next: Job) => { Object.assign(fixture.durable, structuredClone(next)) },
       readManifest: async () => structuredClone(fixture.manifest), writeManifestStrict: async () => { manifestWrites++ },
     }, dependencies: { readControl: async () => changed, artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => { priceReads++; return { credits: 1, priceVersion: 'price-v1', basis: 'published-rate' as const } }, refreshAdmission: async () => { admissionReads++; return admission() } } })

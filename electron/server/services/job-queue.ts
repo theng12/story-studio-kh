@@ -1436,6 +1436,28 @@ export async function loadAuthoritativeJob(projectSlug: string, jobId: string): 
   })
 }
 
+/** Evaluate one read-only predicate while normal jobs.json persistence is excluded. */
+export async function inspectAuthoritativeJob(
+  projectSlug: string,
+  jobId: string,
+  inspect: (job: Job) => boolean,
+): Promise<boolean | null> {
+  const p = jobsPath(projectSlug)
+  return withLock(p, async () => {
+    assertWriteIsolatedInTests(p, 'job-queue')
+    if (!existsSync(p)) return null
+    const data = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
+    if (!Array.isArray(data.jobs)) throw new Error('jobs.json does not contain a jobs array')
+    const found = data.jobs.find((candidate: unknown) => (
+      Boolean(candidate) && typeof candidate === 'object' && (candidate as Job).job_id === jobId
+    ))
+    if (!found) return null
+    const result = inspect(structuredClone(found as Job))
+    if (typeof result !== 'boolean') throw new Error('authoritative job inspection must be synchronous')
+    return result
+  })
+}
+
 /** The paired write side of `loadAuthoritativeJob`, retained as one test seam. */
 export async function writeAuthoritativeJob(job: Job): Promise<void> {
   await persistJob(job)
