@@ -320,6 +320,7 @@ describe('the staleness threshold is measured, not written down', () => {
 
     assert.match(telemetryStyles, /margin-left:\s*auto/)
     assert.match(telemetryStyles, /display:\s*inline-flex/)
+    assert.match(telemetryStyles, /flex-wrap:\s*wrap/)
     assert.match(telemetryStyles, /justify-content:\s*flex-end/)
     assert.doesNotMatch(etaStyles, /margin-left:\s*auto/)
     for (const declaration of [/border:\s*1px solid/, /background:/, /padding:/, /border-radius:/, /font-weight:\s*600/, /white-space:\s*nowrap/]) assert.match(freshnessStyles, declaration)

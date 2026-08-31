@@ -3150,6 +3150,7 @@ async function clearFinished() {
 .job-stat.is-muted strong { color: var(--text-muted); font-weight: 600; }
 .job-stat-telemetry {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
