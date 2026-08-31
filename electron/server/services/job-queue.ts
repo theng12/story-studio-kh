@@ -1524,6 +1524,13 @@ export async function checkpointJobState(job: Job): Promise<void> {
 const PAID_IMAGE_WAIT_MS = 30 * 60 * 1_000
 const PAID_IMAGE_WAIT_TYPES = new Set<JobType>(['continuity_render', 'image_pool_generate', 'thumb_images'])
 type PaidImageWaitTimer = unknown
+export type PersistedRunningJobLoadStage =
+  | 'pause-requested'
+  | 'paid-image-wait'
+  | 'ordinary-recovery'
+  | 'cancellation-reconciliation'
+  | 'interrupted-terminalization'
+let persistedRunningJobLoadStageObserver: ((jobId: string, stage: PersistedRunningJobLoadStage) => void) | null = null
 interface PaidImageWaitRuntime {
   nowMs: () => number
   setTimer: (callback: () => void, delayMs: number) => PaidImageWaitTimer
@@ -1580,6 +1587,19 @@ export function _setPaidImageWaitRuntimeForTesting(
     paidImageWaitTimers.clear()
     paidImageWaitRuntime = previous
   }
+}
+
+/** Test-only trace seam for proving mutually exclusive restart branch order. */
+export function _observePersistedRunningJobLoadStagesForTesting(
+  observer: (jobId: string, stage: PersistedRunningJobLoadStage) => void,
+): () => void {
+  const previous = persistedRunningJobLoadStageObserver
+  persistedRunningJobLoadStageObserver = observer
+  return () => { persistedRunningJobLoadStageObserver = previous }
+}
+
+function observePersistedRunningJobLoadStage(job: Job, stage: PersistedRunningJobLoadStage): void {
+  persistedRunningJobLoadStageObserver?.(job.job_id, stage)
 }
 
 /** Test-only stale-timer fixture for independent lifecycle cleanup checks. */
@@ -1939,6 +1959,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             mutated = true
             }
           } else if (j.status === 'running') {
+            observePersistedRunningJobLoadStage(j, 'pause-requested')
             if (j.pause_requested === true) {
               j.status = 'paused'
               j.local_execution_complete = true
@@ -1954,6 +1975,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             // failed checkpoint. It must be classified before the ordinary
             // image recovery branch below, which otherwise consumes that
             // checkpoint and before the generic restart terminalization.
+            observePersistedRunningJobLoadStage(j, 'paid-image-wait')
             const paidWait = getValidPaidImageWait(j)
             if (paidWait && await hasBoundPaidImageWaitManifest(j, paidWait.attempt)) {
               jobs.set(j.job_id, j)
@@ -1981,6 +2003,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               try { await paidImageWaitRuntime.persistWait(j) } catch {}
               continue
             }
+            observePersistedRunningJobLoadStage(j, 'ordinary-recovery')
             const genStudioRecovery = j.params?.genstudio_recovery
             const genStudioAssets = genStudioRecovery?.version === 1
               && genStudioRecovery?.route === 'genstudio'
@@ -2031,18 +2054,22 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
                 : '↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
-            } else if (requiresCancellationReconciliation(j)) {
-              // The provider request already has a durable identity. Never convert it to an
-              // interrupted error or requeue it into a generation lane.
-              j.local_execution_complete = true
-              j.finished_at = null
-              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push('↻ Story Studio restarted — reconciling the existing GenStudio request before allowing any retry.')
-              reconciliationJobs.push(j.job_id)
             } else {
-              j.status = 'error'
-              j.error = 'Interrupted by app restart'
-              j.finished_at = j.finished_at || new Date().toISOString()
+              observePersistedRunningJobLoadStage(j, 'cancellation-reconciliation')
+              if (requiresCancellationReconciliation(j)) {
+                // The provider request already has a durable identity. Never convert it to an
+                // interrupted error or requeue it into a generation lane.
+                j.local_execution_complete = true
+                j.finished_at = null
+                j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+                j.output_lines.push('↻ Story Studio restarted — reconciling the existing GenStudio request before allowing any retry.')
+                reconciliationJobs.push(j.job_id)
+              } else {
+                observePersistedRunningJobLoadStage(j, 'interrupted-terminalization')
+                j.status = 'error'
+                j.error = 'Interrupted by app restart'
+                j.finished_at = j.finished_at || new Date().toISOString()
+              }
             }
             mutated = true
           } else if (j.status === 'paused') {

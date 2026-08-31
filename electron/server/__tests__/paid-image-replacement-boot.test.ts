@@ -719,7 +719,7 @@ describe('durable paid image waits across boot', () => {
     } finally { restore() }
   })
 
-  test('loader precedence preserves explicit pause before paid wait and paid wait before ordinary image recovery', async () => {
+  test('loader precedence is pause, paid wait, ordinary recovery, reconciliation, then generic terminalization', async () => {
     await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
     const pausedProject = await pm.createProject({ name: 'paid loader pause precedence' })
     const pausedRoot = path.join(tempDir, 'paid-loader-pause', pausedProject.slug)
@@ -729,32 +729,108 @@ describe('durable paid image waits across boot', () => {
     await seedOriginalManifest(pausedAttempt)
     await writePersistedJob(paused)
 
+    const paidProject = await pm.createProject({ name: 'paid loader wait precedence' })
+    const paidRoot = path.join(tempDir, 'paid-loader-wait', paidProject.slug)
+    const paidAttemptFixture = paidAttempt(paidRoot)
+    const paid = paidJob(paidProject.slug, paidAttemptFixture)
+    await seedOriginalManifest(paidAttemptFixture)
+    await writePersistedJob(paid)
+
     const recoveryProject = await pm.createProject({ name: 'paid loader recovery precedence' })
     const recoveryRoot = path.join(tempDir, 'paid-loader-recovery', recoveryProject.slug)
-    const recoveryAttempt = paidAttempt(recoveryRoot)
+    const recoveryAttempt = paidAttempt(recoveryRoot, 'failed')
     const recovery = paidJob(recoveryProject.slug, recoveryAttempt)
     addReplacementEvidence(recovery)
     await seedOriginalManifest(recoveryAttempt)
     await writePersistedJob(recovery)
 
+    const reconciliationProject = await pm.createProject({ name: 'paid loader reconciliation precedence' })
+    const reconciliation: Job = {
+      job_id: `reconciliation-${++fixtureId}`,
+      project_slug: reconciliationProject.slug,
+      type: 'audio',
+      episode_id: 'EP0001',
+      title: 'Reconcile accepted provider work',
+      status: 'running',
+      created_at: new Date(NOW - 1_000).toISOString(),
+      started_at: new Date(NOW - 500).toISOString(),
+      finished_at: null,
+      error: null,
+      output_lines: [],
+      params: {},
+      genstudio_jobs: [{
+        id: 'provider-stage-1', operation: 'voice.tts', state: 'accepted', updated_at: new Date(NOW).toISOString(),
+      }],
+    }
+    await writePersistedJob(reconciliation)
+
+    const terminalProject = await pm.createProject({ name: 'paid loader generic terminalization precedence' })
+    const terminal: Job = {
+      job_id: `terminal-${++fixtureId}`,
+      project_slug: terminalProject.slug,
+      type: 'script-only',
+      episode_id: 'EP0001',
+      title: 'Interrupted local work',
+      status: 'running',
+      created_at: new Date(NOW - 1_000).toISOString(),
+      started_at: new Date(NOW - 500).toISOString(),
+      finished_at: null,
+      error: null,
+      output_lines: [],
+      params: {},
+    }
+    await writePersistedJob(terminal)
+
     const timers: string[] = []
-    let executions = 0
+    const recoveryStarted = deferred()
+    const recoveryRelease = deferred()
+    const traces = new Map<string, string[]>()
     const restore = jq._setPaidImageWaitRuntimeForTesting({
       nowMs: () => NOW,
       setTimer: (_callback, _delay) => { timers.push('timer'); return timers.length },
       clearTimer: () => {},
     })
+    const restoreTrace = jq._observePersistedRunningJobLoadStagesForTesting((jobId, stage) => {
+      const stages = traces.get(jobId) || []
+      stages.push(stage)
+      traces.set(jobId, stages)
+    })
     try {
       jq.registerExecutor('continuity_render', async running => {
-        if (running.project_slug === pausedProject.slug || running.project_slug === recoveryProject.slug) executions++
+        if (running.project_slug !== recoveryProject.slug) return
+        recoveryStarted.resolve()
+        await recoveryRelease.promise
       })
+      jq.registerExecutor('audio', async () => {})
+      jq.registerExecutor('script-only', async () => {})
       await jq.resumeInterruptedJobsAtBoot()
+      await recoveryStarted.promise
+
       assert.equal(jq.getJob(paused.job_id)?.status, 'paused')
+      assert.equal(jq.getJob(paid.job_id)?.status, 'running')
       assert.equal(jq.getJob(recovery.job_id)?.status, 'running')
       assert.equal(jq.getJob(recovery.job_id)?.finished_at, null)
-      assert.equal(executions, 0)
-      assert.equal(timers.length, 1, 'only the valid unpaused wait schedules')
-    } finally { restore() }
+      assert.equal(jq.getJob(reconciliation.job_id)?.status, 'running')
+      assert.equal(jq.getJob(reconciliation.job_id)?.local_execution_complete, true)
+      assert.equal(jq.getJob(terminal.job_id)?.status, 'error')
+      assert.equal(jq.getJob(terminal.job_id)?.error, 'Interrupted by app restart')
+      assert.equal(timers.length, 1, 'only the valid unpaused paid wait schedules')
+
+      assert.deepEqual(traces.get(paused.job_id), ['pause-requested'])
+      assert.deepEqual(traces.get(paid.job_id), ['pause-requested', 'paid-image-wait'])
+      assert.deepEqual(traces.get(recovery.job_id), ['pause-requested', 'paid-image-wait', 'ordinary-recovery'])
+      assert.deepEqual(traces.get(reconciliation.job_id), [
+        'pause-requested', 'paid-image-wait', 'ordinary-recovery', 'cancellation-reconciliation',
+      ])
+      assert.deepEqual(traces.get(terminal.job_id), [
+        'pause-requested', 'paid-image-wait', 'ordinary-recovery', 'cancellation-reconciliation', 'interrupted-terminalization',
+      ])
+    } finally {
+      recoveryRelease.resolve()
+      await jq.forceAbandonJob(reconciliation.project_slug, reconciliation.job_id).catch(() => {})
+      restoreTrace()
+      restore()
+    }
   })
 
   test('independent Off, pause, terminal clear, commitment, requeue, and invalidation paths remove due work safely', async (suite) => {
