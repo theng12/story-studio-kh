@@ -1676,7 +1676,11 @@ async function hasBoundPaidImageWaitManifest(job: Job, attempt: PaidImageReplace
       && sameJson(entry.original_output_selector, attempt.output_selector)
       && sameJson(entry.original_reference_inputs, attempt.reference_inputs)
       && entry.original_reference_identity_hash === attempt.reference_identity_hash
-      && entry.replacement_scope === undefined && entry.replacement_of_task_id === undefined)
+      && entry.replacement_of_task_id === undefined
+      && entry.replacement_scope === undefined
+      && entry.replacement_quoted_credits === undefined
+      && entry.replacement_price_version === undefined
+      && entry.replacement_committed_at === undefined)
   } catch {
     return false
   }
@@ -1750,6 +1754,17 @@ async function schedulePaidImageWait(job: Job): Promise<boolean> {
   })
 }
 
+async function failPaidImageWaitResult(job: Job): Promise<void> {
+  clearPaidImageWaitTimer(job.job_id)
+  job.status = 'error'
+  job.finished_at = new Date().toISOString()
+  job.local_execution_complete = false
+  job.error = 'Paid image replacement wait was revoked or could not be durably scheduled. No automatic retry was attempted.'
+  job.output_lines.push(job.error)
+  try { await persistJob(job) } catch { /* the in-memory terminal state still blocks retry */ }
+  emitUpdate(job)
+}
+
 async function repairAndRequeuePaidImageCommit(job: Job): Promise<boolean> {
   const attempts = job.paid_image_replacement_attempts || []
   const attempt = attempts.find(candidate => candidate.state === 'committed' || candidate.state === 'submitted')
@@ -1766,9 +1781,15 @@ async function repairAndRequeuePaidImageCommit(job: Job): Promise<boolean> {
     || !Number.isFinite(Date.parse(attempt.replacement_committed_at))
     || (attempt.state === 'submitted' && !isNonEmptyString(attempt.replacement_task_id))
   ) return false
-  const expectedOutput = job.type === 'continuity_render' && typeof job.output_dir === 'string'
-    ? path.resolve(job.output_dir, attempt.manifest_key)
-    : path.resolve(attempt.manifest_dir, attempt.manifest_key)
+  if (attempt.state === 'submitted') {
+    const replacementEvidence = (job.genstudio_jobs || []).filter(candidate => (
+      candidate.operation === 'image.generation' && candidate.id !== attempt.original_task_id
+    ))
+    if (replacementEvidence.length && !replacementEvidence.some(candidate => candidate.id === attempt.replacement_task_id)) return false
+  }
+  const expectedRoot = await resolvePaidImageRepairRoot(job).catch(() => null)
+  if (!expectedRoot) return false
+  const expectedOutput = path.resolve(expectedRoot, attempt.manifest_key)
   if (
     path.basename(attempt.manifest_key) !== attempt.manifest_key
     || path.resolve(attempt.manifest_dir) !== path.dirname(expectedOutput)
@@ -1809,6 +1830,28 @@ async function repairAndRequeuePaidImageCommit(job: Job): Promise<boolean> {
   jobs.set(job.job_id, job)
   if (!pendingContains(job.type, job.job_id)) queues[job.type].pending.push(job)
   return true
+}
+
+/** Resolve the canonical existing surface; arbitrary persisted sidecar paths
+ * never authorize repair. This is deliberately recovery-only and performs no
+ * provider or generator work. */
+async function resolvePaidImageRepairRoot(job: Job): Promise<string | null> {
+  if (job.type === 'image_pool_generate') {
+    const poolId = typeof job.params?.pool_id === 'string' ? job.params.pool_id : ''
+    if (!poolId) return null
+    const pools = await import('./broll-pool-manager.js')
+    const pool = await pools.getPool(poolId)
+    return typeof pool?.folder_path === 'string' ? path.resolve(pool.folder_path) : null
+  }
+  const { resolveEpisodePathsByCode } = await import('./utils.js')
+  const episode = String(job.params?.episode_id || job.episode_id || '').trim()
+  if (!episode) return null
+  const paths = await resolveEpisodePathsByCode(job.project_slug, episode)
+  if (job.type === 'thumb_images') return path.resolve(paths.thumb_dir)
+  if (job.type !== 'continuity_render') return null
+  if (typeof job.output_dir === 'string' && job.output_dir.trim()) return path.resolve(job.output_dir)
+  const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+  return path.resolve(await resolveSceneImagesDir(job.project_slug, episode.toUpperCase(), paths.episode_dir))
 }
 
 // ── Lazy load persisted jobs on first access ────────────────────────────────
@@ -2357,18 +2400,15 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             job.finished_at = null
             job.local_execution_complete = false
             jobs.set(job.job_id, job)
-            await persistJob(job)
-            emitUpdate(job)
             // A malformed/revoked wait is fail-closed but is not an executor
             // failure: never enter local retry, completion, or chaining after
             // a generator has declared the durable paid-wait boundary.
-            if (!await schedulePaidImageWait(job)) {
-              job.status = 'error'
-              job.finished_at = new Date().toISOString()
-              job.error = 'Paid image replacement wait was revoked or could not be durably scheduled. No automatic retry was attempted.'
-              job.output_lines.push(job.error)
+            try {
               await persistJob(job)
               emitUpdate(job)
+              if (!await schedulePaidImageWait(job)) await failPaidImageWaitResult(job)
+            } catch {
+              await failPaidImageWaitResult(job)
             }
             return
           }

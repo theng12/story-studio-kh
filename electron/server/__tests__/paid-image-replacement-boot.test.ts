@@ -257,6 +257,7 @@ describe('durable paid image waits across boot', () => {
       attempt.replacement_committed_at = new Date(NOW).toISOString()
       if (state === 'submitted') attempt.replacement_task_id = 'replacement-task-owned-by-jobs'
       const job = paidJob(project.slug, attempt)
+      job.output_dir = dir
       await seedOriginalManifest(attempt)
       await fs.writeFile(path.join(tempDir, 'projects', project.slug, 'jobs.json'), JSON.stringify({ jobs: [job] }))
       let admitted!: () => void
