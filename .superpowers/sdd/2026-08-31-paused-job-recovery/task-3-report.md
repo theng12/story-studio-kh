@@ -111,3 +111,85 @@ and release verification remain assigned to later plan tasks.
 Immediately after implementation commit `5078deae`, `git status --short` was
 empty. The process audit found no surviving `run-backend-tests` or focused
 `tsx` test process; only the audit shell and its own `rg` command appeared.
+
+## Independent-review correction
+
+Commit `52cf1f721e47676c3170bc305129eb2cf687ffc1`
+(`fix: harden stalled render recovery evidence`) resolves both findings in
+`task-3-review.md`. This appendix supersedes the earlier repeated-trigger and
+test-executor evidence above where the independent review found those fixtures
+non-discriminating.
+
+### Review-fix TDD evidence
+
+The P1 regression began with a persisted `paused/stall` Continuity Render whose
+provider task moved from `accepted` to `succeeded`, but whose durable
+`local_execution_complete` fact was explicitly `false`. The focused RED was:
+
+```text
+node scripts/testing/run-backend-tests.mjs --only job-queue-genstudio-resume
+12 passed, 2 failed of 14
+```
+
+The intended failure was `true !== false`: persisted load manufactured the
+missing cooperative boundary and admitted the executor. The second failure was
+a cascading assertion from that leaked asynchronous execution. After the
+minimal loader guard, the same regression remained `paused/stall`, retained
+`local_execution_complete: false`, reconciled the one original task to terminal,
+called the executor zero times, and made zero generation POSTs.
+
+The corrected matrix then added the missing positive and discriminating paths:
+
+- A real production Continuity Render first created the scene manifest and
+  provider task. Recovery reused the same Story job ID, exact provider task ID,
+  exact request idempotency key, scene ID, manifest entry, and output path.
+  Submission count stayed **1 → 1** and recovery made zero generation POSTs.
+- A real production Continuity Render with
+  `SITE_PLACEMENT_EXHAUSTED`, `reserved=7`, `settled=0`, and `released=7`
+  entered the ordinary lane. The production executor's allow-list created the
+  one permitted derived task/request identity. Submission count was **1 → 2**,
+  exactly one new generation POST occurred, and an assertion at the fetch
+  boundary proved that POST occurred only after normal executor admission.
+  The original task and request identities remain retained in the Story job;
+  the manifest alone advances to the new task/key used for the missing scene.
+- Two direct calls to the evidence-gated recovery action while the same durable
+  terminal job was eligible produced one executor run, one durable Story job,
+  submission count **1 → 1**, and zero generation POSTs. The production action
+  still has only its two authoritative call sites: persisted load and completed
+  reconciliation; the direct export is test-only.
+- Manual and legacy originless records were exercised while the global queue
+  was running and remained paused. An otherwise unsafe queue-origin record was
+  independently released through the Task 2 queue invariant and executed once,
+  proving those origins did not pass through the stall predicate.
+- A fully released historical fleet refusal is nonblocking only for Continuity
+  Render and only under the same exact fleet-code, numeric zero-settlement, and
+  full-release predicate used by admission. Unknown, content-refused, charged,
+  partially released, cancelled, placeholder, and non-image evidence remain
+  terminally unsafe.
+
+Final fresh GREEN after commit `52cf1f72`:
+
+```text
+node scripts/testing/run-backend-tests.mjs \
+  --only job-queue-genstudio-resume --only job-cancellation-reconciliation
+41 passed, 0 failed; 3 suites; 2/2 selected files completed
+configured projects root byte-identical: true
+
+node scripts/testing/run-backend-tests.mjs \
+  --only job-queue.test --only job-queue-persistence-retention
+55 passed, 0 failed; 15 suites; 2/2 selected files completed
+configured projects root byte-identical: true
+
+npm run typecheck:electron
+exit 0
+
+git diff --check a2fa307d..HEAD
+exit 0
+```
+
+Both backend commands are focused partial runs, not the release gate. No
+version, changelog, later-task, customer-data, provider-control, package, push,
+merge, or other-worktree change was made. The final status/process audit was
+clean: no uncommitted Task 3 file remained after the report commit, and no
+focused backend-test or `tsx` test process survived. No implementation concern
+remains; independent re-review is still required before Task 4.
