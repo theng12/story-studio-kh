@@ -41,6 +41,7 @@ import {
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
+  readPaidImageOriginalRequest,
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
 } from '../services/image-paid-replacement.js'
@@ -425,6 +426,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   const outDir = await resolveContinuityRenderOutputDir(job.project_slug, episode_id, paths.episode_dir)
   job.output_dir = outDir
   await fs.mkdir(outDir, { recursive: true })
+  const taskManifest = await readManifest(outDir)
 
   // Resume only from images that fully decode. A non-empty but truncated file
   // must re-enter the missing-scene scope; otherwise every Retry keeps
@@ -435,6 +437,15 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     for (const candidate of candidates) {
       if (!existsSync(candidate)) continue
       if (await isDecodableImage(candidate)) {
+        const filename = `${scene.id}.png`
+        const permission = taskManifest.tasks[filename]
+          ? jq.getPaidImageReplacementSubmitPermission(job, filename, outDir, filename, taskManifest.tasks[filename]!)
+          : null
+        if (permission) {
+          await jq.checkpointPaidImageReplacementAttempt(job, filename, {
+            state: 'succeeded', replacement_task_id: permission.replacement_task_id,
+          })
+        }
         usableRenderedIds.add(scene.id)
         break
       }
@@ -456,9 +467,6 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     job.output_lines.push(`Requested render size: ${renderWidth}×${renderHeight}.`)
   }
   const paidProjectRoot = pm.getProjectDir(job.project_slug) || path.join(pm.projectsRoot(), job.project_slug)
-  const outputRelativeToProject = path.relative(paidProjectRoot, outDir)
-  const outputIsProjectOwned = outputRelativeToProject !== '' && outputRelativeToProject !== '..'
-    && !outputRelativeToProject.startsWith(`..${path.sep}`) && !path.isAbsolute(outputRelativeToProject)
   const paidSelector = outputOption ? {
     resolution: outputOption.resolution,
     aspect_ratio: outputOption.aspect_ratio,
@@ -619,7 +627,6 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       updated_at: new Date().toISOString(),
     })
 
-    const taskManifest = await readManifest(outDir)
     const fallbackTargets = toRender.filter(scene => !successfulSceneIds.has(scene.id))
     syncItemProgress()
     let lastCompletedAt = Date.now()
@@ -710,24 +717,26 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 : 'missing'
               attemptBaseScope = baseScope
               const manifestEntry = savedEntry
-              const paidReferenceCount = manifestEntry?.original_reference_inputs?.length ?? sref.referenceImagePaths.length
-              const paidOwningRoot = outputIsProjectOwned ? paidProjectRoot : (paidReferenceCount ? null : outDir)
-              attemptPaidOwningRoot = paidOwningRoot || ''
-              const originalSelector = manifestEntry?.original_output_selector || (paidSelector && paidOwningRoot ? {
+              const paidReferenceRoot = paidProjectRoot
+              const paidOutputRoot = outDir
+              attemptPaidOwningRoot = paidReferenceRoot
+              const durablePermission = manifestEntry
+                ? jq.getPaidImageReplacementSubmitPermission(job, filename, outDir, filename, manifestEntry)
+                : null
+              const useFrozenOriginal = !!durablePermission || !!(manifestEntry?.original_output_selector
+                && isTerminalGenStudioImageTaskFailure(manifestEntry))
+              const originalSelector = (useFrozenOriginal ? manifestEntry?.original_output_selector : null) || (paidSelector ? {
                 ...paidSelector,
                 reference_mode: sref.referenceImagePaths.length ? 'reference-guided' as const : 'normal' as const,
               } : null)
               attemptPaidSelector = originalSelector
-              const capturedReferences = manifestEntry?.original_reference_inputs && manifestEntry.original_reference_identity_hash
+              const capturedReferences = useFrozenOriginal && manifestEntry?.original_reference_inputs && manifestEntry.original_reference_identity_hash
                 ? { inputs: manifestEntry.original_reference_inputs, identity_hash: manifestEntry.original_reference_identity_hash }
                 : originalSelector
-                ? capturePaidImageReferenceIdentity(
-                    paidOwningRoot!,
+                  ? capturePaidImageReferenceIdentity(
+                    paidReferenceRoot,
                     sref.referenceImagePaths.map((referencePath, index) => ({ role: `episode-reference-${index + 1}`, path: referencePath })),
                   )
-                : null
-              const durablePermission = manifestEntry
-                ? jq.getPaidImageReplacementSubmitPermission(job, filename, outDir, filename, manifestEntry)
                 : null
               let replacementScope = durablePermission?.replacement_scope || ''
               if (!replacementScope && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
@@ -736,7 +745,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   job,
                   asset: {
                     assetKey: filename, manifestDir: outDir, manifestKey: filename, outputPath: outPath,
-                    owningRoot: paidOwningRoot!,
+                    owningRoot: paidReferenceRoot, referenceRoot: paidReferenceRoot, outputRoot: paidOutputRoot,
                     trustedOriginal: { prompt: finalPrompt, baseScope: logicalPaidScope(manifestEntry, baseScope) },
                     modelId: modelConfig.api_model || model, apiKey,
                   },
@@ -802,7 +811,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     job,
                     asset: {
                       assetKey: filename, manifestDir: outDir, manifestKey: filename, outputPath: outPath,
-                      owningRoot: paidOwningRoot!,
+                      owningRoot: paidReferenceRoot, referenceRoot: paidReferenceRoot, outputRoot: paidOutputRoot,
                       trustedOriginal: { prompt: finalPrompt, baseScope: logicalPaidScope(carried, baseScope) },
                       modelId: modelConfig.api_model || model, apiKey,
                     },
@@ -836,10 +845,16 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               // keeps one submitted_at instead of drifting forward each attempt.
               const sameScope = carried?.request_scope === requestScope ? carried : null
               const submittedAt = sameScope?.submitted_at || new Date().toISOString()
-              const requestReferences = replacementScope
-                ? manifestEntry!.original_reference_inputs!.map(reference => reference.path)
+              const verifiedReplacement = replacementScope
+                ? readPaidImageOriginalRequest(
+                    manifestEntry!, paidReferenceRoot,
+                    { prompt: finalPrompt, baseScope: logicalPaidScope(manifestEntry, baseScope) }, paidOutputRoot,
+                  )
+                : null
+              const requestReferences = verifiedReplacement
+                ? verifiedReplacement.references.map(reference => reference.path)
                 : sref.referenceImagePaths
-              const requestSelector = replacementScope ? manifestEntry!.original_output_selector! : originalSelector
+              const requestSelector = verifiedReplacement?.selector || originalSelector
               const requestIdentity = replacementScope
                 ? replacementScope
                 : `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${requestScope}`
@@ -855,7 +870,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 original_output_selector: originalSelector,
                 original_reference_inputs: capturedReferences.inputs,
                 original_reference_identity_hash: capturedReferences.identity_hash,
-                original_output_path: revalidatePaidImageOutputPath(paidOwningRoot!, outPath),
+                original_output_path: revalidatePaidImageOutputPath(paidOutputRoot, outPath),
               } : {}
               attemptOriginalFields = originalFields
               isPaidReplacement = !!replacementScope
@@ -1020,7 +1035,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                         job,
                         asset: {
                           assetKey: filename, manifestDir: outDir, manifestKey: filename, outputPath: outPath,
-                          owningRoot: attemptPaidOwningRoot,
+                          owningRoot: attemptPaidOwningRoot, referenceRoot: attemptPaidOwningRoot, outputRoot: outDir,
                           trustedOriginal: { prompt: finalPrompt, baseScope: logicalPaidScope(failedEntry, attemptBaseScope) },
                           modelId: modelConfig.api_model || model, apiKey,
                         },
@@ -1108,7 +1123,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       maybeFinish()  // nothing to render → resolve immediately
 
       await allWorkersDone
-      if (fatalError) throw fatalError
+      if (fatalError && !paidImageWaitRequested) throw fatalError
     } finally {
       clearInterval(stallTimer)
       await deactivateSceneRenderStatus(job.project_slug, episode_id, job.job_id).catch(() => {})

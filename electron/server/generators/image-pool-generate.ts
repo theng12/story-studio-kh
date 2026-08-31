@@ -18,6 +18,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { registry } from '../providers/registry.js'
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { isDecodableImage } from '../lib/image-validation.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as bp from '../services/broll-pool-manager.js'
@@ -40,6 +41,7 @@ import {
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
+  readPaidImageOriginalRequest,
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
 } from '../services/image-paid-replacement.js'
@@ -212,6 +214,24 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
   }
   const initialReady = new Set<string>()
   for (const item of items) if (await isUsable(item.filename)) initialReady.add(item.filename)
+  if (initialReady.size) {
+    const manifest = await readManifest(pool.folder_path)
+    for (const filename of initialReady) {
+      const entry = manifest.tasks[filename]
+      const permission = entry
+        ? jq.getPaidImageReplacementSubmitPermission(job, filename, pool.folder_path, filename, entry)
+        : null
+      if (permission) {
+        if (await isDecodableImage(path.join(pool.folder_path, filename))) {
+          await jq.checkpointPaidImageReplacementAttempt(job, filename, {
+            state: 'succeeded', replacement_task_id: permission.replacement_task_id,
+          })
+        } else {
+          initialReady.delete(filename)
+        }
+      }
+    }
+  }
   const remaining = items.filter(item => !initialReady.has(item.filename))
   const generationIdentity = `image-pool:${poolId}:${runId}`
   let made = 0
@@ -439,6 +459,11 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
             output_path: path.join(pool.folder_path, item.filename),
           })
         }
+        if (replacementScope) {
+          readPaidImageOriginalRequest(entry!, pool.folder_path, {
+            prompt: item.prompt, baseScope: logicalPaidScope(entry, baseScope),
+          })
+        }
         const result = await imageProvider.generateImage({
           prompt: item.prompt,
           apiKey,
@@ -471,8 +496,13 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
         })
         if (!result.urls.length) throw new Error('provider returned no image')
         await saveResult(item, { url: result.urls[0] })
-        if (result.taskId && replacementScope) {
-          await jq.checkpointPaidImageReplacementAttempt(job, item.filename, { state: 'succeeded', replacement_task_id: result.taskId })
+        const completedTaskId = result.taskId || acceptedTaskId
+        if (replacementScope && completedTaskId) {
+          const paidAttempt = job.paid_image_replacement_attempts?.find(attempt => attempt.asset_key === item.filename)
+          if (paidAttempt?.state !== 'submitted' || paidAttempt.replacement_task_id !== completedTaskId) {
+            throw new Error('Paid image replacement completed under a different provider task.')
+          }
+          await jq.checkpointPaidImageReplacementAttempt(job, item.filename, { state: 'succeeded', replacement_task_id: completedTaskId })
         } else if (result.taskId) {
           await recordState(item.filename, {
             taskId: result.taskId, submittedAt, inputHash, scope, idempotencyKey: acceptedKey, original: attemptOriginal,

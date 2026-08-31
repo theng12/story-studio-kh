@@ -155,8 +155,9 @@ export function buildPaidImageOriginalIdentity(input: {
 /** Read only the pre-POST facts and prove the original reference bytes remain intact. */
 export function readPaidImageOriginalRequest(
   entry: TaskManifestEntry,
-  owningRoot: string,
+  referenceRoot: string,
   trustedOriginal: { prompt: string; baseScope: string },
+  outputRoot: string = referenceRoot,
 ): PaidImageOriginalRequest {
   if (entry.last_state !== 'prepared' && entry.last_state !== 'accepted' && entry.last_state !== 'failed') {
     fail('the original manifest entry is not a prepared image request')
@@ -168,8 +169,8 @@ export function readPaidImageOriginalRequest(
   }
   const references = entry.original_reference_inputs
   if (entry.original_output_selector.reference_mode === 'normal' && references.length) fail('normal work has persisted references')
-  const outputPath = revalidatePaidImageOutputPath(owningRoot, entry.original_output_path)
-  const verified = capturePaidImageReferenceIdentity(owningRoot, references)
+  const outputPath = revalidatePaidImageOutputPath(outputRoot, entry.original_output_path)
+  const verified = capturePaidImageReferenceIdentity(referenceRoot, references)
   if (!sameJson(verified.inputs, references) || verified.identity_hash !== entry.original_reference_identity_hash) {
     fail('the original reference content hash does not match the persisted bytes')
   }
@@ -293,6 +294,8 @@ export interface PaidImageReplacementDecisionInput {
     manifestKey: string
     outputPath: string
     owningRoot: string
+    referenceRoot?: string
+    outputRoot?: string
     trustedOriginal: { prompt: string; baseScope: string }
     modelId: string
     apiKey: string
@@ -446,8 +449,10 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
     manifest = await persistence.readManifest(input.asset.manifestDir)
     entry = manifest.tasks[input.asset.manifestKey]
     if (!entry || !entry.task_id?.trim() || !entry.idempotency_key?.trim() || !entry.input_hash?.trim()) return blocked('the original task identity is incomplete')
-    original = readPaidImageOriginalRequest(entry, input.asset.owningRoot, input.asset.trustedOriginal)
-    if (original.outputPath !== revalidatePaidImageOutputPath(input.asset.owningRoot, input.asset.outputPath)) {
+    const referenceRoot = input.asset.referenceRoot || input.asset.owningRoot
+    const outputRoot = input.asset.outputRoot || input.asset.owningRoot
+    original = readPaidImageOriginalRequest(entry, referenceRoot, input.asset.trustedOriginal, outputRoot)
+    if (original.outputPath !== revalidatePaidImageOutputPath(outputRoot, input.asset.outputPath)) {
       return blocked('the persisted output path differs from the asset identity')
     }
   } catch (error: any) {

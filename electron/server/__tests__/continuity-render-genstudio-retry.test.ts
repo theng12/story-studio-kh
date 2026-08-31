@@ -177,10 +177,10 @@ test('the batch waits under the owner\'s control and resubmits under a DERIVED i
   // uses. A crash between the wait and the resubmission therefore replays the
   // identical request and re-attaches to the job GenStudio already has, instead
   // of buying a second render.
-  assert.match(source, /await recordTask\(outDir, filename, failedEntry\)/)
+  assert.match(source, /await recordTaskStrict\(outDir, filename, failedEntry\)/)
   assert.match(source, /savedEntry = failedEntry/)
   assert.match(source, /const manifestEntry = savedEntry/)
-  assert.match(source, /const retryScope = resolveImageRetryScope\(manifestEntry, baseScope\)/)
+  assert.match(source, /const retryScope = resolveImageRetryScope\(retryEntry, baseScope\)/)
   assert.doesNotMatch(source, /randomUUID/)
   assert.doesNotMatch(source, /Math\.random/)
 

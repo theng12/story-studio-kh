@@ -258,10 +258,10 @@ describe('Image Pool: the wait itself', () => {
     // promotes the scope through the same deterministic `resolveImageRetryScope`
     // a manual Retry uses. A crash mid-wait therefore replays the identical
     // request instead of buying a second image.
-    has("}, 'failed')", 'the settled failure reaches disk before the retry is decided')
+    has("}, 'failed', true)", 'the settled failure reaches disk strictly before the retry is decided')
     has('const manifest = await readManifest(pool.folder_path)',
       'and the next attempt reads it back from disk, not from a stale in-memory copy')
-    has('let scope = resolveImageRetryScope(entry, baseScope).scope',
+    has('let logicalScope = resolveImageRetryScope(retryEntry, baseScope).scope',
       'the promoted scope is derived from the dead job id')
     assert.doesNotMatch(source, /randomUUID/)
     assert.doesNotMatch(source, /Math\.random/)

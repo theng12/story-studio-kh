@@ -7,6 +7,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { parseImagePromptsDocx, type ParsedPrompts } from '../lib/docx-parser.js'
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { isDecodableImage } from '../lib/image-validation.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry } from '../providers/registry.js'
 import { recordTask, recordTaskStrict, hashInput, type TaskManifestEntry } from '../services/task-manifest.js'
@@ -45,6 +46,7 @@ import {
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
+  readPaidImageOriginalRequest,
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
 } from '../services/image-paid-replacement.js'
@@ -584,11 +586,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   const renderWidth = typeof req.width === 'number' && req.width > 0 ? req.width : undefined
   const renderHeight = typeof req.height === 'number' && req.height > 0 ? req.height : undefined
   const paidProjectRoot = pm.getProjectDir(project_slug) || path.join(pm.projectsRoot(), project_slug)
-  const thumbnailRelativeToProject = path.relative(paidProjectRoot, thumbDir)
-  const thumbnailIsProjectOwned = thumbnailRelativeToProject !== '' && thumbnailRelativeToProject !== '..'
-    && !thumbnailRelativeToProject.startsWith(`..${path.sep}`) && !path.isAbsolute(thumbnailRelativeToProject)
-  const paidOwningRoot = thumbnailIsProjectOwned ? paidProjectRoot : (hasSavedThumbnailReference ? null : thumbDir)
-  const paidThumbnailSelector = mode === 'thumbs' && outputOption && paidOwningRoot ? {
+  const paidThumbnailSelector = mode === 'thumbs' && outputOption ? {
     resolution: outputOption.resolution, aspect_ratio: outputOption.aspect_ratio,
     width: outputOption.width, height: outputOption.height, reference_mode: 'normal',
   } satisfies PaidImageOutputSelector : null
@@ -743,7 +741,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
         original_output_selector: paid.selector,
         original_reference_inputs: paid.references.inputs,
         original_reference_identity_hash: paid.references.identity_hash,
-        original_output_path: revalidatePaidImageOutputPath(paidOwningRoot!, paid.outputPath),
+        original_output_path: revalidatePaidImageOutputPath(thumbDir, paid.outputPath),
       } } : {}),
     }
   }
@@ -852,9 +850,6 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     // one scene instead of turning into a duplicate paid submission. Everything
     // is inside the try so no single scene can abort the whole batch.
     const filename = `${stem}_v1.png`
-    if (savedThumbnailReference?.id && !hasSavedThumbnailReference && !thumbManifest.tasks[filename]?.original_reference_inputs) {
-      throw new Error('The saved thumbnail reference is unavailable locally. Re-upload it in Thumbnail Prompts before generating.')
-    }
     const key = `scene-${scene.number}`
     const label = `Scene ${scene.number}`
     activeItems.set(key, { label, key, state: 'running', attempt: 1, max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS })
@@ -1032,7 +1027,19 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   async function runThumb(thumb: { number: number; title: string; prompt: string }) {
     const stem = `${episode_id.toUpperCase()}_Thumb${thumb.number.toString().padStart(2, '0')}`
     const v1Path = path.join(thumbDir, `${stem}_v1.png`)
-    if (await fileExistsWithContent(v1Path) && !req.thumb_number && !force) {
+    const filename = `${stem}_v1.png`
+    const existingArtifactEntry = thumbManifest.tasks[filename]
+    const artifactPermission = existingArtifactEntry
+      ? jq.getPaidImageReplacementSubmitPermission(job, filename, thumbDir, filename, existingArtifactEntry)
+      : null
+    const existingArtifactIsUsable = await fileExistsWithContent(v1Path)
+    const reconcilePaidArtifact = artifactPermission && await isDecodableImage(v1Path)
+    if (existingArtifactIsUsable && !req.thumb_number && !force && (!artifactPermission || reconcilePaidArtifact)) {
+      if (reconcilePaidArtifact) {
+        await jq.checkpointPaidImageReplacementAttempt(job, filename, {
+          state: 'succeeded', replacement_task_id: artifactPermission.replacement_task_id,
+        })
+      }
       job.output_lines.push(`Skipping ${stem} (exists)`)
       completedCount++
       publishProgress()
@@ -1052,12 +1059,14 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     // task before charging for a fresh submit, but never reopen a job GenStudio
     // already settled, and never treat an unconfirmed outcome as "nothing was
     // submitted". Inside the try so one thumbnail cannot abort the batch.
-    const filename = `${stem}_v1.png`
     const key = `thumb-${thumb.number}`
     const label = `Thumbnail ${thumb.number}`
     activeItems.set(key, { label, key, state: 'running', attempt: 1, max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS })
     publishProgress()
     try {
+      if (savedThumbnailReference?.id && !hasSavedThumbnailReference && !existingArtifactEntry?.original_reference_inputs) {
+        throw new Error('The saved thumbnail reference is unavailable locally. Re-upload it in Thumbnail Prompts before generating.')
+      }
       // The thumbnail prompt already carries its (format-aware) title-text
       // directive from image-prompts.ts — render it verbatim. Character
       // name-matching and style keywords operate on the same prompt.
@@ -1092,7 +1101,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
         ? { inputs: persistedOriginal.original_reference_inputs, identity_hash: persistedOriginal.original_reference_identity_hash }
         : paidSelector
         ? capturePaidImageReferenceIdentity(
-            paidOwningRoot!,
+            paidProjectRoot,
             hasSavedThumbnailReference ? [{ role: 'thumbnail-reference', path: savedThumbnailReferencePath }] : [],
           )
         : null
@@ -1115,7 +1124,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 job,
                 asset: {
                   assetKey: filename, manifestDir: thumbDir, manifestKey: filename, outputPath: v1Path,
-                  owningRoot: paidOwningRoot!,
+                  owningRoot: paidProjectRoot, referenceRoot: paidProjectRoot, outputRoot: thumbDir,
                   trustedOriginal: { prompt: finalPrompt, baseScope: logicalPaidScope(existing, baseScope) },
                   modelId: resolvedModelConfig.api_model || modelName, apiKey,
                 },
@@ -1154,7 +1163,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               job,
               asset: {
                 assetKey: filename, manifestDir: thumbDir, manifestKey: filename, outputPath: v1Path,
-                owningRoot: paidOwningRoot!,
+                owningRoot: paidProjectRoot, referenceRoot: paidProjectRoot, outputRoot: thumbDir,
                 trustedOriginal: { prompt: finalPrompt, baseScope: logicalPaidScope(failedEntry, current.baseScope) },
                 modelId: resolvedModelConfig.api_model || modelName, apiKey,
               },
@@ -1180,11 +1189,18 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             )
             return
           }
-          const requestSelector = current.paidReplacement
-            ? current.original!.original_output_selector!
-            : paidSelector
-          const requestReferences = current.paidReplacement
-            ? current.original!.original_reference_inputs!.map(reference => reference.path)
+          const replacementEntry = current.paidReplacement
+            ? (await readManifest(thumbDir)).tasks[filename]!
+            : null
+          const verifiedReplacement = replacementEntry
+            ? readPaidImageOriginalRequest(
+                replacementEntry, paidProjectRoot,
+                { prompt: finalPrompt, baseScope: logicalPaidScope(replacementEntry, current.baseScope) }, thumbDir,
+              )
+            : null
+          const requestSelector = verifiedReplacement?.selector || paidSelector
+          const requestReferences = verifiedReplacement
+            ? verifiedReplacement.references.map(reference => reference.path)
             : (hasSavedThumbnailReference ? [savedThumbnailReferencePath] : [])
           const preparedKey = buildGenStudioImageIdempotencyKey({
             prompt: finalPrompt, modelId: resolvedModelConfig.api_model || modelName,
@@ -1258,6 +1274,10 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               await jq.checkpointPaidImageReplacementAttempt(job, filename, {
                 state: 'failed', replacement_task_id: failedTaskId, reason: e.message,
               })
+              failedCount++
+              job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: FAILED — ${e.message}`)
+              errors.push(`Thumbnail ${thumb.number}: ${e.message}`)
+              return
             } else {
               await recordImageState(thumbDir, filename, attempt, 'failed', failedTaskId, acceptedKey, true)
               if (failedTaskId && acceptedKey) {
@@ -1272,7 +1292,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                   job,
                   asset: {
                     assetKey: filename, manifestDir: thumbDir, manifestKey: filename, outputPath: v1Path,
-                    owningRoot: paidOwningRoot!,
+                    owningRoot: paidProjectRoot, referenceRoot: paidProjectRoot, outputRoot: thumbDir,
                     trustedOriginal: { prompt: finalPrompt, baseScope: logicalPaidScope(failedEntry, attempt.baseScope) },
                     modelId: resolvedModelConfig.api_model || modelName, apiKey,
                   },
@@ -1439,7 +1459,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     maybeFinish()
 
     await allWorkersDone
-    if (fatalError) throw fatalError
+    if (fatalError && !paidImageWaitRequested) throw fatalError
   }
 
   try {
