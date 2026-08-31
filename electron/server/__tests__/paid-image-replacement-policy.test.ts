@@ -635,4 +635,35 @@ void test('paid image commitment rechecks immutable evidence and every durable r
       globalThis.fetch = originalFetch
     }
   })
+
+  await suite.test('a first-observation artifact-audit error blocks before any durable paid mutation', async () => {
+    const fixture = make()
+    let jobWrites = 0
+    let manifestWrites = 0
+    const result = await fixture.decide({ persistence: {
+      loadAuthoritativeJob: async () => structuredClone(fixture.durable), writeAuthoritativeJob: async () => { jobWrites++ },
+      readManifest: async () => structuredClone(fixture.manifest), writeManifestStrict: async () => { manifestWrites++ },
+    }, dependencies: { readControl: async () => goodControl, artifactExists: async () => { throw new Error('audit unavailable') }, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 1, priceVersion: 'price-v1', basis: 'published-rate' as const }), refreshAdmission: async () => admission() } })
+    assert.equal(result.action, 'blocked')
+    assert.equal(fixture.durable.paid_image_replacement_attempts, undefined)
+    assert.equal(jobWrites, 0)
+    assert.equal(manifestWrites, 0)
+  })
+
+  await suite.test('a durable positive wait blocks changed balanced zero settlement before price or admission', async () => {
+    const fixture = make(); await fixture.decide()
+    let priceReads = 0
+    let admissionReads = 0
+    let manifestWrites = 0
+    const changed = { ...goodControl, settled_credits: 0, released_credits: 9 }
+    const result = await due(fixture, { persistence: {
+      loadAuthoritativeJob: async () => structuredClone(fixture.durable), writeAuthoritativeJob: async (next: Job) => { Object.assign(fixture.durable, structuredClone(next)) },
+      readManifest: async () => structuredClone(fixture.manifest), writeManifestStrict: async () => { manifestWrites++ },
+    }, dependencies: { readControl: async () => changed, artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => { priceReads++; return { credits: 1, priceVersion: 'price-v1', basis: 'published-rate' as const } }, refreshAdmission: async () => { admissionReads++; return admission() } } })
+    assert.equal(result.action, 'blocked')
+    assert.equal(fixture.durable.paid_image_replacement_attempts?.[0]?.state, 'waiting')
+    assert.equal(priceReads, 0)
+    assert.equal(admissionReads, 0)
+    assert.equal(manifestWrites, 0)
+  })
 })
