@@ -337,6 +337,13 @@ function validWaitClock(attempt: PaidImageReplacementAttempt): boolean {
   return Number.isFinite(observed) && Number.isFinite(eligible) && eligible === observed + PAID_WAIT_MS
 }
 
+function sameTerminalFacts(attempt: PaidImageReplacementAttempt, control: PaidImageControl): boolean {
+  return attempt.failure_code === String(control.failure_code)
+    && attempt.reserved_credits === control.reserved_credits
+    && attempt.settled_credits === control.settled_credits
+    && attempt.released_credits === control.released_credits
+}
+
 function replacementScope(asset: PaidImageReplacementDecisionInput['asset'], attempt: PaidImageReplacementAttempt): string {
   return `paid-image-replacement:${sha256CanonicalJson({
     original_task_id: attempt.original_task_id,
@@ -459,7 +466,9 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
     || control.reserved_credits !== control.settled_credits + control.released_credits) {
     return blocked('the original settlement is incomplete or imbalanced')
   }
-  if (await dependencies.artifactExists(asset.outputPath)) return { action: 'recover-original' }
+  const initialArtifact = await dependencies.artifactExists(asset.outputPath).catch(() => null)
+  if (initialArtifact === null) return blocked('the original artifact could not be audited')
+  if (initialArtifact) return { action: 'recover-original' }
   if (control.settled_credits === 0) {
     return control.released_credits === control.reserved_credits
       ? { action: 'safe-zero-settlement-retry' }
@@ -505,7 +514,10 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   }
 
   if (now().getTime() < Date.parse(attempt.eligible_at)) return { action: 'wait', attempt }
-  if (await dependencies.artifactExists(asset.outputPath)) return { action: 'recover-original' }
+  if (!sameTerminalFacts(attempt, control)) return blocked('the terminal failure or settlement changed during the paid wait')
+  const dueArtifact = await dependencies.artifactExists(asset.outputPath).catch(() => null)
+  if (dueArtifact === null) return blocked('the original artifact could not be audited')
+  if (dueArtifact) return { action: 'recover-original' }
   const setting = await dependencies.getSetting().catch(() => null)
   if (!setting?.enabled) return blocked('paid image replacement is currently off on this machine')
   let rate: PaidImagePublishedRate
