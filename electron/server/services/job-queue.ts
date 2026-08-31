@@ -2362,7 +2362,14 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             // A malformed/revoked wait is fail-closed but is not an executor
             // failure: never enter local retry, completion, or chaining after
             // a generator has declared the durable paid-wait boundary.
-            await schedulePaidImageWait(job)
+            if (!await schedulePaidImageWait(job)) {
+              job.status = 'error'
+              job.finished_at = new Date().toISOString()
+              job.error = 'Paid image replacement wait was revoked or could not be durably scheduled. No automatic retry was attempted.'
+              job.output_lines.push(job.error)
+              await persistJob(job)
+              emitUpdate(job)
+            }
             return
           }
           job.local_execution_complete = true
@@ -3113,6 +3120,10 @@ export async function resumePausedJobs(scope: ResumePausedJobsScope): Promise<Re
 /** Pause one job without cancelling provider work. Queued work is removed
  * before submit; running work observes the request at its next safe boundary. */
 export async function pauseJob(jobId: string, origin: 'manual' | 'queue' | 'stall' = 'manual'): Promise<Job | null> {
+  // Keep the long-standing synchronous state transition for ordinary jobs.
+  // Paid waits alone need to serialize with their due callback.
+  const current = jobs.get(jobId)
+  if (!current || !getValidPaidImageWait(current)) return pauseJobUnlocked(jobId, origin)
   return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(jobId, () => pauseJobUnlocked(jobId, origin)))
 }
 
@@ -3840,6 +3851,7 @@ function cancellationControlFor(job: Job): JobControl {
 }
 
 async function cancelQueuedBeforeSubmit(job: Job): Promise<Job> {
+  if (!getValidPaidImageWait(job)) return cancelQueuedBeforeSubmitUnlocked(job)
   return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => cancelQueuedBeforeSubmitUnlocked(job)))
 }
 
@@ -3862,6 +3874,7 @@ async function cancelQueuedBeforeSubmitUnlocked(job: Job): Promise<Job> {
 }
 
 async function stopLocalJob(job: Job): Promise<Job> {
+  if (!getValidPaidImageWait(job)) return stopLocalJobUnlocked(job)
   return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => stopLocalJobUnlocked(job)))
 }
 
@@ -3885,6 +3898,7 @@ async function queueRemoteCancellationTargets(
   job: Job,
   targets: NonNullable<JobControl['targets']>,
 ): Promise<Job> {
+  if (!getValidPaidImageWait(job)) return queueRemoteCancellationTargetsUnlocked(job, targets)
   return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => queueRemoteCancellationTargetsUnlocked(job, targets)))
 }
 
