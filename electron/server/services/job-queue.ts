@@ -816,7 +816,11 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       job.status = 'cancelled'
       job.error = null
       job.output_lines.push('GenStudio confirmed cancellation for every provider task.')
-    } else if (evidence.some(entry => entry.state === 'failed' && entry.cancelled !== true)) {
+    } else if (evidence.some(entry => (
+      entry.state === 'failed'
+      && entry.cancelled !== true
+      && (job.type !== 'continuity_render' || !isSafelyRetryableStallImageFailure(entry))
+    ))) {
       job.status = 'error'
       job.error = 'A GenStudio provider task failed after cancellation reconciliation. Provider evidence is retained.'
       job.output_lines.push(job.error)
@@ -841,7 +845,10 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         + 'Every other request settled. Retry resubmits only what is missing.'
       job.result = { ...(job.result || {}), provider_settled: 'never-created', repair_required: true }
       job.output_lines.push(job.error)
-    } else if (evidence.length && evidence.every(entry => entry.state === 'succeeded')) {
+    } else if (evidence.length && evidence.every(entry => (
+      entry.state === 'succeeded'
+      || (job.type === 'continuity_render' && isSafelyRetryableStallImageFailure(entry))
+    ))) {
       const auditor = getJobCancellationAuditor(job.type)
       if (!auditor) {
         job.output_lines.push('Provider work settled, but no output auditor is registered. Keeping this job running until output can be verified.')
@@ -1532,7 +1539,10 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             // durable owner hold is preserved byte-for-byte.
             if (j.pause_origin !== 'queue') {
               if (hasUnsettledProviderEvidence(j)) {
-                j.local_execution_complete = true
+                // A stall hold may only auto-rejoin when the executor itself
+                // persisted its cooperative boundary. Provider evidence
+                // settling proves nothing about where local execution stopped.
+                if (j.pause_origin !== 'stall') j.local_execution_complete = true
                 j.finished_at = null
                 j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
                 j.output_lines.push('↻ Story Studio restarted — this batch remains paused while already accepted provider work settles. Resume is still explicit.')
@@ -2042,6 +2052,25 @@ interface PausedJobTransitionResult {
   lanes: Set<JobType>
 }
 
+function isSafelyRetryableStallImageFailure(
+  entry: NonNullable<Job['genstudio_jobs']>[number],
+): boolean {
+  if (
+    entry.operation !== 'image.generation'
+    || !entry.id
+    || entry.id.startsWith('pending:')
+    || entry.state !== 'failed'
+    || entry.cancelled === true
+    || !FLEET_BUSY_FAILURE_CODES.has(String(entry.failure_code || ''))
+  ) return false
+  const reserved = entry.reserved_credits
+  const settled = entry.settled_credits
+  const released = entry.released_credits
+  return [reserved, settled, released].every(value => (
+    typeof value === 'number' && Number.isFinite(value) && value >= 0
+  )) && settled === 0 && released === reserved
+}
+
 function hasSafeTerminalStallEvidence(job: Job): boolean {
   if (
     job.type !== 'continuity_render'
@@ -2066,13 +2095,7 @@ function hasSafeTerminalStallEvidence(job: Job): boolean {
       || entry.cancelled === true
     ) return false
     if (entry.state === 'succeeded') return true
-    if (entry.state !== 'failed' || !FLEET_BUSY_FAILURE_CODES.has(String(entry.failure_code || ''))) return false
-    const reserved = entry.reserved_credits
-    const settled = entry.settled_credits
-    const released = entry.released_credits
-    return [reserved, settled, released].every(value => (
-      typeof value === 'number' && Number.isFinite(value) && value >= 0
-    )) && settled === 0 && released === reserved
+    return isSafelyRetryableStallImageFailure(entry)
   })
 }
 
@@ -2081,6 +2104,12 @@ async function recoverSafelySettledStallJobs(selected: Job[]): Promise<void> {
   if (queuePaused) return
   const released = await transitionPausedJobsToQueuedByProject(selected.filter(hasSafeTerminalStallEvidence))
   for (const type of released.lanes) pump(type)
+}
+
+/** Test-only entry to prove repeated eligible recovery triggers stay idempotent. */
+export async function _recoverStallJobForTesting(jobId: string): Promise<void> {
+  const job = jobs.get(jobId)
+  if (job) await recoverSafelySettledStallJobs([job])
 }
 
 /**
