@@ -1412,6 +1412,30 @@ async function persistJob(job: Job): Promise<void> {
 }
 
 /**
+ * Narrow durable boundary for paid image commitment.  It reads the on-disk
+ * authority under the same jobs.json lock as normal queue persistence; callers
+ * must not use a worker's stale in-memory copy to authorize a charge.
+ */
+export async function loadAuthoritativeJob(projectSlug: string, jobId: string): Promise<Job | null> {
+  const p = jobsPath(projectSlug)
+  return withLock(p, async () => {
+    assertWriteIsolatedInTests(p, 'job-queue')
+    if (!existsSync(p)) return null
+    const data = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
+    if (!Array.isArray(data.jobs)) throw new Error('jobs.json does not contain a jobs array')
+    const found = data.jobs.find((candidate: unknown) => (
+      Boolean(candidate) && typeof candidate === 'object' && (candidate as Job).job_id === jobId
+    ))
+    return found ? structuredClone(found as Job) : null
+  })
+}
+
+/** The paired write side of `loadAuthoritativeJob`, retained as one test seam. */
+export async function writeAuthoritativeJob(job: Job): Promise<void> {
+  await persistJob(job)
+}
+
+/**
  * Persist a durable checkpoint while a long-running executor is still active.
  * Accepted GenStudio work uses this so a monitoring disconnect can reconnect
  * without submitting it again.

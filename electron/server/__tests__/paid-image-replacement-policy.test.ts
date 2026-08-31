@@ -3,6 +3,8 @@ import { mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import { useTempDataDir } from './_helpers.js'
+import type { Job } from '../models/types.js'
+import type { TaskManifestEntry } from '../services/task-manifest.js'
 
 const temp = await useTempDataDir()
 const settings = await import('../services/app-settings.js')
@@ -269,4 +271,197 @@ void test('force-live image catalogue reads supersede an older refresh and never
     client.clearGenStudioCatalogCache()
     await settings.setGenStudioUrl('')
   }
+})
+
+void test('paid image replacement terminal and settlement gate is fail-closed before time', async (suite) => {
+  const policy = await import('../services/image-paid-replacement.js')
+  const root = path.join(temp.dir, 'paid-image-commit-gate')
+  await mkdir(root, { recursive: true })
+  const original = { prompt: 'A moonlit pagoda.', baseScope: 'scene:paid-gate' }
+  const identity = policy.buildPaidImageOriginalIdentity({ ...original, selector: selector(), references: [] })
+  const manifestEntry = () => ({
+    provider: 'genstudio', task_id: 'original-task', idempotency_key: 'original-key', submitted_at: '2026-08-31T00:00:00.000Z',
+    operation: 'image' as const, last_state: 'failed', input_hash: identity.inputHash, request_scope: identity.requestScope,
+    original_output_selector: selector(), original_reference_inputs: [], original_reference_identity_hash: policy.sha256CanonicalJson([]),
+    original_output_path: path.join(root, 'missing.png'),
+  })
+  const job = (): Job => ({
+    job_id: 'paid-job', project_slug: 'paid-project', type: 'thumb_images', episode_id: 'EP0092', title: 'Paid gate',
+    status: 'running', created_at: '2026-08-31T00:00:00.000Z', started_at: '2026-08-31T00:00:00.000Z', finished_at: null,
+    error: null, output_lines: [], params: {},
+    paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 8, snapshotted_at: '2026-08-31T00:00:00.000Z' },
+  })
+  const decision = async (overrides: Record<string, unknown> = {}) => {
+    const current = job()
+    const manifests = new Map<string, { schema_version: 1; tasks: Record<string, TaskManifestEntry> }>([[root, { schema_version: 1, tasks: { 'missing.png': manifestEntry() } }]])
+    const jobs = new Map([[current.job_id, structuredClone(current)]])
+    const writes: string[] = []
+    const result = await policy.decidePaidImageReplacement({
+      job: current,
+      asset: { assetKey: 'thumbnail:1', manifestDir: root, manifestKey: 'missing.png', outputPath: path.join(root, 'missing.png'), owningRoot: root, trustedOriginal: original, modelId: 'image-paid-v1', apiKey: 'test-key' },
+      now: () => new Date('2026-08-31T00:00:00.000Z'),
+      persistence: {
+        loadAuthoritativeJob: async (_project: string, id: string) => structuredClone(jobs.get(id) || null),
+        writeAuthoritativeJob: async (next: Job) => { writes.push('job'); jobs.set(next.job_id, structuredClone(next)) },
+        readManifest: async (dir: string) => structuredClone(manifests.get(dir)!),
+        writeManifestStrict: async (dir: string, key: string, entry: TaskManifestEntry) => {
+          writes.push('manifest')
+          manifests.get(dir)!.tasks[key] = entry
+        },
+      },
+      dependencies: {
+        readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }),
+        artifactExists: async () => false,
+        getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
+        resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
+        refreshAdmission: async () => ({ capacity_verified: true, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }),
+      },
+      ...overrides,
+    })
+    return { result, current, jobs, manifests, writes }
+  }
+
+  for (const [label, control, expected] of [
+    ['running control', { id: 'original-task', state: 'running' }, 'recover-original'],
+    ['unknown control state', { id: 'original-task', state: 'reconciling' }, 'recover-original'],
+    ['uncertain submission', { id: 'original-task', state: 'failed', failure_code: 'CLOUD_SUBMISSION_UNCERTAIN', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked'],
+    ['cancelled task', { id: 'original-task', state: 'failed', cancelled: true, failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked'],
+    ['billing refusal', { id: 'original-task', state: 'failed', failure_code: 'INSUFFICIENT_CREDITS', reserved_credits: 9, settled_credits: 0, released_credits: 9 }, 'blocked'],
+    ['imbalanced settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 5 }, 'blocked'],
+    ['nonfinite settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: Number.NaN, settled_credits: 3, released_credits: 6 }, 'blocked'],
+  ] as const) {
+    await suite.test(`does not spend for ${label}`, async () => {
+      const { result, writes } = await decision({ dependencies: {
+        readControl: async () => control,
+        artifactExists: async () => false,
+        getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
+        resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
+        refreshAdmission: async () => ({ capacity_verified: true, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }),
+      } })
+      assert.equal(result.action, expected)
+      assert.deepEqual(writes, [])
+    })
+  }
+
+  await suite.test('uses only the existing zero-settlement retry and persists immutable positive-settlement clocks', async () => {
+    const zero = await decision({ dependencies: {
+      readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
+      artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
+      resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
+      refreshAdmission: async () => ({ capacity_verified: true, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }),
+    } })
+    assert.equal(zero.result.action, 'safe-zero-settlement-retry')
+    const first = await decision()
+    assert.equal(first.result.action, 'wait')
+    const attempt = first.current.paid_image_replacement_attempts![0]!
+    assert.equal(attempt.terminal_observed_at, '2026-08-31T00:00:00.000Z')
+    assert.equal(attempt.eligible_at, '2026-08-31T00:30:00.000Z')
+    const durable = structuredClone(first.current)
+    const dueManifest: { schema_version: 1; tasks: Record<string, TaskManifestEntry> } = { schema_version: 1, tasks: { 'missing.png': manifestEntry() } }
+    const second = await policy.decidePaidImageReplacement({
+      job: first.current, asset: { assetKey: 'thumbnail:1', manifestDir: root, manifestKey: 'missing.png', outputPath: path.join(root, 'missing.png'), owningRoot: root, trustedOriginal: original, modelId: 'image-paid-v1', apiKey: 'test-key' },
+      now: () => new Date('2026-09-01T00:00:00.000Z'), persistence: {
+        loadAuthoritativeJob: async () => structuredClone(durable), writeAuthoritativeJob: async (next: Job) => { Object.assign(durable, structuredClone(next)) },
+        readManifest: async () => structuredClone(dueManifest), writeManifestStrict: async (_dir: string, key: string, next: TaskManifestEntry) => { dueManifest.tasks[key] = next },
+      }, dependencies: {
+        readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }), artifactExists: async () => false,
+        getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }), resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
+        refreshAdmission: async () => ({ capacity_verified: true, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }),
+      },
+    })
+    assert.equal(second.action, 'commit', 'due time follows a fresh terminal re-read, never time alone')
+    assert.equal(first.current.paid_image_replacement_attempts![0]!.terminal_observed_at, attempt.terminal_observed_at)
+    assert.equal(first.current.paid_image_replacement_attempts![0]!.eligible_at, attempt.eligible_at)
+  })
+
+  await suite.test('keeps the jobs-first commitment authoritative across both ordered write failures', async () => {
+    const seeded = await decision()
+    const durable = seeded.jobs
+    const basePersistence = {
+      loadAuthoritativeJob: async (_project: string, id: string) => structuredClone(durable.get(id) || null),
+      readManifest: async (dir: string) => structuredClone(seeded.manifests.get(dir)!),
+    }
+    let manifestWriteCalls = 0
+    const jobFailure = await decision({ job: seeded.current, now: () => new Date('2026-08-31T00:30:00.000Z'), persistence: {
+      ...basePersistence,
+      writeAuthoritativeJob: async () => { throw new Error('jobs.json write failed') },
+      writeManifestStrict: async () => { manifestWriteCalls++ },
+    } })
+    assert.equal(jobFailure.result.action, 'blocked')
+    assert.equal(manifestWriteCalls, 0, 'a failed jobs.json write must stop before the manifest')
+
+    const seededManifestFailure = await decision()
+    const durableManifestFailure = seededManifestFailure.jobs
+    const manifestFailure = await decision({ job: seededManifestFailure.current, now: () => new Date('2026-08-31T00:30:00.000Z'), persistence: {
+      loadAuthoritativeJob: async (_project: string, id: string) => structuredClone(durableManifestFailure.get(id) || null),
+      writeAuthoritativeJob: async (next: Job) => { durableManifestFailure.set(next.job_id, structuredClone(next)) },
+      readManifest: async (dir: string) => structuredClone(seededManifestFailure.manifests.get(dir)!),
+      writeManifestStrict: async () => { throw new Error('manifest write failed') },
+    } })
+    assert.equal(manifestFailure.result.action, 'blocked')
+    assert.equal(durableManifestFailure.get(seededManifestFailure.current.job_id)?.paid_image_replacement_attempts?.[0]?.state, 'committed')
+  })
+})
+
+void test('paid image replacement commits jobs first under an authoritative ceiling', async (suite) => {
+  const policy = await import('../services/image-paid-replacement.js')
+  const root = path.join(temp.dir, 'paid-image-commit-race')
+  await mkdir(root, { recursive: true })
+  const original = { prompt: 'A sunrise.', baseScope: 'paid-race' }
+  const identity = policy.buildPaidImageOriginalIdentity({ ...original, selector: selector(), references: [] })
+  const entry = (name: string) => ({ provider: 'genstudio', task_id: `task-${name}`, idempotency_key: `key-${name}`, submitted_at: '2026-08-31T00:00:00.000Z', operation: 'image' as const, last_state: 'failed', input_hash: identity.inputHash, request_scope: identity.requestScope, original_output_selector: selector(), original_reference_inputs: [], original_reference_identity_hash: policy.sha256CanonicalJson([]), original_output_path: path.join(root, `${name}.png`) })
+  const job = (): Job => ({ job_id: 'race-job', project_slug: 'paid-project', type: 'thumb_images', episode_id: 'EP0092', title: '', status: 'running', created_at: '', started_at: '', finished_at: null, error: null, output_lines: [], params: {}, paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 4, snapshotted_at: '' } })
+  const authoritative = job()
+  const manifests = new Map<string, { schema_version: 1; tasks: Record<string, TaskManifestEntry> }>([[root, { schema_version: 1, tasks: { 'a.png': entry('a'), 'b.png': entry('b') } }]])
+  let releaseBarrier!: () => void
+  const barrier = new Promise<void>(resolve => { releaseBarrier = resolve })
+  let prechecks = 0
+  const shared = {
+    loadAuthoritativeJob: async () => structuredClone(authoritative),
+    writeAuthoritativeJob: async (next: Job) => { Object.assign(authoritative, structuredClone(next)) },
+    readManifest: async () => structuredClone(manifests.get(root)!),
+    writeManifestStrict: async (_dir: string, key: string, next: TaskManifestEntry) => { manifests.get(root)!.tasks[key] = next },
+  }
+  const decide = (current: Job, name: string, at = '2026-08-31T00:30:00.000Z', dependencyOverrides: Record<string, unknown> = {}) => policy.decidePaidImageReplacement({
+    job: current, asset: { assetKey: name, manifestDir: root, manifestKey: `${name}.png`, outputPath: path.join(root, `${name}.png`), owningRoot: root, trustedOriginal: original, modelId: 'image-paid-v1', apiKey: 'key' },
+    now: () => new Date(at), persistence: shared,
+    dependencies: {
+      readControl: async () => ({ id: `task-${name}`, state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }),
+      artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
+      refreshAdmission: async () => { prechecks++; if (prechecks === 2) releaseBarrier(); await barrier; return { capacity_verified: true, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 } },
+      ...dependencyOverrides,
+    },
+  })
+  await decide(job(), 'a', '2026-08-31T00:00:00.000Z')
+  await decide(structuredClone(authoritative), 'b', '2026-08-31T00:00:00.000Z')
+  const first = structuredClone(authoritative); const second = structuredClone(authoritative)
+  const [one, two] = await Promise.all([decide(first, 'a'), decide(second, 'b')])
+  assert.deepEqual([one.action, two.action].sort(), ['blocked', 'commit'])
+  assert.equal(authoritative.paid_image_replacement_attempts?.filter(attempt => attempt.state === 'committed').length, 1, 'authoritative reload permits exactly one ceiling-safe commitment')
+
+  await suite.test('blocks an artifact/current-off/price/balance and never permits a second attempt', async () => {
+    const waitingAsset = authoritative.paid_image_replacement_attempts?.find(attempt => attempt.state === 'waiting')!.asset_key!
+    const committedAsset = authoritative.paid_image_replacement_attempts?.find(attempt => attempt.state === 'committed')!.asset_key!
+    for (const [label, dependencies] of [
+      ['artifact', { artifactExists: async () => true }],
+      ['off', { getSetting: async () => ({ enabled: false, additional_credit_ceiling: null }) }],
+      ['price', { resolveRate: async () => ({ credits: 5, priceVersion: 'price-v1', basis: 'published-rate' as const }) }],
+      ['balance', { refreshAdmission: async () => ({ capacity_verified: true, credit_balance: 3, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }) }],
+    ] as const) {
+      const result = await decide(structuredClone(authoritative), waitingAsset, '2026-08-31T00:30:00.000Z', dependencies).catch(error => { throw new Error(`${label}: ${error.message}`) })
+      assert.notEqual(result.action, 'commit', label)
+    }
+    const repeat = await decide(structuredClone(authoritative), committedAsset)
+    assert.equal(repeat.action, 'blocked')
+  })
+
+  await suite.test('leaves the job authoritative when either ordered write fails', async () => {
+    let manifestWrites = 0
+    const failedJob = await policy.decidePaidImageReplacement({
+      job: job(), asset: { assetKey: 'write-a', manifestDir: root, manifestKey: 'a.png', outputPath: path.join(root, 'a.png'), owningRoot: root, trustedOriginal: original, modelId: 'image-paid-v1', apiKey: 'key' }, now: () => new Date('2026-08-31T00:30:00.000Z'),
+      persistence: { ...shared, writeAuthoritativeJob: async () => { throw new Error('jobs disk full') }, writeManifestStrict: async () => { manifestWrites++ } },
+      dependencies: { readControl: async () => ({ id: 'task-a', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }), artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }), refreshAdmission: async () => ({ capacity_verified: true, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }) },
+    })
+    assert.equal(failedJob.action, 'blocked'); assert.equal(manifestWrites, 0)
+  })
 })

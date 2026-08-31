@@ -98,6 +98,12 @@ export interface TaskManifestEntry {
   original_reference_inputs?: PaidImageReferenceInput[]
   original_reference_identity_hash?: string
   original_output_path?: string
+  /** Additive job-authoritative paid-replacement commitment facts. */
+  replacement_of_task_id?: string
+  replacement_scope?: string
+  replacement_quoted_credits?: number
+  replacement_price_version?: string
+  replacement_committed_at?: string
   /**
    * Whether this transcription was REQUESTED with per-word timestamps.
    *
