@@ -1234,6 +1234,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
     const {
       _unreliable: _internalStatusFlag,
       _scene_images: sceneImages,
+      _thumbnail_images: thumbnailImages,
       ...publicStatus
     } = status
 
@@ -1325,6 +1326,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
           && videoAssemblyDone,
       },
       scene_images: sceneImages || { total: 0, present: 0, complete: false },
+      thumbnail_images: thumbnailImages || { total: 0, present: 0, complete: false },
       // v1.4.76 — `episode_dir` is gone. It was an absolute filesystem path
       // sent for every row (63 KB, 15.2% of this response on a 302-episode
       // project) that no consumer has ever read: the only mention anywhere was
@@ -1382,7 +1384,7 @@ router.get('/projects/:slug/episodes/:code/status', async (req, res) => {
     const ideas = await im.getIdeas(slug, 'accepted')
     const idea = ideas.find(i => (i.episode_code || '').toUpperCase() === code.toUpperCase())
     const status = await episodeStatusCache.get(slug, code, ideas, projectFacts)
-    const { _scene_images: sceneImages, ...publicStatus } = status
+    const { _scene_images: sceneImages, _thumbnail_images: thumbnailImages, ...publicStatus } = status
     res.json({
       episode_code: code,
       title: idea?.title || '',
@@ -1392,6 +1394,7 @@ router.get('/projects/:slug/episodes/:code/status', async (req, res) => {
       // reading either name keep working.
       status: { ...publicStatus, prompts: (status as any).scene_prompts },
       scene_images: sceneImages || { total: 0, present: 0, complete: false },
+      thumbnail_images: thumbnailImages || { total: 0, present: 0, complete: false },
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, `Could not load status for ${code}`))

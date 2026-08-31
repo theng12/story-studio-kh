@@ -285,6 +285,63 @@ describe('Ideas routes', () => {
       'single-episode status must expose the same public projection without leaking internals')
   })
 
+  test('GET /episodes reports thumbnail counts after thumbnail files go missing or are deleted', async () => {
+    const project = await request(app).post('/api/projects').send({
+      name: 'Thumbnail Image Count Project', episode_prefix: 'TI', episode_digits: 3,
+    })
+    const isolatedSlug = project.body.slug
+    const created = await request(app).post(`/api/projects/${isolatedSlug}/ideas`).send({
+      title: 'Missing Thumbnails', suggested_chapters: 4,
+    })
+    assert.equal(created.status, 200)
+    const accepted = await request(app)
+      .post(`/api/projects/${isolatedSlug}/ideas/${created.body.id}/accept`).send({})
+    assert.equal(accepted.status, 200)
+    const code = accepted.body.episode_code
+    const episodeDir = path.join(tempDir, 'projects', isolatedSlug, 'episodes', 'Season 001', `${code} - Missing Thumbnails`)
+    const promptsDir = path.join(episodeDir, `${code} - 04 Thumbnail Prompts`)
+    const thumbnailsDir = path.join(episodeDir, `${code} - 06 Thumbnail Images`)
+    await fs.mkdir(promptsDir, { recursive: true })
+    await fs.mkdir(thumbnailsDir, { recursive: true })
+    await fs.writeFile(path.join(promptsDir, `${code}_Thumbnail_Prompts.md`), [
+      '# Thumbnail Prompts',
+      '1. First thumbnail',
+      'First thumbnail prompt.',
+      '2. Second thumbnail',
+      'Second thumbnail prompt.',
+      '3. Third thumbnail',
+      'Third thumbnail prompt.',
+    ].join('\n'))
+    await fs.writeFile(path.join(thumbnailsDir, `${code}_Thumb01_v1.png`), 'image')
+    const deletedThumbnail = path.join(thumbnailsDir, `${code}_Thumb03_v1.png`)
+    await fs.writeFile(deletedThumbnail, 'image')
+
+    const assertThumbnailAggregate = (body: any, expected: { total: number, present: number, complete: boolean }) => {
+      assert.deepEqual(body.thumbnail_images, expected)
+      assert.equal(body.status.thumbnails, false, 'partial thumbnail files must not count as complete')
+      assert.equal(body.status._thumbnail_images, undefined,
+        'internal thumbnail image detail must not leak into public status')
+    }
+
+    const partialList = await request(app).get(`/api/projects/${isolatedSlug}/episodes?invalidate=${code}`)
+    const partialEpisode = partialList.body.find((row: any) => row.episode_code === code)
+    assert.ok(partialEpisode)
+    assertThumbnailAggregate(partialEpisode, { total: 3, present: 2, complete: false })
+
+    const partialSingle = await request(app).get(`/api/projects/${isolatedSlug}/episodes/${code}/status?invalidate=1`)
+    assertThumbnailAggregate(partialSingle.body, { total: 3, present: 2, complete: false })
+
+    await fs.rm(deletedThumbnail)
+
+    const deletedList = await request(app).get(`/api/projects/${isolatedSlug}/episodes?invalidate=${code}`)
+    const deletedEpisode = deletedList.body.find((row: any) => row.episode_code === code)
+    assert.ok(deletedEpisode)
+    assertThumbnailAggregate(deletedEpisode, { total: 3, present: 1, complete: false })
+
+    const deletedSingle = await request(app).get(`/api/projects/${isolatedSlug}/episodes/${code}/status?invalidate=1`)
+    assertThumbnailAggregate(deletedSingle.body, { total: 3, present: 1, complete: false })
+  })
+
   test('GET /episodes treats all planned images as complete before Scene Review approval and preserves counts after Mark Done', async () => {
     const project = await request(app).post('/api/projects').send({
       name: 'Scene Image Approval Project', episode_prefix: 'SA', episode_digits: 3,
