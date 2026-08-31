@@ -41,6 +41,8 @@ import {
 import { runWithJobContentPackProvenance } from '../content-packs/job-provenance-context.js'
 import { readManifest } from './task-manifest.js'
 import { isDecodableImage } from '../lib/image-validation.js'
+import { refreshGenStudioAdmission } from '../lib/genstudio-client.js'
+import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -117,6 +119,7 @@ export async function recordGenStudioJob(
   await persistJob(job)
   emitUpdate(job)
   void finalizeSettledProviderJob(job.job_id)
+  if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
 }
 
 function queuedCancellationKey(operation: JobRemoteOperation, providerJobId: string): string {
@@ -1217,6 +1220,7 @@ function groupOf(type: JobType, job?: Job): string {
 /** Active (running) job count for the shared LLM group. Non-LLM types track
  *  their single slot via `QueueState.running` (unchanged). */
 const groupActive: Record<string, number> = {}
+const activeImageEpisodeJobIds = new Set<string>()
 /** A generous local staging cap keeps Story responsive without recreating a
  * user-facing concurrency policy that can conflict with GenStudio. */
 let llmConcurrency = 50
@@ -1255,6 +1259,7 @@ export function setImageEpisodeConcurrency(n: number): void {
     if (group === IMAGE_EPISODE_GROUP) continue
     for (const t of fleetEpisodeTypesFor(group)) pump(t)
   }
+  noteAdaptiveImageTailEvent()
 }
 export function getImageEpisodeConcurrency(): number {
   return imageEpisodeConcurrency
@@ -1413,6 +1418,7 @@ async function persistJob(job: Job): Promise<void> {
 export async function checkpointJobState(job: Job): Promise<void> {
   await persistJob(job)
   emitUpdate(job)
+  if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
 }
 
 // ── Lazy load persisted jobs on first access ────────────────────────────────
@@ -1673,6 +1679,7 @@ function pumpImageEpisodeGroup(limit: number): void {
     emptyPass = 0
     imageEpisodeCursor = (IMAGE_GROUP_TYPES.indexOf(type) + 1) % IMAGE_GROUP_TYPES.length
     groupActive[IMAGE_EPISODE_GROUP] = (groupActive[IMAGE_EPISODE_GROUP] || 0) + 1
+    activeImageEpisodeJobIds.add(job.job_id)
     runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
   }
 }
@@ -1720,8 +1727,10 @@ function pumpGroup(group: string): void {
 function releaseSlot(type: JobType, job: Job): void {
   const group = groupOf(type, job)
   if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
+    if (group === IMAGE_EPISODE_GROUP) activeImageEpisodeJobIds.delete(job.job_id)
     groupActive[group] = Math.max(0, (groupActive[group] || 0) - 1)
     pumpGroup(group)
+    if (group === IMAGE_EPISODE_GROUP) noteAdaptiveImageTailEvent()
   } else {
     queues[type].running = false
     pump(type)
@@ -2234,6 +2243,114 @@ export async function proveContinuitySettlingTail(job: Job): Promise<ContinuityT
     active_asset_keys: keys as string[],
     provider_task_ids: [...providerTaskIds],
   }
+}
+
+type AdaptiveImageTailRefresh = (apiKey: string) => Promise<GenStudioAdmissionSnapshot>
+
+let adaptiveImageTailRefresh: AdaptiveImageTailRefresh = refreshGenStudioAdmission
+let adaptiveImageTailAdmissionFlight: Promise<void> | null = null
+let adaptiveImageTailEventVersion = 0
+
+function hasPendingImageCandidate(): boolean {
+  return IMAGE_GROUP_TYPES.some(type => queues[type].pending.length > 0)
+}
+
+function hasExactAdaptiveLocalState(base: number): boolean {
+  return !queuePaused
+    && imageEpisodeConcurrency === base
+    && (groupActive[IMAGE_EPISODE_GROUP] || 0) === base
+    && activeImageEpisodeJobIds.size === base
+    && hasPendingImageCandidate()
+}
+
+function sameContinuityTailProof(left: ContinuityTailProof, right: ContinuityTailProof | null): boolean {
+  if (!right) return false
+  return left.job_id === right.job_id
+    && left.settling === right.settling
+    && left.concurrency === right.concurrency
+    && left.active_asset_keys.length === right.active_asset_keys.length
+    && left.active_asset_keys.every((key, index) => key === right.active_asset_keys[index])
+    && left.provider_task_ids.length === right.provider_task_ids.length
+    && left.provider_task_ids.every((id, index) => id === right.provider_task_ids[index])
+}
+
+function hasVerifiedAdaptiveCapacity(snapshot: GenStudioAdmissionSnapshot | null | undefined): boolean {
+  return snapshot?.capacity_verified === true
+    && snapshot.limitSource === 'account-overview'
+    && Number.isSafeInteger(snapshot.available_paid_slots)
+    && snapshot.available_paid_slots > 0
+    && snapshot.queue_near_capacity === false
+    && snapshot.submissions_blocked === false
+    && snapshot.retry_after_ms === 0
+}
+
+async function findContinuityTailProof(): Promise<ContinuityTailProof | null> {
+  for (const jobId of [...activeImageEpisodeJobIds]) {
+    const job = jobs.get(jobId)
+    if (job?.type !== 'continuity_render') continue
+    const proof = await proveContinuitySettlingTail(job)
+    if (proof) return proof
+  }
+  return null
+}
+
+async function attemptAdaptiveImageTailAdmission(): Promise<void> {
+  const base = imageEpisodeConcurrency
+  if (!hasExactAdaptiveLocalState(base)) return
+
+  const apiKey = (await getApiKey('genstudio').catch(() => '')).trim()
+  if (!apiKey || !hasExactAdaptiveLocalState(base)) return
+
+  const proof = await findContinuityTailProof()
+  if (!proof || !activeImageEpisodeJobIds.has(proof.job_id) || !hasExactAdaptiveLocalState(base)) return
+
+  let snapshot: GenStudioAdmissionSnapshot | null = null
+  try {
+    snapshot = await adaptiveImageTailRefresh(apiKey)
+  } catch {
+    return
+  }
+
+  if (!hasExactAdaptiveLocalState(base) || !activeImageEpisodeJobIds.has(proof.job_id)) return
+  const current = jobs.get(proof.job_id)
+  const freshProof = current ? await proveContinuitySettlingTail(current) : null
+  if (
+    !hasExactAdaptiveLocalState(base)
+    || !activeImageEpisodeJobIds.has(proof.job_id)
+    || !sameContinuityTailProof(proof, freshProof)
+    || !hasVerifiedAdaptiveCapacity(snapshot)
+  ) return
+
+  pumpImageEpisodeGroup(base + 1)
+}
+
+/** Request one event-driven, shared capacity proof for a Continuity final wave. */
+export function requestAdaptiveImageTailAdmission(): void {
+  if (adaptiveImageTailAdmissionFlight) return
+  const eventVersion = adaptiveImageTailEventVersion
+  adaptiveImageTailAdmissionFlight = attemptAdaptiveImageTailAdmission().catch(() => {}).finally(() => {
+    adaptiveImageTailAdmissionFlight = null
+    if (adaptiveImageTailEventVersion !== eventVersion) requestAdaptiveImageTailAdmission()
+  })
+}
+
+function noteAdaptiveImageTailEvent(): void {
+  adaptiveImageTailEventVersion++
+  requestAdaptiveImageTailAdmission()
+}
+
+/** Test-only refresh injection; production always restores the GenStudio authority. */
+export function _setAdaptiveImageTailAdmissionRefreshForTesting(refresh: AdaptiveImageTailRefresh): () => void {
+  const previous = adaptiveImageTailRefresh
+  adaptiveImageTailRefresh = refresh
+  return () => {
+    if (adaptiveImageTailRefresh === refresh) adaptiveImageTailRefresh = previous
+  }
+}
+
+/** Test-only synchronization for deferred race fixtures. */
+export async function _waitForAdaptiveImageTailAdmissionForTesting(): Promise<void> {
+  while (adaptiveImageTailAdmissionFlight) await adaptiveImageTailAdmissionFlight
 }
 
 function isSafelyRetryableStallImageFailure(
@@ -2859,6 +2976,7 @@ function enqueuePrepared(
 
   // Kick off processing
   pump(opts.type)
+  if (IMAGE_EPISODE_TYPES.has(opts.type)) noteAdaptiveImageTailEvent()
 
   return serializeJob(job)
 }
