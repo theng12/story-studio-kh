@@ -4,6 +4,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import { readManifest, recordTaskStrict } from '../services/task-manifest.js'
+import type { Job } from '../models/types.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -32,6 +34,15 @@ async function waitForDone(jobId: string, jobsFile: string): Promise<void> {
     if (persistedStatus !== 'done') await new Promise(resolve => setTimeout(resolve, 10))
   }
   assert.equal(persistedStatus, 'done')
+}
+
+async function waitFor(check: () => boolean, message: string, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (check()) return
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.fail(message)
 }
 
 describe('startup recovery for explicitly checkpointed GenStudio assets', () => {
@@ -321,5 +332,280 @@ describe('startup recovery for interrupted image-episode renders', () => {
     await waitForDone('pool-restart-with-run-id', jobsFile)
 
     assert.equal(executions, 1)
+  })
+})
+
+describe('automatic recovery for cooperative Continuity Render stall holds', () => {
+  const sceneId = 'scene-stable-001'
+
+  function providerEvidence(id: string, state: string, extra: Record<string, unknown> = {}) {
+    return {
+      id,
+      operation: 'image.generation' as const,
+      state,
+      updated_at: new Date().toISOString(),
+      ...extra,
+    }
+  }
+
+  function stalledRender(
+    jobId: string,
+    projectSlug: string,
+    taskId: string,
+    extra: Partial<Job> = {},
+  ): Job {
+    return {
+      job_id: jobId,
+      project_slug: projectSlug,
+      type: 'continuity_render',
+      episode_id: 'EP-STABLE',
+      title: '[batch] continuity render — EP-STABLE',
+      status: 'paused',
+      pause_origin: 'stall',
+      pause_requested: false,
+      local_execution_complete: true,
+      created_at: new Date().toISOString(),
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      error: null,
+      output_lines: ['Automatic submission hold: test fixture reached the cooperative boundary.'],
+      params: { scene_ids: [sceneId] },
+      genstudio_jobs: [providerEvidence(taskId, 'succeeded')],
+      remote_cancellations: {},
+      ...extra,
+    }
+  }
+
+  async function submitImage(
+    service: Awaited<ReturnType<typeof startMockGenStudioService>>,
+    idempotencyKey: string,
+    states: Array<'accepted' | 'running' | 'succeeded' | 'failed'>,
+  ): Promise<string> {
+    service.queueScenario('image', { states })
+    const response = await fetch(`${service.baseUrl}/v1/images/generations`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+        'Idempotency-Key': idempotencyKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model_id: 'mock-image-v1', prompt: sceneId, aspect_ratio: '16:9' }),
+    }).then(result => result.json()) as { id: string }
+    return response.id
+  }
+
+  async function writeFixture(job: Job): Promise<{ jobsFile: string; manifestDir: string }> {
+    const jobsFile = path.join(tempDir, 'projects', job.project_slug, 'jobs.json')
+    const manifestDir = path.join(tempDir, 'stall-manifests', job.job_id)
+    await recordTaskStrict(manifestDir, `${sceneId}.png`, {
+      provider: 'genstudio-image',
+      task_id: job.genstudio_jobs![0]!.id,
+      submitted_at: new Date().toISOString(),
+      input_hash: 'sha256:stable-scene-fixture',
+      request_scope: 'missing',
+      idempotency_key: `story-image-${job.job_id}`,
+      operation: 'image',
+      last_state: job.genstudio_jobs![0]!.state,
+    })
+    job.output_dir = manifestDir
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+    return { jobsFile, manifestDir }
+  }
+
+  function registerManifestReclaimer(
+    executions: string[],
+    service?: Awaited<ReturnType<typeof startMockGenStudioService>>,
+  ): void {
+    jq.registerExecutor('continuity_render', async job => {
+      executions.push(job.job_id)
+      const manifest = await readManifest(job.output_dir!)
+      const taskId = manifest.tasks[`${sceneId}.png`]?.task_id
+      assert.equal(taskId, job.genstudio_jobs?.[0]?.id)
+      if (service) {
+        const provider = await fetch(`${service.baseUrl}/v1/images/${taskId}`, {
+          headers: { Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}` },
+        }).then(response => response.json()) as { id: string; state: string }
+        assert.equal(provider.id, taskId)
+        assert.equal(provider.state, 'succeeded')
+      }
+    })
+  }
+
+  test('a terminal stall hold requeues the same durable job and reclaims the original task once', async () => {
+    const service = await startMockGenStudioService()
+    const { setGenStudioUrl } = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    try {
+      await setGenStudioUrl(service.baseUrl)
+      await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+      const taskId = await submitImage(service, 'story-stall-terminal', ['succeeded'])
+      const project = await pm.createProject({ name: 'Safe terminal stall recovery' })
+      const job = stalledRender('stall-terminal-same-job', project.slug, taskId)
+      const { jobsFile } = await writeFixture(job)
+      const executions: string[] = []
+      registerManifestReclaimer(executions, service)
+      service.requests.length = 0
+
+      await jq.getJobs(project.slug)
+      await waitForDone(job.job_id, jobsFile)
+
+      assert.deepEqual(executions, [job.job_id])
+      assert.equal(jq.getJob(job.job_id)?.job_id, job.job_id)
+      assert.equal(jq.getJob(job.job_id)?.genstudio_jobs?.[0]?.id, taskId)
+      assert.equal(service.providerSubmissionCount('image'), 1)
+      assert.equal(service.requests.some(request => request.method === 'POST'), false)
+    } finally {
+      await service.close()
+    }
+  })
+
+  test('accepted evidence stays paused until terminal and repeated recovery triggers admit it once', async () => {
+    const service = await startMockGenStudioService()
+    const { setGenStudioUrl } = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    const originalFetch = globalThis.fetch
+    let releaseStatus!: () => void
+    const statusReleased = new Promise<void>(resolve => { releaseStatus = resolve })
+    let statusStarted = false
+    try {
+      await setGenStudioUrl(service.baseUrl)
+      await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+      const taskId = await submitImage(service, 'story-stall-reconcile', ['accepted', 'succeeded'])
+      const project = await pm.createProject({ name: 'Unsettled stall reconciliation' })
+      const job = stalledRender('stall-awaits-terminal', project.slug, taskId, {
+        genstudio_jobs: [providerEvidence(taskId, 'accepted')],
+      })
+      const { jobsFile } = await writeFixture(job)
+      const executions: string[] = []
+      registerManifestReclaimer(executions, service)
+      service.requests.length = 0
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input))
+        if (url.origin === service.baseUrl && url.pathname === `/v1/images/${taskId}`) {
+          statusStarted = true
+          await statusReleased
+        }
+        return originalFetch(input, init)
+      }
+
+      await Promise.all([jq.getJobs(project.slug), jq.getJobs(project.slug), jq.getJobs(project.slug)])
+      await waitFor(() => statusStarted, 'reconciliation never checked the accepted task')
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+      assert.equal(executions.length, 0)
+      assert.equal(service.providerSubmissionCount('image'), 1)
+
+      releaseStatus()
+      await waitForDone(job.job_id, jobsFile)
+      assert.deepEqual(executions, [job.job_id])
+      assert.equal(jq.getJob(job.job_id)?.genstudio_jobs?.[0]?.id, taskId)
+      assert.equal(service.providerSubmissionCount('image'), 1)
+      assert.equal(service.requests.some(request => request.method === 'POST'), false)
+      assert.equal(
+        service.requests.filter(request => request.path === `/v1/images/${taskId}`).length,
+        2,
+        'one reconciliation read plus one manifest reclaim read; no duplicate admission',
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+      releaseStatus?.()
+      await service.close()
+    }
+  })
+
+  test('unreachable reconciliation leaves the stall hold paused and never admits its executor', async () => {
+    const service = await startMockGenStudioService()
+    const { setGenStudioUrl } = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    const originalFetch = globalThis.fetch
+    let statusChecks = 0
+    try {
+      await setGenStudioUrl(service.baseUrl)
+      await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+      const taskId = await submitImage(service, 'story-stall-unreachable', ['accepted', 'succeeded'])
+      const project = await pm.createProject({ name: 'Unreachable stall reconciliation' })
+      const job = stalledRender('stall-reconciliation-unreachable', project.slug, taskId, {
+        genstudio_jobs: [providerEvidence(taskId, 'accepted')],
+      })
+      await writeFixture(job)
+      const executions: string[] = []
+      registerManifestReclaimer(executions)
+      service.requests.length = 0
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input))
+        if (url.origin === service.baseUrl && url.pathname === `/v1/images/${taskId}`) {
+          statusChecks++
+          throw new TypeError('fixture cannot reach GenStudio')
+        }
+        return originalFetch(input, init)
+      }
+
+      await jq.getJobs(project.slug)
+      await waitFor(() => statusChecks === 1 && Boolean(jq.getJob(job.job_id)?.reconciliation_error), 'unreachable evidence was not retained')
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+      assert.equal(executions.length, 0)
+      assert.equal(service.providerSubmissionCount('image'), 1)
+      assert.equal(service.requests.some(request => request.method === 'POST'), false)
+    } finally {
+      globalThis.fetch = originalFetch
+      await service.close()
+    }
+  })
+
+  test('unstable identity, cancellation context, and unsafe settlement all fail closed', async () => {
+    const executions: string[] = []
+    registerManifestReclaimer(executions)
+    jq.registerExecutor('image_pool_generate', async job => { executions.push(job.job_id) })
+
+    const fixtures: Job[] = []
+    const unstableProject = await pm.createProject({ name: 'Unstable output identity stall' })
+    fixtures.push(stalledRender('stall-unstable-output', unstableProject.slug, 'task-unstable', {
+      type: 'image_pool_generate',
+      params: {},
+    }))
+    const cancelledProject = await pm.createProject({ name: 'Cancellation context stall' })
+    fixtures.push(stalledRender('stall-cancellation-context', cancelledProject.slug, 'task-cancel-context', {
+      remote_cancellations: {
+        'image.generation:task-cancel-context': {
+          status: 'confirmed', operation: 'image.generation', provider_job_id: 'task-cancel-context',
+          requested_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        },
+      },
+    }))
+    const unsafeBoundaryProject = await pm.createProject({ name: 'Incomplete local stall boundary' })
+    fixtures.push(stalledRender('stall-before-safe-boundary', unsafeBoundaryProject.slug, 'task-before-boundary', {
+      local_execution_complete: false,
+    }))
+    for (const unsafe of [
+      { id: 'stall-charged-unknown', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 9, released_credits: 0 },
+      { id: 'stall-content-refused', failure_code: 'CONTENT_BLOCKED', reserved_credits: 9, settled_credits: 0, released_credits: 9 },
+      { id: 'stall-unknown-settlement', failure_code: 'SITE_CAPACITY_UNAVAILABLE' },
+    ]) {
+      const project = await pm.createProject({ name: unsafe.id })
+      fixtures.push(stalledRender(unsafe.id, project.slug, `task-${unsafe.id}`, {
+        genstudio_jobs: [providerEvidence(`task-${unsafe.id}`, 'failed', unsafe)],
+      }))
+    }
+
+    for (const job of fixtures) {
+      await writeFixture(job)
+      await jq.getJobs(job.project_slug)
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused', job.job_id)
+    }
+    assert.deepEqual(executions, [])
+  })
+
+  test('manual and queue origins never enter stall recovery', async () => {
+    await jq.setQueuePaused(true)
+    const executions: string[] = []
+    registerManifestReclaimer(executions)
+    for (const origin of ['manual', 'queue', undefined] as const) {
+      const label = origin || 'originless'
+      const project = await pm.createProject({ name: `${label} hold is not a stall` })
+      const job = stalledRender(`${label}-origin-terminal`, project.slug, `${label}-task`, { pause_origin: origin })
+      await writeFixture(job)
+      await jq.getJobs(project.slug)
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+    }
+    assert.deepEqual(executions, [])
   })
 })

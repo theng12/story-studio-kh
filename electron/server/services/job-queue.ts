@@ -30,6 +30,7 @@ import {
   isNeverCreatedProviderTask,
   isUnsettledProviderEntry as isUnsettledProviderEntryShared,
 } from '../lib/provider-task-state.js'
+import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
 import {
@@ -633,6 +634,9 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     }
     await persistJob(job)
     emitUpdate(job)
+    if (outcome.kind !== 'pending' && job.status === 'paused') {
+      await recoverSafelySettledStallJobs([job])
+    }
   } catch (error) {
     // Fail closed: keep status=running and duplicate lock. A later boot/load
     // or explicit status refresh can resume read-only reconciliation.
@@ -1576,6 +1580,9 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
       )),
     )
     for (const type of released.lanes) pump(type)
+    await recoverSafelySettledStallJobs([...jobs.values()].filter(job => (
+      job.project_slug === projectSlug && job.status === 'paused' && job.pause_origin === 'stall'
+    )))
   })()
   loadingProjects.set(projectSlug, loading)
   try {
@@ -2033,6 +2040,47 @@ interface PausedJobTransitionResult {
   resumed: Job[]
   persistenceFailed: Job[]
   lanes: Set<JobType>
+}
+
+function hasSafeTerminalStallEvidence(job: Job): boolean {
+  if (
+    job.type !== 'continuity_render'
+    || job.status !== 'paused'
+    || job.pause_origin !== 'stall'
+    || job.local_execution_complete !== true
+    || job.pause_requested === true
+    || pauseRequested.has(job.job_id)
+    || cancelled.has(job.job_id)
+    || hasCancellationContext(job)
+    || !queues[job.type]?.executor
+    || !hasStableImageOutputIdentity(job)
+  ) return false
+
+  const entries = job.genstudio_jobs || []
+  if (!entries.length) return false
+  return entries.every(entry => {
+    if (
+      entry.operation !== 'image.generation'
+      || !entry.id
+      || entry.id.startsWith('pending:')
+      || entry.cancelled === true
+    ) return false
+    if (entry.state === 'succeeded') return true
+    if (entry.state !== 'failed' || !FLEET_BUSY_FAILURE_CODES.has(String(entry.failure_code || ''))) return false
+    const reserved = entry.reserved_credits
+    const settled = entry.settled_credits
+    const released = entry.released_credits
+    return [reserved, settled, released].every(value => (
+      typeof value === 'number' && Number.isFinite(value) && value >= 0
+    )) && settled === 0 && released === reserved
+  })
+}
+
+/** Rejoin only evidence-proven stall holds through the ordinary durable lane. */
+async function recoverSafelySettledStallJobs(selected: Job[]): Promise<void> {
+  if (queuePaused) return
+  const released = await transitionPausedJobsToQueuedByProject(selected.filter(hasSafeTerminalStallEvidence))
+  for (const type of released.lanes) pump(type)
 }
 
 /**
