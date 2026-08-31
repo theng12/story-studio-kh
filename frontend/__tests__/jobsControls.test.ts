@@ -364,3 +364,41 @@ test('Remote keeps job details readable beside touch controls on narrow screens'
   assert.match(remote, /@media \(max-width: 420px\)[\s\S]*\.rm-job-main \{ flex: 1 0 100%; \}/)
   assert.match(remote, /\.rm-job-btn \{ height: 44px;/)
 })
+
+test('Paused status uses the same project and type scope for counts and visible rows', () => {
+  const scopedJobs = [
+    { status: 'paused', type: 'audio', project_slug: 'story' },
+    { status: 'paused', type: 'images', project_slug: 'story' },
+    { status: 'paused', type: 'audio', project_slug: 'other' },
+    { status: 'running', type: 'audio', project_slug: 'story' },
+  ]
+  assert.deepEqual(
+    filterJobsForView(scopedJobs, { type: 'audio', status: 'paused', project: 'story', batch: null }),
+    [scopedJobs[0]],
+  )
+  assert.match(jobs, /const typeScopedJobs = computed\(\(\) =>/)
+  assert.match(jobs, /\{ key: 'paused', label: 'Paused' \}/)
+  assert.match(jobs, /count: s\.key === 'all'\s*\? typeScopedJobs\.value\.length\s*:\s*typeScopedJobs\.value\.filter\(j => j\.status === s\.key\)\.length/)
+  assert.match(jobs, /filterJobsForView\(typeScopedJobs\.value, \{[\s\S]*?project: 'all'/)
+})
+
+test('Paused work rejoin sends only server-owned scope and gives immediate busy feedback', () => {
+  assert.match(jobs, /v-if="showBulkResume"/)
+  assert.match(jobs, /:disabled="bulkResumeBusy"/)
+  assert.match(jobs, /bulkResumeBusy \? `Rejoining \$\{bulkResumeCount\} jobs…` : `Resume paused work \(\$\{pausedJobCount\}\)`/)
+  assert.match(jobs, /:disabled="controlBusy\.has\(job\.job_id\)"[\s\S]*?\{\{ controlBusy\.has\(job\.job_id\) \? 'Rejoining…' : 'Resume' \}\}/)
+  assert.match(jobs, /if \(controlBusy\.value\.has\(job\.job_id\)\) return[\s\S]*?controlBusy\.value = new Set\(controlBusy\.value\)\.add\(job\.job_id\)/)
+  assert.match(jobs, /if \(bulkResumeBusy\.value \|\| !showBulkResume\.value\) return[\s\S]*?bulkResumeBusy\.value = true/)
+  assert.match(jobs, /const payload: \{ project_slug\?: string; type\?: string \} = \{\}/)
+  assert.match(jobs, /if \(activeFilter\.value !== 'all'\) payload\.type = activeFilter\.value/)
+  assert.match(jobs, /const endpoint = isUniversal\.value\s*\? '\/jobs\/all\/resume-paused'\s*:\s*`\/projects\/\$\{slug\.value\}\/jobs\/resume-paused`/)
+  assert.match(jobs, /if \(isUniversal\.value && projectFilter\.value !== 'all'\) \{\s*payload\.project_slug = projectFilter\.value\s*\}/)
+  assert.match(jobs, /await post<\{ resumed: number; skipped: number \}>\(endpoint, payload\)/)
+  assert.match(jobs, /Resumed \$\{result\.resumed\}; \$\{result\.skipped\} unchanged\./)
+  assert.doesNotMatch(jobs, /resume-paused[\s\S]{0,240}job_ids/)
+})
+
+test('Paused controls give filters and actions separate wrapping room on narrow Jobs layouts', () => {
+  assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.status-filters \{ flex: 1 1 100%; min-width: 0; \}/)
+  assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.status-bar > \.btn \{ flex: 1 1 auto; \}/)
+})
