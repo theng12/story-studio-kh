@@ -246,3 +246,61 @@ primary task owner. After the separate report checkpoint,
 `git status --porcelain=v1` was empty, the range diff check remained clean, and
 the process audit found no surviving test, typecheck, or executor process whose
 command referenced this worktree.
+
+## Full-gate timing-ratchet correction
+
+Test-only commit `5573d59da9b06fde917d831c990933f303b063cf`
+(`test: remove recovery wall-clock waits`) resolves the only failure from the
+primary owner's definitive full verification at `13e866a6`.
+
+### Gate RED
+
+The full backend suite completed **370/370 files**, but the release verifier
+failed only `no-new-wallclock-sleeps`:
+
+```text
+electron/server/__tests__/job-cancellation-reconciliation.test.ts
+5 fixed-ms sleeps before an assertion; baseline allows 4
+
+electron/server/__tests__/job-queue-genstudio-resume.test.ts
+3 fixed-ms sleeps before an assertion; baseline allows 2
+```
+
+The new generic-finalizer persistence poll used a literal 10 ms sleep before
+its assertion. The local GenStudio recovery `waitFor` wrapper likewise used a
+literal 10 ms poll; the new safety assertions made that newly over-baseline
+site part of this change's gate delta. The baseline was not raised.
+
+### GREEN
+
+```text
+node scripts/testing/run-backend-tests.mjs --only no-new-wallclock-sleeps
+1 passed, 0 failed; 1/1 selected file completed
+configured projects root byte-identical: true
+
+node scripts/testing/run-backend-tests.mjs \
+  --only job-queue-genstudio-resume --only job-cancellation-reconciliation
+51 passed, 0 failed; 3 suites; 2/2 selected files completed
+configured projects root byte-identical: true
+
+npm run typecheck:electron
+exit 0
+
+npx eslint electron/server/__tests__/job-cancellation-reconciliation.test.ts \
+  electron/server/__tests__/job-queue-genstudio-resume.test.ts --quiet
+exit 0
+
+git diff --check
+exit 0
+```
+
+Both waits now delegate to the existing scheduled-time `waitFor()` in
+`electron/server/__tests__/_timing.ts`. Assertions, timeout budgets, provider
+submission counts, product code, behavior, and `_timing-baseline.json` are
+unchanged. Per assignment, the already-completed full verifier was not rerun;
+only its failing timing gate and the two affected safety files were rerun.
+
+No implementation concern remains. After the separate report checkpoint,
+`git status --porcelain=v1` was empty, the range diff check remained clean, and
+the process audit found no surviving test or typecheck process whose command
+referenced this worktree.
