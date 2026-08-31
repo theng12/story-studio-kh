@@ -27,6 +27,22 @@
  */
 export const GENSTUDIO_TASK_NOT_CREATED_STATE = 'not_created'
 
+/**
+ * The exact GenStudio JobState values that still represent accepted provider
+ * work. Unknown values deliberately do not join this set: admitting image
+ * overflow on a newly invented state would turn provider drift into paid work.
+ */
+export type ActiveGenStudioProviderState =
+  | 'accepted' | 'reserved' | 'dispatched' | 'running' | 'reconciling' | 'validating'
+
+export const ACTIVE_GENSTUDIO_PROVIDER_STATES: ReadonlySet<ActiveGenStudioProviderState> = new Set([
+  'accepted', 'reserved', 'dispatched', 'running', 'reconciling', 'validating',
+])
+
+export function isActiveGenStudioProviderState(value: unknown): value is ActiveGenStudioProviderState {
+  return typeof value === 'string' && ACTIVE_GENSTUDIO_PROVIDER_STATES.has(value as ActiveGenStudioProviderState)
+}
+
 /** True when a recorded provider task carries the "no such task" marker. */
 export function isNeverCreatedProviderTask(entry: { state?: unknown }): boolean {
   return entry.state === GENSTUDIO_TASK_NOT_CREATED_STATE

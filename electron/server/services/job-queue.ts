@@ -28,6 +28,7 @@ import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-canc
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
 import {
   isNeverCreatedProviderTask,
+  isActiveGenStudioProviderState,
   isUnsettledProviderEntry as isUnsettledProviderEntryShared,
 } from '../lib/provider-task-state.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
@@ -2184,8 +2185,11 @@ export async function proveContinuitySettlingTail(job: Job): Promise<ContinuityT
       || manifestEntry?.operation !== 'image'
       || typeof checkpointEntry.output_path !== 'string'
       || path.resolve(checkpointEntry.output_path) !== path.resolve(job.output_dir, key)
+      || typeof checkpointEntry.input_hash !== 'string'
+      || !checkpointEntry.input_hash.trim()
       || typeof manifestEntry.input_hash !== 'string'
       || !manifestEntry.input_hash.trim()
+      || checkpointEntry.input_hash !== manifestEntry.input_hash
     ) return null
 
     const checkpointId = checkpointEntry.job_id
@@ -2211,9 +2215,14 @@ export async function proveContinuitySettlingTail(job: Job): Promise<ContinuityT
       entry.operation === 'image.generation'
       && entry.id === taskId
       && entry.cancelled !== true
-      && !['succeeded', 'failed', 'cancelled'].includes(entry.state)
+      && isActiveGenStudioProviderState(entry.state)
     ))
-    if (matches.length !== 1 || matches[0]!.request?.idempotency_key !== idempotencyKey || providerTaskIds.has(taskId)) return null
+    const providerKey = matches[0]?.request?.idempotency_key
+    if (
+      matches.length !== 1
+      || providerKey !== undefined && providerKey !== idempotencyKey
+      || providerTaskIds.has(taskId)
+    ) return null
     providerTaskIds.add(taskId)
   }
 

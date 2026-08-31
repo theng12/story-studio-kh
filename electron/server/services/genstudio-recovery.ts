@@ -28,6 +28,8 @@ interface GenStudioAssetRecovery {
   job_id?: string
   /** Exact expected artifact path. Required where one provider task maps to one file. */
   output_path?: string
+  /** Exact request fingerprint used to reject a stale manifest for this asset. */
+  input_hash?: string
   state: GenStudioRecoveryState
   updated_at: string
 }

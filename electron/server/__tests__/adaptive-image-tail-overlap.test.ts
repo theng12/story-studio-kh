@@ -89,6 +89,7 @@ function continuityTailJob(overrides: Record<string, unknown> = {}): any {
             idempotency_key: 'story-image-key-001',
             job_id: 'image-task-001',
             output_path: path.join(outputDir, key),
+            input_hash: 'sha256:tail-proof',
             state: 'accepted',
             updated_at: '2026-08-31T00:00:00.000Z',
           },
@@ -444,6 +445,7 @@ describe('Continuity settling-tail proof', () => {
       ['checkpoint manifest task disagreement', job => { job.params.genstudio_recovery.assets['scene-001.png'].job_id = 'image-task-other' }],
       ['checkpoint manifest key disagreement', job => { job.params.genstudio_recovery.assets['scene-001.png'].idempotency_key = 'story-other' }],
       ['wrong checkpoint output', job => { job.params.genstudio_recovery.assets['scene-001.png'].output_path = path.join(job.output_dir, 'scene-002.png') }],
+      ['checkpoint manifest input-hash disagreement', job => { job.params.genstudio_recovery.assets['scene-001.png'].input_hash = 'sha256:other' }],
       ['blank task ids', (job, manifest) => {
         delete job.params.genstudio_recovery.assets['scene-001.png'].job_id
         manifest.task_id = ''
@@ -456,6 +458,9 @@ describe('Continuity settling-tail proof', () => {
       ['terminal provider evidence', job => { job.genstudio_jobs[0].state = 'succeeded' }],
       ['cancelled provider evidence', job => { job.genstudio_jobs[0].cancelled = true }],
       ['provider idempotency mismatch', job => { job.genstudio_jobs[0].request.idempotency_key = 'story-other' }],
+      ['not-created provider state', job => { job.genstudio_jobs[0].state = 'not_created' }],
+      ['unknown provider state', job => { job.genstudio_jobs[0].state = 'something-new' }],
+      ['blank provider state', job => { job.genstudio_jobs[0].state = '' }],
     ]
     for (const [name, mutate] of cases) {
       const job = continuityTailJob()
@@ -464,6 +469,21 @@ describe('Continuity settling-tail proof', () => {
       await writeContinuityTailManifest(job, manifest)
       assert.equal(await proveTail(job), null, name)
     }
+  })
+
+  test('keeps the exact checkpoint and manifest binding valid when bounded provider previews are absent', async () => {
+    const job = continuityTailJob()
+    await writeContinuityTailManifest(job)
+    delete job.genstudio_jobs[0].request
+    for (let index = 0; index < 9; index++) {
+      job.genstudio_jobs.push({
+        id: `old-image-${index}`,
+        operation: 'image.generation',
+        state: 'succeeded',
+        updated_at: '2026-08-31T00:00:00.000Z',
+      })
+    }
+    assert.equal((await proveTail(job))?.provider_task_ids[0], 'image-task-001')
   })
 
   test('rejects a count-perfect final wave when one active asset is unmapped or shares a provider task', async () => {

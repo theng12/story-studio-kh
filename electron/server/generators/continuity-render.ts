@@ -416,6 +416,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // v1.0.457 — unified scene-image location (named "NN Scene Images" folder),
   // shared with the Scene Generator + media-root-aware.
   const outDir = await resolveContinuityRenderOutputDir(job.project_slug, episode_id, paths.episode_dir)
+  job.output_dir = outDir
   await fs.mkdir(outDir, { recursive: true })
 
   // Resume only from images that fully decode. A non-empty but truncated file
@@ -650,7 +651,6 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           const hashRequest = (scope: string): string =>
             hashInput(sceneReferenceTag ? `${scope}\n${finalPrompt}\nref:${sceneReferenceTag}` : `${scope}\n${finalPrompt}`)
           const filename = `${scene.id}.png`
-          inFlight.set(scene.scene_index, filename)
           const providerId = imageProvider.meta.providerId || imageProvider.meta.id
           // v1.4.27 — attempts for THIS scene. Only a busy fleet earns another
           // one; every other outcome, good or bad, leaves the loop on the first
@@ -664,6 +664,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
             // just every scene: a resubmission must never start after the owner
             // has already stopped the run.
             if (jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id) || fatalError) return
+            inFlight.set(scene.scene_index, filename)
             syncItemProgress()
             await pushStatus()
             // Captured so the failure path can record WHICH GenStudio job died.
@@ -789,6 +790,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                       idempotency_key: idempotencyKey,
                       job_id: taskId,
                       output_path: outPath,
+                      input_hash: inputHash,
                       state: 'accepted',
                     })
                   },
@@ -848,6 +850,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                   idempotency_key: acceptedIdempotencyKey || `story-image-${scene.id}`,
                   job_id: failedTaskId,
                   output_path: outPath,
+                  input_hash: attemptHash,
                   state: 'failed',
                 })
                 if (e.cancelled) cancelledSceneIds.add(scene.id)

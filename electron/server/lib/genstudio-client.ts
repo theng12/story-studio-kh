@@ -19,7 +19,7 @@ import {
   type GenStudioServiceTierStanding,
 } from './genstudio-admission.js'
 import { chunkText } from './text-chunker.js'
-import { isNeverCreatedProviderTask } from './provider-task-state.js'
+import { ACTIVE_GENSTUDIO_PROVIDER_STATES, isNeverCreatedProviderTask } from './provider-task-state.js'
 // Every outbound JSON body is serialised through `wellFormedJson`, never
 // through bare `JSON.stringify`. GenStudio is a UTF-8 service and correctly
 // refuses a lone surrogate; this is the single boundary that guarantees it
@@ -222,7 +222,7 @@ export type GenStudioCancellationFields = {
 }
 
 const GENSTUDIO_JOB_STATES = new Set<GenStudioJob['state']>([
-  'accepted', 'reserved', 'dispatched', 'running', 'validating', 'succeeded', 'failed', 'reconciling',
+  ...ACTIVE_GENSTUDIO_PROVIDER_STATES, 'succeeded', 'failed',
 ])
 
 function isValidSettlement(value: unknown): value is number {
