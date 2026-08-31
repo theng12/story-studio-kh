@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
 import type { Job, PaidImageReplacementAttempt } from '../models/types.js'
-import { readManifest, recordTaskStrict } from '../services/task-manifest.js'
+import { readManifest, recordPaidImageReplacementStrict, recordTaskStrict } from '../services/task-manifest.js'
 import { waitFor as waitForScheduled } from './_timing.js'
 
 let tempDir: string
@@ -243,6 +243,36 @@ describe('durable paid image waits across boot', () => {
       await Promise.resolve()
       assert.equal(calls, 0)
     } finally { restore() }
+  })
+
+  test('each committed manifest remnant blocks a waiting timer and requeue', async () => {
+    await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+    const remnants: Array<[string, Record<string, unknown>]> = [
+      ['replacement_of_task_id', { replacement_of_task_id: 'replacement-of-original' }],
+      ['replacement_scope', { replacement_scope: 'paid:scope' }],
+      ['replacement_quoted_credits', { replacement_quoted_credits: 3 }],
+      ['replacement_price_version', { replacement_price_version: 'price-v1' }],
+      ['replacement_committed_at', { replacement_committed_at: new Date(NOW).toISOString() }],
+    ]
+    for (const [name, remnant] of remnants) {
+      const project = await pm.createProject({ name: `manifest remnant ${name}` })
+      const dir = path.join(tempDir, 'paid-manifests', project.slug)
+      const attempt = paidAttempt(dir)
+      const job = paidJob(project.slug, attempt)
+      job.output_dir = dir
+      await seedOriginalManifest(attempt)
+      const entry = (await readManifest(dir)).tasks[attempt.manifest_key]!
+      await recordPaidImageReplacementStrict(dir, attempt.manifest_key, { ...entry, ...remnant } as any)
+      await fs.writeFile(path.join(tempDir, 'projects', project.slug, 'jobs.json'), JSON.stringify({ jobs: [job] }))
+      const timers: unknown[] = []
+      const restore = jq._setPaidImageWaitRuntimeForTesting({ nowMs: () => NOW, setTimer: timer => { timers.push(timer); return timers.length }, clearTimer: () => {} })
+      try {
+        jq.registerExecutor('continuity_render', async () => {})
+        await jq.resumeInterruptedJobsAtBoot()
+        assert.equal(timers.length, 0, name)
+        assert.notEqual(jq.getJob(job.job_id)?.status, 'queued', name)
+      } finally { restore() }
+    }
   })
 
   test('jobs.json repairs only the approved committed and submitted manifest mirror', async () => {
