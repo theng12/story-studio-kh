@@ -1447,7 +1447,10 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             } else {
             const queue = queues[j.type as JobType]
             if (queue?.executor) {
-              j.started_at = null
+              // An image job with a prior admission timestamp is recovery
+              // work. Preserve that class across every boot; ordinary lanes
+              // retain their historical reset behavior.
+              if (!IMAGE_EPISODE_TYPES.has(j.type as JobType)) j.started_at = null
               j.finished_at = null
               queue.pending.push(j)
               resumedTypes.add(j.type as JobType)

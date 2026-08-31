@@ -32,9 +32,30 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
   }
 }
 
+async function waitForPersistedTerminal(
+  jobsFile: string,
+  jobIds: string[],
+  label: string,
+): Promise<void> {
+  // The queue's terminal status is persisted asynchronously. Poll the durable
+  // file until every fixture is terminal, so cleanup observes the write
+  // instead of relying on a wall-clock delay.
+  const deadline = Date.now() + 3_000
+  while (Date.now() < deadline) {
+    try {
+      const rows = JSON.parse(await readFile(jobsFile, 'utf8')).jobs as Array<{ job_id: string; status: string }>
+      if (jobIds.every(id => rows.some(row => row.job_id === id && ['done', 'error', 'cancelled'].includes(row.status)))) return
+    } catch { /* the first atomic write may not exist yet */ }
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  throw new Error(`Timed out waiting for ${label}`)
+}
+
 describe('image episode admission fairness', () => {
   test('alternates continuity and pool opportunities while preserving each FIFO', async () => {
     const project = await pm.createProject({ name: 'Adaptive image fairness' })
+    const jobsFile = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', project.slug, 'jobs.json')
+    const jobs: Array<{ job_id: string; episode_id: string }> = []
     const started: string[] = []
     const releases = new Map<string, () => void>()
     const active = new Set<string>()
@@ -62,13 +83,14 @@ describe('image episode admission fairness', () => {
       ['continuity_render', 'continuity:c3'],
       ['image_pool_generate', 'pool:p3'],
     ] as const) {
-      jq.enqueuePreparedForTest({
+      const queued = jq.enqueuePreparedForTest({
         project_slug: project.slug,
         type,
         episode_id,
         title: episode_id,
         params: {},
       })
+      jobs.push({ job_id: queued.job_id, episode_id })
     }
 
     const release = async (episode_id: string) => {
@@ -100,17 +122,17 @@ describe('image episode admission fairness', () => {
       await release('pool:p3')
       await waitFor(() => active.size === 0, 'all image jobs to settle')
     } finally {
-      // Keep a RED assertion from stranding blocked executors and contaminating
-      // the recovery fixture below.
-      for (const episode_id of ['continuity:c1', 'pool:p1', 'continuity:c2', 'pool:p2', 'continuity:c3', 'pool:p3']) {
-        if (releases.has(episode_id)) releases.get(episode_id)!()
-      }
-      for (let pass = 0; pass < 10; pass++) {
-        for (const episode_id of ['continuity:c1', 'pool:p1', 'continuity:c2', 'pool:p2', 'continuity:c3', 'pool:p3']) {
-          if (releases.has(episode_id)) releases.get(episode_id)!()
+      const released = new Set<string>()
+      await waitFor(() => {
+        for (const episode_id of jobs.map(row => row.episode_id)) {
+          if (releases.has(episode_id) && !released.has(episode_id)) {
+            released.add(episode_id)
+            releases.get(episode_id)!()
+          }
         }
-        await new Promise(resolve => setTimeout(resolve, 30))
-      }
+        return jobs.every(row => ['done', 'error', 'cancelled'].includes(jq.getJob(row.job_id)?.status || ''))
+      }, 'all fairness executors to settle').catch(() => {})
+      await waitForPersistedTerminal(jobsFile, jobs.map(row => row.job_id), 'all fairness jobs to persist')
     }
   })
 
@@ -153,25 +175,118 @@ describe('image episode admission fairness', () => {
       // Test-only fixture marker; the live job remains queued behind hold.
       started_at: '2026-08-31T00:00:00.000Z',
     } as any)
+    const fresh2 = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'continuity_render',
+      episode_id: 'continuity:fresh-2',
+      title: 'continuity:fresh-2',
+      params: {},
+    })
+    const recovery2 = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'continuity_render',
+      episode_id: 'continuity:recovery-2',
+      title: 'continuity:recovery-2',
+      params: {},
+      started_at: '2026-08-31T00:01:00.000Z',
+    } as any)
     assert.equal(fresh.status, 'queued')
     assert.equal(recovery.status, 'queued')
+    assert.equal(fresh2.status, 'queued')
+    assert.equal(recovery2.status, 'queued')
 
     await waitFor(() => releases.has('pool:hold'), 'the holding pool job to start')
     releases.get('pool:hold')!()
     await waitFor(() => started.includes('continuity:recovery-1'), 'the recovery job to start first')
     assert.deepEqual(started.slice(0, 2), ['pool:hold', 'continuity:recovery-1'])
     releases.get('continuity:recovery-1')!()
-    await waitFor(() => started.includes('continuity:fresh-1'), 'the fresh job to start second')
+    await waitFor(() => started.includes('continuity:recovery-2'), 'the second recovery job to start')
+    releases.get('continuity:recovery-2')!()
+    await waitFor(() => started.includes('continuity:fresh-1'), 'the first fresh job to start')
     releases.get('continuity:fresh-1')!()
-    await waitFor(() => started.length === 3, 'all recovery FIFO fixtures to settle')
+    await waitFor(() => started.includes('continuity:fresh-2'), 'the second fresh job to start')
+    releases.get('continuity:fresh-2')!()
+    await waitFor(() => started.length === 5, 'all recovery FIFO fixtures to settle')
+    assert.deepEqual(started.slice(1), [
+      'continuity:recovery-1',
+      'continuity:recovery-2',
+      'continuity:fresh-1',
+      'continuity:fresh-2',
+    ])
     await waitFor(() => active.size === 0, 'all recovery FIFO executors to settle')
-    await waitFor(() => [hold, fresh, recovery].every(row => {
+    await waitFor(() => [hold, fresh, recovery, fresh2, recovery2].every(row => {
       const status = jq.getJob(row.job_id)?.status
       return status === 'done' || status === 'error' || status === 'cancelled'
     }), 'all recovery FIFO jobs to persist their terminal status')
-    // The initial enqueue persistence is intentionally fire-and-forget; give
-    // its lock holder time to finish before the isolated directory is removed.
-    await new Promise(resolve => setTimeout(resolve, 500))
+    await waitForPersistedTerminal(
+      path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', project.slug, 'jobs.json'),
+      [hold, fresh, recovery, fresh2, recovery2].map(row => row.job_id),
+      'all recovery FIFO jobs to persist',
+    )
+  })
+
+  test('a queued image recovery timestamp survives repeated boot before fresh work', async () => {
+    const project = await pm.createProject({ name: 'Adaptive image repeated boot' })
+    const jobsFile = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', project.slug, 'jobs.json')
+    const recoveryId = 'persisted-recovery'
+    const freshId = 'persisted-fresh'
+    await (await import('node:fs/promises')).writeFile(jobsFile, JSON.stringify({ jobs: [
+      {
+        job_id: freshId,
+        project_slug: project.slug,
+        type: 'continuity_render',
+        episode_id: 'continuity:persisted-fresh',
+        title: 'persisted fresh',
+        status: 'queued',
+        created_at: '2026-08-31T00:01:00.000Z',
+        started_at: null,
+        finished_at: null,
+        error: null,
+        output_lines: [],
+        params: {},
+      },
+      {
+        job_id: recoveryId,
+        project_slug: project.slug,
+        type: 'continuity_render',
+        episode_id: 'continuity:persisted-recovery',
+        title: 'persisted recovery',
+        status: 'queued',
+        created_at: '2026-08-31T00:00:00.000Z',
+        started_at: '2026-08-31T00:00:00.000Z',
+        finished_at: null,
+        error: null,
+        output_lines: [],
+        params: {},
+      },
+    ] }))
+
+    const queueUrl = new URL('../services/job-queue.js', import.meta.url).href
+    const firstBoot = await import(`${queueUrl}?repeat-boot=1`)
+    await firstBoot.setQueuePaused(true)
+    firstBoot.setImageEpisodeConcurrency(1)
+    firstBoot.registerExecutor('continuity_render', async () => {})
+    await firstBoot.getJobs(project.slug)
+
+    // A second queue module represents a fresh process loading the same
+    // persisted records. Keep its lane paused until the file has been read.
+    const secondBoot = await import(`${queueUrl}?repeat-boot=2`)
+    secondBoot.setImageEpisodeConcurrency(1)
+    const started: string[] = []
+    let release!: () => void
+    secondBoot.registerExecutor('continuity_render', async (job: { episode_id: string }) => {
+      started.push(job.episode_id)
+      await new Promise<void>(resolve => { release = resolve })
+    })
+    await secondBoot.getJobs(project.slug)
+    await secondBoot.setQueuePaused(false)
+    await waitFor(() => started.length === 1, 'the persisted recovery job to start')
+    assert.deepEqual(started, ['continuity:persisted-recovery'])
+    release()
+    await waitFor(() => started.length === 2, 'the fresh persisted job to start second')
+    assert.deepEqual(started, ['continuity:persisted-recovery', 'continuity:persisted-fresh'])
+    release()
+    await waitForPersistedTerminal(jobsFile, [recoveryId, freshId], 'repeated-boot jobs to persist')
   })
 
   test('image admission contains no size or duration priority terms', async () => {
