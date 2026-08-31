@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.90 — 2026-08-31
+
+- **Work held by a temporary connection or capacity problem can safely pick up again.** Story Studio now checks what has already finished before continuing, keeps completed output, and retries only genuinely missing work through its normal safeguards. A pause you made yourself remains paused until you choose to resume it; a temporary failure can still require another attempt if the service cannot complete it.
+- **Paused work is easier to find and rejoin.** Filter the Jobs page to Paused and rejoin the visible scope in one action. The page gives immediate “Rejoining…” feedback, and the controls remain usable on compact screens.
+
 ## v1.4.89 — 2026-08-31
 
 - **Job timing stays in one dependable place while work is running.** The last-progress reading now remains pinned to the card’s right edge whether Story Studio can estimate time remaining or is still gathering enough evidence to do so. Its quiet state is easier to scan with a subtle information treatment, and a stale reading now carries the same treatment with a clearer warning signal. The timing group also moves cleanly to its own right-aligned row on compact screens.
