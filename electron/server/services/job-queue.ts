@@ -18,7 +18,7 @@ import { projectsRoot, getProjectDir } from './project-manager.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
-import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType, PaidImageReplacementPolicySnapshot } from '../models/types.js'
+import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType, PaidImageReplacementAttempt, PaidImageReplacementPolicySnapshot } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
@@ -1394,10 +1394,16 @@ async function persistJob(job: Job): Promise<void> {
     } catch { /* corrupt or missing — start fresh */ }
 
     const idx = data.jobs.findIndex((j: any) => j.job_id === job.job_id)
+    const next = safeJob(job)
     if (idx >= 0) {
-      data.jobs[idx] = safeJob(job)
+      const previous = data.jobs[idx] as Job
+      const attempts = mergePaidImageReplacementAttempts(
+        previous.paid_image_replacement_attempts,
+        next.paid_image_replacement_attempts,
+      )
+      data.jobs[idx] = attempts ? { ...next, paid_image_replacement_attempts: attempts } : next
     } else {
-      data.jobs.push(safeJob(job))
+      data.jobs.push(next)
     }
 
     data.jobs = retainJobsForPersistence(data.jobs)
@@ -1433,6 +1439,34 @@ export async function loadAuthoritativeJob(projectSlug: string, jobId: string): 
 /** The paired write side of `loadAuthoritativeJob`, retained as one test seam. */
 export async function writeAuthoritativeJob(job: Job): Promise<void> {
   await persistJob(job)
+}
+
+/**
+ * Atomic paid-attempt mutation. It shares the normal queue's jobs.json lock,
+ * so a checkpoint cannot interleave between a paid read and its durable write.
+ */
+export async function mutateAuthoritativeJob(
+  projectSlug: string,
+  jobId: string,
+  mutate: (job: Job) => Job | null,
+): Promise<Job | null> {
+  const p = jobsPath(projectSlug)
+  assertWriteIsolatedInTests(p, 'job-queue')
+  return withLock(p, async () => {
+    if (!existsSync(p)) return null
+    const data = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
+    if (!Array.isArray(data.jobs)) throw new Error('jobs.json does not contain a jobs array')
+    const index = data.jobs.findIndex((candidate: unknown) => (
+      Boolean(candidate) && typeof candidate === 'object' && (candidate as Job).job_id === jobId
+    ))
+    if (index < 0) return null
+    const next = mutate(structuredClone(data.jobs[index] as Job))
+    if (!next) return null
+    data.jobs[index] = safeJob(next)
+    data.jobs = retainJobsForPersistence(data.jobs)
+    await writeJsonAtomic(p, data)
+    return structuredClone(next)
+  })
 }
 
 /**
@@ -2333,7 +2367,7 @@ function sameContinuityTailProof(left: ContinuityTailProof, right: ContinuityTai
     && left.provider_task_ids.every((id, index) => id === right.provider_task_ids[index])
 }
 
-function hasVerifiedAdaptiveCapacity(snapshot: GenStudioAdmissionSnapshot | null | undefined): boolean {
+export function hasVerifiedGenStudioAdmission(snapshot: GenStudioAdmissionSnapshot | null | undefined): boolean {
   return snapshot?.capacity_verified === true
     && snapshot.limitSource === 'account-overview'
     && Number.isSafeInteger(snapshot.available_paid_slots)
@@ -2341,6 +2375,26 @@ function hasVerifiedAdaptiveCapacity(snapshot: GenStudioAdmissionSnapshot | null
     && snapshot.queue_near_capacity === false
     && snapshot.submissions_blocked === false
     && snapshot.retry_after_ms === 0
+}
+
+const PAID_ATTEMPT_STATE_ORDER: Record<PaidImageReplacementAttempt['state'], number> = {
+  waiting: 1, committed: 2, submitted: 3, succeeded: 4, failed: 4, blocked: 4,
+}
+
+function mergePaidImageReplacementAttempts(
+  persisted: PaidImageReplacementAttempt[] | undefined,
+  incoming: PaidImageReplacementAttempt[] | undefined,
+): PaidImageReplacementAttempt[] | undefined {
+  if (!persisted?.length) return incoming
+  if (!incoming?.length) return persisted
+  const merged = new Map(persisted.map(attempt => [attempt.asset_key, attempt]))
+  for (const candidate of incoming) {
+    const previous = merged.get(candidate.asset_key)
+    if (!previous || PAID_ATTEMPT_STATE_ORDER[candidate.state] > PAID_ATTEMPT_STATE_ORDER[previous.state]) {
+      merged.set(candidate.asset_key, candidate)
+    }
+  }
+  return [...merged.values()]
 }
 
 async function findContinuityTailProof(): Promise<ContinuityTailProof | null> {
@@ -2377,7 +2431,7 @@ async function attemptAdaptiveImageTailAdmission(): Promise<void> {
     !hasExactAdaptiveLocalState(base)
     || !activeImageEpisodeJobIds.has(proof.job_id)
     || !sameContinuityTailProof(proof, freshProof)
-    || !hasVerifiedAdaptiveCapacity(snapshot)
+    || !hasVerifiedGenStudioAdmission(snapshot)
   ) return
 
   pumpImageEpisodeGroup(base + 1)

@@ -138,6 +138,28 @@ export async function readManifest(assetDir: string): Promise<Manifest> {
   return { schema_version: 1, tasks: {} }
 }
 
+/** Paid commitment must never turn a corrupt sidecar into a new authority. */
+async function readManifestStrict(assetDir: string): Promise<Manifest> {
+  const p = manifestPath(assetDir)
+  const raw = await fs.readFile(p, 'utf-8')
+  const parsed = JSON.parse(raw) as Partial<Manifest>
+  if (parsed?.schema_version !== 1 || !parsed.tasks || typeof parsed.tasks !== 'object' || Array.isArray(parsed.tasks)) {
+    throw new Error('task manifest is invalid')
+  }
+  return { schema_version: 1, tasks: parsed.tasks }
+}
+
+function samePaidImageOriginal(left: TaskManifestEntry, right: TaskManifestEntry): boolean {
+  return left.task_id === right.task_id
+    && left.idempotency_key === right.idempotency_key
+    && left.input_hash === right.input_hash
+    && left.request_scope === right.request_scope
+    && left.original_output_path === right.original_output_path
+    && left.original_reference_identity_hash === right.original_reference_identity_hash
+    && JSON.stringify(left.original_output_selector) === JSON.stringify(right.original_output_selector)
+    && JSON.stringify(left.original_reference_inputs) === JSON.stringify(right.original_reference_inputs)
+}
+
 /**
  * Per-assetDir write chain. Parallel workers (audio chunks, image variants,
  * video clips) all call recordTask concurrently for *different* filenames
@@ -218,6 +240,42 @@ export async function recordTaskStrict(
   entry: TaskManifestEntry,
 ): Promise<void> {
   await writeTaskEntry(assetDir, filename, entry, true)
+}
+
+/**
+ * Merge only paid commitment fields into the latest strict sidecar entry.
+ * The persisted original identity must still equal the entry the decision
+ * revalidated before any network read; a concurrent original update blocks.
+ */
+export async function recordPaidImageReplacementStrict(
+  assetDir: string,
+  filename: string,
+  expected: TaskManifestEntry,
+): Promise<void> {
+  const key = path.resolve(assetDir)
+  const previous = writeChains.get(key) ?? Promise.resolve()
+  const operation = previous.then(async () => {
+    const manifest = await readManifestStrict(assetDir)
+    const latest = manifest.tasks[filename]
+    if (!latest || !samePaidImageOriginal(latest, expected)) {
+      throw new Error('task manifest original identity changed before paid commitment')
+    }
+    manifest.tasks[filename] = {
+      ...latest,
+      replacement_of_task_id: expected.replacement_of_task_id,
+      replacement_scope: expected.replacement_scope,
+      replacement_quoted_credits: expected.replacement_quoted_credits,
+      replacement_price_version: expected.replacement_price_version,
+      replacement_committed_at: expected.replacement_committed_at,
+    }
+    await writeJsonAtomic(manifestPath(assetDir), manifest)
+  })
+  const tail = operation.catch(() => {})
+  writeChains.set(key, tail)
+  void tail.finally(() => {
+    if (writeChains.get(key) === tail) writeChains.delete(key)
+  })
+  await operation
 }
 
 export function getTaskEntry(manifest: Manifest, filename: string): TaskManifestEntry | null {

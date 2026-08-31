@@ -8,7 +8,8 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { listImageModelsForceLive, type GenStudioImageModel } from '../lib/genstudio-client.js'
 import type { Job, PaidImageReplacementAttempt } from '../models/types.js'
-import { hashInput, readManifest, recordTaskStrict, type Manifest, type PaidImageOutputSelector, type PaidImageReferenceInput, type TaskManifestEntry } from './task-manifest.js'
+import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
+import { hashInput, readManifest, recordPaidImageReplacementStrict, type Manifest, type PaidImageOutputSelector, type PaidImageReferenceInput, type TaskManifestEntry } from './task-manifest.js'
 
 export type { PaidImageOutputSelector, PaidImageReferenceInput } from './task-manifest.js'
 
@@ -254,6 +255,11 @@ export interface PaidImageCommitPersistence {
   writeAuthoritativeJob(job: Job): Promise<void>
   readManifest(assetDir: string): Promise<Manifest>
   writeManifestStrict(assetDir: string, key: string, entry: TaskManifestEntry): Promise<void>
+  mutateAuthoritativeJob?(
+    projectSlug: string,
+    jobId: string,
+    mutate: (job: Job) => Job | null,
+  ): Promise<Job | null>
 }
 
 type PaidImageControl = {
@@ -266,22 +272,12 @@ type PaidImageControl = {
   released_credits?: number | null
 }
 
-type PaidImageAdmission = {
-  capacity_verified: boolean
-  credit_balance?: number
-  paid_concurrency_limit: number
-  paid_active_jobs: number
-  paid_queued_jobs: number
-  max_queued_jobs: number
-  generation_submissions_per_minute: number
-}
-
 export interface PaidImageReplacementDependencies {
   readControl(): Promise<PaidImageControl>
   artifactExists(outputPath: string): Promise<boolean>
   getSetting(): Promise<{ enabled: boolean; additional_credit_ceiling: number | null }>
   resolveRate(input: Omit<Parameters<typeof resolvePaidImagePublishedRate>[0], 'models'>): Promise<PaidImagePublishedRate>
-  refreshAdmission(): Promise<PaidImageAdmission>
+  refreshAdmission(): Promise<GenStudioAdmissionSnapshot>
 }
 
 export interface PaidImageReplacementDecisionInput {
@@ -304,6 +300,7 @@ export interface PaidImageReplacementDecisionInput {
 const PAID_WAIT_MS = 30 * 60 * 1_000
 const FLEET_FAILURE_CODES = new Set(['SITE_PLACEMENT_EXHAUSTED', 'SITE_CAPACITY_UNAVAILABLE'])
 const commitLocks = new Map<string, Promise<void>>()
+const EXPLICIT_BLOCKED_FAILURE = /(?:UNCERTAIN|REFUS|VALIDATION|AUTH|CREDIT|BILLING)/i
 
 function isFiniteCredit(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
@@ -360,7 +357,8 @@ async function defaultPersistence(): Promise<PaidImageCommitPersistence> {
     loadAuthoritativeJob: queue.loadAuthoritativeJob,
     writeAuthoritativeJob: queue.writeAuthoritativeJob,
     readManifest,
-    writeManifestStrict: recordTaskStrict,
+    writeManifestStrict: recordPaidImageReplacementStrict,
+    mutateAuthoritativeJob: queue.mutateAuthoritativeJob,
   }
 }
 
@@ -397,6 +395,21 @@ async function withCommitLock<T>(key: string, work: () => Promise<T>): Promise<T
     release()
     if (commitLocks.get(key) === current) commitLocks.delete(key)
   }
+}
+
+async function mutateAuthoritativeJob(
+  persistence: PaidImageCommitPersistence,
+  projectSlug: string,
+  jobId: string,
+  mutate: (job: Job) => Job | null,
+): Promise<Job | null> {
+  if (persistence.mutateAuthoritativeJob) return persistence.mutateAuthoritativeJob(projectSlug, jobId, mutate)
+  const current = await persistence.loadAuthoritativeJob(projectSlug, jobId)
+  if (!current) return null
+  const next = mutate(current)
+  if (!next) return null
+  await persistence.writeAuthoritativeJob(next)
+  return next
 }
 
 function overwriteJob(target: Job, source: Job): void {
@@ -438,8 +451,9 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
     return { action: 'recover-original' }
   }
   if (control.id !== entry.task_id) return blocked('the terminal control task does not match the durable original task')
-  if (control.state !== 'failed') return { action: 'recover-original' }
   if (control.cancelled === true) return blocked('the original task was cancelled')
+  if (EXPLICIT_BLOCKED_FAILURE.test(String(control.failure_code || ''))) return blocked('the original task has an explicit refusal or uncertain submission result')
+  if (control.state !== 'failed') return { action: 'recover-original' }
   if (!FLEET_FAILURE_CODES.has(String(control.failure_code || ''))) return blocked('the original failure is not an allow-listed transient infrastructure result')
   if (!isFiniteCredit(control.reserved_credits) || !isFiniteCredit(control.settled_credits) || !isFiniteCredit(control.released_credits)
     || control.reserved_credits !== control.settled_credits + control.released_credits) {
@@ -452,33 +466,42 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
       : blocked('the zero settlement was not fully released')
   }
 
-  const attempts = input.job.paid_image_replacement_attempts || []
-  const current = attempts.filter(attempt => attempt.asset_key === asset.assetKey)
-  if (current.length > 1) return blocked('the asset has multiple replacement attempts')
-  let attempt = current[0]
-  if (attempt) {
-    if (!sameAttemptFacts(attempt, asset, entry) || !validWaitClock(attempt)) return blocked('the durable replacement attempt does not match the original identity')
-    if (attempt.state !== 'waiting') return blocked('the asset already has a paid replacement attempt')
-  } else {
-    const observed = now()
-    if (!Number.isFinite(observed.getTime())) return blocked('the terminal observation clock is invalid')
-    attempt = {
-      asset_key: asset.assetKey, manifest_dir: asset.manifestDir, manifest_key: asset.manifestKey,
-      output_path: asset.outputPath, state: 'waiting', original_task_id: entry.task_id,
-      original_idempotency_key: entry.idempotency_key, input_hash: entry.input_hash, output_selector: original.selector,
-      reference_inputs: original.references, reference_identity_hash: original.referenceIdentityHash,
-      failure_code: String(control.failure_code), reserved_credits: control.reserved_credits,
-      settled_credits: control.settled_credits, released_credits: control.released_credits,
-      terminal_observed_at: observed.toISOString(), eligible_at: new Date(observed.getTime() + PAID_WAIT_MS).toISOString(),
-    }
-    const waiting = structuredClone(input.job)
-    waiting.paid_image_replacement_attempts = [...attempts, attempt]
-    try {
-      await persistence.writeAuthoritativeJob(waiting)
-      overwriteJob(input.job, waiting)
-    } catch (error: any) {
-      return blocked(error?.message || 'the paid wait could not be written')
-    }
+  let attempt: PaidImageReplacementAttempt | undefined
+  let waitingReason: string | null = null
+  try {
+    const waiting = await withCommitLock(input.job.job_id, () => mutateAuthoritativeJob(
+      persistence, input.job.project_slug, input.job.job_id, (authoritative) => {
+        if (validPolicy(authoritative) === null) { waitingReason = 'the authoritative job has no valid paid image replacement policy'; return null }
+        const attempts = authoritative.paid_image_replacement_attempts || []
+        const current = attempts.filter(candidate => candidate.asset_key === asset.assetKey)
+        if (current.length > 1) { waitingReason = 'the authoritative job has multiple replacement attempts for this asset'; return null }
+        if (current[0]) {
+          if (!sameAttemptFacts(current[0], asset, entry!) || !validWaitClock(current[0])) {
+            waitingReason = 'the durable replacement attempt does not match the original identity'; return null
+          }
+          if (current[0].state !== 'waiting') { waitingReason = 'the asset already has a paid replacement attempt'; return null }
+          attempt = current[0]
+          return authoritative
+        }
+        const observed = now()
+        if (!Number.isFinite(observed.getTime())) { waitingReason = 'the terminal observation clock is invalid'; return null }
+        attempt = {
+          asset_key: asset.assetKey, manifest_dir: asset.manifestDir, manifest_key: asset.manifestKey,
+          output_path: asset.outputPath, state: 'waiting', original_task_id: entry!.task_id,
+          original_idempotency_key: entry!.idempotency_key!, input_hash: entry!.input_hash!, output_selector: original.selector,
+          reference_inputs: original.references, reference_identity_hash: original.referenceIdentityHash,
+          failure_code: String(control.failure_code), reserved_credits: control.reserved_credits!,
+          settled_credits: control.settled_credits!, released_credits: control.released_credits!,
+          terminal_observed_at: observed.toISOString(), eligible_at: new Date(observed.getTime() + PAID_WAIT_MS).toISOString(),
+        }
+        authoritative.paid_image_replacement_attempts = [...attempts, attempt]
+        return authoritative
+      },
+    ))
+    if (!waiting || !attempt) return blocked(waitingReason || 'the authoritative job is unavailable')
+    overwriteJob(input.job, waiting)
+  } catch (error: any) {
+    return blocked(error?.message || 'the paid wait could not be written')
   }
 
   if (now().getTime() < Date.parse(attempt.eligible_at)) return { action: 'wait', attempt }
@@ -486,71 +509,99 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   const setting = await dependencies.getSetting().catch(() => null)
   if (!setting?.enabled) return blocked('paid image replacement is currently off on this machine')
   let rate: PaidImagePublishedRate
-  let admission: PaidImageAdmission
+  let admission: GenStudioAdmissionSnapshot
   try {
     rate = await dependencies.resolveRate({ modelId: asset.modelId, original, request: original })
     admission = await dependencies.refreshAdmission()
   } catch (error: any) {
     return blocked(error?.message || 'the current price or account capacity could not be verified')
   }
-  if (!isFiniteCredit(rate.credits) || !rate.priceVersion || !admission.capacity_verified
+  const queue = await import('./job-queue.js')
+  if (!isFiniteCredit(rate.credits) || !rate.priceVersion || !queue.hasVerifiedGenStudioAdmission(admission)
     || !Number.isSafeInteger(admission.credit_balance) || (admission.credit_balance as number) < rate.credits) {
     return blocked('the current account balance or capacity cannot authorize this replacement')
   }
 
   return withCommitLock(input.job.job_id, async () => {
-    const authoritative = await persistence.loadAuthoritativeJob(input.job.project_slug, input.job.job_id).catch(() => null)
-    if (!authoritative || validPolicy(authoritative) === null) return blocked('the authoritative job is unavailable')
-    const authoritativeAttempts = authoritative.paid_image_replacement_attempts || []
-    const matches = authoritativeAttempts.filter(candidate => candidate.asset_key === asset.assetKey)
-    if (matches.length !== 1 || matches[0]!.state !== 'waiting' || !sameAttemptFacts(matches[0]!, asset, entry!)) {
-      return blocked('the authoritative job no longer permits this asset replacement')
-    }
-    const authoritativeCeiling = validPolicy(authoritative)!
-    let committedQuotes = 0
-    for (const candidate of authoritativeAttempts) {
-      const quote = countedQuote(candidate)
-      if (quote === null) return blocked('an existing paid replacement quote is incomplete')
-      committedQuotes += quote
-    }
-    if (committedQuotes + rate.credits > authoritativeCeiling) {
-      return blocked('the replacement exceeds the job additional-credit ceiling')
-    }
-    const scope = replacementScope(asset, matches[0]!)
-    const committed: PaidImageReplacementAttempt = {
-      ...matches[0]!, state: 'committed', quoted_credits: rate.credits, price_version: rate.priceVersion,
-      replacement_scope: scope, replacement_committed_at: now().toISOString(),
-    }
-    authoritative.paid_image_replacement_attempts = authoritativeAttempts.map(candidate => candidate === matches[0] ? committed : candidate)
+    let committed: PaidImageReplacementAttempt | undefined
+    let scope: string | undefined
+    let refusal: string | undefined
+    let notDue = false
+    let durable: Job | null
     try {
-      await persistence.writeAuthoritativeJob(authoritative)
-      overwriteJob(input.job, authoritative)
+      durable = await mutateAuthoritativeJob(persistence, input.job.project_slug, input.job.job_id, (authoritative) => {
+        const authoritativeCeiling = validPolicy(authoritative)
+        if (authoritativeCeiling === null) { refusal = 'the authoritative job is unavailable'; return null }
+        const authoritativeAttempts = authoritative.paid_image_replacement_attempts || []
+        const matches = authoritativeAttempts.filter(candidate => candidate.asset_key === asset.assetKey)
+        const latest = matches[0]
+        if (matches.length !== 1 || !latest || latest.state !== 'waiting'
+          || !sameAttemptFacts(latest, asset, entry!) || !validWaitClock(latest)) {
+          refusal = 'the authoritative job no longer permits this asset replacement'; return null
+        }
+        if (now().getTime() < Date.parse(latest.eligible_at)) {
+          notDue = true
+          committed = latest
+          return authoritative
+        }
+        let committedQuotes = 0
+        for (const candidate of authoritativeAttempts) {
+          const quote = countedQuote(candidate)
+          if (quote === null) { refusal = 'an existing paid replacement quote is incomplete'; return null }
+          committedQuotes += quote
+        }
+        if (committedQuotes + rate.credits > authoritativeCeiling) {
+          refusal = 'the replacement exceeds the job additional-credit ceiling'; return null
+        }
+        scope = replacementScope(asset, latest)
+        committed = {
+          ...latest, state: 'committed', quoted_credits: rate.credits, price_version: rate.priceVersion,
+          replacement_scope: scope, replacement_committed_at: now().toISOString(),
+        }
+        authoritative.paid_image_replacement_attempts = authoritativeAttempts.map(candidate => candidate === latest ? committed! : candidate)
+        return authoritative
+      })
     } catch (error: any) {
       return blocked(error?.message || 'the authoritative job commitment could not be written')
     }
+    if (!durable || !committed || !scope && !notDue) return blocked(refusal || 'the authoritative job commitment could not be written')
+    overwriteJob(input.job, durable)
+    if (notDue) return { action: 'wait', attempt: committed }
     try {
       await persistence.writeManifestStrict(asset.manifestDir, asset.manifestKey, {
-        ...entry!, replacement_of_task_id: committed.original_task_id, replacement_scope: scope,
+        ...entry!, replacement_of_task_id: committed.original_task_id, replacement_scope: scope!,
         replacement_quoted_credits: committed.quoted_credits, replacement_price_version: committed.price_version,
         replacement_committed_at: committed.replacement_committed_at,
       })
     } catch (error: any) {
       return blocked(error?.message || 'the manifest commitment could not be written')
     }
-    const [reloaded, rereadManifest] = await Promise.all([
-      persistence.loadAuthoritativeJob(input.job.project_slug, input.job.job_id),
-      persistence.readManifest(asset.manifestDir),
-    ])
+    let reloaded: Job | null
+    let rereadManifest: Manifest
+    try {
+      [reloaded, rereadManifest] = await Promise.all([
+        persistence.loadAuthoritativeJob(input.job.project_slug, input.job.job_id),
+        persistence.readManifest(asset.manifestDir),
+      ])
+    } catch (error: any) {
+      return blocked(error?.message || 'the durable commitment could not be reread')
+    }
     const persisted = reloaded?.paid_image_replacement_attempts?.find(candidate => candidate.asset_key === asset.assetKey)
     const persistedManifest = rereadManifest.tasks[asset.manifestKey]
     if (!persisted || persisted.state !== 'committed' || persisted.replacement_scope !== scope
       || persisted.quoted_credits !== rate.credits || persisted.price_version !== rate.priceVersion
-      || persisted.output_path !== asset.outputPath || persistedManifest?.replacement_scope !== scope
+      || persisted.output_path !== asset.outputPath || persisted.replacement_committed_at !== committed.replacement_committed_at
+      || persistedManifest?.original_output_path !== entry!.original_output_path || persistedManifest.input_hash !== entry!.input_hash
+      || !sameJson(persistedManifest.original_output_selector, entry!.original_output_selector)
+      || !sameJson(persistedManifest.original_reference_inputs, entry!.original_reference_inputs)
+      || persistedManifest.original_reference_identity_hash !== entry!.original_reference_identity_hash
+      || persistedManifest?.replacement_scope !== scope
       || persistedManifest.replacement_quoted_credits !== rate.credits || persistedManifest.replacement_price_version !== rate.priceVersion
-      || persistedManifest.replacement_of_task_id !== committed.original_task_id) {
+      || persistedManifest.replacement_of_task_id !== committed.original_task_id
+      || persistedManifest.replacement_committed_at !== committed.replacement_committed_at) {
       return blocked('the durable job and manifest commitment do not agree')
     }
     overwriteJob(input.job, reloaded!)
-    return { action: 'commit', attempt: persisted, scope }
+    return { action: 'commit', attempt: persisted, scope: scope! }
   })
 }
