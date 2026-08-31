@@ -1221,6 +1221,7 @@ const groupActive: Record<string, number> = {}
 let llmConcurrency = 50
 let subtitleTranscribeConcurrency = 50
 let imageEpisodeConcurrency = 1
+let imageEpisodeCursor = 0
 /**
  * Thumbnails have their own budget because they usually buy from a cloud API
  * while Scene Review buys from the local fleet. Starts at 1 for the same
@@ -1248,7 +1249,11 @@ export function getSubtitleTranscribeConcurrency(): number {
  */
 export function setImageEpisodeConcurrency(n: number): void {
   imageEpisodeConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
-  for (const group of FLEET_EPISODE_GROUPS) for (const t of fleetEpisodeTypesFor(group)) pump(t)
+  pumpImageEpisodeGroup(imageEpisodeConcurrency)
+  for (const group of FLEET_EPISODE_GROUPS) {
+    if (group === IMAGE_EPISODE_GROUP) continue
+    for (const t of fleetEpisodeTypesFor(group)) pump(t)
+  }
 }
 export function getImageEpisodeConcurrency(): number {
   return imageEpisodeConcurrency
@@ -1505,7 +1510,8 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               && hasReclaimableImageEvidence(j)
             if ((recoverableGenStudio || recoverableImageEpisode) && !hasCancellationContext(j)) {
               j.status = 'queued'
-              j.started_at = null
+              // Keep the original admission timestamp so the fair image pump
+              // recognises this as recovery work ahead of fresh FIFO.
               j.finished_at = null
               j.error = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
@@ -1564,7 +1570,12 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
         }
       }
     }
-    for (const type of resumedTypes) pump(type)
+    if ([...resumedTypes].some(type => IMAGE_EPISODE_TYPES.has(type))) {
+      pumpImageEpisodeGroup(imageEpisodeConcurrency)
+    }
+    for (const type of resumedTypes) {
+      if (!IMAGE_EPISODE_TYPES.has(type)) pump(type)
+    }
     for (const jobId of reconciliationJobs) scheduleCancellationReconciliation(jobId)
     for (const jobId of historyRefreshJobs) scheduleHistoryEvidenceRefresh(jobId)
   } catch { /* ignore corrupt file */ }
@@ -1629,13 +1640,48 @@ export async function resumeInterruptedJobsAtBoot(): Promise<void> {
  * the `llmConcurrency` budget across the whole group. Synchronous: the whole
  * budget is consumed before any launched job yields, so no double-launch race.
  */
+const IMAGE_GROUP_TYPES: readonly JobType[] = ['continuity_render', 'image_pool_generate']
+
+/** Select the next queued image job for one type, keeping recovery FIFO ahead
+ * of the fresh FIFO without changing the order within either class. */
+function nextImageGroupJob(type: JobType): Job | null {
+  const pending = queues[type].pending
+  const recoveryIndex = pending.findIndex(job => Boolean(job.started_at))
+  const index = recoveryIndex >= 0
+    ? recoveryIndex
+    : pending.findIndex(job => !job.started_at)
+  return index >= 0 ? pending.splice(index, 1)[0] : null
+}
+
+/** Admit image jobs from one shared round-robin pump. Capacity is consumed
+ * synchronously before any executor can yield, preventing double admission. */
+function pumpImageEpisodeGroup(limit: number): void {
+  if (queuePaused) return
+  let emptyPass = 0
+  while ((groupActive[IMAGE_EPISODE_GROUP] || 0) < limit) {
+    const type = IMAGE_GROUP_TYPES[(imageEpisodeCursor + emptyPass) % IMAGE_GROUP_TYPES.length]
+    const job = nextImageGroupJob(type)
+    if (!job) {
+      emptyPass++
+      if (emptyPass >= IMAGE_GROUP_TYPES.length) return
+      continue
+    }
+    emptyPass = 0
+    imageEpisodeCursor = (IMAGE_GROUP_TYPES.indexOf(type) + 1) % IMAGE_GROUP_TYPES.length
+    groupActive[IMAGE_EPISODE_GROUP] = (groupActive[IMAGE_EPISODE_GROUP] || 0) + 1
+    runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
+  }
+}
+
 function pump(type: JobType): void {
   queuePumpObserverForTesting?.(type)
   if (queuePaused) return  // network is down; jobs wait
   const q = queues[type]
   const next = q.pending[0]
   const group = groupOf(type, next)
-  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
+  if (group === IMAGE_EPISODE_GROUP) {
+    pumpImageEpisodeGroup(groupLimit(group))
+  } else if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
     while (q.pending.length > 0 && (groupActive[group] || 0) < groupLimit(group)) {
       if (groupOf(type, q.pending[0]) !== group) break
       const job = q.pending.shift()!
@@ -1661,8 +1707,8 @@ function pump(type: JobType): void {
 function pumpGroup(group: string): void {
   if (group === LLM_GROUP || group === LOCAL_LLM_GROUP) for (const t of LLM_TYPES) pump(t)
   else if (group === SUBTITLE_TRANSCRIBE_GROUP) pump('subtitles_transcribe')
-  // A freed image slot can be taken by ANY image type, not just the one that
-  // finished — the four share one budget.
+  // A freed image slot can be taken by either image type through one fair pump.
+  else if (group === IMAGE_EPISODE_GROUP) pumpImageEpisodeGroup(groupLimit(group))
   else if (FLEET_EPISODE_GROUPS.has(group)) for (const t of fleetEpisodeTypesFor(group)) pump(t)
 }
 
@@ -2707,8 +2753,18 @@ function enqueuePrepared(
  * isolated jobs without a durable project Content Pack selection. Production
  * callers must use enqueue(), which snapshots and verifies exact pins first.
  */
-export function enqueuePreparedForTest(opts: EnqueueOptions): Job {
-  return enqueuePrepared(opts)
+export function enqueuePreparedForTest(opts: EnqueueOptions & { started_at?: string | null }): Job {
+  const job = enqueuePrepared(opts)
+  // Test-only fixture seam for a queued recovery record. Production enqueue
+  // remains unchanged and always creates a fresh job with no start timestamp.
+  if (opts.started_at) {
+    const live = jobs.get(job.job_id)
+    if (live?.status === 'queued') {
+      live.started_at = opts.started_at
+      return serializeJob(live)
+    }
+  }
+  return job
 }
 
 /** Resolve project pins exactly once, then construct the immutable queued job. */
