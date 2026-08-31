@@ -122,3 +122,98 @@ integration, and packaging remain assigned to later tasks.
 Immediately after implementation commit `b0b6c999`, `git status --short` was
 empty. The process audit found no surviving focused backend-test or `tsx --test`
 process for this worktree.
+
+## Independent-review corrections
+
+Commit `3b79c973d1f71b24466ac400e3145cf7bfc00654`
+(`fix: serialize bulk Resume ownership`) resolves both findings in
+`task-4-review.md`.
+
+### Review-fix RED evidence
+
+The deterministic overlap and failed-persistence races began at:
+
+```text
+node scripts/testing/run-backend-tests.mjs --only jobs-resume-paused-routes
+4 passed, 3 failed of 7; 1/1 selected file completed
+configured projects root byte-identical: true
+```
+
+The three intended failures were:
+
+- while an all-project request was blocked writing project A, a concrete
+  project-B request still reported `{ requested: 1, resumed: 1 }` instead of
+  observing that row as already owned;
+- a later manual Pause was accepted while the failed bulk write was blocked,
+  but rollback restored the original `stall` origin over `manual`;
+- a later queued-job cancellation reached `cancelled` before the forced bulk
+  failure, but rollback restored `paused` over `cancelled`.
+
+The controls use promise barriers around exact project rename operations and
+microtask advancement only where `requestJobCancellation()` first awaits the
+already-loaded project. No sleep or wall-clock delay establishes ordering.
+
+### Review-fix GREEN evidence
+
+Final focused GREEN:
+
+```text
+node scripts/testing/run-backend-tests.mjs \
+  --only jobs-resume-paused-routes --only jobs-route-order
+11 passed, 0 failed; 4 suites; 2/2 selected files completed
+configured projects root byte-identical: true
+```
+
+Final adjacent GREEN:
+
+```text
+node scripts/testing/run-backend-tests.mjs \
+  --only job-queue --only jobs-stream --only jobs-route-order \
+  --only jobs-resume-paused-routes
+105 passed, 0 failed; 27 suites; 10/10 selected files completed
+configured projects root byte-identical: true
+```
+
+The adjacent run exited 0 but printed the already-documented late
+`jq-no-chat-retry-scope` temporary-directory cleanup warning after that
+fixture's assertions settled. The same unrelated warning is recorded in the
+Task 2 report; no process survived and the configured projects-root guard
+remained byte-identical.
+
+Additional fresh checks:
+
+```text
+npm run typecheck:electron
+exit 0
+
+npx eslint electron/server/services/job-queue.ts electron/server/routes/jobs.ts --quiet
+exit 0
+
+git diff --check
+exit 0
+```
+
+### Corrected ownership and rollback behavior
+
+- The shared batch transition now claims every eligible job ID synchronously,
+  before its first project persistence await. Explicit service selection and
+  Task 2/3 direct transition calls both honor the same claim set.
+- Overlapping all-project/project requests therefore cannot re-transition,
+  rewrite, re-emit, re-pump, or re-execute the same durable row. The controlled
+  test proves one project-B queued snapshot, one Resume log line, one queued
+  SSE update, one lane pump, and one executor run.
+- Claims are released in `finally`, including persistence failures. They are
+  in-memory coordination only and add no durable state or persistence format.
+- Failed project persistence restores a snapshot only while the row still has
+  the batch-owned queued state. A later accepted manual Pause or cancellation
+  is never overwritten; its already-waiting `persistJob()` writes the latest
+  state after the failed bulk lock releases.
+- Other rows in the same failed project still roll back, preserving the
+  existing all-or-none bulk transition. Successful projects remain successful,
+  lane pumping remains once per affected lane, and no provider or executor is
+  called inline.
+
+No open implementation concern remains. Independent re-review is required
+before Task 5. Immediately after commit `3b79c973`, the worktree was clean and
+the process audit found no surviving focused backend-test or `tsx --test`
+process for this worktree.
