@@ -300,3 +300,69 @@ No open implementation concern remains. Independent re-review is still required
 before Task 5. Immediately after implementation commit `107e650a`, the worktree
 was clean and the process audit found no surviving focused backend-test or
 `tsx --test` process for this worktree.
+
+## Final re-review empty-project correction
+
+Implementation commit `72b9584b8ded1d2c73d08d063213d1e270c96bb8`
+(`fix: skip empty bulk Resume project writes`) resolves the final P2 appended
+in `task-4-review.md`.
+
+### Empty-project RED evidence
+
+The existing deterministic A-blocked/B-cancelled race was strengthened to
+count every rename to project B's `jobs.json`, not only payloads containing a
+Resume log:
+
+```text
+node scripts/testing/run-backend-tests.mjs --only jobs-resume-paused-routes
+7 passed, 1 failed of 8; 3 suites; 1/1 selected file completed
+configured projects root byte-identical: true
+AssertionError: only the cancellation should persist project B (2 !== 1)
+```
+
+Cancellation was the expected single B write; the second rename was the empty
+bulk project snapshot after boundary revalidation excluded every B row.
+
+### Empty-project GREEN and verification evidence
+
+```text
+node scripts/testing/run-backend-tests.mjs \
+  --only jobs-resume-paused-routes --only jobs-route-order
+12 passed, 0 failed; 4 suites; 2/2 selected files completed
+configured projects root byte-identical: true
+
+node scripts/testing/run-backend-tests.mjs \
+  --only job-queue --only jobs-stream --only jobs-route-order \
+  --only jobs-resume-paused-routes
+106 passed, 0 failed; 27 suites; 10/10 selected files completed
+configured projects root byte-identical: true
+
+npm run typecheck:electron
+exit 0
+
+npx eslint electron/server/services/job-queue.ts electron/server/routes/jobs.ts \
+  electron/server/__tests__/jobs-resume-paused-routes.test.ts --quiet
+exit 0
+
+git diff --check
+exit 0
+```
+
+All backend runs above are focused partial runs, not the release gate.
+
+### Final behavior, concerns, and clean status
+
+- A project whose rows are all superseded at the mutation boundary now skips
+  snapshot creation and persistence entirely. Its claims still release from
+  the enclosing `finally` block.
+- The controlled race proves project B receives exactly one write from its
+  cancellation and zero bulk writes, while it remains cancelled in memory and
+  on disk with no Resume log, queued SSE, pump, or executor call.
+- Aggregate behavior remains `{ requested: 2, resumed: 1, skipped: 1 }`; no new
+  customer-visible skip reason was added. Eligible projects retain one atomic
+  write, all-or-none mutation, partial cross-project success, and one pump per
+  affected lane.
+
+No open implementation concern remains. Independent final approval remains
+with the primary task owner/reviewer. Immediately after implementation commit
+`72b9584b`, the worktree was clean and no focused backend-test process remained.
