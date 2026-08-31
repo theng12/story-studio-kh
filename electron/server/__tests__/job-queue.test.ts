@@ -42,6 +42,91 @@ function waitForJobStatus(jobId: string, status: string): Promise<void> {
   })
 }
 
+async function assertSupersedingIntentWinsDuringQueueRelease(
+  t: any,
+  intent: 'manual-pause' | 'cancel',
+): Promise<void> {
+  const project = await pm.createProject({ name: `JQ Release Superseded ${intent}` })
+  const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+  const type: Job['type'] = intent === 'manual-pause' ? 'broll_assemble' : 'youtube_playlist_update'
+  await jq.getJobs(project.slug)
+  const blockerStarted = deferred()
+  const releaseBlocker = deferred()
+  let heldRuns = 0
+  jq.registerExecutor(type, async job => {
+    if (job.episode_id === 'BLOCK') {
+      blockerStarted.resolve()
+      await releaseBlocker.promise
+    } else if (job.episode_id === 'QUEUE-HOLD') {
+      heldRuns += 1
+    }
+  })
+  await jq.setQueuePaused(false)
+  jq.enqueuePreparedForTest({
+    project_slug: project.slug,
+    type,
+    episode_id: 'BLOCK',
+    title: 'occupy lane',
+    params: {},
+  })
+  await blockerStarted.promise
+  const held = jq.enqueuePreparedForTest({
+    project_slug: project.slug,
+    type,
+    episode_id: 'QUEUE-HOLD',
+    title: 'queue hold',
+    params: {},
+  })
+  await jq.pauseJob(held.job_id, 'queue')
+
+  const snapshotStarted = deferred()
+  const releaseSnapshot = deferred()
+  const originalRename = fs.rename.bind(fs)
+  let blockReleaseSnapshot = true
+  t.mock.method(fs, 'rename', async (from: any, to: any) => {
+    if (blockReleaseSnapshot && path.resolve(String(to)) === path.resolve(jobsFile)) {
+      blockReleaseSnapshot = false
+      snapshotStarted.resolve()
+      await releaseSnapshot.promise
+    }
+    return originalRename(from, to)
+  })
+
+  const release = jq.setQueuePaused(false)
+  await snapshotStarted.promise
+  const superseding = intent === 'manual-pause'
+    ? jq.pauseJob(held.job_id, 'manual')
+    : jq.requestJobCancellation(project.slug, held.job_id)
+  if (intent === 'cancel') {
+    for (let turn = 0; turn < 10 && jq.getJob(held.job_id)?.status === 'queued'; turn += 1) {
+      await Promise.resolve()
+    }
+  }
+  assert.equal(jq.getJob(held.job_id)?.status, intent === 'manual-pause' ? 'paused' : 'cancelled')
+  releaseSnapshot.resolve()
+  await Promise.all([release, superseding])
+
+  const marker = jq.enqueuePreparedForTest({
+    project_slug: project.slug,
+    type,
+    episode_id: 'MARKER',
+    title: 'marker',
+    params: {},
+  })
+  const markerDone = waitForJobStatus(marker.job_id, 'done')
+  try {
+    const listed = await jq.getJobs(project.slug)
+    assert.equal(listed.find(job => job.job_id === marker.job_id)?.queue_position, 1)
+    assert.equal(jq.getJob(held.job_id)?.status, intent === 'manual-pause' ? 'paused' : 'cancelled')
+    if (intent === 'manual-pause') assert.equal(jq.getJob(held.job_id)?.pause_origin, 'manual')
+  } finally {
+    releaseSnapshot.resolve()
+    releaseBlocker.resolve()
+    await markerDone
+  }
+  assert.equal(heldRuns, 0)
+}
+
 // Note: unlike other test files, we avoid beforeEach cleanup because the
 // job-queue service has module-level state (jobs Map, loaded projects) that
 // persists across tests, and concurrent file writes can collide with rm.
@@ -744,20 +829,21 @@ describe('cooperative pause and resume', () => {
     }
   })
 
-  test('repeated false-state reconciliation persists one batch, queues one copy, and invokes its executor once', async t => {
+  test('two queue-origin records retain FIFO with one project snapshot and one executor call each', async t => {
     const project = await pm.createProject({ name: 'JQ Repeated Global Resume' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
     const blockerStarted = deferred()
     const releaseBlocker = deferred()
     const markerDone = deferred()
-    let heldRuns = 0
+    const executionOrder: string[] = []
     jq.registerExecutor('music_video', async job => {
       if (job.episode_id === 'BLOCK') {
         blockerStarted.resolve()
         await releaseBlocker.promise
-      } else if (job.episode_id === 'QUEUE-HOLD') {
-        heldRuns += 1
-      } else if (job.episode_id === 'MARKER') {
+      } else {
+        executionOrder.push(job.episode_id)
+      }
+      if (job.episode_id === 'MARKER') {
         markerDone.resolve()
       }
     })
@@ -771,14 +857,22 @@ describe('cooperative pause and resume', () => {
     })
     await blockerStarted.promise
 
-    const held = jq.enqueuePreparedForTest({
+    const firstHeld = jq.enqueuePreparedForTest({
       project_slug: project.slug,
       type: 'music_video',
-      episode_id: 'QUEUE-HOLD',
-      title: 'queue hold',
+      episode_id: 'QUEUE-HOLD-1',
+      title: 'first queue hold',
       params: {},
     })
-    await jq.pauseJob(held.job_id, 'queue')
+    const secondHeld = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'music_video',
+      episode_id: 'QUEUE-HOLD-2',
+      title: 'second queue hold',
+      params: {},
+    })
+    await jq.pauseJob(firstHeld.job_id, 'queue')
+    await jq.pauseJob(secondHeld.job_id, 'queue')
     const originalRename = fs.rename.bind(fs)
     let projectSnapshots = 0
     t.mock.method(fs, 'rename', async (from: any, to: any) => {
@@ -786,7 +880,15 @@ describe('cooperative pause and resume', () => {
       return originalRename(from, to)
     })
     try {
-      await Promise.all([jq.setQueuePaused(false), jq.setQueuePaused(false)])
+      let lanePumps = 0
+      const stopObservingPumps = jq._observeQueuePumpsForTesting(type => {
+        if (type === 'music_video') lanePumps += 1
+      })
+      try {
+        await jq.setQueuePaused(false)
+      } finally {
+        stopObservingPumps()
+      }
       const marker = jq.enqueuePreparedForTest({
         project_slug: project.slug,
         type: 'music_video',
@@ -796,24 +898,34 @@ describe('cooperative pause and resume', () => {
       })
 
       const listed = await jq.getJobs(project.slug)
-      assert.equal(listed.find(job => job.job_id === held.job_id)?.queue_position, 1)
-      assert.equal(listed.find(job => job.job_id === marker.job_id)?.queue_position, 2)
+      assert.equal(listed.find(job => job.job_id === firstHeld.job_id)?.queue_position, 1)
+      assert.equal(listed.find(job => job.job_id === secondHeld.job_id)?.queue_position, 2)
+      assert.equal(listed.find(job => job.job_id === marker.job_id)?.queue_position, 3)
       assert.equal(projectSnapshots, 1)
+      assert.equal(lanePumps, 1)
       releaseBlocker.resolve()
       await markerDone.promise
-      assert.equal(heldRuns, 1)
+      assert.deepEqual(executionOrder, ['QUEUE-HOLD-1', 'QUEUE-HOLD-2', 'MARKER'])
     } finally {
       releaseBlocker.resolve()
       await markerDone.promise
     }
   })
 
-  test('a failed queue-origin release snapshot rolls the project back before admission', async t => {
+  test('a later manual pause wins while queue-origin release persistence is blocked', async t => {
+    await assertSupersedingIntentWinsDuringQueueRelease(t, 'manual-pause')
+  })
+
+  test('a later cancellation wins while queue-origin release persistence is blocked', async t => {
+    await assertSupersedingIntentWinsDuringQueueRelease(t, 'cancel')
+  })
+
+  test('a failed queue-origin release snapshot rolls every selected record back before admission', async t => {
     const project = await pm.createProject({ name: 'JQ Global Resume Rollback' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
     const blockerStarted = deferred()
     const releaseBlocker = deferred()
-    jq.registerExecutor('broll_normalize', async job => {
+    jq.registerExecutor('video_assembly', async job => {
       if (job.episode_id === 'BLOCK') {
         blockerStarted.resolve()
         await releaseBlocker.promise
@@ -822,20 +934,28 @@ describe('cooperative pause and resume', () => {
     await jq.setQueuePaused(false)
     jq.enqueuePreparedForTest({
       project_slug: project.slug,
-      type: 'broll_normalize',
+      type: 'video_assembly',
       episode_id: 'BLOCK',
       title: 'occupy lane',
       params: {},
     })
     await blockerStarted.promise
-    const held = jq.enqueuePreparedForTest({
+    const firstHeld = jq.enqueuePreparedForTest({
       project_slug: project.slug,
-      type: 'broll_normalize',
-      episode_id: 'QUEUE-HOLD',
-      title: 'queue hold',
+      type: 'video_assembly',
+      episode_id: 'QUEUE-HOLD-1',
+      title: 'first queue hold',
       params: {},
     })
-    await jq.pauseJob(held.job_id, 'queue')
+    const secondHeld = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'video_assembly',
+      episode_id: 'QUEUE-HOLD-2',
+      title: 'second queue hold',
+      params: {},
+    })
+    await jq.pauseJob(firstHeld.job_id, 'queue')
+    await jq.pauseJob(secondHeld.job_id, 'queue')
 
     const originalRename = fs.rename.bind(fs)
     const originalWarn = console.warn.bind(console)
@@ -856,17 +976,29 @@ describe('cooperative pause and resume', () => {
       await jq.setQueuePaused(false)
 
       assert.equal(failedSnapshots, 1)
-      assert.equal(jq.getJob(held.job_id)?.status, 'paused')
-      assert.equal(jq.getJob(held.job_id)?.pause_origin, 'queue')
+      assert.equal(jq.getJob(firstHeld.job_id)?.status, 'paused')
+      assert.equal(jq.getJob(firstHeld.job_id)?.pause_origin, 'queue')
+      assert.equal(jq.getJob(secondHeld.job_id)?.status, 'paused')
+      assert.equal(jq.getJob(secondHeld.job_id)?.pause_origin, 'queue')
       const persisted = JSON.parse(await fs.readFile(jobsFile, 'utf-8')).jobs as Job[]
-      assert.equal(persisted.find(job => job.job_id === held.job_id)?.status, 'paused')
-      assert.equal(persisted.find(job => job.job_id === held.job_id)?.pause_origin, 'queue')
+      assert.equal(persisted.find(job => job.job_id === firstHeld.job_id)?.status, 'paused')
+      assert.equal(persisted.find(job => job.job_id === firstHeld.job_id)?.pause_origin, 'queue')
+      assert.equal(persisted.find(job => job.job_id === secondHeld.job_id)?.status, 'paused')
+      assert.equal(persisted.find(job => job.job_id === secondHeld.job_id)?.pause_origin, 'queue')
     } finally {
       failProjectSnapshot = false
-      const heldDone = waitForJobStatus(held.job_id, 'done')
-      if (jq.getJob(held.job_id)?.status === 'paused') await jq.resumeJob(held.job_id)
+      if (jq.getJob(firstHeld.job_id)?.status === 'paused') await jq.resumeJob(firstHeld.job_id)
+      if (jq.getJob(secondHeld.job_id)?.status === 'paused') await jq.resumeJob(secondHeld.job_id)
+      const marker = jq.enqueuePreparedForTest({
+        project_slug: project.slug,
+        type: 'video_assembly',
+        episode_id: 'ROLLBACK-MARKER',
+        title: 'rollback cleanup marker',
+        params: {},
+      })
+      const markerDone = waitForJobStatus(marker.job_id, 'done')
       releaseBlocker.resolve()
-      await heldDone
+      await markerDone
     }
   })
 })

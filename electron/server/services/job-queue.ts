@@ -915,6 +915,17 @@ interface QueueState {
   executor: JobExecutor | null
 }
 
+let queuePumpObserverForTesting: ((type: JobType) => void) | null = null
+
+/** Test-only observation of queue admission attempts; returns its own cleanup. */
+export function _observeQueuePumpsForTesting(observer: (type: JobType) => void): () => void {
+  const previous = queuePumpObserverForTesting
+  queuePumpObserverForTesting = observer
+  return () => {
+    if (queuePumpObserverForTesting === observer) queuePumpObserverForTesting = previous
+  }
+}
+
 const queues: Record<JobType, QueueState> = {
   idea_campaign: { pending: [], running: false, executor: null },
   broll_select: { pending: [], running: false, executor: null },
@@ -1601,6 +1612,7 @@ export async function resumeInterruptedJobsAtBoot(): Promise<void> {
  * budget is consumed before any launched job yields, so no double-launch race.
  */
 function pump(type: JobType): void {
+  queuePumpObserverForTesting?.(type)
   if (queuePaused) return  // network is down; jobs wait
   const q = queues[type]
   const next = q.pending[0]
@@ -2098,7 +2110,13 @@ async function transitionPausedJobsToQueuedByProject(
   }
 
   for (const job of candidates) {
-    if (!durable.has(job.job_id)) continue
+    if (
+      !durable.has(job.job_id)
+      || job.status !== 'queued'
+      || job.pause_origin !== undefined
+      || job.pause_requested === true
+      || pauseRequested.has(job.job_id)
+    ) continue
     const queue = queues[job.type]
     if (!queue.pending.some(candidate => candidate.job_id === job.job_id)) {
       queue.pending.push(job)
