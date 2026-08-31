@@ -4,7 +4,7 @@ import { mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
-import { recordTaskStrict } from '../services/task-manifest.js'
+import { readManifest, recordTaskStrict } from '../services/task-manifest.js'
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const queueSource = () => readFile(path.join(SERVER, 'services/job-queue.ts'), 'utf8')
@@ -666,6 +666,88 @@ describe('Continuity settling-tail proof', () => {
       const manifest: Record<string, unknown> = {}
       mutate(job, manifest)
       await writeContinuityTailManifest(job, manifest)
+      assert.equal(await proveTail(job), null, name)
+    }
+  })
+
+  test('revalidates the live status and progress after the manifest read settles', async () => {
+    const setManifestReader = (jq as any)._setContinuityTailManifestReaderForTesting
+    assert.equal(typeof setManifestReader, 'function', 'the tail proof needs a deferred manifest-read seam')
+
+    const statusChanged = continuityTailJob()
+    await writeContinuityTailManifest(statusChanged)
+    const statusReadEntered = deferred<void>()
+    const releaseStatusRead = deferred<void>()
+    const restoreStatusReader = setManifestReader(async (outputDir: string) => {
+      statusReadEntered.resolve()
+      await releaseStatusRead.promise
+      return readManifest(outputDir)
+    })
+    try {
+      const pendingProof = proveTail(statusChanged)
+      await statusReadEntered.promise
+      statusChanged.status = 'done'
+      releaseStatusRead.resolve()
+      assert.equal(await pendingProof, null, 'a job that settled during the manifest read is no longer a live tail')
+    } finally {
+      releaseStatusRead.resolve()
+      restoreStatusReader()
+    }
+
+    const progressChanged = continuityTailJob()
+    progressChanged.params.genstudio_recovery.assets['scene-002.png'] = {
+      operation: 'image',
+      idempotency_key: 'story-image-key-002',
+      job_id: 'image-task-002',
+      output_path: path.join(progressChanged.output_dir, 'scene-002.png'),
+      input_hash: 'sha256:tail-proof-2',
+      state: 'accepted',
+      updated_at: '2026-08-31T00:00:00.000Z',
+    }
+    progressChanged.genstudio_jobs.push({
+      id: 'image-task-002',
+      operation: 'image.generation',
+      state: 'running',
+      updated_at: '2026-08-31T00:00:00.000Z',
+      request: { idempotency_key: 'story-image-key-002' },
+    })
+    await writeContinuityTailManifest(progressChanged)
+    await recordTaskStrict(progressChanged.output_dir, 'scene-002.png', {
+      provider: 'genstudio', task_id: 'image-task-002', submitted_at: '2026-08-31T00:00:00.000Z',
+      input_hash: 'sha256:tail-proof-2', idempotency_key: 'story-image-key-002', operation: 'image', last_state: 'accepted',
+    })
+    const progressReadEntered = deferred<void>()
+    const releaseProgressRead = deferred<void>()
+    const restoreProgressReader = setManifestReader(async (outputDir: string) => {
+      progressReadEntered.resolve()
+      await releaseProgressRead.promise
+      return readManifest(outputDir)
+    })
+    try {
+      const pendingProof = proveTail(progressChanged)
+      await progressReadEntered.promise
+      progressChanged.item_progress = {
+        ...progressChanged.item_progress,
+        active: [{ label: 'Scene 2', key: 'scene-002.png', state: 'running', attempt: 1, max_attempts: 1 }],
+      }
+      releaseProgressRead.resolve()
+      assert.deepEqual((await pendingProof)?.active_asset_keys, ['scene-002.png'], 'the proof must describe the current tail')
+    } finally {
+      releaseProgressRead.resolve()
+      restoreProgressReader()
+    }
+  })
+
+  test('rejects mixed-validity provider evidence sharing the exact task ID', async () => {
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ['wrong-operation duplicate', { operation: 'video.generation' }],
+      ['terminal duplicate', { state: 'succeeded' }],
+      ['cancelled duplicate', { cancelled: true }],
+    ]
+    for (const [name, duplicateOverride] of cases) {
+      const job = continuityTailJob()
+      job.genstudio_jobs.push({ ...job.genstudio_jobs[0], ...duplicateOverride })
+      await writeContinuityTailManifest(job)
       assert.equal(await proveTail(job), null, name)
     }
   })

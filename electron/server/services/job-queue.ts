@@ -2151,12 +2151,14 @@ function isAcceptedProviderTaskId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && !value.startsWith('pending:')
 }
 
-/**
- * Read-only, fail-closed evidence that a live Continuity render is in its
- * under-filled final provider wave. The progress key is deliberately the
- * direct manifest/checkpoint filename join; a scene number is display-only.
- */
-export async function proveContinuitySettlingTail(job: Job): Promise<ContinuityTailProof | null> {
+interface ContinuityTailLocalState {
+  output_dir: string
+  progress: NonNullable<Job['item_progress']>
+  checkpoint: any
+  keys: string[]
+}
+
+function continuityTailLocalState(job: Job): ContinuityTailLocalState | null {
   if (job.type !== 'continuity_render' || job.status !== 'running' || typeof job.output_dir !== 'string') return null
   const progress = job.item_progress
   if (!progress || !isNonNegativeWhole(progress.total) || !isNonNegativeWhole(progress.completed)
@@ -2185,16 +2187,33 @@ export async function proveContinuitySettlingTail(job: Job): Promise<ContinuityT
     || !checkpoint.assets || typeof checkpoint.assets !== 'object'
   ) return null
 
-  const manifest = await readManifest(job.output_dir)
+  return { output_dir: job.output_dir, progress, checkpoint, keys: keys as string[] }
+}
+
+type ContinuityTailManifestReader = typeof readManifest
+let continuityTailManifestReader: ContinuityTailManifestReader = readManifest
+
+/**
+ * Read-only, fail-closed evidence that a live Continuity render is in its
+ * under-filled final provider wave. The progress key is deliberately the
+ * direct manifest/checkpoint filename join; a scene number is display-only.
+ */
+export async function proveContinuitySettlingTail(job: Job): Promise<ContinuityTailProof | null> {
+  const initial = continuityTailLocalState(job)
+  if (!initial) return null
+  const manifest = await continuityTailManifestReader(initial.output_dir)
+  const current = continuityTailLocalState(job)
+  if (!current || current.output_dir !== initial.output_dir) return null
+  const { progress, checkpoint, keys, output_dir: outputDir } = current
   const providerTaskIds = new Set<string>()
-  for (const key of keys as string[]) {
+  for (const key of keys) {
     const checkpointEntry = checkpoint.assets[key]
     const manifestEntry = manifest.tasks[key]
     if (
       checkpointEntry?.operation !== 'image'
       || manifestEntry?.operation !== 'image'
       || typeof checkpointEntry.output_path !== 'string'
-      || path.resolve(checkpointEntry.output_path) !== path.resolve(job.output_dir, key)
+      || path.resolve(checkpointEntry.output_path) !== path.resolve(outputDir, key)
       || typeof checkpointEntry.input_hash !== 'string'
       || !checkpointEntry.input_hash.trim()
       || typeof manifestEntry.input_hash !== 'string'
@@ -2221,15 +2240,14 @@ export async function proveContinuitySettlingTail(job: Job): Promise<ContinuityT
     const idempotencyKey = isAcceptedProviderTaskId(checkpointKey) ? checkpointKey : manifestKey
     if (!idempotencyKey) return null
 
-    const matches = (job.genstudio_jobs || []).filter(entry => (
-      entry.operation === 'image.generation'
-      && entry.id === taskId
-      && entry.cancelled !== true
-      && isActiveGenStudioProviderState(entry.state)
-    ))
-    const providerKey = matches[0]?.request?.idempotency_key
+    const matches = (job.genstudio_jobs || []).filter(entry => entry.id === taskId)
+    const provider = matches[0]
+    const providerKey = provider?.request?.idempotency_key
     if (
       matches.length !== 1
+      || provider.operation !== 'image.generation'
+      || provider.cancelled === true
+      || !isActiveGenStudioProviderState(provider.state)
       || providerKey !== undefined && providerKey !== idempotencyKey
       || providerTaskIds.has(taskId)
     ) return null
@@ -2241,8 +2259,17 @@ export async function proveContinuitySettlingTail(job: Job): Promise<ContinuityT
     job_id: job.job_id,
     settling: progress.settling,
     concurrency: progress.concurrency,
-    active_asset_keys: keys as string[],
+    active_asset_keys: keys,
     provider_task_ids: [...providerTaskIds],
+  }
+}
+
+/** Test-only synchronization for deterministic manifest-read race fixtures. */
+export function _setContinuityTailManifestReaderForTesting(reader: ContinuityTailManifestReader): () => void {
+  const previous = continuityTailManifestReader
+  continuityTailManifestReader = reader
+  return () => {
+    if (continuityTailManifestReader === reader) continuityTailManifestReader = previous
   }
 }
 
