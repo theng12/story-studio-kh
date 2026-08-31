@@ -2191,6 +2191,7 @@ async function transitionPausedJobsToQueuedByProject(
       && !pauseRequested.has(job.job_id)
       && !cancelled.has(job.job_id)
     ))
+    if (!eligibleJobs.length) continue
     const snapshots: PausedJobTransitionSnapshot[] = eligibleJobs.map(job => ({
       job,
       pauseRequested: pauseRequested.has(job.job_id),

@@ -448,6 +448,7 @@ describe('bulk Resume concurrency ownership', () => {
     const firstWriteStarted = deferred()
     const releaseFirstWrite = deferred()
     let blockedFirstWrite = false
+    let cancelledProjectWrites = 0
     let cancelledResumeWrites = 0
     const originalRename = fs.rename.bind(fs)
     t.mock.method(fs, 'rename', async (from: any, to: any) => {
@@ -458,6 +459,7 @@ describe('bulk Resume concurrency ownership', () => {
         await releaseFirstWrite.promise
       }
       if (target === cancelledPath) {
+        cancelledProjectWrites += 1
         const persisted = JSON.parse(await fs.readFile(String(from), 'utf8')) as { jobs?: Job[] }
         const row = persisted.jobs?.find(job => job.job_id === cancelledJob.job_id)
         if (row?.status === 'queued' && row.output_lines.some(line => line.startsWith('Resume requested'))) {
@@ -498,6 +500,7 @@ describe('bulk Resume concurrency ownership', () => {
     const durable = persisted.jobs.find(job => job.job_id === cancelledJob.job_id)
     assert.equal(durable?.status, 'cancelled')
     assert.equal(durable?.output_lines.filter(line => line.startsWith('Resume requested')).length, 0)
+    assert.equal(cancelledProjectWrites, 1, 'only the cancellation should persist project B')
     assert.equal(cancelledResumeWrites, 0)
     assert.deepEqual(queuedUpdates, [])
     assert.deepEqual(pumps, [])
