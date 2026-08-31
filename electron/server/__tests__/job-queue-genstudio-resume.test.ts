@@ -734,12 +734,19 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
       await jq.getJobs(project.slug)
       assert.equal(jq.getJob(job.job_id)?.status, 'paused')
       await jq.setQueuePaused(false)
+      let eligibilityChecks = 0
+      const afterEligibility = async (eligibleJobIds: string[]) => {
+        assert.deepEqual(eligibleJobIds, [job.job_id])
+        eligibilityChecks++
+        await Promise.resolve()
+      }
       await Promise.all([
-        jq._recoverStallJobForTesting(job.job_id),
-        jq._recoverStallJobForTesting(job.job_id),
+        jq._recoverStallJobForTesting(job.job_id, afterEligibility),
+        jq._recoverStallJobForTesting(job.job_id, afterEligibility),
       ])
       await waitForDone(job.job_id, jobsFile)
 
+      assert.equal(eligibilityChecks, 2, 'both triggers must pass the terminal-evidence gate before admission mutates state')
       assert.deepEqual(executions, [job.job_id])
       assert.equal(service.providerSubmissionCount('image'), 1)
       assert.equal(service.requests.some(request => request.method === 'POST'), false)

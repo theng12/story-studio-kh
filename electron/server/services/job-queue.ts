@@ -2100,16 +2100,26 @@ function hasSafeTerminalStallEvidence(job: Job): boolean {
 }
 
 /** Rejoin only evidence-proven stall holds through the ordinary durable lane. */
-async function recoverSafelySettledStallJobs(selected: Job[]): Promise<void> {
+async function recoverSafelySettledStallJobs(
+  selected: Job[],
+  afterEligibilityForTesting?: (eligibleJobIds: string[]) => void | Promise<void>,
+): Promise<void> {
   if (queuePaused) return
-  const released = await transitionPausedJobsToQueuedByProject(selected.filter(hasSafeTerminalStallEvidence))
+  const eligible = selected.filter(hasSafeTerminalStallEvidence)
+  if (afterEligibilityForTesting && eligible.length) {
+    await afterEligibilityForTesting(eligible.map(job => job.job_id))
+  }
+  const released = await transitionPausedJobsToQueuedByProject(eligible)
   for (const type of released.lanes) pump(type)
 }
 
 /** Test-only entry to prove repeated eligible recovery triggers stay idempotent. */
-export async function _recoverStallJobForTesting(jobId: string): Promise<void> {
+export async function _recoverStallJobForTesting(
+  jobId: string,
+  afterEligibility?: (eligibleJobIds: string[]) => void | Promise<void>,
+): Promise<void> {
   const job = jobs.get(jobId)
-  if (job) await recoverSafelySettledStallJobs([job])
+  if (job) await recoverSafelySettledStallJobs([job], afterEligibility)
 }
 
 /**
