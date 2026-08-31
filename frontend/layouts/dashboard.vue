@@ -114,7 +114,7 @@
         <footer class="sidebar-credits" aria-label="Story Studio status">
           <div
             class="network-status"
-            :class="[networkOnline ? 'online' : 'offline', { 'queue-warn': networkQueueSyncFailed }]"
+            :class="networkOnline ? 'online' : 'offline'"
           >
             <span class="network-dot" aria-hidden="true" />
             <span>{{ networkOnline ? 'Story Studio online' : 'Story Studio unavailable' }}</span>
@@ -162,7 +162,7 @@ const { project, loadProject } = useProject()
 const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling } = useJobs()
 const { niches } = useNiches()
 const { refreshReadiness } = useNotifications()
-const { online: networkOnline, queueSyncFailed: networkQueueSyncFailed } = useNetworkStatus()
+const { online: networkOnline } = useNetworkStatus()
 const { get: apiGet } = useApi()
 const { public: pubCfg } = useRuntimeConfig()
 const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
