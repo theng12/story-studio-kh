@@ -765,6 +765,8 @@ export async function auditProjectAssets(
 export interface EpisodeStatus {
   /** Internal scene-image scan detail. Routes may project this separately. */
   _scene_images?: { total: number, present: number, complete: boolean }
+  /** Internal thumbnail-image scan detail. Routes may project this separately. */
+  _thumbnail_images?: { total: number, present: number, complete: boolean }
   /** Research evidence exists. Claim triage remains separate editorial state. */
   research: boolean
   /** Raw artifact fact: the sidecar holds a real summary or a real claim.
@@ -1332,6 +1334,14 @@ export async function computeEpisodeStatus(
     && !!imageS.value.thumbnails
     && imageS.value.thumbnails.total > 0
     && imageS.value.thumbnails.missing.length === 0
+  if (imageS.status === 'fulfilled' && imageS.value.thumbnails) {
+    const thumbnails = imageS.value.thumbnails
+    status._thumbnail_images = {
+      total: thumbnails.total,
+      present: thumbnails.present,
+      complete: thumbnails.total > 0 && thumbnails.missing.length === 0,
+    }
+  }
 
   status.merged_audio = mergedS.status === 'fulfilled' && mergedS.value.present
 

@@ -300,6 +300,23 @@ describe('episode-status-cache', () => {
     assert.equal(cache.getStats().size, 0, 'nothing stored')
   })
 
+  test('_hydrateProject: v12 entries are dropped after thumbnail aggregate shape changes', async () => {
+    await makeProject()
+    const cache = cacheMod.episodeStatusCache
+
+    const stale = {
+      slug: SLUG,
+      episode_code: 'EP998',
+      status: { script: true } as any,
+      computedAt: Date.now(),
+      watchedMtimes: {},
+      schemaVersion: 12,
+    } as unknown as import('../services/episode-status-cache.js').EpisodeStatusCacheEntry
+    const loaded = cache._hydrateProject(SLUG, [stale])
+    assert.equal(loaded, 0, 'v12 cache entries lack thumbnail image aggregates and must be recomputed')
+    assert.equal(cache.getStats().size, 0, 'stale entry is not retained')
+  })
+
   test('persistence: flushProjectNow writes a file readable by a fresh cache', async () => {
     await makeProject()
     const cache = cacheMod.episodeStatusCache

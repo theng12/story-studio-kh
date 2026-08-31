@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.92 — 2026-09-01
+
+- **Thumbnail status now reports what is actually on disk.** Episode list and status responses include the expected thumbnail count, the number still present, and whether the set is complete. If a thumbnail file is removed after generation, connected tools can see the missing asset instead of relying on the historical completion flag.
+
 ## v1.4.91 — 2026-08-31
 
 - **Scene-image jobs now share their places fairly.** Continuity Render and Image Pool take turns when both are waiting, while work that is already recovering keeps its place ahead of new work of the same kind. The image-pool generator itself remains serial.
