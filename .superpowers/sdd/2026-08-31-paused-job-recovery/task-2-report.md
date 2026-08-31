@@ -108,3 +108,63 @@ or persistence system was introduced.
   self-review only.
 - Full backend/release verification, version/changelog work, integration, and
   packaging remain later plan tasks and were not run here.
+
+## Independent-review correction
+
+The two valid findings recorded in `task-2-review.md` were corrected in
+`15c86f6b938e130cdc11ecbe0d32a383f61ce78a` (`fix: honor superseding paused job intent`).
+
+### Follow-up TDD evidence
+
+- Controlled-persistence RED: **40 passed, 2 failed** of 42 in
+  `job-queue.test.ts`. Both failures were the intended stale-admission proof:
+  after a manual pause or cancellation superseded queue release while its
+  project snapshot was blocked, a same-lane marker received queue position 2
+  instead of the required position 1.
+- The two-record same-project/same-lane FIFO and the two-record rollback tests
+  already passed at RED, confirming the existing batch grouping while the two
+  superseding-intent races remained exposed.
+- Direct-file GREEN after the minimal source change: **42 passed, 0 failed**.
+- Final focused command
+  `node scripts/testing/run-backend-tests.mjs --only job-queue.test --only job-queue-persistence-retention`:
+  **55 passed, 0 failed**, 15 suites, 2/2 selected files completed, configured
+  projects root byte-identical.
+- Final `npm run typecheck:electron`: **passed** (exit 0).
+- Final `git diff --check`: **passed**.
+
+All new race tests use deferred promises and a blocked atomic rename. No sleep
+or wall-clock delay is used to establish ordering.
+
+### Follow-up source and test decisions
+
+- After project persistence and before pending insertion or SSE emission, each
+  durable candidate is revalidated as still `queued`, originless, and free of
+  both job-local and tracked pause requests. A later manual pause or
+  cancellation therefore owns the row and is not admitted by the stale batch.
+- Revalidation remains inside the existing project batch. It adds no project
+  write, per-record serialization, provider call, timer, retry, or new
+  persistence abstraction.
+- Two queue-origin records in one project and lane now prove FIFO order, exactly
+  one project snapshot, exactly one affected-lane pump, one pending copy per job
+  ID, and one executor call per record.
+- A forced project snapshot failure now proves all-or-none rollback for two
+  records in memory and on disk before either can be admitted.
+- A narrow test-only pump observer follows the existing exported test-hook
+  convention and restores the prior observer after the assertion.
+
+### Follow-up diff self-review and final state
+
+- Manual pause during the persistence await leaves the record paused with
+  `pause_origin: 'manual'`; cancellation leaves it cancelled. Neither record is
+  inserted or executed, and a following marker owns queue position 1.
+- Job IDs, original candidate order, pending-ID deduplication, durable global
+  true behavior, manual/stall/originless holds, rollback, and project-level
+  write batching remain unchanged.
+- The implementation changes only the final admission ownership check plus the
+  test-only pump observer; no Task 3/4 behavior, version, or changelog changed.
+- Four stale direct-test process trees left by earlier diagnostic runs were
+  terminated by exact PID after they stopped advancing. The final process audit
+  found no matching backend-test or job-queue process.
+- Remaining scope concern: the plan assigns full backend/release verification,
+  version/changelog, integration, and packaging to later tasks; none was added
+  to this focused Task 2 correction.
