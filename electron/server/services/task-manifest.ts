@@ -27,6 +27,22 @@ import { writeJsonAtomic } from '../lib/atomic-store.js'
 
 const FILENAME = '.task-manifest.json'
 
+/** The exact GenStudio output combination an original image request used. */
+export interface PaidImageOutputSelector {
+  resolution: string
+  aspect_ratio: string
+  width: number
+  height: number
+  reference_mode: 'normal' | 'reference-guided'
+}
+
+/** One ordered, content-addressed local reference supplied to an image request. */
+export interface PaidImageReferenceInput {
+  role: string
+  path: string
+  sha256: string
+}
+
 export interface TaskManifestEntry {
   provider: string        // 'genaipro' | 'fal' | 'kie' | 'kie-video' | 'fal-video' | 'elevenlabs'
   task_id: string
@@ -74,6 +90,14 @@ export interface TaskManifestEntry {
    * re-attaches to the already-paid job instead of creating a second one.
    */
   request_scope?: string
+  /**
+   * Original image facts written before the first provider POST. They are
+   * additive: older sidecars remain readable but cannot authorise paid reuse.
+   */
+  original_output_selector?: PaidImageOutputSelector
+  original_reference_inputs?: PaidImageReferenceInput[]
+  original_reference_identity_hash?: string
+  original_output_path?: string
   /**
    * Whether this transcription was REQUESTED with per-word timestamps.
    *
