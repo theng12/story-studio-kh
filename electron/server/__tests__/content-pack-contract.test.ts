@@ -684,7 +684,7 @@ describe('Content Pack v1 contracts', () => {
     }).kind, 'visual-style')
   })
 
-  test('rejects raw pack-supplied regexes, motion mixes, unregistered motion IDs, and Formula style fields', () => {
+  test('rejects executable behavior and Formula style selection while allowing a descriptive visual hint', () => {
     assert.throws(() => ContentPackDocumentSchema.parse({
       ...documents['series-formula'],
       recency_avoidance: { strategy_id: 'scripture-references', label: 'scripture references', extract_patterns: ['.*'] },
@@ -697,8 +697,14 @@ describe('Content Pack v1 contracts', () => {
       ...documents['series-formula'],
       script_structure: { ...documents['series-formula'].script_structure, motion_profile_id: 'unregistered-motion' },
     }), /invalid_enum_value/i)
-    assert.throws(() => ContentPackDocumentSchema.parse({
+    const formulaWithHint = ContentPackDocumentSchema.parse({
       ...documents['series-formula'], visual_style_hint: 'Formula-owned art direction is forbidden.',
+    })
+    assert.equal(formulaWithHint.kind, 'series-formula')
+    if (formulaWithHint.kind !== 'series-formula') assert.fail('expected Formula document')
+    assert.equal(formulaWithHint.visual_style_hint, 'Formula-owned art direction is forbidden.')
+    assert.throws(() => ContentPackDocumentSchema.parse({
+      ...documents['series-formula'], visual_style_id: 'formula-selected-style',
     }), /unrecognized key/i)
   })
 

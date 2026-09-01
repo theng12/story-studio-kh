@@ -29,6 +29,7 @@
 import * as pm from './project-manager.js'
 import { getEffectiveNiche } from './niche-loader.js'
 import { resolveRecencyStrategy, type RecencyStrategy } from './recency-strategies.js'
+import { applyFormulaEpisodeProfile, resolveFormulaEpisodeDimensions } from './formula-production-kit.js'
 import type { Niche, RecencyLogEntry, Format } from '../models/types.js'
 
 /**
@@ -62,6 +63,12 @@ function strategyFor(niche: Niche): RecencyStrategy | undefined {
 export function ruleAppliesToScope(niche: Niche | null, scope: RecencyScope): boolean {
   if (!niche?.recencyAvoidance) return false
   return scopesFor(niche).includes(scope)
+}
+
+async function effectiveNicheForEpisode(slug: string, episodeId?: string): Promise<Niche | null> {
+  const niche = await getEffectiveNiche(slug)
+  if (!niche) return null
+  return applyFormulaEpisodeProfile(niche, await resolveFormulaEpisodeDimensions(slug, episodeId))
 }
 
 /** Hard cap on log size — trimmed oldest-first once exceeded. */
@@ -232,10 +239,10 @@ export async function recordUsage(
  * Callers should immediately use the returned format for subsequent
  * prompt builds. Does NOT mutate the input format.
  */
-export async function applyRecencyToFormat(format: Format, slug: string): Promise<Format> {
-  let niche: Niche | null = null
+export async function applyRecencyToFormat(format: Format, slug: string, episodeId?: string): Promise<Format> {
+  let niche: Niche | null
   try {
-    niche = await getEffectiveNiche(slug)
+    niche = await effectiveNicheForEpisode(slug, episodeId)
   } catch {
     return format
   }
@@ -259,10 +266,10 @@ export async function applyRecencyToFormat(format: Format, slug: string): Promis
  * scopes (titles, image_prompts, metadata) call this directly because
  * their prompts aren't built through `format.script.additionalRules`.
  */
-export async function getAvoidanceForScope(slug: string, scope: RecencyScope): Promise<string> {
-  let niche: Niche | null = null
+export async function getAvoidanceForScope(slug: string, scope: RecencyScope, episodeId?: string): Promise<string> {
+  let niche: Niche | null
   try {
-    niche = await getEffectiveNiche(slug)
+    niche = await effectiveNicheForEpisode(slug, episodeId)
   } catch {
     return ''
   }
@@ -280,8 +287,9 @@ export async function prependAvoidanceToPrompt(
   slug: string,
   scope: RecencyScope,
   prompt: string,
+  episodeId?: string,
 ): Promise<string> {
-  const text = await getAvoidanceForScope(slug, scope)
+  const text = await getAvoidanceForScope(slug, scope, episodeId)
   if (!text) return prompt
   return `${text}\n\n${prompt}`
 }
@@ -299,9 +307,9 @@ export async function recordUsageForScope(
   scope: RecencyScope,
   text: string,
 ): Promise<{ kind: string; added: string[] } | null> {
-  let niche: Niche | null = null
+  let niche: Niche | null
   try {
-    niche = await getEffectiveNiche(slug)
+    niche = await effectiveNicheForEpisode(slug, episode_code)
   } catch {
     return null
   }

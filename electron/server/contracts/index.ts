@@ -137,6 +137,40 @@ const IdeaAxisSchema = z.object({
   values: z.array(z.string().min(1).max(160)).min(1).max(300),
 }).strict()
 
+const FormulaIntroDefaultsSchema = z.object({
+  wordTarget: z.number().int().min(50).max(600).optional(),
+  beats: z.array(z.union([
+    z.string().min(1).max(300),
+    z.object({ id: z.string().min(1).max(120), custom_text: z.string().min(1).max(1000).optional() }).strict(),
+  ])).min(1).max(20).optional(),
+  exampleText: z.string().min(1).max(3000).optional(),
+}).strict()
+const FormulaScriptStructureSchema = z.object({
+  defaultChapterCount: z.number().int().min(1).max(100),
+  chapterCountRange: z.tuple([z.number().int().min(1).max(100), z.number().int().min(1).max(100)]),
+  defaultLengthMinutes: z.number().int().min(1).max(600),
+  lengthMinutesRange: z.tuple([z.number().int().min(1).max(600), z.number().int().min(1).max(600)]),
+  durationPresets: z.array(z.number().int().min(1).max(600)).min(1).max(20),
+  defaultWordsPerMinute: z.number().int().min(50).max(300),
+  chaptersIndependent: z.boolean(),
+  visualPacingProfile: z.object({
+    opening_duration_sec: z.number().int().min(0).max(3600),
+    opening: z.object({ min_sec: z.number().int().positive(), max_sec: z.number().int().positive() }).strict(),
+    settled: z.object({ min_sec: z.number().int().positive(), max_sec: z.number().int().positive() }).strict(),
+  }).strict().optional(),
+  motionProfileId: z.string().min(1).max(120).optional(),
+  pacingArc: z.array(z.string().min(1).max(1200)).max(100).optional(),
+  additionalRules: z.array(z.string().min(1).max(1200)).max(100).optional(),
+}).strict()
+const FormulaRecencyAvoidanceSchema = z.object({
+  strategyId: z.string().min(1).max(120),
+  label: z.string().min(1).max(160),
+  extractPatterns: z.array(z.string().min(1)).min(1),
+  defaultLookback: z.number().int().min(1).max(1000).optional(),
+  instructionTemplate: z.string().min(1),
+  scopes: z.array(z.enum(['script', 'titles', 'image_prompts', 'metadata'])).min(1).max(4).optional(),
+}).strict()
+
 const FormulaEpisodeProfileSchema = z.object({
   id: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/),
   label: z.string().min(1).max(120),
@@ -148,6 +182,14 @@ const FormulaEpisodeProfileSchema = z.object({
   titlePolicy: z.string().min(1).max(800).optional(),
   thumbnailPolicy: z.string().min(1).max(800).optional(),
   metadataPolicy: z.string().min(1).max(800).optional(),
+  introDefaults: FormulaIntroDefaultsSchema.optional(),
+  scriptStructure: FormulaScriptStructureSchema.optional(),
+  recencyAvoidance: FormulaRecencyAvoidanceSchema.optional(),
+  ideaSystemPromptRole: z.string().min(1).optional(),
+  ideaGuidanceText: z.string().min(1).optional(),
+  scriptContext: z.string().min(1).optional(),
+  scriptSystemPromptRole: z.string().min(1).optional(),
+  scriptClosingHint: z.string().min(1).optional(),
 }).strict()
 
 const FormulaProductionKitSchema = z.object({

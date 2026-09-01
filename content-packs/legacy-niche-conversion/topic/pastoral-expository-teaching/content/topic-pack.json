@@ -1,0 +1,131 @@
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.pastoral-expository-teaching",
+  "name": "Expository Scripture Teaching",
+  "description": "Longer text-led teaching that traces a passage's argument before making one pastoral application.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.pastoral-scripture"
+  ],
+  "subjects": [
+    "parables",
+    "wisdom literature",
+    "gospels",
+    "letters",
+    "lament",
+    "justice",
+    "discipleship",
+    "prayer",
+    "community",
+    "suffering"
+  ],
+  "episode_objects": [
+    "an argument map that separates the passage's claims, supports, and conclusion",
+    "a genre-aware outline that traces repeated terms and rhetorical turns",
+    "a contextual teaching sequence from historical occasion through theological claim",
+    "a final pastoral implication explicitly distinguished from the passage's original address"
+  ],
+  "time_place_scopes": [
+    "the complete teaching unit within its ancient social and literary setting",
+    "the movement from opening question to closing claim across the selected passage",
+    "the author's historical occasion and the first hearers' likely constraints",
+    "later reception compared cautiously with the text's original communicative setting"
+  ],
+  "mechanisms": [
+    "syntax, genre, and discourse flow establish the argument before doctrinal synthesis",
+    "repeated words and contrasts reveal structure without turning a detail into a proof text",
+    "historical context narrows plausible interpretations while uncertainty remains explicit",
+    "application follows the established claim and is marked as pastoral judgment rather than quotation"
+  ],
+  "evidence_lenses": [
+    "verified scripture wording compared across suitable translations with textual differences noted",
+    "historical and literary context drawn from reputable exegetical scholarship with traceable citations",
+    "paragraph-level discourse analysis tested against the surrounding book argument",
+    "clearly attributed interpretive alternatives with reasons for preferring one reading"
+  ],
+  "exclusions": [
+    "Do not fabricate scripture quotations, manuscript claims, historical facts, or citations.",
+    "Separate scripture text or quotation from interpretation, theological synthesis, and pastoral application.",
+    "Avoid proof-texting, hidden certainty, and claims that a disputed interpretation is the text's exact words.",
+    "Do not use first-audience context as decoration; it must constrain the exegesis."
+  ],
+  "max_siblings_per_subject": 2,
+  "prompt_context": "Begin with verified scripture text and define the passage boundary. Trace genre, syntax, argument, and first-audience historical context before interpretation; label disputed exegesis and uncertainty. Keep quotation, interpretation, synthesis, and application separate, and do not fabricate wording or citations.",
+  "idea_axes": [
+    {
+      "id": "expository-lens",
+      "label": "Expository lens",
+      "values": [
+        "argument flow",
+        "genre and rhetoric",
+        "historical occasion",
+        "canonical relationship"
+      ]
+    }
+  ],
+  "coverage_groups": [
+    {
+      "subjects": [
+        "parables",
+        "wisdom literature",
+        "gospels",
+        "letters",
+        "lament"
+      ],
+      "episode_objects": [
+        "an argument map that separates the passage's claims, supports, and conclusion",
+        "a genre-aware outline that traces repeated terms and rhetorical turns"
+      ],
+      "time_place_scopes": [
+        "the complete teaching unit within its ancient social and literary setting",
+        "the movement from opening question to closing claim across the selected passage"
+      ],
+      "mechanisms": [
+        "syntax, genre, and discourse flow establish the argument before doctrinal synthesis",
+        "repeated words and contrasts reveal structure without turning a detail into a proof text"
+      ],
+      "evidence_lenses": [
+        "verified scripture wording compared across suitable translations with textual differences noted",
+        "historical and literary context drawn from reputable exegetical scholarship with traceable citations"
+      ]
+    },
+    {
+      "subjects": [
+        "justice",
+        "discipleship",
+        "prayer",
+        "community",
+        "suffering"
+      ],
+      "episode_objects": [
+        "a contextual teaching sequence from historical occasion through theological claim",
+        "a final pastoral implication explicitly distinguished from the passage's original address"
+      ],
+      "time_place_scopes": [
+        "the author's historical occasion and the first hearers' likely constraints",
+        "later reception compared cautiously with the text's original communicative setting"
+      ],
+      "mechanisms": [
+        "historical context narrows plausible interpretations while uncertainty remains explicit",
+        "application follows the established claim and is marked as pastoral judgment rather than quotation"
+      ],
+      "evidence_lenses": [
+        "paragraph-level discourse analysis tested against the surrounding book argument",
+        "clearly attributed interpretive alternatives with reasons for preferring one reading"
+      ]
+    }
+  ],
+  "evidence_expectations": [
+    "Verify scripture quotations and every citation rather than inventing precision.",
+    "Use historical context and literary evidence appropriate to responsible exegesis.",
+    "State where interpretation is contested and keep application downstream of textual analysis."
+  ],
+  "compatibility_rules": [
+    "Use only with Pastoral Scripture and its expository teaching episode profile."
+  ],
+  "tags": [
+    "preaching",
+    "scripture",
+    "teaching"
+  ]
+}

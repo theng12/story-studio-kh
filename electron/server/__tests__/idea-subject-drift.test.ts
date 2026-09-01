@@ -17,7 +17,7 @@ import assert from 'node:assert/strict'
 import { test, describe } from 'node:test'
 import { __ideaCampaignInternals } from '../generators/idea-campaign.js'
 
-const { mentionsSubject } = __ideaCampaignInternals
+const { campaignPrompt, mentionsSubject } = __ideaCampaignInternals
 
 function assignment(subject: string, episodeObject?: string) {
   return { idea_key: 'idea-1', dimensions: { subject, ...(episodeObject ? { 'episode-object': episodeObject } : {}) } } as never
@@ -58,4 +58,52 @@ describe('genuine drift is still caught', () => {
   test('an assignment with nothing to anchor on accepts, rather than rejecting blindly', () => {
     assert.equal(mentionsSubject({ title: 'Anything', logline: 'At all' }, assignment('')), true)
   })
+})
+
+test('a mixed-profile campaign gives each reserved assignment its own idea role and policy', () => {
+  const prompt = campaignPrompt({
+    request: { campaign_id: 'mixed', count: 2 },
+    format: {
+      idea: { systemPromptRole: 'Parent idea role.', guidanceText: 'Parent guidance.' },
+      script: { chapterCountRange: [4, 9], lengthMinutesRange: [20, 30] },
+    },
+    niche: {
+      id: 'pastoral', name: 'Pastoral', description: 'Pastoral.', builtin: false,
+      schemaVersion: 1, exampleTopics: [], ideaSystemPromptRole: 'Parent idea role.',
+      ideaGuidanceText: 'Parent guidance.',
+      productionKit: {
+        id: 'pastoral-modes', label: 'Modes', description: 'Modes.', episodeProfiles: [
+          {
+            id: 'daily', label: 'Daily', description: 'Daily.', ideaAxisValue: 'daily reflection',
+            ideaSystemPromptRole: 'DAILY REFLECTION ROLE', ideaGuidanceText: 'DAILY PASSAGE GUIDANCE',
+            scriptContext: 'DAILY REFLECTION CONTEXT',
+            titlePolicy: 'DAILY TITLE POLICY',
+          },
+          {
+            id: 'expository', label: 'Expository', description: 'Expository.', ideaAxisValue: 'expository teaching',
+            ideaSystemPromptRole: 'EXPOSITORY TEACHING ROLE', ideaGuidanceText: 'EXPOSITORY PASSAGE GUIDANCE',
+            scriptContext: 'EXPOSITORY TEACHING CONTEXT',
+            titlePolicy: 'EXPOSITORY TITLE POLICY',
+          },
+        ],
+      },
+    },
+    assignments: [
+      { idea_key: 'daily-key', dimensions: { subject: 'Ruth 1', 'episode-profile': 'daily reflection' } },
+      { idea_key: 'expository-key', dimensions: { subject: 'Acts 17', 'episode-profile': 'expository teaching' } },
+    ],
+    avoid: [],
+  } as never)
+
+  const daily = prompt.slice(prompt.indexOf('idea_key="daily-key"'), prompt.indexOf('idea_key="expository-key"'))
+  const expository = prompt.slice(prompt.indexOf('idea_key="expository-key"'))
+  assert.match(daily, /DAILY REFLECTION ROLE/)
+  assert.match(daily, /DAILY PASSAGE GUIDANCE/)
+  assert.match(daily, /DAILY REFLECTION CONTEXT/)
+  assert.match(daily, /DAILY TITLE POLICY/)
+  assert.doesNotMatch(daily, /EXPOSITORY TEACHING ROLE/)
+  assert.match(expository, /EXPOSITORY TEACHING ROLE/)
+  assert.match(expository, /EXPOSITORY PASSAGE GUIDANCE/)
+  assert.match(expository, /EXPOSITORY TEACHING CONTEXT/)
+  assert.match(expository, /EXPOSITORY TITLE POLICY/)
 })

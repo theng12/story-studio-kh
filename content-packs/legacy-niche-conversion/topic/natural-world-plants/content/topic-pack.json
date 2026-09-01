@@ -1,0 +1,306 @@
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.natural-world-plants",
+  "name": "Plants & Botanical Survival",
+  "description": "Plants, pollination, roots, reproduction, chemical defenses, and adaptations to difficult habitats.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.natural-world-explained",
+    "com.storystudio.formula.counted-explainer"
+  ],
+  "subjects": [
+    "desert plants",
+    "carnivorous plants",
+    "trees",
+    "orchids",
+    "parasites",
+    "seed dispersal",
+    "mangroves",
+    "alpine plants",
+    "forest understory",
+    "pollination"
+  ],
+  "episode_objects": [
+    "desert plants — succulent stem tissue storing water behind a waxy surface",
+    "desert plants — stomata opening at night while carbon compounds accumulate",
+    "carnivorous plants — a Venus flytrap closing after paired trigger-hair contacts",
+    "carnivorous plants — a pitcher containing prey-derived nitrogen in digestive fluid",
+    "trees — a continuous water column moving through xylem vessels",
+    "trees — annual wood rings recording unequal seasons of growth",
+    "orchids — dust-like seeds germinating only after fungal colonization",
+    "orchids — a flower transferring paired pollinia onto one visiting insect",
+    "parasites — a dodder vine forming haustorial connections into a host stem",
+    "parasites — mistletoe leaves transpiring above a host branch connection",
+    "seed dispersal — a winged seed autorotating away from its parent tree",
+    "seed dispersal — intact seeds passing through a fruit-eating bird",
+    "mangroves — roots excluding most salt while drawing water from tidal mud",
+    "mangroves — a buoyant propagule rooting after a tidal journey",
+    "alpine plants — a dense cushion trapping warmer air near small leaves",
+    "alpine plants — pigmented leaves shielding photosynthetic tissue after snowmelt",
+    "forest understory — broad leaves capturing brief moving patches of direct sun",
+    "forest understory — spring wildflowers completing growth before canopy closure",
+    "pollination — pollen grains deposited on a receptive stigma after a bee visit",
+    "pollination — windborne pollen leaving exposed anthers and settling on conspecific flowers"
+  ],
+  "time_place_scopes": [
+    "desert plants — a Sonoran dry season followed through one rain pulse",
+    "desert plants — a controlled hot-day and cool-night gas-exchange cycle",
+    "carnivorous plants — a nutrient-poor bog plant during controlled touch intervals",
+    "carnivorous plants — a tropical pitcher from trap opening through one digestion cycle",
+    "trees — a mature forest canopy during a hot summer day",
+    "trees — a dated temperate stand across a century of wet and dry years",
+    "orchids — a forest-floor germination plot through the protocorm stage",
+    "orchids — a flowering population across a documented pollinator season",
+    "parasites — a field margin from host contact through six weeks of attachment",
+    "parasites — a woodland canopy across wet and dry seasonal conditions",
+    "seed dispersal — a forest edge during controlled release into measured wind",
+    "seed dispersal — a tropical fruiting season from feeding visit to seed deposition",
+    "mangroves — an estuary across one spring-neap salinity cycle",
+    "mangroves — a mapped shoreline from propagule release through establishment",
+    "alpine plants — an exposed mountain ridge across freezing nights and sunny days",
+    "alpine plants — an early growing season under high ultraviolet exposure",
+    "forest understory — a closed-canopy woodland across one summer day",
+    "forest understory — a deciduous forest from snowmelt to full leaf-out",
+    "pollination — a flowering field during a measured morning visitor window",
+    "pollination — a grass population during a dry, windy flowering interval"
+  ],
+  "mechanisms": [
+    "desert plants — water storage and low surface-area exposure buffer long intervals between rainfall",
+    "desert plants — CAM photosynthesis separates nighttime carbon uptake from daytime sugar production to reduce water loss",
+    "carnivorous plants — electrical signals count closely spaced touches before rapid hydraulic closure",
+    "carnivorous plants — slippery surfaces, fluid chemistry, and enzymes retain prey and release scarce nutrients",
+    "trees — evaporation from leaves creates tension that pulls water upward through cohesive xylem sap",
+    "trees — cambial growth changes cell size and wall thickness with seasonal resource conditions",
+    "orchids — mycorrhizal fungi supply carbon and minerals to seeds with almost no stored reserves",
+    "orchids — specialized floral geometry places concentrated pollen on a particular visitor body region",
+    "parasites — haustoria connect to host vascular tissue and redirect water and assimilated carbon",
+    "parasites — sustained transpiration helps draw host xylem water and minerals into the hemiparasite",
+    "seed dispersal — wing geometry converts falling motion into rotation that slows descent and increases travel",
+    "seed dispersal — fruit rewards recruit mobile animals while resistant seeds survive gut passage",
+    "mangroves — selective root barriers and leaf-level salt management maintain internal water balance",
+    "mangroves — live-developed propagules combine flotation, delayed rooting, and rapid anchoring",
+    "alpine plants — compact growth reduces wind exposure and creates a warmer boundary layer",
+    "alpine plants — protective pigments absorb damaging radiation while leaves resume carbon fixation",
+    "forest understory — shade-acclimated leaves rapidly use sunflecks while limiting respiratory cost",
+    "forest understory — stored reserves and early phenology exploit a temporary high-light window",
+    "pollination — floral cues and rewards bring compatible pollen into contact with reproductive tissue",
+    "pollination — abundant light pollen and exposed floral structures trade targeting for atmospheric transport"
+  ],
+  "evidence_lenses": [
+    "desert plants — stem water potential, mass change, and thermal imaging before and after rain",
+    "desert plants — continuous gas exchange and leaf-acidity measurements across the day-night cycle",
+    "carnivorous plants — electrophysiology and high-speed closure timing under controlled stimulation",
+    "carnivorous plants — isotope-labeled prey with fluid chemistry and leaf nutrient measurements",
+    "trees — sap-flow sensors, leaf water potential, and embolism imaging through a heat cycle",
+    "trees — cross-dated rings calibrated against local climate and wood-anatomy measurements",
+    "orchids — sterile and inoculated germination trials with fungal DNA and carbon tracing",
+    "orchids — camera-trapped visits with pollinium tracking and fruit-set comparisons",
+    "parasites — microscopy and isotope tracing with attached, detached, and uninfected host comparisons",
+    "parasites — paired water-potential, sap-flow, and isotope measurements in host and mistletoe",
+    "seed dispersal — high-speed trajectories with seed geometry, wind speed, and landing-distance measurements",
+    "seed dispersal — tagged fruit and movement tracking with germination tests before and after passage",
+    "mangroves — xylem and soil salinity with water potential and leaf salt measurements",
+    "mangroves — tagged propagule tracks with float duration, landing site, and establishment survival",
+    "alpine plants — fine-scale temperature and wind logging with open-form comparison plants",
+    "alpine plants — reflectance, pigment chemistry, and photosynthetic performance under filtered light",
+    "forest understory — synchronized light sensors and leaf gas exchange during natural sunflecks",
+    "forest understory — repeat phenology plots with canopy openness, reserves, flowering, and seed set",
+    "pollination — visitor exclusion and pollen-count trials linked to fruit and seed production",
+    "pollination — wind and pollen traps with fluorescent analog tracking and fertilization outcomes"
+  ],
+  "exclusions": [
+    "Plants do not make conscious decisions; describe signaling and response without intention or emotion.",
+    "Exclude fungi and exclude algae from this botanical Topic Pack, while naming genuine symbioses when relevant.",
+    "Do not turn toxic, medicinal, carnivorous, or parasitic plants into handling, dosing, or treatment instructions.",
+    "Do not claim that one trait evolved for a purpose; distinguish measured function from evolutionary inference."
+  ],
+  "max_siblings_per_subject": 2,
+  "prompt_context": "Build each episode around one legacy botanical subject, observable structure or interaction, bounded habitat interval, plant mechanism, and named evidence method. Plants do not make a conscious decision: describe signaling, growth, and selection without intention. Exclude fungi and exclude algae as subjects, while identifying plant-microbe and plant-animal interactions accurately.",
+  "idea_axes": [
+    {
+      "id": "plant-adaptation",
+      "label": "Plant adaptation",
+      "values": [
+        "water storage",
+        "chemical defense",
+        "pollination",
+        "seed dispersal",
+        "parasitism",
+        "shade tolerance",
+        "salt tolerance"
+      ]
+    }
+  ],
+  "coverage_profiles": [
+    {
+      "subject": "desert plants",
+      "tuples": [
+        {
+          "episode_object": "desert plants — succulent stem tissue storing water behind a waxy surface",
+          "time_place_scope": "desert plants — a Sonoran dry season followed through one rain pulse",
+          "mechanism": "desert plants — water storage and low surface-area exposure buffer long intervals between rainfall",
+          "evidence_lens": "desert plants — stem water potential, mass change, and thermal imaging before and after rain"
+        },
+        {
+          "episode_object": "desert plants — stomata opening at night while carbon compounds accumulate",
+          "time_place_scope": "desert plants — a controlled hot-day and cool-night gas-exchange cycle",
+          "mechanism": "desert plants — CAM photosynthesis separates nighttime carbon uptake from daytime sugar production to reduce water loss",
+          "evidence_lens": "desert plants — continuous gas exchange and leaf-acidity measurements across the day-night cycle"
+        }
+      ]
+    },
+    {
+      "subject": "carnivorous plants",
+      "tuples": [
+        {
+          "episode_object": "carnivorous plants — a Venus flytrap closing after paired trigger-hair contacts",
+          "time_place_scope": "carnivorous plants — a nutrient-poor bog plant during controlled touch intervals",
+          "mechanism": "carnivorous plants — electrical signals count closely spaced touches before rapid hydraulic closure",
+          "evidence_lens": "carnivorous plants — electrophysiology and high-speed closure timing under controlled stimulation"
+        },
+        {
+          "episode_object": "carnivorous plants — a pitcher containing prey-derived nitrogen in digestive fluid",
+          "time_place_scope": "carnivorous plants — a tropical pitcher from trap opening through one digestion cycle",
+          "mechanism": "carnivorous plants — slippery surfaces, fluid chemistry, and enzymes retain prey and release scarce nutrients",
+          "evidence_lens": "carnivorous plants — isotope-labeled prey with fluid chemistry and leaf nutrient measurements"
+        }
+      ]
+    },
+    {
+      "subject": "trees",
+      "tuples": [
+        {
+          "episode_object": "trees — a continuous water column moving through xylem vessels",
+          "time_place_scope": "trees — a mature forest canopy during a hot summer day",
+          "mechanism": "trees — evaporation from leaves creates tension that pulls water upward through cohesive xylem sap",
+          "evidence_lens": "trees — sap-flow sensors, leaf water potential, and embolism imaging through a heat cycle"
+        },
+        {
+          "episode_object": "trees — annual wood rings recording unequal seasons of growth",
+          "time_place_scope": "trees — a dated temperate stand across a century of wet and dry years",
+          "mechanism": "trees — cambial growth changes cell size and wall thickness with seasonal resource conditions",
+          "evidence_lens": "trees — cross-dated rings calibrated against local climate and wood-anatomy measurements"
+        }
+      ]
+    },
+    {
+      "subject": "orchids",
+      "tuples": [
+        {
+          "episode_object": "orchids — dust-like seeds germinating only after fungal colonization",
+          "time_place_scope": "orchids — a forest-floor germination plot through the protocorm stage",
+          "mechanism": "orchids — mycorrhizal fungi supply carbon and minerals to seeds with almost no stored reserves",
+          "evidence_lens": "orchids — sterile and inoculated germination trials with fungal DNA and carbon tracing"
+        },
+        {
+          "episode_object": "orchids — a flower transferring paired pollinia onto one visiting insect",
+          "time_place_scope": "orchids — a flowering population across a documented pollinator season",
+          "mechanism": "orchids — specialized floral geometry places concentrated pollen on a particular visitor body region",
+          "evidence_lens": "orchids — camera-trapped visits with pollinium tracking and fruit-set comparisons"
+        }
+      ]
+    },
+    {
+      "subject": "parasites",
+      "tuples": [
+        {
+          "episode_object": "parasites — a dodder vine forming haustorial connections into a host stem",
+          "time_place_scope": "parasites — a field margin from host contact through six weeks of attachment",
+          "mechanism": "parasites — haustoria connect to host vascular tissue and redirect water and assimilated carbon",
+          "evidence_lens": "parasites — microscopy and isotope tracing with attached, detached, and uninfected host comparisons"
+        },
+        {
+          "episode_object": "parasites — mistletoe leaves transpiring above a host branch connection",
+          "time_place_scope": "parasites — a woodland canopy across wet and dry seasonal conditions",
+          "mechanism": "parasites — sustained transpiration helps draw host xylem water and minerals into the hemiparasite",
+          "evidence_lens": "parasites — paired water-potential, sap-flow, and isotope measurements in host and mistletoe"
+        }
+      ]
+    },
+    {
+      "subject": "seed dispersal",
+      "tuples": [
+        {
+          "episode_object": "seed dispersal — a winged seed autorotating away from its parent tree",
+          "time_place_scope": "seed dispersal — a forest edge during controlled release into measured wind",
+          "mechanism": "seed dispersal — wing geometry converts falling motion into rotation that slows descent and increases travel",
+          "evidence_lens": "seed dispersal — high-speed trajectories with seed geometry, wind speed, and landing-distance measurements"
+        },
+        {
+          "episode_object": "seed dispersal — intact seeds passing through a fruit-eating bird",
+          "time_place_scope": "seed dispersal — a tropical fruiting season from feeding visit to seed deposition",
+          "mechanism": "seed dispersal — fruit rewards recruit mobile animals while resistant seeds survive gut passage",
+          "evidence_lens": "seed dispersal — tagged fruit and movement tracking with germination tests before and after passage"
+        }
+      ]
+    },
+    {
+      "subject": "mangroves",
+      "tuples": [
+        {
+          "episode_object": "mangroves — roots excluding most salt while drawing water from tidal mud",
+          "time_place_scope": "mangroves — an estuary across one spring-neap salinity cycle",
+          "mechanism": "mangroves — selective root barriers and leaf-level salt management maintain internal water balance",
+          "evidence_lens": "mangroves — xylem and soil salinity with water potential and leaf salt measurements"
+        },
+        {
+          "episode_object": "mangroves — a buoyant propagule rooting after a tidal journey",
+          "time_place_scope": "mangroves — a mapped shoreline from propagule release through establishment",
+          "mechanism": "mangroves — live-developed propagules combine flotation, delayed rooting, and rapid anchoring",
+          "evidence_lens": "mangroves — tagged propagule tracks with float duration, landing site, and establishment survival"
+        }
+      ]
+    },
+    {
+      "subject": "alpine plants",
+      "tuples": [
+        {
+          "episode_object": "alpine plants — a dense cushion trapping warmer air near small leaves",
+          "time_place_scope": "alpine plants — an exposed mountain ridge across freezing nights and sunny days",
+          "mechanism": "alpine plants — compact growth reduces wind exposure and creates a warmer boundary layer",
+          "evidence_lens": "alpine plants — fine-scale temperature and wind logging with open-form comparison plants"
+        },
+        {
+          "episode_object": "alpine plants — pigmented leaves shielding photosynthetic tissue after snowmelt",
+          "time_place_scope": "alpine plants — an early growing season under high ultraviolet exposure",
+          "mechanism": "alpine plants — protective pigments absorb damaging radiation while leaves resume carbon fixation",
+          "evidence_lens": "alpine plants — reflectance, pigment chemistry, and photosynthetic performance under filtered light"
+        }
+      ]
+    },
+    {
+      "subject": "forest understory",
+      "tuples": [
+        {
+          "episode_object": "forest understory — broad leaves capturing brief moving patches of direct sun",
+          "time_place_scope": "forest understory — a closed-canopy woodland across one summer day",
+          "mechanism": "forest understory — shade-acclimated leaves rapidly use sunflecks while limiting respiratory cost",
+          "evidence_lens": "forest understory — synchronized light sensors and leaf gas exchange during natural sunflecks"
+        },
+        {
+          "episode_object": "forest understory — spring wildflowers completing growth before canopy closure",
+          "time_place_scope": "forest understory — a deciduous forest from snowmelt to full leaf-out",
+          "mechanism": "forest understory — stored reserves and early phenology exploit a temporary high-light window",
+          "evidence_lens": "forest understory — repeat phenology plots with canopy openness, reserves, flowering, and seed set"
+        }
+      ]
+    },
+    {
+      "subject": "pollination",
+      "tuples": [
+        {
+          "episode_object": "pollination — pollen grains deposited on a receptive stigma after a bee visit",
+          "time_place_scope": "pollination — a flowering field during a measured morning visitor window",
+          "mechanism": "pollination — floral cues and rewards bring compatible pollen into contact with reproductive tissue",
+          "evidence_lens": "pollination — visitor exclusion and pollen-count trials linked to fruit and seed production"
+        },
+        {
+          "episode_object": "pollination — windborne pollen leaving exposed anthers and settling on conspecific flowers",
+          "time_place_scope": "pollination — a grass population during a dry, windy flowering interval",
+          "mechanism": "pollination — abundant light pollen and exposed floral structures trade targeting for atmospheric transport",
+          "evidence_lens": "pollination — wind and pollen traps with fluorescent analog tracking and fertilization outcomes"
+        }
+      ]
+    }
+  ]
+}

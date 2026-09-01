@@ -2,9 +2,11 @@ import { createHash, createPrivateKey, createPublicKey, randomUUID, sign } from 
 import { constants } from 'node:fs'
 import { link, lstat, mkdir, open, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import JSZip from 'jszip'
 import { register } from 'tsx/esm/api'
+import { validateAuthoringRegistry } from './authoring-registry.mjs'
 
 const unregisterTsx = register()
 const [{ ContentPackDocumentSchema, ContentPackManifestSchema, isBundleOnlyCoordinationManifest }, { verifyContentPackArchive, verifyDeliveryAttestedContentPackArchive }] = await Promise.all([
@@ -24,6 +26,7 @@ const DELIVERY_PROFILE = 'genstudio-store-receipt-v1'
 const SOURCE_ONLY_MONOLITH_PACK_IDS = new Set([
   'com.storystudio.pack.archival-ledger',
 ])
+const AUTHORING_REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
 function fail(message) {
   throw new Error(`Content Pack publisher error: ${message}`)
@@ -364,6 +367,18 @@ async function loadSourceManifest(sourceDirectory, onSourceEnumerated, onBeforeS
   return { root: source.root, manifest: sourceManifestToArchiveManifest(sourceManifest, items, files), files: allFiles }
 }
 
+async function assertHistoricalChannelKitBuild(sourceDirectory, manifest) {
+  if (!isBundleOnlyCoordinationManifest(manifest)) return
+  const registry = await validateAuthoringRegistry({ repositoryRoot: AUTHORING_REPOSITORY_ROOT })
+  const sourcePath = resolve(sourceDirectory)
+  const authorized = registry.records.some((record) => record.kind === 'channel-kit'
+    && record.status === 'authored'
+    && record.pack_id === manifest.pack_id
+    && record.version === manifest.version
+    && resolve(AUTHORING_REPOSITORY_ROOT, record.source_path) === sourcePath)
+  if (!authorized) fail('historical Channel Kit builds require an exact authored registry identity; Channel Kits are read-only')
+}
+
 async function deterministicArchive(manifestBytes, signatureBytes, files) {
   const archive = new JSZip()
   const options = { date: FIXED_ARCHIVE_DATE, createFolders: false, unixPermissions: 0o100644 }
@@ -412,6 +427,7 @@ export async function buildContentPack({ sourceDirectory, privateKeyPath, output
   await assertOutputSeparatedFromInputs(sourcePath, privateKey, output)
   const privateKeyObject = privateKey ? parsePrivateKey(await readFile(privateKey, 'utf8')) : undefined
   const source = await loadSourceManifest(sourcePath, onSourceEnumerated, onBeforeSourceRead, { minAppVersion, keyId, deliveryProfile })
+  await assertHistoricalChannelKitBuild(sourcePath, source.manifest)
   const manifestBytes = Buffer.from(canonicalJson(source.manifest), 'utf8')
   const signatureBytes = privateKeyObject ? sign(null, manifestBytes, privateKeyObject) : undefined
   const archiveBytes = await deterministicArchive(manifestBytes, signatureBytes, source.files)

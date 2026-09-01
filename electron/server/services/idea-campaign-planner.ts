@@ -446,7 +446,11 @@ export function planIdeaAssignments(options: {
         : []
       if (episodeObject && mechanism && priorStructures.some(prior =>
         prior.episodeObject === slug(episodeObject) || prior.mechanism === slug(mechanism))) return false
-      const next = (siblingCounts.get(key) || 0) + 1
+      // Coverage packs use coherent tuples. Their pre-existing assignments are
+      // recovered as prior structures above, but they must also consume the
+      // declared sibling capacity; otherwise a one-sibling pack can issue a
+      // second tuple after a previously accepted assignment.
+      const next = (siblingCounts.get(key) ?? priorStructures.length) + 1
       if (next > limit) return false
       siblingCounts.set(key, next)
       if (episodeObject && mechanism) {

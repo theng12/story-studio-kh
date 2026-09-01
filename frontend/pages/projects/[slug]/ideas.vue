@@ -1185,6 +1185,7 @@
 import { canonicalFormatId } from '~/composables/useFormats'
 import { resolveInitialIdeaModel } from '~/utils/idea-model-preference'
 import { projectSlug } from '~/utils/project-slug'
+import { scriptDeepLinkQuery } from '~/utils/scriptSizing'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Ideas')
@@ -2748,7 +2749,15 @@ async function doAccept(action: 'folders' | 'script') {
     acceptDialogIdea.value = null; await loadIdeas()
     const code = result.episode_code || nextEpisode.value
     success(`Accepted! ${code} folders created.`)
-    if (action === 'script') navigateTo({ path: `/projects/${slug.value}/scripts`, query: { episode_id: code, title: idea.title, chapters: idea.suggested_chapters, length: idea.suggested_length === '60 min' ? '60' : '45' } })
+    if (action === 'script') navigateTo({
+      path: `/projects/${slug.value}/scripts`,
+      query: scriptDeepLinkQuery({
+        episodeCode: code,
+        title: idea.title,
+        suggestedChapters: idea.suggested_chapters,
+        suggestedLength: idea.suggested_length,
+      }),
+    })
   } catch (e: any) { showError(e.data?.detail || 'Failed to accept') }
 }
 // ── Renumber dialog (already-accepted episode rename) ────────────────────

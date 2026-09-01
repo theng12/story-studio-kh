@@ -25,6 +25,8 @@ function formulaDocument(): Extract<ContentPackDocument, { kind: 'series-formula
       required_habits: ['Name the institution.'], closing_policy: 'Return to the evidence.',
     },
     opening_profile: { id: 'consequence-first', label: 'Consequence first', description: 'Start with the result.' },
+    intro_defaults: { word_target: 75, beats: [{ id: 'hook', custom_text: 'Name the consequence.' }], example_text: 'Begin at the ledger.' },
+    visual_style_hint: 'A restrained evidence desk with one readable object.',
     metadata_profile: {
       id: 'evidence-youtube', label: 'Evidence package', description: 'A factual summary.',
       description_section_ids: ['hook', 'hashtags'], title_mode: 'use_idea_title',
@@ -37,6 +39,15 @@ function formulaDocument(): Extract<ContentPackDocument, { kind: 'series-formula
         id: 'institution', label: 'Institution', description: 'A bounded institution.', idea_axis_value: 'Institution',
         title_suffix: 'Explained', forbidden_title_suffixes: ['Revealed'], narrator_style_id: 'archivist',
         title_policy: 'Name the object.', thumbnail_policy: 'Show the evidence.', metadata_policy: 'Avoid hype.',
+        intro_defaults: { word_target: 60, beats: ['hook'] },
+        script_structure: {
+          default_chapter_count: 3, chapter_count_range: [3, 5], default_length_minutes: 10,
+          length_minutes_range: [10, 20], duration_presets: [10, 20], default_words_per_minute: 140,
+          chapters_independent: false, pacing_arc: ['Claim', 'Evidence'], additional_rules: ['Stay concrete.'],
+        },
+        recency_avoidance: { strategy_id: 'pastoral-daily-reflection-scripture', label: 'scripture references', default_lookback: 30, scopes: ['script'] },
+        idea_system_prompt_role: 'Profile idea role.', script_system_prompt_role: 'Profile script role.',
+        script_context: 'Profile context.', script_closing_hint: 'Profile close.',
       }],
     },
     narrative_rules: ['Stay causal.'], title_rules: ['Name the object.'],
@@ -59,6 +70,7 @@ function formulaDocument(): Extract<ContentPackDocument, { kind: 'series-formula
     logline_shape_rules: ['State cause and effect.'], logline_sentence_range: [1, 2],
     theme_shape_rules: ['Use a noun phrase.'], theme_count_range: [1, 3], structural_variety: 'vary-all',
     default_thumbnail_recipe_id: RECIPE_ID, metadata_title_style_hint: 'Concrete and restrained.',
+    default_thumbnail_template_id: 'portrait-block-right',
     metadata_title_hook_rules: ['Name the tension.'], metadata_tags_hook_rules: ['Prefer specific institutions.'],
     youtube_tags_hint: ['archive', 'evidence'],
     metadata_description: {
@@ -126,7 +138,26 @@ describe('Content Pack legacy adapters', () => {
       id: 'institution', label: 'Institution', description: 'A bounded institution.', ideaAxisValue: 'Institution',
       titleSuffix: 'Explained', forbiddenTitleSuffixes: ['Revealed'], narratorStyleId: 'archivist',
       titlePolicy: 'Name the object.', thumbnailPolicy: 'Show the evidence.', metadataPolicy: 'Avoid hype.',
+      introDefaults: { wordTarget: 60, beats: ['hook'] },
+      scriptStructure: {
+        defaultChapterCount: 3, chapterCountRange: [3, 5], defaultLengthMinutes: 10,
+        lengthMinutesRange: [10, 20], durationPresets: [10, 20], defaultWordsPerMinute: 140,
+        chaptersIndependent: false, visualPacingProfile: undefined,
+        motionProfileId: undefined, pacingArc: ['Claim', 'Evidence'], additionalRules: ['Stay concrete.'],
+      },
+      recencyAvoidance: {
+        strategyId: 'pastoral-daily-reflection-scripture', label: 'scripture references',
+        extractPatterns: niche.productionKit?.episodeProfiles?.[0]?.recencyAvoidance?.extractPatterns,
+        defaultLookback: 30,
+        instructionTemplate: niche.productionKit?.episodeProfiles?.[0]?.recencyAvoidance?.instructionTemplate,
+        scopes: ['script'],
+      },
+      ideaSystemPromptRole: 'Profile idea role.', ideaGuidanceText: undefined,
+      scriptContext: 'Profile context.', scriptSystemPromptRole: 'Profile script role.', scriptClosingHint: 'Profile close.',
     })
+    assert.deepEqual(niche.introDefaults, { wordTarget: 75, beats: [{ id: 'hook', custom_text: 'Name the consequence.' }], exampleText: 'Begin at the ledger.' })
+    assert.equal(niche.visualStyleHint, 'A restrained evidence desk with one readable object.')
+    assert.equal(niche.defaultThumbnailTemplateId, 'portrait-block-right')
     assert.equal('provider' in niche, false)
     assert.equal('model' in niche, false)
   })

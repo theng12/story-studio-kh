@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.93 — 2026-09-01
+
+- **The legacy Content Pack migration is complete as standalone choices.** Seventeen remaining Formula and Topic products and four prepared Style and Thumbnail products now have finished independent sources, while the free History, Explained 1.0.2 compatibility successor stays a free built-in and is not counted as a paid product.
+- **Old projects keep working without reviving Channel Kits.** Runtime compatibility IDs remain readable, Dark Psychology resolves through Human Behavior, Music Mix stays available only to existing projects through its dedicated music workflow, and historical Kits remain read-only. Five unused pre-sale reservations were safely withdrawn with their identities permanently retained, so they cannot be recycled or quietly return as products.
+
 ## v1.4.92 — 2026-09-01
 
 - **Confirmed failed images can optionally be replaced, with a firm spending boundary.** This image-only setting is Off by default. When enabled, Story Studio waits a fixed 30 minutes and requires authoritative failed-task evidence before considering a replacement. It then refreshes the exact current published price for the same image request and allows at most one replacement per image, only within the additional-credit ceiling you must set for each Story job. Audio and video are unchanged.

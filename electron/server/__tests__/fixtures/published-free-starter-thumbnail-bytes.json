@@ -9,17 +9,6 @@
         "pack.json": "879414768773630f3e68b5294a044688d8f4e3a7aa6442b4b4767ef6159b2efe"
       }
     },
-    "centered-hero-headline-v1.0.1": {
-      "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
-      "version": "1.0.1",
-      "files": {
-        "assets/centered-hero-headline-2.webp": "7239320b64cafd9759a94b6d98ac1a37c7b3e2d0d2a30cfc14c24faf9ff970f2",
-        "assets/centered-hero-headline-3.webp": "5c182a2ab734f4b067ee1cc0abcb1fac567945fe424c32e15253ae8bd01cd2a2",
-        "assets/centered-hero-headline.webp": "330334bf935e06fb8167a4ea8321d37a92f64b12a88e9564ccb9cf45f893d2ab",
-        "content/thumbnail-recipe.json": "e3450019c8c7c9b8bfd618bdd03d5524f12dea685944e1386b905e1e098411ab",
-        "pack.json": "1113b5a243d4f7e77a95296871fac7bf1e9e60aaa3b596c37449cb2a175ebb3a"
-      }
-    },
     "dreamscape-story-window": {
       "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
       "version": "1.0.0",
@@ -27,17 +16,6 @@
         "assets/dreamscape-story-window.webp": "1c2ea52dfd2677ce59178e308559c2ae7d97a3a7c2a4c6f6b73bdccf37a8d2ce",
         "content/thumbnail-recipe.json": "f699c850469798aff6406a9d3d440d8b4c445b703457fe26148a43d60301f296",
         "pack.json": "62c958b88f46010600c532fd8eb2149ef2fcd631eb99803f6677085663c0b736"
-      }
-    },
-    "dreamscape-story-window-v1.0.1": {
-      "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
-      "version": "1.0.1",
-      "files": {
-        "assets/dreamscape-story-window-2.webp": "7c5bbe504f728c4a7599fde7b415d7f7b4c0ef0d8598d7d04baae78846f74cc7",
-        "assets/dreamscape-story-window-3.webp": "59db4897597dc0a8b346aba8f4f5fe505e3b8b0c588d960b1a76886706e5744f",
-        "assets/dreamscape-story-window.webp": "1c2ea52dfd2677ce59178e308559c2ae7d97a3a7c2a4c6f6b73bdccf37a8d2ce",
-        "content/thumbnail-recipe.json": "259ee9052d3bf776a02942b5cb89746905739a4ce10eab72d391e45881ad89b9",
-        "pack.json": "33cca3f0ae045d5515d16d70154cc981794a81e24b4305934c1dd3ae960a63f4"
       }
     },
     "portrait-block-right": {
@@ -49,17 +27,6 @@
         "assets/portrait-block-right.webp": "d7f458e7e6a4025e8a52c22fab0827fcae32c3c2d576be1e32bf6da439ecc00f",
         "content/thumbnail-recipe.json": "eb6300e2785570e7c502786185784c29aa33e17a1c4cf542d9c81a5473f8c186",
         "pack.json": "8faf42cad2423b6fed0ee625736be6467f7ad92a1a942799541d9e875d86bbdd"
-      }
-    },
-    "portrait-block-right-v1.0.1": {
-      "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
-      "version": "1.0.1",
-      "files": {
-        "assets/portrait-block-right-2.webp": "6d0afdd2d33b2cccef97c7d33ff69ce8ba1c517ce328007277e83baaf9cd3704",
-        "assets/portrait-block-right-3.webp": "e0f5f56f6ab745644af52e6154885f4ad47a6efdd3dc97cd0b60ba353d25ce47",
-        "assets/portrait-block-right.webp": "d7f458e7e6a4025e8a52c22fab0827fcae32c3c2d576be1e32bf6da439ecc00f",
-        "content/thumbnail-recipe.json": "94ceeb9cba01fb6f778ea99b3e7141272e038194add00cbf7aeb9ce030511b1c",
-        "pack.json": "de3eba81043802933482aa85afa9fbe8c5f28422dc71bcef2661637c9d7f2cea"
       }
     },
     "prehistoric-discovery": {
@@ -84,6 +51,28 @@
     }
   },
   "retired_identities": {
+    "com.storystudio.pack.thumbnail.centered-hero-headline@1.0.1": {
+      "commit": "17b4f9905927427e4b15afac2a90b19d7a6214bf",
+      "path": "content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1",
+      "files": {
+        "assets/centered-hero-headline-2.webp": "7239320b64cafd9759a94b6d98ac1a37c7b3e2d0d2a30cfc14c24faf9ff970f2",
+        "assets/centered-hero-headline-3.webp": "5c182a2ab734f4b067ee1cc0abcb1fac567945fe424c32e15253ae8bd01cd2a2",
+        "assets/centered-hero-headline.webp": "330334bf935e06fb8167a4ea8321d37a92f64b12a88e9564ccb9cf45f893d2ab",
+        "content/thumbnail-recipe.json": "e3450019c8c7c9b8bfd618bdd03d5524f12dea685944e1386b905e1e098411ab",
+        "pack.json": "1113b5a243d4f7e77a95296871fac7bf1e9e60aaa3b596c37449cb2a175ebb3a"
+      }
+    },
+    "com.storystudio.pack.thumbnail.dreamscape-story-window@1.0.1": {
+      "commit": "17b4f9905927427e4b15afac2a90b19d7a6214bf",
+      "path": "content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1",
+      "files": {
+        "assets/dreamscape-story-window-2.webp": "7c5bbe504f728c4a7599fde7b415d7f7b4c0ef0d8598d7d04baae78846f74cc7",
+        "assets/dreamscape-story-window-3.webp": "59db4897597dc0a8b346aba8f4f5fe505e3b8b0c588d960b1a76886706e5744f",
+        "assets/dreamscape-story-window.webp": "1c2ea52dfd2677ce59178e308559c2ae7d97a3a7c2a4c6f6b73bdccf37a8d2ce",
+        "content/thumbnail-recipe.json": "259ee9052d3bf776a02942b5cb89746905739a4ce10eab72d391e45881ad89b9",
+        "pack.json": "33cca3f0ae045d5515d16d70154cc981794a81e24b4305934c1dd3ae960a63f4"
+      }
+    },
     "com.storystudio.pack.thumbnail.portrait-block-right@1.0.0": {
       "commit": "46711262bbfca5d5eb8b65d41c1f5806d43b4bdb",
       "path": "content-packs/free-starters/thumbnail/portrait-block-right",
@@ -91,6 +80,17 @@
         "assets/portrait-block-right.webp": "d7f458e7e6a4025e8a52c22fab0827fcae32c3c2d576be1e32bf6da439ecc00f",
         "content/thumbnail-recipe.json": "2198086e0ce362d59abb78740cc12df1b30b49c45f35be054c1376248078f908",
         "pack.json": "1990565fc67d1646a2c45e98c6cbd34ee4cc9629a32b095ebbd55f4cf39009aa"
+      }
+    },
+    "com.storystudio.pack.thumbnail.portrait-block-right@1.0.1": {
+      "commit": "17b4f9905927427e4b15afac2a90b19d7a6214bf",
+      "path": "content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1",
+      "files": {
+        "assets/portrait-block-right-2.webp": "6d0afdd2d33b2cccef97c7d33ff69ce8ba1c517ce328007277e83baaf9cd3704",
+        "assets/portrait-block-right-3.webp": "e0f5f56f6ab745644af52e6154885f4ad47a6efdd3dc97cd0b60ba353d25ce47",
+        "assets/portrait-block-right.webp": "d7f458e7e6a4025e8a52c22fab0827fcae32c3c2d576be1e32bf6da439ecc00f",
+        "content/thumbnail-recipe.json": "94ceeb9cba01fb6f778ea99b3e7141272e038194add00cbf7aeb9ce030511b1c",
+        "pack.json": "de3eba81043802933482aa85afa9fbe8c5f28422dc71bcef2661637c9d7f2cea"
       }
     }
   }

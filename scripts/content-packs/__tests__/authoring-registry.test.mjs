@@ -28,7 +28,7 @@ async function registrySnapshot(path) {
   }
 }
 
-test('reconciles authored and reserved records with every supported identity shape', async () => {
+test('reconciles authored, reserved, and withdrawn records with every supported identity shape', async () => {
   const { validateAuthoringRegistry } = await import(registryModule)
   const result = await validateAuthoringRegistry({ registryPath, repositoryRoot })
 
@@ -36,7 +36,7 @@ test('reconciles authored and reserved records with every supported identity sha
   assert.ok(result.records.length >= 55, `registry shrank to ${result.records.length} records`)
   assert.ok(result.records.some((record) => record.status === 'authored'))
   for (const record of result.records) {
-    assert.ok(record.status === 'authored' || record.status === 'reserved')
+    assert.ok(['authored', 'reserved', 'withdrawn'].includes(record.status))
     const shapes = [record.item_id, record.item_ids, record.bundle_id]
       .filter((value) => value !== undefined)
     assert.equal(shapes.length, 1, `${record.pack_id}@${record.version} carries ${shapes.length} identity shapes`)
@@ -385,7 +385,7 @@ test('leaves registry bytes unchanged for stale, colliding, malformed, unknown, 
       request.records[0].pack_id = 'com.storystudio.pack.kit.reserved-style'
       request.records[0].stocking_proposal.family.id = 'com.storystudio.family.kit.reserved-style'
       request.records[0].stocking_proposal.sku.id = 'com.storystudio.sku.kit.reserved-style'
-    }, /duplicate bundle_id/i],
+    }, /Channel Kit|duplicate bundle_id/i],
     ['family collision', (request) => { request.records[0].stocking_proposal.family.id = 'com.storystudio.family.style.cinematic-photoreal' }, /duplicate family/i],
     ['sku collision', (request) => { request.records[0].stocking_proposal.sku.id = 'com.storystudio.sku.style.cinematic-photoreal' }, /duplicate sku/i],
     ['malformed dependency', (request) => { request.records[0].dependencies = [{ pack_id: 'com.storystudio.pack.missing', version: '1.0.0' }] }, /unknown dependency/i],
@@ -414,7 +414,7 @@ test('concurrent reservations from the same revision allow at most one success',
   assert.equal(JSON.parse(await readFile(copy, 'utf8')).revision, initial.revision + 1)
 })
 
-test('rejects a reserved coordinator without its complete exact dependency closure', async (t) => {
+test('refuses new Channel Kit reservations before dependency admission and preserves registry bytes', async (t) => {
   const { reserveAuthoringBatch } = await import(registryModule)
   const root = await temporaryRepository()
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -433,7 +433,7 @@ test('rejects a reserved coordinator without its complete exact dependency closu
 
   await assert.rejects(
     reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request }),
-    /coordinator dependency closure/i,
+    /Channel Kit.*historical|Channel Kit.*read-only/i,
   )
   assert.deepEqual(await readFile(copy), original)
 })
@@ -746,6 +746,195 @@ test('promotes an exact reserved source to authored and keeps its immutable rece
   })).receipt_ref, reserved.receipt_ref)
 })
 
+test('withdraws an unmaterialized reservation permanently without changing its original receipt', async (t) => {
+  // This catches a lifecycle implementation that lets an abandoned pre-sale
+  // identity revive, keeps its stocking proposal mutable, or reuses its pack id.
+  const { reserveAuthoringBatch, transitionAuthoringRecord, verifyAuthoringReceipt } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const request = reservationRequest((await registrySnapshot(copy)).revision)
+  const reserved = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
+  const assignment = { ...reserved, record: request.records[0] }
+
+  const beforeWithdrawal = await readFile(copy)
+  await assert.rejects(
+    transitionAuthoringRecord({
+      registryPath: copy,
+      repositoryRoot: root,
+      request: transitionRequest(assignment, reserved.revision, {
+        status: 'withdrawn',
+        stocking_proposal: { family: { status: 'confirmed', confirmation_ref: 'genstudio:never' } },
+      }),
+    }),
+    /withdrawal.*stocking/i,
+  )
+  assert.deepEqual(await readFile(copy), beforeWithdrawal)
+
+  const withdrawn = await transitionAuthoringRecord({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: transitionRequest(assignment, reserved.revision, { status: 'withdrawn' }),
+  })
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  assert.equal(registry.records.at(-1).status, 'withdrawn')
+  assert.deepEqual(await verifyAuthoringReceipt({
+    registryPath: copy,
+    repositoryRoot: root,
+    revision: reserved.revision,
+    receiptRef: reserved.receipt_ref,
+    expectedIdentity: request.records[0],
+  }), { revision: reserved.revision, receipt_ref: reserved.receipt_ref, identity: request.records[0] })
+
+  const beforeRejections = await readFile(copy)
+  for (const [changes, error] of [
+    [{ status: 'authored' }, /reserved.*authored|withdrawn|terminal/i],
+    [{ stocking_proposal: { family: { status: 'confirmed', confirmation_ref: 'genstudio:never' } } }, /withdrawn|terminal/i],
+  ]) {
+    await assert.rejects(
+      transitionAuthoringRecord({
+        registryPath: copy,
+        repositoryRoot: root,
+        request: transitionRequest(assignment, withdrawn.revision, changes),
+      }),
+      error,
+    )
+    assert.deepEqual(await readFile(copy), beforeRejections)
+  }
+
+  await assert.rejects(
+    reserveAuthoringBatch({
+      registryPath: copy,
+      repositoryRoot: root,
+      request: successorReservation({ receipt_ref: reserved.receipt_ref, ...request.records[0] }, withdrawn.revision),
+    }),
+    /withdrawn|later version|terminal/i,
+  )
+  assert.deepEqual(await readFile(copy), beforeRejections)
+
+  await assert.rejects(
+    reserveAuthoringBatch({
+      registryPath: copy,
+      repositoryRoot: root,
+      request: successorReservation({ receipt_ref: reserved.receipt_ref, ...request.records[0] }, withdrawn.revision, '0.9.0'),
+    }),
+    /withdrawn|terminal/i,
+  )
+  assert.deepEqual(await readFile(copy), beforeRejections)
+})
+
+test('withdraws an older reserved version when an authored same-lineage alternative already exists', async (t) => {
+  // This catches a validator that mistakes a predecessor being closed for a
+  // new successor being issued after withdrawal.
+  const { reserveAuthoringBatch, transitionAuthoringRecord, validateAuthoringRegistry } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const firstRequest = reservationRequest((await registrySnapshot(copy)).revision)
+  const predecessor = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: firstRequest })
+  const successorRequest = successorReservation({ receipt_ref: predecessor.receipt_ref, ...firstRequest.records[0] }, predecessor.revision)
+  const successor = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: successorRequest })
+  const successorAssignment = { ...successor, record: successorRequest.records[0] }
+  await materializeReservedStyle(root, successorRequest.records[0])
+  const authored = await transitionAuthoringRecord({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: transitionRequest(successorAssignment, successor.revision, { status: 'authored' }),
+  })
+
+  const withdrawn = await transitionAuthoringRecord({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: transitionRequest({ ...predecessor, record: firstRequest.records[0] }, authored.revision, { status: 'withdrawn' }),
+  })
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  assert.equal(registry.records.find(record => record.pack_id === firstRequest.records[0].pack_id && record.version === '1.0.0').status, 'withdrawn')
+  assert.equal(registry.records.find(record => record.pack_id === firstRequest.records[0].pack_id && record.version === '1.0.1').status, 'authored')
+  assert.equal(withdrawn.revision, authored.revision + 1)
+  const replayed = await validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
+  assert.equal(replayed.revision, withdrawn.revision, 'a later version reserved before withdrawal remains valid when replayed chronologically')
+})
+
+test('refuses withdrawal when the reserved source has been materialized without changing registry bytes', async (t) => {
+  // This catches treating post-source retirement as pre-sale withdrawal.
+  const { reserveAuthoringBatch, transitionAuthoringRecord } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const request = reservationRequest((await registrySnapshot(copy)).revision)
+  const reserved = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
+  await materializeReservedStyle(root, request.records[0])
+  const before = await readFile(copy)
+
+  await assert.rejects(
+    transitionAuthoringRecord({
+      registryPath: copy,
+      repositoryRoot: root,
+      request: transitionRequest({ ...reserved, record: request.records[0] }, reserved.revision, { status: 'withdrawn' }),
+    }),
+    /withdrawn source.*not exist|withdrawn.*source/i,
+  )
+  assert.deepEqual(await readFile(copy), before)
+})
+
+test('keeps the withdrawn historical coordinator terminal', async (t) => {
+  // This catches a new coordinator entering the authoring lifecycle after the
+  // one legacy unsold coordinator has been closed.
+  const { transitionAuthoringRecord } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  const coordinator = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.kit.symbolic-psychology-studio' && record.version === '1.0.1')
+  assert.ok(coordinator, 'the legacy Symbolic Psychology coordinator must remain registered as a tombstone')
+  assert.equal(coordinator.status, 'withdrawn')
+  const request = {
+    expected_revision: registry.revision,
+    coordinator: { task: 'legacy-content-closure', branch: 'codex/legacy-content-closure' },
+    receipt_ref: coordinator.receipt_ref,
+    pack_id: coordinator.pack_id,
+    version: coordinator.version,
+    changes: { status: 'authored' },
+  }
+  const before = await readFile(copy)
+  await assert.rejects(
+    transitionAuthoringRecord({ registryPath: copy, repositoryRoot: root, request }),
+    /withdrawn|terminal/i,
+  )
+  assert.deepEqual(await readFile(copy), before)
+})
+
+test('refuses withdrawn Channel Kit stocking-proposal mutation without changing registry bytes', async (t) => {
+  // This catches a proposal-only event making the historical Kit stockable
+  // after the closure transition.
+  const { transitionAuthoringRecord } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  const coordinator = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.kit.symbolic-psychology-studio' && record.version === '1.0.1')
+  assert.ok(coordinator)
+  assert.equal(coordinator.status, 'withdrawn')
+  const before = await readFile(copy)
+
+  await assert.rejects(
+    transitionAuthoringRecord({
+      registryPath: copy,
+      repositoryRoot: root,
+      request: {
+        expected_revision: registry.revision,
+        coordinator: { task: 'legacy-content-closure', branch: 'codex/legacy-content-closure' },
+        receipt_ref: coordinator.receipt_ref,
+        pack_id: coordinator.pack_id,
+        version: coordinator.version,
+        changes: { stocking_proposal: { family: { status: 'reserved' } } },
+      },
+    }),
+    /withdrawn|terminal/i,
+  )
+  assert.deepEqual(await readFile(copy), before)
+})
+
 test('offers a coordinator transition CLI and enforces lifecycle CAS', async (t) => {
   const { reserveAuthoringBatch, transitionAuthoringRecord } = await import(registryModule)
   const root = await temporaryRepository()
@@ -914,7 +1103,7 @@ test('rejects a Channel Kit dependency on another coordinator even with complete
 
   await assert.rejects(
     reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request }),
-    /coordinator.*creative|creative.*coordinator/i,
+    /Channel Kit|coordinator.*creative|creative.*coordinator/i,
   )
   assert.deepEqual(await readFile(copy), before)
 })

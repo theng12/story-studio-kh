@@ -32,9 +32,9 @@ import {
 /** The config key these live under. Echoed by `getSafeConfig`; see below. */
 export const SEGMENTS_CONFIG_KEY = 'episode_segments'
 
-export async function formatIntroDefaults(slug: string): Promise<FormatIntroDefaults | null> {
+export async function formatIntroDefaults(slug: string, episodeId?: string): Promise<FormatIntroDefaults | null> {
   try {
-    const format = await getEffectiveFormat(slug)
+    const format = await getEffectiveFormat(slug, episodeId ? { episodeId } : undefined)
     return (format?.script?.introDefaults as FormatIntroDefaults) || null
   } catch {
     // A channel whose format cannot be read still gets a well-formed recipe.
@@ -93,16 +93,20 @@ export async function hasEverProducedSegment(slug: string, segmentId: string): P
  * `inferred_at` so the page can say it was inferred rather than chosen, and
  * ask. Inference runs once and is then a saved setting like any other.
  */
-export async function getChannelSegments(slug: string): Promise<ChannelSegments> {
+export async function getChannelSegments(slug: string, episodeId?: string): Promise<ChannelSegments> {
   const config = await pm.getConfig(slug)
   const raw = (config as Record<string, unknown>)?.[SEGMENTS_CONFIG_KEY]
-  const defaults = await formatIntroDefaults(slug)
+  const defaults = await formatIntroDefaults(slug, episodeId)
+  const formulaDefaults = episodeId ? await formatIntroDefaults(slug) : defaults
 
   if (raw && typeof raw === 'object') {
-    return reseedUntouchedOpening(normalizeChannelSegments(raw, defaults), defaults)
+    return reseedUntouchedOpening(normalizeChannelSegments(raw, formulaDefaults), defaults, formulaDefaults)
   }
 
-  const segments = normalizeChannelSegments({}, defaults)
+  // Store the Formula-level recipe, not one episode profile's recipe. The
+  // returned view is derived for the requested episode, so reading Daily
+  // Reflection first can never pin every later sermon to the Daily opening.
+  const segments = normalizeChannelSegments({}, formulaDefaults)
   const everProduced = await hasEverProducedSegment(slug, INTRODUCTION_SEGMENT_ID)
   if (everProduced) {
     segments[INTRODUCTION_SEGMENT_ID].enabled = true
@@ -113,7 +117,7 @@ export async function getChannelSegments(slug: string): Promise<ChannelSegments>
   // pretend to have saved, which is why the write result is not ignored below
   // where a person pressed Save.
   await pm.updateConfig(slug, { [SEGMENTS_CONFIG_KEY]: segments } as never)
-  return segments
+  return reseedUntouchedOpening(segments, defaults, formulaDefaults)
 }
 
 /**
@@ -141,10 +145,12 @@ export async function getChannelSegments(slug: string): Promise<ChannelSegments>
 function reseedUntouchedOpening(
   segments: ChannelSegments,
   defaults: FormatIntroDefaults | null,
+  formulaDefaults: FormatIntroDefaults | null = defaults,
 ): ChannelSegments {
   const intro = segments[INTRODUCTION_SEGMENT_ID]
   if (!intro || !defaults?.beats?.length) return segments
-  if (!matchesLegacyDefaultOpening(intro.recipe)) return segments
+  const followsUnprofiledFormula = followsFormulaOpening(intro.recipe, formulaDefaults)
+  if (!matchesLegacyDefaultOpening(intro.recipe) && !followsUnprofiledFormula) return segments
   const seeded = defaultSegmentRecipe(INTRODUCTION_SEGMENT_ID, defaults)
   intro.recipe.word_target = seeded.word_target
   intro.recipe.beats = seeded.beats

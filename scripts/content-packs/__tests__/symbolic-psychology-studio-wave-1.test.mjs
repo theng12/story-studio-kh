@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile } from 'node:fs/promises'
+import { access, readdir, readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +15,7 @@ const FORMULA_PROMOTION = join(
   'human-behavior-explained-v1.0.1.json',
 )
 const KIT_ROOT = join(ROOT, 'content-packs', 'symbolic-psychology-studio', 'kit', 'symbolic-psychology-studio')
+const WITHDRAWN_KIT_ROOT = join(ROOT, 'content-packs', 'symbolic-psychology-studio', 'kit', 'symbolic-psychology-studio-v1.0.1')
 const EVIDENCE_ROOT = process.env.STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT
 if (EVIDENCE_ROOT && !isAbsolute(EVIDENCE_ROOT)) {
   throw new Error('STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT must be an absolute path')
@@ -174,6 +175,23 @@ test('kit closure: the coordinator is a pack-only exact six-node closure', async
   assert.equal(reservation.status, 'reserved')
   for (const key of ['pack_id', 'item_id', 'version', 'publisher_id', 'min_app_version', 'kind', 'source_path']) {
     assert.equal(reservation[key], oil[key])
+  }
+})
+
+test('the unsold Kit v1.0.1 reservation is withdrawn without touching its creative leaves', async () => {
+  const registry = await readJson(REGISTRY_PATH)
+  const kit = recordVersionFor(registry, 'com.storystudio.pack.kit.symbolic-psychology-studio', '1.0.1')
+  assert.equal(kit.status, 'withdrawn')
+  const withdrawals = registry.transitions.filter(transition => (
+    transition.request.pack_id === kit.pack_id
+    && transition.request.version === kit.version
+    && transition.request.receipt_ref === kit.receipt_ref
+    && transition.request.changes.status === 'withdrawn'
+  ))
+  assert.equal(withdrawals.length, 1)
+  await assert.rejects(access(WITHDRAWN_KIT_ROOT), { code: 'ENOENT' })
+  for (const [packId] of CLOSURE) {
+    assert.equal(recordFor(registry, packId).status, 'authored', `${packId} remains an authored creative leaf`)
   }
 })
 

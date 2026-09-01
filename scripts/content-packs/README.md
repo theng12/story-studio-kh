@@ -38,6 +38,12 @@ pack ID, and exact version, and is written as a deterministic lifecycle event un
 lock as reservations. Receipt verification remains bound to the immutable original identity while
 validation replays the event journal to reject skipped, reversed, or unrecorded mutable changes.
 
+A reservation may instead transition once to `withdrawn` before any source directory exists.
+Withdrawal is terminal: the original receipt remains verifiable, but the `pack_id`, item or bundle
+ID, family, and SKU stay burned forever; it cannot be authored, stocked, or given a later version.
+This is pre-sale identity closure, not archive retirement. Customer archives keep their existing
+`active`, `retired`, and `replaced` lifecycle values; `withdrawn` never appears inside an archive.
+
 ```json
 {
   "expected_revision": 2,
@@ -89,8 +95,10 @@ document IDs must fall within the stated publisher namespace; in-pack paths are 
 ## Legacy bundle-only coordination packs
 
 Channel Kits remain supported for backward compatibility, but they are retired from new authoring
-and merchandising. Do not create, extend, reserve, build, price, or stock a new Channel Kit. Every
-new product is an independently purchasable, mix-and-matchable Content Pack.
+and merchandising. Do not create, extend, reserve, price, or stock a Channel Kit. Only exact
+authored registry identities may use historical rebuild support; arbitrary or unregistered Kit
+fixtures cannot build. Every new product is an independently purchasable, mix-and-matchable
+Content Pack.
 
 An existing legacy Channel Kit may coordinate exactly one Formula, Topic Pack, Style, and Thumbnail
 Recipe from exact external dependencies. This is the only source shape permitted without `content/`:

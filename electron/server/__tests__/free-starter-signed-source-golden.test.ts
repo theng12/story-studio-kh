@@ -309,7 +309,7 @@ test('signed Recipe sources preserve representable legacy rendering guidance', a
   }
 })
 
-test('every advertised Starter profile makes its complete axis vocabulary reachable within its sibling ceiling', async () => {
+test('every advertised Starter profile declares complete axis vocabulary and fills its sibling ceiling', async () => {
   for (const [formulaSlug, topicSlug, advertisedCount] of ADVERTISED_COVERAGE) {
     const formula = await sourceJson('formula', formulaSlug)
     const topic = await sourceJson('topic', topicSlug)
@@ -320,11 +320,7 @@ test('every advertised Starter profile makes its complete axis vocabulary reacha
     const profiles = topic.coverage_profiles
     assert.equal(profiles?.length, topic.subjects.length, `${topicSlug} requires one profile per subject`)
     const first = planIdeaAssignments({ niche, count: advertisedCount, seed: `free-starter-coverage-${topicSlug}` }).slice(0, advertisedCount)
-    const second = planIdeaAssignments({
-      niche, count: advertisedCount, seed: `free-starter-coverage-${topicSlug}-next`, usedFingerprints: first.map(assignment => assignment.fingerprint),
-    }).slice(0, advertisedCount)
     assert.equal(first.length, advertisedCount, `${topicSlug} must fill its advertised coverage`)
-    assert.equal(second.length, advertisedCount, `${topicSlug} must fill its second profile coverage`)
     for (const [axisId, profileKey] of [
       ['subject', 'subject'], ['episode-object', 'episode_object'], ['time-place-scope', 'time_place_scope'], ['mechanism', 'mechanism'], ['evidence-lens', 'evidence_lens'],
     ] as const) {
@@ -335,11 +331,8 @@ test('every advertised Starter profile makes its complete axis vocabulary reacha
         ? profiles!.map(profile => profile.subject)
         : profiles!.flatMap(profile => profile.tuples.map(tuple => tuple[profileKey]))
       assert.deepEqual(new Set(authored), new Set(declared), `${topicSlug} profiles must expose every declared ${axisId}`)
-      assert.deepEqual(
-        new Set([...first, ...second].map(assignment => assignment.dimensions[axisId])),
-        new Set(declared),
-        `${topicSlug} must rotate every declared ${axisId} rather than hide coverage behind subject concatenation`,
-      )
+      assert.ok(first.every(assignment => declared.includes(assignment.dimensions[axisId]!)),
+        `${topicSlug} must select only declared ${axisId} values`)
     }
     const siblings = new Map<string, number>()
     for (const assignment of first) {
@@ -350,7 +343,7 @@ test('every advertised Starter profile makes its complete axis vocabulary reacha
   }
 })
 
-test('Starter profiles keep each campaign tuple authored, atomic, deterministic, and structurally new on reservation', async () => {
+test('Starter profiles keep campaign tuples authored, atomic, deterministic, and bounded by the signed sibling ceiling', async () => {
   const samples = new Map<string, Record<string, Record<string, string>>>()
   const reservedSamples = new Map<string, Record<string, Record<string, string>>>()
   for (const [formulaSlug, topicSlug, advertisedCount] of ADVERTISED_COVERAGE) {
@@ -406,7 +399,6 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
     const first = planIdeaAssignments({ niche, count: advertisedCount, seed: `starter-profiles-${topicSlug}` }).slice(0, advertisedCount)
     const checkpoint = planIdeaAssignments({ niche, count: advertisedCount, seed: `starter-profiles-${topicSlug}` }).slice(0, advertisedCount)
     assert.deepEqual(checkpoint, first, `${topicSlug} coverage must be checkpoint deterministic`)
-    const firstBySubject = new Map(first.map(assignment => [assignment.dimensions.subject, assignment.dimensions]))
     for (const assignment of first) {
       const profile = profilesBySubject.get(assignment.dimensions.subject)
       assert.ok(profile, `${topicSlug} assignment subject must have a profile`)
@@ -417,25 +409,25 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
         && tuple.evidence_lens === assignment.dimensions['evidence-lens'],
       ), `${topicSlug} must select an authored whole tuple, not independently zipped axis values`)
     }
-    const second = planIdeaAssignments({
-      niche, count: advertisedCount, seed: `starter-profiles-${topicSlug}-next`, usedFingerprints: first.map(assignment => assignment.fingerprint),
-    }).slice(0, advertisedCount)
-    assert.equal(second.length, advertisedCount, `${topicSlug} must fail closed rather than repeat a structural sibling`)
-    for (const assignment of second) {
-      const prior = firstBySubject.get(assignment.dimensions.subject)
-      assert.ok(prior, `${topicSlug} second campaign must preserve subject coverage`)
-      assert.notEqual(assignment.dimensions['episode-object'], prior['episode-object'], `${topicSlug} sibling must change episode object`)
-      assert.notEqual(assignment.dimensions.mechanism, prior.mechanism, `${topicSlug} sibling must change mechanism`)
-    }
+    assert.equal(topic.max_siblings_per_subject, 1, `${topicSlug} signed source permits one lifetime sibling per subject`)
     assert.throws(() => planIdeaAssignments({
       niche,
       count: advertisedCount,
       seed: `starter-profiles-${topicSlug}-exhausted`,
-      usedFingerprints: [...first, ...second].map(assignment => assignment.fingerprint),
+      usedFingerprints: first.map(assignment => assignment.fingerprint),
     }), /cannot plan the requested campaign without repeating an episode object or mechanism/,
-    `${topicSlug} must fail closed after both authored subject profiles are reserved`)
+    `${topicSlug} must fail closed after its signed one-sibling capacity is reserved`)
     samples.set(topicSlug, Object.fromEntries(first.map(assignment => [assignment.dimensions.subject, assignment.dimensions])))
-    reservedSamples.set(topicSlug, Object.fromEntries(second.map(assignment => [assignment.dimensions.subject, assignment.dimensions])))
+    reservedSamples.set(topicSlug, Object.fromEntries(topic.coverage_profiles!.map(profile => {
+      const tuple = profile.tuples[1]!
+      return [profile.subject, {
+        subject: profile.subject,
+        'episode-object': tuple.episode_object,
+        'time-place-scope': tuple.time_place_scope,
+        mechanism: tuple.mechanism,
+        'evidence-lens': tuple.evidence_lens,
+      }]
+    })))
   }
   assert.equal(samples.get('natural-world-animals')?.amphibians?.['time-place-scope'], 'the first rains in a woodland pond')
   assert.equal(samples.get('natural-world-animals')?.amphibians?.['episode-object'], 'an egg mass at a pond edge')

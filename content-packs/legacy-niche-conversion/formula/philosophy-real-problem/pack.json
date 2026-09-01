@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.formula.philosophy-real-problem",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Initial standalone Series Formula release translated explicitly from the approved legacy niche contract.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.formula.philosophy-real-problem",
+    "family": "com.storystudio.family.formula.philosophy-real-problem"
+  },
+  "dependencies": []
+}

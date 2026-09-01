@@ -1422,6 +1422,8 @@ router.post('/projects/:slug/ideas/:ideaId/accept', async (req, res) => {
     if (req.body?.auto_generate_script && req.body?.model) {
       const config = await pm.getConfig(req.params.slug)
       if (config?.anthropic_api_key || config?.openai_api_key || config?.kie_api_key) {
+        const suggestedMinutes = String(result.idea.suggested_length || '').match(/\d+(?:\.\d+)?/)
+        const effectiveFormat = await getEffectiveFormat(req.params.slug, { episodeId: result.episode_code })
         await jq.enqueue({
           project_slug: req.params.slug,
           // M1: legacy 'script' job type was removed. Auto-script-on-accept
@@ -1434,7 +1436,9 @@ router.post('/projects/:slug/ideas/:ideaId/accept', async (req, res) => {
           params: {
             episode_id: result.episode_code,
             title: result.idea.title,
-            length: result.idea.suggested_length === '60 min' ? 60 : 45,
+            length: suggestedMinutes
+              ? Number(suggestedMinutes[0])
+              : effectiveFormat.script.defaultLengthMinutes,
             model: req.body.model,
             style: 'auto',
             chapters: result.idea.suggested_chapters,

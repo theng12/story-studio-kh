@@ -260,11 +260,8 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
     'content-packs/free-starters/kit/sleep-journeys-v1.0.1/pack.json',
     'content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.1/pack.json',
     'content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.1/pack.json',
-    'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1/pack.json',
     'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.1/pack.json',
     'content-packs/free-starters/thumbnail/documentary-label-tableau-v1.0.1/pack.json',
-    'content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1/pack.json',
-    'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1/pack.json',
     'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1/pack.json',
     'content-packs/free-starters/topic/ancient-humans-survival-v1.0.1/pack.json',
     'content-packs/free-starters/topic/deep-time-earth-systems-v1.0.1/pack.json',
@@ -278,12 +275,14 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
     'content-packs/free-starters/topic/pov-historical-occupations-v1.0.1/pack.json',
   ])
   // The `-v1.0.1` list above cannot see a second successor, so the 1.0.2 roots were
-  // going unpinned entirely. The five Formulas are the 2026-08-28 mark scrub: those
-  // packs were already past 1.0.0, so their scrubbed successor is 1.0.2.
+  // going unpinned entirely. Five Formulas are the 2026-08-28 mark scrub: those
+  // packs were already past 1.0.0, so their scrubbed successor is 1.0.2. History
+  // Explained 1.0.2 is the separate free compatibility successor.
   const secondSuccessors = packSources.filter(({ relative }) => /-v1\.0\.2\/pack\.json$/.test(relative))
   assert.deepEqual(secondSuccessors.map(({ relative }) => relative).sort(), [
     'content-packs/free-starters/formula/ancient-humans-v1.0.2/pack.json',
     'content-packs/free-starters/formula/deep-time-documentary-v1.0.2/pack.json',
+    'content-packs/free-starters/formula/history-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/human-behavior-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/natural-world-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/pov-your-life-as-v1.0.2/pack.json',

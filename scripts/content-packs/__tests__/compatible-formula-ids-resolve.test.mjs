@@ -40,15 +40,12 @@ const EXCLUDED_DIR = 'content-packs/archival-ledger/'
  */
 const KNOWN_UNRESOLVED = new Set([
   'content-packs/free-starters/thumbnail/centered-hero-headline/content/thumbnail-recipe.json::com.storystudio.formula.motivation',
-  'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1/content/thumbnail-recipe.json::com.storystudio.formula.motivation',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon/content/thumbnail-recipe.json::com.storystudio.formula.fungi',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon/content/thumbnail-recipe.json::com.storystudio.formula.insects',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon/content/thumbnail-recipe.json::com.storystudio.formula.plants',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.1/content/thumbnail-recipe.json::com.storystudio.formula.fungi',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.1/content/thumbnail-recipe.json::com.storystudio.formula.insects',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.1/content/thumbnail-recipe.json::com.storystudio.formula.plants',
-  'content-packs/free-starters/thumbnail/portrait-block-right/content/thumbnail-recipe.json::com.storystudio.formula.prayer',
-  'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1/content/thumbnail-recipe.json::com.storystudio.formula.prayer',
   'content-packs/free-starters/topic/economics-businesses/content/topic-pack.json::com.storystudio.formula.listicle-explainer',
   'content-packs/free-starters/topic/economics-businesses/content/topic-pack.json::com.storystudio.formula.pov-hustle',
   'content-packs/free-starters/topic/economics-businesses-v1.0.1/content/topic-pack.json::com.storystudio.formula.listicle-explainer',
@@ -130,4 +127,68 @@ test('every compatible_formula_ids reference resolves to a Series Formula pack, 
     .filter(({ relativePath }) => relativePath === 'content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.2/content/topic-pack.json')
     .map(({ id }) => id)
   assert.deepEqual(v102Ids, ['com.storystudio.formula.history-explained'])
+})
+
+test('the History Explained 1.0.2 free successor alone adds reciprocal Ancient Civilizations compatibility', async () => {
+  const sources = await Promise.all([
+    'content-packs/free-starters/formula/history-explained/content/series-formula.json',
+    'content-packs/free-starters/formula/history-explained-v1.0.1/content/series-formula.json',
+    'content-packs/free-starters/formula/history-explained-v1.0.2/content/series-formula.json',
+  ].map(async relativePath => ({ relativePath, document: JSON.parse(await readFile(new URL(`../../../${relativePath}`, import.meta.url), 'utf8')) })))
+  const topicId = 'com.storystudio.topic.economics-ancient-civilizations'
+  assert.equal(sources[0].document.compatible_topic_pack_ids.includes(topicId), false)
+  assert.equal(sources[1].document.compatible_topic_pack_ids.includes(topicId), false)
+  assert.equal(sources[2].document.compatible_topic_pack_ids.includes(topicId), true)
+  const manifest = JSON.parse(await readFile(new URL('../../../content-packs/free-starters/formula/history-explained-v1.0.2/pack.json', import.meta.url), 'utf8'))
+  assert.deepEqual(manifest.dependencies, [], 'the standalone free successor declares no external dependency')
+})
+
+test('Natural World and Counted Explainer releases reciprocally admit all three Natural World Topics', async () => {
+  const topicIds = [
+    'com.storystudio.topic.natural-world-fungi',
+    'com.storystudio.topic.natural-world-insects',
+    'com.storystudio.topic.natural-world-plants',
+  ]
+  const releases = await Promise.all([
+    ['content-packs/free-starters/formula/natural-world-explained-v1.0.2', '1.0.2'],
+    ['content-packs/legacy-niche-conversion/formula/counted-explainer', '1.0.0'],
+  ].map(async ([relativeRoot, version]) => ({
+    version,
+    manifest: JSON.parse(await readFile(new URL(`../../../${relativeRoot}/pack.json`, import.meta.url), 'utf8')),
+    document: JSON.parse(await readFile(new URL(`../../../${relativeRoot}/content/series-formula.json`, import.meta.url), 'utf8')),
+  })))
+
+  for (const release of releases) {
+    assert.equal(release.manifest.version, release.version)
+    assert.deepEqual(release.document.compatible_topic_pack_ids.slice(-3), topicIds)
+  }
+})
+
+test('Pastoral Scripture and POV Your Life As reciprocally admit only their exact legacy Topic conversions', async () => {
+  const cases = [
+    {
+      formulaPath: 'content-packs/legacy-niche-conversion/formula/pastoral-scripture/content/series-formula.json',
+      topicIds: [
+        'com.storystudio.topic.pastoral-daily-reflection',
+        'com.storystudio.topic.pastoral-expository-teaching',
+      ],
+    },
+    {
+      formulaPath: 'content-packs/free-starters/formula/pov-your-life-as-v1.0.2/content/series-formula.json',
+      topicIds: [
+        'com.storystudio.topic.pov-law-enforcement',
+        'com.storystudio.topic.pov-criminal-hierarchies',
+      ],
+    },
+  ]
+
+  for (const row of cases) {
+    const formula = JSON.parse(await readFile(new URL(`../../../${row.formulaPath}`, import.meta.url), 'utf8'))
+    for (const topicId of row.topicIds) {
+      assert.ok(formula.compatible_topic_pack_ids.includes(topicId), `${formula.id} admits ${topicId}`)
+      const slug = topicId.replace('com.storystudio.topic.', '')
+      const topic = JSON.parse(await readFile(new URL(`../../../content-packs/legacy-niche-conversion/topic/${slug}/content/topic-pack.json`, import.meta.url), 'utf8'))
+      assert.deepEqual(topic.compatible_formula_ids, [formula.id], `${topicId} admits only ${formula.id}`)
+    }
+  }
 })

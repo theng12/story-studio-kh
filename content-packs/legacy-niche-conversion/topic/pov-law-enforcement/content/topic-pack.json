@@ -1,0 +1,152 @@
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.pov-law-enforcement",
+  "name": "Law Enforcement Hierarchies",
+  "description": "Ranks, specialist units, and policing systems across periods and societies examined through lawful authority, accountability, and public impact.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.pov-your-life-as"
+  ],
+  "subjects": [
+    "modern city police department",
+    "county sheriff's office",
+    "federal investigative agency",
+    "border patrol",
+    "coast guard law enforcement",
+    "wildlife wardens",
+    "railway police",
+    "harbor police",
+    "mounted police",
+    "detective bureau",
+    "riot control unit",
+    "forensic investigation unit",
+    "ancient Roman vigiles",
+    "medieval town watch",
+    "Victorian London police",
+    "imperial Chinese constables",
+    "Ottoman night watch",
+    "colonial customs service",
+    "French gendarmerie",
+    "royal bodyguard"
+  ],
+  "episode_objects": [
+    "a duty roster showing rank, legal authority, supervision, and accountability",
+    "a public incident review centered on procedure, civilian experience, and institutional response",
+    "a specialist-unit case file showing jurisdiction, handoffs, oversight, and evidentiary limits",
+    "a reform comparison tracing policy change, implementation gaps, and community consequences"
+  ],
+  "time_place_scopes": [
+    "one jurisdiction during a documented shift in mandate, staffing, or public oversight",
+    "a bounded incident from initial report through review without presuming guilt",
+    "one historically situated agency at the boundary between its formal remit and actual practice",
+    "the period before and after an inquiry, court ruling, or statutory reform"
+  ],
+  "mechanisms": [
+    "legal mandate and chain of command allocate discretion while preserving review obligations",
+    "specialization and jurisdictional handoffs shape evidence quality, delay, and public experience",
+    "organizational incentives and unequal discretion affect enforcement and community trust",
+    "oversight, courts, public reporting, and reform alter conduct with uneven implementation"
+  ],
+  "evidence_lenses": [
+    "statutes, policy manuals, official records, and audited data compared with independent scholarship",
+    "court records and civilian or victim accounts separated from unproven allegations",
+    "administrative reports, inquiry findings, and historical archives with institutional bias identified",
+    "court decisions, oversight records, and community research used to test reform claims"
+  ],
+  "exclusions": [
+    "Do not glorify coercive power, violence, rank, surveillance, or institutional prestige.",
+    "Do not provide operational instructions, tactical vulnerabilities, concealment methods, or guidance for evasion or circumvention.",
+    "Include civilian, victim, and community impact alongside officer duties and institutional claims.",
+    "Maintain due process and the presumption of innocence; distinguish report, allegation, charge, finding, and conviction.",
+    "State uncertainty, record gaps, jurisdictional variation, and contested interpretations rather than inventing certainty."
+  ],
+  "max_siblings_per_subject": 2,
+  "prompt_context": "Build an institutional and factual POV from statutes, policy manuals, official records, court records, audited data, independent historical scholarship, and community evidence. Keep the treatment non-glorifying and show civilian, victim, and community impact. Protect due process and the presumption of innocence, state uncertainty, and never include operational instructions or details that enable evasion, concealment, or circumvention.",
+  "idea_axes": [
+    {
+      "id": "public-authority-lens",
+      "label": "Public authority lens",
+      "values": [
+        "mandate and jurisdiction",
+        "discretion and supervision",
+        "oversight and accountability",
+        "reform and implementation"
+      ]
+    }
+  ],
+  "coverage_groups": [
+    {
+      "subjects": [
+        "modern city police department",
+        "county sheriff's office",
+        "federal investigative agency",
+        "border patrol",
+        "coast guard law enforcement",
+        "wildlife wardens",
+        "railway police",
+        "harbor police",
+        "mounted police",
+        "detective bureau"
+      ],
+      "episode_objects": [
+        "a duty roster showing rank, legal authority, supervision, and accountability",
+        "a public incident review centered on procedure, civilian experience, and institutional response"
+      ],
+      "time_place_scopes": [
+        "one jurisdiction during a documented shift in mandate, staffing, or public oversight",
+        "a bounded incident from initial report through review without presuming guilt"
+      ],
+      "mechanisms": [
+        "legal mandate and chain of command allocate discretion while preserving review obligations",
+        "specialization and jurisdictional handoffs shape evidence quality, delay, and public experience"
+      ],
+      "evidence_lenses": [
+        "statutes, policy manuals, official records, and audited data compared with independent scholarship",
+        "court records and civilian or victim accounts separated from unproven allegations"
+      ]
+    },
+    {
+      "subjects": [
+        "riot control unit",
+        "forensic investigation unit",
+        "ancient Roman vigiles",
+        "medieval town watch",
+        "Victorian London police",
+        "imperial Chinese constables",
+        "Ottoman night watch",
+        "colonial customs service",
+        "French gendarmerie",
+        "royal bodyguard"
+      ],
+      "episode_objects": [
+        "a specialist-unit case file showing jurisdiction, handoffs, oversight, and evidentiary limits",
+        "a reform comparison tracing policy change, implementation gaps, and community consequences"
+      ],
+      "time_place_scopes": [
+        "one historically situated agency at the boundary between its formal remit and actual practice",
+        "the period before and after an inquiry, court ruling, or statutory reform"
+      ],
+      "mechanisms": [
+        "organizational incentives and unequal discretion affect enforcement and community trust",
+        "oversight, courts, public reporting, and reform alter conduct with uneven implementation"
+      ],
+      "evidence_lenses": [
+        "administrative reports, inquiry findings, and historical archives with institutional bias identified",
+        "court decisions, oversight records, and community research used to test reform claims"
+      ]
+    }
+  ],
+  "evidence_expectations": [
+    "Triangulate institutional records with independent scholarship and affected-community evidence.",
+    "Preserve due-process boundaries, uncertainty, and the difference between formal policy and observed practice.",
+    "Exclude operational instructions and details that could support concealment, evasion, or circumvention."
+  ],
+  "compatibility_rules": [
+    "Use only with POV Your Life As and keep second-person narration accountable to evidence and public impact."
+  ],
+  "tags": [
+    "law enforcement",
+    "ranks",
+    "police"
+  ]
+}

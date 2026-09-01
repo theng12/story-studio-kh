@@ -14,6 +14,11 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 import { applyRecencyToFormat, recordUsage } from '../services/recency-tracker.js'
 import { getEffectiveNiche } from '../services/niche-loader.js'
+import {
+  applyFormulaEpisodeProfile,
+  resolveFormulaEpisodeDimensions,
+  resolveFormulaEpisodeProfile,
+} from '../services/formula-production-kit.js'
 // v1.0.166 — pattern-loader import removed with the Pattern system.
 import { resolveCharacters } from '../services/character-manager.js'
 
@@ -472,12 +477,23 @@ function extractStorySummary(narrationText: string): string {
   return summaryLines.join('\n')
 }
 
-function autoSelectStyle(format: Format, code: string): string {
+export function selectAutomaticNarratorStyle(format: Format, code: string, profileDefault?: string): string {
   const numMatch = code.match(/\d+/)
   const epNum = numMatch ? parseInt(numMatch[0]) : 0
   const styles = format.script.narratorStyles
   if (!styles.length) return 'A'  // safety net; loader rejects empty arrays
+  const declaredDefault = styles.find(style => style.id === profileDefault)
+  if (declaredDefault) return declaredDefault.id
   return styles[epNum % styles.length].id
+}
+
+async function automaticNarratorStyleForEpisode(format: Format, slug: string, code: string): Promise<string> {
+  const niche = await getEffectiveNiche(slug)
+  const dimensions = await resolveFormulaEpisodeDimensions(slug, code)
+  const profileDefault = niche
+    ? resolveFormulaEpisodeProfile(niche, dimensions)?.narratorStyleId
+    : undefined
+  return selectAutomaticNarratorStyle(format, code, profileDefault)
 }
 
 // ── Main generator function ─────────────────────────────────────────────────
@@ -499,17 +515,19 @@ async function generateEpisode(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  let format = await getEffectiveFormat(project_slug)
+  let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
   // v1.0.106+ — append the niche's recency-avoidance instruction (if
   // any) onto format.script.additionalRules so the LLM is told which
   // items the channel used in its last N episodes. No-op when the
   // niche has no recencyAvoidance config OR the log is empty.
-  format = await applyRecencyToFormat(format, project_slug)
+  format = await applyRecencyToFormat(format, project_slug, episode_id)
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   format = applyCreativeFreedom(format, req)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
-  let style = req.style === 'auto' ? autoSelectStyle(format, episode_id) : req.style
+  let style = req.style === 'auto'
+    ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
+    : req.style
   // Resolve custom style text without mutating the shared narrator-styles array
   let customStyleText: string | undefined
   if (style && (style.startsWith('style-') || style === 'custom')) {
@@ -843,8 +861,8 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  let format = await getEffectiveFormat(project_slug)
-  format = await applyRecencyToFormat(format, project_slug)
+  let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
+  format = await applyRecencyToFormat(format, project_slug, episode_id)
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   format = applyCreativeFreedom(format, req)
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
@@ -887,7 +905,10 @@ export async function generateChapterOnly(job: Job): Promise<void> {
 
   const wordsPerChapter = Number(req.words_per_chapter) || 550
   const totalChapters = Number(req.chapters) || existingNumbers.length || chapterNumber
-  const style = req.style || format.script.defaultNarratorStyleId
+  const requestedStyle = req.style || format.script.defaultNarratorStyleId
+  const style = requestedStyle === 'auto'
+    ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
+    : requestedStyle
   const styleDesc = narratorStyleFor(format, style).description
 
   // v1.0.72+: Outline-aware regeneration. The chunked path persists a
@@ -1007,11 +1028,14 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  let format = await getEffectiveFormat(project_slug)
-  format = await applyRecencyToFormat(format, project_slug)
+  let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
+  format = await applyRecencyToFormat(format, project_slug, episode_id)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
-  const style = req.style || format.script.defaultNarratorStyleId
+  const requestedStyle = req.style || format.script.defaultNarratorStyleId
+  const style = requestedStyle === 'auto'
+    ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
+    : requestedStyle
 
   let customStyleText: string | undefined
   if (style && (style.startsWith('style-') || style === 'custom')) {
@@ -1038,7 +1062,7 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   const fmtIntro = format.script.introDefaults
   const { getChannelSegments } = await import('../services/channel-segments.js')
   const { beatLinesForPrompt, INTRODUCTION_SEGMENT_ID } = await import('../lib/episode-segments.js')
-  const channelRecipe = (await getChannelSegments(project_slug))[INTRODUCTION_SEGMENT_ID].recipe
+  const channelRecipe = (await getChannelSegments(project_slug, episode_id))[INTRODUCTION_SEGMENT_ID].recipe
   const introSettings: IntroSettings = {
     enabled: true,
     host_name: req.host_name || channelRecipe.host_name || '',
@@ -1248,8 +1272,8 @@ async function setupChunkedJobContext(
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  let format = await getEffectiveFormat(project_slug)
-  format = await applyRecencyToFormat(format, project_slug)
+  let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
+  format = await applyRecencyToFormat(format, project_slug, episode_id)
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   format = applyCreativeFreedom(format, req)
   const title = req.title
@@ -1314,7 +1338,7 @@ async function setupChunkedJobContext(
   const totalWords = snapshot?.total_words ?? req.total_words ?? (wordsPerChapter * chapters)
   const requestedStyle = snapshot?.style ?? req.style ?? format.script.defaultNarratorStyleId
   const style = requestedStyle === 'auto'
-    ? autoSelectStyle(format, episode_id)
+    ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
     : requestedStyle
   const perspective = snapshot?.perspective ?? (req as any).perspective
   const customPerspective = snapshot?.custom_perspective ?? (req as any).custom_perspective
@@ -1530,7 +1554,12 @@ export async function generateExpandChapters(job: Job): Promise<void> {
  */
 async function recordRecencyForEpisode(slug: string, episode_code: string, narrationDocxPath: string): Promise<void> {
   try {
-    const niche = await getEffectiveNiche(slug)
+    const baseNiche = await getEffectiveNiche(slug)
+    if (!baseNiche) return
+    const niche = applyFormulaEpisodeProfile(
+      baseNiche,
+      await resolveFormulaEpisodeDimensions(slug, episode_code),
+    )
     if (!niche?.recencyAvoidance) return
     const { narrationDocxToMarkdown } = await import('../lib/docx-parser.js')
     const md = await narrationDocxToMarkdown(narrationDocxPath)

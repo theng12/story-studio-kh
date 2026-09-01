@@ -204,7 +204,7 @@ describe('Series Formula + Topic Pack campaign planning', () => {
     const values = Array.from({ length: 8 }, (_, index) => String(index + 1))
     const pack = {
       id: 'tuple-pack', name: 'Tuple Pack', description: 'A deterministic tuple fixture.', builtin: true, schemaVersion: 1 as const,
-      compatibleNicheIds: ['tuple-formula'], subjects: values.map(value => `subject-${value}`), maxSiblingsPerSubject: 1,
+      compatibleNicheIds: ['tuple-formula'], subjects: values.map(value => `subject-${value}`), maxSiblingsPerSubject: 2,
       ideaAxes: [
         { id: 'episode-object', label: 'Episode object', values: values.map(value => `object-${value}`) },
         { id: 'time-place-scope', label: 'Time and place', values: values.map(value => `place-${value}`) },

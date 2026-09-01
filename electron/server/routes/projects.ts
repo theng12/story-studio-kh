@@ -21,6 +21,7 @@ import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-
 import type { ProjectMeta } from '../models/types.js'
 import type { JobType } from '../models/types.js'
 import { createProjectWithContentSelections } from '../content-packs/project-pins.js'
+import { getIdeas } from '../services/idea-manager.js'
 
 export const router = Router()
 
@@ -86,7 +87,16 @@ router.get('/formats/:id', async (req, res) => {
 router.get('/projects/:slug/effective-format', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    res.json(await getEffectiveFormat(req.params.slug))
+    const episodeId = typeof req.query.episode_id === 'string' && req.query.episode_id.trim()
+      ? req.query.episode_id.trim()
+      : undefined
+    if (episodeId) {
+      const accepted = (await getIdeas(req.params.slug, 'accepted')).some(
+        idea => (idea.episode_code || '').toUpperCase() === episodeId.toUpperCase(),
+      )
+      if (!accepted) return res.status(404).json({ detail: `No accepted episode matches '${episodeId}' in this project` })
+    }
+    res.json(await getEffectiveFormat(req.params.slug, episodeId ? { episodeId } : undefined))
   } catch (e: any) {
     respondWithError(res, e, 'Failed to resolve effective format')
   }

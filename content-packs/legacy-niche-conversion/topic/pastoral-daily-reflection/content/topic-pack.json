@@ -1,0 +1,131 @@
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.pastoral-daily-reflection",
+  "name": "Daily Scripture Reflection",
+  "description": "Short passage-led devotional reflections with one grounded practice for daily life.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.pastoral-scripture"
+  ],
+  "subjects": [
+    "anxiety",
+    "grief",
+    "patience",
+    "forgiveness",
+    "rest",
+    "courage",
+    "hope",
+    "family",
+    "work",
+    "ordinary faithfulness"
+  ],
+  "episode_objects": [
+    "a selected passage followed by one plainly labeled observation from its wording",
+    "a journal prompt and one modest practice tied to the passage's stated concern",
+    "a verified verse quotation beside a separate paraphrase of its immediate setting",
+    "a closing reflection that labels application as pastoral counsel rather than scripture"
+  ],
+  "time_place_scopes": [
+    "the passage's literary unit and first-audience setting before modern application",
+    "one ordinary present-day decision considered after the passage has been interpreted",
+    "the book-level historical context and neighboring verses that limit the reading",
+    "a household, workplace, or community moment framed as application rather than original meaning"
+  ],
+  "mechanisms": [
+    "close reading moves from quoted scripture text to interpretation without merging the two",
+    "a bounded application connects the interpreted claim to one voluntary daily practice",
+    "genre and immediate context constrain the devotional inference before encouragement begins",
+    "reflection distinguishes the passage's claim from the narrator's pastoral response"
+  ],
+  "evidence_lenses": [
+    "a verified translation with book, chapter, and verse checked before any quotation",
+    "literary context notes that identify observation, interpretation, and application separately",
+    "first-audience context supported by reputable biblical scholarship without invented citations",
+    "cross-passage comparison used only after the primary text's immediate argument is established"
+  ],
+  "exclusions": [
+    "Do not fabricate scripture quotations, translation wording, chapter-and-verse citations, or scholarly citations.",
+    "Keep scripture text or quotation, interpretation, and present-day application visibly separate.",
+    "Do not present pastoral encouragement as the only possible exegesis or as a direct quotation from God.",
+    "Do not promise healing, prosperity, or a guaranteed outcome from a devotional practice."
+  ],
+  "max_siblings_per_subject": 2,
+  "prompt_context": "Use one passage early and verify any scripture text or quotation against a named translation before citing it. Establish literary and first-audience historical context, label interpretation as interpretation, and only then offer a modest application. Do not fabricate quotations or citations; encouragement follows the text and never impersonates it.",
+  "idea_axes": [
+    {
+      "id": "reflection-movement",
+      "label": "Reflection movement",
+      "values": [
+        "observation to practice",
+        "context to consolation",
+        "lament to patient action",
+        "promise read with its conditions"
+      ]
+    }
+  ],
+  "coverage_groups": [
+    {
+      "subjects": [
+        "anxiety",
+        "grief",
+        "patience",
+        "forgiveness",
+        "rest"
+      ],
+      "episode_objects": [
+        "a selected passage followed by one plainly labeled observation from its wording",
+        "a journal prompt and one modest practice tied to the passage's stated concern"
+      ],
+      "time_place_scopes": [
+        "the passage's literary unit and first-audience setting before modern application",
+        "one ordinary present-day decision considered after the passage has been interpreted"
+      ],
+      "mechanisms": [
+        "close reading moves from quoted scripture text to interpretation without merging the two",
+        "a bounded application connects the interpreted claim to one voluntary daily practice"
+      ],
+      "evidence_lenses": [
+        "a verified translation with book, chapter, and verse checked before any quotation",
+        "literary context notes that identify observation, interpretation, and application separately"
+      ]
+    },
+    {
+      "subjects": [
+        "courage",
+        "hope",
+        "family",
+        "work",
+        "ordinary faithfulness"
+      ],
+      "episode_objects": [
+        "a verified verse quotation beside a separate paraphrase of its immediate setting",
+        "a closing reflection that labels application as pastoral counsel rather than scripture"
+      ],
+      "time_place_scopes": [
+        "the book-level historical context and neighboring verses that limit the reading",
+        "a household, workplace, or community moment framed as application rather than original meaning"
+      ],
+      "mechanisms": [
+        "genre and immediate context constrain the devotional inference before encouragement begins",
+        "reflection distinguishes the passage's claim from the narrator's pastoral response"
+      ],
+      "evidence_lenses": [
+        "first-audience context supported by reputable biblical scholarship without invented citations",
+        "cross-passage comparison used only after the primary text's immediate argument is established"
+      ]
+    }
+  ],
+  "evidence_expectations": [
+    "Verify exact quotation wording and citation before presenting scripture text.",
+    "Name when a statement is interpretation, pastoral application, or a disputed exegetical judgment.",
+    "Prefer literary and historical context appropriate to exegesis over isolated proof texts."
+  ],
+  "compatibility_rules": [
+    "Use only with Pastoral Scripture and its daily reflection episode profile."
+  ],
+  "tags": [
+    "devotional",
+    "scripture",
+    "reflection"
+  ]
+}
