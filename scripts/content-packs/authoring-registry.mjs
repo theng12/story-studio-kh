@@ -440,6 +440,9 @@ function transitionFor(request) {
 
 function applyLifecycleTransition(record, changes, { replay = false } = {}) {
   if (record.status === 'withdrawn') fail('withdrawn records are terminal')
+  if (record.kind === 'channel-kit' && changes.stocking_proposal && !replay) {
+    fail('Channel Kit stocking-proposal changes are refused; historical Channel Kits are read-only')
+  }
   const next = {
     ...record,
     stocking_proposal: {

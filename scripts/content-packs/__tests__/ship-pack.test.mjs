@@ -134,6 +134,7 @@ const REGISTRY_RECORDS = [
   { pack_id: 'com.storystudio.pack.style.ready', version: '1.0.1', status: 'reserved', source_path: 'content-packs/family/style/ready-next' },
   { pack_id: 'com.storystudio.pack.style.ready', version: '1.0.2', status: 'withdrawn', source_path: 'content-packs/family/style/ready-withdrawn' },
   { pack_id: 'com.storystudio.pack.style.waiting', version: '1.0.0', status: 'reserved', source_path: 'content-packs/family/style/waiting' },
+  { pack_id: 'com.storystudio.pack.kit.historical', version: '1.0.0', kind: 'channel-kit', status: 'authored', source_path: 'content-packs/family/kit/historical' },
 ]
 
 test('an unregistered selector is refused, and selects nothing to build', () => {
@@ -167,6 +168,18 @@ test('a direct withdrawn selector is terminal and a mixed selector skips it whil
     { pack_id: 'com.storystudio.pack.style.ready', version: '1.0.1', status: 'reserved' },
     { pack_id: 'com.storystudio.pack.style.ready', version: '1.0.2', status: 'withdrawn' },
   ])
+})
+
+test('a direct Channel Kit selection is terminal and a mixed selector ships only standalone leaves', () => {
+  const direct = resolveSelections(REGISTRY_RECORDS, ['com.storystudio.pack.kit.historical'])
+  assert.deepEqual(direct.selected, [])
+  assert.equal(direct.refusals.length, 1)
+  assert.match(direct.refusals[0].reason, /Channel Kit.*terminal|terminal.*Channel Kit/i)
+
+  const mixed = resolveSelections(REGISTRY_RECORDS, ['content-packs/family/*/*'])
+  assert.deepEqual(mixed.refusals, [])
+  assert.deepEqual(mixed.selected.map(record => record.pack_id), ['com.storystudio.pack.style.ready'])
+  assert.ok(mixed.skipped.some(record => record.pack_id === 'com.storystudio.pack.kit.historical' && /Channel Kit/i.test(record.status)))
 })
 
 test('a selector spanning authored and unauthored records ships what is ready and reports the rest', () => {

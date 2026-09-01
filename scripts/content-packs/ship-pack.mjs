@@ -149,7 +149,15 @@ export function resolveSelections(records, selectors) {
       })
       continue
     }
-    const authored = matches.filter(record => record.status === 'authored')
+    const kits = matches.filter(record => record.kind === 'channel-kit')
+    if (kits.length === matches.length) {
+      refusals.push({
+        selector: raw,
+        reason: `"${raw}" selects a historical Channel Kit. Channel Kit shipping and stocking are terminally closed.`,
+      })
+      continue
+    }
+    const authored = matches.filter(record => record.status === 'authored' && record.kind !== 'channel-kit')
     if (authored.length === 0) {
       if (matches.every(record => record.status === 'withdrawn')) {
         refusals.push({
@@ -166,8 +174,12 @@ export function resolveSelections(records, selectors) {
       continue
     }
     for (const record of authored) selected.set(`${record.pack_id}@${record.version}`, record)
-    for (const record of matches.filter(record => record.status !== 'authored')) {
-      skipped.set(`${record.pack_id}@${record.version}`, { pack_id: record.pack_id, version: record.version, status: record.status })
+    for (const record of matches.filter(record => record.status !== 'authored' || record.kind === 'channel-kit')) {
+      skipped.set(`${record.pack_id}@${record.version}`, {
+        pack_id: record.pack_id,
+        version: record.version,
+        status: record.kind === 'channel-kit' ? 'historical read-only Channel Kit' : record.status,
+      })
     }
   }
   const byPack = (a, b) => (a.pack_id < b.pack_id ? -1 : 1)

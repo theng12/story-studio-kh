@@ -872,6 +872,36 @@ test('refuses Channel Kit authored promotion but permits withdrawal of the reser
   assert.equal(withdrawn.revision, registry.revision + 1)
 })
 
+test('refuses live Channel Kit stocking-proposal mutation without changing registry bytes', async (t) => {
+  // This catches a proposal-only event making a historical Kit stockable after
+  // Kit reservation and promotion have already been closed.
+  const { transitionAuthoringRecord } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  const coordinator = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.kit.symbolic-psychology-studio' && record.version === '1.0.1')
+  assert.ok(coordinator)
+  const before = await readFile(copy)
+
+  await assert.rejects(
+    transitionAuthoringRecord({
+      registryPath: copy,
+      repositoryRoot: root,
+      request: {
+        expected_revision: registry.revision,
+        coordinator: { task: 'legacy-content-closure', branch: 'codex/legacy-content-closure' },
+        receipt_ref: coordinator.receipt_ref,
+        pack_id: coordinator.pack_id,
+        version: coordinator.version,
+        changes: { stocking_proposal: { family: { status: 'reserved' } } },
+      },
+    }),
+    /Channel Kit.*stocking|stocking.*Channel Kit/i,
+  )
+  assert.deepEqual(await readFile(copy), before)
+})
+
 test('offers a coordinator transition CLI and enforces lifecycle CAS', async (t) => {
   const { reserveAuthoringBatch, transitionAuthoringRecord } = await import(registryModule)
   const root = await temporaryRepository()
