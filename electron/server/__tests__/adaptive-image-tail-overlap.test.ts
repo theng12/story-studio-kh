@@ -39,6 +39,7 @@ async function waitForPersistedTerminal(
   jobsFile: string,
   jobIds: string[],
   label: string,
+  historyCheckJobIds: string[] = [],
 ): Promise<void> {
   // The queue's terminal status is persisted asynchronously. Poll the durable
   // file until every fixture is terminal, so cleanup observes the write
@@ -46,8 +47,19 @@ async function waitForPersistedTerminal(
   const deadline = Date.now() + 3_000
   while (Date.now() < deadline) {
     try {
-      const rows = JSON.parse(await readFile(jobsFile, 'utf8')).jobs as Array<{ job_id: string; status: string }>
-      if (jobIds.every(id => rows.some(row => row.job_id === id && ['done', 'error', 'cancelled'].includes(row.status)))) return
+      const rows = JSON.parse(await readFile(jobsFile, 'utf8')).jobs as Array<{
+        job_id: string
+        status: string
+        history_evidence_check?: { state?: string }
+      }>
+      if (jobIds.every(id => rows.some(row => (
+        row.job_id === id
+        && ['done', 'error', 'cancelled'].includes(row.status)
+        && (!historyCheckJobIds.includes(id) || (
+          typeof row.history_evidence_check?.state === 'string'
+          && row.history_evidence_check.state !== 'checking'
+        ))
+      )))) return
     } catch { /* the first atomic write may not exist yet */ }
     await new Promise(resolve => setTimeout(resolve, 10))
   }
@@ -274,36 +286,18 @@ async function adaptiveAdmissionHarness(options: { base?: number; apiKey?: strin
   await queue.checkpointJobState(opener)
   await waitForAdmission()
 
-  const waitForTerminalJobs = async () => {
-    const terminal = new Set(['done', 'error', 'cancelled', 'paused'])
-    const remaining = new Set(jobIds.filter(id => !terminal.has(queue.getJob(id)?.status || '')))
-    if (!remaining.size) return
-    await new Promise<void>(resolve => {
-      const observe = (job: any) => {
-        if (terminal.has(job.status)) remaining.delete(job.job_id)
-        if (!remaining.size) {
-          queue.jobEvents.off('update', observe)
-          resolve()
-        }
-      }
-      queue.jobEvents.on('update', observe)
-      for (const id of [...remaining]) {
-        if (terminal.has(queue.getJob(id)?.status || '')) remaining.delete(id)
-      }
-      if (!remaining.size) {
-        queue.jobEvents.off('update', observe)
-        resolve()
-      }
-    })
-  }
-
   const finish = async () => {
     response.resolve(verifiedCapacity())
     await waitForAdmission()
     holding = false
     for (const release of releases.values()) release.resolve()
     await queue.setQueuePaused(false)
-    await waitForTerminalJobs()
+    await waitForPersistedTerminal(
+      path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', project.slug, 'jobs.json'),
+      jobIds,
+      'all adaptive admission jobs to persist terminal status and history checks',
+      [opener.job_id],
+    )
     restoreRefresh()
   }
 

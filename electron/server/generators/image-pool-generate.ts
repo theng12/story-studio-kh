@@ -18,6 +18,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { registry } from '../providers/registry.js'
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { isDecodableImage } from '../lib/image-validation.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as bp from '../services/broll-pool-manager.js'
@@ -36,6 +37,15 @@ import { FLEET_BUSY_RETRY_DELAYS_MS, isFleetBusyFailure } from '../lib/genstudio
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
+import {
+  authoritativePaidImageSettledCredits,
+  buildPaidImageOriginalIdentity,
+  capturePaidImageReferenceIdentity,
+  decidePaidImageReplacement,
+  readPaidImageOriginalRequest,
+  revalidatePaidImageOutputPath,
+  type PaidImageOutputSelector,
+} from '../services/image-paid-replacement.js'
 
 /**
  * The modality every request in this generator belongs to.
@@ -126,7 +136,7 @@ interface ImagePoolGenerateParams {
   run_id?: string
 }
 
-export async function generateImagePoolImages(job: Job): Promise<void> {
+export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorResult> {
   const params = job.params as ImagePoolGenerateParams
   const poolId = params.pool_id
   const prompts = (params.prompts || []).map(p => String(p || '').trim()).filter(Boolean)
@@ -156,6 +166,16 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
   // Validated once for the whole pool, before the first charged submit.
   const outputOption = resolveConfiguredOutputOption(modelConfig, aspectRatio, params.resolution)
+  const paidSelector = outputOption ? {
+    resolution: outputOption.resolution, aspect_ratio: outputOption.aspect_ratio,
+    width: outputOption.width, height: outputOption.height, reference_mode: 'normal',
+  } satisfies PaidImageOutputSelector : null
+  const emptyReferences = capturePaidImageReferenceIdentity(pool.folder_path, [])
+  const logicalPaidScope = (entry: TaskManifestEntry | null | undefined, fallback: string): string => {
+    const saved = entry?.request_scope || ''
+    const marker = saved.indexOf(':selector:')
+    return marker > 0 ? saved.slice(0, marker) : fallback
+  }
 
   if (modelConfig.provider !== 'genstudio-image') {
     throw new Error(`Image model "${model}" is not routed through GenStudio KH.`)
@@ -195,6 +215,29 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   }
   const initialReady = new Set<string>()
   for (const item of items) if (await isUsable(item.filename)) initialReady.add(item.filename)
+  if (initialReady.size) {
+    const manifest = await readManifest(pool.folder_path)
+    for (const filename of initialReady) {
+      const entry = manifest.tasks[filename]
+      const submitPermission = entry
+        ? await jq.getPaidImageReplacementSubmitPermission(job, filename, pool.folder_path, filename, entry)
+        : null
+      const artifactPermission = entry
+        ? jq.getPaidImageReplacementArtifactPermission(job, filename, pool.folder_path, filename, entry)
+        : null
+      if (submitPermission || artifactPermission) {
+        if (await isDecodableImage(path.join(pool.folder_path, filename))) {
+          if (artifactPermission) {
+            await jq.checkpointPaidImageReplacementAttempt(job, filename, {
+              state: 'succeeded', replacement_task_id: artifactPermission.replacement_task_id,
+            })
+          }
+        } else {
+          initialReady.delete(filename)
+        }
+      }
+    }
+  }
   const remaining = items.filter(item => !initialReady.has(item.filename))
   const generationIdentity = `image-pool:${poolId}:${runId}`
   let made = 0
@@ -206,7 +249,7 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   const providerId = imageProvider.meta.providerId || imageProvider.meta.id
   const recordState = async (
     filename: string,
-    entry: { taskId: string; submittedAt: string; inputHash: string; scope: string; idempotencyKey?: string },
+    entry: { taskId: string; submittedAt: string; inputHash: string; scope: string; idempotencyKey?: string; original?: Partial<TaskManifestEntry> },
     state: string,
     strict = false,
   ): Promise<void> => {
@@ -219,6 +262,7 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
       ...(entry.idempotencyKey ? { idempotency_key: entry.idempotencyKey } : {}),
       operation: 'image',
       last_state: state,
+      ...entry.original,
     }
     if (strict) await recordTaskStrict(pool.folder_path, filename, payload)
     else await recordTask(pool.folder_path, filename, payload)
@@ -273,6 +317,9 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
       let attemptScope = ''
       let attemptHash = ''
       let attemptSubmittedAt = ''
+      let attemptOriginal: Partial<TaskManifestEntry> = {}
+      let attemptBaseScope = ''
+      let paidReplacement = false
       try {
         // Re-read per attempt, from DISK — not from a copy taken before the
         // run. The failed entry the catch below writes is what promotes the
@@ -280,17 +327,61 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         // same bytes and derive the SAME scope, never two for one retry.
         const manifest = await readManifest(pool.folder_path)
         const entry = manifest.tasks[item.filename] || null
+        const originalSelector = entry?.original_output_selector || paidSelector
         // The run id keeps one deliberate generation stable across retries; a
         // terminal provider failure promotes it to a NEW, deterministic retry
         // identity so Retry submits fresh work instead of replaying a dead job.
         const baseScope = `run:${runId}`
-        let scope = resolveImageRetryScope(entry, baseScope).scope
-        let inputHash = hashInput(`${scope}\n${item.prompt}`)
-        const reclaimable = entry
-          && (entry.request_scope ? entry.input_hash === inputHash : true)
-          && !isTerminalGenStudioImageTaskFailure(entry)
-          ? entry
+        attemptBaseScope = baseScope
+        const durablePermission = entry
+          ? await jq.getPaidImageReplacementSubmitPermission(job, item.filename, pool.folder_path, item.filename, entry)
           : null
+        const submittedRecoveryCandidate = entry
+          ? jq.getPaidImageReplacementRecoveryEntry(job, item.filename, pool.folder_path, item.filename, entry)
+          : null
+        const submittedRecoveryEntry = submittedRecoveryCandidate
+          && (!durablePermission || !submittedRecoveryCandidate.idempotency_key)
+          ? submittedRecoveryCandidate
+          : null
+        let replacementScope = durablePermission?.replacement_scope || ''
+        if (!replacementScope && !submittedRecoveryEntry && originalSelector && entry && isTerminalGenStudioImageTaskFailure(entry) && entry.original_output_selector) {
+          const decision = await decidePaidImageReplacement({
+            job,
+            asset: {
+              assetKey: item.filename, manifestDir: pool.folder_path, manifestKey: item.filename,
+              outputPath: path.join(pool.folder_path, item.filename), owningRoot: pool.folder_path,
+              trustedOriginal: { prompt: item.prompt, baseScope: logicalPaidScope(entry, baseScope) },
+              modelId: modelConfig.api_model || model, apiKey,
+            },
+          })
+          if (decision.action === 'wait') {
+            await jq.checkpointJobState(job)
+            return { kind: 'paid-image-wait' }
+          }
+          if (decision.action === 'recover-original') {
+            if (await isUsable(item.filename)) continue itemLoop
+            throw new Error('The original task may still be recoverable; no replacement was submitted.')
+          }
+          if (decision.action === 'blocked') {
+            await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason)
+            throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+          }
+          if (decision.action === 'commit') replacementScope = decision.scope
+        }
+        const retryEntry = entry?.request_scope?.includes(':selector:')
+          ? { ...entry, request_scope: logicalPaidScope(entry, baseScope) }
+          : entry
+        let logicalScope = resolveImageRetryScope(retryEntry, baseScope).scope
+        let identity = originalSelector
+          ? buildPaidImageOriginalIdentity({ prompt: item.prompt, selector: originalSelector, references: emptyReferences.inputs, baseScope: logicalScope })
+          : null
+        let scope = replacementScope || (submittedRecoveryEntry ? entry!.replacement_scope! : '') || identity?.requestScope || logicalScope
+        let inputHash = replacementScope || submittedRecoveryEntry ? entry!.input_hash! : identity?.inputHash || hashInput(`${scope}\n${item.prompt}`)
+        const reclaimable = submittedRecoveryEntry || (entry
+          && (entry.request_scope ? entry.input_hash === inputHash : true)
+          && !replacementScope && !isTerminalGenStudioImageTaskFailure(entry)
+          ? entry
+          : null)
         const recovery = await tryRecoverImageFromManifestEntry(
           reclaimable,
           apiKey,
@@ -299,6 +390,7 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         )
         if (recovery.kind === 'uncertain') {
           // An unconfirmed outcome must never become a second paid submission.
+          if (submittedRecoveryEntry) throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
           throw new Error(
             `Could not confirm GenStudio task ${recovery.taskId.slice(0, 12)}… (${recovery.reason}). ` +
             'No duplicate image was submitted; Retry reconnects to the same job.',
@@ -306,10 +398,49 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         }
         let carried: TaskManifestEntry | null = entry
         if (recovery.kind === 'terminal-failed' || recovery.kind === 'artifact-unavailable') {
+          if (submittedRecoveryEntry) {
+            if (submittedRecoveryEntry.idempotency_key) {
+              await checkpointGenStudioAsset(job, item.filename, {
+                operation: 'image', idempotency_key: submittedRecoveryEntry.idempotency_key,
+                job_id: recovery.taskId, state: 'failed', output_path: path.join(pool.folder_path, item.filename),
+                input_hash: entry!.input_hash!,
+              })
+            }
+            await jq.checkpointPaidImageReplacementAttempt(job, item.filename, {
+              state: 'failed', replacement_task_id: recovery.taskId, reason: recovery.reason,
+            })
+            throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+          }
           carried = terminalImageManifestEntry(entry!, recovery)
-          await recordTask(pool.folder_path, item.filename, carried)
-          scope = resolveImageRetryScope(carried, baseScope).scope
-          inputHash = hashInput(`${scope}\n${item.prompt}`)
+          await recordTaskStrict(pool.folder_path, item.filename, carried)
+          if (originalSelector && carried.idempotency_key) {
+            const decision = await decidePaidImageReplacement({
+              job,
+              asset: {
+                assetKey: item.filename, manifestDir: pool.folder_path, manifestKey: item.filename,
+                outputPath: path.join(pool.folder_path, item.filename), owningRoot: pool.folder_path,
+                trustedOriginal: { prompt: item.prompt, baseScope: logicalPaidScope(carried, baseScope) },
+                modelId: modelConfig.api_model || model, apiKey,
+              },
+            })
+            if (decision.action === 'wait') {
+              await jq.checkpointJobState(job)
+              return { kind: 'paid-image-wait' }
+            }
+            if (decision.action === 'blocked') {
+              await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason)
+              throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+            }
+          }
+          const carriedRetry = carried.request_scope?.includes(':selector:')
+            ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }
+            : carried
+          logicalScope = resolveImageRetryScope(carriedRetry, baseScope).scope
+          identity = originalSelector
+            ? buildPaidImageOriginalIdentity({ prompt: item.prompt, selector: originalSelector, references: emptyReferences.inputs, baseScope: logicalScope })
+            : null
+          scope = identity?.requestScope || logicalScope
+          inputHash = identity?.inputHash || hashInput(`${scope}\n${item.prompt}`)
           job.output_lines.push(
             `↻ item ${item.index + 1}: saved GenStudio task ${recovery.taskId.slice(0, 12)}… is terminal; ` +
             'submitting one fresh job under a new retry identity.',
@@ -321,11 +452,24 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         attemptScope = scope
         attemptHash = inputHash
         attemptSubmittedAt = submittedAt
+        paidReplacement = !!replacementScope || !!submittedRecoveryEntry
+        attemptOriginal = identity && originalSelector ? {
+          original_output_selector: originalSelector,
+          original_reference_inputs: emptyReferences.inputs,
+          original_reference_identity_hash: emptyReferences.identity_hash,
+          original_output_path: revalidatePaidImageOutputPath(pool.folder_path, path.join(pool.folder_path, item.filename)),
+        } : {}
         if (recovery.kind === 'recovered' && recovery.urls[0]) {
           await saveResult(item, { url: recovery.urls[0] })
-          await recordState(item.filename, {
-            taskId: recovery.taskId, submittedAt, inputHash, scope,
-          }, 'succeeded')
+          if (submittedRecoveryEntry) {
+            await jq.checkpointPaidImageReplacementAttempt(job, item.filename, {
+              state: 'succeeded', replacement_task_id: recovery.taskId,
+            })
+          } else {
+            await recordState(item.filename, {
+              taskId: recovery.taskId, submittedAt, inputHash, scope,
+            }, 'succeeded')
+          }
           made++
           job.output_lines.push(`✓ ${successfulFiles.size}/${total} — recovered accepted task ${recovery.taskId.slice(0, 12)}… (no charge)`)
           processed++
@@ -337,19 +481,28 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         }
         // Identity on disk before the charged POST: a lost response replays the
         // same idempotency key rather than paying for a second image.
-        await recordState(item.filename, { taskId: '', submittedAt, inputHash, scope }, 'prepared', true)
         const preparedKey = buildGenStudioImageIdempotencyKey({
           prompt: item.prompt,
           modelId: modelConfig.api_model || model,
           aspectRatio,
           ...(outputOption ? { resolution: outputOption.resolution } : {}),
           seed: params.seed,
-          requestIdentity: `${generationIdentity}:${item.filename}:${scope}`,
+          requestIdentity: replacementScope || `${generationIdentity}:${item.filename}:${scope}`,
         })
-        await checkpointGenStudioAsset(job, item.filename, {
-          operation: 'image', idempotency_key: preparedKey, state: 'prepared',
-          output_path: path.join(pool.folder_path, item.filename),
-        })
+        if (!replacementScope) {
+          await recordState(item.filename, {
+            taskId: '', submittedAt, inputHash, scope, idempotencyKey: preparedKey, original: attemptOriginal,
+          }, 'prepared', true)
+          await checkpointGenStudioAsset(job, item.filename, {
+            operation: 'image', idempotency_key: preparedKey, state: 'prepared',
+            output_path: path.join(pool.folder_path, item.filename),
+          })
+        }
+        if (replacementScope) {
+          readPaidImageOriginalRequest(entry!, pool.folder_path, {
+            prompt: item.prompt, baseScope: logicalPaidScope(entry, baseScope),
+          })
+        }
         const result = await imageProvider.generateImage({
           prompt: item.prompt,
           apiKey,
@@ -358,13 +511,26 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
           providerParams,
           ...(outputOption ? { resolution: outputOption.resolution } : {}),
           seed: params.seed,
-          idempotencyIdentity: `${generationIdentity}:${item.filename}:${scope}`,
+          idempotencyIdentity: replacementScope || `${generationIdentity}:${item.filename}:${scope}`,
+          idempotencyKey: preparedKey,
+          ...(replacementScope && entry ? {
+            beforeSubmit: () => jq.assertPaidImageReplacementSubmitPermission(
+              job, item.filename, pool.folder_path, item.filename, entry,
+            ),
+          } : {}),
           isCancelled: () => jq.isCancelled(job.job_id),
           onJobAccepted: async (taskId, idempotencyKey) => {
             acceptedTaskId = taskId
             acceptedKey = idempotencyKey
-            await recordState(item.filename, {
-              taskId, submittedAt, inputHash, scope, idempotencyKey,
+            if (replacementScope) {
+              const currentPaid = job.paid_image_replacement_attempts?.find(attempt => attempt.asset_key === item.filename)
+              if (currentPaid?.state === 'committed') {
+                await jq.checkpointPaidImageReplacementAttempt(job, item.filename, { state: 'submitted', replacement_task_id: taskId })
+              } else if (currentPaid?.state !== 'submitted' || currentPaid.replacement_task_id !== taskId) {
+                throw new Error('Paid image replacement replay returned a different provider task.')
+              }
+            } else await recordState(item.filename, {
+              taskId, submittedAt, inputHash, scope, idempotencyKey, original: attemptOriginal,
             }, 'accepted', true)
             await checkpointGenStudioAsset(job, item.filename, {
               operation: 'image', idempotency_key: idempotencyKey, job_id: taskId,
@@ -372,11 +538,31 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
             })
           },
         })
+        const completedTaskId = result.taskId || acceptedTaskId
+        if (replacementScope) {
+          if (result.taskId && acceptedTaskId && result.taskId !== acceptedTaskId) {
+            throw new Error('Paid image replacement returned different provider tasks at acceptance and completion.')
+          }
+          if (!completedTaskId) throw new Error('Paid image replacement completed without a provider task identity.')
+          const completedEntry = (await readManifest(pool.folder_path)).tasks[item.filename]
+          const paidAttempt = completedEntry
+            ? jq.getPaidImageReplacementArtifactPermission(job, item.filename, pool.folder_path, item.filename, completedEntry)
+            : null
+          if (paidAttempt?.replacement_task_id !== completedTaskId) {
+            throw new Error('Paid image replacement completed under a different provider task.')
+          }
+        }
         if (!result.urls.length) throw new Error('provider returned no image')
         await saveResult(item, { url: result.urls[0] })
-        if (result.taskId) {
+        if (replacementScope) {
+          const actualSettledCredits = authoritativePaidImageSettledCredits(result.settledCredits)
+          await jq.checkpointPaidImageReplacementAttempt(job, item.filename, {
+            state: 'succeeded', replacement_task_id: completedTaskId,
+            ...(actualSettledCredits !== undefined ? { actual_settled_credits: actualSettledCredits } : {}),
+          })
+        } else if (result.taskId) {
           await recordState(item.filename, {
-            taskId: result.taskId, submittedAt, inputHash, scope, idempotencyKey: acceptedKey,
+            taskId: result.taskId, submittedAt, inputHash, scope, idempotencyKey: acceptedKey, original: attemptOriginal,
           }, 'succeeded')
           await checkpointGenStudioAsset(job, item.filename, {
             operation: 'image', idempotency_key: acceptedKey || preparedKey, job_id: result.taskId,
@@ -394,13 +580,44 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
           // Persist the settled failure BEFORE deciding to retry, so the next
           // attempt — in this run or in a later manual Retry — reads it back
           // and promotes a fresh identity instead of replaying this dead job.
-          await recordState(item.filename, {
-            taskId: failedTaskId,
-            submittedAt: attemptSubmittedAt,
-            inputHash: attemptHash,
-            scope: attemptScope,
-            idempotencyKey: acceptedKey,
-          }, 'failed')
+          if (paidReplacement) {
+            const actualSettledCredits = authoritativePaidImageSettledCredits(e.settledCredits)
+            await jq.checkpointPaidImageReplacementAttempt(job, item.filename, {
+              state: 'failed', replacement_task_id: failedTaskId, reason: e.message,
+              ...(actualSettledCredits !== undefined ? { actual_settled_credits: actualSettledCredits } : {}),
+            })
+          } else {
+            await recordState(item.filename, {
+              taskId: failedTaskId, submittedAt: attemptSubmittedAt, inputHash: attemptHash,
+              scope: attemptScope, idempotencyKey: acceptedKey, original: attemptOriginal,
+            }, 'failed', true)
+            if (failedTaskId && acceptedKey) {
+              await checkpointGenStudioAsset(job, item.filename, {
+                operation: 'image', idempotency_key: acceptedKey, job_id: failedTaskId,
+                state: 'failed', output_path: path.join(pool.folder_path, item.filename), input_hash: attemptHash,
+              })
+            }
+            if (attemptOriginal.original_output_selector) {
+              const failedEntry = (await readManifest(pool.folder_path)).tasks[item.filename]!
+              const decision = await decidePaidImageReplacement({
+                job,
+                asset: {
+                  assetKey: item.filename, manifestDir: pool.folder_path, manifestKey: item.filename,
+                  outputPath: path.join(pool.folder_path, item.filename), owningRoot: pool.folder_path,
+                  trustedOriginal: { prompt: item.prompt, baseScope: logicalPaidScope(failedEntry, attemptBaseScope) },
+                  modelId: modelConfig.api_model || model, apiKey,
+                },
+              })
+              if (decision.action === 'wait') {
+                await jq.checkpointJobState(job)
+                return { kind: 'paid-image-wait' }
+              }
+              if (decision.action === 'blocked') {
+                await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason)
+                job.output_lines.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+              }
+            }
+          }
           // ── "Every machine was busy" — wait, then ask again ──
           // The only failure this generator resubmits; see
           // `imagePoolFleetBusyRetryPlan` for why it costs nothing and why
@@ -431,7 +648,9 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         if (!retryItem) {
           failed++
           failedFiles.add(item.filename)
-          job.output_lines.push(`✗ item ${item.index + 1} failed: ${e?.message || e}`)
+          job.output_lines.push(paidReplacement
+            ? jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
+            : `✗ item ${item.index + 1} failed: ${e?.message || e}`)
         }
       }
       // An item still waiting on the fleet has not settled, so it must not

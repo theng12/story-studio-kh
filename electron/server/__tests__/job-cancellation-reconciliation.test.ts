@@ -712,10 +712,11 @@ test('a sibling status read error remains visible and retries on the next reconc
     await jq.getJobs(project.slug)
     await waitFor(() => Boolean(jq.getJob('cold-sibling-status-retry')?.reconciliation_error))
     const waiting = jq.getJob('cold-sibling-status-retry')!
+    const publicWaiting = jq.getPublicJob('cold-sibling-status-retry')!
     assert.match(waiting.reconciliation_error || '', /HTTP 401/)
     assert.doesNotMatch(waiting.reconciliation_error || '', /secret-value/)
-    assert.equal(waiting.control?.action, 'return-later')
-    assert.match(waiting.control?.reason || '', /HTTP 401/)
+    assert.equal(publicWaiting.control?.action, 'return-later')
+    assert.match(publicWaiting.control?.reason || '', /HTTP 401/)
 
     await waitFor(() => jq.getJob('cold-sibling-status-retry')?.status === 'error')
     assert.ok(siblingReads >= 2)

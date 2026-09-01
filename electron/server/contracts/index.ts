@@ -660,6 +660,25 @@ export interface JobEnqueuedResponse {
     next_retry_at?: string
     exhausted?: boolean
   }
+  /** Server-owned optional paid image recovery authorisation. */
+  paid_image_replacement?: {
+    enabled: boolean
+    wait_minutes: 30
+    max_replacements_per_asset: 1
+    additional_credit_ceiling: number | null
+    snapshotted_at: string
+  }
+  /** Latest bounded paid-image replacement state, redacted for renderer use. */
+  paid_image_replacement_attempt?: {
+    state: 'waiting' | 'committed' | 'submitted' | 'succeeded' | 'failed' | 'blocked'
+    eligible_at: string
+    replacement_committed_at?: string
+    quoted_credits?: number
+    price_version?: string
+    /** Stable customer-safe category; never raw provider or durable evidence. */
+    reason?: 'automatic_replacement_unavailable'
+    actual_settled_credits?: number
+  }
   /** Structured terminal outcome for audit-style jobs such as image repair. */
   result?: Record<string, any>
   params: Record<string, any>

@@ -181,7 +181,9 @@ describe('Image Pool: the retry does not change the shape of the run', () => {
     has(`        if (!retryItem) {
           failed++
           failedFiles.add(item.filename)
-          job.output_lines.push(\`✗ item \${item.index + 1} failed: \${e?.message || e}\`)
+          job.output_lines.push(paidReplacement
+            ? jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
+            : \`✗ item \${item.index + 1} failed: \${e?.message || e}\`)
         }`, 'an exhausted item is recorded failed exactly as before, and the run carries on')
 
     // No `throw` was introduced into the item catch beyond the pre-existing
@@ -258,10 +260,10 @@ describe('Image Pool: the wait itself', () => {
     // promotes the scope through the same deterministic `resolveImageRetryScope`
     // a manual Retry uses. A crash mid-wait therefore replays the identical
     // request instead of buying a second image.
-    has("}, 'failed')", 'the settled failure reaches disk before the retry is decided')
+    has("}, 'failed', true)", 'the settled failure reaches disk strictly before the retry is decided')
     has('const manifest = await readManifest(pool.folder_path)',
       'and the next attempt reads it back from disk, not from a stale in-memory copy')
-    has('let scope = resolveImageRetryScope(entry, baseScope).scope',
+    has('let logicalScope = resolveImageRetryScope(retryEntry, baseScope).scope',
       'the promoted scope is derived from the dead job id')
     assert.doesNotMatch(source, /randomUUID/)
     assert.doesNotMatch(source, /Math\.random/)

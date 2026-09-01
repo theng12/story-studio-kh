@@ -133,6 +133,7 @@ test('restarting after a mid-batch quit settles every item — a provider 404 is
     }, 'the restarted job to reach a definite state without human intervention')
 
     const settled = jq.getJob('restart-404')!
+    const publicSettled = jq.getPublicJob('restart-404')!
 
     // 1. Definite. Not "running" forever.
     assert.equal(settled.status, 'error')
@@ -151,8 +152,8 @@ test('restarting after a mid-batch quit settles every item — a provider 404 is
     assert.deepEqual(requests.filter(r => r.method !== 'GET'), [])
     assert.equal(requests.length, 3)
     // 6. The way forward is on the row: history can be cleared, and Retry works.
-    assert.equal(settled.control?.action, 'clear-history')
-    assert.equal(settled.control?.enabled, true)
+    assert.equal(publicSettled.control?.action, 'clear-history')
+    assert.equal(publicSettled.control?.enabled, true)
   } finally {
     globalThis.fetch = original
   }
@@ -209,7 +210,7 @@ test('a job with no other way out can always be abandoned, and re-run from the s
     assert.throws(() => jq.retryTerminalJob(slug, 'abandon-me'))
 
     // …and the override is nevertheless offered, enabled, and honest.
-    const escape = wedged.controls!.find(control => control.action === 'force-abandon')
+    const escape = jq.getPublicJob('abandon-me')?.controls?.find(control => control.action === 'force-abandon')
     assert.ok(escape, 'a wedged job must offer force-abandon')
     assert.equal(escape.enabled, true)
     assert.equal(escape.label, 'Abandon this job')

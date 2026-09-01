@@ -713,7 +713,7 @@ test('the generator submits the reference through the guarded provider seam', ()
   // published capability, count, and pixel-ceiling checks that all run BEFORE
   // the charged POST.
   const source = readSource('../generators/continuity-render.ts')
-  assert.match(source, /referenceImagePaths: sref\.referenceImagePaths/)
+  assert.match(source, /referenceImagePaths: requestReferences/)
   assert.doesNotMatch(source, /uploadImageSourceWithGenStudio/, 'never upload around the provider')
   assert.doesNotMatch(
     source,

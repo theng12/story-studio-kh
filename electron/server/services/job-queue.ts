@@ -18,11 +18,11 @@ import { projectsRoot, getProjectDir } from './project-manager.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
-import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType } from '../models/types.js'
+import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType, PaidImageReplacementAttempt, PaidImageReplacementPolicySnapshot } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
-import { getAppSetting, setAppSetting } from './app-settings.js'
+import { getAppSetting, getPaidImageReplacementSetting, onAppSettingWritten, setAppSetting } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
@@ -39,7 +39,7 @@ import {
   type ContentPackProjectPinOptions,
 } from '../content-packs/project-pins.js'
 import { runWithJobContentPackProvenance } from '../content-packs/job-provenance-context.js'
-import { readManifest } from './task-manifest.js'
+import { readManifest, recordPaidImageReplacementStrict, type TaskManifestEntry } from './task-manifest.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import { refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
@@ -918,7 +918,8 @@ export function throwIfPauseRequested(jobId: string): void {
 }
 
 // Simple async FIFO queues
-type JobExecutor = (job: Job) => Promise<void>
+export type JobExecutorResult = void | { kind: 'paid-image-wait' }
+type JobExecutor = (job: Job) => Promise<JobExecutorResult>
 
 interface QueueState {
   pending: Job[]
@@ -1301,6 +1302,22 @@ function groupLimit(group: string): number {
 
 // ── Persistence ─────────────────────────────────────────────────────────────
 
+type JobFileLockProbe = (
+  operation: 'inspect' | 'persist',
+  jobsFile: string,
+) => void | Promise<void>
+
+let jobFileLockProbeForTesting: JobFileLockProbe | undefined
+
+/** Test-only inside-lock synchronization; production has no hook installed. */
+export function _setJobFileLockProbeForTesting(probe: JobFileLockProbe): () => void {
+  const previous = jobFileLockProbeForTesting
+  jobFileLockProbeForTesting = probe
+  return () => {
+    if (jobFileLockProbeForTesting === probe) jobFileLockProbeForTesting = previous
+  }
+}
+
 function jobsPath(projectSlug: string): string {
   // Honour linked-project locations so iCloud-synced projects read +
   // write their jobs.json in the right place.
@@ -1368,15 +1385,53 @@ function safeJob(job: Job): Omit<Job, never> {
 }
 
 /** Public job snapshots derive controls at the last possible moment. */
-function serializeJob(job: Job): Job {
+type RendererPaidImageReplacementAttempt = Pick<PaidImageReplacementAttempt,
+  'state' | 'eligible_at' | 'replacement_committed_at' | 'quoted_credits' | 'price_version' | 'actual_settled_credits'> & {
+  reason?: 'automatic_replacement_unavailable'
+}
+type RendererJob = Omit<Job, 'paid_image_replacement_attempts'> & {
+  paid_image_replacement_attempt?: RendererPaidImageReplacementAttempt
+}
+
+export const PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE =
+  'Automatic image replacement is unavailable. No replacement was submitted.'
+
+function serializeJob(job: Job): RendererJob {
   const copy = safeJob(job)
-  copy.controls = classifyJobControls(job, {
+  const latestPaidImageAttempt = copy.paid_image_replacement_attempts?.at(-1)
+  const privateReasons = (copy.paid_image_replacement_attempts || [])
+    .map(attempt => attempt.reason?.trim())
+    .filter((reason): reason is string => Boolean(reason))
+  delete copy.paid_image_replacement_attempts
+  const rendererJob: RendererJob = copy
+  if (privateReasons.length) {
+    if (rendererJob.error && privateReasons.some(reason => rendererJob.error!.includes(reason))) {
+      rendererJob.error = PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
+    }
+    rendererJob.output_lines = rendererJob.output_lines.map(line => (
+      privateReasons.some(reason => line.includes(reason))
+        ? PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
+        : line
+    ))
+  }
+  if (latestPaidImageAttempt) {
+    rendererJob.paid_image_replacement_attempt = {
+      state: latestPaidImageAttempt.state,
+      eligible_at: latestPaidImageAttempt.eligible_at,
+      ...(latestPaidImageAttempt.replacement_committed_at ? { replacement_committed_at: latestPaidImageAttempt.replacement_committed_at } : {}),
+      ...(latestPaidImageAttempt.quoted_credits !== undefined ? { quoted_credits: latestPaidImageAttempt.quoted_credits } : {}),
+      ...(latestPaidImageAttempt.price_version ? { price_version: latestPaidImageAttempt.price_version } : {}),
+      ...(latestPaidImageAttempt.state === 'blocked' ? { reason: 'automatic_replacement_unavailable' as const } : {}),
+      ...(latestPaidImageAttempt.actual_settled_credits !== undefined ? { actual_settled_credits: latestPaidImageAttempt.actual_settled_credits } : {}),
+    }
+  }
+  rendererJob.controls = classifyJobControls(job, {
     remoteCancellationAudited: hasJobCancellationAuditor(job.type),
   })
-  copy.control = classifyJobControl(job, {
+  rendererJob.control = classifyJobControl(job, {
     remoteCancellationAudited: hasJobCancellationAuditor(job.type),
   })
-  return copy
+  return rendererJob
 }
 
 async function persistJob(job: Job): Promise<void> {
@@ -1385,6 +1440,7 @@ async function persistJob(job: Job): Promise<void> {
   // Lock + atomic write: concurrent generators can finish at the same time and
   // would otherwise race `read → splice → write` on this shared file.
   await withLock(p, async () => {
+    if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('persist', p)
     let data: { jobs: any[] } = { jobs: [] }
     try {
       if (existsSync(p)) {
@@ -1394,10 +1450,16 @@ async function persistJob(job: Job): Promise<void> {
     } catch { /* corrupt or missing — start fresh */ }
 
     const idx = data.jobs.findIndex((j: any) => j.job_id === job.job_id)
+    const next = safeJob(job)
     if (idx >= 0) {
-      data.jobs[idx] = safeJob(job)
+      const previous = data.jobs[idx] as Job
+      const attempts = mergePaidImageReplacementAttempts(
+        previous.paid_image_replacement_attempts,
+        next.paid_image_replacement_attempts,
+      )
+      data.jobs[idx] = attempts ? { ...next, paid_image_replacement_attempts: attempts } : next
     } else {
-      data.jobs.push(safeJob(job))
+      data.jobs.push(next)
     }
 
     data.jobs = retainJobsForPersistence(data.jobs)
@@ -1412,6 +1474,244 @@ async function persistJob(job: Job): Promise<void> {
 }
 
 /**
+ * Narrow durable boundary for paid image commitment.  It reads the on-disk
+ * authority under the same jobs.json lock as normal queue persistence; callers
+ * must not use a worker's stale in-memory copy to authorize a charge.
+ */
+export async function loadAuthoritativeJob(projectSlug: string, jobId: string): Promise<Job | null> {
+  const p = jobsPath(projectSlug)
+  return withLock(p, async () => {
+    assertWriteIsolatedInTests(p, 'job-queue')
+    if (!existsSync(p)) return null
+    const data = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
+    if (!Array.isArray(data.jobs)) throw new Error('jobs.json does not contain a jobs array')
+    const found = data.jobs.find((candidate: unknown) => (
+      Boolean(candidate) && typeof candidate === 'object' && (candidate as Job).job_id === jobId
+    ))
+    return found ? structuredClone(found as Job) : null
+  })
+}
+
+/** Evaluate one read-only predicate while normal jobs.json persistence is excluded. */
+export async function inspectAuthoritativeJob(
+  projectSlug: string,
+  jobId: string,
+  inspect: (job: Job) => boolean,
+): Promise<boolean | null> {
+  const p = jobsPath(projectSlug)
+  return withLock(p, async () => {
+    if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('inspect', p)
+    assertWriteIsolatedInTests(p, 'job-queue')
+    if (!existsSync(p)) return null
+    const data = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
+    if (!Array.isArray(data.jobs)) throw new Error('jobs.json does not contain a jobs array')
+    const found = data.jobs.find((candidate: unknown) => (
+      Boolean(candidate) && typeof candidate === 'object' && (candidate as Job).job_id === jobId
+    ))
+    if (!found) return null
+    const result = inspect(structuredClone(found as Job))
+    if (typeof result !== 'boolean') throw new Error('authoritative job inspection must be synchronous')
+    return result
+  })
+}
+
+/** The paired write side of `loadAuthoritativeJob`, retained as one test seam. */
+export async function writeAuthoritativeJob(job: Job): Promise<void> {
+  await persistJob(job)
+}
+
+/**
+ * Atomic paid-attempt mutation. It shares the normal queue's jobs.json lock,
+ * so a checkpoint cannot interleave between a paid read and its durable write.
+ */
+export async function mutateAuthoritativeJob(
+  projectSlug: string,
+  jobId: string,
+  mutate: (job: Job) => Job | null,
+): Promise<Job | null> {
+  const p = jobsPath(projectSlug)
+  assertWriteIsolatedInTests(p, 'job-queue')
+  return withLock(p, async () => {
+    if (!existsSync(p)) return null
+    const data = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
+    if (!Array.isArray(data.jobs)) throw new Error('jobs.json does not contain a jobs array')
+    const index = data.jobs.findIndex((candidate: unknown) => (
+      Boolean(candidate) && typeof candidate === 'object' && (candidate as Job).job_id === jobId
+    ))
+    if (index < 0) return null
+    const next = mutate(structuredClone(data.jobs[index] as Job))
+    if (!next) return null
+    data.jobs[index] = safeJob(next)
+    data.jobs = retainJobsForPersistence(data.jobs)
+    await writeJsonAtomic(p, data)
+    return structuredClone(next)
+  })
+}
+
+/** Persist one provider-side transition of the already committed paid attempt. */
+export async function checkpointPaidImageReplacementAttempt(
+  job: Job,
+  assetKey: string,
+  update: Pick<PaidImageReplacementAttempt, 'state'>
+    & Partial<Pick<PaidImageReplacementAttempt, 'replacement_task_id' | 'actual_settled_credits' | 'reason'>>,
+): Promise<PaidImageReplacementAttempt> {
+  const durable = await mutateAuthoritativeJob(job.project_slug, job.job_id, (authoritative) => {
+    const attempts = authoritative.paid_image_replacement_attempts || []
+    const matches = attempts.filter(attempt => attempt.asset_key === assetKey)
+    if (matches.length !== 1) return null
+    const current = matches[0]!
+    const allowed = current.state === 'waiting'
+      ? new Set(['blocked'])
+      : current.state === 'committed'
+      ? new Set(['submitted', 'succeeded', 'failed', 'blocked'])
+      : current.state === 'submitted'
+        ? new Set(['succeeded', 'failed', 'blocked'])
+        : new Set<string>()
+    if (!allowed.has(update.state)) return null
+    if (update.state === 'submitted' && !update.replacement_task_id?.trim()) return null
+    const next = { ...current, ...update }
+    authoritative.paid_image_replacement_attempts = attempts.map(attempt => attempt === current ? next : attempt)
+    return authoritative
+  })
+  if (!durable) throw new Error(`Paid image replacement attempt ${assetKey} could not transition to ${update.state}.`)
+  Object.assign(job, durable)
+  emitUpdate(job)
+  return job.paid_image_replacement_attempts!.find(attempt => attempt.asset_key === assetKey)!
+}
+
+/** Block the one existing paid attempt, without inventing an attempt for an ineligible asset. */
+export async function checkpointPaidImageReplacementBlockedIfPresent(
+  job: Job,
+  assetKey: string,
+  reason: string,
+): Promise<boolean> {
+  const durable = await mutateAuthoritativeJob(job.project_slug, job.job_id, (authoritative) => {
+    const attempts = authoritative.paid_image_replacement_attempts || []
+    const matches = attempts.filter(attempt => attempt.asset_key === assetKey)
+    if (matches.length !== 1 || !['waiting', 'committed', 'submitted'].includes(matches[0]!.state)) return null
+    const current = matches[0]!
+    authoritative.paid_image_replacement_attempts = attempts.map(attempt => (
+      attempt === current ? { ...current, state: 'blocked', reason } : attempt
+    ))
+    return authoritative
+  })
+  if (!durable) return false
+  Object.assign(job, durable)
+  emitUpdate(job)
+  return true
+}
+
+/** Identity-only half used for accepted-artifact reconciliation even after Off. */
+function findPaidImageReplacementSubmitPermission(
+  job: Job,
+  assetKey: string,
+  manifestDir: string,
+  manifestKey: string,
+  entry: TaskManifestEntry,
+): PaidImageReplacementAttempt | null {
+  const matches = (job.paid_image_replacement_attempts || []).filter(attempt => attempt.asset_key === assetKey)
+  if (matches.length !== 1) return null
+  const attempt = matches[0]!
+  if ((attempt.state !== 'committed' && attempt.state !== 'submitted')
+    || attempt.manifest_dir !== manifestDir || attempt.manifest_key !== manifestKey
+    || !attempt.replacement_scope || attempt.replacement_scope !== entry.replacement_scope
+    || attempt.original_task_id !== entry.task_id
+    || attempt.original_idempotency_key !== entry.idempotency_key
+    || attempt.input_hash !== entry.input_hash
+    || attempt.output_path !== entry.original_output_path
+    || entry.replacement_of_task_id !== attempt.original_task_id
+    || entry.replacement_quoted_credits !== attempt.quoted_credits
+    || entry.replacement_price_version !== attempt.price_version
+    || entry.replacement_committed_at !== attempt.replacement_committed_at
+    || JSON.stringify(entry.original_output_selector) !== JSON.stringify(attempt.output_selector)
+    || JSON.stringify(entry.original_reference_inputs) !== JSON.stringify(attempt.reference_inputs)
+    || entry.original_reference_identity_hash !== attempt.reference_identity_hash) return null
+  return attempt
+}
+
+/** Re-admit a committed POST only while the current machine setting remains On. */
+export async function getPaidImageReplacementSubmitPermission(
+  job: Job,
+  assetKey: string,
+  manifestDir: string,
+  manifestKey: string,
+  entry: TaskManifestEntry,
+): Promise<PaidImageReplacementAttempt | null> {
+  return withPaidImageWaitSettingGate(async () => {
+    const attempt = findPaidImageReplacementSubmitPermission(job, assetKey, manifestDir, manifestKey, entry)
+    if (!attempt) return null
+    const setting = await getPaidImageReplacementSetting().catch(() => null)
+    // An accepted replacement is recovery-only. Never mutate its evidence or
+    // grant another POST while Off; the separate artifact permission below
+    // may still reconcile a file that the accepted task already finished.
+    if (attempt.state === 'submitted') return setting?.enabled ? attempt : null
+    if (setting?.enabled) return attempt
+    await checkpointPaidImageReplacementBlockedIfPresent(
+      job, assetKey, 'paid image replacement is currently off on this machine',
+    )
+    return null
+  })
+}
+
+/** Exact pre-POST guard shared by every supported image generator. */
+export async function assertPaidImageReplacementSubmitPermission(
+  job: Job,
+  assetKey: string,
+  manifestDir: string,
+  manifestKey: string,
+  entry: TaskManifestEntry,
+): Promise<void> {
+  if (!await getPaidImageReplacementSubmitPermission(job, assetKey, manifestDir, manifestKey, entry)) {
+    throw new Error(PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+  }
+}
+
+/** Reconcile an existing artifact only after a real replacement task was durably accepted. */
+export function getPaidImageReplacementArtifactPermission(
+  job: Job,
+  assetKey: string,
+  manifestDir: string,
+  manifestKey: string,
+  entry: TaskManifestEntry,
+): PaidImageReplacementAttempt | null {
+  const attempt = findPaidImageReplacementSubmitPermission(job, assetKey, manifestDir, manifestKey, entry)
+  return attempt?.state === 'submitted' && attempt.replacement_task_id?.trim() ? attempt : null
+}
+
+/**
+ * Build a read-only provider recovery entry for an already accepted paid task.
+ * This never grants submit authority: the replacement task id and its
+ * strict committed manifest must agree before a generator may issue the status
+ * GET that can reclaim the artifact. The secondary GenStudio checkpoint is
+ * written after the submitted transition, so a crash may legitimately leave it
+ * absent; only an exact checkpoint contributes its idempotency key/state.
+ */
+export function getPaidImageReplacementRecoveryEntry(
+  job: Job,
+  assetKey: string,
+  manifestDir: string,
+  manifestKey: string,
+  entry: TaskManifestEntry,
+): TaskManifestEntry | null {
+  const attempt = getPaidImageReplacementArtifactPermission(job, assetKey, manifestDir, manifestKey, entry)
+  if (!attempt?.replacement_task_id) return null
+  const recovery = (job.params as any)?.genstudio_recovery
+  const checkpoint = recovery?.version === 1 && recovery?.route === 'genstudio'
+    ? recovery.assets?.[assetKey]
+    : null
+  const exactCheckpoint = checkpoint && checkpoint.operation === 'image' && checkpoint.state !== 'failed'
+    && checkpoint.job_id === attempt.replacement_task_id
+    && typeof checkpoint.idempotency_key === 'string' && checkpoint.idempotency_key.startsWith('story-')
+    && (checkpoint.input_hash === undefined || checkpoint.input_hash === attempt.input_hash)
+  return {
+    ...entry,
+    task_id: attempt.replacement_task_id,
+    idempotency_key: exactCheckpoint ? checkpoint.idempotency_key : undefined,
+    last_state: exactCheckpoint ? checkpoint.state : 'accepted',
+  }
+}
+
+/**
  * Persist a durable checkpoint while a long-running executor is still active.
  * Accepted GenStudio work uses this so a monitoring disconnect can reconnect
  * without submitting it again.
@@ -1420,6 +1720,450 @@ export async function checkpointJobState(job: Job): Promise<void> {
   await persistJob(job)
   emitUpdate(job)
   if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
+}
+
+const PAID_IMAGE_WAIT_MS = 30 * 60 * 1_000
+const PAID_IMAGE_WAIT_TYPES = new Set<JobType>(['continuity_render', 'image_pool_generate', 'thumb_images'])
+type PaidImageWaitTimer = unknown
+export type PersistedRunningJobLoadStage =
+  | 'pause-requested'
+  | 'paid-image-wait'
+  | 'ordinary-recovery'
+  | 'cancellation-reconciliation'
+  | 'interrupted-terminalization'
+let persistedRunningJobLoadStageObserver: ((jobId: string, stage: PersistedRunningJobLoadStage) => void) | null = null
+interface PaidImageWaitRuntime {
+  nowMs: () => number
+  setTimer: (callback: () => void, delayMs: number) => PaidImageWaitTimer
+  clearTimer: (timer: PaidImageWaitTimer) => void
+  persistWait: (job: Job) => Promise<void>
+  emitWait: (job: Job) => void
+}
+const defaultPaidImageWaitRuntime: PaidImageWaitRuntime = {
+  nowMs: () => Date.now(),
+  setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimer: timer => clearTimeout(timer as ReturnType<typeof setTimeout>),
+  persistWait: job => persistJob(job),
+  emitWait: job => emitUpdate(job),
+}
+let paidImageWaitRuntime = defaultPaidImageWaitRuntime
+const paidImageWaitTimers = new Map<string, PaidImageWaitTimer>()
+const paidImageWaitRequeues = new Map<string, Promise<void>>()
+const paidImageCommitHolds = new Set<string>()
+let paidImageWaitSettingGate: Promise<void> = Promise.resolve()
+let paidImageSettingReconciliation: Promise<void> = Promise.resolve()
+
+async function withPaidImageWaitSettingGate<T>(work: () => Promise<T>): Promise<T> {
+  const previous = paidImageWaitSettingGate
+  let release!: () => void
+  const current = new Promise<void>(resolve => { release = resolve })
+  paidImageWaitSettingGate = previous.then(() => current)
+  await previous
+  try { return await work() } finally { release() }
+}
+
+/** App-settings uses this before writing Off so due work cannot cross it. */
+export async function withPaidImageWaitSettingMutation<T>(work: () => Promise<T>): Promise<T> {
+  return withPaidImageWaitSettingGate(work)
+}
+
+async function withPaidImageWaitJobMutex<T>(jobId: string, work: () => Promise<T>): Promise<T> {
+  const previous = paidImageWaitRequeues.get(jobId) || Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>(resolve => { release = resolve })
+  paidImageWaitRequeues.set(jobId, current)
+  await previous
+  try { return await work() } finally {
+    release()
+    if (paidImageWaitRequeues.get(jobId) === current) paidImageWaitRequeues.delete(jobId)
+  }
+}
+
+/** Deterministic clock/timer seam for restart and lifecycle tests. */
+export function _setPaidImageWaitRuntimeForTesting(
+  overrides: Partial<PaidImageWaitRuntime>,
+): () => void {
+  const previous = paidImageWaitRuntime
+  paidImageWaitRuntime = { ...defaultPaidImageWaitRuntime, ...overrides }
+  return () => {
+    for (const timer of paidImageWaitTimers.values()) paidImageWaitRuntime.clearTimer(timer)
+    paidImageWaitTimers.clear()
+    paidImageWaitRuntime = previous
+  }
+}
+
+/** Test-only trace seam for proving mutually exclusive restart branch order. */
+export function _observePersistedRunningJobLoadStagesForTesting(
+  observer: (jobId: string, stage: PersistedRunningJobLoadStage) => void,
+): () => void {
+  const previous = persistedRunningJobLoadStageObserver
+  persistedRunningJobLoadStageObserver = observer
+  return () => { persistedRunningJobLoadStageObserver = previous }
+}
+
+function observePersistedRunningJobLoadStage(job: Job, stage: PersistedRunningJobLoadStage): void {
+  persistedRunningJobLoadStageObserver?.(job.job_id, stage)
+}
+
+/** Test-only stale-timer fixture for independent lifecycle cleanup checks. */
+export function _seedPaidImageWaitTimerForTesting(jobId: string, timer: PaidImageWaitTimer): () => void {
+  const previous = paidImageWaitTimers.get(jobId)
+  paidImageWaitTimers.set(jobId, timer)
+  return () => {
+    if (paidImageWaitTimers.get(jobId) === timer) paidImageWaitTimers.delete(jobId)
+    if (previous !== undefined) paidImageWaitTimers.set(jobId, previous)
+  }
+}
+
+function clearPaidImageWaitTimer(jobId: string): void {
+  if (!paidImageWaitTimers.has(jobId)) return
+  const timer = paidImageWaitTimers.get(jobId)
+  paidImageWaitRuntime.clearTimer(timer)
+  paidImageWaitTimers.delete(jobId)
+}
+
+function clearAllPaidImageWaitTimers(): void {
+  for (const jobId of [...paidImageWaitTimers.keys()]) clearPaidImageWaitTimer(jobId)
+}
+
+onAppSettingWritten(key => {
+  if (key !== 'paid_image_replacement') return
+  const reconcile = () => reconcilePaidImageReplacementSetting()
+  paidImageSettingReconciliation = paidImageSettingReconciliation.then(reconcile, reconcile)
+})
+
+/** Deterministic test barrier for the asynchronous app-setting listener. */
+export async function _awaitPaidImageSettingReconciliationForTesting(): Promise<void> {
+  await paidImageSettingReconciliation
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value)
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+/**
+ * Pure, jobs.json-only half of the durable paid-wait contract. Manifest and
+ * artifact checks deliberately stay async below: this fixed predicate must be
+ * usable by timer callbacks without turning a filesystem read into hidden IO.
+ */
+export function getValidPaidImageWait(job: Job): { attempt: PaidImageReplacementAttempt; dueAtMs: number } | null {
+  if (
+    job.status !== 'running' || job.finished_at !== null || !PAID_IMAGE_WAIT_TYPES.has(job.type)
+    || job.pause_requested === true || hasCancellationContext(job) || Boolean(job.force_abandoned)
+  ) return null
+  const policy = job.paid_image_replacement
+  if (
+    policy?.enabled !== true || policy.wait_minutes !== 30 || policy.max_replacements_per_asset !== 1
+    || !Number.isSafeInteger(policy.additional_credit_ceiling) || (policy.additional_credit_ceiling || 0) <= 0
+    || !isNonEmptyString(policy.snapshotted_at) || !Number.isFinite(Date.parse(policy.snapshotted_at))
+  ) return null
+  const attempts = job.paid_image_replacement_attempts || []
+  const waiting = attempts.filter(attempt => attempt.state === 'waiting')
+  if (waiting.length !== 1) return null
+  const attempt = waiting[0]!
+  if (attempts.filter(candidate => candidate.asset_key === attempt.asset_key).length !== 1) return null
+  if (
+    !isNonEmptyString(attempt.asset_key) || !isNonEmptyString(attempt.manifest_dir)
+    || !isNonEmptyString(attempt.manifest_key) || !isNonEmptyString(attempt.output_path)
+    || !isNonEmptyString(attempt.original_task_id) || !isNonEmptyString(attempt.original_idempotency_key)
+    || !isSha256(attempt.input_hash) || !isSha256(attempt.reference_identity_hash)
+    || !FLEET_BUSY_FAILURE_CODES.has(attempt.failure_code) || attempt.replacement_scope !== undefined
+    || attempt.replacement_task_id !== undefined || attempt.replacement_committed_at !== undefined
+    || attempt.quoted_credits !== undefined || attempt.price_version !== undefined
+    || attempt.actual_settled_credits !== undefined || attempt.reason !== undefined
+  ) return null
+  const selector = attempt.output_selector
+  if (
+    !selector || !isNonEmptyString(selector.resolution) || !isNonEmptyString(selector.aspect_ratio)
+    || !Number.isSafeInteger(selector.width) || selector.width <= 0 || !Number.isSafeInteger(selector.height) || selector.height <= 0
+    || (selector.reference_mode !== 'normal' && selector.reference_mode !== 'reference-guided')
+    || !Array.isArray(attempt.reference_inputs)
+    || !attempt.reference_inputs.every(reference => (
+      isNonEmptyString(reference.role) && isNonEmptyString(reference.path) && isSha256(reference.sha256)
+    ))
+  ) return null
+  if (![attempt.reserved_credits, attempt.settled_credits, attempt.released_credits].every(value => (
+    typeof value === 'number' && Number.isFinite(value) && value >= 0
+  )) || attempt.reserved_credits !== attempt.settled_credits + attempt.released_credits || attempt.settled_credits <= 0) return null
+  const observedAtMs = Date.parse(attempt.terminal_observed_at)
+  const dueAtMs = Date.parse(attempt.eligible_at)
+  if (!Number.isFinite(observedAtMs) || !Number.isFinite(dueAtMs) || dueAtMs !== observedAtMs + PAID_IMAGE_WAIT_MS) return null
+  const checkpoint = (job.params as any)?.genstudio_recovery?.assets?.[attempt.asset_key]
+  if (
+    !checkpoint || checkpoint.operation !== 'image' || checkpoint.state !== 'failed'
+    || checkpoint.job_id !== attempt.original_task_id || checkpoint.idempotency_key !== attempt.original_idempotency_key
+    || checkpoint.output_path !== attempt.output_path
+  ) return null
+  return { attempt, dueAtMs }
+}
+
+async function hasBoundPaidImageWaitManifest(job: Job, attempt: PaidImageReplacementAttempt): Promise<boolean> {
+  try {
+    if (await isDecodableImage(attempt.output_path)) return false
+    const entry = (await readManifest(attempt.manifest_dir)).tasks[attempt.manifest_key]
+    return Boolean(entry
+      && entry.task_id === attempt.original_task_id
+      && entry.idempotency_key === attempt.original_idempotency_key
+      && entry.operation === 'image' && entry.last_state === 'failed'
+      && entry.input_hash === attempt.input_hash
+      && entry.original_output_path === attempt.output_path
+      && sameJson(entry.original_output_selector, attempt.output_selector)
+      && sameJson(entry.original_reference_inputs, attempt.reference_inputs)
+      && entry.original_reference_identity_hash === attempt.reference_identity_hash
+      && entry.replacement_of_task_id === undefined
+      && entry.replacement_scope === undefined
+      && entry.replacement_quoted_credits === undefined
+      && entry.replacement_price_version === undefined
+      && entry.replacement_committed_at === undefined)
+  } catch {
+    return false
+  }
+}
+
+function pendingContains(type: JobType, jobId: string): boolean {
+  return queues[type].pending.some(job => job.job_id === jobId)
+}
+
+function hasPaidImageWaitRuntimePermission(job: Job): boolean {
+  return Boolean(queues[job.type]?.executor)
+    && !pauseRequested.has(job.job_id)
+    && !cancelled.has(job.job_id)
+}
+
+async function requeuePaidImageWaitIfDue(job: Job): Promise<boolean> {
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => requeuePaidImageWaitIfDueNow(job)))
+}
+
+async function requeuePaidImageWaitIfDueNow(job: Job): Promise<boolean> {
+  const authoritative = await loadAuthoritativeJob(job.project_slug, job.job_id).catch(() => null)
+  if (!authoritative) return false
+  const valid = getValidPaidImageWait(authoritative)
+  if (!valid || !hasPaidImageWaitRuntimePermission(authoritative) || !await hasBoundPaidImageWaitManifest(authoritative, valid.attempt)) {
+    clearPaidImageWaitTimer(job.job_id)
+    return false
+  }
+  if (paidImageWaitRuntime.nowMs() < valid.dueAtMs) return false
+  const setting = await getPaidImageReplacementSetting().catch(() => null)
+  if (!setting?.enabled) {
+    clearPaidImageWaitTimer(job.job_id)
+    return false
+  }
+  clearPaidImageWaitTimer(job.job_id)
+  if (pendingContains(authoritative.type, authoritative.job_id)) return true
+  const next = structuredClone(authoritative)
+  next.status = 'queued'
+  next.finished_at = null
+  next.error = null
+  try {
+    await paidImageWaitRuntime.persistWait(next)
+  } catch {
+    return false
+  }
+  Object.assign(job, next)
+  jobs.set(next.job_id, job)
+  queues[next.type].pending.push(job)
+  paidImageWaitRuntime.emitWait(job)
+  if (IMAGE_EPISODE_TYPES.has(next.type)) pumpImageEpisodeGroup(imageEpisodeConcurrency)
+  else pump(next.type)
+  return true
+}
+
+async function schedulePaidImageWait(job: Job): Promise<boolean> {
+  return withPaidImageWaitSettingGate(async () => {
+    const setting = await getPaidImageReplacementSetting().catch(() => null)
+    const valid = getValidPaidImageWait(job)
+    if (!setting?.enabled || !valid || !hasPaidImageWaitRuntimePermission(job) || !await hasBoundPaidImageWaitManifest(job, valid.attempt)) {
+      clearPaidImageWaitTimer(job.job_id)
+      return false
+    }
+    if (paidImageWaitRuntime.nowMs() >= valid.dueAtMs) return withPaidImageWaitJobMutex(job.job_id, () => requeuePaidImageWaitIfDueNow(job))
+    clearPaidImageWaitTimer(job.job_id)
+    const timer = paidImageWaitRuntime.setTimer(() => {
+      paidImageWaitTimers.delete(job.job_id)
+      const current = jobs.get(job.job_id)
+      if (current) void requeuePaidImageWaitIfDue(current)
+    }, valid.dueAtMs - paidImageWaitRuntime.nowMs())
+    paidImageWaitTimers.set(job.job_id, timer)
+    return true
+  })
+}
+
+async function failPaidImageWaitResult(job: Job): Promise<void> {
+  clearPaidImageWaitTimer(job.job_id)
+  job.status = 'error'
+  job.finished_at = new Date().toISOString()
+  job.local_execution_complete = false
+  job.error = 'Paid image replacement wait was revoked or could not be durably scheduled. No automatic retry was attempted.'
+  job.output_lines.push(job.error)
+  try { await paidImageWaitRuntime.persistWait(job) } catch { /* the in-memory terminal state still blocks retry */ }
+  try { paidImageWaitRuntime.emitWait(job) } catch { /* a subscriber cannot re-enter retry */ }
+}
+
+async function repairAndRequeuePaidImageCommit(job: Job): Promise<boolean> {
+  const attempts = job.paid_image_replacement_attempts || []
+  const attempt = attempts.find(candidate => candidate.state === 'committed' || candidate.state === 'submitted')
+  if (!attempt || job.status !== 'running' || !PAID_IMAGE_WAIT_TYPES.has(job.type) || !queues[job.type]?.executor
+    || job.pause_requested === true || pauseRequested.has(job.job_id) || cancelled.has(job.job_id)
+    || hasCancellationContext(job) || Boolean(job.force_abandoned)
+    || attempts.filter(candidate => candidate.asset_key === attempt.asset_key).length !== 1
+    || !isNonEmptyString(attempt.manifest_dir) || !isNonEmptyString(attempt.manifest_key)
+    || !isNonEmptyString(attempt.output_path) || !isNonEmptyString(attempt.replacement_scope)
+    || !isNonEmptyString(attempt.original_task_id) || !isNonEmptyString(attempt.original_idempotency_key)
+    || !isSha256(attempt.input_hash) || !isSha256(attempt.reference_identity_hash)
+    || typeof attempt.quoted_credits !== 'number' || !Number.isFinite(attempt.quoted_credits) || attempt.quoted_credits < 0
+    || !isNonEmptyString(attempt.price_version) || !isNonEmptyString(attempt.replacement_committed_at)
+    || !Number.isFinite(Date.parse(attempt.replacement_committed_at))
+    || (attempt.state === 'submitted' && !isNonEmptyString(attempt.replacement_task_id))
+  ) return false
+  if (attempt.state === 'submitted') {
+    const replacementEvidence = (job.genstudio_jobs || []).filter(candidate => (
+      candidate.operation === 'image.generation' && candidate.id !== attempt.original_task_id
+    ))
+    if (replacementEvidence.length && !replacementEvidence.some(candidate => candidate.id === attempt.replacement_task_id)) return false
+  }
+  const expectedRoot = await resolvePaidImageRepairRoot(job).catch(() => null)
+  if (!expectedRoot) return false
+  const expectedOutput = path.resolve(expectedRoot, attempt.manifest_key)
+  if (
+    path.basename(attempt.manifest_key) !== attempt.manifest_key
+    || path.resolve(attempt.manifest_dir) !== path.dirname(expectedOutput)
+    || path.resolve(attempt.output_path) !== expectedOutput
+  ) return false
+  try {
+    const entry = (await readManifest(attempt.manifest_dir)).tasks[attempt.manifest_key]
+    if (!entry || entry.task_id !== attempt.original_task_id || entry.idempotency_key !== attempt.original_idempotency_key
+      || entry.operation !== 'image'
+      || entry.input_hash !== attempt.input_hash || entry.original_output_path !== attempt.output_path
+      || !sameJson(entry.original_output_selector, attempt.output_selector)
+      || !sameJson(entry.original_reference_inputs, attempt.reference_inputs)
+      || entry.original_reference_identity_hash !== attempt.reference_identity_hash) return false
+    const expected = {
+      replacement_of_task_id: attempt.original_task_id,
+      replacement_scope: attempt.replacement_scope,
+      replacement_quoted_credits: attempt.quoted_credits,
+      replacement_price_version: attempt.price_version,
+      replacement_committed_at: attempt.replacement_committed_at,
+    }
+    for (const [key, value] of Object.entries(expected)) {
+      if (value !== undefined && (entry as any)[key] !== undefined && (entry as any)[key] !== value) return false
+    }
+    if (Object.entries(expected).some(([key, value]) => value !== undefined && (entry as any)[key] === undefined)) {
+      await recordPaidImageReplacementStrict(attempt.manifest_dir, attempt.manifest_key, { ...entry, ...expected })
+    }
+    const reread = (await readManifest(attempt.manifest_dir)).tasks[attempt.manifest_key]
+    if (!reread || !Object.entries(expected).every(([key, value]) => value === undefined || (reread as any)[key] === value)) return false
+  } catch {
+    return false
+  }
+  const next = structuredClone(job)
+  next.status = 'queued'
+  next.finished_at = null
+  next.error = null
+  try { await paidImageWaitRuntime.persistWait(next) } catch { return false }
+  Object.assign(job, next)
+  jobs.set(job.job_id, job)
+  if (!pendingContains(job.type, job.job_id)) queues[job.type].pending.push(job)
+  return true
+}
+
+async function failInvalidPaidImageCommitRecovery(job: Job): Promise<void> {
+  job.status = 'error'
+  job.error = 'Paid image replacement recovery evidence was invalid after restart; no automatic retry was attempted.'
+  job.finished_at = new Date().toISOString()
+  job.local_execution_complete = false
+  job.output_lines = Array.isArray(job.output_lines) ? job.output_lines : []
+  job.output_lines.push(job.error)
+  jobs.set(job.job_id, job)
+  try { await paidImageWaitRuntime.persistWait(job) } catch {}
+}
+
+/** Resume only commitments explicitly held by an Off restart scan, in scan order. */
+async function reconcilePaidImageReplacementSetting(): Promise<void> {
+  await withPaidImageWaitSettingGate(async () => {
+    const setting = await getPaidImageReplacementSetting().catch(() => null)
+    if (!setting?.enabled) {
+      clearAllPaidImageWaitTimers()
+      return
+    }
+    const resumedTypes = new Set<JobType>()
+    for (const jobId of [...paidImageCommitHolds]) {
+      const job = jobs.get(jobId)
+      if (!job || !hasPaidImageCommitAttempt(job) || job.status !== 'running') {
+        paidImageCommitHolds.delete(jobId)
+        continue
+      }
+      if (await repairAndRequeuePaidImageCommit(job)) {
+        paidImageCommitHolds.delete(jobId)
+        resumedTypes.add(job.type)
+        continue
+      }
+      paidImageCommitHolds.delete(jobId)
+      await failInvalidPaidImageCommitRecovery(job)
+    }
+    if ([...resumedTypes].some(type => IMAGE_EPISODE_TYPES.has(type))) {
+      pumpImageEpisodeGroup(imageEpisodeConcurrency)
+    }
+    for (const type of resumedTypes) {
+      if (!IMAGE_EPISODE_TYPES.has(type)) pump(type)
+    }
+  })
+}
+
+/** Resolve the canonical existing surface; arbitrary persisted sidecar paths
+ * never authorize repair. This is deliberately recovery-only and performs no
+ * provider or generator work. */
+async function resolvePaidImageRepairRoot(job: Job): Promise<string | null> {
+  if (job.type === 'image_pool_generate') {
+    const poolId = typeof job.params?.pool_id === 'string' ? job.params.pool_id : ''
+    if (!poolId) return null
+    const pools = await import('./broll-pool-manager.js')
+    const pool = await pools.getPool(poolId)
+    return pool && pools.poolMedia(pool) === 'image' && typeof pool.folder_path === 'string'
+      ? path.resolve(pool.folder_path) : null
+  }
+  const { resolveEpisodePathsByCode } = await import('./utils.js')
+  const episode = String(job.params?.episode_id || job.episode_id || '').trim()
+  if (!episode) return null
+  const paths = await resolveEpisodePathsByCode(job.project_slug, episode)
+  if (job.type === 'thumb_images') return path.resolve(paths.thumb_dir)
+  if (job.type !== 'continuity_render') return null
+  const { resolveContinuityRenderOutputDir } = await import('../generators/continuity-render.js')
+  const canonical = path.resolve(await resolveContinuityRenderOutputDir(job.project_slug, episode, paths.episode_dir))
+  if (typeof job.output_dir === 'string' && path.resolve(job.output_dir) !== canonical) return null
+  return canonical
+}
+
+function hasPaidImageCommitAttempt(job: Job): boolean {
+  return (job.paid_image_replacement_attempts || []).some(attempt => (
+    attempt.state === 'committed' || attempt.state === 'submitted'
+  ))
+}
+
+function hasUnsubmittedPaidImageCommitAttempt(job: Job): boolean {
+  return (job.paid_image_replacement_attempts || []).some(attempt => attempt.state === 'committed')
+}
+
+async function hasManifestOnlyPaidImageCommitment(attempt: PaidImageReplacementAttempt): Promise<boolean> {
+  try {
+    const entry = (await readManifest(attempt.manifest_dir)).tasks[attempt.manifest_key]
+    return Boolean(entry && [
+      entry.replacement_of_task_id,
+      entry.replacement_scope,
+      entry.replacement_quoted_credits,
+      entry.replacement_price_version,
+      entry.replacement_committed_at,
+    ].some(value => value !== undefined))
+  } catch {
+    return false
+  }
 }
 
 // ── Lazy load persisted jobs on first access ────────────────────────────────
@@ -1470,6 +2214,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             mutated = true
             }
           } else if (j.status === 'running') {
+            observePersistedRunningJobLoadStage(j, 'pause-requested')
             if (j.pause_requested === true) {
               j.status = 'paused'
               j.local_execution_complete = true
@@ -1481,6 +2226,40 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               try { await persistJob(j) } catch {}
               continue
             }
+            // A paid wait is deliberately a running job with a terminally
+            // failed checkpoint. It must be classified before the ordinary
+            // image recovery branch below, which otherwise consumes that
+            // checkpoint and before the generic restart terminalization.
+            observePersistedRunningJobLoadStage(j, 'paid-image-wait')
+            const paidWait = getValidPaidImageWait(j)
+            if (paidWait && await hasBoundPaidImageWaitManifest(j, paidWait.attempt)) {
+              jobs.set(j.job_id, j)
+              const handled = await schedulePaidImageWait(j)
+              if (handled) {
+                if (j.status === 'queued') resumedTypes.add(j.type as JobType)
+                continue
+              }
+            }
+            // jobs.json is authoritative for a committed paid replacement.
+            // Repair only an absent manifest mirror, never the reverse.
+            if (hasUnsubmittedPaidImageCommitAttempt(j)) {
+              const setting = await getPaidImageReplacementSetting().catch(() => null)
+              if (!setting?.enabled) {
+                jobs.set(j.job_id, j)
+                paidImageCommitHolds.add(j.job_id)
+                continue
+              }
+            }
+            if (await repairAndRequeuePaidImageCommit(j)) {
+              resumedTypes.add(j.type as JobType)
+              continue
+            }
+            if (hasPaidImageCommitAttempt(j)
+              || (paidWait && await hasManifestOnlyPaidImageCommitment(paidWait.attempt))) {
+              await failInvalidPaidImageCommitRecovery(j)
+              continue
+            }
+            observePersistedRunningJobLoadStage(j, 'ordinary-recovery')
             const genStudioRecovery = j.params?.genstudio_recovery
             const genStudioAssets = genStudioRecovery?.version === 1
               && genStudioRecovery?.route === 'genstudio'
@@ -1531,18 +2310,22 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
                 : '↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
-            } else if (requiresCancellationReconciliation(j)) {
-              // The provider request already has a durable identity. Never convert it to an
-              // interrupted error or requeue it into a generation lane.
-              j.local_execution_complete = true
-              j.finished_at = null
-              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push('↻ Story Studio restarted — reconciling the existing GenStudio request before allowing any retry.')
-              reconciliationJobs.push(j.job_id)
             } else {
-              j.status = 'error'
-              j.error = 'Interrupted by app restart'
-              j.finished_at = j.finished_at || new Date().toISOString()
+              observePersistedRunningJobLoadStage(j, 'cancellation-reconciliation')
+              if (requiresCancellationReconciliation(j)) {
+                // The provider request already has a durable identity. Never convert it to an
+                // interrupted error or requeue it into a generation lane.
+                j.local_execution_complete = true
+                j.finished_at = null
+                j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+                j.output_lines.push('↻ Story Studio restarted — reconciling the existing GenStudio request before allowing any retry.')
+                reconciliationJobs.push(j.job_id)
+              } else {
+                observePersistedRunningJobLoadStage(j, 'interrupted-terminalization')
+                j.status = 'error'
+                j.error = 'Interrupted by app restart'
+                j.finished_at = j.finished_at || new Date().toISOString()
+              }
             }
             mutated = true
           } else if (j.status === 'paused') {
@@ -1941,9 +2724,26 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           // child processes spawned deep in the call tree register against this
           // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
           // assembly would keep running until it finished or hit an error.
-          await jobContext.run({ jobId: job.job_id }, () => (
+          const executorResult = await jobContext.run({ jobId: job.job_id }, () => (
             runWithJobContentPackProvenance(job.content_pack_provenance, () => q.executor!(job))
           ))
+          if (executorResult?.kind === 'paid-image-wait') {
+            job.status = 'running'
+            job.finished_at = null
+            job.local_execution_complete = false
+            jobs.set(job.job_id, job)
+            // A malformed/revoked wait is fail-closed but is not an executor
+            // failure: never enter local retry, completion, or chaining after
+            // a generator has declared the durable paid-wait boundary.
+            try {
+              await paidImageWaitRuntime.persistWait(job)
+              paidImageWaitRuntime.emitWait(job)
+              if (!await schedulePaidImageWait(job)) await failPaidImageWaitResult(job)
+            } catch {
+              await failPaidImageWaitResult(job)
+            }
+            return
+          }
           job.local_execution_complete = true
           throwIfPauseRequested(job.job_id)
           assertJobDidNotDeclareIncomplete(job)
@@ -2038,6 +2838,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     jobs.set(job.job_id, job)
     await persistJob(job)
     emitUpdate(job)
+    if (TERMINAL_JOB_STATUSES.has(job.status)) clearPaidImageWaitTimer(job.job_id)
     if (job.status === 'running' && hasUnsettledProviderWork(job)) scheduleCancellationReconciliation(job.job_id)
     // v1.2.6 — a job can finish while one recorded provider task was still
     // mid-flight. Ask GenStudio now rather than freezing that snapshot into a
@@ -2309,7 +3110,7 @@ function sameContinuityTailProof(left: ContinuityTailProof, right: ContinuityTai
     && left.provider_task_ids.every((id, index) => id === right.provider_task_ids[index])
 }
 
-function hasVerifiedAdaptiveCapacity(snapshot: GenStudioAdmissionSnapshot | null | undefined): boolean {
+export function hasVerifiedGenStudioAdmission(snapshot: GenStudioAdmissionSnapshot | null | undefined): boolean {
   return snapshot?.capacity_verified === true
     && snapshot.limitSource === 'account-overview'
     && Number.isSafeInteger(snapshot.available_paid_slots)
@@ -2317,6 +3118,26 @@ function hasVerifiedAdaptiveCapacity(snapshot: GenStudioAdmissionSnapshot | null
     && snapshot.queue_near_capacity === false
     && snapshot.submissions_blocked === false
     && snapshot.retry_after_ms === 0
+}
+
+const PAID_ATTEMPT_STATE_ORDER: Record<PaidImageReplacementAttempt['state'], number> = {
+  waiting: 1, committed: 2, submitted: 3, succeeded: 4, failed: 4, blocked: 4,
+}
+
+function mergePaidImageReplacementAttempts(
+  persisted: PaidImageReplacementAttempt[] | undefined,
+  incoming: PaidImageReplacementAttempt[] | undefined,
+): PaidImageReplacementAttempt[] | undefined {
+  if (!persisted?.length) return incoming
+  if (!incoming?.length) return persisted
+  const merged = new Map(persisted.map(attempt => [attempt.asset_key, attempt]))
+  for (const candidate of incoming) {
+    const previous = merged.get(candidate.asset_key)
+    if (!previous || PAID_ATTEMPT_STATE_ORDER[candidate.state] > PAID_ATTEMPT_STATE_ORDER[previous.state]) {
+      merged.set(candidate.asset_key, candidate)
+    }
+  }
+  return [...merged.values()]
 }
 
 async function findContinuityTailProof(): Promise<ContinuityTailProof | null> {
@@ -2353,7 +3174,7 @@ async function attemptAdaptiveImageTailAdmission(): Promise<void> {
     !hasExactAdaptiveLocalState(base)
     || !activeImageEpisodeJobIds.has(proof.job_id)
     || !sameContinuityTailProof(proof, freshProof)
-    || !hasVerifiedAdaptiveCapacity(snapshot)
+    || !hasVerifiedGenStudioAdmission(snapshot)
   ) return
 
   pumpImageEpisodeGroup(base + 1)
@@ -2671,8 +3492,17 @@ export async function resumePausedJobs(scope: ResumePausedJobsScope): Promise<Re
 /** Pause one job without cancelling provider work. Queued work is removed
  * before submit; running work observes the request at its next safe boundary. */
 export async function pauseJob(jobId: string, origin: 'manual' | 'queue' | 'stall' = 'manual'): Promise<Job | null> {
+  // Keep the long-standing synchronous state transition for ordinary jobs.
+  // Paid waits alone need to serialize with their due callback.
+  const current = jobs.get(jobId)
+  if (!current || !getValidPaidImageWait(current)) return pauseJobUnlocked(jobId, origin)
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(jobId, () => pauseJobUnlocked(jobId, origin)))
+}
+
+async function pauseJobUnlocked(jobId: string, origin: 'manual' | 'queue' | 'stall' = 'manual'): Promise<Job | null> {
   const job = jobs.get(jobId)
   if (!job) return null
+  clearPaidImageWaitTimer(jobId)
   if (job.status === 'queued') {
     const q = queues[job.type]
     q.pending = q.pending.filter(candidate => candidate.job_id !== jobId)
@@ -2951,8 +3781,20 @@ export interface EnqueueOptions {
   dedupeParams?: (params: any) => boolean
 }
 
+/** Internal insertion-only options. Public enqueue callers cannot set policy. */
+interface EnqueuePreparedOptions extends EnqueueOptions {
+  paid_image_replacement?: PaidImageReplacementPolicySnapshot
+}
+
+function withoutPaidImageReplacementParam(params: EnqueueOptions['params']): EnqueueOptions['params'] {
+  if (!params || !Object.prototype.hasOwnProperty.call(params, 'paid_image_replacement')) return params
+  const sanitized = { ...params }
+  delete sanitized.paid_image_replacement
+  return sanitized
+}
+
 function enqueuePrepared(
-  opts: EnqueueOptions,
+  opts: EnqueuePreparedOptions,
   contentPackProvenance: Job['content_pack_provenance'] = [],
 ): Job {
   if (projectRemovalInProgress.has(opts.project_slug)) {
@@ -2993,6 +3835,7 @@ function enqueuePrepared(
     output_lines: [],
     ...(contentPackProvenance.length ? { content_pack_provenance: contentPackProvenance } : {}),
     params: opts.params || {},
+    ...(opts.paid_image_replacement ? { paid_image_replacement: opts.paid_image_replacement } : {}),
     ...(opts.genstudio_chat_retry_scope ? { genstudio_chat_retry_scope: opts.genstudio_chat_retry_scope } : {}),
     ...(opts.genstudio_chat_recovery ? { genstudio_chat_recovery: true as const } : {}),
     ...(opts.genstudio_chat_recovery_key ? { genstudio_chat_recovery_key: opts.genstudio_chat_recovery_key } : {}),
@@ -3045,7 +3888,26 @@ export async function enqueue(
     opts.type,
     contentPackOptions,
   )
-  return enqueuePrepared(opts, provenance)
+  const paid_image_replacement = (
+    opts.type === 'continuity_render'
+    || opts.type === 'image_pool_generate'
+    || opts.type === 'thumb_images'
+  )
+    ? await getPaidImageReplacementSetting().then(setting => ({
+      ...setting,
+      wait_minutes: 30 as const,
+      max_replacements_per_asset: 1 as const,
+      snapshotted_at: new Date().toISOString(),
+    }))
+    : undefined
+  const safeOpts: EnqueueOptions = { ...opts }
+  delete (safeOpts as EnqueueOptions & { paid_image_replacement?: unknown }).paid_image_replacement
+  const { params, ...enqueueOpts } = safeOpts
+  return enqueuePrepared({
+    ...enqueueOpts,
+    ...(params ? { params: withoutPaidImageReplacementParam(params) } : {}),
+    ...(paid_image_replacement ? { paid_image_replacement } : {}),
+  }, provenance)
 }
 
 export async function getJobs(projectSlug: string): Promise<Job[]> {
@@ -3068,6 +3930,12 @@ export async function getJobs(projectSlug: string): Promise<Job[]> {
 }
 
 export function getJob(jobId: string): Job | null {
+  const job = jobs.get(jobId)
+  return job ? safeJob(job) : null
+}
+
+/** Renderer-only single-job snapshot; internal recovery callers use getJob(). */
+export function getPublicJob(jobId: string): RendererJob | null {
   const job = jobs.get(jobId)
   return job ? serializeJob(job) : null
 }
@@ -3361,6 +4229,12 @@ function cancellationControlFor(job: Job): JobControl {
 }
 
 async function cancelQueuedBeforeSubmit(job: Job): Promise<Job> {
+  if (!getValidPaidImageWait(job)) return cancelQueuedBeforeSubmitUnlocked(job)
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => cancelQueuedBeforeSubmitUnlocked(job)))
+}
+
+async function cancelQueuedBeforeSubmitUnlocked(job: Job): Promise<Job> {
+  clearPaidImageWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   pauseRequested.delete(job.job_id)
   if (job.status === 'queued') {
@@ -3378,6 +4252,12 @@ async function cancelQueuedBeforeSubmit(job: Job): Promise<Job> {
 }
 
 async function stopLocalJob(job: Job): Promise<Job> {
+  if (!getValidPaidImageWait(job)) return stopLocalJobUnlocked(job)
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => stopLocalJobUnlocked(job)))
+}
+
+async function stopLocalJobUnlocked(job: Job): Promise<Job> {
+  clearPaidImageWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   job.status = 'cancelled'
   job.finished_at = new Date().toISOString()
@@ -3396,6 +4276,15 @@ async function queueRemoteCancellationTargets(
   job: Job,
   targets: NonNullable<JobControl['targets']>,
 ): Promise<Job> {
+  if (!getValidPaidImageWait(job)) return queueRemoteCancellationTargetsUnlocked(job, targets)
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => queueRemoteCancellationTargetsUnlocked(job, targets)))
+}
+
+async function queueRemoteCancellationTargetsUnlocked(
+  job: Job,
+  targets: NonNullable<JobControl['targets']>,
+): Promise<Job> {
+  clearPaidImageWaitTimer(job.job_id)
   const now = new Date().toISOString()
   const records = { ...(job.remote_cancellations || {}) }
   let added = 0
@@ -3525,6 +4414,10 @@ export async function forceAbandonJob(projectSlug: string, jobId: string): Promi
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
   }
   if (job.force_abandoned) return serializeJob(job)
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => forceAbandonJobUnlocked(job)))
+}
+
+async function forceAbandonJobUnlocked(job: Job): Promise<Job> {
 
   const unsettled = [
     ...(job.genstudio_jobs || [])
@@ -3535,6 +4428,7 @@ export async function forceAbandonJob(projectSlug: string, jobId: string): Promi
       .map(record => `${record.operation} ${record.provider_job_id}`),
   ]
 
+  clearPaidImageWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   pauseRequested.delete(job.job_id)
   const queue = queues[job.type]
@@ -3574,6 +4468,7 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   // dead end that abandoning exists to escape.
   if (!TERMINAL_JOB_STATUSES.has(job.status)) return false
   if (!job.force_abandoned && hasUnsettledProviderEvidence(job)) return false
+  clearPaidImageWaitTimer(jobId)
   jobs.delete(jobId)
   if (job.type === 'continuity_render') {
     void deactivateSceneRenderStatus(job.project_slug, job.episode_id, job.job_id).catch(() => {})
@@ -3590,6 +4485,7 @@ export async function clearFinished(projectSlug: string): Promise<number> {
   const clearedSceneRenderJobs: Array<Pick<Job, 'episode_id' | 'job_id'>> = []
   for (const [id, job] of jobs.entries()) {
     if (job.project_slug === projectSlug && ['done', 'error', 'cancelled'].includes(job.status) && (job.force_abandoned || !hasUnsettledProviderEvidence(job))) {
+      clearPaidImageWaitTimer(id)
       jobs.delete(id)
       clearedIds.push(id)
       if (job.type === 'continuity_render') clearedSceneRenderJobs.push(job)

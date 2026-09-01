@@ -563,6 +563,9 @@
         <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
           {{ genStudioStatusDetail(job) }}
         </p>
+        <p v-if="paidImageReplacementAttemptText(job)" class="paid-image-replacement-attempt" role="status">
+          {{ paidImageReplacementAttemptText(job) }}
+        </p>
 
         <div v-if="job.status === 'running'" class="job-live-output">
           <div class="progress-row">
@@ -856,6 +859,9 @@
           <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
             {{ genStudioStatusDetail(job) }}
           </p>
+          <p v-if="paidImageReplacementAttemptText(job)" class="paid-image-replacement-attempt" role="status">
+            {{ paidImageReplacementAttemptText(job) }}
+          </p>
 
           <ul v-if="jobExceptions(job).length" class="job-exceptions">
             <li v-for="line in jobExceptions(job)" :key="line.key">{{ line.text }}</li>
@@ -986,6 +992,7 @@ import {
   primaryControl,
   secondaryControls,
 } from '~/utils/job-presentation'
+import { formatCredits } from '~/utils/genstudio-credit-cost'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -1177,6 +1184,24 @@ function genStudioStatusDetail(job: RJob): string {
   }
   if (remote.stall_recovery_at) return `${detail} GenStudio will step in ${formatTime(remote.stall_recovery_at)}.`
   return detail
+}
+
+function paidImageReplacementAttemptText(job: RJob): string {
+  const attempt = job.paid_image_replacement_attempt
+  if (!attempt) return ''
+  const quote = attempt.quoted_credits === undefined ? ''
+    : ` ${formatCredits(attempt.quoted_credits)} at published price version ${attempt.price_version || 'not stated'}.`
+  const settled = attempt.actual_settled_credits === undefined ? ''
+    : ` Actual settled credits: ${formatCredits(attempt.actual_settled_credits)}.`
+  if (attempt.state === 'waiting') return `Paid image replacement is waiting until ${formatTime(attempt.eligible_at)}.`
+  if (attempt.state === 'committed') return `Paid image replacement was committed${attempt.replacement_committed_at ? ` ${formatTime(attempt.replacement_committed_at)}` : ''}.${quote}`
+  if (attempt.state === 'blocked') {
+    return attempt.reason === 'automatic_replacement_unavailable'
+      ? 'Paid image replacement was blocked: Automatic replacement was not available.'
+      : 'Paid image replacement was blocked before a replacement was submitted.'
+  }
+  if (attempt.state === 'submitted') return `Paid image replacement was submitted.${quote}${settled}`
+  return `Paid image replacement ${attempt.state}.${settled}`
 }
 
 function genStudioNumeric(value: unknown): number {
@@ -2747,6 +2772,7 @@ async function clearFinished() {
 }
 .job-more-actions-body .btn { margin-right: 4px; }
 .technical-summary { margin: 0 0 8px; color: var(--text-muted); font-size: var(--font-xs); }
+.paid-image-replacement-attempt { margin: 8px 0 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; overflow-wrap: anywhere; }
 .genstudio-capacity-summary {
   display: flex;
   flex-wrap: wrap;

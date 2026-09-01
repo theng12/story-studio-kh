@@ -1117,6 +1117,7 @@ interface GenStudioImageJob {
   /** `ImageJobResponse` publishes a released reservation when it has one. */
   credit_cost?: number
   remaining_credits?: number
+  settled_credits?: number | null
   released_credits?: number | null
   cancellable?: boolean | null
   cancelled?: boolean | null
@@ -1149,8 +1150,17 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   requestIdentity?: string
   /** Reuse a key checkpointed before the charged image POST. */
   idempotencyKey?: string
+  /** Revalidate owner-controlled authority at the final charged POST boundary. */
+  beforeSubmit?: () => void | Promise<void>
   onState?: (state: GenStudioJob['state']) => void
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
+}
+
+export interface GenStudioImageResult {
+  url: string
+  jobId: string
+  modelId: string
+  settledCredits?: number
 }
 
 interface GenStudioTranscriptionJob {
@@ -3590,6 +3600,10 @@ export class GenStudioCatalogUnavailableError extends Error {
 
 const catalogCache = new Map<string, CatalogCacheEntry<unknown>>()
 const catalogRefreshes = new Map<string, Promise<unknown>>()
+// A forced paid-work read must not share or be overwritten by an older normal
+// refresh for the same account-scoped key. The value is only a write guard;
+// cache storage remains the existing maps above.
+const catalogGenerations = new Map<string, number>()
 
 function catalogCacheKey(kind: GenStudioCatalogKind | 'account-overview', baseUrl: string, apiKey: string): string {
   return `${kind}:${createHash('sha256').update(`${baseUrl}\0${apiKey}`).digest('hex')}`
@@ -3602,6 +3616,7 @@ function catalogCacheKey(kind: GenStudioCatalogKind | 'account-overview', baseUr
  */
 export function clearGenStudioCatalogCache(): void {
   catalogCache.clear()
+  catalogGenerations.clear()
 }
 
 /**
@@ -3709,14 +3724,17 @@ async function cachedRemoteSnapshot<T>(
 
   let refresh = catalogRefreshes.get(key) as Promise<T> | undefined
   if (!refresh) {
+    const generation = catalogGenerations.get(key) ?? 0
     refresh = load().then(value => {
       const loadedAt = Date.now()
-      catalogCache.set(key, {
-        value,
-        loadedAt,
-        freshUntil: loadedAt + freshMs,
-        staleUntil: loadedAt + staleMs,
-      })
+      if ((catalogGenerations.get(key) ?? 0) === generation) {
+        catalogCache.set(key, {
+          value,
+          loadedAt,
+          freshUntil: loadedAt + freshMs,
+          staleUntil: loadedAt + staleMs,
+        })
+      }
       return value
     }).finally(() => {
       if (catalogRefreshes.get(key) === refresh) catalogRefreshes.delete(key)
@@ -3725,8 +3743,17 @@ async function cachedRemoteSnapshot<T>(
   }
 
   try {
-    await refresh
-    return { entry: catalogCache.get(key) as CatalogCacheEntry<T>, freshness: 'live', now: Date.now() }
+    const value = await refresh
+    const entry = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
+    if (entry) return { entry, freshness: 'live', now: Date.now() }
+    // A newer force-live request superseded this response. It may satisfy its
+    // original ordinary caller, but it must never resurrect an old cache row.
+    const loadedAt = Date.now()
+    return {
+      entry: { value, loadedAt, freshUntil: loadedAt, staleUntil: loadedAt },
+      freshness: 'live',
+      now: loadedAt,
+    }
   } catch (error) {
     // Never serve account data the key is not (or no longer) entitled to.
     if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) throw error
@@ -3737,6 +3764,29 @@ async function cachedRemoteSnapshot<T>(
     }
     throw unavailable(fallback ? Math.max(0, settledAt - fallback.loadedAt) : null, error)
   }
+}
+
+/**
+ * Read one catalogue live, deliberately superseding an older in-flight read.
+ * Used only where stale price data could authorise paid work.
+ */
+async function forceLiveCatalogSnapshot<T>(
+  kind: GenStudioCatalogKind,
+  key: string,
+  load: () => Promise<T>,
+): Promise<GenStudioCatalogSnapshot<T>> {
+  const generation = (catalogGenerations.get(key) ?? 0) + 1
+  catalogGenerations.set(key, generation)
+  catalogCache.delete(key)
+  catalogRefreshes.delete(key)
+  const snapshot = await cachedCatalogSnapshot(kind, key, load)
+  if ((catalogGenerations.get(key) ?? 0) !== generation) {
+    throw new Error(`GenStudio KH ${CATALOG_LABEL[kind]} catalogue force-live read was superseded by a newer refresh.`)
+  }
+  if (snapshot.freshness !== 'live') {
+    throw new GenStudioCatalogUnavailableError(kind, snapshot.ageMs, new Error('force-live image catalog read was not live'))
+  }
+  return snapshot
 }
 
 async function cachedCatalog<T>(
@@ -6326,13 +6376,8 @@ function publishedCredits(value: unknown): number | undefined {
   return Number.isFinite(value) && (value as number) >= 0 ? value as number : undefined
 }
 
-/** Fetch the account-visible image catalog owned by GenStudio. */
-export async function listImageModelsSnapshot(
-  apiKey: string,
-): Promise<GenStudioCatalogSnapshot<GenStudioImageModel[]>> {
-  const baseUrl = await getGenStudioUrl()
-  const key = catalogCacheKey('image', baseUrl, apiKey)
-  return cachedCatalogSnapshot('image', key, async () => {
+/** Parse one direct image-catalogue response for both ordinary and force-live reads. */
+async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Promise<GenStudioImageModel[]> {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/image/models`, apiKey)
     if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid image model catalog')
     return payload.map((value: any) => ({
@@ -6413,7 +6458,27 @@ export async function listImageModelsSnapshot(
       ? value.operations.filter((item: unknown): item is string => typeof item === 'string' && !!item.trim())
       : undefined,
     })).filter((model: GenStudioImageModel) => model.id && model.display_name)
-  })
+}
+
+/** Fetch the account-visible image catalog owned by GenStudio. */
+export async function listImageModelsSnapshot(
+  apiKey: string,
+): Promise<GenStudioCatalogSnapshot<GenStudioImageModel[]>> {
+  const baseUrl = await getGenStudioUrl()
+  const key = catalogCacheKey('image', baseUrl, apiKey)
+  return cachedCatalogSnapshot('image', key, () => loadImageModelsFromGenStudio(baseUrl, apiKey))
+}
+
+/**
+ * Force a fresh image catalogue response for a paid decision. This never joins
+ * an older ordinary refresh and never accepts a stale fallback.
+ */
+export async function listImageModelsForceLive(
+  apiKey: string,
+): Promise<GenStudioCatalogSnapshot<GenStudioImageModel[]>> {
+  const baseUrl = await getGenStudioUrl()
+  const key = catalogCacheKey('image', baseUrl, apiKey)
+  return forceLiveCatalogSnapshot('image', key, () => loadImageModelsFromGenStudio(baseUrl, apiKey))
 }
 
 export async function listImageModels(apiKey: string): Promise<GenStudioImageModel[]> {
@@ -6558,7 +6623,7 @@ async function recoverImageWithGenStudioAdmitted(
   apiKey: string,
   jobId: string,
   request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void } = {},
-): Promise<{ url: string; jobId: string; modelId: string }> {
+): Promise<GenStudioImageResult> {
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   const initial = await requestJsonWithRetry(
@@ -6585,14 +6650,17 @@ async function recoverImageWithGenStudioAdmitted(
     request.onState?.(initial.state)
   }
   const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
-  return { url, jobId: completed.id, modelId: completed.model_id }
+  return {
+    url, jobId: completed.id, modelId: completed.model_id,
+    ...(isValidSettlement(completed.settled_credits) ? { settledCredits: completed.settled_credits } : {}),
+  }
 }
 
 export async function recoverImageWithGenStudio(
   apiKey: string,
   jobId: string,
   request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void } = {},
-): Promise<{ url: string; jobId: string; modelId: string }> {
+): Promise<GenStudioImageResult> {
   return recoverImageWithGenStudioAdmitted(apiKey, jobId, request)
 }
 
@@ -6600,7 +6668,7 @@ export async function recoverImageWithGenStudio(
 async function generateImageWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioImageRequest,
-): Promise<{ url: string; jobId: string; modelId: string }> {
+): Promise<GenStudioImageResult> {
   const prompt = request.prompt.trim()
   const modelId = request.modelId.trim()
   // Bounds published on `ImageGenerationRequest.prompt` itself. The per-model
@@ -6657,6 +6725,7 @@ async function generateImageWithGenStudioAdmitted(
       ['reference_asset_ids', request.referenceAssetIds?.length ? request.referenceAssetIds : undefined],
     ],
   })
+  await request.beforeSubmit?.()
   const submitted = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/images/generations`,
@@ -6681,7 +6750,10 @@ async function generateImageWithGenStudioAdmitted(
   try {
     const completed = await waitForImageJob(baseUrl, apiKey, submitted, request, deadline)
     const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
-    return { url, jobId: completed.id, modelId: completed.model_id }
+    return {
+      url, jobId: completed.id, modelId: completed.model_id,
+      ...(isValidSettlement(completed.settled_credits) ? { settledCredits: completed.settled_credits } : {}),
+    }
   } catch (error) {
     if (!shouldReconnectAcceptedTask(error, request)) throw error
     await request.onReconnect?.(submitted.id, error instanceof Error ? error.message : String(error))
@@ -6692,7 +6764,7 @@ async function generateImageWithGenStudioAdmitted(
 export async function generateImageWithGenStudio(
   apiKey: string,
   request: GenStudioImageRequest,
-): Promise<{ url: string; jobId: string; modelId: string }> {
+): Promise<GenStudioImageResult> {
   return generateImageWithGenStudioAdmitted(apiKey, request)
 }
 

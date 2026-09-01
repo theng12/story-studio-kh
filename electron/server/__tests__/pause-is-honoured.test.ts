@@ -73,8 +73,11 @@ describe('every place that can start paid work reads the pause signal', () => {
     for (const site of [
       /while \(cursor < items\.length\) \{\s*\n\s*if \(shouldStopStarting\(\) \|\| fatalError\) return/,
       /if \(cursor >= items\.length \|\| shouldStopStarting\(\) \|\| fatalError\) return/,
-      /if \(!settled && \(shouldStopStarting\(\)/,
     ]) assert.match(body, site, `runPool still consults a cancel-only check at ${site}`)
+    assert.match(body, /const ownerStopped = isCancelled\(\) \|\| jq\.isPauseRequested\(job\.job_id\)/,
+      'runPool completion must stop promptly when Cancel or Pause is requested')
+    assert.match(body, /if \(!settled && \(ownerStopped \|\| \(\(paidImageWaitRequested \|\| fatalError \|\| cursor >= items\.length\) && active === 0\)\)\)/,
+      'paid-image wait, fatal failure, and normal completion must drain active workers before return')
   })
 
   test('image chain mode — the serial path — stops on pause too', async () => {

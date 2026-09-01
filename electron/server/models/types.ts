@@ -2459,6 +2459,43 @@ export interface JobItemProgress {
   active: JobItemAttempt[]
 }
 
+/** Machine setting frozen at eligible image enqueue; never accepted in params. */
+export interface PaidImageReplacementPolicySnapshot {
+  enabled: boolean
+  wait_minutes: 30
+  max_replacements_per_asset: 1
+  additional_credit_ceiling: number | null
+  snapshotted_at: string
+}
+
+/** One durable, bounded paid replacement decision for an image asset. */
+export interface PaidImageReplacementAttempt {
+  asset_key: string
+  manifest_dir: string
+  manifest_key: string
+  output_path: string
+  state: 'waiting' | 'committed' | 'submitted' | 'succeeded' | 'failed' | 'blocked'
+  original_task_id: string
+  original_idempotency_key: string
+  input_hash: string
+  output_selector: import('../services/task-manifest.js').PaidImageOutputSelector
+  reference_inputs: import('../services/task-manifest.js').PaidImageReferenceInput[]
+  reference_identity_hash: string
+  failure_code: string
+  reserved_credits: number
+  settled_credits: number
+  released_credits: number
+  terminal_observed_at: string
+  eligible_at: string
+  quoted_credits?: number
+  price_version?: string
+  replacement_scope?: string
+  replacement_committed_at?: string
+  replacement_task_id?: string
+  actual_settled_credits?: number
+  reason?: string
+}
+
 export interface Job {
   job_id: string
   project_slug: string
@@ -2493,6 +2530,10 @@ export interface Job {
     next_retry_at?: string
     exhausted?: boolean
   }
+  /** Server-owned optional paid image recovery authorisation. */
+  paid_image_replacement?: PaidImageReplacementPolicySnapshot
+  /** Jobs.json is authoritative for this bounded paid image replacement state. */
+  paid_image_replacement_attempts?: PaidImageReplacementAttempt[]
   /** Structured executor outcome. `complete: false` is a queue-enforced
    * failure declaration and can never be persisted as a green Done job. */
   result?: Record<string, any>

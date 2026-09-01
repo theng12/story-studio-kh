@@ -19,6 +19,7 @@ import {
   getYoutubeDefaults, setYoutubeDefaults,
   getLastSeenVersion, setLastSeenVersion,
   getGenStudioUrl, setGenStudioUrl, DEFAULT_GENSTUDIO_URL,
+  getPaidImageReplacementSetting, setPaidImageReplacementSetting,
   setAppSetting,
 } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -43,6 +44,22 @@ import {
 
 export const router = Router()
 const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
+
+router.get('/app-settings/paid-image-replacement', async (_req, res) => {
+  try {
+    res.json(await getPaidImageReplacementSetting())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load paid image replacement setting'))
+  }
+})
+
+router.put('/app-settings/paid-image-replacement', async (req, res) => {
+  try {
+    res.json(await setPaidImageReplacementSetting(req.body))
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save paid image replacement setting'))
+  }
+})
 
 /**
  * How much work runs at once — the two queues that can stampede.
