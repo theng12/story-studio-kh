@@ -17,32 +17,58 @@ export function applyFormulaEpisodeProfile(
 ): Niche {
   const profile = resolveFormulaEpisodeProfile(niche, dimensions)
   if (!profile) return niche
+  const introDefaults = profile.introDefaults
+    ? {
+        ...niche.introDefaults,
+        ...profile.introDefaults,
+        beats: (profile.introDefaults.beats ?? niche.introDefaults?.beats)
+          ?.map(beat => typeof beat === 'string' ? beat : { ...beat }),
+      }
+    : niche.introDefaults
+  const parentStructure = niche.scriptStructure
+  const overrideStructure = profile.scriptStructure
+  const scriptStructure = overrideStructure
+    ? {
+        ...parentStructure,
+        ...overrideStructure,
+        chapterCountRange: (overrideStructure.chapterCountRange ?? parentStructure?.chapterCountRange)
+          ?.slice() as [number, number] | undefined,
+        lengthMinutesRange: (overrideStructure.lengthMinutesRange ?? parentStructure?.lengthMinutesRange)
+          ?.slice() as [number, number] | undefined,
+        durationPresets: (overrideStructure.durationPresets ?? parentStructure?.durationPresets)?.slice(),
+        visualPacingProfile: overrideStructure.visualPacingProfile
+          ? {
+              ...parentStructure?.visualPacingProfile,
+              ...overrideStructure.visualPacingProfile,
+              opening: { ...parentStructure?.visualPacingProfile?.opening, ...overrideStructure.visualPacingProfile.opening },
+              settled: { ...parentStructure?.visualPacingProfile?.settled, ...overrideStructure.visualPacingProfile.settled },
+            }
+          : parentStructure?.visualPacingProfile,
+        motionProfile: overrideStructure.motionProfile
+          ? {
+              ...parentStructure?.motionProfile,
+              ...overrideStructure.motionProfile,
+              opening: { ...parentStructure?.motionProfile?.opening, ...overrideStructure.motionProfile.opening },
+              settled: { ...parentStructure?.motionProfile?.settled, ...overrideStructure.motionProfile.settled },
+            }
+          : parentStructure?.motionProfile,
+        pacingArc: (overrideStructure.pacingArc ?? parentStructure?.pacingArc)?.slice(),
+        additionalRules: (overrideStructure.additionalRules ?? parentStructure?.additionalRules)?.slice(),
+      }
+    : parentStructure
+  const recencyAvoidance = profile.recencyAvoidance
+    ? {
+        ...niche.recencyAvoidance,
+        ...profile.recencyAvoidance,
+        extractPatterns: (profile.recencyAvoidance.extractPatterns ?? niche.recencyAvoidance?.extractPatterns ?? []).slice(),
+        scopes: (profile.recencyAvoidance.scopes ?? niche.recencyAvoidance?.scopes)?.slice(),
+      }
+    : niche.recencyAvoidance
   return {
     ...niche,
-    introDefaults: profile.introDefaults
-      ? { ...profile.introDefaults, beats: profile.introDefaults.beats?.map(beat => typeof beat === 'string' ? beat : { ...beat }) }
-      : niche.introDefaults,
-    scriptStructure: profile.scriptStructure
-      ? {
-          ...profile.scriptStructure,
-          chapterCountRange: profile.scriptStructure.chapterCountRange
-            ? [...profile.scriptStructure.chapterCountRange] as [number, number]
-            : undefined,
-          lengthMinutesRange: profile.scriptStructure.lengthMinutesRange
-            ? [...profile.scriptStructure.lengthMinutesRange] as [number, number]
-            : undefined,
-          durationPresets: profile.scriptStructure.durationPresets?.slice(),
-          pacingArc: profile.scriptStructure.pacingArc?.slice(),
-          additionalRules: profile.scriptStructure.additionalRules?.slice(),
-        }
-      : niche.scriptStructure,
-    recencyAvoidance: profile.recencyAvoidance
-      ? {
-          ...profile.recencyAvoidance,
-          extractPatterns: profile.recencyAvoidance.extractPatterns.slice(),
-          scopes: profile.recencyAvoidance.scopes?.slice(),
-        }
-      : niche.recencyAvoidance,
+    introDefaults,
+    scriptStructure,
+    recencyAvoidance,
     defaultNarratorStyleId: profile.narratorStyleId ?? niche.defaultNarratorStyleId,
     ideaSystemPromptRole: profile.ideaSystemPromptRole ?? niche.ideaSystemPromptRole,
     ideaGuidanceText: profile.ideaGuidanceText ?? niche.ideaGuidanceText,

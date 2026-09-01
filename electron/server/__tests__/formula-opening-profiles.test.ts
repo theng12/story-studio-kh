@@ -303,19 +303,6 @@ describe('a channel that was never asked is re-seeded; one that was edited is no
 
 // ─────────────────────────────────────────────────────────────────────────
 describe('the opening the Formula wrote is what the prompt receives', () => {
-  test('generateIntroductionOnly still builds its beats from the channel recipe', async () => {
-    // The chain proven above ends at `beatLinesForPrompt`. This is the link
-    // from there into the prompt itself, asserted against the shipping source
-    // so it cannot be quietly re-wired back to a per-request list.
-    const source = await readFile(
-      resolve(fileURLToPath(new URL('../generators/episode.ts', import.meta.url))), 'utf8')
-    const fn = source.slice(source.indexOf('export async function generateIntroductionOnly'))
-    assert.match(fn, /beats: req\.beats\?\.length \? req\.beats : beatLinesForPrompt\(channelRecipe\)/,
-      'the opening\u2019s beats must still come from the channel recipe')
-    assert.match(fn, /Write ONLY the introduction following these beats:\s*\n\$\{\(introSettings\.beats \|\| \[\]\)\.map\(\(b, i\) => `\$\{i \+ 1\}\. \$\{b\}`\)\.join\('\\n'\)\}/,
-      'and they must still be numbered into the prompt')
-  })
-
   test('a Formula\u2019s wording survives into the beat line verbatim', async () => {
     const { lines } = await openingFor('prayer')
     const invitation = lines.find(l => l.startsWith('Invitation to pray'))

@@ -627,7 +627,11 @@
 </template>
 
 <script setup lang="ts">
-import { resolveEpisodeScriptSizing } from '~/utils/scriptSizing'
+import {
+  effectiveFormatPathForEpisode,
+  episodeFormatResponseMatchesSelection,
+  resolveEpisodeScriptSizing,
+} from '~/utils/scriptSizing'
 import { CREDIT_BASIS_LABEL, describeChatRate } from '~/utils/genstudio-credit-cost'
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Script Generator')
@@ -1296,14 +1300,15 @@ const scriptPresets = usePresets<any>({
  * an explicit caller intent. Saved presets win over both because
  * preset.load() runs AFTER this function.
  */
-async function applyScriptFormatDefaultsIfNoPreset() {
+async function applyScriptFormatDefaultsIfNoPreset(episodeId = form.episode_id) {
   // Skip if URL pinned both — caller intent dominates the format default.
   const urlLength = route.query.length
   const urlChapters = route.query.chapters
   const lengthFromUrl = urlLength !== undefined && urlLength !== null && urlLength !== ''
   const chaptersFromUrl = urlChapters !== undefined && urlChapters !== null && urlChapters !== ''
   try {
-    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const f = await get<any>(effectiveFormatPathForEpisode(slug.value, episodeId))
+    if (!episodeFormatResponseMatchesSelection(episodeId, form.episode_id)) return
     const sf = f?.script
     if (!sf) return
     if (!chaptersFromUrl && typeof sf.defaultChapterCount === 'number' && sf.defaultChapterCount > 0) {
@@ -1785,10 +1790,14 @@ async function syncTitleToChapters() {
   }
 }
 
-function onEpisodeSelected(ep: any) {
+async function onEpisodeSelected(ep: any) {
   // Capture the full episode object so `scriptGenerated` (computed off
   // ep.status.script) reflects API truth for this episode immediately.
   selectedEpisode.value = ep
+  const episodeCode = ep.episode_code || form.episode_id
+  if (ep.episode_code) form.episode_id = ep.episode_code
+  await applyScriptFormatDefaultsIfNoPreset(episodeCode)
+  if (!episodeFormatResponseMatchesSelection(episodeCode, form.episode_id)) return
   // Title always tracks the picked episode — it's tied 1:1 to ep identity
   // and the user wouldn't expect their last episode's title to follow them
   // to a new pick.

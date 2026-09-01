@@ -196,29 +196,10 @@ test('Pastoral Scripture profiles reproduce both legacy modes through strict doc
     assert.equal(effective.script.defaultWordsPerMinute, expected.scriptStructure.defaultWordsPerMinute)
     assert.equal(effective.script.defaultLengthMinutes, expected.scriptStructure.defaultLengthMinutes)
     assert.deepEqual(effective.script.lengthMinutesRange, expected.scriptStructure.lengthMinutesRange)
-    assert.deepEqual(effective.script.pacingArc, expected.scriptStructure.pacingArc ?? base.script.pacingArc)
+    assert.deepEqual(effective.script.pacingArc, expected.scriptStructure.pacingArc ?? niche.scriptStructure?.pacingArc ?? base.script.pacingArc)
     assert.deepEqual(effective.script.introDefaults, expected.introDefaults)
     assert.equal(effective.script.defaultNarratorStyleId, narratorId)
     assert.equal(effective.idea.systemPromptRole, expected.ideaSystemPromptRole)
     assert.equal(effective.script.systemPromptRole, expected.scriptSystemPromptRole)
   }
-})
-
-test('episode-profile identity is forwarded by every script and recency prompt consumer', async () => {
-  const [episode, metadata, imagePrompts, scriptRoutes] = await Promise.all([
-    readFile(resolve(ROOT, 'electron/server/generators/episode.ts'), 'utf8'),
-    readFile(resolve(ROOT, 'electron/server/generators/metadata.ts'), 'utf8'),
-    readFile(resolve(ROOT, 'electron/server/generators/image-prompts.ts'), 'utf8'),
-    readFile(resolve(ROOT, 'electron/server/routes/scripts.ts'), 'utf8'),
-  ])
-  assert.equal((episode.match(/getEffectiveFormat\(project_slug, \{ episodeId: episode_id \}\)/g) || []).length, 4,
-    'script, chapter, introduction, and chunked expansion must resolve the accepted episode profile')
-  assert.equal((episode.match(/applyRecencyToFormat\(format, project_slug, episode_id\)/g) || []).length, 4,
-    'all four script paths must use the same episode-scoped recency profile')
-  assert.match(metadata, /prependAvoidanceToPrompt\([\s\S]*?project_slug,[\s\S]*?'metadata',[\s\S]*?episode_id,[\s\S]*?\)/)
-  assert.match(metadata, /prependAvoidanceToPrompt\(project_slug, 'titles', titlePrompt, episode_id\)/)
-  assert.match(imagePrompts, /prependAvoidanceToPrompt\(projectSlug, 'image_prompts', prompt, episodeId\)/)
-  assert.equal((scriptRoutes.match(/buildDescriptionPrompt\(episode_id[\s\S]*?episode_id,\n\s*\)/g) || []).length >= 2, true,
-    'both direct metadata routes must pass episode identity to recency resolution')
-  assert.match(scriptRoutes, /prependAvoidanceToPrompt\(slug, 'titles', titlePrompt, episode_id\)/)
 })

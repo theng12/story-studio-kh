@@ -14,7 +14,11 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 import { applyRecencyToFormat, recordUsage } from '../services/recency-tracker.js'
 import { getEffectiveNiche } from '../services/niche-loader.js'
-import { applyFormulaEpisodeProfile, resolveFormulaEpisodeDimensions } from '../services/formula-production-kit.js'
+import {
+  applyFormulaEpisodeProfile,
+  resolveFormulaEpisodeDimensions,
+  resolveFormulaEpisodeProfile,
+} from '../services/formula-production-kit.js'
 // v1.0.166 — pattern-loader import removed with the Pattern system.
 import { resolveCharacters } from '../services/character-manager.js'
 
@@ -473,12 +477,23 @@ function extractStorySummary(narrationText: string): string {
   return summaryLines.join('\n')
 }
 
-function autoSelectStyle(format: Format, code: string): string {
+export function selectAutomaticNarratorStyle(format: Format, code: string, profileDefault?: string): string {
   const numMatch = code.match(/\d+/)
   const epNum = numMatch ? parseInt(numMatch[0]) : 0
   const styles = format.script.narratorStyles
   if (!styles.length) return 'A'  // safety net; loader rejects empty arrays
+  const declaredDefault = styles.find(style => style.id === profileDefault)
+  if (declaredDefault) return declaredDefault.id
   return styles[epNum % styles.length].id
+}
+
+async function automaticNarratorStyleForEpisode(format: Format, slug: string, code: string): Promise<string> {
+  const niche = await getEffectiveNiche(slug)
+  const dimensions = await resolveFormulaEpisodeDimensions(slug, code)
+  const profileDefault = niche
+    ? resolveFormulaEpisodeProfile(niche, dimensions)?.narratorStyleId
+    : undefined
+  return selectAutomaticNarratorStyle(format, code, profileDefault)
 }
 
 // ── Main generator function ─────────────────────────────────────────────────
@@ -510,7 +525,9 @@ async function generateEpisode(job: Job): Promise<void> {
   format = applyCreativeFreedom(format, req)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
-  let style = req.style === 'auto' ? autoSelectStyle(format, episode_id) : req.style
+  let style = req.style === 'auto'
+    ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
+    : req.style
   // Resolve custom style text without mutating the shared narrator-styles array
   let customStyleText: string | undefined
   if (style && (style.startsWith('style-') || style === 'custom')) {
@@ -1039,7 +1056,7 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   const fmtIntro = format.script.introDefaults
   const { getChannelSegments } = await import('../services/channel-segments.js')
   const { beatLinesForPrompt, INTRODUCTION_SEGMENT_ID } = await import('../lib/episode-segments.js')
-  const channelRecipe = (await getChannelSegments(project_slug))[INTRODUCTION_SEGMENT_ID].recipe
+  const channelRecipe = (await getChannelSegments(project_slug, episode_id))[INTRODUCTION_SEGMENT_ID].recipe
   const introSettings: IntroSettings = {
     enabled: true,
     host_name: req.host_name || channelRecipe.host_name || '',
@@ -1315,7 +1332,7 @@ async function setupChunkedJobContext(
   const totalWords = snapshot?.total_words ?? req.total_words ?? (wordsPerChapter * chapters)
   const requestedStyle = snapshot?.style ?? req.style ?? format.script.defaultNarratorStyleId
   const style = requestedStyle === 'auto'
-    ? autoSelectStyle(format, episode_id)
+    ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
     : requestedStyle
   const perspective = snapshot?.perspective ?? (req as any).perspective
   const customPerspective = snapshot?.custom_perspective ?? (req as any).custom_perspective

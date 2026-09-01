@@ -18,7 +18,11 @@ import {
 import { requireJobCompletion } from '../services/job-completion.js'
 import { ideaOutputTokenBudget } from '../services/idea-output-budget.js'
 import { ideaCampaignOutputContract } from '../lib/story-output-contracts.js'
-import { applyFormulaEpisodeProfileTitle } from '../services/formula-production-kit.js'
+import {
+  applyFormulaEpisodeProfile,
+  applyFormulaEpisodeProfileTitle,
+  resolveFormulaEpisodeProfile,
+} from '../services/formula-production-kit.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { applyEmojiPolicy, NO_EMOJI_DIRECTIVE } from '../lib/emoji-policy.js'
 
@@ -57,14 +61,24 @@ function examples(format: Format): string {
 function campaignPrompt(options: {
   request: IdeaCampaignParams
   format: Format
+  niche: Niche
   assignments: IdeaAssignment[]
   avoid: SimilarityCandidate[]
   standards?: string | null
 }): string {
   const { request, format, assignments } = options
   const assignmentBlock = assignments
-    .map((assignment, index) =>
-      `${index + 1}. idea_key="${assignment.idea_key}" — ${assignmentSummary(assignment)}`)
+    .map((assignment, index) => {
+      const profiledNiche = applyFormulaEpisodeProfile(options.niche, assignment.dimensions)
+      const profile = resolveFormulaEpisodeProfile(options.niche, assignment.dimensions)
+      const role = profiledNiche.ideaSystemPromptRole || format.idea.systemPromptRole
+      const guidance = profiledNiche.ideaGuidanceText || format.idea.guidanceText
+      return `${index + 1}. idea_key="${assignment.idea_key}" — ${assignmentSummary(assignment)}
+   IDEA ROLE: ${role}
+   IDEA GUIDANCE: ${guidance}${profiledNiche.scriptContext ? `
+   IDEA CONTEXT: ${profiledNiche.scriptContext}` : ''}${profile?.titlePolicy ? `
+   PROFILE TITLE POLICY: ${profile.titlePolicy}` : ''}`
+    })
     .join('\n')
   const avoidBlock = options.avoid
     .slice(-200)
@@ -82,12 +96,9 @@ function campaignPrompt(options: {
     request.creative_direction?.trim() ? `Creative direction: ${request.creative_direction.trim()}` : '',
   ].filter(Boolean).join('\n')
 
-  return `${format.idea.systemPromptRole}
-
-${format.idea.guidanceText}
-
-Generate exactly ${assignments.length} distinct episode ideas, one for each RESERVED ASSIGNMENT below.
+  return `Generate exactly ${assignments.length} distinct episode ideas, one for each RESERVED ASSIGNMENT below.
 The assignments were selected by Story Studio's coverage planner. They are binding.
+Each assignment carries its own Formula role and guidance. Apply only the contract printed beneath that assignment.
 
 RESERVED ASSIGNMENTS:
 ${assignmentBlock}
@@ -308,6 +319,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     const prompt = campaignPrompt({
       request,
       format,
+      niche: plannerNiche,
       assignments,
       avoid: similarityPool,
       standards,
@@ -420,4 +432,4 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
  * than a copy of it in a test file, which is how a rule and its test quietly
  * stop agreeing.
  */
-export const __ideaCampaignInternals = { mentionsSubject }
+export const __ideaCampaignInternals = { campaignPrompt, mentionsSubject }

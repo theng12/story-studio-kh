@@ -19,6 +19,35 @@ export function parseSuggestedMinutes(value: unknown): number | null {
   return match ? positiveNumber(match[1]) : null
 }
 
+export function effectiveFormatPathForEpisode(slug: string, episodeCode?: string): string {
+  const base = `/projects/${slug}/effective-format`
+  return episodeCode ? `${base}?episode_id=${encodeURIComponent(episodeCode)}` : base
+}
+
+export function episodeFormatResponseMatchesSelection(
+  requestedEpisodeCode: string | undefined,
+  selectedEpisodeCode: string | undefined,
+): boolean {
+  return !requestedEpisodeCode || requestedEpisodeCode === selectedEpisodeCode
+}
+
+export function scriptDeepLinkQuery(input: {
+  episodeCode: string
+  title: string
+  suggestedChapters?: unknown
+  suggestedLength?: unknown
+}): Record<string, string | number> {
+  const minutes = parseSuggestedMinutes(input.suggestedLength)
+  return {
+    episode_id: input.episodeCode,
+    title: input.title,
+    ...(positiveNumber(input.suggestedChapters) !== null
+      ? { chapters: Math.round(positiveNumber(input.suggestedChapters)!) }
+      : {}),
+    ...(minutes !== null ? { length: String(minutes) } : {}),
+  }
+}
+
 export function resolveEpisodeScriptSizing(input: EpisodeSizingInput): {
   chapters: number
   wordsPerChapter: number
