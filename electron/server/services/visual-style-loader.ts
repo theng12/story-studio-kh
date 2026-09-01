@@ -18,15 +18,10 @@ function mapEntry(entry: Awaited<ReturnType<typeof resolveCatalogItem>>): Conten
   const previewPath = entry.value.preview_assets[0]
   const asset = entry.assets?.[previewPath]
   if (!asset) return null
-  try {
-    return contentPackDocumentToVisualStyle(
-      entry.value,
-      assetUrl(entry.pack.pack_id, entry.pack.version, asset.asset_id),
-    )
-  } catch {
-    // Unsupported categories remain registry metadata, not invented UI behavior.
-    return null
-  }
+  return contentPackDocumentToVisualStyle(
+    entry.value,
+    assetUrl(entry.pack.pack_id, entry.pack.version, asset.asset_id),
+  )
 }
 
 /** Resolve one signed style through the immutable current-job snapshot. */
@@ -38,11 +33,14 @@ export async function loadVisualStyle(
   return mapEntry(await resolveCatalogItem(id, undefined, effectiveOptions))
 }
 
-/** Publish signed styles as renderer-safe records. Legacy fallback is renderer-owned during migration. */
+/** Publish installed signed styles as renderer-safe records for visible discovery. */
 export async function listVisualStyles(options: ContentPackRegistryOptions = {}): Promise<ContentPackVisualStyle[]> {
   const entries = await listCatalogEntries('visual-style', options)
   const result: ContentPackVisualStyle[] = []
   for (const entry of entries) {
+    // Recovery entries can resolve an exact project pin, but are not customer
+    // entitlements and must never appear as browseable library products.
+    if (entry.source !== 'signed-installed') continue
     const mapped = mapEntry(entry)
     if (!mapped) {
       console.warn(`[visual-style-loader] signed style has no verified preview asset: ${entry.value.id}`)

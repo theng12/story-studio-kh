@@ -66,7 +66,7 @@ describe('Character Sheet workspace', () => {
     assert.match(continuityConfig, /composition: value\?\.references\?\.composition \?\? d\.references\.composition/)
   })
 
-  test('uses built-in styles without project custom-style authoring', () => {
+  test('uses Content Pack styles without project custom-style authoring', () => {
     assert.match(characterSheet, /:show-custom-styles="false"/)
     assert.match(stylePicker, /v-if="showCustomStyles !== false"/)
     assert.match(stylePicker, /showCustomStyles\?: boolean/)

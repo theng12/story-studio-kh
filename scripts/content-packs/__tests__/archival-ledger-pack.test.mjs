@@ -10,7 +10,7 @@ import { buildContentPack } from '../lib.mjs'
 const SOURCE_DIRECTORY = new URL('../../../content-packs/archival-ledger/', import.meta.url)
 const PUBLISHER_README = new URL('../README.md', import.meta.url)
 const HMH_FORMULA = new URL('../../../electron/server/niches/hidden-mechanics-history.json', import.meta.url)
-const HMH_STYLE = new URL('../../../frontend/composables/useBuiltInStyles.ts', import.meta.url)
+const HMH_STYLE = new URL('../../../content-packs/paid/archival-ledger/style/archival-documentary-reconstruction/content/visual-style.json', import.meta.url)
 const HMH_RECIPE = new URL('../../../electron/server/thumbnail-templates/archival-map-investigation.json', import.meta.url)
 const HMH_TOPICS = [
   'historical-states-revolutions-collapse',
@@ -151,9 +151,9 @@ test('Archival Ledger preserves the effective HMH prompt, topic, style, and thum
   assert.deepEqual(documents['thumbnail-recipe.json'].avoid_elements, legacyRecipe.recipe.avoid)
   assert.deepEqual(documents['thumbnail-recipe.json'].headline_formats, legacyRecipe.recipe.headlineFormats)
   assert.deepEqual(documents['thumbnail-recipe.json'].composition_rules, legacyRecipe.recipe.compositionRules)
-  const styleSource = await readFile(HMH_STYLE, 'utf8')
-  assert.match(styleSource, new RegExp(documents['visual-style.json'].style_bible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-  assert.match(styleSource, new RegExp(documents['visual-style.json'].negative_prompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  const styleSource = await readJson(HMH_STYLE)
+  assert.equal(documents['visual-style.json'].style_bible, styleSource.style_bible)
+  assert.equal(documents['visual-style.json'].negative_prompt, styleSource.negative_prompt)
 })
 
 test('the retired Archival Ledger monolith cannot be built, signed, or documented as stock', async (t) => {

@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.94 — 2026-09-02
+
+- **The Style Library now shows Content Packs only.** The 17 retired built-in cards and their duplicate frontend preview files are gone, so each installed signed style appears once and a new customer sees only styles they actually own or receive.
+- **Existing projects keep their chosen legacy look.** Project-local `builtin-*` style copies remain renderable for compatibility, but they are no longer republished into the library. New style authoring is now locked to standalone, independently purchasable Content Packs.
+
 ## v1.4.93 — 2026-09-01
 
 - **The legacy Content Pack migration is complete as standalone choices.** Seventeen remaining Formula and Topic products and four prepared Style and Thumbnail products now have finished independent sources, while the free History, Explained 1.0.2 compatibility successor stays a free built-in and is not counted as a paid product.

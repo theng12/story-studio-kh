@@ -34,7 +34,7 @@
       </div>
     </section>
 
-    <BuiltInStyleLibraryModal
+    <ContentPackStyleLibraryModal
       :visible="libraryOpen"
       :project-slug="slug"
       :selected-style-id="activeStyle?.id || appliedStyleId"
@@ -53,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { type BuiltInStyle, useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
+import { type VisualStyleCatalogItem, useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 
 const props = defineProps<{
   slug: string
@@ -64,7 +64,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'apply', data: { style_bible: string; negative_prompt: string }, style?: BuiltInStyle): void
+  (e: 'apply', data: { style_bible: string; negative_prompt: string }, style?: VisualStyleCatalogItem): void
 }>()
 
 const libraryOpen = ref(false)
@@ -81,7 +81,7 @@ const customStyleSummary = computed(() => {
   return text.length > 180 ? `${text.slice(0, 177)}…` : text
 })
 
-function applyStyle(style: BuiltInStyle): void {
+function applyStyle(style: VisualStyleCatalogItem): void {
   appliedStyleId.value = style.id
   emit('apply', {
     style_bible: style.data.style_bible || '',

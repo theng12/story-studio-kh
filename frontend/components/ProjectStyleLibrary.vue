@@ -1,6 +1,6 @@
 <template>
   <div class="psl">
-    <div v-if="showBuiltInStarters" class="psl-builtins-launch card">
+    <div v-if="showCatalogStarters" class="psl-catalog-launch card">
       <div>
         <span class="psl-library-kicker">Style library</span>
         <label>Start from an available style</label>
@@ -8,15 +8,15 @@
           Browse {{ styles.length }} searchable looks in a focused library instead of expanding every card on this page.
         </p>
       </div>
-      <button type="button" class="btn btn-primary" @click="builtInLibraryOpen = true">Browse Style Library</button>
+      <button type="button" class="btn btn-primary" @click="catalogLibraryOpen = true">Browse Style Library</button>
     </div>
 
-    <BuiltInStyleLibraryModal
-      :visible="builtInLibraryOpen"
+    <ContentPackStyleLibraryModal
+      :visible="catalogLibraryOpen"
       :project-slug="projectSlug"
       action-label="Load into editor"
-      @close="builtInLibraryOpen = false"
-      @select="loadBuiltInStyle"
+      @close="catalogLibraryOpen = false"
+      @select="loadCatalogStyle"
     />
 
     <div class="psl-head">
@@ -247,7 +247,7 @@
 </template>
 
 <script setup lang="ts">
-import { type BuiltInStyle, useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
+import { type VisualStyleCatalogItem, useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 
 interface PresetEntry {
@@ -284,11 +284,11 @@ const props = withDefaults(defineProps<{
   projectSlug: string
   title?: string
   showApply?: boolean
-  showBuiltInStarters?: boolean
+  showCatalogStarters?: boolean
 }>(), {
   title: 'Project style library',
   showApply: false,
-  showBuiltInStarters: false,
+  showCatalogStarters: false,
 })
 
 const emit = defineEmits<{
@@ -322,7 +322,7 @@ const editingPresetId = ref<string | null>(null)
 const editorOriginLabel = ref<string | null>(null)
 const lightboxImages = ref<LightboxImage[]>([])
 const lightboxIndex = ref(0)
-const builtInLibraryOpen = ref(false)
+const catalogLibraryOpen = ref(false)
 
 const selectedImageModel = computed(() =>
   genStudioImageModels.value.find(model => model.id === previewModel.value),
@@ -597,7 +597,7 @@ function applyPreset(preset: PresetEntry): void {
   emit('apply', { style_bible: preset.description, negative_prompt: '' })
 }
 
-function loadBuiltInStyle(style: BuiltInStyle): void {
+function loadCatalogStyle(style: VisualStyleCatalogItem): void {
   editingPresetId.value = null
   editorOriginLabel.value = `Loaded from library: ${style.name}`
   draftName.value = style.name
@@ -681,7 +681,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
 .psl-preset-grid {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
-.psl-builtins-launch {
+.psl-catalog-launch {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -691,7 +691,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   border-radius: 12px;
   background: linear-gradient(135deg, var(--surface-accent), var(--bg-secondary));
 }
-.psl-builtins-launch label {
+.psl-catalog-launch label {
   display: block;
   margin-top: 2px;
   font-size: 14px;
@@ -911,7 +911,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   text-align: center;
 }
 @media (max-width: 720px) {
-  .psl-builtins-launch {
+  .psl-catalog-launch {
     align-items: stretch;
     flex-direction: column;
   }

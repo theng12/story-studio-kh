@@ -374,7 +374,7 @@ test('no image surface invents a resolution ladder or a fallback ratio', () => {
     '../utils/genstudio-output-options.ts',
     '../components/ImageOutputOptionPicker.vue',
     '../components/ProjectStyleLibrary.vue',
-    '../components/BuiltInStyleLibraryModal.vue',
+    '../components/ContentPackStyleLibraryModal.vue',
   ]) {
     const source = readFileSync(new URL(file, import.meta.url), 'utf8')
     assert.doesNotMatch(source, /\['1K'|'2K',\s*'4K'/, file)

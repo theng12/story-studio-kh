@@ -2,10 +2,9 @@ import assert from 'node:assert/strict'
 import { afterEach, describe, test } from 'node:test'
 
 import {
-  BUILT_IN_STYLES,
   _resetVisualStyleCatalogForTests,
   useVisualStyleCatalog,
-} from '../composables/useBuiltInStyles.js'
+} from '../composables/useVisualStyleCatalog.js'
 
 afterEach(() => {
   _resetVisualStyleCatalogForTests()
@@ -20,25 +19,29 @@ const signedStyle = {
 }
 
 describe('reactive visual style catalog', () => {
-  test('publishes API styles first and retains the complete legacy recovery catalog', async () => {
+  test('shows only server-published installed Content Pack styles', async () => {
     ;(globalThis as any).$fetch = async () => ({ visual_styles: [signedStyle] })
     const catalog = useVisualStyleCatalog()
     await catalog.refresh()
 
-    assert.equal(catalog.styles.value[0].id, signedStyle.id)
-    assert.equal(catalog.styles.value.length, BUILT_IN_STYLES.length + 1)
-    assert.equal(catalog.usingFallback.value, false)
-    assert.ok(catalog.styles.value.some(style => style.id === 'builtin-ms-paint-fantasy'))
+    assert.deepEqual(catalog.styles.value.map(style => style.id), [signedStyle.id])
   })
 
-  test('falls back to all 17 static styles when the API is unavailable', async () => {
+  test('accepts author-defined Content Pack categories', async () => {
+    const naturalWorldStyle = { ...signedStyle, category: 'Natural world' }
+    ;(globalThis as any).$fetch = async () => ({ visual_styles: [naturalWorldStyle] })
+    const catalog = useVisualStyleCatalog()
+    await catalog.refresh()
+
+    assert.deepEqual(catalog.styles.value.map(style => style.category), ['Natural world'])
+  })
+
+  test('shows no unowned legacy styles when the API is unavailable', async () => {
     ;(globalThis as any).$fetch = async () => { throw new Error('offline') }
     const catalog = useVisualStyleCatalog()
     await catalog.refresh()
 
-    assert.equal(catalog.styles.value.length, 17)
-    assert.deepEqual(catalog.styles.value.map(style => style.id), BUILT_IN_STYLES.map(style => style.id))
-    assert.equal(catalog.usingFallback.value, true)
+    assert.deepEqual(catalog.styles.value, [])
     assert.match(catalog.error.value || '', /offline/i)
   })
 
@@ -49,8 +52,6 @@ describe('reactive visual style catalog', () => {
     const catalog = useVisualStyleCatalog()
     await catalog.refresh()
 
-    assert.equal(catalog.styles.value.some(style => style.id === signedStyle.id), false)
-    assert.equal(catalog.styles.value.length, 17)
-    assert.equal(catalog.usingFallback.value, true)
+    assert.deepEqual(catalog.styles.value, [])
   })
 })

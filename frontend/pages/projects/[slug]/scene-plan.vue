@@ -971,7 +971,7 @@ import {
   type PromptCharCapSetting,
 } from '../../../utils/prompt-char-cap.js'
 import { readRememberedImageModelId } from '../../../utils/project-image-model.js'
-import { useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
+import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { DEFAULT_SCENE_PACING } from '@shared/pacing'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 
@@ -1139,7 +1139,6 @@ async function saveDefaultStyleBible() {
 const {
   styles: visualStyles,
   loading: visualStylesLoading,
-  usingFallback: visualStylesUsingFallback,
   error: visualStylesError,
   refresh: refreshVisualStyles,
 } = useVisualStyleCatalog()
@@ -1166,13 +1165,6 @@ function identifyStyle(bible: string): StyleIdentity {
       name: 'Style name unavailable',
       category: '',
       note: `The visual style library could not be loaded, so Story Studio cannot say which look this is. ${visualStylesError.value}`,
-    }
-  }
-  if (visualStylesUsingFallback.value) {
-    return {
-      name: 'Style name unavailable',
-      category: '',
-      note: 'The visual style library is serving its offline recovery list, so a look installed from a content pack cannot be named here. The art direction below is still exactly what the prompts use.',
     }
   }
   return {

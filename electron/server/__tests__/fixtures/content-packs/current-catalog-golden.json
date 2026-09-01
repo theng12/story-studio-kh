@@ -868,55 +868,55 @@
     ],
     "styles": [
       {
-        "id": "builtin-waxy-outline-cartoon",
+        "id": "com.storystudio.style.waxy-outline-cartoon",
         "name": "Waxy Outline Cartoon",
         "style_bible_sha256": "b6ac34613e2e2e3d08debc66717d3100ac820366c09c3fe51369684a5619fe8f",
         "negative_prompt_sha256": "ff8c54dc666d27956f60995b21253772a12134870ddd01f25ff69b2476eeb05a"
       },
       {
-        "id": "builtin-prehistoric-stick-cartoon",
+        "id": "com.storystudio.style.prehistoric-stick-cartoon",
         "name": "Prehistoric Stick Cartoon",
         "style_bible_sha256": "fd2de514ffe2a79a78547b391e99ceb04f0887ab98cf8b27399793dd4a9bef36",
         "negative_prompt_sha256": "2fd839c8ee990667a70bba3ca83c4e2cab8570ea646f6db1c017f018c93e82db"
       },
       {
-        "id": "builtin-paleo-documentary-tableau",
+        "id": "com.storystudio.style.paleo-documentary-tableau",
         "name": "Paleo Documentary Tableau",
         "style_bible_sha256": "bf7733f4e94cd456a4ea0688041aec91b347a8ad2355a815ed96450d170f5a84",
         "negative_prompt_sha256": "701fb2df69536c895f4b5d1e92438c9e033d5491ccaa21bfc7a29c160acf3575"
       },
       {
-        "id": "builtin-hand-drawn-editorial-diagram",
+        "id": "com.storystudio.style.hand-drawn-editorial-diagram",
         "name": "Hand-Drawn Editorial Diagram",
         "style_bible_sha256": "9063ce8e18c6213ad666c48cf48e0f47538190eb9e1941979a86f1aa36e50377",
         "negative_prompt_sha256": "928be049105c7e981be1661c6380759725e5dae33ba032b08115e4d8e6c1c0e8"
       },
       {
-        "id": "builtin-minimal-stick-figure-explainer",
+        "id": "com.storystudio.style.minimal-stick-figure-explainer",
         "name": "Minimal Stick-Figure Explainer",
         "style_bible_sha256": "fe227b7bba310e554111330102b8540672602ae550b96d6f1c7cd9085a5b4b56",
         "negative_prompt_sha256": "317eb8d057d7b161a10eb9665fa10074cec4779665dcb1b6989b6955fbb10167"
       },
       {
-        "id": "builtin-sepia-ink-wash",
+        "id": "com.storystudio.style.sepia-ink-wash",
         "name": "Sepia Ink & Wash",
         "style_bible_sha256": "a7eb9f4972f66492a064d357b38d0c84151a4a2429a33afc711f9867b2c21b94",
         "negative_prompt_sha256": "0fe1fba6b838fa4302da2ccc66de2fb51f2a463f38a078b36da4ee81f95f742b"
       },
       {
-        "id": "builtin-cinematic-photoreal",
+        "id": "com.storystudio.style.cinematic-photoreal",
         "name": "Cinematic Photoreal",
         "style_bible_sha256": "a4daeb001044aaa9139a23c269c15b18882d2eac00e49f52be297f98ab118fe2",
         "negative_prompt_sha256": "e19e2cd92520245a941e4848fcff96bb6bb67bc05f6a4774f1059ad4e54d4aa7"
       },
       {
-        "id": "builtin-watercolor-storybook",
+        "id": "com.storystudio.style.watercolor-storybook",
         "name": "Watercolor Storybook",
         "style_bible_sha256": "128e6d32515ed4ca0e4243ea3ae14d7349c6457ef5062be1555fe8ab457fd9ec",
         "negative_prompt_sha256": "a4b1562a4c53b89080b071aacbdaf01f127ed03165358c7f485647901fe67783"
       },
       {
-        "id": "builtin-flat-vector-explainer",
+        "id": "com.storystudio.style.flat-vector-explainer",
         "name": "Flat Vector Explainer",
         "style_bible_sha256": "be9af3311fd8eb8f69b211d63e89a6e137f9a6fd493c953a22e12c6c9ee36472",
         "negative_prompt_sha256": "8fa47f1b2105a2f651f18551668c9ee1ec6ddad1354cd3d5263e965ec800e331"

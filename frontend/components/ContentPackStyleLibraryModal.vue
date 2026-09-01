@@ -41,8 +41,8 @@
         </div>
       </div>
 
-      <div v-if="hasBrokenBundledPreview" class="slm-fallback">
-        <span>One or more bundled previews could not load.</span>
+      <div v-if="hasBrokenPackPreview" class="slm-fallback">
+        <span>One or more Content Pack previews could not load.</span>
         <ImageModelPicker
           v-model="previewModel"
           :project-slug="projectSlug"
@@ -54,6 +54,17 @@
         </select>
       </div>
 
+      <div v-if="visualStylesLoading && !styles.length" class="slm-empty" aria-live="polite">
+        <strong>Loading Content Pack styles…</strong>
+      </div>
+
+      <div v-else-if="visualStylesError" class="slm-empty slm-unavailable" role="alert">
+        <strong>Content Pack styles are unavailable</strong>
+        <span>{{ visualStylesError }}</span>
+        <button type="button" class="btn btn-secondary btn-sm" @click="refreshVisualStyles">Retry</button>
+      </div>
+
+      <template v-else>
       <div class="slm-results-head">
         <strong>{{ filteredStyles.length }} style{{ filteredStyles.length === 1 ? '' : 's' }}</strong>
         <span v-if="query.trim()">matching “{{ query.trim() }}”</span>
@@ -75,12 +86,12 @@
         >
           <div class="slm-image-wrap">
             <img
-              v-if="style.preview_image && !bundledFailed[style.id]"
+              v-if="style.preview_image && !packPreviewFailed[style.id]"
               :src="style.preview_image"
               :alt="`${style.name} preview`"
               loading="lazy"
               decoding="async"
-              @error="onBundledPreviewError(style.id)"
+              @error="onPackPreviewError(style.id)"
             />
             <img
               v-else-if="previewStates[style.id]?.url"
@@ -125,12 +136,19 @@
           </div>
         </article>
 
-        <div v-if="!filteredStyles.length" class="slm-empty">
+        <div v-if="!styles.length" class="slm-empty">
+          <strong>No Content Pack styles installed</strong>
+          <span>Install a Visual Style from the Content Store to add it here.</span>
+          <NuxtLink to="/content-store" class="btn btn-secondary btn-sm">Open Content Store</NuxtLink>
+        </div>
+
+        <div v-else-if="!filteredStyles.length" class="slm-empty">
           <strong>No styles found</strong>
           <span>Try a broader search or choose All styles.</span>
           <button type="button" class="btn btn-secondary btn-sm" @click="resetFilters">Clear filters</button>
         </div>
       </div>
+      </template>
 
       <footer class="slm-footer">
         <div class="slm-selection">
@@ -152,7 +170,7 @@
 </template>
 
 <script setup lang="ts">
-import { type BuiltInStyle, useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
+import { type VisualStyleCatalogItem, useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 
 const props = withDefaults(defineProps<{
@@ -167,11 +185,16 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'select', style: BuiltInStyle): void
+  (e: 'select', style: VisualStyleCatalogItem): void
 }>()
 
 const { post } = useApi()
-const { styles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
+const {
+  styles,
+  loading: visualStylesLoading,
+  error: visualStylesError,
+  refresh: refreshVisualStyles,
+} = useVisualStyleCatalog()
 const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
 const FAVORITES_KEY = 'story-studio:style-library:favorites'
 const RECENTS_KEY = 'story-studio:style-library:recents'
@@ -188,7 +211,7 @@ const activeFilter = ref('all')
 const draftStyleId = ref('')
 const favoriteIds = ref(new Set<string>())
 const recentIds = ref<string[]>([])
-const bundledFailed = ref<Record<string, boolean>>({})
+const packPreviewFailed = ref<Record<string, boolean>>({})
 const previewStates = ref<Record<string, PreviewState>>({})
 const previewModel = ref('')
 const previewAspect = ref('16:9')
@@ -200,7 +223,7 @@ const selectedImageModel = computed(() =>
 // Published ratios only. A model that publishes none gets NO ratio control
 // rather than an invented '16:9' the customer would take for the model's own.
 const aspectOptions = computed<string[]>(() => selectedImageModel.value?.aspect_ratios?.filter(Boolean) || [])
-const hasBrokenBundledPreview = computed(() => Object.keys(bundledFailed.value).length > 0)
+const hasBrokenPackPreview = computed(() => Object.keys(packPreviewFailed.value).length > 0)
 const draftStyle = computed(() => styles.value.find(style => style.id === draftStyleId.value) || null)
 const filters = computed(() => [
   { id: 'all', label: 'All styles', count: styles.value.length },
@@ -291,11 +314,11 @@ function resetFilters(): void {
   activeFilter.value = 'all'
 }
 
-function onBundledPreviewError(id: string): void {
-  bundledFailed.value = { ...bundledFailed.value, [id]: true }
+function onPackPreviewError(id: string): void {
+  packPreviewFailed.value = { ...packPreviewFailed.value, [id]: true }
 }
 
-async function generatePreview(style: BuiltInStyle): Promise<void> {
+async function generatePreview(style: VisualStyleCatalogItem): Promise<void> {
   if (!previewModel.value) return
   previewStates.value[style.id] = { loading: true, url: null, error: null }
   try {

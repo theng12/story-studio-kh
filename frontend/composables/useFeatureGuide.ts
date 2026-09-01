@@ -223,7 +223,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
   },
   'character-sheet': {
     title: 'Character Sheet',
-    summary: 'Define the visual anchor, built-in style, and reusable guidance that keeps scene imagery coherent for this episode.',
+    summary: 'Define the visual anchor, Content Pack style, and reusable guidance that keeps scene imagery coherent for this episode.',
     workflow: ['Choose the project visual style.', 'Add or select the episode reference image when needed.', 'Review guidance before Scene Plan.'],
     topics: [
       { title: 'Style', purpose: 'Sets the shared visual language used by Scene Plan and image generation.' },
