@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.92 — 2026-08-31
+
+- **Confirmed failed images can optionally be replaced, with a firm spending boundary.** This image-only setting is Off by default. When enabled, Story Studio waits a fixed 30 minutes and requires authoritative failed-task evidence before considering a replacement. It then refreshes the exact current published price for the same image request and allows at most one replacement per image, only within the additional-credit ceiling you must set for each Story job. Audio and video are unchanged.
+
 ## v1.4.91 — 2026-08-31
 
 - **Scene-image jobs now share their places fairly.** Continuity Render and Image Pool take turns when both are waiting, while work that is already recovering keeps its place ahead of new work of the same kind. The image-pool generator itself remains serial.
