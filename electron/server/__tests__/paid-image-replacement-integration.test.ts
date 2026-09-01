@@ -333,6 +333,17 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
       'committed',
       'Pool does not bless committed/no-task evidence as paid success',
     )
+
+    await fs.writeFile(poolArtifactPath, Buffer.from('nonempty but corrupt committed artifact'))
+    assert.equal(await generateImagePoolImages(job), undefined)
+    await sharp(poolArtifactPath).stats()
+    assert.equal(
+      JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state,
+      'succeeded',
+      'Pool removes a corrupt committed artifact from initialReady and completes only through the exact paid task',
+    )
+    assert.equal(service.providerSubmissionCount('image'), 2, 'corrupt committed recovery reuses the exact paid idempotency identity')
+
     completed.paid_image_replacement_attempts[0].state = 'submitted'
     completed.paid_image_replacement_attempts[0].replacement_task_id = paidTaskId
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [completed] }))
@@ -527,11 +538,17 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     await sharp({ create: { width: 1, height: 1, channels: 3, background: '#ffffff' } })
       .png().toFile(path.join(thumbDir, filename))
     const committedArtifactBytes = await fs.readFile(path.join(thumbDir, filename))
+    failed.params.thumb_number = 1
+    failed.params.force = true
+    const submissionsBeforeForcedCommittedArtifact = service.submissions.length
     assert.equal(await generateImages(job), undefined)
-    assert.equal(service.providerSubmissionCount('image'), 2, 'thumbnail committed/before-POST artifact reconciliation makes zero replacement POSTs')
+    assert.equal(service.submissions.length, submissionsBeforeForcedCommittedArtifact, 'targeted force cannot bypass a committed paid artifact into another replacement POST')
+    assert.equal(service.providerSubmissionCount('image'), 2, 'thumbnail committed/before-POST artifact reconciliation makes zero replacement jobs')
     assert.deepEqual(await fs.readFile(path.join(thumbDir, filename)), committedArtifactBytes, 'thumbnail preserves the decoder-valid original artifact')
     assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'committed')
 
+    delete failed.params.thumb_number
+    delete failed.params.force
     failed.paid_image_replacement_attempts[0].state = 'submitted'
     failed.paid_image_replacement_attempts[0].replacement_task_id = failedReplacementTaskId
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [failed] }))

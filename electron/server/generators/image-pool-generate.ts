@@ -218,14 +218,19 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
     const manifest = await readManifest(pool.folder_path)
     for (const filename of initialReady) {
       const entry = manifest.tasks[filename]
-      const permission = entry
+      const submitPermission = entry
+        ? jq.getPaidImageReplacementSubmitPermission(job, filename, pool.folder_path, filename, entry)
+        : null
+      const artifactPermission = entry
         ? jq.getPaidImageReplacementArtifactPermission(job, filename, pool.folder_path, filename, entry)
         : null
-      if (permission) {
+      if (submitPermission) {
         if (await isDecodableImage(path.join(pool.folder_path, filename))) {
-          await jq.checkpointPaidImageReplacementAttempt(job, filename, {
-            state: 'succeeded', replacement_task_id: permission.replacement_task_id,
-          })
+          if (artifactPermission) {
+            await jq.checkpointPaidImageReplacementAttempt(job, filename, {
+              state: 'succeeded', replacement_task_id: artifactPermission.replacement_task_id,
+            })
+          }
         } else {
           initialReady.delete(filename)
         }

@@ -1038,7 +1038,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     const existingArtifactIsUsable = await fileExistsWithContent(v1Path)
     const paidArtifactIsDecodable = artifactPermission && await isDecodableImage(v1Path)
     const reconcilePaidArtifact = paidArtifactIsDecodable && submittedArtifactPermission
-    if (existingArtifactIsUsable && !req.thumb_number && !force && (!artifactPermission || paidArtifactIsDecodable)) {
+    const skipExistingArtifact = paidArtifactIsDecodable || (!req.thumb_number && !force && !artifactPermission)
+    if (existingArtifactIsUsable && skipExistingArtifact) {
       if (reconcilePaidArtifact) {
         await jq.checkpointPaidImageReplacementAttempt(job, filename, {
           state: 'succeeded', replacement_task_id: submittedArtifactPermission.replacement_task_id,
