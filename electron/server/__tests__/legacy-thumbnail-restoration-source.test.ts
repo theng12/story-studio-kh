@@ -149,11 +149,12 @@ const WITHDRAWN_RECORDS = [
   ['com.storystudio.pack.thumbnail.dreamscape-story-window', '1.0.1', path.join(FREE_STARTER_ROOT, 'thumbnail', 'dreamscape-story-window-v1.0.1')],
   ['com.storystudio.pack.kit.symbolic-psychology-studio', '1.0.1', path.join(ROOT, 'content-packs', 'symbolic-psychology-studio', 'kit', 'symbolic-psychology-studio-v1.0.1')],
 ] as const
-const WITHDRAWN_FREE_STARTER_DIRECTORIES = new Set([
-  'centered-hero-headline-v1.0.1',
-  'portrait-block-right-v1.0.1',
-  'dreamscape-story-window-v1.0.1',
+const WITHDRAWN_FREE_STARTER_IDENTITIES = new Map([
+  ['centered-hero-headline-v1.0.1', 'com.storystudio.pack.thumbnail.centered-hero-headline@1.0.1'],
+  ['portrait-block-right-v1.0.1', 'com.storystudio.pack.thumbnail.portrait-block-right@1.0.1'],
+  ['dreamscape-story-window-v1.0.1', 'com.storystudio.pack.thumbnail.dreamscape-story-window@1.0.1'],
 ])
+const WITHDRAWN_FREE_STARTER_DIRECTORIES = new Set(WITHDRAWN_FREE_STARTER_IDENTITIES.keys())
 
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
@@ -346,10 +347,16 @@ test('Hand-Drawn Hardship Cartoon retains the approved complete-animal preview a
   )
   const row = ledger.split('\n').find(line => line.includes(`style/hand-drawn-hardship-cartoon/assets/${STYLE_ASSET}`))
   assert.ok(row, 'the Style preview retains its own provenance row')
-  assert.match(row, /nature-prehistoric\/receipt\.json#animal-hardship-annotation-1\.png/)
-  assert.match(row, /e7053b3cd0df7a7aebf1419de7a651b90854242ea4583721e78273ea946b18bd/)
-  assert.match(row, /publisher-created tool-generated original under recorded owner authorization/i)
-  assert.doesNotMatch(row, /saved-output|owner-supplied legacy project output/i)
+  const header = ledger.split('\n').find(line => line === '| Runtime output asset | Owner-supplied source (read-only) | Source SHA-256 / dimensions | Deterministic operation | Output SHA-256 / bytes / decode | Rights basis |')
+  assert.ok(header, 'the Style preview ledger retains its six-column header')
+  const cells = row.split('|').slice(1, -1).map(cell => cell.trim())
+  assert.equal(cells.length, 6, 'the Hand-Drawn row must align with the six-column Style preview header')
+  assert.match(cells[1], /nature-prehistoric\/receipt\.json#animal-hardship-annotation-1\.png/)
+  assert.match(cells[2], /e7053b3cd0df7a7aebf1419de7a651b90854242ea4583721e78273ea946b18bd.*1672×941 PNG/)
+  assert.match(cells[3], /Byte-for-byte copy.*untouched full-image lossless conversion/i)
+  assert.match(cells[4], /75a392a4c5be8786dbdc468ee6f691a15e5cf027aa98988b27d075cb043d3c59.*2,181,090 bytes.*1672×941 WebP decode verified/)
+  assert.match(cells[5], /publisher-created tool-generated original under recorded owner authorization/i)
+  assert.doesNotMatch(cells.join(' '), /saved-output|owner-supplied legacy project output/i)
 })
 
 test('Impasto Psychological Animals retains the Editorial recipe and supplies a distinct text-free style preview', async () => {
@@ -549,8 +556,10 @@ test('every published free-starter Recipe version keeps its exact bytes, whichev
     .filter(name => families.includes(name.replace(VERSION_SUFFIX, '')))
     .filter(name => !WITHDRAWN_FREE_STARTER_DIRECTORIES.has(name))
     .sort(), 'every non-withdrawn gallery directory on disk must be pinned')
-  for (const name of WITHDRAWN_FREE_STARTER_DIRECTORIES) {
-    assert.ok(manifest.published_directories[name], `${name} historical hashes remain ledgered`)
+  for (const [name, identity] of WITHDRAWN_FREE_STARTER_IDENTITIES) {
+    const retired = manifest.retired_identities[identity]
+    assert.ok(retired, `${name} historical hashes remain ledgered as the retired ${identity} identity`)
+    assert.equal(retired.path, `content-packs/free-starters/thumbnail/${name}`)
     await assert.rejects(fs.access(path.join(thumbnailRoot, name)), { code: 'ENOENT' })
   }
 

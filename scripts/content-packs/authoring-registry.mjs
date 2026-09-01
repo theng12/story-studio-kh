@@ -785,9 +785,8 @@ export async function reserveAuthoringBatch({ registryPath = join(root, 'content
       const withdrawn = validated.records.find((candidate) => (
         candidate.pack_id === record.pack_id
         && candidate.status === 'withdrawn'
-        && compareSemver(candidate.version, record.version) < 0
       ))
-      if (withdrawn) fail(`withdrawn pack_id ${record.pack_id} may not gain later version ${record.version}`)
+      if (withdrawn) fail(`withdrawn pack_id ${record.pack_id} may not gain reservation ${record.version}`)
     }
     const receipt_ref = receiptFor(accepted)
     const records = accepted.records.map((record) => ({ receipt_ref, ...record }))

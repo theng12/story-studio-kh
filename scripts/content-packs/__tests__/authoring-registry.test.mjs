@@ -811,12 +811,22 @@ test('withdraws an unmaterialized reservation permanently without changing its o
     /withdrawn|later version|terminal/i,
   )
   assert.deepEqual(await readFile(copy), beforeRejections)
+
+  await assert.rejects(
+    reserveAuthoringBatch({
+      registryPath: copy,
+      repositoryRoot: root,
+      request: successorReservation({ receipt_ref: reserved.receipt_ref, ...request.records[0] }, withdrawn.revision, '0.9.0'),
+    }),
+    /withdrawn|terminal/i,
+  )
+  assert.deepEqual(await readFile(copy), beforeRejections)
 })
 
 test('withdraws an older reserved version when an authored same-lineage alternative already exists', async (t) => {
   // This catches a validator that mistakes a predecessor being closed for a
   // new successor being issued after withdrawal.
-  const { reserveAuthoringBatch, transitionAuthoringRecord } = await import(registryModule)
+  const { reserveAuthoringBatch, transitionAuthoringRecord, validateAuthoringRegistry } = await import(registryModule)
   const root = await temporaryRepository()
   t.after(() => rm(root, { recursive: true, force: true }))
   const copy = join(root, 'content-packs', 'authoring-registry.json')
@@ -824,16 +834,25 @@ test('withdraws an older reserved version when an authored same-lineage alternat
   const predecessor = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: firstRequest })
   const successorRequest = successorReservation({ receipt_ref: predecessor.receipt_ref, ...firstRequest.records[0] }, predecessor.revision)
   const successor = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: successorRequest })
+  const successorAssignment = { ...successor, record: successorRequest.records[0] }
+  await materializeReservedStyle(root, successorRequest.records[0])
+  const authored = await transitionAuthoringRecord({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: transitionRequest(successorAssignment, successor.revision, { status: 'authored' }),
+  })
 
   const withdrawn = await transitionAuthoringRecord({
     registryPath: copy,
     repositoryRoot: root,
-    request: transitionRequest({ ...predecessor, record: firstRequest.records[0] }, successor.revision, { status: 'withdrawn' }),
+    request: transitionRequest({ ...predecessor, record: firstRequest.records[0] }, authored.revision, { status: 'withdrawn' }),
   })
   const registry = JSON.parse(await readFile(copy, 'utf8'))
   assert.equal(registry.records.find(record => record.pack_id === firstRequest.records[0].pack_id && record.version === '1.0.0').status, 'withdrawn')
-  assert.equal(registry.records.find(record => record.pack_id === firstRequest.records[0].pack_id && record.version === '1.0.1').status, 'reserved')
-  assert.equal(withdrawn.revision, successor.revision + 1)
+  assert.equal(registry.records.find(record => record.pack_id === firstRequest.records[0].pack_id && record.version === '1.0.1').status, 'authored')
+  assert.equal(withdrawn.revision, authored.revision + 1)
+  const replayed = await validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
+  assert.equal(replayed.revision, withdrawn.revision, 'a later version reserved before withdrawal remains valid when replayed chronologically')
 })
 
 test('refuses withdrawal when the reserved source has been materialized without changing registry bytes', async (t) => {
