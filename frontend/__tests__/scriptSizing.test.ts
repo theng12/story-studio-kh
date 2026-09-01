@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import { GenerateScriptOnlySchema } from '../../electron/server/contracts/index.js'
 import {
+  canSubmitScriptOutline,
   effectiveFormatPathForEpisode,
   parseSuggestedMinutes,
   refreshScriptFormatState,
   resolveEpisodeScriptSizing,
   scriptDeepLinkQuery,
+  scriptOutlineSubmissionParams,
   type ScriptFormatRefreshState,
 } from '../utils/scriptSizing.js'
 
@@ -199,6 +202,81 @@ describe('script episode sizing', () => {
     assert.deepEqual({ chapters: state.chapters, wordsPerChapter: state.wordsPerChapter }, {
       chapters: 7, wordsPerChapter: 777,
     })
+  })
+
+  test('initial zero sizing stays eligible and is omitted so backend defaults can apply', async () => {
+    const form = {
+      episode_id: 'EP0004', title: 'Deferred sizing', model: 'catalog-model',
+      length: 0, chapters: 0, total_words: 0, words_per_chapter: 0,
+    }
+    const state: ScriptFormatRefreshState = {
+      selectedEpisodeCode: form.episode_id,
+      sizingTouched: false,
+      get chapters() { return form.chapters },
+      set chapters(value: number) { form.chapters = value },
+      get wordsPerChapter() { return form.words_per_chapter },
+      set wordsPerChapter(value: number) { form.words_per_chapter = value },
+      formatContext: null,
+    }
+    await refreshScriptFormatState({
+      state,
+      requestedEpisodeCode: form.episode_id,
+      load: async () => ({
+        id: 'duration-deferred', name: 'Duration deferred',
+        script: { defaultChapterCount: 4, defaultWordsPerMinute: 135 },
+      }),
+    })
+
+    assert.deepEqual({
+      length: form.length,
+      chapters: form.chapters,
+      total_words: form.total_words,
+      words_per_chapter: form.words_per_chapter,
+    }, { length: 0, chapters: 0, total_words: 0, words_per_chapter: 0 })
+    assert.equal(canSubmitScriptOutline({
+      modelReady: true,
+      episodeId: form.episode_id,
+      title: form.title,
+      sizingDeferred: true,
+      sizing: {
+        length: form.length,
+        chapters: form.chapters,
+        total_words: form.total_words,
+        words_per_chapter: form.words_per_chapter,
+      },
+    }), true)
+    const params = scriptOutlineSubmissionParams(form, true)
+    assert.deepEqual(params, {
+      episode_id: 'EP0004', title: 'Deferred sizing', model: 'catalog-model',
+    })
+    assert.equal(GenerateScriptOnlySchema.safeParse(params).success, true)
+  })
+
+  test('positive owner or preset sizing remains in the submission', () => {
+    assert.equal(canSubmitScriptOutline({
+      modelReady: true,
+      episodeId: 'EP0005',
+      title: 'Owner sized',
+      sizingDeferred: false,
+      sizing: { length: 24, chapters: 6, total_words: 3_120, words_per_chapter: 520 },
+    }), true)
+    assert.deepEqual(scriptOutlineSubmissionParams({
+      episode_id: 'EP0005', title: 'Owner sized', model: 'catalog-model',
+      length: 24, chapters: 6, total_words: 3_120, words_per_chapter: 520,
+    }, false), {
+      episode_id: 'EP0005', title: 'Owner sized', model: 'catalog-model',
+      length: 24, chapters: 6, total_words: 3_120, words_per_chapter: 520,
+    })
+  })
+
+  test('owner-touched zero sizing is invalid rather than silently treated as deferred', () => {
+    assert.equal(canSubmitScriptOutline({
+      modelReady: true,
+      episodeId: 'EP0006',
+      title: 'Incomplete owner sizing',
+      sizingDeferred: false,
+      sizing: { length: 0, chapters: 0, total_words: 0, words_per_chapter: 0 },
+    }), false)
   })
 
   test('Ideas deep-links the truthful suggested duration instead of mapping every non-60 value to 45', () => {

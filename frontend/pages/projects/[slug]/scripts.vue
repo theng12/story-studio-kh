@@ -628,8 +628,10 @@
 
 <script setup lang="ts">
 import {
+  canSubmitScriptOutline,
   effectiveFormatPathForEpisode,
   refreshScriptFormatState,
+  scriptOutlineSubmissionParams,
   type ScriptFormatContext,
   type ScriptFormatRefreshState,
   type ScriptNarratorStyleOption,
@@ -1540,7 +1542,18 @@ const estimatedTotalDuration = computed(() =>
 )
 const canSubmit = computed(() => {
   if (!scriptModelReady.value) return false
-  return Boolean(form.episode_id && form.title)
+  return canSubmitScriptOutline({
+    modelReady: true,
+    episodeId: form.episode_id,
+    title: form.title,
+    sizingDeferred: !userTouchedSizing.value,
+    sizing: {
+      length: form.length,
+      chapters: form.chapters,
+      total_words: form.total_words,
+      words_per_chapter: form.words_per_chapter,
+    },
+  })
 })
 
 // Standard duration values shown in the Duration dropdown. Used only to
@@ -1736,7 +1749,7 @@ async function submitOutline(): Promise<boolean> {
   //
   // Returns true if the outline_only job reached 'done', false otherwise.
   const params: Record<string, any> = {
-    ...form,
+    ...scriptOutlineSubmissionParams(form, !userTouchedSizing.value),
     // Formula-owned episode profiles resolve Auto into a stable narrator
     // before the outline snapshot is saved. Chapter expansion therefore uses
     // the same voice without exposing another per-run selector.

@@ -36,6 +36,16 @@ export interface ScriptFormatRefreshState {
   formatContext: ScriptFormatContext | null
 }
 
+const OPTIONAL_SCRIPT_SIZING_FIELDS = [
+  'length',
+  'chapters',
+  'total_words',
+  'words_per_chapter',
+] as const
+
+type ScriptSizingField = typeof OPTIONAL_SCRIPT_SIZING_FIELDS[number]
+type ScriptSizingValues = Record<ScriptSizingField, number>
+
 function positiveNumber(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
@@ -51,6 +61,33 @@ export function parseSuggestedMinutes(value: unknown): number | null {
 export function effectiveFormatPathForEpisode(slug: string, episodeCode?: string): string {
   const base = `/projects/${slug}/effective-format`
   return episodeCode ? `${base}?episode_id=${encodeURIComponent(episodeCode)}` : base
+}
+
+export function canSubmitScriptOutline(input: {
+  modelReady: boolean
+  episodeId: string
+  title: string
+  sizingDeferred: boolean
+  sizing: ScriptSizingValues
+}): boolean {
+  if (!input.modelReady || !input.episodeId || !input.title) return false
+  return input.sizingDeferred || OPTIONAL_SCRIPT_SIZING_FIELDS.every((field) => {
+    const value = input.sizing[field]
+    return Number.isFinite(value) && value > 0
+  })
+}
+
+export function scriptOutlineSubmissionParams(
+  form: Record<string, unknown>,
+  sizingDeferred: boolean,
+): Record<string, unknown> {
+  const params = { ...form }
+  if (!sizingDeferred) return params
+  for (const field of OPTIONAL_SCRIPT_SIZING_FIELDS) {
+    const value = params[field]
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) delete params[field]
+  }
+  return params
 }
 
 function descriptionSummary(value: unknown): string {
