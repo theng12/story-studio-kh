@@ -114,17 +114,72 @@ test('blocked checkpoint cleanly ignores a stale local active attempt when autho
   }
 })
 
+test('current machine Off revokes every supported committed image submit permission', async () => {
+  const temp = await useTempDataDir()
+  const pm = await import('../services/project-manager.js')
+  const jq = await import('../services/job-queue.js')
+  const settings = await import('../services/app-settings.js')
+  try {
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 10 })
+    for (const type of ['continuity_render', 'image_pool_generate', 'thumb_images'] as const) {
+      const project = await pm.createProject({ name: `Committed Off ${type}` })
+      const authoritative: any = blockedCheckpointJob(project.slug, 'waiting')
+      authoritative.job_id = `committed-off-${type}`
+      authoritative.type = type
+      const attempt = authoritative.paid_image_replacement_attempts[0]
+      attempt.state = 'committed'
+      attempt.replacement_scope = `scope-${type}`
+      attempt.quoted_credits = 3
+      attempt.price_version = 'price-v1'
+      attempt.replacement_committed_at = new Date().toISOString()
+      const entry: any = {
+        task_id: attempt.original_task_id,
+        idempotency_key: attempt.original_idempotency_key,
+        input_hash: attempt.input_hash,
+        original_output_path: attempt.output_path,
+        original_output_selector: attempt.output_selector,
+        original_reference_inputs: attempt.reference_inputs,
+        original_reference_identity_hash: attempt.reference_identity_hash,
+        replacement_of_task_id: attempt.original_task_id,
+        replacement_scope: attempt.replacement_scope,
+        replacement_quoted_credits: attempt.quoted_credits,
+        replacement_price_version: attempt.price_version,
+        replacement_committed_at: attempt.replacement_committed_at,
+      }
+      const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
+      await fs.writeFile(jobsFile, JSON.stringify({ jobs: [authoritative] }))
+
+      const permission = await jq.getPaidImageReplacementSubmitPermission(
+        authoritative, attempt.asset_key, attempt.manifest_dir, attempt.manifest_key, entry,
+      )
+      assert.equal(permission, null, `${type} cannot cross its committed submit boundary while current setting is Off`)
+      const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+      assert.equal(durable.paid_image_replacement_attempts[0].state, 'blocked')
+      assert.match(durable.paid_image_replacement_attempts[0].reason, /currently off/i)
+    }
+  } finally {
+    await temp.cleanup()
+  }
+})
+
 test('Continuity freezes the exact original request before POST and returns a durable paid wait after positive infrastructure settlement', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
   let exposeOriginalAsRunning = false
+  let imageStatusReads = 0
+  let referenceUploads = 0
+  let imageGenerationPosts = 0
   let restoreImageProvider: (() => void) | undefined
   try {
     globalThis.fetch = async (input, init) => {
-      const response = await originalFetch(input, init)
       const url = String(input)
-      if ((init?.method || 'GET') === 'GET' && url.startsWith(`${service.baseUrl}/v1/images/`)
+      const method = init?.method || (input instanceof Request ? input.method : 'GET')
+      if (method === 'GET' && url.startsWith(`${service.baseUrl}/v1/images/`) && !url.endsWith('/file')) imageStatusReads++
+      if (method === 'POST' && url === `${service.baseUrl}/v1/images/source-images`) referenceUploads++
+      if (method === 'POST' && url === `${service.baseUrl}/v1/images/generations`) imageGenerationPosts++
+      const response = await originalFetch(input, init)
+      if (method === 'GET' && url.startsWith(`${service.baseUrl}/v1/images/`)
         && !url.endsWith('/file') && response.headers.get('content-type')?.includes('application/json')) {
         const body = await response.clone().json() as Record<string, unknown>
         if (body.state === 'failed') {
@@ -277,6 +332,17 @@ test('Continuity freezes the exact original request before POST and returns a du
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedMirror] }))
     Object.assign(job, blockedMirror)
 
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
+    const revokedCommit = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(revokedCommit.paid_image_replacement_attempts[0].state, 'blocked')
+    assert.equal(service.providerSubmissionCount('image'), 1, 'Off revokes a lane-delayed committed Continuity POST')
+    revokedCommit.paid_image_replacement_attempts[0].state = 'committed'
+    delete revokedCommit.paid_image_replacement_attempts[0].reason
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [revokedCommit] }))
+    Object.assign(job, revokedCommit)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+
     await sharp({ create: { width: 1, height: 1, channels: 3, background: '#123456' } })
       .png().toFile(outputPath)
     const committedArtifactBytes = await fs.readFile(outputPath)
@@ -340,9 +406,102 @@ test('Continuity freezes the exact original request before POST and returns a du
     completed.paid_image_replacement_attempts[0].state = 'submitted'
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [completed] }))
     Object.assign(job, completed)
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
     assert.equal(await runContinuityRenderJob(job), undefined)
     assert.equal(service.providerSubmissionCount('image'), 2, 'artifact-before-checkpoint recovery never resubmits Continuity')
     assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'succeeded')
+
+    const submittedWithoutArtifact = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    const paidTaskId = submittedWithoutArtifact.paid_image_replacement_attempts[0].replacement_task_id
+    const paidRecoveryEvidence = submittedWithoutArtifact.params.genstudio_recovery.assets['scene-001.png']
+    assert.equal(paidRecoveryEvidence.job_id, paidTaskId, 'accepted replacement task identity is durable')
+    assert.match(paidRecoveryEvidence.idempotency_key, /^story-image-/, 'accepted replacement idempotency identity is durable')
+    submittedWithoutArtifact.paid_image_replacement_attempts[0].state = 'submitted'
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [submittedWithoutArtifact] }))
+    Object.assign(job, submittedWithoutArtifact)
+    await fs.rm(outputPath)
+    const submissionsBeforeRecovery = service.providerSubmissionCount('image')
+    const statusReadsBeforeRecovery = imageStatusReads
+    const uploadsBeforeRecovery = referenceUploads
+    const observedStates: string[] = []
+    const jq = await import('../services/job-queue.js')
+    const submittedManifestEntry = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(
+      jq.getPaidImageReplacementRecoveryEntry(job, 'scene-001.png', outDir, 'scene-001.png', submittedManifestEntry)?.task_id,
+      paidTaskId,
+      'durable submitted task and idempotency evidence authorize only read-only recovery',
+    )
+    const onSubmittedRecoveryUpdate = (updated: any) => {
+      if (updated.job_id === job.job_id) observedStates.push(updated.paid_image_replacement_attempts?.[0]?.state)
+    }
+    jq.jobEvents.on('update', onSubmittedRecoveryUpdate)
+    try {
+      assert.equal(await runContinuityRenderJob(job), undefined)
+    } finally {
+      jq.jobEvents.off('update', onSubmittedRecoveryUpdate)
+    }
+    assert.ok(imageStatusReads > statusReadsBeforeRecovery, 're-entry reads the accepted replacement task status')
+    assert.equal(service.providerSubmissionCount('image'), submissionsBeforeRecovery, 'submitted recovery makes no generation POST while Off')
+    assert.equal(referenceUploads, uploadsBeforeRecovery, 'submitted recovery makes no reference upload POST while Off')
+    assert.ok(!observedStates.includes('blocked'), 'submitted evidence is never converted to blocked during read-only recovery')
+    await sharp(outputPath).stats()
+    const recoveredWithoutArtifact = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(recoveredWithoutArtifact.paid_image_replacement_attempts[0].state, 'succeeded')
+    assert.equal(recoveredWithoutArtifact.paid_image_replacement_attempts[0].replacement_task_id, paidTaskId)
+
+    const crashSeamFailures: string[] = []
+    for (const crashCase of [
+      {
+        label: 'missing checkpoint while Off', enabled: false,
+        mutate: (candidate: any) => { delete candidate.params.genstudio_recovery.assets['scene-001.png'] },
+      },
+      {
+        label: 'mismatched checkpoint while On', enabled: true,
+        mutate: (candidate: any) => {
+          candidate.params.genstudio_recovery.assets['scene-001.png'] = {
+            ...paidRecoveryEvidence,
+            job_id: 'other-replacement-task',
+            idempotency_key: 'story-image-other-replacement',
+          }
+        },
+      },
+    ]) {
+      try {
+        const crashCandidate = structuredClone(recoveredWithoutArtifact)
+        crashCandidate.paid_image_replacement_attempts[0].state = 'submitted'
+        delete crashCandidate.paid_image_replacement_attempts[0].actual_settled_credits
+        crashCase.mutate(crashCandidate)
+        await fs.writeFile(jobsFile, JSON.stringify({ jobs: [crashCandidate] }))
+        Object.assign(job, crashCandidate)
+        await settings.setPaidImageReplacementSetting({ enabled: crashCase.enabled, additional_credit_ceiling: 20 })
+        await fs.rm(outputPath, { force: true })
+        const generationPostsBeforeCrashRecovery = imageGenerationPosts
+        const uploadsBeforeCrashRecovery = referenceUploads
+        const readsBeforeCrashRecovery = imageStatusReads
+        const crashStates: string[] = []
+        const onCrashRecoveryUpdate = (updated: any) => {
+          if (updated.job_id === job.job_id) crashStates.push(updated.paid_image_replacement_attempts?.[0]?.state)
+        }
+        jq.jobEvents.on('update', onCrashRecoveryUpdate)
+        try {
+          assert.equal(await runContinuityRenderJob(job), undefined)
+        } finally {
+          jq.jobEvents.off('update', onCrashRecoveryUpdate)
+        }
+        assert.ok(imageStatusReads > readsBeforeCrashRecovery, `${crashCase.label} reads the authoritative accepted task`)
+        assert.equal(imageGenerationPosts, generationPostsBeforeCrashRecovery, `${crashCase.label} makes no generation POST`)
+        assert.equal(referenceUploads, uploadsBeforeCrashRecovery, `${crashCase.label} makes no upload POST`)
+        assert.ok(!crashStates.includes('blocked'), `${crashCase.label} never converts submitted evidence to blocked`)
+        await sharp(outputPath).stats()
+        const crashRecovered = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+        assert.equal(crashRecovered.paid_image_replacement_attempts[0].state, 'succeeded')
+        assert.equal(crashRecovered.paid_image_replacement_attempts[0].replacement_task_id, paidTaskId)
+      } catch (error) {
+        crashSeamFailures.push(`${crashCase.label}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    assert.deepEqual(crashSeamFailures, [])
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
   } finally {
     restoreImageProvider?.()
     globalThis.fetch = originalFetch
@@ -452,6 +611,17 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     delete unknownSettlement.paid_image_replacement_attempts[0].reason
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [unknownSettlement] }))
     Object.assign(job, unknownSettlement)
+    registry.registerImage(realProvider)
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
+    await assert.rejects(generateImagePoolImages(job), /incomplete/i)
+    const revokedCommit = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(revokedCommit.paid_image_replacement_attempts[0].state, 'blocked')
+    assert.equal(service.providerSubmissionCount('image'), 1, 'Off revokes a lane-delayed committed Pool POST')
+    revokedCommit.paid_image_replacement_attempts[0].state = 'committed'
+    delete revokedCommit.paid_image_replacement_attempts[0].reason
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [revokedCommit] }))
+    Object.assign(job, revokedCommit)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     let paidImageUrl = ''
     registry.registerImage({
       ...realProvider,
@@ -499,9 +669,11 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     completed.paid_image_replacement_attempts[0].replacement_task_id = paidTaskId
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [completed] }))
     Object.assign(job, completed)
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
     assert.equal(await generateImagePoolImages(job), undefined)
     assert.equal(service.providerSubmissionCount('image'), 2, 'artifact-before-checkpoint recovery never resubmits Image Pool')
     assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'succeeded')
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
 
     const noIdentity = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
     noIdentity.paid_image_replacement_attempts[0].state = 'committed'
@@ -682,6 +854,17 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     registry.registerImage(realProvider)
     restoreImageProvider = undefined
 
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
+    await assert.rejects(generateImages(job), /incomplete/i)
+    const revokedCommit = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(revokedCommit.paid_image_replacement_attempts[0].state, 'blocked')
+    assert.equal(service.providerSubmissionCount('image'), 1, 'Off revokes a lane-delayed committed thumbnail POST')
+    revokedCommit.paid_image_replacement_attempts[0].state = 'committed'
+    delete revokedCommit.paid_image_replacement_attempts[0].reason
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [revokedCommit] }))
+    Object.assign(job, revokedCommit)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+
     process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS = '1'
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'CLOUD_PROVIDER_EXHAUSTED', reservedCredits: 4 })
     await assert.rejects(generateImages(job), /incomplete/i)
@@ -724,11 +907,13 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     failed.paid_image_replacement_attempts[0].replacement_task_id = failedReplacementTaskId
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [failed] }))
     Object.assign(job, failed)
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
     assert.equal(await generateImages(job), undefined)
     assert.equal(service.providerSubmissionCount('image'), 2, 'artifact-before-checkpoint recovery never resubmits thumbnails')
     const recoveredPaidThumb = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0]
     assert.equal(recoveredPaidThumb.state, 'succeeded')
     assert.equal(recoveredPaidThumb.actual_settled_credits, undefined, 'artifact recovery has no authoritative replacement settlement')
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
 
     originalPositiveFailureUrl = ''
     const fleetFixture = await createContinuityFixture('Paid thumbnail fleet failure')

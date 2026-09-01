@@ -156,6 +156,7 @@ const genstudioImageProvider: ImageProvider = {
     const seed = model.supports_seed === false ? undefined : request.seed
 
     const submit = async () => {
+      await request.beforeSubmit?.()
       const sources = referencePaths.length
         ? await Promise.all(referencePaths.map(path => uploadImageSourceWithGenStudio(request.apiKey, path)))
         : []
@@ -173,6 +174,7 @@ const genstudioImageProvider: ImageProvider = {
         seed,
         requestIdentity: request.idempotencyIdentity,
         idempotencyKey: request.idempotencyKey,
+        beforeSubmit: request.beforeSubmit,
         isCancelled: request.isCancelled,
         onJobAccepted: request.onJobAccepted,
         onReconnect: request.onReconnect,

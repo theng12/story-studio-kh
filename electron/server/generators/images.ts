@@ -666,6 +666,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     baseScope: string
     original?: Partial<TaskManifestEntry>
     paidReplacement?: boolean
+    paidRecovery?: boolean
   }
 
   /**
@@ -1030,16 +1031,16 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     const v1Path = path.join(thumbDir, `${stem}_v1.png`)
     const filename = `${stem}_v1.png`
     const existingArtifactEntry = thumbManifest.tasks[filename]
-    const artifactPermission = existingArtifactEntry
-      ? jq.getPaidImageReplacementSubmitPermission(job, filename, thumbDir, filename, existingArtifactEntry)
+    const submitPermission = existingArtifactEntry
+      ? await jq.getPaidImageReplacementSubmitPermission(job, filename, thumbDir, filename, existingArtifactEntry)
       : null
     const submittedArtifactPermission = existingArtifactEntry
       ? jq.getPaidImageReplacementArtifactPermission(job, filename, thumbDir, filename, existingArtifactEntry)
       : null
     const existingArtifactIsUsable = await fileExistsWithContent(v1Path)
-    const paidArtifactIsDecodable = artifactPermission && await isDecodableImage(v1Path)
+    const paidArtifactIsDecodable = (submitPermission || submittedArtifactPermission) && await isDecodableImage(v1Path)
     const reconcilePaidArtifact = paidArtifactIsDecodable && submittedArtifactPermission
-    const skipExistingArtifact = paidArtifactIsDecodable || (!req.thumb_number && !force && !artifactPermission)
+    const skipExistingArtifact = paidArtifactIsDecodable || (!req.thumb_number && !force && !submitPermission)
     if (existingArtifactIsUsable && skipExistingArtifact) {
       if (reconcilePaidArtifact) {
         await jq.checkpointPaidImageReplacementAttempt(job, filename, {
@@ -1122,10 +1123,17 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             const existing = currentManifest.tasks[filename] || null
             const baseScope = force ? `force:${job.job_id}` : 'default'
             const durablePermission = existing
-              ? jq.getPaidImageReplacementSubmitPermission(job, filename, thumbDir, filename, existing)
+              ? await jq.getPaidImageReplacementSubmitPermission(job, filename, thumbDir, filename, existing)
+              : null
+            const submittedRecoveryCandidate = existing
+              ? jq.getPaidImageReplacementRecoveryEntry(job, filename, thumbDir, filename, existing)
+              : null
+            const submittedRecoveryEntry = submittedRecoveryCandidate
+              && (!durablePermission || !submittedRecoveryCandidate.idempotency_key)
+              ? submittedRecoveryCandidate
               : null
             let committedScope = durablePermission?.replacement_scope || ''
-            if (!committedScope && paidSelector && existing && isTerminalGenStudioImageTaskFailure(existing) && existing.original_output_selector) {
+            if (!committedScope && !submittedRecoveryEntry && paidSelector && existing && isTerminalGenStudioImageTaskFailure(existing) && existing.original_output_selector) {
               const decision = await decidePaidImageReplacement({
                 job,
                 asset: {
@@ -1146,11 +1154,25 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               }
               if (decision.action === 'blocked') {
                 await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
-                throw new Error(decision.reason)
+                throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
               }
               if (decision.action === 'commit') committedScope = decision.scope
             }
-            attempt = committedScope ? {
+            attempt = submittedRecoveryEntry ? {
+              recovery: await tryRecoverImageFromManifestEntry(
+                submittedRecoveryEntry, apiKey, resolvedModelConfig, () => jq.isCancelled(job.job_id),
+              ),
+              scope: existing!.replacement_scope!, inputHash: existing!.input_hash!,
+              submittedAt: existing!.submitted_at, notes: [], baseScope,
+              original: {
+                original_output_selector: existing!.original_output_selector,
+                original_reference_inputs: existing!.original_reference_inputs,
+                original_reference_identity_hash: existing!.original_reference_identity_hash,
+                original_output_path: existing!.original_output_path,
+              },
+              paidReplacement: true,
+              paidRecovery: true,
+            } : committedScope ? {
               recovery: { kind: 'no-saved-job' }, scope: committedScope, inputHash: existing!.input_hash!,
               submittedAt: existing!.submitted_at, notes: [], baseScope,
               original: {
@@ -1166,6 +1188,22 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             )
           }
           const current = attempt!
+          if (current.paidRecovery && (current.recovery.kind === 'terminal-failed' || current.recovery.kind === 'artifact-unavailable')) {
+            const terminalRecovery = current.recovery
+            const recoveryEntry = (await readManifest(thumbDir)).tasks[filename]!
+            const acceptedEntry = jq.getPaidImageReplacementRecoveryEntry(job, filename, thumbDir, filename, recoveryEntry)
+            if (!acceptedEntry) throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+            if (acceptedEntry.idempotency_key) {
+              await checkpointGenStudioAsset(job, filename, {
+                operation: 'image', idempotency_key: acceptedEntry.idempotency_key, job_id: terminalRecovery.taskId,
+                output_path: v1Path, input_hash: current.inputHash, state: 'failed',
+              })
+            }
+            await jq.checkpointPaidImageReplacementAttempt(job, filename, {
+              state: 'failed', replacement_task_id: terminalRecovery.taskId, reason: terminalRecovery.reason,
+            })
+            throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+          }
           if (paidSelector && (current.recovery.kind === 'terminal-failed' || current.recovery.kind === 'artifact-unavailable')) {
             const failedEntry = (await readManifest(thumbDir)).tasks[filename]!
             const decision = await decidePaidImageReplacement({
@@ -1183,17 +1221,26 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             }
             if (decision.action === 'blocked') {
               await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
-              throw new Error(decision.reason)
+              throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
             }
           }
-          if (current.recovery.kind === 'uncertain') throw uncertainRecoveryError(current.recovery)
+          if (current.recovery.kind === 'uncertain') {
+            if (current.paidRecovery) throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+            throw uncertainRecoveryError(current.recovery)
+          }
           for (const note of current.notes) job.output_lines.push(`Thumbnail ${thumb.number}: ${note}`)
           if (current.recovery.kind === 'recovered') {
             const recovered = current.recovery
             for (let i = 0; i < recovered.urls.length; i++) {
               await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
             }
-            await recordImageState(thumbDir, filename, current, 'succeeded', recovered.taskId, '')
+            if (current.paidRecovery) {
+              await jq.checkpointPaidImageReplacementAttempt(job, filename, {
+                state: 'succeeded', replacement_task_id: recovered.taskId,
+              })
+            } else {
+              await recordImageState(thumbDir, filename, current, 'succeeded', recovered.taskId, '')
+            }
             completedCount++
             job.output_lines.push(
               `Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — recovered ` +
@@ -1240,6 +1287,11 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               ? current.scope
               : `${project_slug}:${episode_id}:thumbnail:${thumb.number}:image:${current.scope}`,
             idempotencyKey: preparedKey,
+            ...(current.paidReplacement && replacementEntry ? {
+              beforeSubmit: () => jq.assertPaidImageReplacementSubmitPermission(
+                job, filename, thumbDir, filename, replacementEntry,
+              ),
+            } : {}),
             isCancelled: () => jq.isCancelled(job.job_id),
             onJobAccepted: async (taskId, idempotencyKey) => {
               acceptedTaskId = taskId
@@ -1302,8 +1354,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 ...(actualSettledCredits !== undefined ? { actual_settled_credits: actualSettledCredits } : {}),
               })
               failedCount++
-              job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: FAILED — ${e.message}`)
-              errors.push(`Thumbnail ${thumb.number}: ${e.message}`)
+              job.output_lines.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+              errors.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
               return
             } else {
               await recordImageState(thumbDir, filename, attempt, 'failed', failedTaskId, acceptedKey, true)
@@ -1330,7 +1382,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 }
                 if (decision.action === 'blocked') {
                   await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
-                  job.output_lines.push(`Thumbnail ${thumb.number}: paid replacement blocked — ${decision.reason}`)
+                  job.output_lines.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                 }
               }
             }

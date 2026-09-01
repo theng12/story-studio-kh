@@ -181,7 +181,9 @@ describe('Image Pool: the retry does not change the shape of the run', () => {
     has(`        if (!retryItem) {
           failed++
           failedFiles.add(item.filename)
-          job.output_lines.push(\`✗ item \${item.index + 1} failed: \${e?.message || e}\`)
+          job.output_lines.push(paidReplacement
+            ? jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
+            : \`✗ item \${item.index + 1} failed: \${e?.message || e}\`)
         }`, 'an exhausted item is recorded failed exactly as before, and the run carries on')
 
     // No `throw` was introduced into the item catch beyond the pre-existing

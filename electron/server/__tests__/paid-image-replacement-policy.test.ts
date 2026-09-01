@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
+import express from 'express'
+import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 import type { Job } from '../models/types.js'
 import type { TaskManifestEntry } from '../services/task-manifest.js'
@@ -61,8 +63,11 @@ const imageModel = (overrides: Record<string, unknown> = {}) => ({
 
 void test('job snapshots expose only the latest redacted paid image replacement attempt', async () => {
   const queue = await import('../services/job-queue.js')
+  const { router: jobsRouter } = await import('../routes/jobs.js')
   const projectSlug = 'paid-image-renderer-projection'
   const projectDir = path.join(temp.dir, 'projects', projectSlug)
+  const privateReason = 'provider=secret-adapter failed beside /Users/private/channel/internal.png with trace=abc123'
+  const publicMessage = 'Automatic image replacement is unavailable. No replacement was submitted.'
   const attempt = {
     asset_key: 'thumbnail:1', manifest_dir: '/private/manifest', manifest_key: 'thumb.png', output_path: '/private/output.png',
     state: 'blocked' as const, original_task_id: 'original-task-id', original_idempotency_key: 'original-idempotency-key',
@@ -71,34 +76,67 @@ void test('job snapshots expose only the latest redacted paid image replacement 
     terminal_observed_at: '2026-08-31T00:00:00.000Z', eligible_at: '2026-08-31T00:30:00.000Z',
     quoted_credits: 6, price_version: 'image-price-v2', replacement_scope: 'private-replacement-scope',
     replacement_committed_at: '2026-08-31T00:31:00.000Z', replacement_task_id: 'replacement-task-id',
-    actual_settled_credits: 4, reason: 'GenStudio reported a terminal failure.',
+    actual_settled_credits: 4, reason: undefined as string | undefined,
   }
   const durable: Job = {
     job_id: 'renderer-projection-job', project_slug: projectSlug, type: 'thumb_images', episode_id: 'EP0001', title: 'Renderer projection',
     status: 'error', created_at: '2026-08-31T00:00:00.000Z', started_at: '2026-08-31T00:00:00.000Z', finished_at: '2026-08-31T00:32:00.000Z',
-    error: 'Image replacement did not succeed.', output_lines: [], params: {},
-    paid_image_replacement_attempts: [{ ...attempt, state: 'waiting' }, attempt],
+    error: privateReason, output_lines: [`Paid replacement blocked: ${privateReason}`], params: {},
+    paid_image_replacement_attempts: [{ ...attempt, state: 'waiting' }],
   }
   await mkdir(projectDir, { recursive: true })
   await writeFile(path.join(projectDir, 'jobs.json'), JSON.stringify({ jobs: [durable] }))
 
-  const displayed = (await queue.getJobs(projectSlug))[0] as Job & {
+  await queue.getJobs(projectSlug)
+  const internalBeforeBlock = queue.getJob(durable.job_id)!
+  const updatePromise = new Promise<any>(resolve => {
+    const onUpdate = (updated: any) => {
+      if (updated.job_id !== durable.job_id) return
+      queue.jobEvents.off('update', onUpdate)
+      resolve(updated)
+    }
+    queue.jobEvents.on('update', onUpdate)
+  })
+  assert.equal(await queue.checkpointPaidImageReplacementBlockedIfPresent(
+    internalBeforeBlock, attempt.asset_key, privateReason,
+  ), true)
+  const streamed = await updatePromise
+  const displayed = streamed as Job & {
     paid_image_replacement_attempt?: Pick<typeof attempt,
       'state' | 'eligible_at' | 'replacement_committed_at' | 'quoted_credits' | 'price_version' | 'reason' | 'actual_settled_credits'>
   }
   assert.deepEqual(displayed.paid_image_replacement_attempt, {
     state: 'blocked', eligible_at: '2026-08-31T00:30:00.000Z', replacement_committed_at: '2026-08-31T00:31:00.000Z',
     quoted_credits: 6, price_version: 'image-price-v2', reason: 'automatic_replacement_unavailable', actual_settled_credits: 4,
-  }, 'the already-bounded attempt order determines the singular renderer projection')
+  }, 'the bounded durable attempt becomes one safe renderer projection')
   assert.equal('paid_image_replacement_attempts' in displayed, false, 'raw durable attempts never cross the renderer boundary')
-  const payload = JSON.stringify(displayed)
-  for (const secret of ['original-task-id', 'original-idempotency-key', 'replacement-task-id', 'private-replacement-scope', '/private/manifest', '/private/output.png']) {
+  assert.equal(displayed.error, publicMessage)
+  assert.deepEqual(displayed.output_lines, [publicMessage])
+  assert.equal(streamed.error, publicMessage, 'the SSE update uses the same safe projection')
+  assert.deepEqual(streamed.output_lines, [publicMessage])
+
+  const httpProjectSlug = 'paid-image-http-projection'
+  const httpJob = structuredClone(durable) as Job
+  httpJob.job_id = 'renderer-http-projection-job'
+  httpJob.project_slug = httpProjectSlug
+  httpJob.paid_image_replacement_attempts![0]!.state = 'blocked'
+  httpJob.paid_image_replacement_attempts![0]!.reason = privateReason
+  await mkdir(path.join(temp.dir, 'projects', httpProjectSlug), { recursive: true })
+  await writeFile(path.join(temp.dir, 'projects', httpProjectSlug, 'jobs.json'), JSON.stringify({ jobs: [httpJob] }))
+  const app = express()
+  app.use('/api', jobsRouter)
+  await request(app).get(`/api/projects/${httpProjectSlug}/jobs`).expect(200)
+  const http = await request(app).get(`/api/projects/${httpProjectSlug}/jobs/${httpJob.job_id}`).expect(200)
+  assert.equal(http.body.error, publicMessage, 'the HTTP job route uses the same safe projection')
+  assert.deepEqual(http.body.output_lines, [publicMessage])
+  const payload = JSON.stringify({ displayed, streamed, http: http.body })
+  for (const secret of ['original-task-id', 'original-idempotency-key', 'replacement-task-id', 'private-replacement-scope', '/private/manifest', '/private/output.png', privateReason, 'secret-adapter', 'abc123']) {
     assert.equal(payload.includes(secret), false, `${secret} remains private to durable evidence`)
   }
 
-  const internal = queue.getJob(durable.job_id)
-  assert.deepEqual(internal?.paid_image_replacement_attempts, durable.paid_image_replacement_attempts,
-    'internal recovery callers retain the full durable attempt evidence')
+  const internal = JSON.parse(await readFile(path.join(projectDir, 'jobs.json'), 'utf8')).jobs[0]
+  assert.equal(internal.paid_image_replacement_attempts.at(-1)?.reason, privateReason,
+    'the internal durable attempt retains the raw diagnostic reason')
 })
 
 void test('paid image rate resolution uses one exact output row and the selected price pair', async (suite) => {

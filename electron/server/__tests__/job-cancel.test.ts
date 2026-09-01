@@ -645,9 +645,10 @@ describe('remote cancellation checkpoints', () => {
     await new Promise(resolve => setTimeout(resolve, 30))
 
     const pending = jq.getJob(job.job_id)
+    const publicPending = jq.getPublicJob(job.job_id)
     assert.equal(pending?.status, 'running')
     assert.equal(pending?.finished_at, null)
-    assert.equal(pending?.control?.action, 'return-later')
+    assert.equal(publicPending?.control?.action, 'return-later')
     assert.ok(['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(pending?.remote_cancellations?.['voice.tts:pending-pause-target']?.status || ''))
     assert.match(pending?.output_lines.join('\n') || '', /pause/i)
     const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)

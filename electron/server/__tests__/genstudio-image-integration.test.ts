@@ -352,6 +352,56 @@ test('an empty aspect ratio submits the model default rather than a hardcoded 16
 
 // ── Availability is checked on every submit path ──────────────────────────
 
+test('a beforeSubmit veto prevents reference uploads and the charged generation POST', async () => {
+  await withGenStudio([publishedModel({
+    supports_reference_images: true,
+    max_reference_images: 1,
+  })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    let checks = 0
+    await assert.rejects(provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'revoked-before-submit-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      referenceImagePaths: referenceFixtures(1),
+      beforeSubmit: async () => {
+        checks++
+        throw new Error('current authority revoked')
+      },
+    }), /current authority revoked/)
+    assert.equal(checks, 1)
+    assert.equal(calls.uploads, 0)
+    assert.equal(calls.generations, 0)
+  })
+})
+
+test('beforeSubmit is rechecked after uploads at the charged generation POST boundary', async () => {
+  await withGenStudio([publishedModel({
+    supports_reference_images: true,
+    max_reference_images: 1,
+  })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    let checks = 0
+    await assert.rejects(provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'revoked-after-upload-key',
+      aspectRatio: '16:9',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      referenceImagePaths: referenceFixtures(1),
+      beforeSubmit: async () => {
+        checks++
+        if (checks === 2) throw new Error('current authority revoked after upload')
+      },
+    }), /current authority revoked after upload/)
+    assert.equal(checks, 2)
+    assert.equal(calls.uploads, 1)
+    assert.equal(calls.generations, 0)
+  })
+})
+
 test('an unavailable model is blocked on the plain text2img path', async () => {
   await withGenStudio([publishedModel({ available: false })], async (calls) => {
     const provider = registry.getImageProvider('genstudio-image')!

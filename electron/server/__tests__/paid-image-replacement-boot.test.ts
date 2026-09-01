@@ -311,8 +311,9 @@ describe('durable paid image waits across boot', () => {
   })
 
   test('jobs.json repairs only the approved committed and submitted manifest mirror', async () => {
-    await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+    const settings = await import('../services/app-settings.js')
     for (const state of ['committed', 'submitted'] as const) {
+      await settings.setPaidImageReplacementSetting({ enabled: state === 'committed', additional_credit_ceiling: 10 })
       const project = await pm.createProject({ name: `paid ${state} repair` })
       const { resolveContinuityRenderOutputDir } = await import('../generators/continuity-render.js')
       const dir = await resolveContinuityRenderOutputDir(project.slug, 'EP0001')
@@ -326,13 +327,12 @@ describe('durable paid image waits across boot', () => {
       job.output_dir = dir
       await seedOriginalManifest(attempt)
       await fs.writeFile(path.join(tempDir, 'projects', project.slug, 'jobs.json'), JSON.stringify({ jobs: [job] }))
-      let admitted!: () => void
-      const admittedPromise = new Promise<void>(resolve => { admitted = resolve })
+      let admissions = 0
       jq.registerExecutor('continuity_render', async running => {
-        if (running.project_slug === project.slug) admitted()
+        if (running.project_slug === project.slug) admissions++
       })
       await jq.resumeInterruptedJobsAtBoot()
-      await admittedPromise
+      await waitForScheduled(() => admissions === 1, { label: `${state} restart repair admission` })
       const entry = (await readManifest(dir)).tasks[attempt.manifest_key]!
       assert.equal(entry.replacement_of_task_id, attempt.original_task_id)
       assert.equal(entry.replacement_scope, attempt.replacement_scope)
@@ -341,6 +341,58 @@ describe('durable paid image waits across boot', () => {
       assert.equal(entry.replacement_committed_at, attempt.replacement_committed_at)
       assert.equal((entry as any).replacement_task_id, undefined, 'submitted task identity remains jobs.json-only')
     }
+  })
+
+  test('current machine Off holds a committed restart record without requeueing it', async () => {
+    await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 10 })
+    const project = await pm.createProject({ name: 'paid committed restart Off' })
+    const { resolveContinuityRenderOutputDir } = await import('../generators/continuity-render.js')
+    const dir = await resolveContinuityRenderOutputDir(project.slug, 'EP0001')
+    const attempt = paidAttempt(dir, 'committed')
+    const job = committedJob(project.slug, attempt)
+    job.output_dir = dir
+    await seedOriginalManifest(attempt)
+    await writePersistedJob(job)
+    let executions = 0
+    let queuedPersists = 0
+    const releaseExecutor = deferred()
+    const restore = jq._setPaidImageWaitRuntimeForTesting({
+      persistWait: async candidate => {
+        if (candidate.job_id === job.job_id && candidate.status === 'queued') queuedPersists++
+      },
+    })
+    jq.registerExecutor('continuity_render', async running => {
+      if (running.project_slug === project.slug) {
+        executions++
+        await releaseExecutor.promise
+      }
+    })
+    try {
+      await jq.resumeInterruptedJobsAtBoot()
+      await Promise.resolve()
+
+      assert.equal(queuedPersists, 0, 'Off prevents even the durable restart requeue transition')
+      assert.equal(executions, 0, 'restart recovery cannot re-admit committed paid work while current setting is Off')
+      const held = jq.getJob(job.job_id)!
+      assert.equal(held.status, 'running')
+      assert.equal(held.finished_at, null)
+      assert.equal(held.paid_image_replacement_attempts?.[0]?.state, 'committed')
+
+      const settings = await import('../services/app-settings.js')
+      await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+      await waitForScheduled(() => executions === 1, { label: 'Off-held committed restart re-admission after setting On' })
+      assert.equal(queuedPersists, 1)
+      assert.equal(jq.getJob(job.job_id)?.paid_image_replacement_attempts?.[0]?.state, 'committed')
+
+      await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+      const flushSettingReconciliation = (jq as any)._awaitPaidImageSettingReconciliationForTesting
+      assert.equal(typeof flushSettingReconciliation, 'function')
+      await flushSettingReconciliation()
+      releaseExecutor.resolve()
+      await waitForScheduled(() => jq.getJob(job.job_id)?.status === 'done', { label: 're-enabled committed restart completion' })
+      assert.equal(queuedPersists, 1, 'repeated On writes cannot durably requeue the same commitment twice')
+      assert.equal(executions, 1, 'repeated On writes cannot execute the same commitment twice')
+    } finally { restore() }
   })
 
   test('canonical repair rejects conflicting roots, manifest authority, and submitted task mismatches', async () => {

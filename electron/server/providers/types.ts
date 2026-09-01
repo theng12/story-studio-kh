@@ -73,6 +73,8 @@ export interface ImageGenerationRequest {
   idempotencyIdentity?: string
   /** Reuse an image key checkpointed by a durable queue executor. */
   idempotencyKey?: string
+  /** Revalidate owner-controlled authority immediately before a provider POST. */
+  beforeSubmit?: () => void | Promise<void>
   /**
    * Durable providers call this as soon as upstream accepts the task, before
    * polling or downloading. The caller can then recover the same paid/free

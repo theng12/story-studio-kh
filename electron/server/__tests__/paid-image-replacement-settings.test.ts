@@ -14,20 +14,19 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+import { waitForValue } from './_timing.js'
 
 let temp: Awaited<ReturnType<typeof useTempDataDir>>
 let app: express.Express
 
 async function waitForPersistedJobs(file: string, count: number): Promise<any[]> {
-  const deadline = Date.now() + 2_000
-  while (Date.now() < deadline) {
+  return waitForValue(async () => {
     try {
       const jobs = JSON.parse(await fs.readFile(file, 'utf8')).jobs
       if (Array.isArray(jobs) && jobs.length >= count) return jobs
     } catch { /* write has not completed yet */ }
-    await new Promise(resolve => setTimeout(resolve, 10))
-  }
-  assert.fail(`Timed out waiting for ${count} persisted jobs`)
+    return false
+  }, { label: `${count} persisted jobs`, timeoutMs: 2_000 })
 }
 
 before(async () => {

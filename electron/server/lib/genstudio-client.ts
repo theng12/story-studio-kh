@@ -1150,6 +1150,8 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   requestIdentity?: string
   /** Reuse a key checkpointed before the charged image POST. */
   idempotencyKey?: string
+  /** Revalidate owner-controlled authority at the final charged POST boundary. */
+  beforeSubmit?: () => void | Promise<void>
   onState?: (state: GenStudioJob['state']) => void
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
 }
@@ -6723,6 +6725,7 @@ async function generateImageWithGenStudioAdmitted(
       ['reference_asset_ids', request.referenceAssetIds?.length ? request.referenceAssetIds : undefined],
     ],
   })
+  await request.beforeSubmit?.()
   const submitted = await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/images/generations`,

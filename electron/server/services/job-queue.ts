@@ -1393,11 +1393,27 @@ type RendererJob = Omit<Job, 'paid_image_replacement_attempts'> & {
   paid_image_replacement_attempt?: RendererPaidImageReplacementAttempt
 }
 
+export const PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE =
+  'Automatic image replacement is unavailable. No replacement was submitted.'
+
 function serializeJob(job: Job): RendererJob {
   const copy = safeJob(job)
   const latestPaidImageAttempt = copy.paid_image_replacement_attempts?.at(-1)
+  const privateReasons = (copy.paid_image_replacement_attempts || [])
+    .map(attempt => attempt.reason?.trim())
+    .filter((reason): reason is string => Boolean(reason))
   delete copy.paid_image_replacement_attempts
   const rendererJob: RendererJob = copy
+  if (privateReasons.length) {
+    if (rendererJob.error && privateReasons.some(reason => rendererJob.error!.includes(reason))) {
+      rendererJob.error = PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
+    }
+    rendererJob.output_lines = rendererJob.output_lines.map(line => (
+      privateReasons.some(reason => line.includes(reason))
+        ? PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
+        : line
+    ))
+  }
   if (latestPaidImageAttempt) {
     rendererJob.paid_image_replacement_attempt = {
       state: latestPaidImageAttempt.state,
@@ -1585,8 +1601,8 @@ export async function checkpointPaidImageReplacementBlockedIfPresent(
   return true
 }
 
-/** Re-admit only a jobs-first commitment whose strict manifest mirror agrees. */
-export function getPaidImageReplacementSubmitPermission(
+/** Identity-only half used for accepted-artifact reconciliation even after Off. */
+function findPaidImageReplacementSubmitPermission(
   job: Job,
   assetKey: string,
   manifestDir: string,
@@ -1613,6 +1629,43 @@ export function getPaidImageReplacementSubmitPermission(
   return attempt
 }
 
+/** Re-admit a committed POST only while the current machine setting remains On. */
+export async function getPaidImageReplacementSubmitPermission(
+  job: Job,
+  assetKey: string,
+  manifestDir: string,
+  manifestKey: string,
+  entry: TaskManifestEntry,
+): Promise<PaidImageReplacementAttempt | null> {
+  return withPaidImageWaitSettingGate(async () => {
+    const attempt = findPaidImageReplacementSubmitPermission(job, assetKey, manifestDir, manifestKey, entry)
+    if (!attempt) return null
+    const setting = await getPaidImageReplacementSetting().catch(() => null)
+    // An accepted replacement is recovery-only. Never mutate its evidence or
+    // grant another POST while Off; the separate artifact permission below
+    // may still reconcile a file that the accepted task already finished.
+    if (attempt.state === 'submitted') return setting?.enabled ? attempt : null
+    if (setting?.enabled) return attempt
+    await checkpointPaidImageReplacementBlockedIfPresent(
+      job, assetKey, 'paid image replacement is currently off on this machine',
+    )
+    return null
+  })
+}
+
+/** Exact pre-POST guard shared by every supported image generator. */
+export async function assertPaidImageReplacementSubmitPermission(
+  job: Job,
+  assetKey: string,
+  manifestDir: string,
+  manifestKey: string,
+  entry: TaskManifestEntry,
+): Promise<void> {
+  if (!await getPaidImageReplacementSubmitPermission(job, assetKey, manifestDir, manifestKey, entry)) {
+    throw new Error(PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+  }
+}
+
 /** Reconcile an existing artifact only after a real replacement task was durably accepted. */
 export function getPaidImageReplacementArtifactPermission(
   job: Job,
@@ -1621,8 +1674,41 @@ export function getPaidImageReplacementArtifactPermission(
   manifestKey: string,
   entry: TaskManifestEntry,
 ): PaidImageReplacementAttempt | null {
-  const attempt = getPaidImageReplacementSubmitPermission(job, assetKey, manifestDir, manifestKey, entry)
+  const attempt = findPaidImageReplacementSubmitPermission(job, assetKey, manifestDir, manifestKey, entry)
   return attempt?.state === 'submitted' && attempt.replacement_task_id?.trim() ? attempt : null
+}
+
+/**
+ * Build a read-only provider recovery entry for an already accepted paid task.
+ * This never grants submit authority: the replacement task id and its
+ * strict committed manifest must agree before a generator may issue the status
+ * GET that can reclaim the artifact. The secondary GenStudio checkpoint is
+ * written after the submitted transition, so a crash may legitimately leave it
+ * absent; only an exact checkpoint contributes its idempotency key/state.
+ */
+export function getPaidImageReplacementRecoveryEntry(
+  job: Job,
+  assetKey: string,
+  manifestDir: string,
+  manifestKey: string,
+  entry: TaskManifestEntry,
+): TaskManifestEntry | null {
+  const attempt = getPaidImageReplacementArtifactPermission(job, assetKey, manifestDir, manifestKey, entry)
+  if (!attempt?.replacement_task_id) return null
+  const recovery = (job.params as any)?.genstudio_recovery
+  const checkpoint = recovery?.version === 1 && recovery?.route === 'genstudio'
+    ? recovery.assets?.[assetKey]
+    : null
+  const exactCheckpoint = checkpoint && checkpoint.operation === 'image' && checkpoint.state !== 'failed'
+    && checkpoint.job_id === attempt.replacement_task_id
+    && typeof checkpoint.idempotency_key === 'string' && checkpoint.idempotency_key.startsWith('story-')
+    && (checkpoint.input_hash === undefined || checkpoint.input_hash === attempt.input_hash)
+  return {
+    ...entry,
+    task_id: attempt.replacement_task_id,
+    idempotency_key: exactCheckpoint ? checkpoint.idempotency_key : undefined,
+    last_state: exactCheckpoint ? checkpoint.state : 'accepted',
+  }
 }
 
 /**
@@ -1663,7 +1749,9 @@ const defaultPaidImageWaitRuntime: PaidImageWaitRuntime = {
 let paidImageWaitRuntime = defaultPaidImageWaitRuntime
 const paidImageWaitTimers = new Map<string, PaidImageWaitTimer>()
 const paidImageWaitRequeues = new Map<string, Promise<void>>()
+const paidImageCommitHolds = new Set<string>()
 let paidImageWaitSettingGate: Promise<void> = Promise.resolve()
+let paidImageSettingReconciliation: Promise<void> = Promise.resolve()
 
 async function withPaidImageWaitSettingGate<T>(work: () => Promise<T>): Promise<T> {
   const previous = paidImageWaitSettingGate
@@ -1739,10 +1827,15 @@ function clearAllPaidImageWaitTimers(): void {
 }
 
 onAppSettingWritten(key => {
-  if (key === 'paid_image_replacement') void getPaidImageReplacementSetting().then(setting => {
-    if (!setting.enabled) clearAllPaidImageWaitTimers()
-  })
+  if (key !== 'paid_image_replacement') return
+  const reconcile = () => reconcilePaidImageReplacementSetting()
+  paidImageSettingReconciliation = paidImageSettingReconciliation.then(reconcile, reconcile)
 })
+
+/** Deterministic test barrier for the asynchronous app-setting listener. */
+export async function _awaitPaidImageSettingReconciliationForTesting(): Promise<void> {
+  await paidImageSettingReconciliation
+}
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
@@ -1981,6 +2074,49 @@ async function repairAndRequeuePaidImageCommit(job: Job): Promise<boolean> {
   return true
 }
 
+async function failInvalidPaidImageCommitRecovery(job: Job): Promise<void> {
+  job.status = 'error'
+  job.error = 'Paid image replacement recovery evidence was invalid after restart; no automatic retry was attempted.'
+  job.finished_at = new Date().toISOString()
+  job.local_execution_complete = false
+  job.output_lines = Array.isArray(job.output_lines) ? job.output_lines : []
+  job.output_lines.push(job.error)
+  jobs.set(job.job_id, job)
+  try { await paidImageWaitRuntime.persistWait(job) } catch {}
+}
+
+/** Resume only commitments explicitly held by an Off restart scan, in scan order. */
+async function reconcilePaidImageReplacementSetting(): Promise<void> {
+  await withPaidImageWaitSettingGate(async () => {
+    const setting = await getPaidImageReplacementSetting().catch(() => null)
+    if (!setting?.enabled) {
+      clearAllPaidImageWaitTimers()
+      return
+    }
+    const resumedTypes = new Set<JobType>()
+    for (const jobId of [...paidImageCommitHolds]) {
+      const job = jobs.get(jobId)
+      if (!job || !hasPaidImageCommitAttempt(job) || job.status !== 'running') {
+        paidImageCommitHolds.delete(jobId)
+        continue
+      }
+      if (await repairAndRequeuePaidImageCommit(job)) {
+        paidImageCommitHolds.delete(jobId)
+        resumedTypes.add(job.type)
+        continue
+      }
+      paidImageCommitHolds.delete(jobId)
+      await failInvalidPaidImageCommitRecovery(job)
+    }
+    if ([...resumedTypes].some(type => IMAGE_EPISODE_TYPES.has(type))) {
+      pumpImageEpisodeGroup(imageEpisodeConcurrency)
+    }
+    for (const type of resumedTypes) {
+      if (!IMAGE_EPISODE_TYPES.has(type)) pump(type)
+    }
+  })
+}
+
 /** Resolve the canonical existing surface; arbitrary persisted sidecar paths
  * never authorize repair. This is deliberately recovery-only and performs no
  * provider or generator work. */
@@ -2009,6 +2145,10 @@ function hasPaidImageCommitAttempt(job: Job): boolean {
   return (job.paid_image_replacement_attempts || []).some(attempt => (
     attempt.state === 'committed' || attempt.state === 'submitted'
   ))
+}
+
+function hasUnsubmittedPaidImageCommitAttempt(job: Job): boolean {
+  return (job.paid_image_replacement_attempts || []).some(attempt => attempt.state === 'committed')
 }
 
 async function hasManifestOnlyPaidImageCommitment(attempt: PaidImageReplacementAttempt): Promise<boolean> {
@@ -2102,20 +2242,21 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             }
             // jobs.json is authoritative for a committed paid replacement.
             // Repair only an absent manifest mirror, never the reverse.
+            if (hasUnsubmittedPaidImageCommitAttempt(j)) {
+              const setting = await getPaidImageReplacementSetting().catch(() => null)
+              if (!setting?.enabled) {
+                jobs.set(j.job_id, j)
+                paidImageCommitHolds.add(j.job_id)
+                continue
+              }
+            }
             if (await repairAndRequeuePaidImageCommit(j)) {
               resumedTypes.add(j.type as JobType)
               continue
             }
             if (hasPaidImageCommitAttempt(j)
               || (paidWait && await hasManifestOnlyPaidImageCommitment(paidWait.attempt))) {
-              j.status = 'error'
-              j.error = 'Paid image replacement recovery evidence was invalid after restart; no automatic retry was attempted.'
-              j.finished_at = new Date().toISOString()
-              j.local_execution_complete = false
-              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push(j.error)
-              jobs.set(j.job_id, j)
-              try { await paidImageWaitRuntime.persistWait(j) } catch {}
+              await failInvalidPaidImageCommitRecovery(j)
               continue
             }
             observePersistedRunningJobLoadStage(j, 'ordinary-recovery')

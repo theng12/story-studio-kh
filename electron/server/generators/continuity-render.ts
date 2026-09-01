@@ -442,7 +442,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         const filename = `${scene.id}.png`
         const entry = taskManifest.tasks[filename]
         const submitPermission = entry
-          ? jq.getPaidImageReplacementSubmitPermission(job, filename, outDir, filename, entry)
+          ? await jq.getPaidImageReplacementSubmitPermission(job, filename, outDir, filename, entry)
           : null
         const artifactPermission = entry
           ? jq.getPaidImageReplacementArtifactPermission(job, filename, outDir, filename, entry)
@@ -728,9 +728,16 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               const paidOutputRoot = outDir
               attemptPaidOwningRoot = paidReferenceRoot
               const durablePermission = manifestEntry
-                ? jq.getPaidImageReplacementSubmitPermission(job, filename, outDir, filename, manifestEntry)
+                ? await jq.getPaidImageReplacementSubmitPermission(job, filename, outDir, filename, manifestEntry)
                 : null
-              const useFrozenOriginal = !!durablePermission || !!(manifestEntry?.original_output_selector
+              const submittedRecoveryCandidate = manifestEntry
+                ? jq.getPaidImageReplacementRecoveryEntry(job, filename, outDir, filename, manifestEntry)
+                : null
+              const submittedRecoveryEntry = submittedRecoveryCandidate
+                && (!durablePermission || !submittedRecoveryCandidate.idempotency_key)
+                ? submittedRecoveryCandidate
+                : null
+              const useFrozenOriginal = !!durablePermission || !!submittedRecoveryEntry || !!(manifestEntry?.original_output_selector
                 && isTerminalGenStudioImageTaskFailure(manifestEntry))
               const originalSelector = (useFrozenOriginal ? manifestEntry?.original_output_selector : null) || (paidSelector ? {
                 ...paidSelector,
@@ -746,7 +753,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   )
                 : null
               let replacementScope = durablePermission?.replacement_scope || ''
-              if (!replacementScope && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
+              if (!replacementScope && !submittedRecoveryEntry && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
                 && manifestEntry.original_output_selector) {
                 const decision = await decidePaidImageReplacement({
                   job,
@@ -772,7 +779,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 }
                 if (decision.action === 'blocked') {
                   await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
-                  throw new Error(decision.reason)
+                  throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                 }
                 if (decision.action === 'commit') replacementScope = decision.scope
               }
@@ -786,15 +793,17 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               let identity = originalSelector && capturedReferences
                 ? buildPaidImageOriginalIdentity({ prompt: finalPrompt, selector: originalSelector, references: capturedReferences.inputs, baseScope: logicalScope })
                 : null
-              let requestScope = replacementScope || identity?.requestScope || logicalScope
+              let requestScope = replacementScope || (submittedRecoveryEntry ? manifestEntry!.replacement_scope! : '') || identity?.requestScope || logicalScope
               const expectedInputHash = identity?.inputHash || hashRequest(requestScope)
               // Reconnect ONLY to a saved job that belongs to this exact request
               // AND has not already settled. Hash equality alone once let a
               // six-day-old failed job satisfy every future Retry.
               const hashMatches = manifestEntry?.input_hash === expectedInputHash
-              const recoverable = !replacementScope && hashMatches && !isTerminalGenStudioImageTaskFailure(manifestEntry)
-                ? manifestEntry
-                : null
+              const recoverable = submittedRecoveryEntry || (
+                !replacementScope && hashMatches && !isTerminalGenStudioImageTaskFailure(manifestEntry)
+                  ? manifestEntry
+                  : null
+              )
               const recovery = await tryRecoverImageFromManifestEntry(
                 recoverable,
                 apiKey,
@@ -804,6 +813,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               if (recovery.kind === 'uncertain') {
                 // Never turn "I could not confirm the outcome" into a second paid
                 // submission. Fail this scene; Retry reconnects to the same job.
+                if (submittedRecoveryEntry) throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                 throw new Error(
                   `Could not confirm GenStudio task ${recovery.taskId.slice(0, 12)}… (${recovery.reason}). ` +
                   'No duplicate image was submitted; Retry reconnects to the same job.',
@@ -811,6 +821,18 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               }
               let carried: TaskManifestEntry | null = manifestEntry
               if (recovery.kind === 'terminal-failed' || recovery.kind === 'artifact-unavailable') {
+                if (submittedRecoveryEntry) {
+                  if (submittedRecoveryEntry.idempotency_key) {
+                    await checkpointGenStudioAsset(job, filename, {
+                      operation: 'image', idempotency_key: submittedRecoveryEntry.idempotency_key,
+                      job_id: recovery.taskId, output_path: outPath, input_hash: manifestEntry!.input_hash!, state: 'failed',
+                    })
+                  }
+                  await jq.checkpointPaidImageReplacementAttempt(job, filename, {
+                    state: 'failed', replacement_task_id: recovery.taskId, reason: recovery.reason,
+                  })
+                  throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+                }
                 // GenStudio just told us the saved job settled. Persist that
                 // outcome FIRST, then promote to a fresh identity from it, so the
                 // same retry scope is reproducible after a crash.
@@ -832,7 +854,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   }
                   if (decision.action === 'blocked') {
                     await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
-                    throw new Error(decision.reason)
+                    throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                   }
                 }
                 const carriedRetry = carried.request_scope?.includes(':selector:')
@@ -849,7 +871,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   'submitting one fresh job under a new retry identity.',
                 )
               }
-              const inputHash = replacementScope
+              const inputHash = replacementScope || submittedRecoveryEntry
                 ? manifestEntry!.input_hash!
                 : identity?.inputHash || (requestScope === retryScope.scope ? expectedInputHash : hashRequest(requestScope))
               attemptScope = requestScope
@@ -886,21 +908,23 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 original_output_path: revalidatePaidImageOutputPath(paidOutputRoot, outPath),
               } : {}
               attemptOriginalFields = originalFields
-              isPaidReplacement = !!replacementScope
+              isPaidReplacement = !!replacementScope || !!submittedRecoveryEntry
 
               let result: { urls: string[]; taskId?: string; settledCredits?: number }
               if (recovery.kind === 'recovered') {
                 result = { urls: recovery.urls, taskId: recovery.taskId }
-                await recordTask(outDir, filename, {
-                  ...manifestEntry,
-                  provider: providerId,
-                  task_id: recovery.taskId,
-                  submitted_at: submittedAt,
-                  input_hash: inputHash,
-                  request_scope: requestScope,
-                  operation: 'image',
-                  last_state: 'succeeded',
-                })
+                if (!submittedRecoveryEntry) {
+                  await recordTask(outDir, filename, {
+                    ...manifestEntry,
+                    provider: providerId,
+                    task_id: recovery.taskId,
+                    submitted_at: submittedAt,
+                    input_hash: inputHash,
+                    request_scope: requestScope,
+                    operation: 'image',
+                    last_state: 'succeeded',
+                  })
+                }
               } else {
                 // Persist the request identity BEFORE the POST. If the response is
                 // lost, the next attempt reads this scope back, rebuilds the same
@@ -938,6 +962,11 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   seed: params.seed,
                   idempotencyIdentity: requestIdentity,
                   idempotencyKey: preparedKey,
+                  ...(replacementScope && manifestEntry ? {
+                    beforeSubmit: () => jq.assertPaidImageReplacementSubmitPermission(
+                      job, filename, outDir, filename, manifestEntry,
+                    ),
+                  } : {}),
                   isCancelled: () => jq.isCancelled(job.job_id),
                   onJobAccepted: async (taskId, idempotencyKey) => {
                     acceptedTaskId = taskId
@@ -1067,7 +1096,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   }
                   if (decision?.action === 'blocked') {
                     await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
-                    job.output_lines.push(`Scene ${scene.scene_index}: paid replacement blocked — ${decision.reason}`)
+                    job.output_lines.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                   }
                 }
                 if (e.cancelled) cancelledSceneIds.add(scene.id)
@@ -1112,7 +1141,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               // One failed scene does not block the rest of the durable batch.
               if (!cancelledSceneIds.has(scene.id)) {
                 failedSceneIds.push(scene.id)
-                job.output_lines.push(`Scene ${scene.scene_index} failed: ${e?.message || e}`)
+                job.output_lines.push(isPaidReplacement
+                  ? jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
+                  : `Scene ${scene.scene_index} failed: ${e?.message || e}`)
               } else {
                 job.output_lines.push(`Scene ${scene.scene_index} cancelled by customer; GenStudio settlement is preserved and this is not counted as a provider failure.`)
               }
