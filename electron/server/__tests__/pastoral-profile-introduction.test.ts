@@ -11,6 +11,7 @@ let pm: typeof import('../services/project-manager.js')
 let ideas: typeof import('../services/idea-manager.js')
 let generateIntroductionOnly: typeof import('../generators/episode.js')['generateIntroductionOnly']
 let generateOutlineOnly: typeof import('../generators/episode.js')['generateOutlineOnly']
+let generateChapterOnly: typeof import('../generators/episode.js')['generateChapterOnly']
 let writeChapterFiles: typeof import('../lib/narration-assembly.js')['writeChapterFiles']
 let resolveEpisodePaths: typeof import('../services/utils.js')['resolveEpisodePaths']
 let saveChannelSegment: typeof import('../services/channel-segments.js')['saveChannelSegment']
@@ -77,7 +78,7 @@ before(async () => {
     path.join(pm.projectsRoot(), '.niches', `${FORMULA.id}.json`),
     JSON.stringify(FORMULA),
   )
-  ;({ generateIntroductionOnly, generateOutlineOnly } = await import('../generators/episode.js'))
+  ;({ generateChapterOnly, generateIntroductionOnly, generateOutlineOnly } = await import('../generators/episode.js'))
   ;({ writeChapterFiles } = await import('../lib/narration-assembly.js'))
   ;({ resolveEpisodePaths } = await import('../services/utils.js'))
   ;({ saveChannelSegment } = await import('../services/channel-segments.js'))
@@ -189,4 +190,51 @@ test('Introduction generation uses each accepted pastoral profile and preserves 
   assert.match(overridePrompt, /Target introduction length: 77 words/)
   assert.match(overridePrompt, /use the channel owner wording/)
   assert.doesNotMatch(overridePrompt, /before any greeting/)
+})
+
+test('chapter regeneration and Introduction resolve profile Auto while preserving an explicit owner narrator', async () => {
+  const project = await pm.createProject({ name: 'Pastoral narrator consumers', niche_id: FORMULA.id })
+  const [seeded] = await ideas.addIdeas(project.slug, [{
+    title: 'Teaching consumer episode', logline: 'Teaching.', themes: [], suggested_chapters: 1,
+    suggested_length: '25 min', mood: 'clear', idea_dimensions: { 'episode-profile': 'expository teaching' },
+  }], MODEL)
+  const accepted = await ideas.acceptIdea(project.slug, seeded!.id)
+  const paths = await resolveEpisodePaths(project.slug, accepted.episode_code, accepted.idea.title)
+  await writeChapterFiles(paths.script_dir, accepted.episode_code, accepted.idea.title, {
+    chapters: [{ number: 1, title: 'Passage', text: 'A chapter already exists.' }],
+  })
+
+  const chapterRequestStart = requests.length
+  for (const style of ['auto', 'daily-a']) {
+    await generateChapterOnly({
+      ...job(project.slug, accepted.episode_code, accepted.idea.title),
+      job_id: `chapter-${style}-${accepted.episode_code}`,
+      type: 'chapter-only',
+      params: {
+        episode_id: accepted.episode_code, title: accepted.idea.title, model: MODEL,
+        style, chapter_number: 1, chapters: 1, words_per_chapter: 100,
+      },
+    } as Job)
+  }
+  const chapterPrompts = requests.slice(chapterRequestStart)
+    .map(request => request.userMessage)
+    .filter(prompt => prompt.startsWith('Regenerate ONLY'))
+  assert.match(chapterPrompts[0]!, /Narrator style: Style teaching-a — Clear teaching\./)
+  assert.doesNotMatch(chapterPrompts[0]!, /Narrator style: Style auto/)
+  assert.match(chapterPrompts[1]!, /Narrator style: Style daily-a — Warm devotional\./)
+
+  const introductionRequestStart = requests.length
+  for (const style of ['auto', 'daily-a']) {
+    await generateIntroductionOnly({
+      ...job(project.slug, accepted.episode_code, accepted.idea.title),
+      job_id: `intro-${style}-${accepted.episode_code}`,
+      params: { episode_id: accepted.episode_code, title: accepted.idea.title, model: MODEL, style },
+    })
+  }
+  const introductionPrompts = requests.slice(introductionRequestStart)
+    .map(request => request.userMessage)
+    .filter(prompt => prompt.includes('Target introduction length:'))
+  assert.match(introductionPrompts[0]!, /Narrator style: teaching-a/)
+  assert.doesNotMatch(introductionPrompts[0]!, /Narrator style: auto/)
+  assert.match(introductionPrompts[1]!, /Narrator style: daily-a/)
 })

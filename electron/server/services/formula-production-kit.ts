@@ -1,5 +1,48 @@
 import type { FormulaEpisodeProfile, Niche } from '../models/types.js'
 
+function cloneIntroDefaults(input: Niche['introDefaults']): Niche['introDefaults'] {
+  if (!input) return undefined
+  return {
+    ...input,
+    beats: input.beats?.map(beat => typeof beat === 'string' ? beat : { ...beat }),
+  }
+}
+
+function cloneScriptStructure(input: Niche['scriptStructure']): Niche['scriptStructure'] {
+  if (!input) return undefined
+  return {
+    ...input,
+    chapterCountRange: input.chapterCountRange?.slice() as [number, number] | undefined,
+    lengthMinutesRange: input.lengthMinutesRange?.slice() as [number, number] | undefined,
+    durationPresets: input.durationPresets?.slice(),
+    visualPacingProfile: input.visualPacingProfile
+      ? {
+          ...input.visualPacingProfile,
+          opening: { ...input.visualPacingProfile.opening },
+          settled: { ...input.visualPacingProfile.settled },
+        }
+      : undefined,
+    motionProfile: input.motionProfile
+      ? {
+          ...input.motionProfile,
+          opening: { ...input.motionProfile.opening },
+          settled: { ...input.motionProfile.settled },
+        }
+      : undefined,
+    pacingArc: input.pacingArc?.slice(),
+    additionalRules: input.additionalRules?.slice(),
+  }
+}
+
+function cloneRecencyAvoidance(input: Niche['recencyAvoidance']): Niche['recencyAvoidance'] {
+  if (!input) return undefined
+  return {
+    ...input,
+    extractPatterns: input.extractPatterns.slice(),
+    scopes: input.scopes?.slice(),
+  }
+}
+
 export function resolveFormulaEpisodeProfile(
   niche: Niche,
   dimensions?: Record<string, string>,
@@ -17,15 +60,16 @@ export function applyFormulaEpisodeProfile(
 ): Niche {
   const profile = resolveFormulaEpisodeProfile(niche, dimensions)
   if (!profile) return niche
+  const parentIntroDefaults = cloneIntroDefaults(niche.introDefaults)
   const introDefaults = profile.introDefaults
     ? {
-        ...niche.introDefaults,
-        ...profile.introDefaults,
-        beats: (profile.introDefaults.beats ?? niche.introDefaults?.beats)
+        ...parentIntroDefaults,
+        ...cloneIntroDefaults(profile.introDefaults),
+        beats: (profile.introDefaults.beats ?? parentIntroDefaults?.beats)
           ?.map(beat => typeof beat === 'string' ? beat : { ...beat }),
       }
-    : niche.introDefaults
-  const parentStructure = niche.scriptStructure
+    : parentIntroDefaults
+  const parentStructure = cloneScriptStructure(niche.scriptStructure)
   const overrideStructure = profile.scriptStructure
   const scriptStructure = overrideStructure
     ? {
@@ -56,14 +100,18 @@ export function applyFormulaEpisodeProfile(
         additionalRules: (overrideStructure.additionalRules ?? parentStructure?.additionalRules)?.slice(),
       }
     : parentStructure
+  const parentRecencyAvoidance = cloneRecencyAvoidance(niche.recencyAvoidance)
   const recencyAvoidance = profile.recencyAvoidance
-    ? {
-        ...niche.recencyAvoidance,
-        ...profile.recencyAvoidance,
-        extractPatterns: (profile.recencyAvoidance.extractPatterns ?? niche.recencyAvoidance?.extractPatterns ?? []).slice(),
-        scopes: (profile.recencyAvoidance.scopes ?? niche.recencyAvoidance?.scopes)?.slice(),
-      }
-    : niche.recencyAvoidance
+    ? (() => {
+        const override = cloneRecencyAvoidance(profile.recencyAvoidance)!
+        return {
+          ...parentRecencyAvoidance,
+          ...override,
+          extractPatterns: (profile.recencyAvoidance.extractPatterns ?? parentRecencyAvoidance?.extractPatterns ?? []).slice(),
+          scopes: (profile.recencyAvoidance.scopes ?? parentRecencyAvoidance?.scopes)?.slice(),
+        }
+      })()
+    : parentRecencyAvoidance
   return {
     ...niche,
     introDefaults,

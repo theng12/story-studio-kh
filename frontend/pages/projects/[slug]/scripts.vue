@@ -629,8 +629,10 @@
 <script setup lang="ts">
 import {
   effectiveFormatPathForEpisode,
-  episodeFormatResponseMatchesSelection,
-  resolveEpisodeScriptSizing,
+  refreshScriptFormatState,
+  type ScriptFormatContext,
+  type ScriptFormatRefreshState,
+  type ScriptNarratorStyleOption,
 } from '~/utils/scriptSizing'
 import { CREDIT_BASIS_LABEL, describeChatRate } from '~/utils/genstudio-credit-cost'
 definePageMeta({ layout: 'dashboard' })
@@ -802,7 +804,7 @@ const wordsPerMinute = computed<number>(() => {
   const fmtWpm = formatContext.value?.defaultWordsPerMinute
   return typeof fmtWpm === 'number' && fmtWpm > 0 ? fmtWpm : LEGACY_WORDS_PER_MINUTE
 })
-const durationSelect = ref('45')
+const durationSelect = ref('custom')
 const showStyleDesc = ref(false)
 const customStyleText = ref('')
 const narratorOverrideOpen = ref(false)
@@ -835,7 +837,7 @@ function confirmSaveCustomStyle() {
 const form = reactive({
   episode_id: route.query.episode_id as string || '',
   title: route.query.title as string || '',
-  length: Number(route.query.length) || 45,
+  length: Number(route.query.length) || 0,
   // The live GenStudio picker selects the first usable catalog model. Do not
   // seed a retired direct-provider id here: a persisted preference is restored
   // first and then validated/healed against that same live catalog.
@@ -845,9 +847,9 @@ const form = reactive({
   creative_direction: '',
   perspective: 'auto',
   custom_perspective: '',
-  chapters: Number(route.query.chapters) || 10,
-  total_words: 5500,
-  words_per_chapter: 550,
+  chapters: Number(route.query.chapters) || 0,
+  total_words: 0,
+  words_per_chapter: 0,
   generate_image_prompts: false,
   generate_youtube_desc: false,
   force: false,
@@ -932,32 +934,8 @@ const sectionLabel = useSectionLabel(projectFormatId)
  *                          fall outside the recommended range (still lets
  *                          them generate — it's a hint, not a block)
  */
-interface FormatContext {
-  id: string
-  name: string
-  summary: string                    // first sentence of description
-  defaultChapterCount: number | null
-  defaultLengthMinutes: number | null
-  chapterCountRange: [number, number] | null
-  lengthMinutesRange: [number, number] | null
-  /** v1.0.101+ — duration values to show in the Duration dropdown.
-   *  Populated from format.script.durationPresets; null falls back to
-   *  the legacy sleep-story-flavoured [15, 20, 30, 45, 60, 90]. */
-  durationPresets: number[] | null
-  /** v1.0.102+ — words/minute for narration of this format. Drives the
-   *  est-duration badge + the length↔total_words bidirectional snap.
-   *  null falls back to the legacy 122 (sleep-story narration pace). */
-  defaultWordsPerMinute: number | null
-  narratorStyles: NarratorStyleOption[]
-  defaultNarratorStyleId: string | null
-}
-const formatContext = ref<FormatContext | null>(null)
-
-interface NarratorStyleOption {
-  id: string
-  label: string
-  description: string
-}
+const formatContext = ref<ScriptFormatContext | null>(null)
+type NarratorStyleOption = ScriptNarratorStyleOption
 
 // v1.0.105+ — Niche overlay visibility. The merged format already
 // reflects niche overrides (defaultChapterCount, chapterCountRange,
@@ -1167,16 +1145,6 @@ const durationOptions = computed<number[]>(() => {
 })
 const standardDurationSet = computed<Set<number>>(() => new Set(durationOptions.value))
 
-// First sentence (or first 160 chars, whichever is shorter) — formats ship
-// long marketing-flavoured descriptions; we want a one-line summary.
-function summariseDescription(desc: string): string {
-  if (!desc) return ''
-  const trimmed = desc.trim()
-  const sentenceEnd = trimmed.search(/[.!?](\s|$)/)
-  const firstSentence = sentenceEnd > 0 ? trimmed.slice(0, sentenceEnd + 1) : trimmed
-  return firstSentence.length > 200 ? firstSentence.slice(0, 197) + '…' : firstSentence
-}
-
 // Recommended words/chapter at the format's own default length + chapter
 // count. Shown alongside the user's current wpc so they can see at a
 // glance whether they've drifted from "what this format normally does."
@@ -1300,79 +1268,34 @@ const scriptPresets = usePresets<any>({
  * an explicit caller intent. Saved presets win over both because
  * preset.load() runs AFTER this function.
  */
-async function applyScriptFormatDefaultsIfNoPreset(episodeId = form.episode_id) {
+async function applyScriptFormatDefaultsIfNoPreset(episodeId = form.episode_id, episode?: any) {
   // Skip if URL pinned both — caller intent dominates the format default.
   const urlLength = route.query.length
   const urlChapters = route.query.chapters
   const lengthFromUrl = urlLength !== undefined && urlLength !== null && urlLength !== ''
   const chaptersFromUrl = urlChapters !== undefined && urlChapters !== null && urlChapters !== ''
   try {
-    const f = await get<any>(effectiveFormatPathForEpisode(slug.value, episodeId))
-    if (!episodeFormatResponseMatchesSelection(episodeId, form.episode_id)) return
-    const sf = f?.script
-    if (!sf) return
-    if (!chaptersFromUrl && typeof sf.defaultChapterCount === 'number' && sf.defaultChapterCount > 0) {
-      form.chapters = sf.defaultChapterCount
-    }
-    // v1.0.168 — seed the TWO inputs (chapters + words-per-chapter). Prefer an
-    // explicit per-chapter default from the format; otherwise derive it once
-    // from the format's default length so existing formats without the new
-    // field still land on a sensible per-chapter target. total_words + the
-    // duration estimate recompute from these via the sizing watcher; duration
-    // is no longer seeded as an input.
-    if (!lengthFromUrl) {
-      const sfWpc = (sf as any).defaultWordsPerChapter
-      if (typeof sfWpc === 'number' && sfWpc > 0) {
-        form.words_per_chapter = sfWpc
-      } else if (typeof sf.defaultLengthMinutes === 'number' && sf.defaultLengthMinutes > 0 && form.chapters > 0) {
-        const seededTotal = Math.round(sf.defaultLengthMinutes * wordsPerMinute.value)
-        form.words_per_chapter = Math.round(seededTotal / form.chapters)
-      }
-    }
-    // Cache the format metadata for the read-only context panel below the
-    // word-count inputs. Pulled from the same /effective-format payload —
-    // no second round-trip. Range tuples are coerced; we fall back to null
-    // when a field is malformed so the UI hides the corresponding chip
-    // instead of rendering "0–0".
-    const ccRange = Array.isArray(sf.chapterCountRange) && sf.chapterCountRange.length === 2
-      && typeof sf.chapterCountRange[0] === 'number' && typeof sf.chapterCountRange[1] === 'number'
-      ? [sf.chapterCountRange[0], sf.chapterCountRange[1]] as [number, number]
-      : null
-    const lmRange = Array.isArray(sf.lengthMinutesRange) && sf.lengthMinutesRange.length === 2
-      && typeof sf.lengthMinutesRange[0] === 'number' && typeof sf.lengthMinutesRange[1] === 'number'
-      ? [sf.lengthMinutesRange[0], sf.lengthMinutesRange[1]] as [number, number]
-      : null
-    // v1.0.101+ duration preset list. Filter to positive numbers so a
-    // bad entry in the JSON can't produce a "0 minutes" option.
-    const durationPresets = Array.isArray(sf.durationPresets)
-      ? (sf.durationPresets as unknown[])
-          .filter((n): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0)
-      : null
-    const narratorStyles = Array.isArray(sf.narratorStyles)
-      ? (sf.narratorStyles as any[]).flatMap((style): NarratorStyleOption[] => {
-          if (!style || typeof style.id !== 'string' || !style.id) return []
-          return [{
-            id: style.id,
-            label: typeof style.label === 'string' && style.label ? style.label : style.id,
-            description: typeof style.description === 'string' ? style.description : '',
-          }]
-        })
-      : []
-    formatContext.value = {
-      id: typeof f.id === 'string' ? f.id : 'unknown',
-      name: typeof f.name === 'string' ? f.name : 'Format',
-      summary: summariseDescription(typeof f.description === 'string' ? f.description : ''),
-      defaultChapterCount: typeof sf.defaultChapterCount === 'number' ? sf.defaultChapterCount : null,
-      defaultLengthMinutes: typeof sf.defaultLengthMinutes === 'number' ? sf.defaultLengthMinutes : null,
-      chapterCountRange: ccRange,
-      lengthMinutesRange: lmRange,
-      durationPresets: durationPresets && durationPresets.length > 0 ? durationPresets : null,
-      defaultWordsPerMinute: typeof sf.defaultWordsPerMinute === 'number' && sf.defaultWordsPerMinute > 0
-        ? sf.defaultWordsPerMinute
-        : null,
-      narratorStyles,
-      defaultNarratorStyleId: typeof sf.defaultNarratorStyleId === 'string' ? sf.defaultNarratorStyleId : null,
-    }
+    const state = {
+      get selectedEpisodeCode() { return form.episode_id },
+      set selectedEpisodeCode(value: string) { form.episode_id = value },
+      get sizingTouched() { return userTouchedSizing.value },
+      set sizingTouched(value: boolean) { userTouchedSizing.value = value },
+      get chapters() { return form.chapters },
+      set chapters(value: number) { form.chapters = value },
+      get wordsPerChapter() { return form.words_per_chapter },
+      set wordsPerChapter(value: number) { form.words_per_chapter = value },
+      get formatContext() { return formatContext.value },
+      set formatContext(value: ScriptFormatContext | null) { formatContext.value = value },
+    } satisfies ScriptFormatRefreshState
+    const applied = await refreshScriptFormatState({
+      state,
+      requestedEpisodeCode: episodeId,
+      load: () => get<any>(effectiveFormatPathForEpisode(slug.value, episodeId)),
+      suggestedChapters: episode?.suggested_chapters,
+      suggestedLength: lengthFromUrl ? route.query.length : episode?.suggested_length,
+      chaptersPinned: chaptersFromUrl,
+    })
+    if (!applied) return
     // Snap the duration dropdown back to a known option so the UI doesn't
     // flash 'custom' when the format default matches a value in the
     // format's own preset list. v1.0.101+: uses the format's
@@ -1427,8 +1350,8 @@ async function applyScriptFormatDefaultsIfNoPreset(episodeId = form.episode_id) 
       nicheContext.value = null
     }
   } catch {
-    // Format endpoint unavailable / project missing — keep the form's
-    // hardcoded defaults. Non-fatal.
+    // Format endpoint unavailable / project missing — preserve whatever the
+    // owner already entered and wait for an authoritative refresh. Non-fatal.
   }
 }
 
@@ -1796,32 +1719,12 @@ async function onEpisodeSelected(ep: any) {
   selectedEpisode.value = ep
   const episodeCode = ep.episode_code || form.episode_id
   if (ep.episode_code) form.episode_id = ep.episode_code
-  await applyScriptFormatDefaultsIfNoPreset(episodeCode)
-  if (!episodeFormatResponseMatchesSelection(episodeCode, form.episode_id)) return
+  await applyScriptFormatDefaultsIfNoPreset(episodeCode, ep)
+  if (episodeCode !== form.episode_id) return
   // Title always tracks the picked episode — it's tied 1:1 to ep identity
   // and the user wouldn't expect their last episode's title to follow them
   // to a new pick.
   form.title = ep.title
-  // Sizing fields ONLY auto-apply on a fresh form. Once the user has typed
-  // in chapters or words-per-chapter (tracked by userTouchedSizing), episode
-  // swaps leave the typed values alone. v1.0.168 — we seed the TWO inputs
-  // (chapters + words-per-chapter) and let the derived watcher compute total
-  // + duration. Words-per-chapter is derived ONCE from the episode's
-  // suggested duration so a fresh pick lands on a sensible per-chapter size;
-  // after that the user owns both numbers.
-  if (!userTouchedSizing.value) {
-    const sizing = resolveEpisodeScriptSizing({
-      suggestedChapters: ep.suggested_chapters,
-      suggestedLength: ep.suggested_length,
-      formatDefaultChapters: formatContext.value?.defaultChapterCount,
-      formatDefaultLengthMinutes: formatContext.value?.defaultLengthMinutes,
-      chapterCountRange: formatContext.value?.chapterCountRange,
-      wordsPerMinute: wordsPerMinute.value,
-    })
-    form.chapters = sizing.chapters
-    form.words_per_chapter = sizing.wordsPerChapter
-    // total_words + length recompute via the sizing watcher.
-  }
 }
 
 async function submitOutline(): Promise<boolean> {

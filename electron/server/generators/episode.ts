@@ -905,7 +905,10 @@ export async function generateChapterOnly(job: Job): Promise<void> {
 
   const wordsPerChapter = Number(req.words_per_chapter) || 550
   const totalChapters = Number(req.chapters) || existingNumbers.length || chapterNumber
-  const style = req.style || format.script.defaultNarratorStyleId
+  const requestedStyle = req.style || format.script.defaultNarratorStyleId
+  const style = requestedStyle === 'auto'
+    ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
+    : requestedStyle
   const styleDesc = narratorStyleFor(format, style).description
 
   // v1.0.72+: Outline-aware regeneration. The chunked path persists a
@@ -1029,7 +1032,10 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   format = await applyRecencyToFormat(format, project_slug, episode_id)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
-  const style = req.style || format.script.defaultNarratorStyleId
+  const requestedStyle = req.style || format.script.defaultNarratorStyleId
+  const style = requestedStyle === 'auto'
+    ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
+    : requestedStyle
 
   let customStyleText: string | undefined
   if (style && (style.startsWith('style-') || style === 'custom')) {

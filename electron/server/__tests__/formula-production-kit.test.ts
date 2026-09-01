@@ -35,8 +35,24 @@ const formula = {
     durationPresets: [20, 30, 40],
     defaultWordsPerMinute: 140,
     chaptersIndependent: false,
+    visualPacingProfile: {
+      opening_duration_sec: 30,
+      opening: { min_sec: 3, max_sec: 5 },
+      settled: { min_sec: 8, max_sec: 12 },
+    },
+    motionProfile: {
+      id: 'parent-motion', label: 'Parent motion', description: 'Parent motion mix.',
+      opening_duration_sec: 30,
+      opening: { still: 0.2, gentle: 0.7, limited: 0.1 },
+      settled: { still: 0.7, gentle: 0.3, limited: 0 },
+    },
+    motionProfileId: 'parent-motion',
     pacingArc: ['Parent opening', 'Parent close'],
     additionalRules: ['Preserve the parent rule.'],
+  },
+  recencyAvoidance: {
+    strategyId: 'scripture-references', label: 'Parent references', extractPatterns: ['Parent \\d+'],
+    instructionTemplate: 'Parent avoids {items}.', defaultLookback: 12, scopes: ['script'],
   },
   productionKit: {
     id: 'test-kit',
@@ -98,6 +114,38 @@ test('Formula production kit applies only the selected profile runtime fields', 
   assert.equal(profiled.ideaSystemPromptRole, 'Rest ideas.')
   assert.equal(profiled.scriptSystemPromptRole, 'Rest scripts.')
   assert.equal(applyFormulaEpisodeProfile(formula, {}), formula)
+})
+
+test('a profile that omits runtime blocks receives isolated clones of every retained parent block', () => {
+  const profiled = applyFormulaEpisodeProfile(formula, { 'episode-profile': 'immersive' })
+  assert.notEqual(profiled.introDefaults, formula.introDefaults)
+  assert.notEqual(profiled.introDefaults?.beats, formula.introDefaults.beats)
+  assert.notEqual(profiled.scriptStructure, formula.scriptStructure)
+  assert.notEqual(profiled.scriptStructure?.pacingArc, formula.scriptStructure.pacingArc)
+  assert.notEqual(profiled.scriptStructure?.additionalRules, formula.scriptStructure.additionalRules)
+  assert.notEqual(profiled.scriptStructure?.visualPacingProfile, formula.scriptStructure.visualPacingProfile)
+  assert.notEqual(profiled.scriptStructure?.visualPacingProfile?.opening, formula.scriptStructure.visualPacingProfile.opening)
+  assert.notEqual(profiled.scriptStructure?.motionProfile, formula.scriptStructure.motionProfile)
+  assert.notEqual(profiled.scriptStructure?.motionProfile?.settled, formula.scriptStructure.motionProfile.settled)
+  assert.notEqual(profiled.recencyAvoidance, formula.recencyAvoidance)
+  assert.notEqual(profiled.recencyAvoidance?.extractPatterns, formula.recencyAvoidance.extractPatterns)
+  assert.notEqual(profiled.recencyAvoidance?.scopes, formula.recencyAvoidance.scopes)
+
+  ;(profiled.introDefaults!.beats![1] as { custom_text?: string }).custom_text = 'Changed.'
+  profiled.scriptStructure!.pacingArc!.push('Changed pace.')
+  profiled.scriptStructure!.additionalRules!.push('Changed rule.')
+  profiled.scriptStructure!.visualPacingProfile!.opening.min_sec = 99
+  profiled.scriptStructure!.motionProfile!.settled.still = 0
+  profiled.recencyAvoidance!.extractPatterns.push('Changed')
+  profiled.recencyAvoidance!.scopes!.push('metadata')
+
+  assert.equal((formula.introDefaults.beats![1] as { custom_text?: string }).custom_text, 'Keep the parent wording.')
+  assert.deepEqual(formula.scriptStructure.pacingArc, ['Parent opening', 'Parent close'])
+  assert.deepEqual(formula.scriptStructure.additionalRules, ['Preserve the parent rule.'])
+  assert.equal(formula.scriptStructure.visualPacingProfile.opening.min_sec, 3)
+  assert.equal(formula.scriptStructure.motionProfile.settled.still, 0.7)
+  assert.deepEqual(formula.recencyAvoidance.extractPatterns, ['Parent \\d+'])
+  assert.deepEqual(formula.recencyAvoidance.scopes, ['script'])
 })
 
 test('accepted episode code resolves its durable profile dimensions from ideas.json', async () => {
