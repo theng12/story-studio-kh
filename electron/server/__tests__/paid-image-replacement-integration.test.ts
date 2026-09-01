@@ -42,6 +42,78 @@ async function waitForPaidAttempt(
   throw new Error(`Worker barrier exhausted: ${diagnostic}`)
 }
 
+function blockedCheckpointJob(projectSlug: string, state: 'waiting' | 'succeeded') {
+  const now = new Date().toISOString()
+  return {
+    job_id: `blocked-checkpoint-${state}`, project_slug: projectSlug, type: 'thumb_images', episode_id: 'EP001',
+    title: 'Blocked checkpoint stale copy', status: 'running', created_at: now, started_at: now, finished_at: null,
+    local_execution_complete: false, error: null, output_lines: [], params: {},
+    paid_image_replacement_attempts: [{
+      asset_key: 'EP001_Thumb01_v1.png', manifest_dir: '/project/thumbs', manifest_key: 'EP001_Thumb01_v1.png',
+      output_path: '/project/thumbs/EP001_Thumb01_v1.png', state,
+      original_task_id: 'original-task', original_idempotency_key: 'story-original-key', input_hash: 'sha256:original',
+      output_selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+      reference_inputs: [], reference_identity_hash: 'reference-hash', failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+      reserved_credits: 8, settled_credits: 2, released_credits: 6,
+      terminal_observed_at: now, eligible_at: now,
+    }],
+  }
+}
+
+test('blocked checkpoint trusts an authoritative active attempt when the local copy is missing it', async () => {
+  const temp = await useTempDataDir()
+  const pm = await import('../services/project-manager.js')
+  const jq = await import('../services/job-queue.js')
+  const project = await pm.createProject({ name: 'Authoritative paid block active' })
+  const authoritative: any = blockedCheckpointJob(project.slug, 'waiting')
+  const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
+  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [authoritative] }))
+  const staleLocal = structuredClone(authoritative)
+  delete staleLocal.paid_image_replacement_attempts
+  let updates = 0
+  const onUpdate = (updated: any) => { if (updated.job_id === authoritative.job_id) updates++ }
+  jq.jobEvents.on('update', onUpdate)
+  try {
+    assert.equal(await jq.checkpointPaidImageReplacementBlockedIfPresent(
+      staleLocal, 'EP001_Thumb01_v1.png', 'paid image replacement is currently off on this machine',
+    ), true)
+    assert.equal(staleLocal.paid_image_replacement_attempts[0].state, 'blocked')
+    assert.equal(staleLocal.paid_image_replacement_attempts[0].reason, 'paid image replacement is currently off on this machine')
+    const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(durable.paid_image_replacement_attempts[0].state, 'blocked')
+    assert.equal(updates, 1)
+  } finally {
+    jq.jobEvents.off('update', onUpdate)
+    await temp.cleanup()
+  }
+})
+
+test('blocked checkpoint cleanly ignores a stale local active attempt when authority is terminal', async () => {
+  const temp = await useTempDataDir()
+  const pm = await import('../services/project-manager.js')
+  const jq = await import('../services/job-queue.js')
+  const project = await pm.createProject({ name: 'Authoritative paid block terminal' })
+  const authoritative: any = blockedCheckpointJob(project.slug, 'succeeded')
+  const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
+  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [authoritative] }))
+  const staleLocal = structuredClone(authoritative)
+  staleLocal.paid_image_replacement_attempts[0].state = 'waiting'
+  let updates = 0
+  const onUpdate = (updated: any) => { if (updated.job_id === authoritative.job_id) updates++ }
+  jq.jobEvents.on('update', onUpdate)
+  try {
+    assert.equal(await jq.checkpointPaidImageReplacementBlockedIfPresent(
+      staleLocal, 'EP001_Thumb01_v1.png', 'paid image replacement is currently off on this machine',
+    ), false)
+    assert.equal(staleLocal.paid_image_replacement_attempts[0].state, 'waiting')
+    assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'succeeded')
+    assert.equal(updates, 0)
+  } finally {
+    jq.jobEvents.off('update', onUpdate)
+    await temp.cleanup()
+  }
+})
+
 test('Continuity freezes the exact original request before POST and returns a durable paid wait after positive infrastructure settlement', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()

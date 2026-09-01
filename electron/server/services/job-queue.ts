@@ -1569,9 +1569,19 @@ export async function checkpointPaidImageReplacementBlockedIfPresent(
   assetKey: string,
   reason: string,
 ): Promise<boolean> {
-  const matches = (job.paid_image_replacement_attempts || []).filter(attempt => attempt.asset_key === assetKey)
-  if (matches.length !== 1 || !['waiting', 'committed', 'submitted'].includes(matches[0]!.state)) return false
-  await checkpointPaidImageReplacementAttempt(job, assetKey, { state: 'blocked', reason })
+  const durable = await mutateAuthoritativeJob(job.project_slug, job.job_id, (authoritative) => {
+    const attempts = authoritative.paid_image_replacement_attempts || []
+    const matches = attempts.filter(attempt => attempt.asset_key === assetKey)
+    if (matches.length !== 1 || !['waiting', 'committed', 'submitted'].includes(matches[0]!.state)) return null
+    const current = matches[0]!
+    authoritative.paid_image_replacement_attempts = attempts.map(attempt => (
+      attempt === current ? { ...current, state: 'blocked', reason } : attempt
+    ))
+    return authoritative
+  })
+  if (!durable) return false
+  Object.assign(job, durable)
+  emitUpdate(job)
   return true
 }
 
