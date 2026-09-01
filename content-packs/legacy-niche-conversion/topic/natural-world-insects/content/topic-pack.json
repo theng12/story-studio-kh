@@ -1,0 +1,332 @@
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.natural-world-insects",
+  "name": "Insects & Arthropods",
+  "description": "Insects, arachnids, crustaceans, social colonies, metamorphosis, and extreme small-animal adaptations.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.natural-world-explained",
+    "com.storystudio.formula.counted-explainer"
+  ],
+  "subjects": [
+    "ants",
+    "bees",
+    "wasps",
+    "beetles",
+    "moths",
+    "butterflies",
+    "spiders",
+    "scorpions",
+    "mantises",
+    "cicadas",
+    "termites"
+  ],
+  "episode_objects": [
+    "ants — workers choosing between two branching pheromone trails",
+    "ants — leaf-cutter workers supplying a cultivated fungal garden",
+    "bees — pollen packed onto hind-leg corbiculae during a flower visit",
+    "bees — a waggle dance followed by departing foragers",
+    "wasps — a parasitoid placing an egg inside a caterpillar host",
+    "wasps — paper nest cells built from chewed plant fibers",
+    "beetles — hardened elytra lifting before membranous wings unfold",
+    "beetles — a dung ball rolled along a straight nocturnal bearing",
+    "moths — feathered antennae sampling a female pheromone plume",
+    "moths — peppered wings resting against contrasting tree bark",
+    "butterflies — larval tissues reorganizing inside a chrysalis",
+    "butterflies — overlapping wing scales producing angle-dependent color",
+    "spiders — an orb web deforming as a flying insect strikes",
+    "spiders — jumping eyes and body turns tracking a moving target",
+    "scorpions — sensory combs sweeping sand before a directional turn",
+    "scorpions — a stinger strike metering venom into prey",
+    "mantises — folded raptorial forelegs accelerating toward prey",
+    "mantises — a body sway matching wind-driven foliage",
+    "cicadas — nymphs emerging from soil and molting on tree trunks",
+    "cicadas — paired tymbal membranes buckling to produce a loud call",
+    "termites — gut microbes surrounding chewed wood particles",
+    "termites — vents and tunnels carrying air through a mound"
+  ],
+  "time_place_scopes": [
+    "ants — a laboratory foraging arena during one hour of route formation",
+    "ants — a tropical nest chamber across a daily harvest cycle",
+    "bees — a flowering meadow during a morning pollination window",
+    "bees — an observation hive after a feeder changes location",
+    "wasps — a crop-field enclosure through one host-parasitoid generation",
+    "wasps — a temperate colony from spring founding to worker emergence",
+    "beetles — a flight arena during repeated takeoff and landing trials",
+    "beetles — an open savanna arena under moonlit and overcast skies",
+    "moths — a wind tunnel during a night-active mate-search period",
+    "moths — matched woodland enclosures during daylight predator searches",
+    "butterflies — a controlled rearing chamber from pupation to adult emergence",
+    "butterflies — a courtship display under changing sun angles",
+    "spiders — a garden web during controlled prey-impact trials",
+    "spiders — a visual arena during staged stalking and pouncing",
+    "scorpions — a desert arena during nocturnal prey-vibration trials",
+    "scorpions — laboratory predation encounters across prey sizes",
+    "mantises — a vegetation-mimicking arena during individual ambush trials",
+    "mantises — leafy habitat under controlled wind and predator-viewing conditions",
+    "cicadas — a deciduous forest during a synchronized periodical emergence",
+    "cicadas — a summer canopy across a daily calling cycle",
+    "termites — a laboratory colony during a measured cellulose diet",
+    "termites — a savanna mound across day-night temperature changes"
+  ],
+  "mechanisms": [
+    "ants — pheromone reinforcement and evaporation bias a colony toward an efficient path",
+    "ants — division of labor and microbial cultivation convert leaves into accessible food",
+    "bees — body hairs and grooming transfer electrostatically collected pollen to transport structures",
+    "bees — dance angle and duration encode direction and distance relative to the sun",
+    "wasps — sensory cues guide oviposition while offspring suppress host defenses and consume host resources",
+    "wasps — mandibular processing and saliva bind fibers into a lightweight nest material",
+    "beetles — protective forewings trade aerodynamic simplicity for armored coverage of folded flight wings",
+    "beetles — celestial polarization and brightness cues stabilize navigation away from competitors",
+    "moths — odor receptors and crosswind casting keep flight within an intermittent chemical plume",
+    "moths — background matching changes visual detection probability rather than making an animal invisible",
+    "butterflies — programmed tissue remodeling and imaginal development construct adult organs",
+    "butterflies — nanoscale ridges interfere with light to create structural color signals",
+    "spiders — silk types with different stiffness and extensibility distribute impact energy",
+    "spiders — specialized principal and secondary eyes divide acuity, motion detection, and orientation",
+    "scorpions — slit sensilla and pectines detect substrate vibrations and local chemical texture",
+    "scorpions — muscular control varies sting placement and venom use with defensive or feeding context",
+    "mantises — elastic and muscular forces rotate spined forelegs through a rapid capture arc",
+    "mantises — movement matching reduces the contrast between self-motion and background motion",
+    "cicadas — long developmental timing and mass emergence dilute individual predation risk",
+    "cicadas — rapid muscle-driven tymbal deformation and abdominal resonance amplify sound",
+    "termites — symbiotic microbes ferment cellulose-derived compounds into usable nutrients",
+    "termites — mound geometry couples wind and thermal buoyancy to gas exchange"
+  ],
+  "evidence_lenses": [
+    "ants — individually tracked choices with controlled trail chemistry and travel-time measurements",
+    "ants — marked-worker time budgets with garden growth, leaf input, and exclusion comparisons",
+    "bees — high-speed flower visits with pollen counts before and after grooming",
+    "bees — decoded dances compared with tagged-flight tracks and controlled feeder positions",
+    "wasps — controlled host-choice trials with dissection and emergence-success records",
+    "wasps — nest time-lapse, fiber microscopy, and material-strength measurements",
+    "beetles — high-speed wing kinematics with lift, damage-resistance, and folding measurements",
+    "beetles — orientation tracks under controlled sky cues and sensory occlusion",
+    "moths — plume visualization with antenna recordings and three-dimensional flight tracks",
+    "moths — randomized placement and bird-detection outcomes across calibrated bark backgrounds",
+    "butterflies — non-destructive imaging and staged histology tied to emergence timing",
+    "butterflies — electron microscopy and reflectance spectra linked to receiver behavior",
+    "spiders — high-speed web deformation with strand-force and capture-success measurements",
+    "spiders — controlled visual stimuli with eye-field occlusion and three-dimensional movement tracking",
+    "scorpions — controlled vibration sources with sensory occlusion and orientation measurements",
+    "scorpions — high-speed strike records and non-instructional venom-volume assays linked to prey restraint",
+    "mantises — high-speed joint kinematics with strike distance and capture-success measurements",
+    "mantises — tracked sway under varied wind with calibrated predator-detection trials",
+    "cicadas — emergence-density maps with soil temperature, predator satiation, and survival records",
+    "cicadas — synchronized high-speed imaging, muscle activity, and acoustic spectra",
+    "termites — microscopy, metabolite assays, and microbe-removal comparisons linked to survival",
+    "termites — internal temperature and gas sensors with airflow visualization and blocked-vent controls"
+  ],
+  "exclusions": [
+    "Use precise entomology and arachnology; spiders and scorpions are arachnids, not insects.",
+    "Avoid fear bait, disgust bait, invented motives, and claims that colony behavior requires a central commander.",
+    "Do not provide actionable venom extraction, pest-harm, or unsafe handling instructions.",
+    "Distinguish observed behavior from inference and avoid describing every interaction as aggression."
+  ],
+  "max_siblings_per_subject": 2,
+  "prompt_context": "Use precise entomology and arachnology. Build each episode around one legacy subject, observable structure or behavior, bounded habitat interval, biological mechanism, and named evidence method. Avoid fear bait and invented motives; visceral details may appear only when they clarify the real lifecycle or mechanism.",
+  "idea_axes": [
+    {
+      "id": "life-mechanism",
+      "label": "Life mechanism",
+      "values": [
+        "metamorphosis",
+        "venom",
+        "social colony",
+        "camouflage",
+        "parasitism",
+        "short adult life",
+        "migration"
+      ]
+    }
+  ],
+  "coverage_profiles": [
+    {
+      "subject": "ants",
+      "tuples": [
+        {
+          "episode_object": "ants — workers choosing between two branching pheromone trails",
+          "time_place_scope": "ants — a laboratory foraging arena during one hour of route formation",
+          "mechanism": "ants — pheromone reinforcement and evaporation bias a colony toward an efficient path",
+          "evidence_lens": "ants — individually tracked choices with controlled trail chemistry and travel-time measurements"
+        },
+        {
+          "episode_object": "ants — leaf-cutter workers supplying a cultivated fungal garden",
+          "time_place_scope": "ants — a tropical nest chamber across a daily harvest cycle",
+          "mechanism": "ants — division of labor and microbial cultivation convert leaves into accessible food",
+          "evidence_lens": "ants — marked-worker time budgets with garden growth, leaf input, and exclusion comparisons"
+        }
+      ]
+    },
+    {
+      "subject": "bees",
+      "tuples": [
+        {
+          "episode_object": "bees — pollen packed onto hind-leg corbiculae during a flower visit",
+          "time_place_scope": "bees — a flowering meadow during a morning pollination window",
+          "mechanism": "bees — body hairs and grooming transfer electrostatically collected pollen to transport structures",
+          "evidence_lens": "bees — high-speed flower visits with pollen counts before and after grooming"
+        },
+        {
+          "episode_object": "bees — a waggle dance followed by departing foragers",
+          "time_place_scope": "bees — an observation hive after a feeder changes location",
+          "mechanism": "bees — dance angle and duration encode direction and distance relative to the sun",
+          "evidence_lens": "bees — decoded dances compared with tagged-flight tracks and controlled feeder positions"
+        }
+      ]
+    },
+    {
+      "subject": "wasps",
+      "tuples": [
+        {
+          "episode_object": "wasps — a parasitoid placing an egg inside a caterpillar host",
+          "time_place_scope": "wasps — a crop-field enclosure through one host-parasitoid generation",
+          "mechanism": "wasps — sensory cues guide oviposition while offspring suppress host defenses and consume host resources",
+          "evidence_lens": "wasps — controlled host-choice trials with dissection and emergence-success records"
+        },
+        {
+          "episode_object": "wasps — paper nest cells built from chewed plant fibers",
+          "time_place_scope": "wasps — a temperate colony from spring founding to worker emergence",
+          "mechanism": "wasps — mandibular processing and saliva bind fibers into a lightweight nest material",
+          "evidence_lens": "wasps — nest time-lapse, fiber microscopy, and material-strength measurements"
+        }
+      ]
+    },
+    {
+      "subject": "beetles",
+      "tuples": [
+        {
+          "episode_object": "beetles — hardened elytra lifting before membranous wings unfold",
+          "time_place_scope": "beetles — a flight arena during repeated takeoff and landing trials",
+          "mechanism": "beetles — protective forewings trade aerodynamic simplicity for armored coverage of folded flight wings",
+          "evidence_lens": "beetles — high-speed wing kinematics with lift, damage-resistance, and folding measurements"
+        },
+        {
+          "episode_object": "beetles — a dung ball rolled along a straight nocturnal bearing",
+          "time_place_scope": "beetles — an open savanna arena under moonlit and overcast skies",
+          "mechanism": "beetles — celestial polarization and brightness cues stabilize navigation away from competitors",
+          "evidence_lens": "beetles — orientation tracks under controlled sky cues and sensory occlusion"
+        }
+      ]
+    },
+    {
+      "subject": "moths",
+      "tuples": [
+        {
+          "episode_object": "moths — feathered antennae sampling a female pheromone plume",
+          "time_place_scope": "moths — a wind tunnel during a night-active mate-search period",
+          "mechanism": "moths — odor receptors and crosswind casting keep flight within an intermittent chemical plume",
+          "evidence_lens": "moths — plume visualization with antenna recordings and three-dimensional flight tracks"
+        },
+        {
+          "episode_object": "moths — peppered wings resting against contrasting tree bark",
+          "time_place_scope": "moths — matched woodland enclosures during daylight predator searches",
+          "mechanism": "moths — background matching changes visual detection probability rather than making an animal invisible",
+          "evidence_lens": "moths — randomized placement and bird-detection outcomes across calibrated bark backgrounds"
+        }
+      ]
+    },
+    {
+      "subject": "butterflies",
+      "tuples": [
+        {
+          "episode_object": "butterflies — larval tissues reorganizing inside a chrysalis",
+          "time_place_scope": "butterflies — a controlled rearing chamber from pupation to adult emergence",
+          "mechanism": "butterflies — programmed tissue remodeling and imaginal development construct adult organs",
+          "evidence_lens": "butterflies — non-destructive imaging and staged histology tied to emergence timing"
+        },
+        {
+          "episode_object": "butterflies — overlapping wing scales producing angle-dependent color",
+          "time_place_scope": "butterflies — a courtship display under changing sun angles",
+          "mechanism": "butterflies — nanoscale ridges interfere with light to create structural color signals",
+          "evidence_lens": "butterflies — electron microscopy and reflectance spectra linked to receiver behavior"
+        }
+      ]
+    },
+    {
+      "subject": "spiders",
+      "tuples": [
+        {
+          "episode_object": "spiders — an orb web deforming as a flying insect strikes",
+          "time_place_scope": "spiders — a garden web during controlled prey-impact trials",
+          "mechanism": "spiders — silk types with different stiffness and extensibility distribute impact energy",
+          "evidence_lens": "spiders — high-speed web deformation with strand-force and capture-success measurements"
+        },
+        {
+          "episode_object": "spiders — jumping eyes and body turns tracking a moving target",
+          "time_place_scope": "spiders — a visual arena during staged stalking and pouncing",
+          "mechanism": "spiders — specialized principal and secondary eyes divide acuity, motion detection, and orientation",
+          "evidence_lens": "spiders — controlled visual stimuli with eye-field occlusion and three-dimensional movement tracking"
+        }
+      ]
+    },
+    {
+      "subject": "scorpions",
+      "tuples": [
+        {
+          "episode_object": "scorpions — sensory combs sweeping sand before a directional turn",
+          "time_place_scope": "scorpions — a desert arena during nocturnal prey-vibration trials",
+          "mechanism": "scorpions — slit sensilla and pectines detect substrate vibrations and local chemical texture",
+          "evidence_lens": "scorpions — controlled vibration sources with sensory occlusion and orientation measurements"
+        },
+        {
+          "episode_object": "scorpions — a stinger strike metering venom into prey",
+          "time_place_scope": "scorpions — laboratory predation encounters across prey sizes",
+          "mechanism": "scorpions — muscular control varies sting placement and venom use with defensive or feeding context",
+          "evidence_lens": "scorpions — high-speed strike records and non-instructional venom-volume assays linked to prey restraint"
+        }
+      ]
+    },
+    {
+      "subject": "mantises",
+      "tuples": [
+        {
+          "episode_object": "mantises — folded raptorial forelegs accelerating toward prey",
+          "time_place_scope": "mantises — a vegetation-mimicking arena during individual ambush trials",
+          "mechanism": "mantises — elastic and muscular forces rotate spined forelegs through a rapid capture arc",
+          "evidence_lens": "mantises — high-speed joint kinematics with strike distance and capture-success measurements"
+        },
+        {
+          "episode_object": "mantises — a body sway matching wind-driven foliage",
+          "time_place_scope": "mantises — leafy habitat under controlled wind and predator-viewing conditions",
+          "mechanism": "mantises — movement matching reduces the contrast between self-motion and background motion",
+          "evidence_lens": "mantises — tracked sway under varied wind with calibrated predator-detection trials"
+        }
+      ]
+    },
+    {
+      "subject": "cicadas",
+      "tuples": [
+        {
+          "episode_object": "cicadas — nymphs emerging from soil and molting on tree trunks",
+          "time_place_scope": "cicadas — a deciduous forest during a synchronized periodical emergence",
+          "mechanism": "cicadas — long developmental timing and mass emergence dilute individual predation risk",
+          "evidence_lens": "cicadas — emergence-density maps with soil temperature, predator satiation, and survival records"
+        },
+        {
+          "episode_object": "cicadas — paired tymbal membranes buckling to produce a loud call",
+          "time_place_scope": "cicadas — a summer canopy across a daily calling cycle",
+          "mechanism": "cicadas — rapid muscle-driven tymbal deformation and abdominal resonance amplify sound",
+          "evidence_lens": "cicadas — synchronized high-speed imaging, muscle activity, and acoustic spectra"
+        }
+      ]
+    },
+    {
+      "subject": "termites",
+      "tuples": [
+        {
+          "episode_object": "termites — gut microbes surrounding chewed wood particles",
+          "time_place_scope": "termites — a laboratory colony during a measured cellulose diet",
+          "mechanism": "termites — symbiotic microbes ferment cellulose-derived compounds into usable nutrients",
+          "evidence_lens": "termites — microscopy, metabolite assays, and microbe-removal comparisons linked to survival"
+        },
+        {
+          "episode_object": "termites — vents and tunnels carrying air through a mound",
+          "time_place_scope": "termites — a savanna mound across day-night temperature changes",
+          "mechanism": "termites — mound geometry couples wind and thermal buoyancy to gas exchange",
+          "evidence_lens": "termites — internal temperature and gas sensors with airflow visualization and blocked-vent controls"
+        }
+      ]
+    }
+  ]
+}

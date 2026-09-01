@@ -83,6 +83,27 @@ const TOPICS = [
     formulaIds: ['com.storystudio.formula.economics-of', 'com.storystudio.formula.history-explained'],
     safety: /do not|avoid|evidence/i,
   },
+  {
+    slug: 'natural-world-fungi',
+    legacyPath: 'electron/server/topic-packs/natural-world-fungi.json',
+    formulaIds: ['com.storystudio.formula.natural-world-explained', 'com.storystudio.formula.counted-explainer'],
+    safety: /not plants|do not treat fungi as plants/i,
+    organismProfiles: true,
+  },
+  {
+    slug: 'natural-world-insects',
+    legacyPath: 'electron/server/topic-packs/natural-world-insects.json',
+    formulaIds: ['com.storystudio.formula.natural-world-explained', 'com.storystudio.formula.counted-explainer'],
+    safety: /fear bait|invented motives|precise entomology/i,
+    organismProfiles: true,
+  },
+  {
+    slug: 'natural-world-plants',
+    legacyPath: 'electron/server/topic-packs/natural-world-plants.json',
+    formulaIds: ['com.storystudio.formula.natural-world-explained', 'com.storystudio.formula.counted-explainer'],
+    safety: /conscious decision|exclude fungi|exclude algae/i,
+    organismProfiles: true,
+  },
 ]
 
 async function json(url) {
@@ -279,6 +300,9 @@ test('legacy Formula conversion excludes retired products and Channel Kit metada
         'ancient-humans-technology',
         'deep-time-speculative-earth',
         'economics-ancient-civilizations',
+        'natural-world-fungi',
+        'natural-world-insects',
+        'natural-world-plants',
       ].includes(slug) ? 'authored' : 'reserved',
       family: `com.storystudio.family.topic.${slug}`,
       sku: `com.storystudio.sku.topic.${slug}`,
@@ -334,15 +358,36 @@ test('legacy Topic sources preserve every legacy subject and strict bounded plan
     assert.deepEqual(manifest.dependencies, [])
     assert.equal('bundle_id' in manifest, false)
     assert.deepEqual(document.compatible_formula_ids, spec.formulaIds)
-    assertContainsEvery(document.subjects, legacy.subjects, `${spec.slug} legacy subjects`)
+    assert.deepEqual(document.subjects, legacy.subjects, `${spec.slug} must preserve the exact ordered legacy subject corpus`)
     for (const field of ['episode_objects', 'time_place_scopes', 'mechanisms', 'evidence_lenses']) {
       assert.ok(document[field].length >= 2, `${spec.slug} needs material ${field}`)
       assert.equal(new Set(document[field]).size, document[field].length, `${spec.slug} ${field} must not pad duplicates`)
     }
-    assert.ok(document.coverage_groups?.length, `${spec.slug} needs an authored finite coverage group`)
-    assert.equal(document.max_siblings_per_subject, 1, `${spec.slug} declares one honest assignment per legacy subject`)
+    assert.ok(document.coverage_groups?.length || document.coverage_profiles?.length, `${spec.slug} needs authored finite coverage`)
+    assert.equal(document.max_siblings_per_subject, spec.organismProfiles ? 2 : 1, `${spec.slug} declares only its authored per-subject capacity`)
     assert.ok(document.exclusions.some(exclusion => spec.safety.test(exclusion)), `${spec.slug} needs a domain-specific safety exclusion`)
     assert.match(document.prompt_context, spec.safety, `${spec.slug} prompt context must retain its safety boundary`)
+    if (spec.organismProfiles) {
+      assert.equal(document.coverage_groups, undefined, `${spec.slug} uses organism-specific profiles rather than a shared generic group`)
+      assert.equal(document.coverage_profiles?.length, legacy.subjects.length, `${spec.slug} needs one profile per legacy subject`)
+      assert.deepEqual(document.coverage_profiles.map(profile => profile.subject), legacy.subjects)
+      for (const profile of document.coverage_profiles) {
+        assert.equal(profile.tuples.length, 2, `${profile.subject} declares exactly two materially distinct episode slots`)
+        for (const tuple of profile.tuples) for (const value of Object.values(tuple)) {
+          assert.match(value, new RegExp(profile.subject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `${profile.subject} planning values must remain organism-specific`)
+        }
+      }
+      const fields = [
+        'episode_object',
+        'time_place_scope',
+        'mechanism',
+        'evidence_lens',
+      ]
+      for (const tupleField of fields) {
+        const values = document.coverage_profiles.flatMap(profile => profile.tuples.map(tuple => tuple[tupleField]))
+        assert.equal(new Set(values).size, values.length, `${spec.slug} ${tupleField} profiles must be materially distinct`)
+      }
+    }
     if (spec.slug === 'deep-time-speculative-earth') {
       assert.match(document.prompt_context, /physical|evidence/i)
       assert.ok(document.exclusions.some(exclusion => /counterfactual|what-if|speculative/i.test(exclusion)))

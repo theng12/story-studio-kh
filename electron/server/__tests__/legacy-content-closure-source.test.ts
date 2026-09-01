@@ -29,6 +29,9 @@ const TOPICS = [
   ['ancient-humans-technology', 'ancient-humans-technology', ['com.storystudio.formula.ancient-humans']],
   ['deep-time-speculative-earth', 'deep-time-speculative-earth', ['com.storystudio.formula.deep-time-documentary']],
   ['economics-ancient-civilizations', 'economics-ancient-civilizations', ['com.storystudio.formula.economics-of', 'com.storystudio.formula.history-explained']],
+  ['natural-world-fungi', 'natural-world-fungi', ['com.storystudio.formula.natural-world-explained', 'com.storystudio.formula.counted-explainer']],
+  ['natural-world-insects', 'natural-world-insects', ['com.storystudio.formula.natural-world-explained', 'com.storystudio.formula.counted-explainer']],
+  ['natural-world-plants', 'natural-world-plants', ['com.storystudio.formula.natural-world-explained', 'com.storystudio.formula.counted-explainer']],
 ] as const
 
 async function formula(slug: string) {
@@ -226,8 +229,9 @@ test('legacy Topic adapters preserve subjects, reciprocal compatibility, determi
     const [legacy, converted] = await Promise.all([legacyTopic(legacySlug), convertedTopic(slug)])
     assert.deepEqual(converted.compatibleFormulaIds, formulaIds)
     for (const subject of legacy.subjects) assert.ok(converted.subjects.includes(subject), `${slug} preserves ${subject}`)
-    assert.equal(converted.maxSiblingsPerSubject, 1)
-    assert.ok(converted.coverageGroups?.length)
+    const capacityPerSubject = converted.coverageProfiles ? 2 : 1
+    assert.equal(converted.maxSiblingsPerSubject, capacityPerSubject)
+    assert.ok(converted.coverageGroups?.length || converted.coverageProfiles?.length)
     for (const formulaId of formulaIds) assert.equal(isCompatible(converted, formulaId), true, `${slug} resolves ${formulaId}`)
 
     const niche = {
@@ -236,7 +240,7 @@ test('legacy Topic adapters preserve subjects, reciprocal compatibility, determi
       activeTopicPacks: [converted],
       ideaAxes: [],
     } as any
-    const capacity = converted.subjects.length
+    const capacity = converted.subjects.length * capacityPerSubject
     const first = planIdeaAssignments({ niche, count: capacity, seed: `legacy-topic-${slug}` })
     const second = planIdeaAssignments({ niche, count: capacity, seed: `legacy-topic-${slug}` })
     assert.deepEqual(first, second, `${slug} planning is deterministic`)

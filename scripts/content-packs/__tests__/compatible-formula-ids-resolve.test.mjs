@@ -142,3 +142,24 @@ test('the History Explained 1.0.2 free successor alone adds reciprocal Ancient C
   const manifest = JSON.parse(await readFile(new URL('../../../content-packs/free-starters/formula/history-explained-v1.0.2/pack.json', import.meta.url), 'utf8'))
   assert.deepEqual(manifest.dependencies, [], 'the standalone free successor declares no external dependency')
 })
+
+test('Natural World and Counted Explainer releases reciprocally admit all three Natural World Topics', async () => {
+  const topicIds = [
+    'com.storystudio.topic.natural-world-fungi',
+    'com.storystudio.topic.natural-world-insects',
+    'com.storystudio.topic.natural-world-plants',
+  ]
+  const releases = await Promise.all([
+    ['content-packs/free-starters/formula/natural-world-explained-v1.0.2', '1.0.2'],
+    ['content-packs/legacy-niche-conversion/formula/counted-explainer', '1.0.0'],
+  ].map(async ([relativeRoot, version]) => ({
+    version,
+    manifest: JSON.parse(await readFile(new URL(`../../../${relativeRoot}/pack.json`, import.meta.url), 'utf8')),
+    document: JSON.parse(await readFile(new URL(`../../../${relativeRoot}/content/series-formula.json`, import.meta.url), 'utf8')),
+  })))
+
+  for (const release of releases) {
+    assert.equal(release.manifest.version, release.version)
+    assert.deepEqual(release.document.compatible_topic_pack_ids.slice(-3), topicIds)
+  }
+})

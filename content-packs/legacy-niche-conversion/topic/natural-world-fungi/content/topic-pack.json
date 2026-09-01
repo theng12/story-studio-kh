@@ -1,0 +1,305 @@
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.natural-world-fungi",
+  "name": "Fungi & Mycelium",
+  "description": "Fungi, lichen, decay, symbiosis, spores, and the hidden systems beneath forests and soils.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.natural-world-explained",
+    "com.storystudio.formula.counted-explainer"
+  ],
+  "subjects": [
+    "mushrooms",
+    "mycelium",
+    "lichen",
+    "parasite fungi",
+    "decomposers",
+    "mycorrhizae",
+    "yeast",
+    "bracket fungi",
+    "slime molds",
+    "forest decay"
+  ],
+  "episode_objects": [
+    "mushrooms — gills beneath an opening cap releasing spores",
+    "mushrooms — a fairy ring expanding through grass from an underground colony",
+    "mycelium — branching hyphal tips crossing a transparent soil microcosm",
+    "mycelium — a labeled nutrient pulse moving between colonized wood blocks",
+    "lichen — a cross-section showing fungal tissue around photosynthetic partners",
+    "lichen — concentric thallus growth across a dated stone surface",
+    "parasite fungi — a fruiting stalk emerging from an infected ant cadaver",
+    "parasite fungi — rust pustules opening on the underside of a crop leaf",
+    "decomposers — white-rotted wood with lignin selectively removed",
+    "decomposers — leaf litter threaded with fungal hyphae before fragmentation",
+    "mycorrhizae — fungal mantles and hyphae surrounding fine tree roots",
+    "mycorrhizae — arbuscules branching inside living root cortical cells",
+    "yeast — budding cells multiplying in a sugar-rich droplet",
+    "yeast — a mixed colony switching growth form under nutrient stress",
+    "bracket fungi — layered shelves adding a new pore surface to a tree trunk",
+    "bracket fungi — pore tubes releasing spores into boundary-layer airflow",
+    "slime molds — a plasmodial network linking separated food patches",
+    "slime molds — fruiting bodies forming after a migrating cellular aggregate",
+    "forest decay — a fallen log progressing from intact bark to soft woody fragments",
+    "forest decay — fungal cords linking buried wood to fresh leaf litter"
+  ],
+  "time_place_scopes": [
+    "mushrooms — a temperate woodland floor during an autumn fruiting pulse",
+    "mushrooms — a managed meadow followed across several fruiting seasons",
+    "mycelium — a moist forest-soil microcosm during four days of colonization",
+    "mycelium — connected woodland litter patches during a controlled isotope pulse",
+    "lichen — an exposed alpine rock during alternating wet and dry hours",
+    "lichen — a mapped moraine surface followed across decades",
+    "parasite fungi — a tropical forest understory during a humid transmission season",
+    "parasite fungi — a cereal field from first infection through one disease cycle",
+    "decomposers — a fallen hardwood log measured through two wet seasons",
+    "decomposers — a forest litter layer from autumn fall to spring thaw",
+    "mycorrhizae — phosphorus-poor forest soil during a growing season",
+    "mycorrhizae — a controlled grassland pot experiment from inoculation to flowering",
+    "yeast — ripening fruit juice during twelve hours of warm fermentation",
+    "yeast — an agar culture before and after nitrogen limitation",
+    "bracket fungi — an old-growth trunk followed across successive growing seasons",
+    "bracket fungi — a shaded log during a day-night humidity cycle",
+    "slime molds — a humid laboratory maze during one day of foraging",
+    "slime molds — damp forest litter as food scarcity triggers development",
+    "forest decay — a temperate forest floor followed through a decade of decomposition",
+    "forest decay — a woodland soil plot during seasonal litter input"
+  ],
+  "mechanisms": [
+    "mushrooms — humidity changes and surface tension propel basidiospores from the gills",
+    "mushrooms — radial mycelial growth depletes and enriches different soil bands before fruiting",
+    "mycelium — apical growth and branch fusion extend a resource-search network",
+    "mycelium — pressure-driven cytoplasmic flow redistributes water and nutrients through hyphae",
+    "lichen — fungal structure retains water while the photobiont supplies fixed carbon",
+    "lichen — slow edge growth and mineral weathering permit persistence on nutrient-poor rock",
+    "parasite fungi — host invasion and tissue consumption culminate in spore release from a fixed perch",
+    "parasite fungi — specialized feeding structures draw resources from living plant cells and produce new spores",
+    "decomposers — extracellular oxidative enzymes break lignin barriers and expose cellulose",
+    "decomposers — secreted enzymes convert complex plant polymers into absorbable molecules",
+    "mycorrhizae — fungal hyphae extend mineral access while roots transfer photosynthetic carbon",
+    "mycorrhizae — high-surface-area arbuscules mediate reciprocal phosphorus and carbon exchange",
+    "yeast — glycolysis and alcoholic fermentation regenerate cellular cofactors while releasing ethanol and carbon dioxide",
+    "yeast — nutrient sensing changes gene expression, cell shape, and colony foraging behavior",
+    "bracket fungi — persistent fruiting bodies renew spore-producing tissue while internal wood decay continues",
+    "bracket fungi — pore geometry and moisture-dependent discharge couple spore release to local air movement",
+    "slime molds — rhythmic cytoplasmic streaming strengthens efficient routes without a nervous system",
+    "slime molds — chemical signaling coordinates aggregation and spore-bearing differentiation",
+    "forest decay — fungal succession changes as moisture, wood chemistry, and available carbon shift",
+    "forest decay — decomposer networks relocate nutrients and alter access for microbes and plants"
+  ],
+  "evidence_lenses": [
+    "mushrooms — high-speed spore imaging paired with humidity and spore-count measurements",
+    "mushrooms — mapped fruiting positions with soil nutrients and fungal DNA sampled across the ring",
+    "mycelium — time-lapse microscopy measuring tip speed, branch frequency, and network fusion",
+    "mycelium — stable-isotope tracing paired with hyphal biomass and flow-direction measurements",
+    "lichen — microscopy with hydration, gas-exchange, and photosynthetic-rate measurements",
+    "lichen — repeat photography and thallus measurements calibrated against independently dated surfaces",
+    "parasite fungi — histology, fungal DNA, and field position records without inferring unobserved intent",
+    "parasite fungi — lesion counts, microscopy, and controlled inoculation linked to host growth loss",
+    "decomposers — enzyme assays, wood chemistry, and dry-mass loss from matched log sections",
+    "decomposers — litter-bag exclusions with respiration, carbon, and nutrient-release measurements",
+    "mycorrhizae — dual-isotope tracing with root colonization and plant nutrient measurements",
+    "mycorrhizae — microscopy and fungal-exclusion treatments comparing nutrient uptake and plant growth",
+    "yeast — cell counts, sugar depletion, gas production, and metabolite measurements through time",
+    "yeast — controlled media comparisons with microscopy and gene-expression assays",
+    "bracket fungi — annual layer measurements with spore traps and non-destructive wood-decay imaging",
+    "bracket fungi — airflow visualization, humidity logging, and time-resolved spore capture",
+    "slime molds — time-lapse network maps comparing flow, route length, and food delivery",
+    "slime molds — cell tracking and signaling perturbations paired with fruiting success",
+    "forest decay — repeated DNA sampling with wood density, moisture, and respiration measurements",
+    "forest decay — isotope-labeled litter with fungal exclusions and soil nutrient budgets"
+  ],
+  "exclusions": [
+    "Fungi are not plants; do not describe them as photosynthetic or rooted botanical organisms.",
+    "Do not attribute plans, altruism, or supernatural intelligence to fungal networks.",
+    "Identify lichen as a symbiosis and slime molds as fungus-adjacent protists rather than true fungi.",
+    "Do not turn toxic or psychoactive species into foraging, dosing, or medical instructions."
+  ],
+  "max_siblings_per_subject": 2,
+  "prompt_context": "Fungi are not plants. Build each episode around one named subject, observable structure, habitat interval, biological mechanism, and evidence method. Distinguish fungal fruiting bodies from the larger mycelial organism, identify symbioses and fungus-adjacent organisms accurately, and keep toxicity or health claims non-instructional.",
+  "idea_axes": [
+    {
+      "id": "ecological-strategy",
+      "label": "Ecological strategy",
+      "values": [
+        "decomposition",
+        "symbiosis",
+        "parasitism",
+        "spore dispersal",
+        "chemical defense",
+        "seasonal fruiting"
+      ]
+    }
+  ],
+  "coverage_profiles": [
+    {
+      "subject": "mushrooms",
+      "tuples": [
+        {
+          "episode_object": "mushrooms — gills beneath an opening cap releasing spores",
+          "time_place_scope": "mushrooms — a temperate woodland floor during an autumn fruiting pulse",
+          "mechanism": "mushrooms — humidity changes and surface tension propel basidiospores from the gills",
+          "evidence_lens": "mushrooms — high-speed spore imaging paired with humidity and spore-count measurements"
+        },
+        {
+          "episode_object": "mushrooms — a fairy ring expanding through grass from an underground colony",
+          "time_place_scope": "mushrooms — a managed meadow followed across several fruiting seasons",
+          "mechanism": "mushrooms — radial mycelial growth depletes and enriches different soil bands before fruiting",
+          "evidence_lens": "mushrooms — mapped fruiting positions with soil nutrients and fungal DNA sampled across the ring"
+        }
+      ]
+    },
+    {
+      "subject": "mycelium",
+      "tuples": [
+        {
+          "episode_object": "mycelium — branching hyphal tips crossing a transparent soil microcosm",
+          "time_place_scope": "mycelium — a moist forest-soil microcosm during four days of colonization",
+          "mechanism": "mycelium — apical growth and branch fusion extend a resource-search network",
+          "evidence_lens": "mycelium — time-lapse microscopy measuring tip speed, branch frequency, and network fusion"
+        },
+        {
+          "episode_object": "mycelium — a labeled nutrient pulse moving between colonized wood blocks",
+          "time_place_scope": "mycelium — connected woodland litter patches during a controlled isotope pulse",
+          "mechanism": "mycelium — pressure-driven cytoplasmic flow redistributes water and nutrients through hyphae",
+          "evidence_lens": "mycelium — stable-isotope tracing paired with hyphal biomass and flow-direction measurements"
+        }
+      ]
+    },
+    {
+      "subject": "lichen",
+      "tuples": [
+        {
+          "episode_object": "lichen — a cross-section showing fungal tissue around photosynthetic partners",
+          "time_place_scope": "lichen — an exposed alpine rock during alternating wet and dry hours",
+          "mechanism": "lichen — fungal structure retains water while the photobiont supplies fixed carbon",
+          "evidence_lens": "lichen — microscopy with hydration, gas-exchange, and photosynthetic-rate measurements"
+        },
+        {
+          "episode_object": "lichen — concentric thallus growth across a dated stone surface",
+          "time_place_scope": "lichen — a mapped moraine surface followed across decades",
+          "mechanism": "lichen — slow edge growth and mineral weathering permit persistence on nutrient-poor rock",
+          "evidence_lens": "lichen — repeat photography and thallus measurements calibrated against independently dated surfaces"
+        }
+      ]
+    },
+    {
+      "subject": "parasite fungi",
+      "tuples": [
+        {
+          "episode_object": "parasite fungi — a fruiting stalk emerging from an infected ant cadaver",
+          "time_place_scope": "parasite fungi — a tropical forest understory during a humid transmission season",
+          "mechanism": "parasite fungi — host invasion and tissue consumption culminate in spore release from a fixed perch",
+          "evidence_lens": "parasite fungi — histology, fungal DNA, and field position records without inferring unobserved intent"
+        },
+        {
+          "episode_object": "parasite fungi — rust pustules opening on the underside of a crop leaf",
+          "time_place_scope": "parasite fungi — a cereal field from first infection through one disease cycle",
+          "mechanism": "parasite fungi — specialized feeding structures draw resources from living plant cells and produce new spores",
+          "evidence_lens": "parasite fungi — lesion counts, microscopy, and controlled inoculation linked to host growth loss"
+        }
+      ]
+    },
+    {
+      "subject": "decomposers",
+      "tuples": [
+        {
+          "episode_object": "decomposers — white-rotted wood with lignin selectively removed",
+          "time_place_scope": "decomposers — a fallen hardwood log measured through two wet seasons",
+          "mechanism": "decomposers — extracellular oxidative enzymes break lignin barriers and expose cellulose",
+          "evidence_lens": "decomposers — enzyme assays, wood chemistry, and dry-mass loss from matched log sections"
+        },
+        {
+          "episode_object": "decomposers — leaf litter threaded with fungal hyphae before fragmentation",
+          "time_place_scope": "decomposers — a forest litter layer from autumn fall to spring thaw",
+          "mechanism": "decomposers — secreted enzymes convert complex plant polymers into absorbable molecules",
+          "evidence_lens": "decomposers — litter-bag exclusions with respiration, carbon, and nutrient-release measurements"
+        }
+      ]
+    },
+    {
+      "subject": "mycorrhizae",
+      "tuples": [
+        {
+          "episode_object": "mycorrhizae — fungal mantles and hyphae surrounding fine tree roots",
+          "time_place_scope": "mycorrhizae — phosphorus-poor forest soil during a growing season",
+          "mechanism": "mycorrhizae — fungal hyphae extend mineral access while roots transfer photosynthetic carbon",
+          "evidence_lens": "mycorrhizae — dual-isotope tracing with root colonization and plant nutrient measurements"
+        },
+        {
+          "episode_object": "mycorrhizae — arbuscules branching inside living root cortical cells",
+          "time_place_scope": "mycorrhizae — a controlled grassland pot experiment from inoculation to flowering",
+          "mechanism": "mycorrhizae — high-surface-area arbuscules mediate reciprocal phosphorus and carbon exchange",
+          "evidence_lens": "mycorrhizae — microscopy and fungal-exclusion treatments comparing nutrient uptake and plant growth"
+        }
+      ]
+    },
+    {
+      "subject": "yeast",
+      "tuples": [
+        {
+          "episode_object": "yeast — budding cells multiplying in a sugar-rich droplet",
+          "time_place_scope": "yeast — ripening fruit juice during twelve hours of warm fermentation",
+          "mechanism": "yeast — glycolysis and alcoholic fermentation regenerate cellular cofactors while releasing ethanol and carbon dioxide",
+          "evidence_lens": "yeast — cell counts, sugar depletion, gas production, and metabolite measurements through time"
+        },
+        {
+          "episode_object": "yeast — a mixed colony switching growth form under nutrient stress",
+          "time_place_scope": "yeast — an agar culture before and after nitrogen limitation",
+          "mechanism": "yeast — nutrient sensing changes gene expression, cell shape, and colony foraging behavior",
+          "evidence_lens": "yeast — controlled media comparisons with microscopy and gene-expression assays"
+        }
+      ]
+    },
+    {
+      "subject": "bracket fungi",
+      "tuples": [
+        {
+          "episode_object": "bracket fungi — layered shelves adding a new pore surface to a tree trunk",
+          "time_place_scope": "bracket fungi — an old-growth trunk followed across successive growing seasons",
+          "mechanism": "bracket fungi — persistent fruiting bodies renew spore-producing tissue while internal wood decay continues",
+          "evidence_lens": "bracket fungi — annual layer measurements with spore traps and non-destructive wood-decay imaging"
+        },
+        {
+          "episode_object": "bracket fungi — pore tubes releasing spores into boundary-layer airflow",
+          "time_place_scope": "bracket fungi — a shaded log during a day-night humidity cycle",
+          "mechanism": "bracket fungi — pore geometry and moisture-dependent discharge couple spore release to local air movement",
+          "evidence_lens": "bracket fungi — airflow visualization, humidity logging, and time-resolved spore capture"
+        }
+      ]
+    },
+    {
+      "subject": "slime molds",
+      "tuples": [
+        {
+          "episode_object": "slime molds — a plasmodial network linking separated food patches",
+          "time_place_scope": "slime molds — a humid laboratory maze during one day of foraging",
+          "mechanism": "slime molds — rhythmic cytoplasmic streaming strengthens efficient routes without a nervous system",
+          "evidence_lens": "slime molds — time-lapse network maps comparing flow, route length, and food delivery"
+        },
+        {
+          "episode_object": "slime molds — fruiting bodies forming after a migrating cellular aggregate",
+          "time_place_scope": "slime molds — damp forest litter as food scarcity triggers development",
+          "mechanism": "slime molds — chemical signaling coordinates aggregation and spore-bearing differentiation",
+          "evidence_lens": "slime molds — cell tracking and signaling perturbations paired with fruiting success"
+        }
+      ]
+    },
+    {
+      "subject": "forest decay",
+      "tuples": [
+        {
+          "episode_object": "forest decay — a fallen log progressing from intact bark to soft woody fragments",
+          "time_place_scope": "forest decay — a temperate forest floor followed through a decade of decomposition",
+          "mechanism": "forest decay — fungal succession changes as moisture, wood chemistry, and available carbon shift",
+          "evidence_lens": "forest decay — repeated DNA sampling with wood density, moisture, and respiration measurements"
+        },
+        {
+          "episode_object": "forest decay — fungal cords linking buried wood to fresh leaf litter",
+          "time_place_scope": "forest decay — a woodland soil plot during seasonal litter input",
+          "mechanism": "forest decay — decomposer networks relocate nutrients and alter access for microbes and plants",
+          "evidence_lens": "forest decay — isotope-labeled litter with fungal exclusions and soil nutrient budgets"
+        }
+      ]
+    }
+  ]
+}

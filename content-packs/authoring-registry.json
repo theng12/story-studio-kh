@@ -1,5 +1,5 @@
 {
-  "revision": 133,
+  "revision": 136,
   "batches": [
     {
       "revision": 2,
@@ -5084,6 +5084,57 @@
           "status": "authored"
         }
       }
+    },
+    {
+      "revision": 134,
+      "transition_ref": "lifecycle:40d5b0a670208795960d18fa822053d757998aa7071b830fa621ad08da2e6bb2",
+      "request": {
+        "expected_revision": 133,
+        "coordinator": {
+          "task": "legacy-content-closure-task-5",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.natural-world-fungi",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 135,
+      "transition_ref": "lifecycle:847941305b61955e73fd33d5f2d1833fb78bd0cf1a8149323465adddf161c06b",
+      "request": {
+        "expected_revision": 134,
+        "coordinator": {
+          "task": "legacy-content-closure-task-5",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.natural-world-insects",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 136,
+      "transition_ref": "lifecycle:3691b399ad370e9776a9b68dcf0f314b4dfeac06ff20d71728496f951b4cb23a",
+      "request": {
+        "expected_revision": 135,
+        "coordinator": {
+          "task": "legacy-content-closure-task-5",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.natural-world-plants",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
     }
   ],
   "records": [
@@ -9459,7 +9510,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-fungi",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -9482,7 +9533,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-insects",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -9505,7 +9556,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-plants",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
