@@ -14,31 +14,38 @@ app.use('/api', router)
 
 const attempt = {
   asset_key: 'thumbnail:1', manifest_dir: '/private/manifest', manifest_key: 'thumb.png', output_path: '/private/output.png',
-  state: 'failed', original_task_id: 'original-task-id', original_idempotency_key: 'original-idempotency-key',
+  state: 'blocked', original_task_id: 'original-task-id', original_idempotency_key: 'original-idempotency-key',
   input_hash: 'a'.repeat(64), output_selector: { resolution: '1K', aspect_ratio: '16:9', width: 1280, height: 720, reference_mode: 'normal' },
   reference_inputs: [], reference_identity_hash: 'b'.repeat(64), failure_code: 'SITE_PLACEMENT_EXHAUSTED',
   reserved_credits: 8, settled_credits: 3, released_credits: 5, terminal_observed_at: '2026-08-31T00:00:00.000Z',
   eligible_at: '2026-08-31T00:30:00.000Z', quoted_credits: 6, price_version: 'image-price-v2',
   replacement_scope: 'private-replacement-scope', replacement_committed_at: '2026-08-31T00:31:00.000Z',
-  replacement_task_id: 'replacement-task-id', actual_settled_credits: 4, reason: 'GenStudio reported a terminal failure.',
+  replacement_task_id: 'replacement-task-id', actual_settled_credits: 4,
+  reason: 'INTERNAL_PROVIDER_CODE original-task-id original-idempotency-key /private/manifest /private/output.png private-replacement-scope ' + 'a'.repeat(64) + 'b'.repeat(64),
 }
 
-async function prepare(slug: string, jobId: string): Promise<void> {
+async function prepare(
+  slug: string,
+  jobId: string,
+  durableAttempt: Omit<typeof attempt, 'reason'> & { reason?: string } = attempt,
+): Promise<void> {
   const projectDir = path.join(temp.dir, 'projects', slug)
   await mkdir(projectDir, { recursive: true })
   await writeFile(path.join(projectDir, 'jobs.json'), JSON.stringify({ jobs: [{
     job_id: jobId, project_slug: slug, type: 'thumb_images', episode_id: 'EP0001', title: 'Route projection',
     status: 'error', created_at: '2026-08-31T00:00:00.000Z', started_at: '2026-08-31T00:00:00.000Z',
     finished_at: '2026-08-31T00:32:00.000Z', error: 'Image replacement did not succeed.', output_lines: [], params: {},
-    paid_image_replacement_attempts: [attempt],
+    paid_image_replacement_attempts: [durableAttempt],
   }] }))
   await queue.getJobs(slug)
 }
 
-test('single-job HTTP routes redact durable paid replacement evidence', async () => {
+test('single-job HTTP routes and SSE redact raw paid replacement reasons', async () => {
   const projectSlug = 'paid-image-route-projection'
   await prepare(projectSlug, 'project-route-job')
   await prepare('_app_', 'app-route-job')
+  const { reason: _rawReason, ...waitingAttempt } = attempt
+  await prepare('paid-image-sse-projection', 'sse-route-job', { ...waitingAttempt, state: 'waiting' })
 
   for (const pathName of [
     `/api/projects/${projectSlug}/jobs/project-route-job`,
@@ -47,14 +54,24 @@ test('single-job HTTP routes redact durable paid replacement evidence', async ()
     const res = await request(app).get(pathName)
     assert.equal(res.status, 200, pathName)
     assert.deepEqual(res.body.paid_image_replacement_attempt, {
-      state: 'failed', eligible_at: '2026-08-31T00:30:00.000Z', replacement_committed_at: '2026-08-31T00:31:00.000Z',
-      quoted_credits: 6, price_version: 'image-price-v2', reason: 'GenStudio reported a terminal failure.', actual_settled_credits: 4,
+      state: 'blocked', eligible_at: '2026-08-31T00:30:00.000Z', replacement_committed_at: '2026-08-31T00:31:00.000Z',
+      quoted_credits: 6, price_version: 'image-price-v2', reason: 'automatic_replacement_unavailable', actual_settled_credits: 4,
     }, pathName)
     assert.equal('paid_image_replacement_attempts' in res.body, false, pathName)
     const payload = JSON.stringify(res.body)
     for (const secret of ['original-task-id', 'original-idempotency-key', 'replacement-task-id', 'private-replacement-scope', '/private/manifest', '/private/output.png', 'a'.repeat(64), 'b'.repeat(64)]) {
       assert.equal(payload.includes(secret), false, `${pathName}: ${secret} must not reach HTTP`)
     }
+  }
+
+  const sseJob = queue.getJob('sse-route-job')!
+  const update = new Promise<unknown>(resolve => queue.jobEvents.once('update', resolve))
+  await queue.checkpointPaidImageReplacementBlockedIfPresent(sseJob, 'thumbnail:1', attempt.reason)
+  const emitted = await update
+  const ssePayload = JSON.stringify(emitted)
+  assert.match(ssePayload, /automatic_replacement_unavailable/)
+  for (const secret of ['original-task-id', 'original-idempotency-key', 'replacement-task-id', 'private-replacement-scope', '/private/manifest', '/private/output.png', 'INTERNAL_PROVIDER_CODE', 'a'.repeat(64), 'b'.repeat(64)]) {
+    assert.equal(ssePayload.includes(secret), false, `${secret} must not reach SSE`)
   }
 })
 

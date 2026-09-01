@@ -66,7 +66,8 @@
       </div>
       <label class="paid-image-replacement-choice">
         <span>Automatic replacement</span>
-        <select name="paid-image-replacement-enabled" :value="paidImageReplacementEnabled ? 'true' : 'false'" :disabled="!paidImageReplacementLoaded || paidImageReplacementSaving" @change="setPaidImageReplacementEnabled">
+        <select name="paid-image-replacement-enabled" :value="paidImageReplacementLoaded ? (paidImageReplacementEnabled ? 'true' : 'false') : '__unknown'" :disabled="!paidImageReplacementLoaded || paidImageReplacementSaving" @change="setPaidImageReplacementEnabled">
+          <option v-if="!paidImageReplacementLoaded" value="__unknown" disabled>{{ paidImageReplacementResult ? 'Saved state unavailable' : 'Loading saved setting…' }}</option>
           <option value="false">Off</option>
           <option value="true">On</option>
         </select>

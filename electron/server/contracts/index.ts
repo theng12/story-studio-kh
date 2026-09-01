@@ -675,7 +675,8 @@ export interface JobEnqueuedResponse {
     replacement_committed_at?: string
     quoted_credits?: number
     price_version?: string
-    reason?: string
+    /** Stable customer-safe category; never raw provider or durable evidence. */
+    reason?: 'automatic_replacement_unavailable'
     actual_settled_credits?: number
   }
   /** Structured terminal outcome for audit-style jobs such as image repair. */

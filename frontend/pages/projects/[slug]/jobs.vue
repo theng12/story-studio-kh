@@ -1195,7 +1195,11 @@ function paidImageReplacementAttemptText(job: RJob): string {
     : ` Actual settled credits: ${formatCredits(attempt.actual_settled_credits)}.`
   if (attempt.state === 'waiting') return `Paid image replacement is waiting until ${formatTime(attempt.eligible_at)}.`
   if (attempt.state === 'committed') return `Paid image replacement was committed${attempt.replacement_committed_at ? ` ${formatTime(attempt.replacement_committed_at)}` : ''}.${quote}`
-  if (attempt.state === 'blocked') return `Paid image replacement was blocked: ${attempt.reason || 'No automatic replacement was submitted.'}`
+  if (attempt.state === 'blocked') {
+    return attempt.reason === 'automatic_replacement_unavailable'
+      ? 'Paid image replacement was blocked: Automatic replacement was not available.'
+      : 'Paid image replacement was blocked before a replacement was submitted.'
+  }
   if (attempt.state === 'submitted') return `Paid image replacement was submitted.${quote}${settled}`
   return `Paid image replacement ${attempt.state}.${settled}`
 }

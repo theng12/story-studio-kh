@@ -1386,7 +1386,9 @@ function safeJob(job: Job): Omit<Job, never> {
 
 /** Public job snapshots derive controls at the last possible moment. */
 type RendererPaidImageReplacementAttempt = Pick<PaidImageReplacementAttempt,
-  'state' | 'eligible_at' | 'replacement_committed_at' | 'quoted_credits' | 'price_version' | 'reason' | 'actual_settled_credits'>
+  'state' | 'eligible_at' | 'replacement_committed_at' | 'quoted_credits' | 'price_version' | 'actual_settled_credits'> & {
+  reason?: 'automatic_replacement_unavailable'
+}
 type RendererJob = Omit<Job, 'paid_image_replacement_attempts'> & {
   paid_image_replacement_attempt?: RendererPaidImageReplacementAttempt
 }
@@ -1403,7 +1405,7 @@ function serializeJob(job: Job): RendererJob {
       ...(latestPaidImageAttempt.replacement_committed_at ? { replacement_committed_at: latestPaidImageAttempt.replacement_committed_at } : {}),
       ...(latestPaidImageAttempt.quoted_credits !== undefined ? { quoted_credits: latestPaidImageAttempt.quoted_credits } : {}),
       ...(latestPaidImageAttempt.price_version ? { price_version: latestPaidImageAttempt.price_version } : {}),
-      ...(latestPaidImageAttempt.reason ? { reason: latestPaidImageAttempt.reason } : {}),
+      ...(latestPaidImageAttempt.state === 'blocked' ? { reason: 'automatic_replacement_unavailable' as const } : {}),
       ...(latestPaidImageAttempt.actual_settled_credits !== undefined ? { actual_settled_credits: latestPaidImageAttempt.actual_settled_credits } : {}),
     }
   }

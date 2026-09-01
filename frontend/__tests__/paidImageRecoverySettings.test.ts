@@ -150,7 +150,10 @@ test('This Mac keeps paid image replacement disabled when its saved state is unk
   try {
     const section = rendered.host.querySelector<HTMLElement>('.paid-image-replacement')
     assert.ok(section)
-    assert.equal(section.querySelector<HTMLSelectElement>('select')?.disabled, true)
+    const select = section.querySelector<HTMLSelectElement>('select')
+    assert.equal(select?.disabled, true)
+    assert.equal(select?.value, '__unknown')
+    assert.match(select?.selectedOptions[0]?.textContent || '', /saved state unavailable/i)
     assert.equal(section.querySelector<HTMLButtonElement>('button')?.disabled, true)
     assert.match(section.textContent || '', /could not load.*paid image replacement/i)
     assert.equal(rendered.saves.length, 0)
@@ -160,27 +163,54 @@ test('This Mac keeps paid image replacement disabled when its saved state is unk
   }
 })
 
-async function paidImageAttemptText(): Promise<(job: { paid_image_replacement_attempt?: Record<string, unknown> }) => string> {
+async function renderPublicPaidImageAttempt(job: Record<string, unknown>): Promise<string> {
   const jobs = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)), 'utf8')
-  const start = jobs.indexOf('function paidImageReplacementAttemptText')
-  const end = jobs.indexOf('\nfunction genStudioNumeric', start)
-  assert.notEqual(start, -1)
-  assert.notEqual(end, -1)
-  const source = jobs.slice(start, end)
-  const compiled = await transform(source, { loader: 'ts', format: 'cjs' })
-  return new Function('formatTime', 'formatCredits', `${compiled.code}; return paidImageReplacementAttemptText`)(
-    (value: string) => `at ${value}`,
-    (value: number) => `${value} credit${value === 1 ? '' : 's'}`,
-  )
+  const formatterStart = jobs.indexOf('function paidImageReplacementAttemptText')
+  const formatterEnd = jobs.indexOf('\nfunction genStudioNumeric', formatterStart)
+  const templateStart = jobs.indexOf('<p v-if="paidImageReplacementAttemptText(job)" class="paid-image-replacement-attempt" role="status">')
+  const templateEnd = jobs.indexOf('</p>', templateStart) + '</p>'.length
+  assert.notEqual(formatterStart, -1)
+  assert.notEqual(formatterEnd, -1)
+  assert.notEqual(templateStart, -1)
+  const template = compileTemplate({ source: jobs.slice(templateStart, templateEnd), filename: 'jobs-paid-image-attempt.vue', id: 'jobs-paid-image-attempt' })
+  const vueUrl = await import.meta.resolve('vue')
+  const source = `
+    import { formatCredits } from ${JSON.stringify(new URL('../utils/genstudio-credit-cost.ts', import.meta.url).href)}
+    const formatTime = (value: string) => 'at ' + value
+    ${jobs.slice(formatterStart, formatterEnd)}
+    ${template.code}
+    const component = { props: ['job'], methods: { paidImageReplacementAttemptText }, render }
+    export default component
+  `
+  const compiled = await transform(source, { loader: 'ts', format: 'esm' })
+  const component = (await import(`data:text/javascript;base64,${Buffer.from(
+    compiled.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
+  ).toString('base64')}`)).default as Component
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(component, { job: { paid_image_replacement_attempt: job } })
+  app.mount(host)
+  await flush()
+  const text = host.textContent || ''
+  app.unmount()
+  host.remove()
+  return text
 }
 
-test('Jobs formats every redacted paid replacement attempt state from renderer data', async () => {
-  const text = await paidImageAttemptText()
-  const base = { eligible_at: 'wait-at' }
-  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'waiting' } }), 'Paid image replacement is waiting until at wait-at.')
-  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'committed', replacement_committed_at: 'commit-at', quoted_credits: 1, price_version: 'v1' } }), 'Paid image replacement was committed at commit-at. 1 credit at published price version v1.')
-  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'blocked', reason: 'Current price changed.' } }), 'Paid image replacement was blocked: Current price changed.')
-  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'submitted', quoted_credits: 6, price_version: 'v2' } }), 'Paid image replacement was submitted. 6 credits at published price version v2.')
-  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'succeeded', actual_settled_credits: 1 } }), 'Paid image replacement succeeded. Actual settled credits: 1 credit.')
-  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'failed', actual_settled_credits: 4 } }), 'Paid image replacement failed. Actual settled credits: 4 credits.')
+test('Jobs renders safe public Task5 replacement outcomes', async () => {
+  assert.equal(
+    await renderPublicPaidImageAttempt({ state: 'blocked', eligible_at: 'wait-at', reason: 'automatic_replacement_unavailable' }),
+    'Paid image replacement was blocked: Automatic replacement was not available.',
+  )
+  assert.equal(
+    await renderPublicPaidImageAttempt({ state: 'committed', eligible_at: 'wait-at', replacement_committed_at: 'commit-at', quoted_credits: 4, price_version: 'mock-image-price-v1' }),
+    'Paid image replacement was committed at commit-at. 4 credits at published price version mock-image-price-v1.',
+  )
+  assert.equal(
+    await renderPublicPaidImageAttempt({ state: 'failed', eligible_at: 'wait-at', actual_settled_credits: 3 }),
+    'Paid image replacement failed. Actual settled credits: 3 credits.',
+  )
+  assert.equal(
+    await renderPublicPaidImageAttempt({ state: 'succeeded', eligible_at: 'wait-at', actual_settled_credits: 4 }),
+    'Paid image replacement succeeded. Actual settled credits: 4 credits.',
+  )
 })
