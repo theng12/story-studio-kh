@@ -1,6 +1,6 @@
 ---
 name: story-studio-thumbnail-adoption
-description: Use when matching, adding, auditing, or extending a reusable Story Studio KH thumbnail format or catalog, or contributing a Thumbnail Recipe component to a modular Content Store/Channel Kit.
+description: Use when matching, adding, auditing, or extending a reusable Story Studio KH thumbnail format or authoring a standalone Thumbnail Recipe product.
 ---
 
 # Story Studio Thumbnail Adoption
@@ -9,7 +9,7 @@ Use this workflow to turn a thumbnail reference into a reusable Story Studio for
 
 ## Choose the lane first
 
-Before doing any other work, classify the request. For modular Content Store/Channel Kit work, use the Channel Kit component lane below and do not run ordinary runtime wiring, built-in-catalog mutation, niche-default, or release mutation unless the coordinator explicitly scopes a built-in migration. Source/contract analysis and component-specific tests remain allowed. For ordinary Story Studio thumbnail-catalog work, follow the workflow below.
+Before doing any other work, classify the request. For Content Store `.sspack` work, use the standalone Content Pack lane below and do not run ordinary built-in-catalog, niche-default, or release mutation unless the request separately scopes a built-in migration. Source/contract analysis and component-specific tests remain allowed. For ordinary Story Studio thumbnail-catalog work, follow the workflow below.
 
 ## Workflow
 
@@ -21,16 +21,16 @@ Before doing any other work, classify the request. For modular Content Store/Cha
    - `frontend/pages/projects/[slug]/image-prompts.vue`
    - `electron/server/generators/image-prompts.ts` and `images.ts`
 
-2. Analyze the reference as a *visual grammar*, never a template to copy. Identify focal hierarchy, title-safe space, object density, palette, annotation treatment, and the editorial headline shape. Do not reuse source wording, logos, people, branded assets, or exact composition.
+2. Analyze the reference as a *visual grammar*, never a template to copy. Exact matching is not required: references define reusable visual grammar and may seed inspired or materially varied thumbnails. Identify focal hierarchy, title-safe space, object density, palette, annotation treatment, and the editorial headline shape. Do not reuse source wording, logos, people, branded assets, or exact composition.
 
-3. Search the existing catalog. If a recipe is already 80–90% compatible, extend or select it rather than creating a competing near-duplicate. Otherwise add one JSON catalog entry with:
+3. Search the existing catalog. Keep one recipe when differences are parameters; split only when layout, hierarchy, reading order, incompatible typography, or cropping invariants differ. Extend or select a compatible recipe rather than creating a competing near-duplicate; do not use a closest-to-reference baseline as the matching criterion. Otherwise add one JSON catalog entry with:
    - searchable `category` and `tags`;
    - `recipe` composition rules, required elements, and avoid list;
    - `headlineFormats` for reusable editorial shapes;
    - `titleMode: "ai"` and exact-title instructions for the selected image model;
    - a title-safe composition band that still contains the AI-rendered headline.
 
-4. Obtain 2–3 original 16:9 preview images as owner-supplied originals or through a Studio Hub production-preview handoff. This control/development Mac does not run production image generation. They must be visibly different subject examples of the same recipe, retain the title band, include an AI-rendered sample headline, and contain no copied material. Verify the returned bytes and record actual WebP dimensions, decoding result, byte size, checksum, source/provenance, and license; do not invent missing evidence.
+4. Prepare all preview prompts in one pass and route one parallel Studio Hub production-preview batch, or use owner-supplied originals. Never run production generation on this control/development Mac, and do not call paid generation without an exact quote and explicit authorization. Obtain 3–5 original 16:9 previews that collectively vary subject side, angle, distance, location, palette, symbol, and 1/2/3-line headline arrangements while preserving the core hierarchy, title-safe band, and readability invariants. Palette-only or near-duplicate samples do not count. Cull clipped, misspelled, malformed, UI-contaminated, or near-duplicate previews. Verify each retained file's dimensions, decoding, byte size, checksum, provenance, and license; do not invent missing evidence.
 
 5. Wire the recipe end to end. Prompt generation must direct the selected image model to render the exact episode title in the title band; thumbnail rendering must preserve the model’s complete output without post-render text compositing. Do not merge scene and thumbnail generation surfaces.
 
@@ -38,31 +38,13 @@ Before doing any other work, classify the request. For modular Content Store/Cha
 
 7. Add regression tests covering catalog metadata/assets, exact in-image-title prompt enforcement, direct provider-output preservation, and UI browse/select visibility. Run focused tests, typecheck, and the release checks required by `AGENTS.md`.
 
-## Channel Kit component lane
+## Standalone Content Pack lane
 
-## Content Pack registry authority (required for Channel Kit work)
+For `.sspack` or Content Store work, first use `$story-studio-content-pack-authoring`. A Thumbnail Recipe is its own independently purchasable product. Do not create a Channel Kit, `bundle_id`, coordinator product, shared entitlement, or dependency merely because a style, Formula, or Topic Pack is compatible.
 
-The sole Story content-identity authority in the target Story Studio worktree is `content-packs/authoring-registry.json`. First run `npm run content-pack:registry -- validate`. A missing, invalid, unwritable, stale, collided, or otherwise unavailable registry is not an authority.
+Consume only the parent workflow's registry-issued Story identity, reservation revision/receipt, brief, and separate family/SKU stocking proposal. Never invent or renumber identities, and never imply a family/SKU is confirmed without its GenStudio confirmation reference.
 
-Only the coordinator reserves a complete batch of Story content identities. It must use `npm run content-pack:registry -- reserve --request <path>` with the current `expected_revision`, coordinator task/branch, proposal reference, and complete Story identity records. Record the returned registry revision and `receipt_ref`; pass both, plus the exact registry-issued identity and separate stocking proposal, to every leaf.
-
-A leaf may author only from that coordinator-supplied reservation. It must not derive, renumber, reserve, or repair identities; it must not run the reservation command. Before creating source files, write the coordinator-issued complete record (without `receipt_ref`) to an expected-identity JSON file and run `npm run content-pack:registry -- verify-receipt --revision <revision> --receipt <receipt_ref> --expected-identity <path>`. Only an exact successful result authorizes leaf work. Every authoring handoff names `content-packs/authoring-registry.json`, the verified reservation revision, and `receipt_ref` in `reservation`, and uses only the verified receipt's exact Story values in `identity`.
-
-The registry may issue only Story content identities and `family`/`sku` stocking proposals. It must not create GenStudio product, release, account, or wire identities; set pricing or discounts; publish; sign; use production keys; or run production image generation on this control/development Mac.
-
-If any required registry validation, reservation, revision, receipt, expected identity, or exact `verify-receipt` success is absent, fail closed and return this contract response instead of sources, manifests, IDs, archives, or GenStudio records:
-
-```text
-status: blocked
-blocker: Registry task required
-needed: coordinator-owned authoring catalog registry with collision-safe reservation
-requested_records: component kinds, proposed human names/slugs, intended reuse/compatibility
-do_not_create: Story content IDs, family/SKU proposals, manifests, candidate archives, GenStudio records
-```
-
-When the request is modular Content Store/Channel Kit work, this skill is a leaf component lane: **REQUIRED PARENT SKILL:** use `story-studio-channel-kit-authoring` for the coordinator contract and lifecycle. Consume only coordinator-reserved Story content identities; keep Story `identity` separate from the coordinator-supplied `stocking_proposal` for family/SKU. Never invent or renumber Story identities, and never imply a family/SKU is confirmed without its GenStudio confirmation reference.
-
-Return exactly one `status: authored-for-review`, `component: recipe` handoff using the parent contract with its required `reservation`, `identity`, `stocking_proposal`, `source`, `intent`, `compatibility`, `dependencies`, `originality_provenance`, `evidence`, `review_requests`, and `blocked_by` fields. Story `identity` contains exact registry-issued content values only; `stocking_proposal` carries family/SKU as `proposed`, `reserved`, or `confirmed`, with a confirmation reference only when confirmed. `dependencies` is `[]` or exact `pack_id@version` dependencies. It must carry the canonical identity/version/source/provenance/build contract, including source and asset paths, exact content version and dependencies, Formula compatibility, and actual preview WebP dimensions/decoding/size/provenance/license/checksum evidence.
+Return exactly one `status: authored-for-review`, `component: thumbnail-recipe` handoff using the parent contract's required fields. `dependencies` is `[]` unless the recipe technically consumes an exact external `pack_id@version`; compatibility is descriptive. The standalone pack still requires 3–5 original 16:9 previews with meaningful subject, composition, distance, location, palette, symbol, and headline-line variation; palette-only or near-duplicate samples do not count. Cull clipped, misspelled, malformed, UI-contaminated, or near-duplicate outputs. Include actual preview WebP dimensions, decoding, size, provenance, license, and checksum evidence for every retained preview.
 
 Use this exact structured evidence shape; every field is `passed` with a concrete check reference, `not_applicable` with a reason, or `blocked` with the missing input/gate:
 

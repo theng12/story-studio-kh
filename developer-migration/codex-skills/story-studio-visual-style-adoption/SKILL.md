@@ -1,6 +1,6 @@
 ---
 name: story-studio-visual-style-adoption
-description: Use when a user asks to match, recreate, add, ship, or wire a visual or art style into Story Studio KH, including modular Content Store or Channel Kit component-pack work.
+description: Use when a user asks to match, recreate, add, ship, or wire a visual or art style into Story Studio KH, including a standalone Visual Style product.
 ---
 
 # Story Studio Visual Style Adoption
@@ -9,7 +9,7 @@ Add one reference-driven style without creating per-page catalogs or weakening e
 
 ## Workflow branch (read first)
 
-- If the request mentions modular Content Store, Channel Kit, component packs, `.sspack`, or a coordinator handoff, use the Channel Kit component lane below as the early branch. Skip ordinary built-in runtime/catalog/default/version/changelog/release mutation; source/contract analysis and component-specific tests remain allowed. Resume ordinary steps only if the coordinator explicitly scopes a built-in migration.
+- If the request mentions the Content Store, content packs, `.sspack`, or a product handoff, use the standalone Content Pack lane below. Skip ordinary built-in runtime/catalog/default/version/changelog/release mutation unless the request separately scopes a built-in migration; source/contract analysis and component-specific tests remain allowed.
 - Otherwise, use the ordinary built-in visual-style workflow below. The preview sourcing and evidence rules apply to both branches.
 
 ## Workflow
@@ -26,40 +26,22 @@ Add one reference-driven style without creating per-page catalogs or weakening e
 10. Search all `BUILT_IN_STYLES` consumers to confirm the shared path remains intact. Verify style selection persists both `style_bible` and `negative_prompt`.
 11. Run the focused style tests, frontend tests, TypeScript/build checks, and visual asset dimension/size checks. Update version and changelog when making a release, then stage only owned files.
 
-## Channel Kit component lane
+## Standalone Content Pack lane
 
-## Content Pack registry authority (required for Channel Kit work)
+For `.sspack` or Content Store work, first use `$story-studio-content-pack-authoring`. A Visual Style is its own independently purchasable product. Do not create a Channel Kit, `bundle_id`, coordinator product, shared entitlement, or dependency merely because a Thumbnail Recipe, Formula, or Topic Pack is compatible.
 
-The sole Story content-identity authority in the target Story Studio worktree is `content-packs/authoring-registry.json`. First run `npm run content-pack:registry -- validate`. A missing, invalid, unwritable, stale, collided, or otherwise unavailable registry is not an authority.
-
-Only the coordinator reserves a complete batch of Story content identities. It must use `npm run content-pack:registry -- reserve --request <path>` with the current `expected_revision`, coordinator task/branch, proposal reference, and complete Story identity records. Record the returned registry revision and `receipt_ref`; pass both, plus the exact registry-issued identity and separate stocking proposal, to every leaf.
-
-A leaf may author only from that coordinator-supplied reservation. It must not derive, renumber, reserve, or repair identities; it must not run the reservation command. Before creating source files, write the coordinator-issued complete record (without `receipt_ref`) to an expected-identity JSON file and run `npm run content-pack:registry -- verify-receipt --revision <revision> --receipt <receipt_ref> --expected-identity <path>`. Only an exact successful result authorizes leaf work. Every authoring handoff names `content-packs/authoring-registry.json`, the verified reservation revision, and `receipt_ref` in `reservation`, and uses only the verified receipt's exact Story values in `identity`.
-
-The registry may issue only Story content identities and `family`/`sku` stocking proposals. It must not create GenStudio product, release, account, or wire identities; set pricing or discounts; publish; sign; use production keys; or run production image generation on this control/development Mac.
-
-If any required registry validation, reservation, revision, receipt, expected identity, or exact `verify-receipt` success is absent, fail closed and return this contract response instead of sources, manifests, IDs, archives, or GenStudio records:
-
-```text
-status: blocked
-blocker: Registry task required
-needed: coordinator-owned authoring catalog registry with collision-safe reservation
-requested_records: component kinds, proposed human names/slugs, intended reuse/compatibility
-do_not_create: Story content IDs, family/SKU proposals, manifests, candidate archives, GenStudio records
-```
-
-When the request is modular Content Store or Channel Kit work, first use the parent skill `story-studio-channel-kit-authoring` and follow its coordinator contract. This skill is the Visual Style leaf: consume coordinator-supplied Story reservation identities and stocking proposals/status/confirmation evidence; never invent or renumber Story identities, and never treat family/SKU proposals as identities. Keep Story identity separate from GenStudio identity. Return exactly one canonical Visual Style component handoff with this literal shape:
+Consume only the parent workflow's registry-issued Story identity, reservation revision/receipt, brief, and separate family/SKU stocking proposal. Never invent or renumber identities, and never imply a family/SKU is confirmed without field-exact GenStudio evidence. Return exactly one canonical Visual Style handoff:
 
 ```text
 status: authored-for-review
-component: style
-reservation: coordinator registry location/revision + receipt reference
-identity: exact coordinator-supplied Story values only
+component: visual-style
+reservation: registry location/revision + receipt reference
+identity: exact registry-issued Story values only; bundle_id absent
 stocking_proposal: family/SKU plus proposed|reserved|confirmed status and confirmation reference when confirmed
 source: source root and declared content/assets
 intent: reusable rendering contract
-compatibility: exact compatible reserved components and reasons
-dependencies: [] or exact pack_id@version dependencies
+compatibility: compatible standalone packs and reasons; never bundle membership
+dependencies: [] or exact technically required pack_id@version dependencies
 originality_provenance: reference inventory, transformations, exclusions, asset origin/license
 evidence:
   schema: passed | not_applicable | blocked

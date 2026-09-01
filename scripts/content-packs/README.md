@@ -6,7 +6,7 @@ contact GenStudio, purchase content, activate a pack, or modify customer content
 
 ## Authoring registry
 
-`content-packs/authoring-registry.json` is the coordinator-owned, Git-tracked authority for Story
+`content-packs/authoring-registry.json` is the authoring-lead-owned, Git-tracked authority for Story
 Content Pack identities. It reconciles every authored source pack and can reserve a complete
 future batch before any leaf author creates source files. It records only Story pack, item or
 bundle, version, publisher, source, dependency, and family/SKU proposal facts—never GenStudio
@@ -58,7 +58,7 @@ catalog waves, while explicitly excluding only the retired source-only
 aliases, absolute paths, backslashes, symlinks, cycles, coordinators in creative dependency closure,
 and unregistered authored sources fail closed.
 
-Canonical migration copies of all four authoring skill packages live under
+Canonical migration copies of all five authoring skill packages live under
 `developer-migration/codex-skills/`. Install or verify them on a new computer with:
 
 ```bash
@@ -78,7 +78,7 @@ my-pack/
 ```
 
 The source root may contain only `pack.json`, `content/`, and `assets/`. `content/` contains
-strict JSON documents for the four supported item kinds; `assets/` contains only PNG, JPEG, or
+strict JSON documents for the nine supported item kinds; `assets/` contains only PNG, JPEG, or
 WebP files. Symlinks, scripts, SVG, HTML, CSS, fonts, and extra files are rejected.
 
 `pack.json` contains the shared manifest metadata, but **must omit** the derived `items` and
@@ -86,10 +86,14 @@ WebP files. Symlinks, scripts, SVG, HTML, CSS, fonts, and extra files are reject
 complete manifest, and signs its canonical JSON bytes. The pack, key, entitlement, bundle, and
 document IDs must fall within the stated publisher namespace; in-pack paths are not namespace IDs.
 
-## Bundle-only coordination packs
+## Legacy bundle-only coordination packs
 
-A Channel Kit may coordinate exactly one Formula, Topic Pack, Style, and Thumbnail Recipe from
-exact external dependencies. This is the only source shape permitted without `content/`:
+Channel Kits remain supported for backward compatibility, but they are retired from new authoring
+and merchandising. Do not create, extend, reserve, build, price, or stock a new Channel Kit. Every
+new product is an independently purchasable, mix-and-matchable Content Pack.
+
+An existing legacy Channel Kit may coordinate exactly one Formula, Topic Pack, Style, and Thumbnail
+Recipe from exact external dependencies. This is the only source shape permitted without `content/`:
 it must contain just `pack.json`, derive empty `items` and `files`, declare one Channel Kit, and
 carry no in-pack content or assets. Every component must be external and every dependency must
 be used by an exact component reference.
@@ -192,8 +196,9 @@ content and assets.
 Never sign or stock that retired monolith. Its former combined Formula, Topic, Style, and Recipe
 content must remain a review reference only; the publisher rejects it before an archive is made.
 
-Build each independently signed component source, then the Channel Kit coordinator that references
-their exact versions. These release-parameterized sources deliberately use `{{MIN_APP_VERSION}}`:
+For historical recovery or compatibility validation, build each independently signed component
+source, then the existing Channel Kit coordinator that references their exact versions. Do not use
+this path for new products. These release-parameterized sources deliberately use `{{MIN_APP_VERSION}}`:
 final integrators—not pack authors—choose the shared Story Studio release version and pass that
 identical value to each build.
 

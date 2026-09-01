@@ -22,7 +22,7 @@ source of truth.
 
 ## 2. Install the canonical Story authoring skills
 
-The four authoritative, Git-tracked packages live under
+The five authoritative, Git-tracked packages live under
 `developer-migration/codex-skills/`. Do not make installed copies under
 `~/.codex/skills/` the migration authority.
 
@@ -33,7 +33,7 @@ node scripts/developer/sync-story-authoring-skills.mjs --install
 node scripts/developer/sync-story-authoring-skills.mjs --check
 ```
 
-The check must report four packages and 11 files matching byte-for-byte.
+The check must report five packages and 13 files matching byte-for-byte.
 
 ## 3. Preserve projects and durable local state
 
