@@ -198,12 +198,20 @@ async function renderPublicPaidImageAttempt(job: Record<string, unknown>): Promi
 
 test('Jobs renders safe public Task5 replacement outcomes', async () => {
   assert.equal(
+    await renderPublicPaidImageAttempt({ state: 'waiting', eligible_at: 'wait-at' }),
+    'Paid image replacement is waiting until at wait-at.',
+  )
+  assert.equal(
     await renderPublicPaidImageAttempt({ state: 'blocked', eligible_at: 'wait-at', reason: 'automatic_replacement_unavailable' }),
     'Paid image replacement was blocked: Automatic replacement was not available.',
   )
   assert.equal(
     await renderPublicPaidImageAttempt({ state: 'committed', eligible_at: 'wait-at', replacement_committed_at: 'commit-at', quoted_credits: 4, price_version: 'mock-image-price-v1' }),
     'Paid image replacement was committed at commit-at. 4 credits at published price version mock-image-price-v1.',
+  )
+  assert.equal(
+    await renderPublicPaidImageAttempt({ state: 'submitted', eligible_at: 'wait-at', quoted_credits: 1, price_version: 'mock-image-price-v1' }),
+    'Paid image replacement was submitted. 1 credit at published price version mock-image-price-v1.',
   )
   assert.equal(
     await renderPublicPaidImageAttempt({ state: 'failed', eligible_at: 'wait-at', actual_settled_credits: 3 }),
