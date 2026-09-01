@@ -98,6 +98,48 @@ const MetadataProfileSchema = z.object({
   title_max_length: z.number().int().min(20).max(200),
   tag_count: z.number().int().min(1).max(50),
 }).strict()
+
+const VisualPacingProfileSchema = z.object({
+  opening_duration_sec: z.number().int().min(0).max(3600),
+  opening: z.object({ min_sec: z.number().int().min(1).max(300), max_sec: z.number().int().min(1).max(300) }).strict(),
+  settled: z.object({ min_sec: z.number().int().min(1).max(300), max_sec: z.number().int().min(1).max(300) }).strict(),
+}).strict().superRefine((profile, ctx) => {
+  if (profile.opening.min_sec > profile.opening.max_sec || profile.settled.min_sec > profile.settled.max_sec) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'visual pacing bounds must be ordered' })
+  }
+})
+const IntroDefaultsSchema = z.object({
+  word_target: z.number().int().min(50).max(600).optional(),
+  beats: z.array(z.union([
+    safeText(300),
+    z.object({ id: safeText(120), custom_text: safeText(1000).optional() }).strict(),
+  ])).min(1).max(20).optional(),
+  example_text: safeText(3000).optional(),
+}).strict()
+const ScriptStructureSchema = z.object({
+  default_chapter_count: z.number().int().min(1).max(100),
+  chapter_count_range: boundedRange(1, 100),
+  default_length_minutes: z.number().int().min(1).max(600),
+  length_minutes_range: boundedRange(1, 600),
+  duration_presets: z.array(z.number().int().min(1).max(600)).min(1).max(20),
+  default_words_per_minute: z.number().int().min(50).max(300),
+  chapters_independent: z.boolean(),
+  visual_pacing_profile: VisualPacingProfileSchema.optional(),
+  motion_profile_id: z.enum(MOTION_PROFILE_IDS).optional(),
+  pacing_arc: textList(100),
+  additional_rules: textList(100),
+}).strict()
+const EpisodeScriptStructureSchema = ScriptStructureSchema.extend({
+  pacing_arc: textList(100).optional(),
+  additional_rules: textList(100).optional(),
+}).strict()
+const RecencyAvoidanceSchema = z.object({
+  /** This allowlist is intentionally app-owned: packs cannot deliver executable scanning rules. */
+  strategy_id: z.enum(RECENCY_STRATEGY_IDS),
+  label: safeText(160),
+  default_lookback: z.number().int().min(1).max(1000).optional(),
+  scopes: z.array(z.enum(['script', 'titles', 'image_prompts', 'metadata'])).min(1).max(4).optional(),
+}).strict()
 const EpisodeProfileSchema = z.object({
   id: localSlug,
   label: safeText(120),
@@ -109,6 +151,14 @@ const EpisodeProfileSchema = z.object({
   title_policy: safeText(800).optional(),
   thumbnail_policy: safeText(800).optional(),
   metadata_policy: safeText(800).optional(),
+  intro_defaults: IntroDefaultsSchema.optional(),
+  script_structure: EpisodeScriptStructureSchema.optional(),
+  recency_avoidance: RecencyAvoidanceSchema.optional(),
+  idea_system_prompt_role: safeText(MAX_TEXT).optional(),
+  idea_guidance_text: safeText(MAX_TEXT).optional(),
+  script_context: safeText(MAX_TEXT).optional(),
+  script_system_prompt_role: safeText(MAX_TEXT).optional(),
+  script_closing_hint: safeText(MAX_TEXT).optional(),
 }).strict()
 
 const ProductionKitSchema = z.object({
@@ -123,29 +173,12 @@ const NarratorStyleSchema = z.object({
   label: safeText(120),
   description: safeText(1000),
 }).strict()
-const VisualPacingProfileSchema = z.object({
-  opening_duration_sec: z.number().int().min(0).max(3600),
-  opening: z.object({ min_sec: z.number().int().min(1).max(300), max_sec: z.number().int().min(1).max(300) }).strict(),
-  settled: z.object({ min_sec: z.number().int().min(1).max(300), max_sec: z.number().int().min(1).max(300) }).strict(),
-}).strict().superRefine((profile, ctx) => {
-  if (profile.opening.min_sec > profile.opening.max_sec || profile.settled.min_sec > profile.settled.max_sec) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'visual pacing bounds must be ordered' })
-  }
-})
 const MetadataDescriptionSchema = z.object({
   voice_guidance: safeText(3000).optional(),
   description_shape_rules: z.array(safeText(1200)).max(60).optional(),
   closing_benediction: safeText(1200).optional(),
   cta_shape: safeText(2000).optional(),
 }).strict()
-const RecencyAvoidanceSchema = z.object({
-  /** This allowlist is intentionally app-owned: packs cannot deliver executable scanning rules. */
-  strategy_id: z.enum(RECENCY_STRATEGY_IDS),
-  label: safeText(160),
-  default_lookback: z.number().int().min(1).max(1000).optional(),
-  scopes: z.array(z.enum(['script', 'titles', 'image_prompts', 'metadata'])).min(1).max(4).optional(),
-}).strict()
-
 export const ContentPackItemKindSchema = z.enum([
   'series-formula',
   'topic-pack',
@@ -204,23 +237,13 @@ const SeriesFormulaDocumentSchema = z.object({
     label: safeText(120),
     description: safeText(500),
   }).strict().optional(),
+  intro_defaults: IntroDefaultsSchema.optional(),
+  visual_style_hint: safeText(1000).optional(),
   metadata_profile: MetadataProfileSchema.optional(),
   production_kit: ProductionKitSchema.optional(),
   narrative_rules: textList(60),
   title_rules: textList(60),
-  script_structure: z.object({
-    default_chapter_count: z.number().int().min(1).max(100),
-    chapter_count_range: boundedRange(1, 100),
-    default_length_minutes: z.number().int().min(1).max(600),
-    length_minutes_range: boundedRange(1, 600),
-    duration_presets: z.array(z.number().int().min(1).max(600)).min(1).max(20),
-    default_words_per_minute: z.number().int().min(50).max(300),
-    chapters_independent: z.boolean(),
-    visual_pacing_profile: VisualPacingProfileSchema.optional(),
-    motion_profile_id: z.enum(MOTION_PROFILE_IDS).optional(),
-    pacing_arc: textList(100),
-    additional_rules: textList(100),
-  }).strict(),
+  script_structure: ScriptStructureSchema,
   compatible_topic_pack_ids: z.array(qualifiedId).max(MAX_LIST),
   default_topic_pack_ids: z.array(qualifiedId).max(MAX_LIST).optional(),
   example_topics: z.array(safeText(1000)).max(200).optional(),
@@ -246,6 +269,7 @@ const SeriesFormulaDocumentSchema = z.object({
   theme_count_range: boundedRange(1, 20).optional(),
   structural_variety: z.enum(['free', 'vary-all', 'vary-subject-only']).optional(),
   default_thumbnail_recipe_id: qualifiedId.optional(),
+  default_thumbnail_template_id: localSlug.optional(),
   metadata_title_style_hint: safeText(1000).optional(),
   metadata_title_hook_rules: z.array(safeText(1000)).max(60).optional(),
   metadata_tags_hook_rules: z.array(safeText(1000)).max(60).optional(),
@@ -757,6 +781,22 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
   for (const [index, profile] of episodeProfiles.entries()) {
     if (profile.narrator_style_id && !narratorStyleIds.has(profile.narrator_style_id)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['production_kit', 'episode_profiles', index, 'narrator_style_id'], message: 'episode profile narrator style must be declared by the Formula' })
+    }
+    const profileStructure = profile.script_structure
+    if (profileStructure) {
+      const [profileMinChapters, profileMaxChapters] = profileStructure.chapter_count_range
+      const [profileMinLength, profileMaxLength] = profileStructure.length_minutes_range
+      const basePath: Array<string | number> = ['production_kit', 'episode_profiles', index, 'script_structure']
+      if (profileStructure.default_chapter_count < profileMinChapters || profileStructure.default_chapter_count > profileMaxChapters) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...basePath, 'default_chapter_count'], message: 'episode profile default chapter count must be within its range' })
+      }
+      if (profileStructure.default_length_minutes < profileMinLength || profileStructure.default_length_minutes > profileMaxLength) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...basePath, 'default_length_minutes'], message: 'episode profile default length must be within its range' })
+      }
+      if (!profileStructure.duration_presets.includes(profileStructure.default_length_minutes)
+        || profileStructure.duration_presets.some(duration => duration < profileMinLength || duration > profileMaxLength)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...basePath, 'duration_presets'], message: 'episode profile duration presets must include the default and remain within its range' })
+      }
     }
   }
   if (episodeProfiles.length > 0) {

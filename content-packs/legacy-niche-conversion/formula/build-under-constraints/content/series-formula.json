@@ -24,6 +24,18 @@
     ],
     "closing_policy": "End with the most useful decision rule."
   },
+  "intro_defaults": {
+    "word_target": 80,
+    "beats": [
+      { "id": "premise_setup", "custom_text": "set the premise in one line — the constraint, the amount, the deadline" },
+      { "id": "personal_check_in", "custom_text": "say where you are standing and what you are holding as you start; keep it physical" },
+      { "id": "what_youll_learn", "custom_text": "promise specifics — the actual steps, not the mindset" },
+      { "id": "not_advice_note", "custom_text": "one line that this is what you would do, not advice for anybody else’s situation" },
+      { "id": "subscribe_cta", "custom_text": "one line at the end of the opening, never at the start" },
+      { "id": "transition", "custom_text": "stop talking about it and start doing it" }
+    ]
+  },
+  "visual_style_hint": "consistent on-screen creator across every scene — authentic, grounded, slightly cinematic",
   "narrative_rules": [
     "Opening word target: 80 words.",
     "Opening beat premise_setup: set the premise in one line — the constraint, the amount, the deadline.",
@@ -75,12 +87,7 @@
       "Close with a clear payoff or call to action that lands the POV premise."
     ]
   },
-  "compatible_topic_pack_ids": [
-    "com.storystudio.topic.economics-businesses"
-  ],
-  "default_topic_pack_ids": [
-    "com.storystudio.topic.economics-businesses"
-  ],
+  "compatible_topic_pack_ids": [],
   "example_topics": [
     "If I had $1000 today, here's exactly what I'd do to multiply it",
     "If I had a MacBook today, here's how I'd make money with it",

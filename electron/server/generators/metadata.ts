@@ -357,6 +357,7 @@ export async function generateMetadata(job: Job): Promise<void> {
         project_slug,
         'metadata',
         buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, promptFormat),
+        episode_id,
       ) + await noEmojiDirective()
       const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false,
         // Standard: a full YouTube description (up to ~5,000 characters).
@@ -465,7 +466,7 @@ Requirements:
 - ${platformNote}
 - Tone: ${titleTone}.
 - One per line. No numbering, quotes, or commentary.${await noEmojiDirective()}`
-      const titlePromptWithAvoidance = await prependAvoidanceToPrompt(project_slug, 'titles', titlePrompt)
+      const titlePromptWithAvoidance = await prependAvoidanceToPrompt(project_slug, 'titles', titlePrompt, episode_id)
       const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       // v1.4.84 — drop the model's own document furniture BEFORE the slice.

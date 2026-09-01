@@ -1111,6 +1111,7 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
     slug,
     'metadata',
     buildDescriptionPrompt(episode_id, title, storyContext, effectiveSections, effectiveMaxChars, promptFormat),
+    episode_id,
   ) + await noEmojiDirective()
 
   try {
@@ -1344,6 +1345,7 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
       slug,
       'metadata',
       buildDescriptionPrompt(episode_id, title, storyContext, effectiveSections, effectiveMaxChars, promptFormat),
+      episode_id,
     ) + await noEmojiDirective()
     const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false, {
       slug, outputBudget: 'standard',
@@ -1381,7 +1383,7 @@ Requirements:
 - ${platformNote}
 - Tone: ${formula?.titleGuidance || format.metadata.titleStyleHint}.
 - One per line. No numbering, quotes, or commentary.${await noEmojiDirective()}`
-      const titlePromptWithAvoidance = await prependAvoidanceToPrompt(slug, 'titles', titlePrompt)
+      const titlePromptWithAvoidance = await prependAvoidanceToPrompt(slug, 'titles', titlePrompt, episode_id)
       const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false, { slug })
       const rawTitles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || formula?.titleCount || 5)
       const cleanTitles = await applyEmojiPolicyToAll(rawTitles, [titlePromptWithAvoidance])

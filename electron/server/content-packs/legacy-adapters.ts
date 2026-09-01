@@ -52,14 +52,60 @@ function mapVocabulary(vocabulary: FormulaDocument['vocabulary'] | TopicDocument
   }
 }
 
+function mapIntroDefaults(intro: FormulaDocument['intro_defaults']) {
+  if (!intro) return undefined
+  return {
+    ...(intro.word_target !== undefined ? { wordTarget: intro.word_target } : {}),
+    ...(intro.beats ? { beats: intro.beats.map(beat => typeof beat === 'string' ? beat : { ...beat }) } : {}),
+    ...(intro.example_text !== undefined ? { exampleText: intro.example_text } : {}),
+  }
+}
+
+type FormulaEpisodeProfileDocument = NonNullable<NonNullable<FormulaDocument['production_kit']>['episode_profiles']>[number]
+type FormulaEpisodeScriptStructureDocument = NonNullable<FormulaEpisodeProfileDocument['script_structure']>
+
+function mapScriptStructure(
+  structure: FormulaDocument['script_structure'] | FormulaEpisodeScriptStructureDocument,
+  resolveProfile = true,
+) {
+  const motionProfile = structure.motion_profile_id
+    ? resolveMotionProfile(structure.motion_profile_id)
+    : undefined
+  return {
+    defaultChapterCount: structure.default_chapter_count,
+    chapterCountRange: [...structure.chapter_count_range] as [number, number],
+    defaultLengthMinutes: structure.default_length_minutes,
+    lengthMinutesRange: [...structure.length_minutes_range] as [number, number],
+    durationPresets: [...structure.duration_presets],
+    defaultWordsPerMinute: structure.default_words_per_minute,
+    chaptersIndependent: structure.chapters_independent,
+    visualPacingProfile: structure.visual_pacing_profile ? {
+      opening_duration_sec: structure.visual_pacing_profile.opening_duration_sec,
+      opening: { ...structure.visual_pacing_profile.opening },
+      settled: { ...structure.visual_pacing_profile.settled },
+    } : undefined,
+    ...(resolveProfile && motionProfile ? { motionProfile } : {}),
+    motionProfileId: structure.motion_profile_id,
+    ...(structure.pacing_arc ? { pacingArc: [...structure.pacing_arc] } : {}),
+    ...(structure.additional_rules ? { additionalRules: [...structure.additional_rules] } : {}),
+  }
+}
+
+function mapRecencyAvoidance(recency: FormulaDocument['recency_avoidance']) {
+  if (!recency) return undefined
+  const strategy = resolveRecencyStrategy(recency.strategy_id)
+  return {
+    strategyId: recency.strategy_id,
+    label: recency.label,
+    extractPatterns: [...strategy.extractPatterns],
+    defaultLookback: recency.default_lookback,
+    instructionTemplate: strategy.instructionTemplate,
+    scopes: recency.scopes ? [...recency.scopes] : undefined,
+  }
+}
+
 /** Explicit snake_case → current Niche mapping. No unknown field is spread. */
 export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
-  const motionProfile = document.script_structure.motion_profile_id
-    ? resolveMotionProfile(document.script_structure.motion_profile_id)
-    : undefined
-  const recencyStrategy = document.recency_avoidance
-    ? resolveRecencyStrategy(document.recency_avoidance.strategy_id)
-    : undefined
   return {
     id: document.id,
     name: document.name,
@@ -78,6 +124,7 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
       closingPolicy: document.narrative_quality_contract.closing_policy,
     } : undefined,
     openingProfile: document.opening_profile ? { ...document.opening_profile } : undefined,
+    introDefaults: mapIntroDefaults(document.intro_defaults),
     metadataProfile: document.metadata_profile ? {
       id: document.metadata_profile.id,
       label: document.metadata_profile.label,
@@ -103,6 +150,14 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
         titlePolicy: profile.title_policy,
         thumbnailPolicy: profile.thumbnail_policy,
         metadataPolicy: profile.metadata_policy,
+        introDefaults: mapIntroDefaults(profile.intro_defaults),
+        scriptStructure: profile.script_structure ? mapScriptStructure(profile.script_structure, false) : undefined,
+        recencyAvoidance: mapRecencyAvoidance(profile.recency_avoidance),
+        ideaSystemPromptRole: profile.idea_system_prompt_role,
+        ideaGuidanceText: profile.idea_guidance_text,
+        scriptContext: profile.script_context,
+        scriptSystemPromptRole: profile.script_system_prompt_role,
+        scriptClosingHint: profile.script_closing_hint,
       })),
     } : undefined,
     tagline: document.tagline,
@@ -128,6 +183,7 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
     metadataTitleStyleHint: document.metadata_title_style_hint,
     metadataTitleHookRules: document.metadata_title_hook_rules ? [...document.metadata_title_hook_rules] : undefined,
     metadataTagsHookRules: document.metadata_tags_hook_rules ? [...document.metadata_tags_hook_rules] : undefined,
+    visualStyleHint: document.visual_style_hint,
     narratorStyles: document.narrator_styles?.map(style => ({ ...style })),
     defaultNarratorStyleId: document.default_narrator_style_id,
     titleShapeRules: document.title_shape_rules ? [...document.title_shape_rules] : undefined,
@@ -137,45 +193,15 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
     themeShapeRules: document.theme_shape_rules ? [...document.theme_shape_rules] : undefined,
     themeCountRange: document.theme_count_range ? [...document.theme_count_range] : undefined,
     structuralVariety: document.structural_variety,
-    scriptStructure: {
-      defaultChapterCount: document.script_structure.default_chapter_count,
-      chapterCountRange: [...document.script_structure.chapter_count_range],
-      defaultLengthMinutes: document.script_structure.default_length_minutes,
-      lengthMinutesRange: [...document.script_structure.length_minutes_range],
-      durationPresets: [...document.script_structure.duration_presets],
-      defaultWordsPerMinute: document.script_structure.default_words_per_minute,
-      chaptersIndependent: document.script_structure.chapters_independent,
-      visualPacingProfile: document.script_structure.visual_pacing_profile ? {
-        opening_duration_sec: document.script_structure.visual_pacing_profile.opening_duration_sec,
-        opening: {
-          min_sec: document.script_structure.visual_pacing_profile.opening.min_sec,
-          max_sec: document.script_structure.visual_pacing_profile.opening.max_sec,
-        },
-        settled: {
-          min_sec: document.script_structure.visual_pacing_profile.settled.min_sec,
-          max_sec: document.script_structure.visual_pacing_profile.settled.max_sec,
-        },
-      } : undefined,
-      motionProfile,
-      motionProfileId: document.script_structure.motion_profile_id,
-      pacingArc: [...document.script_structure.pacing_arc],
-      additionalRules: [...document.script_structure.additional_rules],
-    },
+    scriptStructure: mapScriptStructure(document.script_structure),
     metadataDescription: document.metadata_description ? {
       voiceGuidance: document.metadata_description.voice_guidance,
       descriptionShapeRules: document.metadata_description.description_shape_rules ? [...document.metadata_description.description_shape_rules] : undefined,
       closingBenediction: document.metadata_description.closing_benediction,
       ctaShape: document.metadata_description.cta_shape,
     } : undefined,
-    recencyAvoidance: document.recency_avoidance && recencyStrategy ? {
-      strategyId: document.recency_avoidance.strategy_id,
-      label: document.recency_avoidance.label,
-      extractPatterns: [...recencyStrategy.extractPatterns],
-      defaultLookback: document.recency_avoidance.default_lookback,
-      instructionTemplate: recencyStrategy.instructionTemplate,
-      scopes: document.recency_avoidance.scopes ? [...document.recency_avoidance.scopes] : undefined,
-    } : undefined,
-    defaultThumbnailTemplateId: document.default_thumbnail_recipe_id,
+    recencyAvoidance: mapRecencyAvoidance(document.recency_avoidance),
+    defaultThumbnailTemplateId: document.default_thumbnail_template_id ?? document.default_thumbnail_recipe_id,
   }
 }
 

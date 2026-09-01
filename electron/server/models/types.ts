@@ -755,6 +755,15 @@ export interface FormulaEpisodeProfile {
   titlePolicy?: string
   thumbnailPolicy?: string
   metadataPolicy?: string
+  /** Runtime overrides carried by a declarative episode mode. */
+  introDefaults?: Niche['introDefaults']
+  scriptStructure?: Niche['scriptStructure']
+  recencyAvoidance?: Niche['recencyAvoidance']
+  ideaSystemPromptRole?: string
+  ideaGuidanceText?: string
+  scriptContext?: string
+  scriptSystemPromptRole?: string
+  scriptClosingHint?: string
 }
 
 /** Declarative binding between a Series Formula and the reusable production
@@ -891,10 +900,8 @@ export interface Niche {
    * long-form seven. No built-in Formula is in that position any more; a
    * channel running no Formula at all still is.
    *
-   * Not part of the signed content-pack contract, so a published Formula does
-   * not carry one. That is deliberate rather than an oversight: openings ship
-   * free with the built-in Formulas, and a default nobody can have without
-   * paying is not a default.
+   * Signed Content Packs may carry the same recipe as optional snake-case
+   * data; older packs remain valid when it is absent.
    */
   introDefaults?: {
     /** Roughly how long the opening runs, in words. Clamped to 50–600. */

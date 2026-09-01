@@ -24,6 +24,17 @@
     ],
     "closing_policy": "Synthesize the pattern across the sections."
   },
+  "intro_defaults": {
+    "word_target": 70,
+    "beats": [
+      { "id": "hook", "custom_text": "open on the strangest single item on the list, without saying which number it is" },
+      { "id": "welcome", "custom_text": "hello and your name, in one line — smart friend, not presenter" },
+      { "id": "episode_roadmap", "custom_text": "say how many there are and which way you are counting" },
+      { "id": "subscribe_cta", "custom_text": "one line, no hype" },
+      { "id": "transition", "custom_text": "go straight into number one" }
+    ]
+  },
+  "visual_style_hint": "clean, bold, single-concept visuals per topic — evidence-forward, not decorative",
   "narrative_rules": [
     "Opening word target: 70 words.",
     "Opening beat hook: open on the strangest single item on the list, without saying which number it is.",
@@ -75,8 +86,6 @@
     ]
   },
   "compatible_topic_pack_ids": [
-    "com.storystudio.topic.economics-businesses",
-    "com.storystudio.topic.natural-world-animals",
     "com.storystudio.topic.natural-world-fungi",
     "com.storystudio.topic.natural-world-insects",
     "com.storystudio.topic.natural-world-plants"

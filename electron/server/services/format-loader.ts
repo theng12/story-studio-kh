@@ -30,6 +30,7 @@ import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import * as pm from './project-manager.js'
 import { resolveMotionProfile } from './motion-profiles.js'
+import { applyFormulaEpisodeProfile, resolveFormulaEpisodeDimensions } from './formula-production-kit.js'
 import type { Format, DeepPartial, ProjectMeta } from '../models/types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -288,6 +289,8 @@ export interface EffectiveFormatOpts {
   /** undefined uses project packs (or the overridden formula's defaults);
    *  [] explicitly disables packs for this generation. */
   topicPackIdsOverride?: string[]
+  /** Accepted episode whose durable Idea Campaign profile should apply. */
+  episodeId?: string
 }
 
 const LIVE_VISUAL_SOURCES = new Set<string>([
@@ -359,7 +362,8 @@ export async function getEffectiveFormatFor(
         ? (rawNiche ? await nicheLoader.composeNicheWithTopicPacks(rawNiche, packIds) : null)
         : await nicheLoader.getEffectiveNicheFor(project, packIds)
       if (niche) {
-        base = applyNicheToFormat(base, niche)
+        const dimensions = await resolveFormulaEpisodeDimensions(project.slug, opts?.episodeId)
+        base = applyNicheToFormat(base, niche, dimensions)
       }
     } catch (e: any) {
       if (e?.code === 'content-pack-missing') throw e
@@ -445,7 +449,12 @@ function uniqueAppend(a: string[] | undefined, b: string[] | undefined): string[
   return out
 }
 
-export function applyNicheToFormat(format: Format, niche: Niche): Format {
+export function applyNicheToFormat(
+  format: Format,
+  niche: Niche,
+  dimensions?: Record<string, string>,
+): Format {
+  niche = applyFormulaEpisodeProfile(niche, dimensions)
   // ── Polarity (v1.0.280+, format↔niche refactor) ─────────────────────────
   // FORMAT is a presentation-only shell; its content fields hold NEUTRAL
   // generic defaults (the fallback). NICHE provides the actual content.

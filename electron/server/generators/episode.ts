@@ -14,6 +14,7 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 import { applyRecencyToFormat, recordUsage } from '../services/recency-tracker.js'
 import { getEffectiveNiche } from '../services/niche-loader.js'
+import { applyFormulaEpisodeProfile, resolveFormulaEpisodeDimensions } from '../services/formula-production-kit.js'
 // v1.0.166 — pattern-loader import removed with the Pattern system.
 import { resolveCharacters } from '../services/character-manager.js'
 
@@ -499,12 +500,12 @@ async function generateEpisode(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  let format = await getEffectiveFormat(project_slug)
+  let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
   // v1.0.106+ — append the niche's recency-avoidance instruction (if
   // any) onto format.script.additionalRules so the LLM is told which
   // items the channel used in its last N episodes. No-op when the
   // niche has no recencyAvoidance config OR the log is empty.
-  format = await applyRecencyToFormat(format, project_slug)
+  format = await applyRecencyToFormat(format, project_slug, episode_id)
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   format = applyCreativeFreedom(format, req)
   const title = req.title
@@ -843,8 +844,8 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  let format = await getEffectiveFormat(project_slug)
-  format = await applyRecencyToFormat(format, project_slug)
+  let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
+  format = await applyRecencyToFormat(format, project_slug, episode_id)
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   format = applyCreativeFreedom(format, req)
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
@@ -1007,8 +1008,8 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  let format = await getEffectiveFormat(project_slug)
-  format = await applyRecencyToFormat(format, project_slug)
+  let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
+  format = await applyRecencyToFormat(format, project_slug, episode_id)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
   const style = req.style || format.script.defaultNarratorStyleId
@@ -1248,8 +1249,8 @@ async function setupChunkedJobContext(
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  let format = await getEffectiveFormat(project_slug)
-  format = await applyRecencyToFormat(format, project_slug)
+  let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
+  format = await applyRecencyToFormat(format, project_slug, episode_id)
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   format = applyCreativeFreedom(format, req)
   const title = req.title
@@ -1530,7 +1531,12 @@ export async function generateExpandChapters(job: Job): Promise<void> {
  */
 async function recordRecencyForEpisode(slug: string, episode_code: string, narrationDocxPath: string): Promise<void> {
   try {
-    const niche = await getEffectiveNiche(slug)
+    const baseNiche = await getEffectiveNiche(slug)
+    if (!baseNiche) return
+    const niche = applyFormulaEpisodeProfile(
+      baseNiche,
+      await resolveFormulaEpisodeDimensions(slug, episode_code),
+    )
     if (!niche?.recencyAvoidance) return
     const { narrationDocxToMarkdown } = await import('../lib/docx-parser.js')
     const md = await narrationDocxToMarkdown(narrationDocxPath)

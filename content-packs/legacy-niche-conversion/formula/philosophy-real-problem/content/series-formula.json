@@ -24,6 +24,16 @@
     ],
     "closing_policy": "End with a question or implication that follows from the argument."
   },
+  "intro_defaults": {
+    "word_target": 120,
+    "beats": [
+      { "id": "question_to_sit_with", "custom_text": "pose the human problem this episode is about, as a question, and leave it standing" },
+      { "id": "welcome", "custom_text": "greet quietly and give your name — a conversation, not a lecture" },
+      { "id": "what_youll_learn", "custom_text": "name the thinker or school the episode brings to it, and the text you will actually quote" },
+      { "id": "subscribe_cta", "custom_text": "one quiet line that does not break the register" },
+      { "id": "transition", "custom_text": "hand over to the first chapter by returning to the question" }
+    ]
+  },
   "narrative_rules": [
     "Opening word target: 120 words.",
     "Opening beat question_to_sit_with: pose the human problem this episode is about, as a question, and leave it standing.",
@@ -70,12 +80,7 @@
       "End with a single question the listener can sit with — not a tidy conclusion."
     ]
   },
-  "compatible_topic_pack_ids": [
-    "com.storystudio.topic.human-behavior-social-dynamics"
-  ],
-  "default_topic_pack_ids": [
-    "com.storystudio.topic.human-behavior-social-dynamics"
-  ],
+  "compatible_topic_pack_ids": [],
   "example_topics": [
     "Marcus Aurelius on Things You Can't Control",
     "The Stoic View of Anger",

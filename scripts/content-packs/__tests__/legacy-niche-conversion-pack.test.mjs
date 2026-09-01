@@ -13,8 +13,6 @@ const FORMULAS = [
     packId: 'com.storystudio.pack.formula.counted-explainer',
     itemId: 'com.storystudio.formula.counted-explainer',
     compatibleTopics: [
-      'com.storystudio.topic.economics-businesses',
-      'com.storystudio.topic.natural-world-animals',
       'com.storystudio.topic.natural-world-fungi',
       'com.storystudio.topic.natural-world-insects',
       'com.storystudio.topic.natural-world-plants',
@@ -25,14 +23,14 @@ const FORMULAS = [
     legacy: ['pov-hustle'],
     packId: 'com.storystudio.pack.formula.build-under-constraints',
     itemId: 'com.storystudio.formula.build-under-constraints',
-    compatibleTopics: ['com.storystudio.topic.economics-businesses'],
+    compatibleTopics: [],
   },
   {
     slug: 'philosophy-real-problem',
     legacy: ['philosophy'],
     packId: 'com.storystudio.pack.formula.philosophy-real-problem',
     itemId: 'com.storystudio.formula.philosophy-real-problem',
-    compatibleTopics: ['com.storystudio.topic.human-behavior-social-dynamics'],
+    compatibleTopics: [],
   },
   {
     slug: 'pastoral-scripture',
@@ -133,6 +131,13 @@ test('legacy Formula documents explicitly translate the camel-case prompt contra
     assert.equal(document.script_context, legacy.scriptContext)
     assert.equal(document.script_system_prompt_role, legacy.scriptSystemPromptRole)
     assert.equal(document.script_closing_hint, legacy.scriptClosingHint)
+    assert.deepEqual(document.intro_defaults, {
+      word_target: legacy.introDefaults.wordTarget,
+      beats: legacy.introDefaults.beats,
+      ...(legacy.introDefaults.exampleText ? { example_text: legacy.introDefaults.exampleText } : {}),
+    })
+    assert.equal(document.visual_style_hint, legacy.visualStyleHint)
+    assert.equal(document.default_thumbnail_template_id, legacy.defaultThumbnailTemplateId)
     assert.deepEqual(document.title_shape_rules, legacy.titleShapeRules)
     assert.deepEqual(document.title_length_range, legacy.titleLengthRange)
     assert.equal(document.script_structure.default_chapter_count, legacy.scriptStructure.defaultChapterCount)
@@ -163,7 +168,9 @@ test('legacy Formula Pastoral Scripture preserves devotional and preaching as di
     json(new URL('../../../electron/server/niches/preaching.json', import.meta.url)),
   ])
   const mode = document.idea_axes.find(axis => axis.id === 'pastoral-mode')
-  assert.deepEqual(mode?.values, ['daily reflection', 'expository teaching'])
+  const profileAxis = document.idea_axes.find(axis => axis.id === 'episode-profile')
+  assert.equal(mode, undefined)
+  assert.deepEqual(profileAxis?.values, ['daily reflection', 'expository teaching'])
   assertContainsEvery(document.example_topics, devotional.exampleTopics, 'Pastoral Scripture devotional examples')
   assertContainsEvery(document.example_topics, preaching.exampleTopics, 'Pastoral Scripture preaching examples')
   assertContainsEvery(document.title_shape_rules, devotional.titleShapeRules.map(safePastoralRule), 'Pastoral Scripture devotional titles')
@@ -172,6 +179,28 @@ test('legacy Formula Pastoral Scripture preserves devotional and preaching as di
   assert.match(document.script_context, new RegExp(preaching.scriptContext.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   assert.equal(new Set(document.narrator_styles.map(style => style.id)).size, devotional.narratorStyles.length + preaching.narratorStyles.length)
   assert.deepEqual(document.default_topic_pack_ids, ['com.storystudio.topic.pastoral-daily-reflection'])
+  assert.equal(document.recency_avoidance, undefined)
+  const profiles = document.production_kit.episode_profiles
+  assert.deepEqual(profiles.map(profile => profile.idea_axis_value), ['daily reflection', 'expository teaching'])
+  for (const [profile, legacy, strategy] of [
+    [profiles[0], devotional, 'pastoral-daily-reflection-scripture'],
+    [profiles[1], preaching, 'pastoral-expository-teaching-scripture'],
+  ]) {
+    assert.equal(profile.script_structure.default_words_per_minute, legacy.scriptStructure.defaultWordsPerMinute)
+    assert.equal(profile.script_structure.default_length_minutes, legacy.scriptStructure.defaultLengthMinutes)
+    assert.deepEqual(profile.script_structure.length_minutes_range, legacy.scriptStructure.lengthMinutesRange)
+    assert.deepEqual(profile.intro_defaults, {
+      word_target: legacy.introDefaults.wordTarget,
+      beats: legacy.introDefaults.beats,
+    })
+    assert.equal(profile.narrator_style_id, profile === profiles[0] ? 'devotional-a' : 'preaching-a')
+    assert.equal(profile.recency_avoidance.strategy_id, strategy)
+    assert.equal(profile.recency_avoidance.default_lookback, legacy.recencyAvoidance.defaultLookback)
+    assert.equal(profile.idea_system_prompt_role, legacy.ideaSystemPromptRole)
+    assert.equal(profile.script_system_prompt_role, legacy.scriptSystemPromptRole)
+    assert.equal(profile.script_context, legacy.scriptContext)
+    assert.equal(profile.script_closing_hint, legacy.scriptClosingHint)
+  }
 })
 
 test('legacy Formula conversion excludes retired products and Channel Kit metadata', async () => {
@@ -179,7 +208,53 @@ test('legacy Formula conversion excludes retired products and Channel Kit metada
   assert.equal(FORMULAS.some(spec => spec.slug === 'dark-psychology' || spec.slug === 'music-mix'), false)
   assert.equal(names.some(name => /dark psychology|music mix/i.test(name)), false)
   const registry = await json(new URL('../../../content-packs/authoring-registry.json', import.meta.url))
-  const receiptRecords = registry.records.filter(record => record.receipt_ref === 'authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2')
-  assert.equal(receiptRecords.length, 17)
+  const receipt = 'authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2'
+  const topicSlugs = [
+    'ancient-humans-environments', 'ancient-humans-social-life', 'ancient-humans-technology',
+    'deep-time-speculative-earth', 'economics-ancient-civilizations', 'natural-world-fungi',
+    'natural-world-insects', 'natural-world-plants', 'pastoral-daily-reflection',
+    'pastoral-expository-teaching', 'pov-criminal-hierarchies', 'pov-law-enforcement',
+  ]
+  const expected = [
+    ...FORMULAS.map(spec => ({
+      pack_id: spec.packId,
+      item_id: spec.itemId,
+      kind: 'series-formula',
+      source_path: `content-packs/legacy-niche-conversion/formula/${spec.slug}`,
+      status: 'authored',
+      family: `com.storystudio.family.formula.${spec.slug}`,
+      sku: `com.storystudio.sku.formula.${spec.slug}`,
+    })),
+    ...topicSlugs.map(slug => ({
+      pack_id: `com.storystudio.pack.topic.${slug}`,
+      item_id: `com.storystudio.topic.${slug}`,
+      kind: 'topic-pack',
+      source_path: `content-packs/legacy-niche-conversion/topic/${slug}`,
+      status: 'reserved',
+      family: `com.storystudio.family.topic.${slug}`,
+      sku: `com.storystudio.sku.topic.${slug}`,
+    })),
+  ]
+  const receiptRecords = registry.records.filter(record => record.receipt_ref === receipt)
+  assert.equal(receiptRecords.length, expected.length)
+  assert.deepEqual(receiptRecords.map(record => ({
+    pack_id: record.pack_id,
+    item_id: record.item_id,
+    kind: record.kind,
+    source_path: record.source_path,
+    status: record.status,
+    family: record.stocking_proposal?.family?.id,
+    sku: record.stocking_proposal?.sku?.id,
+  })), expected)
+  for (const record of receiptRecords) {
+    assert.equal(record.receipt_ref, receipt)
+    assert.equal(record.version, '1.0.0')
+    assert.equal(record.publisher_id, 'com.storystudio')
+    assert.equal(record.min_app_version, '{{MIN_APP_VERSION}}')
+    assert.equal(record.min_app_version_status, 'release-bound')
+    assert.deepEqual(record.dependencies, [])
+    assert.equal(record.stocking_proposal.family.status, 'proposed')
+    assert.equal(record.stocking_proposal.sku.status, 'proposed')
+  }
   assert.equal(receiptRecords.some(record => record.kind === 'channel-kit' || 'bundle_id' in record), false)
 })

@@ -24,6 +24,16 @@
     ],
     "closing_policy": "End as a benediction, not a subscription ask."
   },
+  "intro_defaults": {
+    "word_target": 80,
+    "beats": [
+      { "id": "invitation_to_pray", "custom_text": "invite them, wherever they are, to stop and pray along rather than listen to somebody praying" },
+      { "id": "settle_in", "custom_text": "give them a moment to be still; one or two sentences, unhurried" },
+      { "id": "what_youll_learn", "custom_text": "name plainly what this prayer is for — the need it brings" },
+      { "id": "transition", "custom_text": "begin the prayer" }
+    ]
+  },
+  "default_thumbnail_template_id": "portrait-block-right",
   "narrative_rules": [
     "Opening word target: 80 words.",
     "Opening beat invitation_to_pray: invite them, wherever they are, to stop and pray along rather than listen to somebody praying.",

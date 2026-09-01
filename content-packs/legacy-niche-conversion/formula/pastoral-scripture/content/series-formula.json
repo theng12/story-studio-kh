@@ -155,7 +155,7 @@
   "recommended_thumbnail_recipe_ids": [],
   "idea_axes": [
     {
-      "id": "pastoral-mode",
+      "id": "episode-profile",
       "label": "Pastoral mode",
       "values": [
         "daily reflection",
@@ -174,6 +174,85 @@
       ]
     }
   ],
+  "production_kit": {
+    "id": "pastoral-scripture-modes",
+    "label": "Pastoral Scripture modes",
+    "description": "Two durable episode modes preserve the distinct devotional and expository production contracts.",
+    "episode_profiles": [
+      {
+        "id": "daily-reflection",
+        "label": "Daily reflection",
+        "description": "A concise passage-first devotional with one practical takeaway.",
+        "idea_axis_value": "daily reflection",
+        "narrator_style_id": "devotional-a",
+        "intro_defaults": {
+          "word_target": 90,
+          "beats": [
+            { "id": "scripture_reading", "custom_text": "read the passage aloud first, unhurried, before any greeting" },
+            { "id": "welcome", "custom_text": "a short warm greeting and your name — a few words, not a paragraph" },
+            { "id": "what_youll_learn", "custom_text": "name the one thought from this passage the reflection carries" },
+            { "id": "transition", "custom_text": "hand over to the reflection gently" }
+          ]
+        },
+        "script_structure": {
+          "default_chapter_count": 6,
+          "chapter_count_range": [4, 9],
+          "default_length_minutes": 25,
+          "length_minutes_range": [20, 30],
+          "duration_presets": [20, 25, 30],
+          "default_words_per_minute": 125,
+          "chapters_independent": false
+        },
+        "recency_avoidance": {
+          "strategy_id": "pastoral-daily-reflection-scripture",
+          "label": "scripture references",
+          "default_lookback": 30,
+          "scopes": ["script", "metadata"]
+        },
+        "idea_system_prompt_role": "You generate ideas for a daily-devotional channel. Each episode TEACHES the listener something rooted in ONE specific scripture passage — a verse, a thought, a takeaway. Pitch passage-anchored or concrete pastoral-topic devotions, never vague 'inner peace' abstractions.",
+        "script_system_prompt_role": "You are a devotional writer. You teach the listener something rooted in ONE specific passage: open with the verse spoken aloud, unpack it in 2-3 short, practical reflections, and close with a single takeaway they can carry through the day. Warm, studied, and pastoral — instructional but never dry, rooted in the text but never tangential.",
+        "script_context": "Anchor every devotional in ONE specific passage. Open with the verse spoken aloud, unpack it in 2-3 short reflections, end with a single takeaway the listener can carry through the day. Avoid theological tangents; stay practical and pastoral.",
+        "script_closing_hint": "End with a single, clear takeaway the listener can carry through their day — practical, not abstract."
+      },
+      {
+        "id": "expository-teaching",
+        "label": "Expository teaching",
+        "description": "A passage-first sermon moving through observation, interpretation, and application.",
+        "idea_axis_value": "expository teaching",
+        "narrator_style_id": "preaching-a",
+        "intro_defaults": {
+          "word_target": 110,
+          "beats": [
+            { "id": "scripture_reading", "custom_text": "read the passage aloud first, then let it sit for a beat" },
+            { "id": "welcome", "custom_text": "greet warmly and give your name; pastoral, with teaching authority" },
+            { "id": "what_youll_learn", "custom_text": "name the question this passage answers for the listener today" },
+            { "id": "episode_roadmap", "custom_text": "say the shape: what it meant then, what it means now, what it asks of you" },
+            { "id": "subscribe_cta", "custom_text": "one warm line; never a hype call" },
+            { "id": "transition", "custom_text": "hand over to the first chapter by returning to the text" }
+          ]
+        },
+        "script_structure": {
+          "default_chapter_count": 6,
+          "chapter_count_range": [4, 9],
+          "default_length_minutes": 25,
+          "length_minutes_range": [20, 30],
+          "duration_presets": [20, 25, 30],
+          "default_words_per_minute": 145,
+          "chapters_independent": false
+        },
+        "recency_avoidance": {
+          "strategy_id": "pastoral-expository-teaching-scripture",
+          "label": "scripture references",
+          "default_lookback": 40,
+          "scopes": ["script", "metadata"]
+        },
+        "idea_system_prompt_role": "You generate ideas for a sermon / Bible-teaching channel. Each episode expounds a SPECIFIC passage or biblical figure with practical application — observation, interpretation, application. Pitch concrete, passage-anchored teaching subjects, never vague inspirational topics.",
+        "script_system_prompt_role": "You are an expository preacher. You open a specific passage, explain what it meant to its first audience, and apply it to the listener today — pastoral but with teaching authority. Structure: observation → interpretation → application. Cite real biblical names and contexts; stay Christ-centered and text-driven. Warm and convicting, never hype or denominationally narrow.",
+        "script_context": "Open with the passage spoken aloud. Move through: observation (what does the text say) → interpretation (what did it mean to its first audience) → application (what does it ask of us). Cite real biblical names and contexts. Avoid pop-culture analogies unless they're genuinely illuminating.",
+        "script_closing_hint": "Close on the application — what the text asks of the listener now — with pastoral warmth, not a hype call."
+      }
+    ]
+  },
   "vocabulary": {
     "mood": [
       "reflective",
@@ -536,14 +615,5 @@
     11
   ],
   "structural_variety": "vary-subject-only",
-  "metadata_title_style_hint": "Daily reflection mode: Plain and warm — name the passage or the idea the devotional turns on. Reverent, never clickbait. Expository teaching mode: Name the passage and the claim it makes. Teaching authority, not clickbait — the viewer should know what will be taught.",
-  "recency_avoidance": {
-    "strategy_id": "scripture-references",
-    "label": "scripture references",
-    "default_lookback": 40,
-    "scopes": [
-      "script",
-      "metadata"
-    ]
-  }
+  "metadata_title_style_hint": "Daily reflection mode: Plain and warm — name the passage or the idea the devotional turns on. Reverent, never clickbait. Expository teaching mode: Name the passage and the claim it makes. Teaching authority, not clickbait — the viewer should know what will be taught."
 }

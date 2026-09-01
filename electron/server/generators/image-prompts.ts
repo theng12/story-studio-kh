@@ -564,7 +564,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     }
     try {
       const { prependAvoidanceToPrompt } = await import('../services/recency-tracker.js')
-      prompt = await prependAvoidanceToPrompt(projectSlug, 'image_prompts', prompt)
+      prompt = await prependAvoidanceToPrompt(projectSlug, 'image_prompts', prompt, episodeId)
     } catch {
       // Recency enrichment cannot block generation.
     }
