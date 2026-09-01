@@ -139,4 +139,6 @@ test('the History Explained 1.0.2 free successor alone adds reciprocal Ancient C
   assert.equal(sources[0].document.compatible_topic_pack_ids.includes(topicId), false)
   assert.equal(sources[1].document.compatible_topic_pack_ids.includes(topicId), false)
   assert.equal(sources[2].document.compatible_topic_pack_ids.includes(topicId), true)
+  const manifest = JSON.parse(await readFile(new URL('../../../content-packs/free-starters/formula/history-explained-v1.0.2/pack.json', import.meta.url), 'utf8'))
+  assert.deepEqual(manifest.dependencies, [], 'the standalone free successor declares no external dependency')
 })
