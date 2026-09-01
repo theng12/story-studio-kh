@@ -34,7 +34,7 @@ const RECORD_FIELDS = new Set([
   'dependencies', 'stocking_proposal',
 ])
 const REQUEST_RECORD_FIELDS = new Set([...RECORD_FIELDS].filter((field) => field !== 'receipt_ref'))
-const STATUSES = new Set(['authored', 'reserved'])
+const STATUSES = new Set(['authored', 'reserved', 'withdrawn'])
 const PROPOSAL_STATUSES = new Set(['proposed', 'reserved', 'confirmed'])
 const MIN_APP_VERSION_STATUSES = new Set(['release-bound', 'fixed'])
 const KIND_NAMESPACES = {
@@ -335,6 +335,21 @@ function validateLineages(records) {
       owners.set(`${label}:${identity}`, record.pack_id)
     }
   }
+  for (const withdrawn of records.filter((record) => record.status === 'withdrawn')) {
+    const laterVersion = records.find((candidate) => candidate.pack_id === withdrawn.pack_id
+      && candidate.version !== withdrawn.version
+      && compareSemver(candidate.version, withdrawn.version) > 0)
+    if (laterVersion) fail(`withdrawn pack_id ${withdrawn.pack_id} may not gain later version ${laterVersion.version}`)
+  }
+}
+
+function compareSemver(left, right) {
+  const leftParts = left.split('.').map(Number)
+  const rightParts = right.split('.').map(Number)
+  for (let index = 0; index < 3; index += 1) {
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] - rightParts[index]
+  }
+  return 0
 }
 
 function canonical(value) {
@@ -383,8 +398,8 @@ function transitionRequest(request) {
   if (!Object.keys(request.changes).length) fail('lifecycle transition changes must not be empty')
   const changes = {}
   if ('status' in request.changes) {
-    if (request.changes.status !== 'authored') fail('lifecycle status transition must advance reserved to authored')
-    changes.status = 'authored'
+    if (!['authored', 'withdrawn'].includes(request.changes.status)) fail('lifecycle status transition must advance reserved to authored or withdrawn')
+    changes.status = request.changes.status
   }
   if ('stocking_proposal' in request.changes) {
     const stocking = request.changes.stocking_proposal
@@ -406,6 +421,9 @@ function transitionRequest(request) {
       }
     }
   }
+  if (changes.status === 'withdrawn' && changes.stocking_proposal) {
+    fail('withdrawal is terminal and must not change stocking proposals')
+  }
   return {
     expected_revision: request.expected_revision,
     coordinator: { task: request.coordinator.task, branch: request.coordinator.branch },
@@ -420,7 +438,8 @@ function transitionFor(request) {
   return `lifecycle:${createHash('sha256').update(canonical(request)).digest('hex')}`
 }
 
-function applyLifecycleTransition(record, changes) {
+function applyLifecycleTransition(record, changes, { replay = false } = {}) {
+  if (record.status === 'withdrawn') fail('withdrawn records are terminal')
   const next = {
     ...record,
     stocking_proposal: {
@@ -429,8 +448,11 @@ function applyLifecycleTransition(record, changes) {
     },
   }
   if ('status' in changes) {
-    if (record.status !== 'reserved' || changes.status !== 'authored') fail('lifecycle status must advance reserved to authored')
-    next.status = 'authored'
+    if (record.status !== 'reserved' || !['authored', 'withdrawn'].includes(changes.status)) fail('lifecycle status must advance reserved to authored or withdrawn')
+    if (record.kind === 'channel-kit' && changes.status === 'authored' && !replay) {
+      fail('Channel Kit promotion is refused; historical Channel Kits are read-only')
+    }
+    next.status = changes.status
   }
   for (const name of ['family', 'sku']) {
     const change = changes.stocking_proposal?.[name]
@@ -502,6 +524,7 @@ async function assertSafeSourcePath(repositoryRoot, record) {
   const fromRoot = relative(repositoryPhysical, physical)
   if (!fromRoot || fromRoot === '..' || fromRoot.startsWith(`..${sep}`)) fail(`source_path must remain inside the repository: ${record.source_path}`)
   const final = await lstat(cursor)
+  if (record.status === 'withdrawn') fail(`withdrawn source path must not exist: ${record.source_path}`)
   if (!final.isDirectory()) fail(`source_path must be a directory: ${record.source_path}`)
 }
 
@@ -686,7 +709,7 @@ function bindReceipts(records, batches, transitions) {
     const key = `${request.receipt_ref}:${request.pack_id}@${request.version}`
     const record = lifecycle.get(key)
     if (!record) fail(`lifecycle transition target is not bound to receipt ${request.receipt_ref}`)
-    lifecycle.set(key, applyLifecycleTransition(record, request.changes))
+    lifecycle.set(key, applyLifecycleTransition(record, request.changes, { replay: true }))
   }
   for (const record of records.filter((candidate) => AUTHORING_RECEIPT.test(candidate.receipt_ref))) {
     const expected = lifecycle.get(`${record.receipt_ref}:${record.pack_id}@${record.version}`)
@@ -754,6 +777,9 @@ async function atomicWrite(path, bytes) {
 
 export async function reserveAuthoringBatch({ registryPath = join(root, 'content-packs/authoring-registry.json'), repositoryRoot = root, request } = {}) {
   const accepted = reservationRequest(request)
+  if (accepted.records.some((record) => record.kind === 'channel-kit')) {
+    fail('new Channel Kit reservations are refused; historical Channel Kits are read-only')
+  }
   return withRegistryLock(registryPath, async () => {
     const current = await readBoundedJson(registryPath, MAX_REGISTRY_BYTES, 'registry')
     const validated = await validateRegistryDocument(current, repositoryRoot)

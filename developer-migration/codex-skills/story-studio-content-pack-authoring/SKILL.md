@@ -9,9 +9,9 @@ Author reusable, independently purchasable Content Packs that customers can mix 
 
 ## Non-negotiable product model
 
-Every new product is one standalone Content Pack. Do not create, extend, reserve, build, price, or stock a Channel Kit. A related launch may contain several packs, but each pack keeps its own identity, archive, product, price, purchase path, and delivery path.
+Every new product is one standalone Content Pack. Do not create, extend, reserve, price, or stock a Channel Kit. A related launch may contain several packs, but each pack keeps its own identity, archive, product, price, purchase path, and delivery path.
 
-Legacy Channel Kits remain readable and installable for backward compatibility. Treat them as read-only product history: inspect or validate them when required, but do not use them as the authoring or merchandising model for new work. A later explicit owner decision must change this policy before any new Kit work can begin.
+Legacy Channel Kits remain readable and installable for backward compatibility. Treat them as read-only product history: inspect or validate them when required, but do not use them as the authoring or merchandising model for new work. Only exact authored registry identities may use historical rebuild support; arbitrary Kit fixtures cannot build. A later explicit owner decision must change this policy before any new Kit work can begin.
 
 Use exactly one supported content kind per pack: `series-formula`, `topic-pack`, `visual-style`, `thumbnail-recipe`, `subtitle-style`, `scene-effect`, `overlay`, `lettering-style`, or `metadata-formula`. Assets belong inside the pack that consumes them; do not invent an `asset-pack` kind. Keep `dependencies: []` unless the pack technically consumes a specific external `pack_id@version`. Similar branding, suggested pairings, or launch timing are compatibility metadata, not dependencies or a bundle.
 
@@ -36,6 +36,8 @@ npm run content-pack:registry -- verify-receipt --revision <revision> --receipt 
 ```
 
 Only exact success authorizes leaf work. The registry may issue Story `pack_id`, `item_id`, `version`, `publisher_id`, source/dependency facts, and `family`/`sku` stocking proposals. New standalone products have no `bundle_id`. The registry does not create GenStudio product, release, price, account, purchase, entitlement, grant, or wire identities; set live state; publish; sign; or run paid generation.
+
+A reserved pre-sale identity may be withdrawn only before its source directory exists. `withdrawn` is terminal: its receipt remains verifiable, while its pack, item or bundle, family, and SKU identities remain burned and cannot be revived, changed, stocked, or used for a later version. Do not use `withdrawn` for a customer archive; post-sale archives retain their existing `retired` or `replaced` lifecycle.
 
 If the registry gate is unavailable, fail closed with the response in the handoff contract. Do not create identities, sources, manifests, archives, or GenStudio records.
 

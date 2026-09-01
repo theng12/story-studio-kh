@@ -34,7 +34,9 @@ test('installs and checks complete canonical Story authoring skill packages', as
     'utf8',
   )
   assert.match(parent, /Every new product is one standalone Content Pack/i)
-  assert.match(parent, /Do not create, extend, reserve, build, price, or stock a Channel Kit/i)
+  assert.match(parent, /Do not create, extend, reserve, price, or stock a Channel Kit/i)
+  assert.match(parent, /withdrawn.*terminal/i)
+  assert.match(parent, /exact authored registry identities.*historical rebuild/i)
   assert.match(parent, /content-pack:registry -- verify-receipt --revision <revision> --receipt <receipt_ref> --expected-identity <path>/)
 
   const legacyRouter = await readFile(

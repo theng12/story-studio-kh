@@ -151,6 +151,13 @@ export function resolveSelections(records, selectors) {
     }
     const authored = matches.filter(record => record.status === 'authored')
     if (authored.length === 0) {
+      if (matches.every(record => record.status === 'withdrawn')) {
+        refusals.push({
+          selector: raw,
+          reason: `"${raw}" selects a withdrawn registry identity. Withdrawal is terminal: it cannot be shipped, stocked, or revived.`,
+        })
+        continue
+      }
       const statuses = [...new Set(matches.map(record => record.status))].join(', ')
       refusals.push({
         selector: raw,

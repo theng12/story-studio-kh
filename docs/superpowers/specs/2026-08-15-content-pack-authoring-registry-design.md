@@ -26,7 +26,7 @@ signs, builds, uploads, purchases, installs, or grants content.
 ## Repository shape
 
 `content-packs/authoring-registry.json` is the single coordinator-owned source. It contains a
-monotonic integer revision and one record per authored or reserved Story pack. The initial
+monotonic integer revision and one record per authored, reserved, or withdrawn Story pack. The initial
 revision reconciles all 55 current source packs: 46 Free Starter packs and nine componentized
 Archival Ledger packs.
 
@@ -60,12 +60,18 @@ again against the new revision.
 
 The coordinator records mutable lifecycle changes as revisioned CAS events. A reserved pack may
 advance to authored only after its registered source exists and reconciles to the exact immutable
-identity. Family and SKU proposals advance only `proposed` to `reserved` to `confirmed`, one step
-per transition; `confirmation_ref` is required only for `confirmed` and forbidden otherwise.
+identity, or to terminal `withdrawn` only while its final source path does not exist. A withdrawn
+identity keeps its original receipt and every issued identity/proposal value permanently burned: it
+cannot revive, alter stocking proposals, or gain a later version under the same `pack_id`. Family
+and SKU proposals advance only `proposed` to `reserved` to `confirmed`, one step per transition;
+`confirmation_ref` is required only for `confirmed` and forbidden otherwise.
 Receipt binding covers the immutable identity from the accepted reservation, while registry
 validation replays persisted lifecycle events to prove that current mutable state was reached by
-monotonic validated transitions. The retired `content-packs/archival-ledger` source-only monolith
-cannot be reserved.
+monotonic validated transitions. Customer archive lifecycle remains `active`, `retired`, or
+`replaced`; `withdrawn` is authoring-registry-only pre-sale closure. Channel Kits are historical
+read-only records: new reservations and authored promotions are refused, and rebuild support is
+limited to exact authored registry identities. The retired `content-packs/archival-ledger`
+source-only monolith cannot be reserved.
 
 ## Validation and migration
 
