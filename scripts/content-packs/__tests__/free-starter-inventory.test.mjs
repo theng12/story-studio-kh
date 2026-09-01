@@ -275,8 +275,9 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
     'content-packs/free-starters/topic/pov-historical-occupations-v1.0.1/pack.json',
   ])
   // The `-v1.0.1` list above cannot see a second successor, so the 1.0.2 roots were
-  // going unpinned entirely. The five Formulas are the 2026-08-28 mark scrub: those
-  // packs were already past 1.0.0, so their scrubbed successor is 1.0.2.
+  // going unpinned entirely. Five Formulas are the 2026-08-28 mark scrub: those
+  // packs were already past 1.0.0, so their scrubbed successor is 1.0.2. History
+  // Explained 1.0.2 is the separate free compatibility successor.
   const secondSuccessors = packSources.filter(({ relative }) => /-v1\.0\.2\/pack\.json$/.test(relative))
   assert.deepEqual(secondSuccessors.map(({ relative }) => relative).sort(), [
     'content-packs/free-starters/formula/ancient-humans-v1.0.2/pack.json',
