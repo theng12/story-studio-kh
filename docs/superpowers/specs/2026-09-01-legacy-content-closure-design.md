@@ -91,6 +91,8 @@ Compatibility is exact and reciprocal:
 
 Legacy short IDs remain readable through the current loaders. Existing projects are not silently rewritten or repinned.
 
+The authored free `History, Explained` releases predate Ancient Civilizations Economics and therefore cannot reciprocate that new Topic ID without changing immutable release bytes. Before authoring the Topic, reserve and author a minimal free `com.storystudio.pack.formula.history-explained@1.0.2` successor that differs only by adding `com.storystudio.topic.economics-ancient-civilizations` to `compatible_topic_pack_ids` and documenting the compatibility addition. The successor retains the existing family/SKU and free-builtin disposition; it is qualification evidence, not a twenty-second paid handoff product.
+
 ## Intentional free baselines
 
 The following are complete as built-in customer choices and are not cloned into Store products:

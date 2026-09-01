@@ -174,6 +174,7 @@ git commit -m "feat(content-packs): add legacy Series Formula products"
 
 **Files:**
 - Modify: `content-packs/authoring-registry.json`
+- Create: `content-packs/free-starters/formula/history-explained-v1.0.2/{pack.json,content/series-formula.json}` as the minimal reciprocal free successor
 - Create: `content-packs/legacy-niche-conversion/topic/<approved-slug>/{pack.json,content/topic-pack.json}` for Ancient Humans Environments, Social Life, Technology, Speculative Earth, and Ancient Civilizations Economics
 - Modify: `scripts/content-packs/__tests__/legacy-niche-conversion-pack.test.mjs`
 - Modify: `electron/server/__tests__/legacy-content-closure-source.test.ts`
@@ -191,8 +192,9 @@ node --test --test-name-pattern "legacy Topic" scripts/content-packs/__tests__/l
 npx tsx --test --test-name-pattern "legacy Topic" electron/server/__tests__/legacy-content-closure-source.test.ts
 ```
 
-- [ ] **Step 3: Author Ancient Humans, Speculative Earth, and Ancient Civilizations Economics leaves.** Preserve all legacy subjects; add evidence-aware planning dimensions; label Speculative Earth counterfactuals; use only the approved Formula IDs.
-- [ ] **Step 4: Run the five cases green, build each leaf twice, validate equal archives, and transition every exact record to `authored`.**
+- [ ] **Step 3: Restore exact reciprocal compatibility without mutating authored bytes.** At the live registry revision, reserve `com.storystudio.pack.formula.history-explained@1.0.2` with the existing item/family/SKU and a new source root. Before creating that source, verify the reservation receipt. Copy the latest free source, add only the Ancient Civilizations Economics Topic ID and a truthful changelog, build twice, validate equality, and transition the exact successor record to `authored`.
+- [ ] **Step 4: Author Ancient Humans, Speculative Earth, and Ancient Civilizations Economics leaves.** Preserve all legacy subjects; add evidence-aware planning dimensions; label Speculative Earth counterfactuals; use only the approved Formula IDs.
+- [ ] **Step 5: Run the five cases green, build each leaf twice, validate equal archives, and transition every exact record to `authored`.**
 
 ```bash
 node --test scripts/content-packs/__tests__/legacy-niche-conversion-pack.test.mjs scripts/content-packs/__tests__/compatible-formula-ids-resolve.test.mjs
@@ -200,10 +202,10 @@ npx tsx --test electron/server/__tests__/legacy-content-closure-source.test.ts
 npm run content-pack:registry -- validate
 ```
 
-- [ ] **Step 5: Commit.**
+- [ ] **Step 6: Commit.**
 
 ```bash
-git add content-packs/authoring-registry.json content-packs/legacy-niche-conversion/topic scripts/content-packs/__tests__ electron/server/__tests__/legacy-content-closure-source.test.ts
+git add content-packs/authoring-registry.json content-packs/free-starters/formula/history-explained-v1.0.2 content-packs/legacy-niche-conversion/topic scripts/content-packs/__tests__ electron/server/__tests__/legacy-content-closure-source.test.ts
 git commit -m "feat(content-packs): add historical Topic products"
 ```
 
