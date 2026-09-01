@@ -344,7 +344,7 @@ router.get('/jobs/app/:jobId', (req, res) => {
               'Re-check routes/jobs.ts — the stream handler must be registered first.',
     })
   }
-  const job = jq.getJob(req.params.jobId)
+  const job = jq.getPublicJob(req.params.jobId)
   if (!job || job.project_slug !== APP_SLUG) {
     return res.status(404).json({ detail: 'Job not found' })
   }
@@ -371,7 +371,7 @@ router.post('/projects/:slug/jobs/resume-paused', async (req, res) => {
 })
 
 router.get('/projects/:slug/jobs/:jobId', (req, res) => {
-  const job = jq.getJob(req.params.jobId)
+  const job = jq.getPublicJob(req.params.jobId)
   if (!job || job.project_slug !== req.params.slug) {
     return res.status(404).json({ detail: 'Job not found' })
   }

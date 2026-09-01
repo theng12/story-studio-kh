@@ -52,11 +52,17 @@ async function flush(): Promise<void> {
   await nextTick()
 }
 
-async function mountSettings(setting: PaidImageReplacementSetting) {
+async function mountSettings(
+  setting: PaidImageReplacementSetting,
+  options: { paidSettingError?: Error; savedSetting?: PaidImageReplacementSetting } = {},
+) {
   const saves: Array<{ path: string; body: unknown }> = []
   apiHost.__paidImageRecoverySettingsApi = {
     async get<T>(path: string): Promise<T> {
-      if (path === settingsPath) return setting as T
+      if (path === settingsPath) {
+        if (options.paidSettingError) throw options.paidSettingError
+        return setting as T
+      }
       if (path === '/app-settings/concurrency') return {
         subtitle_episode_concurrency: 2, llm_concurrency: 8, image_episode_concurrency: 2,
         image_fanout_per_episode: 'auto', thumbnail_episode_concurrency: 3, outline_chapter_headroom: 2,
@@ -71,7 +77,7 @@ async function mountSettings(setting: PaidImageReplacementSetting) {
     async put<T>(path: string, body: unknown): Promise<T> {
       saves.push({ path, body })
       if (path !== settingsPath) throw new Error(`unexpected PUT ${path}`)
-      return { enabled: true, additional_credit_ceiling: 50 } as T
+      return (options.savedSetting || { enabled: true, additional_credit_ceiling: 50 }) as T
     },
     async del(): Promise<void> {},
     async post(): Promise<unknown> { return undefined },
@@ -86,7 +92,10 @@ async function mountSettings(setting: PaidImageReplacementSetting) {
 }
 
 test('This Mac keeps paid image replacement off until a positive whole-number ceiling is saved', async () => {
-  const rendered = await mountSettings({ enabled: false, additional_credit_ceiling: null })
+  const rendered = await mountSettings(
+    { enabled: false, additional_credit_ceiling: null },
+    { savedSetting: { enabled: true, additional_credit_ceiling: 37 } },
+  )
   try {
     const section = rendered.host.querySelector<HTMLElement>('.paid-image-replacement')
     assert.ok(section, 'the dedicated paid image replacement setting is rendered')
@@ -125,6 +134,7 @@ test('This Mac keeps paid image replacement off until a positive whole-number ce
       path: settingsPath,
       body: { enabled: true, additional_credit_ceiling: 50 },
     }], 'the independent setting save sends only the flat approved body')
+    assert.equal(ceiling.value, '37', 'the server echo replaces the submitted draft')
     assert.match(section.textContent || '', /saved/i)
   } finally {
     rendered.unmount()
@@ -132,16 +142,45 @@ test('This Mac keeps paid image replacement off until a positive whole-number ce
   }
 })
 
-test('Jobs consumes only the redacted latest paid replacement display attempt', () => {
+test('This Mac keeps paid image replacement disabled when its saved state is unknown', async () => {
+  const rendered = await mountSettings(
+    { enabled: false, additional_credit_ceiling: null },
+    { paidSettingError: new Error('settings unavailable') },
+  )
+  try {
+    const section = rendered.host.querySelector<HTMLElement>('.paid-image-replacement')
+    assert.ok(section)
+    assert.equal(section.querySelector<HTMLSelectElement>('select')?.disabled, true)
+    assert.equal(section.querySelector<HTMLButtonElement>('button')?.disabled, true)
+    assert.match(section.textContent || '', /could not load.*paid image replacement/i)
+    assert.equal(rendered.saves.length, 0)
+  } finally {
+    rendered.unmount()
+    delete apiHost.__paidImageRecoverySettingsApi
+  }
+})
+
+async function paidImageAttemptText(): Promise<(job: { paid_image_replacement_attempt?: Record<string, unknown> }) => string> {
   const jobs = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)), 'utf8')
-  const contracts = readFileSync(fileURLToPath(new URL('../../electron/server/contracts/index.ts', import.meta.url)), 'utf8')
-  assert.match(contracts, /paid_image_replacement_attempt\?: \{[\s\S]*?actual_settled_credits\?: number/)
-  assert.doesNotMatch(contracts, /paid_image_replacement_attempts\?:/)
-  assert.match(jobs, /paidImageReplacementAttemptText\(job\)/)
-  assert.match(jobs, /formatTime\(attempt\.eligible_at\)/)
-  assert.match(jobs, /quoted_credits/)
-  assert.match(jobs, /price_version/)
-  assert.match(jobs, /actual_settled_credits/)
-  assert.doesNotMatch(jobs, /replacement_task_id/)
-  assert.doesNotMatch(jobs, /original_idempotency_key/)
+  const start = jobs.indexOf('function paidImageReplacementAttemptText')
+  const end = jobs.indexOf('\nfunction genStudioNumeric', start)
+  assert.notEqual(start, -1)
+  assert.notEqual(end, -1)
+  const source = jobs.slice(start, end)
+  const compiled = await transform(source, { loader: 'ts', format: 'cjs' })
+  return new Function('formatTime', 'formatCredits', `${compiled.code}; return paidImageReplacementAttemptText`)(
+    (value: string) => `at ${value}`,
+    (value: number) => `${value} credit${value === 1 ? '' : 's'}`,
+  )
+}
+
+test('Jobs formats every redacted paid replacement attempt state from renderer data', async () => {
+  const text = await paidImageAttemptText()
+  const base = { eligible_at: 'wait-at' }
+  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'waiting' } }), 'Paid image replacement is waiting until at wait-at.')
+  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'committed', replacement_committed_at: 'commit-at', quoted_credits: 1, price_version: 'v1' } }), 'Paid image replacement was committed at commit-at. 1 credit at published price version v1.')
+  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'blocked', reason: 'Current price changed.' } }), 'Paid image replacement was blocked: Current price changed.')
+  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'submitted', quoted_credits: 6, price_version: 'v2' } }), 'Paid image replacement was submitted. 6 credits at published price version v2.')
+  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'succeeded', actual_settled_credits: 1 } }), 'Paid image replacement succeeded. Actual settled credits: 1 credit.')
+  assert.equal(text({ paid_image_replacement_attempt: { ...base, state: 'failed', actual_settled_credits: 4 } }), 'Paid image replacement failed. Actual settled credits: 4 credits.')
 })

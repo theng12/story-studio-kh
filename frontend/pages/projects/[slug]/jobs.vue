@@ -992,6 +992,7 @@ import {
   primaryControl,
   secondaryControls,
 } from '~/utils/job-presentation'
+import { formatCredits } from '~/utils/genstudio-credit-cost'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -1185,17 +1186,13 @@ function genStudioStatusDetail(job: RJob): string {
   return detail
 }
 
-function formatPaidImageReplacementCredits(value: number): string {
-  return `${value.toLocaleString()} credits`
-}
-
 function paidImageReplacementAttemptText(job: RJob): string {
   const attempt = job.paid_image_replacement_attempt
   if (!attempt) return ''
   const quote = attempt.quoted_credits === undefined ? ''
-    : ` ${formatPaidImageReplacementCredits(attempt.quoted_credits)} at published price version ${attempt.price_version || 'not stated'}.`
+    : ` ${formatCredits(attempt.quoted_credits)} at published price version ${attempt.price_version || 'not stated'}.`
   const settled = attempt.actual_settled_credits === undefined ? ''
-    : ` Actual settled credits: ${formatPaidImageReplacementCredits(attempt.actual_settled_credits)}.`
+    : ` Actual settled credits: ${formatCredits(attempt.actual_settled_credits)}.`
   if (attempt.state === 'waiting') return `Paid image replacement is waiting until ${formatTime(attempt.eligible_at)}.`
   if (attempt.state === 'committed') return `Paid image replacement was committed${attempt.replacement_committed_at ? ` ${formatTime(attempt.replacement_committed_at)}` : ''}.${quote}`
   if (attempt.state === 'blocked') return `Paid image replacement was blocked: ${attempt.reason || 'No automatic replacement was submitted.'}`

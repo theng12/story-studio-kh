@@ -3767,6 +3767,12 @@ export function getJob(jobId: string): Job | null {
   return job ? safeJob(job) : null
 }
 
+/** Renderer-only single-job snapshot; internal recovery callers use getJob(). */
+export function getPublicJob(jobId: string): RendererJob | null {
+  const job = jobs.get(jobId)
+  return job ? serializeJob(job) : null
+}
+
 /**
  * Re-enqueue a terminal job with the exact durable parameters that produced it.
  *

@@ -66,7 +66,7 @@
       </div>
       <label class="paid-image-replacement-choice">
         <span>Automatic replacement</span>
-        <select name="paid-image-replacement-enabled" :value="paidImageReplacementEnabled ? 'true' : 'false'" :disabled="paidImageReplacementSaving" @change="setPaidImageReplacementEnabled">
+        <select name="paid-image-replacement-enabled" :value="paidImageReplacementEnabled ? 'true' : 'false'" :disabled="!paidImageReplacementLoaded || paidImageReplacementSaving" @change="setPaidImageReplacementEnabled">
           <option value="false">Off</option>
           <option value="true">On</option>
         </select>
@@ -81,14 +81,15 @@
           step="1"
           required
           inputmode="numeric"
-          :disabled="paidImageReplacementSaving"
+          :disabled="!paidImageReplacementLoaded || paidImageReplacementSaving"
           aria-describedby="paid-image-replacement-limits"
         />
       </label>
       <p id="paid-image-replacement-limits" class="hint">30-minute wait · Maximum 1 replacement per image</p>
+      <p v-if="!paidImageReplacementLoaded && !paidImageReplacementResult" class="hint" aria-live="polite">Loading saved paid image replacement setting…</p>
       <p v-if="paidImageReplacementResult" :class="['result', paidImageReplacementResult.kind]" aria-live="polite">{{ paidImageReplacementResult.message }}</p>
       <div class="paid-image-replacement-actions">
-        <button class="btn btn-sm btn-primary" type="button" :disabled="paidImageReplacementSaving" @click="savePaidImageReplacement">
+        <button class="btn btn-sm btn-primary" type="button" :disabled="!paidImageReplacementLoaded || paidImageReplacementSaving" @click="savePaidImageReplacement">
           {{ paidImageReplacementSaving ? 'Saving…' : 'Save' }}
         </button>
       </div>
@@ -206,6 +207,7 @@ const emojiBusy = ref(false)
 const emojiResult = ref<{ kind: 'ok' | 'err'; message: string } | null>(null)
 const paidImageReplacementEnabled = ref(false)
 const paidImageReplacementCeiling = ref('')
+const paidImageReplacementLoaded = ref(false)
 const paidImageReplacementSaving = ref(false)
 const paidImageReplacementResult = ref<{ kind: 'ok' | 'err'; message: string } | null>(null)
 const result = ref<{
@@ -215,15 +217,21 @@ const result = ref<{
 } | null>(null)
 
 async function load(): Promise<void> {
-  const [settings, keys, paidImageReplacement] = await Promise.all([
+  const [settings, keys] = await Promise.all([
     get<{ url: string; default_url: string }>('/app-settings/genstudio'),
     get<{ providers: ProviderRow[] }>('/app-settings/api-keys'),
-    get<PaidImageReplacementSetting>('/app-settings/paid-image-replacement').catch(() => null),
   ])
   url.value = settings.url
   defaultUrl.value = settings.default_url
   savedKey.value = keys.providers.find(row => row.providerId === 'genstudio') || null
-  applyPaidImageReplacementSetting(paidImageReplacement)
+  try {
+    const paidImageReplacement = await get<PaidImageReplacementSetting>('/app-settings/paid-image-replacement')
+    if (!isPaidImageReplacementSetting(paidImageReplacement)) throw new Error('Saved setting was invalid.')
+    applyPaidImageReplacementSetting(paidImageReplacement)
+    paidImageReplacementLoaded.value = true
+  } catch {
+    paidImageReplacementResult.value = { kind: 'err', message: 'Could not load the paid image replacement setting. It remains unavailable until its saved state is confirmed.' }
+  }
   // Best-effort: the emoji switch must never be what stops this panel loading.
   try {
     const emoji = await get<EmojiSetting>('/app-settings/emoji')
@@ -231,12 +239,16 @@ async function load(): Promise<void> {
   } catch { /* leave it at the stated default */ }
 }
 
-function applyPaidImageReplacementSetting(setting: PaidImageReplacementSetting | null): void {
-  paidImageReplacementEnabled.value = setting?.enabled === true
-  paidImageReplacementCeiling.value = setting?.enabled === true
-    && Number.isSafeInteger(setting.additional_credit_ceiling) && setting.additional_credit_ceiling > 0
-    ? String(setting.additional_credit_ceiling)
-    : ''
+function isPaidImageReplacementSetting(setting: PaidImageReplacementSetting): boolean {
+  return typeof setting.enabled === 'boolean'
+    && (setting.enabled
+      ? Number.isSafeInteger(setting.additional_credit_ceiling) && setting.additional_credit_ceiling > 0
+      : setting.additional_credit_ceiling === null)
+}
+
+function applyPaidImageReplacementSetting(setting: PaidImageReplacementSetting): void {
+  paidImageReplacementEnabled.value = setting.enabled
+  paidImageReplacementCeiling.value = setting.enabled ? String(setting.additional_credit_ceiling) : ''
 }
 
 function setPaidImageReplacementEnabled(event: Event): void {
@@ -250,6 +262,7 @@ function paidImageReplacementCeilingValue(): number | null {
 }
 
 async function savePaidImageReplacement(): Promise<void> {
+  if (!paidImageReplacementLoaded.value) return
   const ceiling = paidImageReplacementCeilingValue()
   paidImageReplacementResult.value = null
   if (paidImageReplacementEnabled.value && ceiling === null) {
@@ -262,6 +275,7 @@ async function savePaidImageReplacement(): Promise<void> {
       enabled: paidImageReplacementEnabled.value,
       additional_credit_ceiling: paidImageReplacementEnabled.value ? ceiling : null,
     })
+    if (!isPaidImageReplacementSetting(saved)) throw new Error('The saved setting was invalid.')
     applyPaidImageReplacementSetting(saved)
     paidImageReplacementResult.value = { kind: 'ok', message: 'Paid image replacement setting saved.' }
   } catch (error: any) {
