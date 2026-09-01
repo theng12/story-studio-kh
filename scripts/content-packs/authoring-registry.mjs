@@ -337,15 +337,6 @@ function validateLineages(records) {
   }
 }
 
-function compareSemver(left, right) {
-  const leftParts = left.split('.').map(Number)
-  const rightParts = right.split('.').map(Number)
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) return leftParts[index] - rightParts[index]
-  }
-  return 0
-}
-
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
   if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`

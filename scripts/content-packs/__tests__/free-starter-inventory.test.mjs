@@ -281,6 +281,7 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
   assert.deepEqual(secondSuccessors.map(({ relative }) => relative).sort(), [
     'content-packs/free-starters/formula/ancient-humans-v1.0.2/pack.json',
     'content-packs/free-starters/formula/deep-time-documentary-v1.0.2/pack.json',
+    'content-packs/free-starters/formula/history-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/human-behavior-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/natural-world-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/pov-your-life-as-v1.0.2/pack.json',

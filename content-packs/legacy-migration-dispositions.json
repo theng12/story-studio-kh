@@ -1,0 +1,2389 @@
+{
+  "schema_version": 1,
+  "authoritative": false,
+  "identity_authority": "content-packs/authoring-registry.json",
+  "description": "Audit-only closure map for Story Studio legacy content. This file records dispositions but never assigns, reserves, transitions, or supersedes an identity; the authoring registry is the sole identity authority.",
+  "dispositions": [
+    {
+      "legacy_key": "compatibility-successor:com.storystudio.pack.formula.history-explained@1.0.2",
+      "disposition": "retained-free-builtin",
+      "source": "content-packs/free-starters/formula/history-explained-v1.0.2",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.history-explained",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/history-explained-v1.0.2"
+      },
+      "closure_group": "free-compatibility-successor",
+      "note": "Free compatibility successor adding reciprocal Ancient Civilizations Economics support; it is not a paid closure-wave product."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.a-life-as@1.0.1",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/a-life-as-v1.0.1",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.a-life-as",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.1"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.a-life-as@1.0.3",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/a-life-as",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.a-life-as",
+        "version": "1.0.3",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/a-life-as"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.a-life-as@1.0.4",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/a-life-as-v1.0.4",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.a-life-as",
+        "version": "1.0.4",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.4"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.archival-ledger@1.0.2",
+      "disposition": "historical-read-only",
+      "source": "content-packs/paid/archival-ledger/kit/archival-ledger",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.archival-ledger",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/paid/archival-ledger/kit/archival-ledger"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.archival-ledger@1.0.3",
+      "disposition": "historical-read-only",
+      "source": "content-packs/paid/archival-ledger/kit/archival-ledger-v1.0.3",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.archival-ledger",
+        "version": "1.0.3",
+        "status": "authored",
+        "source_path": "content-packs/paid/archival-ledger/kit/archival-ledger-v1.0.3"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.build-momentum@1.0.0",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/build-momentum",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.build-momentum",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/build-momentum"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.build-momentum@1.0.1",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/build-momentum-v1.0.1",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.build-momentum",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/build-momentum-v1.0.1"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.build-momentum@1.0.2",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/build-momentum-v1.0.2",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.build-momentum",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/build-momentum-v1.0.2"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.business-explained@1.0.0",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/business-explained",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.business-explained",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/business-explained"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.business-explained@1.0.1",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/business-explained-v1.0.1",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.business-explained",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/business-explained-v1.0.1"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.calm-mind@1.0.0",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/calm-mind",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.calm-mind",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/calm-mind"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.calm-mind@1.0.1",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/calm-mind-v1.0.1",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.calm-mind",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.1"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.calm-mind@1.0.2",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/calm-mind-v1.0.2",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.calm-mind",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.2"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.deep-time@1.0.2",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/deep-time",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.deep-time",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/deep-time"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.deep-time@1.0.3",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/deep-time-v1.0.3",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.deep-time",
+        "version": "1.0.3",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/deep-time-v1.0.3"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.first-humans@1.0.1",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/first-humans-v1.0.1",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.first-humans",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/first-humans-v1.0.1"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.first-humans@1.0.3",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/first-humans",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.first-humans",
+        "version": "1.0.3",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/first-humans"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.first-humans@1.0.4",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/first-humans-v1.0.4",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.first-humans",
+        "version": "1.0.4",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/first-humans-v1.0.4"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.history-explained@1.0.0",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/history-explained",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.history-explained",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/history-explained"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.history-explained@1.0.1",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/history-explained-v1.0.1",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.history-explained",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/history-explained-v1.0.1"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.human-behavior@1.0.0",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/human-behavior",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.human-behavior",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/human-behavior"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.human-behavior@1.0.1",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/human-behavior-v1.0.1",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.human-behavior",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/human-behavior-v1.0.1"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.human-behavior@1.0.2",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/human-behavior-v1.0.2",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.human-behavior",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/human-behavior-v1.0.2"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.sleep-journeys@1.0.0",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/sleep-journeys",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/sleep-journeys"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.sleep-journeys@1.0.1",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/sleep-journeys-v1.0.1",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/sleep-journeys-v1.0.1"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.sleep-journeys@1.0.2",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/sleep-journeys-v1.0.2",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/sleep-journeys-v1.0.2"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.symbolic-psychology-studio@1.0.0",
+      "disposition": "historical-read-only",
+      "source": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.wild-worlds@1.0.2",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/wild-worlds",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.wild-worlds",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/wild-worlds"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "kit:com.storystudio.pack.kit.wild-worlds@1.0.3",
+      "disposition": "historical-read-only",
+      "source": "content-packs/free-starters/kit/wild-worlds-v1.0.3",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.wild-worlds",
+        "version": "1.0.3",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/kit/wild-worlds-v1.0.3"
+      },
+      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+    },
+    {
+      "legacy_key": "lettering:font:bold",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:bold"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:brush",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:brush"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:condensed",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:condensed"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:display",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:display"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:fantasy",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:fantasy"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:futuristic",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:futuristic"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:gothic",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:gothic"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:graffiti",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:graffiti"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:hand-drawn",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:hand-drawn"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:handwritten",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:handwritten"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:playful",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:playful"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:retro-chrome",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:retro-chrome"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:script",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:script"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:serif",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:serif"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:stencil",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:stencil"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:font:typewriter",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "font:typewriter"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:chrome",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:chrome"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:comic",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:comic"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:embossed",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:embossed"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:fire",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:fire"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:glitch",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:glitch"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:gold",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:gold"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:gradient-ocean",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:gradient-ocean"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:gradient-sunset",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:gradient-sunset"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:handwritten",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:handwritten"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:horror",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:horror"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:ice",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:ice"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:metallic",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:metallic"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:neon",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:neon"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:pastel",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:pastel"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:retro",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:retro"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:script",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:script"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:shadow",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:shadow"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:vintage",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:vintage"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "lettering:text:white",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/models/thumbnail-styles.ts",
+      "target": {
+        "kind": "runtime-lettering",
+        "id": "text:white"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "metadata:com.storystudio.metadata-formula.chapters-first",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/metadata-formulas/",
+      "target": {
+        "kind": "runtime-metadata",
+        "id": "com.storystudio.metadata-formula.chapters-first"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "metadata:com.storystudio.metadata-formula.community-first",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/metadata-formulas/",
+      "target": {
+        "kind": "runtime-metadata",
+        "id": "com.storystudio.metadata-formula.community-first"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "metadata:com.storystudio.metadata-formula.curiosity-gap",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/metadata-formulas/",
+      "target": {
+        "kind": "runtime-metadata",
+        "id": "com.storystudio.metadata-formula.curiosity-gap"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "metadata:com.storystudio.metadata-formula.minimal",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/metadata-formulas/",
+      "target": {
+        "kind": "runtime-metadata",
+        "id": "com.storystudio.metadata-formula.minimal"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "metadata:com.storystudio.metadata-formula.story-first-calm",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/metadata-formulas/",
+      "target": {
+        "kind": "runtime-metadata",
+        "id": "com.storystudio.metadata-formula.story-first-calm"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "niche:ancient-humans",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/ancient-humans.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.ancient-humans",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/ancient-humans-v1.0.2"
+      }
+    },
+    {
+      "legacy_key": "niche:animals",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/animals.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.natural-world-explained",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/natural-world-explained-v1.0.2"
+      }
+    },
+    {
+      "legacy_key": "niche:business-economics",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/business-economics.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.economics-of",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/economics-of-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "niche:dark-psychology",
+      "disposition": "absorbed",
+      "source": "electron/server/niches/dark-psychology.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.2"
+      },
+      "note": "Dark Psychology is covered by Human Behavior and its social-dynamics topics; no competing Formula is authored."
+    },
+    {
+      "legacy_key": "niche:deep-time-documentary",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/deep-time-documentary.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/deep-time-documentary-v1.0.2"
+      }
+    },
+    {
+      "legacy_key": "niche:devotional",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/devotional.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/formula/pastoral-scripture"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "niche:fungi",
+      "disposition": "absorbed",
+      "source": "electron/server/niches/fungi.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.natural-world-explained",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/natural-world-explained-v1.0.2"
+      }
+    },
+    {
+      "legacy_key": "niche:hidden-mechanics-history",
+      "disposition": "absorbed",
+      "source": "electron/server/niches/hidden-mechanics-history.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.archival-ledger",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/paid/archival-ledger/formula/archival-ledger"
+      }
+    },
+    {
+      "legacy_key": "niche:history-narration",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/history-narration.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.history-explained",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/history-explained-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "niche:insects",
+      "disposition": "absorbed",
+      "source": "electron/server/niches/insects.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.natural-world-explained",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/natural-world-explained-v1.0.2"
+      }
+    },
+    {
+      "legacy_key": "niche:listicle-explainer",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/listicle-explainer.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.counted-explainer",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/formula/counted-explainer"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "niche:mindfulness",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/mindfulness.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/guided-mindfulness-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "niche:motivation",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/motivation.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.practical-motivation",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/practical-motivation-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "niche:music-mix",
+      "disposition": "retired-runtime-compatible",
+      "source": "electron/server/niches/music-mix.json",
+      "target": {
+        "kind": "runtime-niche",
+        "id": "music-mix"
+      },
+      "note": "Old projects remain readable; the music-video subsystem owns this workflow, so it is not a Story Content Store Formula."
+    },
+    {
+      "legacy_key": "niche:philosophy",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/philosophy.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.philosophy-real-problem",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/formula/philosophy-real-problem"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "niche:plants",
+      "disposition": "absorbed",
+      "source": "electron/server/niches/plants.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.natural-world-explained",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/natural-world-explained-v1.0.2"
+      }
+    },
+    {
+      "legacy_key": "niche:pov-hustle",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/pov-hustle.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.build-under-constraints",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/formula/build-under-constraints"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "niche:pov-life",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/pov-life.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/pov-your-life-as-v1.0.2"
+      }
+    },
+    {
+      "legacy_key": "niche:prayer",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/prayer.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.prayer",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/formula/prayer"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "niche:preaching",
+      "disposition": "absorbed",
+      "source": "electron/server/niches/preaching.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/formula/pastoral-scripture"
+      }
+    },
+    {
+      "legacy_key": "niche:psychology",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/psychology.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.2"
+      }
+    },
+    {
+      "legacy_key": "niche:sleep",
+      "disposition": "authored-standalone",
+      "source": "electron/server/niches/sleep.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.sleep-story",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/sleep-story"
+      }
+    },
+    {
+      "legacy_key": "overlay:channel-mark",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "channel-mark"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:film-grain-fine",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "film-grain-fine"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:film-grain-heavy",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "film-grain-heavy"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:letterbox-185",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "letterbox-185"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:letterbox-235",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "letterbox-235"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:light-leak-cool",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "light-leak-cool"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:light-leak-warm",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "light-leak-warm"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:lower-third-bare",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "lower-third-bare"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:lower-third-clean",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "lower-third-clean"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:scrim-bottom",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "scrim-bottom"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:scrim-top",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "scrim-top"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:vignette-heavy",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "vignette-heavy"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "overlay:vignette-soft",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-overlay",
+        "id": "vignette-soft"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "prepared:com.storystudio.pack.style.dreamlike-luminous-sleep-illustration@1.0.0",
+      "disposition": "authored-standalone",
+      "source": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.dreamlike-luminous-sleep-illustration",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration"
+      },
+      "closure_group": "promoted-prepared-product"
+    },
+    {
+      "legacy_key": "prepared:com.storystudio.pack.style.hand-drawn-hardship-cartoon@1.0.0",
+      "disposition": "authored-standalone",
+      "source": "content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.hand-drawn-hardship-cartoon",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon"
+      },
+      "closure_group": "promoted-prepared-product"
+    },
+    {
+      "legacy_key": "prepared:com.storystudio.pack.thumbnail.dreamlike-story-title-card@1.0.0",
+      "disposition": "authored-standalone",
+      "source": "content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.dreamlike-story-title-card",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card"
+      },
+      "closure_group": "promoted-prepared-product"
+    },
+    {
+      "legacy_key": "prepared:com.storystudio.pack.thumbnail.prehistoric-survival-title-card@1.0.0",
+      "disposition": "authored-standalone",
+      "source": "content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.prehistoric-survival-title-card",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card"
+      },
+      "closure_group": "promoted-prepared-product"
+    },
+    {
+      "legacy_key": "reservation:com.storystudio.pack.kit.symbolic-psychology-studio@1.0.1",
+      "disposition": "withdrawn-pre-sale",
+      "source": "content-packs/authoring-registry.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+        "version": "1.0.1",
+        "status": "withdrawn",
+        "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1"
+      },
+      "closure_group": "withdrawn-obsolete-reservation",
+      "note": "The pre-sale identity remains burned in the authoring registry and its unused source root is absent."
+    },
+    {
+      "legacy_key": "reservation:com.storystudio.pack.thumbnail.animal-hardship-annotation@1.0.0",
+      "disposition": "withdrawn-pre-sale",
+      "source": "content-packs/authoring-registry.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.animal-hardship-annotation",
+        "version": "1.0.0",
+        "status": "withdrawn",
+        "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation"
+      },
+      "closure_group": "withdrawn-obsolete-reservation",
+      "note": "The pre-sale identity remains burned in the authoring registry and its unused source root is absent."
+    },
+    {
+      "legacy_key": "reservation:com.storystudio.pack.thumbnail.centered-hero-headline@1.0.1",
+      "disposition": "withdrawn-pre-sale",
+      "source": "content-packs/authoring-registry.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+        "version": "1.0.1",
+        "status": "withdrawn",
+        "source_path": "content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1"
+      },
+      "closure_group": "withdrawn-obsolete-reservation",
+      "note": "The pre-sale identity remains burned in the authoring registry and its unused source root is absent."
+    },
+    {
+      "legacy_key": "reservation:com.storystudio.pack.thumbnail.dreamscape-story-window@1.0.1",
+      "disposition": "withdrawn-pre-sale",
+      "source": "content-packs/authoring-registry.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
+        "version": "1.0.1",
+        "status": "withdrawn",
+        "source_path": "content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1"
+      },
+      "closure_group": "withdrawn-obsolete-reservation",
+      "note": "The pre-sale identity remains burned in the authoring registry and its unused source root is absent."
+    },
+    {
+      "legacy_key": "reservation:com.storystudio.pack.thumbnail.portrait-block-right@1.0.1",
+      "disposition": "withdrawn-pre-sale",
+      "source": "content-packs/authoring-registry.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+        "version": "1.0.1",
+        "status": "withdrawn",
+        "source_path": "content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1"
+      },
+      "closure_group": "withdrawn-obsolete-reservation",
+      "note": "The pre-sale identity remains burned in the authoring registry and its unused source root is absent."
+    },
+    {
+      "legacy_key": "scene-effect:footage:pan-down",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "footage:pan-down"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:footage:pan-left",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "footage:pan-left"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:footage:pan-right",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "footage:pan-right"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:footage:pan-up",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "footage:pan-up"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:footage:static",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "footage:static"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:footage:zoom-in",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "footage:zoom-in"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:footage:zoom-out",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "footage:zoom-out"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:blur-focus",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:blur-focus"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:breathe",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:breathe"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:dolly-in",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:dolly-in"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:fade-in",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:fade-in"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:fade-out",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:fade-out"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:ken-burns",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:ken-burns"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:ken-burns-reverse",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:ken-burns-reverse"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:none",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:none"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:pan-diag-bl",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:pan-diag-bl"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:pan-diag-br",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:pan-diag-br"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:pan-diag-tl",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:pan-diag-tl"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:pan-diag-tr",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:pan-diag-tr"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:pan-down",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:pan-down"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:pan-left",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:pan-left"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:pan-right",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:pan-right"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:pan-up",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:pan-up"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:parallax-drift",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:parallax-drift"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:pulse",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:pulse"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:rotate-ccw",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:rotate-ccw"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:rotate-cw",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:rotate-cw"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:slow-pull",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:slow-pull"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:slow-push",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:slow-push"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:zoom-in",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:zoom-in"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "scene-effect:scene:zoom-out",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/scene-effect-presets.ts",
+      "target": {
+        "kind": "runtime-scene-effect",
+        "id": "scene:zoom-out"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "style:builtin-anime-cel",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.anime-cel",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/production-looks/style/anime-cel"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-archival-documentary-reconstruction",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/paid/archival-ledger/style/archival-documentary-reconstruction"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-cinematic-photoreal",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.cinematic-photoreal",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/style/cinematic-photoreal"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-flat-vector-explainer",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.flat-vector-explainer",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/style/flat-vector-explainer"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-hand-drawn-cartoon-explainer",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.hand-drawn-cartoon-explainer",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/production-looks/style/hand-drawn-cartoon-explainer"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-hand-drawn-editorial-diagram",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.hand-drawn-editorial-diagram",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/style/hand-drawn-editorial-diagram"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-minimal-stick-figure-explainer",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.minimal-stick-figure-explainer",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-ms-paint-fantasy",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.retro-paint-fantasy",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/production-looks/style/retro-paint-fantasy"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-oil-painting-classical",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/symbolic-psychology-studio/style/oil-painting-classical"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-paleo-documentary-tableau",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.paleo-documentary-tableau",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/style/paleo-documentary-tableau"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-pixel-art-story",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.pixel-art-story",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/production-looks/style/pixel-art-story"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-prehistoric-stick-cartoon",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-sepia-ink-wash",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.sepia-ink-wash",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/style/sepia-ink-wash"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-studio-catalog-realism",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.studio-catalog-realism",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/production-looks/style/studio-catalog-realism"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-watercolor-storybook",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/style/watercolor-storybook"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-waxy-outline-cartoon",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.waxy-outline-cartoon",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/style/waxy-outline-cartoon"
+      }
+    },
+    {
+      "legacy_key": "style:builtin-whiteboard-doodle-explainer",
+      "disposition": "authored-standalone",
+      "source": "frontend/composables/useBuiltInStyles.ts",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.style.whiteboard-doodle-explainer",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/production-looks/style/whiteboard-doodle-explainer"
+      }
+    },
+    {
+      "legacy_key": "subtitle:bold-impact",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "bold-impact"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:boxed-caption",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "boxed-caption"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:clean-broadcast",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "clean-broadcast"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:documentary-serif",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "documentary-serif"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:explainer-accent",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "explainer-accent"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:gentle-fade",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "gentle-fade"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:karaoke-highlight",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "karaoke-highlight"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:karaoke-pop",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "karaoke-pop"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:minimal-lower-third",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "minimal-lower-third"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:neon-glow",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "neon-glow"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:single-word-focus",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "single-word-focus"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:sleep-soft",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "sleep-soft"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:slide-up",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "slide-up"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:typewriter",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "typewriter"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:word-reveal",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "word-reveal"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:yellow-highlighter",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "yellow-highlighter"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "thumbnail:annotated-business-board",
+      "disposition": "authored-standalone",
+      "source": "electron/server/thumbnail-templates/annotated-business-board.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.annotated-business-board",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/thumbnail/annotated-business-board"
+      }
+    },
+    {
+      "legacy_key": "thumbnail:archival-map-investigation",
+      "disposition": "authored-standalone",
+      "source": "electron/server/thumbnail-templates/archival-map-investigation.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.archival-map-investigation",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/paid/archival-ledger/thumbnail/archival-map-investigation"
+      }
+    },
+    {
+      "legacy_key": "thumbnail:centered-hero-headline",
+      "disposition": "authored-standalone",
+      "source": "electron/server/thumbnail-templates/centered-hero-headline.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/thumbnail/centered-hero-headline"
+      }
+    },
+    {
+      "legacy_key": "thumbnail:curiosity-question-cartoon",
+      "disposition": "authored-standalone",
+      "source": "electron/server/thumbnail-templates/curiosity-question-cartoon.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.curiosity-question-cartoon",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "thumbnail:documentary-label-tableau",
+      "disposition": "authored-standalone",
+      "source": "electron/server/thumbnail-templates/documentary-label-tableau.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/thumbnail/documentary-label-tableau-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "thumbnail:portrait-block-right",
+      "disposition": "authored-standalone",
+      "source": "electron/server/thumbnail-templates/portrait-block-right.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+        "version": "1.0.2",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/thumbnail/portrait-block-right"
+      }
+    },
+    {
+      "legacy_key": "topic:ancient-humans-environments",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/ancient-humans-environments.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.ancient-humans-environments",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-environments"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:ancient-humans-social-life",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/ancient-humans-social-life.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.ancient-humans-social-life",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-social-life"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:ancient-humans-survival",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/ancient-humans-survival.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/topic/ancient-humans-survival-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:ancient-humans-technology",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/ancient-humans-technology.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.ancient-humans-technology",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-technology"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:deep-time-deep-ocean",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/deep-time-deep-ocean.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.deep-time-field-record.ancient-oceans-deep-sea",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/paid/deep-time-field-record/topic/ancient-oceans-deep-sea"
+      }
+    },
+    {
+      "legacy_key": "topic:deep-time-earth-systems",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/deep-time-earth-systems.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.deep-time-earth-systems",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/topic/deep-time-earth-systems-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:deep-time-human-origins",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/deep-time-human-origins.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.deep-time-field-record.human-origins-ancient-worlds",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/paid/deep-time-field-record/topic/human-origins-ancient-worlds"
+      }
+    },
+    {
+      "legacy_key": "topic:deep-time-prehistoric-life",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/deep-time-prehistoric-life.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/paid/deep-time-field-record/topic/prehistoric-life-extinction"
+      }
+    },
+    {
+      "legacy_key": "topic:deep-time-speculative-earth",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/deep-time-speculative-earth.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.deep-time-speculative-earth",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/deep-time-speculative-earth"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:economics-ancient-civilizations",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/economics-ancient-civilizations.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.economics-ancient-civilizations",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/economics-ancient-civilizations"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:economics-businesses",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/economics-businesses.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.economics-businesses",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/topic/economics-businesses-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:historical-empires-trade-extraction",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/historical-empires-trade-extraction.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/paid/archival-ledger/topic/empires-trade-extraction-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:historical-infrastructure-commodities-corporate-power",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/historical-infrastructure-commodities-corporate-power.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/paid/archival-ledger/topic/infrastructure-commodities-corporate-power-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:historical-money-debt-financial-institutions",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/historical-money-debt-financial-institutions.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/paid/archival-ledger/topic/money-debt-financial-institutions-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:historical-states-revolutions-collapse",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/historical-states-revolutions-collapse.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/paid/archival-ledger/topic/states-revolutions-collapse-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:historical-wars-treaties-world-order",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/historical-wars-treaties-world-order.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/paid/archival-ledger/topic/wars-treaties-world-order-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:human-behavior-social-dynamics",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/human-behavior-social-dynamics.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/topic/human-behavior-social-dynamics-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:natural-world-animals",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/natural-world-animals.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.natural-world-animals",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/topic/natural-world-animals-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:natural-world-fungi",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/natural-world-fungi.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.natural-world-fungi",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-fungi"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:natural-world-insects",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/natural-world-insects.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.natural-world-insects",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-insects"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:natural-world-plants",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/natural-world-plants.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.natural-world-plants",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-plants"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:pastoral-daily-reflection",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/pastoral-daily-reflection.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.pastoral-daily-reflection",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/pastoral-daily-reflection"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:pastoral-expository-teaching",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/pastoral-expository-teaching.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.pastoral-expository-teaching",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/pastoral-expository-teaching"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:pov-criminal-hierarchies",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/pov-criminal-hierarchies.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.pov-criminal-hierarchies",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/pov-criminal-hierarchies"
+      },
+      "closure_group": "new-authored-product"
+    },
+    {
+      "legacy_key": "topic:pov-historical-occupations",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/pov-historical-occupations.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+        "version": "1.0.1",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/topic/pov-historical-occupations-v1.0.1"
+      }
+    },
+    {
+      "legacy_key": "topic:pov-law-enforcement",
+      "disposition": "authored-standalone",
+      "source": "electron/server/topic-packs/pov-law-enforcement.json",
+      "target": {
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.topic.pov-law-enforcement",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/legacy-niche-conversion/topic/pov-law-enforcement"
+      },
+      "closure_group": "new-authored-product"
+    }
+  ]
+}
