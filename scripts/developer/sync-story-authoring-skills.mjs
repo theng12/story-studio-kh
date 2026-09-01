@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const canonicalRoot = fileURLToPath(new URL('../../developer-migration/codex-skills', import.meta.url))
 const packageNames = [
+  'story-studio-content-pack-authoring',
   'story-studio-channel-kit-authoring',
   'story-studio-niche-adoption',
   'story-studio-thumbnail-adoption',

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Content Pack Authoring"
+  short_description: "Author standalone mix-and-match Story products"
+  default_prompt: "Use $story-studio-content-pack-authoring to turn this concept into independently purchasable Story Content Store packs."
