@@ -314,6 +314,11 @@ function isFiniteCredit(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 
+/** Accept only the terminal control's authoritative, nonnegative settlement. */
+export function authoritativePaidImageSettledCredits(value: unknown): number | undefined {
+  return isFiniteCredit(value) ? value : undefined
+}
+
 function blocked(reason: string): PaidImageReplacementDecision {
   return { action: 'blocked', reason }
 }

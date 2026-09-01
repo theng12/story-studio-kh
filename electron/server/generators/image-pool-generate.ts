@@ -38,6 +38,7 @@ import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveIma
 import { getApiKey } from '../services/app-secrets-store.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import {
+  authoritativePaidImageSettledCredits,
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
@@ -354,7 +355,10 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
             if (await isUsable(item.filename)) continue itemLoop
             throw new Error('The original task may still be recoverable; no replacement was submitted.')
           }
-          if (decision.action === 'blocked') throw new Error(decision.reason)
+          if (decision.action === 'blocked') {
+            await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason)
+            throw new Error(decision.reason)
+          }
           if (decision.action === 'commit') replacementScope = decision.scope
         }
         const retryEntry = entry?.request_scope?.includes(':selector:')
@@ -402,7 +406,10 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
               await jq.checkpointJobState(job)
               return { kind: 'paid-image-wait' }
             }
-            if (decision.action === 'blocked') throw new Error(decision.reason)
+            if (decision.action === 'blocked') {
+              await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason)
+              throw new Error(decision.reason)
+            }
           }
           const carriedRetry = carried.request_scope?.includes(':selector:')
             ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }
@@ -516,7 +523,11 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
         if (!result.urls.length) throw new Error('provider returned no image')
         await saveResult(item, { url: result.urls[0] })
         if (replacementScope) {
-          await jq.checkpointPaidImageReplacementAttempt(job, item.filename, { state: 'succeeded', replacement_task_id: completedTaskId })
+          const actualSettledCredits = authoritativePaidImageSettledCredits(result.settledCredits)
+          await jq.checkpointPaidImageReplacementAttempt(job, item.filename, {
+            state: 'succeeded', replacement_task_id: completedTaskId,
+            ...(actualSettledCredits !== undefined ? { actual_settled_credits: actualSettledCredits } : {}),
+          })
         } else if (result.taskId) {
           await recordState(item.filename, {
             taskId: result.taskId, submittedAt, inputHash, scope, idempotencyKey: acceptedKey, original: attemptOriginal,
@@ -538,8 +549,10 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           // attempt — in this run or in a later manual Retry — reads it back
           // and promotes a fresh identity instead of replaying this dead job.
           if (paidReplacement) {
+            const actualSettledCredits = authoritativePaidImageSettledCredits(e.settledCredits)
             await jq.checkpointPaidImageReplacementAttempt(job, item.filename, {
               state: 'failed', replacement_task_id: failedTaskId, reason: e.message,
+              ...(actualSettledCredits !== undefined ? { actual_settled_credits: actualSettledCredits } : {}),
             })
           } else {
             await recordState(item.filename, {
@@ -567,7 +580,10 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
                 await jq.checkpointJobState(job)
                 return { kind: 'paid-image-wait' }
               }
-              if (decision.action === 'blocked') job.output_lines.push(`item ${item.index + 1}: paid replacement blocked — ${decision.reason}`)
+              if (decision.action === 'blocked') {
+                await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason)
+                job.output_lines.push(`item ${item.index + 1}: paid replacement blocked — ${decision.reason}`)
+              }
             }
           }
           // ── "Every machine was busy" — wait, then ask again ──

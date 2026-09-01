@@ -1542,7 +1542,9 @@ export async function checkpointPaidImageReplacementAttempt(
     const matches = attempts.filter(attempt => attempt.asset_key === assetKey)
     if (matches.length !== 1) return null
     const current = matches[0]!
-    const allowed = current.state === 'committed'
+    const allowed = current.state === 'waiting'
+      ? new Set(['blocked'])
+      : current.state === 'committed'
       ? new Set(['submitted', 'succeeded', 'failed', 'blocked'])
       : current.state === 'submitted'
         ? new Set(['succeeded', 'failed', 'blocked'])
@@ -1557,6 +1559,18 @@ export async function checkpointPaidImageReplacementAttempt(
   Object.assign(job, durable)
   emitUpdate(job)
   return job.paid_image_replacement_attempts!.find(attempt => attempt.asset_key === assetKey)!
+}
+
+/** Block the one existing paid attempt, without inventing an attempt for an ineligible asset. */
+export async function checkpointPaidImageReplacementBlockedIfPresent(
+  job: Job,
+  assetKey: string,
+  reason: string,
+): Promise<boolean> {
+  const matches = (job.paid_image_replacement_attempts || []).filter(attempt => attempt.asset_key === assetKey)
+  if (matches.length !== 1 || !['waiting', 'committed', 'submitted'].includes(matches[0]!.state)) return false
+  await checkpointPaidImageReplacementAttempt(job, assetKey, { state: 'blocked', reason })
+  return true
 }
 
 /** Re-admit only a jobs-first commitment whose strict manifest mirror agrees. */

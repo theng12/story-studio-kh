@@ -47,6 +47,7 @@ test('Continuity freezes the exact original request before POST and returns a du
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
   let exposeOriginalAsRunning = false
+  let restoreImageProvider: (() => void) | undefined
   try {
     globalThis.fetch = async (input, init) => {
       const response = await originalFetch(input, init)
@@ -158,6 +159,17 @@ test('Continuity freezes the exact original request before POST and returns a du
     await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 1, 'elapsed eligibility without terminal evidence makes zero replacement POSTs')
     exposeOriginalAsRunning = false
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
+    const blockedContinuity = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(blockedContinuity.paid_image_replacement_attempts[0].state, 'blocked')
+    assert.match(blockedContinuity.paid_image_replacement_attempts[0].reason, /currently off/i)
+    assert.equal(service.providerSubmissionCount('image'), 1, 'a blocked due Continuity attempt submits nothing')
+    blockedContinuity.paid_image_replacement_attempts[0].state = 'waiting'
+    delete blockedContinuity.paid_image_replacement_attempts[0].reason
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedContinuity] }))
+    Object.assign(job, blockedContinuity)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     const committed = await decidePaidImageReplacement({
       job,
       asset: {
@@ -186,6 +198,12 @@ test('Continuity freezes the exact original request before POST and returns a du
     await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 1, 'jobs-first crash before the manifest mirror makes zero replacement POSTs')
     await fs.writeFile(manifestPath, JSON.stringify(committedManifest))
+    const blockedMirror = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(blockedMirror.paid_image_replacement_attempts[0].state, 'blocked')
+    blockedMirror.paid_image_replacement_attempts[0].state = 'committed'
+    delete blockedMirror.paid_image_replacement_attempts[0].reason
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedMirror] }))
+    Object.assign(job, blockedMirror)
 
     await sharp({ create: { width: 1, height: 1, channels: 3, background: '#123456' } })
       .png().toFile(outputPath)
@@ -211,6 +229,33 @@ test('Continuity freezes the exact original request before POST and returns a du
     assert.equal(service.providerSubmissionCount('image'), 1, 'commit-to-POST reference mutation fails closed without spending')
     await fs.writeFile(entry.original_reference_inputs![0]!.path, originalReferenceBytes)
 
+    const { registry } = await import('../providers/registry.js')
+    const { GenStudioImageTerminalFailureError } = await import('../lib/genstudio-client.js')
+    const realProvider = registry.getImageProvider('genstudio-image')!
+    restoreImageProvider = () => registry.registerImage(realProvider)
+    registry.registerImage({
+      ...realProvider,
+      generateImage: async request => {
+        await request.onJobAccepted?.('known-continuity-paid-failure', request.idempotencyKey || 'missing-key')
+        throw new GenStudioImageTerminalFailureError({
+          id: 'known-continuity-paid-failure', state: 'failed', cancelled: false, failure_code: 'PROVIDER_ERROR',
+          reserved_credits: 5, settled_credits: 3, released_credits: 2,
+        } as any)
+      },
+    })
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
+    const settledFailure = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(settledFailure.paid_image_replacement_attempts[0].state, 'failed')
+    assert.equal(settledFailure.paid_image_replacement_attempts[0].actual_settled_credits, 3)
+    settledFailure.paid_image_replacement_attempts[0].state = 'committed'
+    delete settledFailure.paid_image_replacement_attempts[0].replacement_task_id
+    delete settledFailure.paid_image_replacement_attempts[0].actual_settled_credits
+    delete settledFailure.paid_image_replacement_attempts[0].reason
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [settledFailure] }))
+    Object.assign(job, settledFailure)
+    registry.registerImage(realProvider)
+    restoreImageProvider = undefined
+
     const secondResult = await runContinuityRenderJob(job)
     assert.equal(secondResult, undefined)
     assert.equal(service.providerSubmissionCount('image'), 2, 'due re-entry submits exactly the committed replacement through normal admission')
@@ -218,6 +263,7 @@ test('Continuity freezes the exact original request before POST and returns a du
     const completed = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
     assert.equal(completed.paid_image_replacement_attempts[0].state, 'succeeded')
     assert.match(completed.paid_image_replacement_attempts[0].replacement_task_id, /^mock-image-/)
+    assert.equal(completed.paid_image_replacement_attempts[0].actual_settled_credits, 4, 'successful provider results preserve authoritative settlement')
 
     completed.paid_image_replacement_attempts[0].state = 'submitted'
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [completed] }))
@@ -226,6 +272,7 @@ test('Continuity freezes the exact original request before POST and returns a du
     assert.equal(service.providerSubmissionCount('image'), 2, 'artifact-before-checkpoint recovery never resubmits Continuity')
     assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'succeeded')
   } finally {
+    restoreImageProvider?.()
     globalThis.fetch = originalFetch
     await service.close()
     await temp.cleanup()
@@ -299,16 +346,47 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     durable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(eligibleAt - 30 * 60_000).toISOString()
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [durable] }))
     Object.assign(job, durable)
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
+    await assert.rejects(generateImagePoolImages(job), /incomplete/i)
+    const blockedPool = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(blockedPool.paid_image_replacement_attempts[0].state, 'blocked')
+    assert.match(blockedPool.paid_image_replacement_attempts[0].reason, /currently off/i)
+    assert.equal(service.providerSubmissionCount('image'), 1, 'a blocked due Pool attempt submits nothing')
+    blockedPool.paid_image_replacement_attempts[0].state = 'waiting'
+    delete blockedPool.paid_image_replacement_attempts[0].reason
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedPool] }))
+    Object.assign(job, blockedPool)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     const { registry } = await import('../providers/registry.js')
+    const { GenStudioImageTerminalFailureError } = await import('../lib/genstudio-client.js')
     const realProvider = registry.getImageProvider('genstudio-image')!
     restoreImageProvider = () => registry.registerImage(realProvider)
+    registry.registerImage({
+      ...realProvider,
+      generateImage: async request => {
+        await request.onJobAccepted?.('unknown-pool-paid-failure', request.idempotencyKey || 'missing-key')
+        throw new GenStudioImageTerminalFailureError({
+          id: 'unknown-pool-paid-failure', state: 'failed', cancelled: false, failure_code: 'PROVIDER_ERROR',
+          reserved_credits: 4, settled_credits: -1, released_credits: 5,
+        } as any)
+      },
+    })
+    await assert.rejects(generateImagePoolImages(job), /incomplete/i)
+    const unknownSettlement = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(unknownSettlement.paid_image_replacement_attempts[0].state, 'failed')
+    assert.equal(unknownSettlement.paid_image_replacement_attempts[0].actual_settled_credits, undefined, 'invalid settlement is not authoritative')
+    unknownSettlement.paid_image_replacement_attempts[0].state = 'committed'
+    delete unknownSettlement.paid_image_replacement_attempts[0].replacement_task_id
+    delete unknownSettlement.paid_image_replacement_attempts[0].reason
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [unknownSettlement] }))
+    Object.assign(job, unknownSettlement)
     let paidImageUrl = ''
     registry.registerImage({
       ...realProvider,
       generateImage: async request => {
         const result = await realProvider.generateImage(request)
         paidImageUrl = result.urls[0] || ''
-        return { urls: result.urls }
+        return { urls: result.urls, settledCredits: (result as any).settledCredits }
       },
     })
     service.queueScenario('image', { states: ['succeeded'], reservedCredits: 4, finalCredits: 4 })
@@ -318,6 +396,7 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     const completed = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
     assert.equal(completed.paid_image_replacement_attempts[0].state, 'succeeded', 'accepted task id completes a paid attempt when the provider result omits taskId')
     assert.match(completed.paid_image_replacement_attempts[0].replacement_task_id, /^mock-image-/)
+    assert.equal(completed.paid_image_replacement_attempts[0].actual_settled_credits, 4, 'successful provider results preserve authoritative settlement')
     const paidTaskId = completed.paid_image_replacement_attempts[0].replacement_task_id
     const poolArtifactPath = path.join(poolRoot, 'gen-paid-run-0002.png')
     const committedArtifactBytes = await fs.readFile(poolArtifactPath)
@@ -491,6 +570,24 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     await assert.rejects(generateImages(job), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 1, 'a committed thumbnail with a deleted frozen reference makes zero replacement POSTs')
     await fs.writeFile(savedReferencePath, savedReferenceBytes)
+    const blockedReference = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(blockedReference.paid_image_replacement_attempts[0].state, 'blocked')
+    blockedReference.paid_image_replacement_attempts[0].state = 'waiting'
+    delete blockedReference.paid_image_replacement_attempts[0].reason
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedReference] }))
+    Object.assign(job, blockedReference)
+
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
+    await assert.rejects(generateImages(job), /incomplete/i)
+    const blockedThumb = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(blockedThumb.paid_image_replacement_attempts[0].state, 'blocked')
+    assert.match(blockedThumb.paid_image_replacement_attempts[0].reason, /currently off/i)
+    assert.equal(service.providerSubmissionCount('image'), 1, 'a blocked due thumbnail attempt submits nothing')
+    blockedThumb.paid_image_replacement_attempts[0].state = 'waiting'
+    delete blockedThumb.paid_image_replacement_attempts[0].reason
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedThumb] }))
+    Object.assign(job, blockedThumb)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
 
     const originalFailureCheckpoint = structuredClone(job.params.genstudio_recovery.assets[filename])
     const realProvider = registry.getImageProvider('genstudio-image')!
@@ -521,6 +618,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     const paidFailedAttempt = paidFailedJob.paid_image_replacement_attempts[0]
     assert.equal(paidFailedAttempt.state, 'failed')
     assert.match(paidFailedAttempt.replacement_task_id, /^mock-image-/)
+    assert.equal(paidFailedAttempt.actual_settled_credits, 0)
     const paidFailureSubmission = service.submissions.find(submission => submission.jobId === paidFailedAttempt.replacement_task_id)!
     const paidFailureCheckpoint = paidFailedJob.params.genstudio_recovery.assets[filename]
     assert.equal(paidFailureCheckpoint.job_id, paidFailedAttempt.replacement_task_id)
@@ -533,6 +631,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     const failedReplacementTaskId = failed.paid_image_replacement_attempts[0].replacement_task_id
     failed.paid_image_replacement_attempts[0].state = 'committed'
     delete failed.paid_image_replacement_attempts[0].replacement_task_id
+    delete failed.paid_image_replacement_attempts[0].actual_settled_credits
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [failed] }))
     Object.assign(job, failed)
     await sharp({ create: { width: 1, height: 1, channels: 3, background: '#ffffff' } })
@@ -555,7 +654,9 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     Object.assign(job, failed)
     assert.equal(await generateImages(job), undefined)
     assert.equal(service.providerSubmissionCount('image'), 2, 'artifact-before-checkpoint recovery never resubmits thumbnails')
-    assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'succeeded')
+    const recoveredPaidThumb = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0]
+    assert.equal(recoveredPaidThumb.state, 'succeeded')
+    assert.equal(recoveredPaidThumb.actual_settled_credits, undefined, 'artifact recovery has no authoritative replacement settlement')
 
     originalPositiveFailureUrl = ''
     const fleetFixture = await createContinuityFixture('Paid thumbnail fleet failure')
@@ -594,6 +695,80 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
   }
 })
 
+test('a successful paid thumbnail records only the completed GenStudio settlement', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input, init) => {
+      const response = await originalFetch(input, init)
+      const url = String(input)
+      if ((init?.method || 'GET') === 'GET' && url.startsWith(`${service.baseUrl}/v1/images/`)
+        && !url.endsWith('/file') && response.headers.get('content-type')?.includes('application/json')) {
+        const body = await response.clone().json() as Record<string, unknown>
+        if (body.state === 'failed') {
+          return Response.json({ ...body, reserved_credits: 8, settled_credits: 2, released_credits: 6 })
+        }
+      }
+      if (url.startsWith(`${service.baseUrl}/v1/image/models`) && response.headers.get('content-type')?.includes('application/json')) {
+        const models = await response.clone().json() as Array<Record<string, any>>
+        return Response.json(models.map(model => ({
+          ...model, chargeable: true,
+          output_options: model.output_options.map((row: Record<string, unknown>) => ({
+            ...row, credits_per_image: 4, price_version: 'mock-image-price-v1',
+          })),
+        })))
+      }
+      return response
+    }
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const pm = await import('../services/project-manager.js')
+    const { toMdPath } = await import('../lib/episode-artifacts.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+    const { project, episodeId, paths } = await createContinuityFixture('Paid thumbnail success settlement')
+    const promptPath = toMdPath(paths.thumb_prompts_docx)
+    await fs.mkdir(path.dirname(promptPath), { recursive: true })
+    await fs.writeFile(promptPath, '# Thumbnail Prompts\n\n## Thumbnail 1: First\n\nA quiet moonlit archive.\n')
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: 'paid-thumb-success', project_slug: project.slug, type: 'thumb_images', episode_id: episodeId,
+      title: 'Paid Thumbnail Success', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
+      params: { episode_id: episodeId, mode: 'thumbs', model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
+    }
+    const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+    service.queueScenario('image', {
+      states: ['accepted', 'failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 8, finalCredits: 2,
+    })
+    const { generateImages } = await import('../generators/images.js')
+    assert.deepEqual(await generateImages(job), { kind: 'paid-image-wait' })
+    const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    const eligibleAt = Date.now() - 1_000
+    durable.paid_image_replacement_attempts[0].eligible_at = new Date(eligibleAt).toISOString()
+    durable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(eligibleAt - 30 * 60_000).toISOString()
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [durable] }))
+    Object.assign(job, durable)
+    service.queueScenario('image', { states: ['succeeded'], reservedCredits: 4, finalCredits: 4 })
+    assert.equal(await generateImages(job), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 2)
+    const completed = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0]
+    assert.equal(completed.state, 'succeeded')
+    assert.equal(completed.actual_settled_credits, 4)
+  } finally {
+    globalThis.fetch = originalFetch
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
 test('a configured thumbnail reference missing before the original manifest exists blocks the real generator before POST', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
@@ -623,10 +798,12 @@ test('a configured thumbnail reference missing before the original manifest exis
         thumbnail_reference_asset: { id: 'saved-reference', filename: 'missing.png' },
       },
     }
-    await fs.writeFile(path.join(pm.projectsRoot(), project.slug, 'jobs.json'), JSON.stringify({ jobs: [job] }))
+    const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
     const { generateImages } = await import('../generators/images.js')
     await assert.rejects(generateImages(job), /saved thumbnail reference is unavailable locally/i)
     assert.equal(service.providerSubmissionCount('image'), 0)
+    assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts, undefined)
   } finally {
     await service.close()
     await temp.cleanup()

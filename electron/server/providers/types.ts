@@ -89,6 +89,8 @@ export interface ImageGenerationRequest {
 export interface ImageGenerationResult {
   urls: string[]
   taskId?: string
+  /** Authoritative terminal settlement, when the provider publishes it. */
+  settledCredits?: number
 }
 
 export interface ImageProvider {

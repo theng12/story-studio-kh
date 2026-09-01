@@ -43,6 +43,7 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import fs from 'fs/promises'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import {
+  authoritativePaidImageSettledCredits,
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
@@ -1143,7 +1144,10 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 if (await fileExistsWithContent(v1Path)) { completedCount++; return }
                 throw new Error('The original task may still be recoverable; no replacement was submitted.')
               }
-              if (decision.action === 'blocked') throw new Error(decision.reason)
+              if (decision.action === 'blocked') {
+                await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
+                throw new Error(decision.reason)
+              }
               if (decision.action === 'commit') committedScope = decision.scope
             }
             attempt = committedScope ? {
@@ -1177,7 +1181,10 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               paidImageWaitRequested = true
               return
             }
-            if (decision.action === 'blocked') throw new Error(decision.reason)
+            if (decision.action === 'blocked') {
+              await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
+              throw new Error(decision.reason)
+            }
           }
           if (current.recovery.kind === 'uncertain') throw uncertainRecoveryError(current.recovery)
           for (const note of current.notes) job.output_lines.push(`Thumbnail ${thumb.number}: ${note}`)
@@ -1264,8 +1271,10 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
           }
           if (current.paidReplacement) {
+            const actualSettledCredits = authoritativePaidImageSettledCredits(result.settledCredits)
             await jq.checkpointPaidImageReplacementAttempt(job, filename, {
               state: 'succeeded', replacement_task_id: result.taskId || acceptedTaskId,
+              ...(actualSettledCredits !== undefined ? { actual_settled_credits: actualSettledCredits } : {}),
             })
           }
           completedCount++
@@ -1287,8 +1296,10 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 operation: 'image', idempotency_key: acceptedKey, job_id: failedTaskId,
                 output_path: v1Path, input_hash: attempt.inputHash, state: 'failed',
               })
+              const actualSettledCredits = authoritativePaidImageSettledCredits(e.settledCredits)
               await jq.checkpointPaidImageReplacementAttempt(job, filename, {
                 state: 'failed', replacement_task_id: failedTaskId, reason: e.message,
+                ...(actualSettledCredits !== undefined ? { actual_settled_credits: actualSettledCredits } : {}),
               })
               failedCount++
               job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: FAILED — ${e.message}`)
@@ -1318,6 +1329,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                   return
                 }
                 if (decision.action === 'blocked') {
+                  await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
                   job.output_lines.push(`Thumbnail ${thumb.number}: paid replacement blocked — ${decision.reason}`)
                 }
               }

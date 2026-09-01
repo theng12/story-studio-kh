@@ -1117,6 +1117,7 @@ interface GenStudioImageJob {
   /** `ImageJobResponse` publishes a released reservation when it has one. */
   credit_cost?: number
   remaining_credits?: number
+  settled_credits?: number | null
   released_credits?: number | null
   cancellable?: boolean | null
   cancelled?: boolean | null
@@ -1151,6 +1152,13 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   idempotencyKey?: string
   onState?: (state: GenStudioJob['state']) => void
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
+}
+
+export interface GenStudioImageResult {
+  url: string
+  jobId: string
+  modelId: string
+  settledCredits?: number
 }
 
 interface GenStudioTranscriptionJob {
@@ -6613,7 +6621,7 @@ async function recoverImageWithGenStudioAdmitted(
   apiKey: string,
   jobId: string,
   request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void } = {},
-): Promise<{ url: string; jobId: string; modelId: string }> {
+): Promise<GenStudioImageResult> {
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   const initial = await requestJsonWithRetry(
@@ -6640,14 +6648,17 @@ async function recoverImageWithGenStudioAdmitted(
     request.onState?.(initial.state)
   }
   const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
-  return { url, jobId: completed.id, modelId: completed.model_id }
+  return {
+    url, jobId: completed.id, modelId: completed.model_id,
+    ...(isValidSettlement(completed.settled_credits) ? { settledCredits: completed.settled_credits } : {}),
+  }
 }
 
 export async function recoverImageWithGenStudio(
   apiKey: string,
   jobId: string,
   request: GenStudioOperationContext & { onState?: (state: GenStudioJob['state']) => void } = {},
-): Promise<{ url: string; jobId: string; modelId: string }> {
+): Promise<GenStudioImageResult> {
   return recoverImageWithGenStudioAdmitted(apiKey, jobId, request)
 }
 
@@ -6655,7 +6666,7 @@ export async function recoverImageWithGenStudio(
 async function generateImageWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioImageRequest,
-): Promise<{ url: string; jobId: string; modelId: string }> {
+): Promise<GenStudioImageResult> {
   const prompt = request.prompt.trim()
   const modelId = request.modelId.trim()
   // Bounds published on `ImageGenerationRequest.prompt` itself. The per-model
@@ -6736,7 +6747,10 @@ async function generateImageWithGenStudioAdmitted(
   try {
     const completed = await waitForImageJob(baseUrl, apiKey, submitted, request, deadline)
     const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
-    return { url, jobId: completed.id, modelId: completed.model_id }
+    return {
+      url, jobId: completed.id, modelId: completed.model_id,
+      ...(isValidSettlement(completed.settled_credits) ? { settledCredits: completed.settled_credits } : {}),
+    }
   } catch (error) {
     if (!shouldReconnectAcceptedTask(error, request)) throw error
     await request.onReconnect?.(submitted.id, error instanceof Error ? error.message : String(error))
@@ -6747,7 +6761,7 @@ async function generateImageWithGenStudioAdmitted(
 export async function generateImageWithGenStudio(
   apiKey: string,
   request: GenStudioImageRequest,
-): Promise<{ url: string; jobId: string; modelId: string }> {
+): Promise<GenStudioImageResult> {
   return generateImageWithGenStudioAdmitted(apiKey, request)
 }
 

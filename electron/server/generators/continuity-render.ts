@@ -38,6 +38,7 @@ import {
 import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits , genStudioAdmissionSnapshot } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import {
+  authoritativePaidImageSettledCredits,
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
@@ -769,7 +770,10 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   }
                   throw new Error('The original task may still be recoverable; no replacement was submitted.')
                 }
-                if (decision.action === 'blocked') throw new Error(decision.reason)
+                if (decision.action === 'blocked') {
+                  await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
+                  throw new Error(decision.reason)
+                }
                 if (decision.action === 'commit') replacementScope = decision.scope
               }
               // A terminal saved job promotes the scope to a NEW retry identity,
@@ -826,7 +830,10 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     paidImageWaitRequested = true
                     return
                   }
-                  if (decision.action === 'blocked') throw new Error(decision.reason)
+                  if (decision.action === 'blocked') {
+                    await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
+                    throw new Error(decision.reason)
+                  }
                 }
                 const carriedRetry = carried.request_scope?.includes(':selector:')
                   ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }
@@ -881,7 +888,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               attemptOriginalFields = originalFields
               isPaidReplacement = !!replacementScope
 
-              let result: { urls: string[]; taskId?: string }
+              let result: { urls: string[]; taskId?: string; settledCredits?: number }
               if (recovery.kind === 'recovered') {
                 result = { urls: recovery.urls, taskId: recovery.taskId }
                 await recordTask(outDir, filename, {
@@ -990,8 +997,10 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               await saveGenStudioImage(result.urls[0]!, outPath)
               await persistImagePath(scene.id, outPath, scene.visual_prompt)
               if (isPaidReplacement) {
+                const actualSettledCredits = authoritativePaidImageSettledCredits(result.settledCredits)
                 await jq.checkpointPaidImageReplacementAttempt(job, filename, {
                   state: 'succeeded', replacement_task_id: result.taskId || acceptedTaskId,
+                  ...(actualSettledCredits !== undefined ? { actual_settled_credits: actualSettledCredits } : {}),
                 })
               }
               successfulSceneIds.add(scene.id)
@@ -1024,9 +1033,11 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   ...attemptOriginalFields,
                 }
                 if (isPaidReplacement) {
+                  const actualSettledCredits = authoritativePaidImageSettledCredits(e.settledCredits)
                   await jq.checkpointPaidImageReplacementAttempt(job, filename, {
                     state: 'failed', replacement_task_id: failedTaskId,
                     reason: e.message,
+                    ...(actualSettledCredits !== undefined ? { actual_settled_credits: actualSettledCredits } : {}),
                   })
                 } else {
                   await recordTaskStrict(outDir, filename, failedEntry)
@@ -1055,6 +1066,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     return
                   }
                   if (decision?.action === 'blocked') {
+                    await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
                     job.output_lines.push(`Scene ${scene.scene_index}: paid replacement blocked — ${decision.reason}`)
                   }
                 }

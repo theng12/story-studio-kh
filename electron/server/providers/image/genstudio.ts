@@ -186,7 +186,10 @@ const genstudioImageProvider: ImageProvider = {
       if (!(error instanceof GenStudioApiError) || error.code !== 'REFERENCE_ASSET_EXPIRED' || !referencePaths.length) throw error
       result = await submit()
     }
-    return { urls: [result.url], taskId: result.jobId }
+    return {
+      urls: [result.url], taskId: result.jobId,
+      ...(result.settledCredits !== undefined ? { settledCredits: result.settledCredits } : {}),
+    }
   },
 }
 
