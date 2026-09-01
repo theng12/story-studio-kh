@@ -324,9 +324,9 @@ git commit -m "docs(content-packs): close the legacy migration ledger"
 ### Task 8: Qualify candidates, review the branch, and integrate
 
 **Files:**
-- Create outside repository: `/build/Developer/_handoffs/candidates/legacy-content-closure-2026-09-01/`
-- Create outside repository: `/build/Developer/_handoffs/artifacts/legacy-content-closure-2026-09-01/`
-- Create outside repository: `/build/Developer/_handoffs/2026-09-01_to-genstudio_from-story-studio_legacy-content-closure.json`
+- Create outside repository: `<owner-home>/Developer/_handoffs/candidates/legacy-content-closure-2026-09-01/`
+- Create outside repository: `<owner-home>/Developer/_handoffs/artifacts/legacy-content-closure-2026-09-01/`
+- Create outside repository: `<owner-home>/Developer/_handoffs/2026-09-01_to-genstudio_from-story-studio_legacy-content-closure.json`
 
 - [ ] **Step 1: Build every one of the 21 authored leaves twice to fresh candidate paths.** Use `genstudio-store-receipt-v1` and `--min-app-version 1.4.93`; compare bytes and SHA-256, validate both archives, verify size, and retain one copy only after equality.
 - [ ] **Step 2: Create one truthful stocking handoff.** List 21 separate products, their exact Story identities, digests, sizes, compatibility, empty dependencies, review evidence, and proposed 300-credit/no-discount merchandising request. Keep every GenStudio-owned identity absent and state explicitly that no upload/publication/pricing mutation was performed.
