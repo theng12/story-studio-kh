@@ -1567,6 +1567,18 @@ export function getPaidImageReplacementSubmitPermission(
   return attempt
 }
 
+/** Reconcile an existing artifact only after a real replacement task was durably accepted. */
+export function getPaidImageReplacementArtifactPermission(
+  job: Job,
+  assetKey: string,
+  manifestDir: string,
+  manifestKey: string,
+  entry: TaskManifestEntry,
+): PaidImageReplacementAttempt | null {
+  const attempt = getPaidImageReplacementSubmitPermission(job, assetKey, manifestDir, manifestKey, entry)
+  return attempt?.state === 'submitted' && attempt.replacement_task_id?.trim() ? attempt : null
+}
+
 /**
  * Persist a durable checkpoint while a long-running executor is still active.
  * Accepted GenStudio work uses this so a monitoring disconnect can reconnect

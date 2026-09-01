@@ -29,6 +29,19 @@ async function createContinuityFixture(name: string) {
   return { project, episodeId, paths }
 }
 
+async function waitForPaidAttempt(
+  jobsFile: string,
+  predicate: (attempt: any) => boolean,
+  diagnostic: string,
+): Promise<void> {
+  for (let turn = 0; turn < 1_000; turn++) {
+    const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    if (durable.paid_image_replacement_attempts?.some(predicate)) return
+    await new Promise<void>(resolve => setImmediate(resolve))
+  }
+  throw new Error(`Worker barrier exhausted: ${diagnostic}`)
+}
+
 test('Continuity freezes the exact original request before POST and returns a durable paid wait after positive infrastructure settlement', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
@@ -173,6 +186,19 @@ test('Continuity freezes the exact original request before POST and returns a du
     await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 1, 'jobs-first crash before the manifest mirror makes zero replacement POSTs')
     await fs.writeFile(manifestPath, JSON.stringify(committedManifest))
+
+    await sharp({ create: { width: 1, height: 1, channels: 3, background: '#123456' } })
+      .png().toFile(outputPath)
+    const committedArtifactBytes = await fs.readFile(outputPath)
+    assert.equal(await runContinuityRenderJob(job), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 1, 'a decoder-valid original artifact at committed/before-POST makes zero replacement POSTs')
+    assert.deepEqual(await fs.readFile(outputPath), committedArtifactBytes, 'committed/before-POST reconciliation preserves the original artifact')
+    assert.equal(
+      JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state,
+      'committed',
+      'a committed attempt without a replacement task is not blessed as paid success',
+    )
+    await fs.rm(outputPath)
     await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({ schema_version: 1, use_episode_sheet: false }))
     service.queueScenario('image', { states: ['succeeded'], reservedCredits: 4, finalCredits: 4 })
 
@@ -276,27 +302,86 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     const { registry } = await import('../providers/registry.js')
     const realProvider = registry.getImageProvider('genstudio-image')!
     restoreImageProvider = () => registry.registerImage(realProvider)
+    let paidImageUrl = ''
     registry.registerImage({
       ...realProvider,
       generateImage: async request => {
         const result = await realProvider.generateImage(request)
+        paidImageUrl = result.urls[0] || ''
         return { urls: result.urls }
       },
     })
     service.queueScenario('image', { states: ['succeeded'], reservedCredits: 4, finalCredits: 4 })
     assert.equal(await generateImagePoolImages(job), undefined)
     registry.registerImage(realProvider)
-    restoreImageProvider = undefined
     assert.equal(service.providerSubmissionCount('image'), 2)
     const completed = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
     assert.equal(completed.paid_image_replacement_attempts[0].state, 'succeeded', 'accepted task id completes a paid attempt when the provider result omits taskId')
     assert.match(completed.paid_image_replacement_attempts[0].replacement_task_id, /^mock-image-/)
+    const paidTaskId = completed.paid_image_replacement_attempts[0].replacement_task_id
+    const poolArtifactPath = path.join(poolRoot, 'gen-paid-run-0002.png')
+    const committedArtifactBytes = await fs.readFile(poolArtifactPath)
+    completed.paid_image_replacement_attempts[0].state = 'committed'
+    delete completed.paid_image_replacement_attempts[0].replacement_task_id
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [completed] }))
+    Object.assign(job, completed)
+    assert.equal(await generateImagePoolImages(job), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 2, 'Pool committed/before-POST artifact reconciliation makes zero replacement POSTs')
+    assert.deepEqual(await fs.readFile(poolArtifactPath), committedArtifactBytes, 'Pool preserves a decoder-valid original artifact')
+    assert.equal(
+      JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state,
+      'committed',
+      'Pool does not bless committed/no-task evidence as paid success',
+    )
     completed.paid_image_replacement_attempts[0].state = 'submitted'
+    completed.paid_image_replacement_attempts[0].replacement_task_id = paidTaskId
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [completed] }))
     Object.assign(job, completed)
     assert.equal(await generateImagePoolImages(job), undefined)
     assert.equal(service.providerSubmissionCount('image'), 2, 'artifact-before-checkpoint recovery never resubmits Image Pool')
     assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'succeeded')
+
+    const noIdentity = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    noIdentity.paid_image_replacement_attempts[0].state = 'committed'
+    delete noIdentity.paid_image_replacement_attempts[0].replacement_task_id
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [noIdentity] }))
+    Object.assign(job, noIdentity)
+    await fs.rm(poolArtifactPath)
+    registry.registerImage({
+      ...realProvider,
+      generateImage: async request => {
+        const result = await realProvider.generateImage({ ...request, onJobAccepted: undefined })
+        return { urls: result.urls }
+      },
+    })
+    for (let replay = 0; replay < 2; replay++) {
+      await assert.rejects(generateImagePoolImages(job), /incomplete/i)
+      await assert.rejects(fs.stat(poolArtifactPath), { code: 'ENOENT' })
+      assert.equal(service.providerSubmissionCount('image'), 2, 'missing completion identity replays no duplicate paid POST')
+      assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'committed')
+    }
+    const paidSubmissions = service.submissions.filter(submission => submission.operation === 'image')
+    assert.equal(paidSubmissions.filter(submission => !submission.replay).length, 2)
+    assert.equal(new Set(paidSubmissions.map(submission => submission.idempotencyKey)).size, 2, 're-entry reuses the exact paid idempotency identity')
+
+    let conflictingProviderCalls = 0
+    registry.registerImage({
+      ...realProvider,
+      generateImage: async request => {
+        conflictingProviderCalls++
+        await request.onJobAccepted?.('accepted-conflict', request.idempotencyKey || 'missing-key')
+        return { urls: [paidImageUrl], taskId: 'result-conflict' }
+      },
+    })
+    for (let replay = 0; replay < 2; replay++) {
+      await assert.rejects(generateImagePoolImages(job), /incomplete/i)
+      await assert.rejects(fs.stat(poolArtifactPath), { code: 'ENOENT' })
+      assert.equal(service.providerSubmissionCount('image'), 2, 'conflicting completion identities make no duplicate paid POST')
+    }
+    assert.equal(conflictingProviderCalls, 2)
+    const conflicting = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0]
+    assert.equal(conflicting.state, 'submitted')
+    assert.equal(conflicting.replacement_task_id, 'accepted-conflict')
   } finally {
     restoreImageProvider?.()
     globalThis.fetch = originalFetch
@@ -310,6 +395,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
   let originalPositiveFailureUrl = ''
+  let restoreImageProvider: (() => void) | undefined
   try {
     globalThis.fetch = async (input, init) => {
       const response = await originalFetch(input, init)
@@ -341,6 +427,8 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     const pm = await import('../services/project-manager.js')
     const { toMdPath } = await import('../lib/episode-artifacts.js')
     const { readManifest } = await import('../services/task-manifest.js')
+    const { registry } = await import('../providers/registry.js')
+    const { GenStudioImageTerminalFailureError } = await import('../lib/genstudio-client.js')
     await settings.setGenStudioUrl(service.baseUrl)
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
@@ -392,20 +480,62 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     await assert.rejects(generateImages(job), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 1, 'a committed thumbnail with a deleted frozen reference makes zero replacement POSTs')
     await fs.writeFile(savedReferencePath, savedReferenceBytes)
+
+    const originalFailureCheckpoint = structuredClone(job.params.genstudio_recovery.assets[filename])
+    const realProvider = registry.getImageProvider('genstudio-image')!
+    restoreImageProvider = () => registry.registerImage(realProvider)
+    registry.registerImage({
+      ...realProvider,
+      generateImage: async () => {
+        throw new GenStudioImageTerminalFailureError({
+          id: '', state: 'failed', cancelled: false, failure_code: 'CLOUD_PROVIDER_EXHAUSTED',
+          reserved_credits: 4, settled_credits: 0, released_credits: 4,
+        } as any)
+      },
+    })
+    await assert.rejects(generateImages(job), /provider task identity/i)
+    const missingIdentity = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.equal(missingIdentity.paid_image_replacement_attempts[0].state, 'committed')
+    assert.equal(missingIdentity.paid_image_replacement_attempts[0].replacement_task_id, undefined)
+    assert.deepEqual(missingIdentity.params.genstudio_recovery.assets[filename], originalFailureCheckpoint, 'missing paid failure identity writes no fake recovery checkpoint')
+    assert.equal(service.providerSubmissionCount('image'), 1)
+    registry.registerImage(realProvider)
+    restoreImageProvider = undefined
+
     process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS = '1'
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'CLOUD_PROVIDER_EXHAUSTED', reservedCredits: 4 })
     await assert.rejects(generateImages(job), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 2)
-    assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'failed')
+    const paidFailedJob = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    const paidFailedAttempt = paidFailedJob.paid_image_replacement_attempts[0]
+    assert.equal(paidFailedAttempt.state, 'failed')
+    assert.match(paidFailedAttempt.replacement_task_id, /^mock-image-/)
+    const paidFailureSubmission = service.submissions.find(submission => submission.jobId === paidFailedAttempt.replacement_task_id)!
+    const paidFailureCheckpoint = paidFailedJob.params.genstudio_recovery.assets[filename]
+    assert.equal(paidFailureCheckpoint.job_id, paidFailedAttempt.replacement_task_id)
+    assert.equal(paidFailureCheckpoint.idempotency_key, paidFailureSubmission.idempotencyKey)
+    assert.equal(paidFailureCheckpoint.state, 'failed')
     await assert.rejects(generateImages(job), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 2, 'a failed paid thumbnail replacement never enters the ordinary retry ladder')
 
     const failed = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
-    failed.paid_image_replacement_attempts[0].state = 'submitted'
+    const failedReplacementTaskId = failed.paid_image_replacement_attempts[0].replacement_task_id
+    failed.paid_image_replacement_attempts[0].state = 'committed'
+    delete failed.paid_image_replacement_attempts[0].replacement_task_id
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [failed] }))
     Object.assign(job, failed)
     await sharp({ create: { width: 1, height: 1, channels: 3, background: '#ffffff' } })
       .png().toFile(path.join(thumbDir, filename))
+    const committedArtifactBytes = await fs.readFile(path.join(thumbDir, filename))
+    assert.equal(await generateImages(job), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 2, 'thumbnail committed/before-POST artifact reconciliation makes zero replacement POSTs')
+    assert.deepEqual(await fs.readFile(path.join(thumbDir, filename)), committedArtifactBytes, 'thumbnail preserves the decoder-valid original artifact')
+    assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'committed')
+
+    failed.paid_image_replacement_attempts[0].state = 'submitted'
+    failed.paid_image_replacement_attempts[0].replacement_task_id = failedReplacementTaskId
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [failed] }))
+    Object.assign(job, failed)
     assert.equal(await generateImages(job), undefined)
     assert.equal(service.providerSubmissionCount('image'), 2, 'artifact-before-checkpoint recovery never resubmits thumbnails')
     assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0].state, 'succeeded')
@@ -440,6 +570,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     assert.equal(service.providerSubmissionCount('image'), 4, 'a fleet-busy paid thumbnail failure never enters its minutes-long retry ladder')
   } finally {
     delete process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS
+    restoreImageProvider?.()
     globalThis.fetch = originalFetch
     await service.close()
     await temp.cleanup()
@@ -548,11 +679,11 @@ test('a thumbnail paid-wait latch wins after another active worker fails while t
       generateImage: async request => {
         providerCalls++
         if (providerCalls === 1) return realProvider.generateImage(request)
-        for (;;) {
-          const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
-          if (durable.paid_image_replacement_attempts?.some((attempt: any) => attempt.state === 'waiting')) break
-          await new Promise<void>(resolve => setImmediate(resolve))
-        }
+        await waitForPaidAttempt(
+          jobsFile,
+          attempt => attempt.state === 'waiting',
+          'thumbnail worker never observed the paid-wait latch',
+        )
         throw new Error('second active worker failed after the paid-wait latch')
       },
     })
@@ -627,11 +758,11 @@ test('a Continuity paid-wait latch wins after another active worker fails while 
       generateImage: async request => {
         providerCalls++
         if (providerCalls === 1) return realProvider.generateImage(request)
-        for (;;) {
-          const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
-          if (durable.paid_image_replacement_attempts?.some((attempt: any) => attempt.state === 'waiting')) break
-          await new Promise<void>(resolve => setImmediate(resolve))
-        }
+        await waitForPaidAttempt(
+          jobsFile,
+          attempt => attempt.state === 'waiting',
+          'Continuity worker never observed the paid-wait latch',
+        )
         throw new Error('second active Continuity worker failed after the paid-wait latch')
       },
     })

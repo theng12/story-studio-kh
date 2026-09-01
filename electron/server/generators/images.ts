@@ -1032,12 +1032,16 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     const artifactPermission = existingArtifactEntry
       ? jq.getPaidImageReplacementSubmitPermission(job, filename, thumbDir, filename, existingArtifactEntry)
       : null
+    const submittedArtifactPermission = existingArtifactEntry
+      ? jq.getPaidImageReplacementArtifactPermission(job, filename, thumbDir, filename, existingArtifactEntry)
+      : null
     const existingArtifactIsUsable = await fileExistsWithContent(v1Path)
-    const reconcilePaidArtifact = artifactPermission && await isDecodableImage(v1Path)
-    if (existingArtifactIsUsable && !req.thumb_number && !force && (!artifactPermission || reconcilePaidArtifact)) {
+    const paidArtifactIsDecodable = artifactPermission && await isDecodableImage(v1Path)
+    const reconcilePaidArtifact = paidArtifactIsDecodable && submittedArtifactPermission
+    if (existingArtifactIsUsable && !req.thumb_number && !force && (!artifactPermission || paidArtifactIsDecodable)) {
       if (reconcilePaidArtifact) {
         await jq.checkpointPaidImageReplacementAttempt(job, filename, {
-          state: 'succeeded', replacement_task_id: artifactPermission.replacement_task_id,
+          state: 'succeeded', replacement_task_id: submittedArtifactPermission.replacement_task_id,
         })
       }
       job.output_lines.push(`Skipping ${stem} (exists)`)
@@ -1271,6 +1275,17 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (e instanceof GenStudioImageTerminalFailureError && attempt) {
             const failedTaskId = e.jobId || acceptedTaskId
             if (attempt.paidReplacement) {
+              const currentPaid = job.paid_image_replacement_attempts?.find(candidate => candidate.asset_key === filename)
+              if (!failedTaskId || !acceptedKey) {
+                throw new Error('Paid image replacement terminal failure lacked a provider task identity or accepted idempotency key.')
+              }
+              if (currentPaid?.state !== 'submitted' || currentPaid.replacement_task_id !== failedTaskId) {
+                throw new Error('Paid image replacement terminal failure did not match the durably submitted provider task.')
+              }
+              await checkpointGenStudioAsset(job, filename, {
+                operation: 'image', idempotency_key: acceptedKey, job_id: failedTaskId,
+                output_path: v1Path, input_hash: attempt.inputHash, state: 'failed',
+              })
               await jq.checkpointPaidImageReplacementAttempt(job, filename, {
                 state: 'failed', replacement_task_id: failedTaskId, reason: e.message,
               })

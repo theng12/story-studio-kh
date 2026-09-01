@@ -432,20 +432,26 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   // must re-enter the missing-scene scope; otherwise every Retry keeps
   // skipping the same corrupt asset and Video Assembly fails later.
   const usableRenderedIds = new Set<string>()
+  const preservedCommittedArtifactIds = new Set<string>()
   for (const scene of scenes) {
     const candidates = [path.join(outDir, `${scene.id}.png`)]
     for (const candidate of candidates) {
       if (!existsSync(candidate)) continue
       if (await isDecodableImage(candidate)) {
         const filename = `${scene.id}.png`
-        const permission = taskManifest.tasks[filename]
-          ? jq.getPaidImageReplacementSubmitPermission(job, filename, outDir, filename, taskManifest.tasks[filename]!)
+        const entry = taskManifest.tasks[filename]
+        const submitPermission = entry
+          ? jq.getPaidImageReplacementSubmitPermission(job, filename, outDir, filename, entry)
           : null
-        if (permission) {
+        const artifactPermission = entry
+          ? jq.getPaidImageReplacementArtifactPermission(job, filename, outDir, filename, entry)
+          : null
+        if (artifactPermission) {
           await jq.checkpointPaidImageReplacementAttempt(job, filename, {
-            state: 'succeeded', replacement_task_id: permission.replacement_task_id,
+            state: 'succeeded', replacement_task_id: artifactPermission.replacement_task_id,
           })
         }
+        if (submitPermission?.state === 'committed') preservedCommittedArtifactIds.add(scene.id)
         usableRenderedIds.add(scene.id)
         break
       }
@@ -627,7 +633,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       updated_at: new Date().toISOString(),
     })
 
-    const fallbackTargets = toRender.filter(scene => !successfulSceneIds.has(scene.id))
+    const fallbackTargets = toRender.filter(scene => !successfulSceneIds.has(scene.id) && !preservedCommittedArtifactIds.has(scene.id))
     syncItemProgress()
     let lastCompletedAt = Date.now()
     let stallPauseRequested = false
@@ -1146,7 +1152,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       if (!missingIds.has(sceneId) && !invalidById.has(sceneId)) invalidById.set(sceneId, sceneId)
     }
     for (const scene of toRender) {
-      if (successfulSceneIds.has(scene.id)) continue
+      if (successfulSceneIds.has(scene.id) || preservedCommittedArtifactIds.has(scene.id)) continue
       if (!missingIds.has(scene.id) && !invalidById.has(scene.id)) invalidById.set(scene.id, scene.id)
     }
     const invalid = [...invalidById.values()]

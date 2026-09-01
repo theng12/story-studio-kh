@@ -219,7 +219,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
     for (const filename of initialReady) {
       const entry = manifest.tasks[filename]
       const permission = entry
-        ? jq.getPaidImageReplacementSubmitPermission(job, filename, pool.folder_path, filename, entry)
+        ? jq.getPaidImageReplacementArtifactPermission(job, filename, pool.folder_path, filename, entry)
         : null
       if (permission) {
         if (await isDecodableImage(path.join(pool.folder_path, filename))) {
@@ -494,14 +494,23 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
             })
           },
         })
-        if (!result.urls.length) throw new Error('provider returned no image')
-        await saveResult(item, { url: result.urls[0] })
         const completedTaskId = result.taskId || acceptedTaskId
-        if (replacementScope && completedTaskId) {
-          const paidAttempt = job.paid_image_replacement_attempts?.find(attempt => attempt.asset_key === item.filename)
-          if (paidAttempt?.state !== 'submitted' || paidAttempt.replacement_task_id !== completedTaskId) {
+        if (replacementScope) {
+          if (result.taskId && acceptedTaskId && result.taskId !== acceptedTaskId) {
+            throw new Error('Paid image replacement returned different provider tasks at acceptance and completion.')
+          }
+          if (!completedTaskId) throw new Error('Paid image replacement completed without a provider task identity.')
+          const completedEntry = (await readManifest(pool.folder_path)).tasks[item.filename]
+          const paidAttempt = completedEntry
+            ? jq.getPaidImageReplacementArtifactPermission(job, item.filename, pool.folder_path, item.filename, completedEntry)
+            : null
+          if (paidAttempt?.replacement_task_id !== completedTaskId) {
             throw new Error('Paid image replacement completed under a different provider task.')
           }
+        }
+        if (!result.urls.length) throw new Error('provider returned no image')
+        await saveResult(item, { url: result.urls[0] })
+        if (replacementScope) {
           await jq.checkpointPaidImageReplacementAttempt(job, item.filename, { state: 'succeeded', replacement_task_id: completedTaskId })
         } else if (result.taskId) {
           await recordState(item.filename, {
