@@ -32,7 +32,7 @@ export interface ContentPackVisualStyle {
   name: string
   builtin: true
   blurb: string
-  category: 'Digital' | 'Explainer' | 'Illustration' | 'Realistic'
+  category: string
   tags: string[]
   data: { style_bible: string; negative_prompt: string }
   preview_image: string
@@ -276,11 +276,6 @@ export function contentPackDocumentToThumbnailTemplate(document: RecipeDocument,
   }
 }
 
-function visualStyleCategory(category: string): ContentPackVisualStyle['category'] {
-  if (category === 'Digital' || category === 'Explainer' || category === 'Illustration' || category === 'Realistic') return category
-  throw new Error(`Unsupported visual style category: ${category}`)
-}
-
 // ── Caption looks and scene effects (v1.2.1) ────────────────────────────────
 //
 // Each of these produces exactly the record the built-in registry produces, so
@@ -349,14 +344,14 @@ export function contentPackDocumentToSceneOverlay(
   }
 }
 
-/** Explicit signed visual-style → renderer-safe BuiltInStyle-compatible mapping. */
+/** Explicit signed visual-style → renderer-safe catalog mapping. */
 export function contentPackDocumentToVisualStyle(document: StyleDocument, previewImage: string): ContentPackVisualStyle {
   return {
     id: document.id,
     name: document.name,
     builtin: true,
     blurb: document.description,
-    category: visualStyleCategory(document.category),
+    category: document.category,
     tags: [...document.tags],
     data: { style_bible: document.style_bible, negative_prompt: document.negative_prompt },
     preview_image: previewImage,

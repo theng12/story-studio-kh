@@ -1914,7 +1914,7 @@ export interface VoicePreset {
  * User-saved image-style description, typically captured from
  * `/analyze-style` (vision-LLM extraction off a reference image) and named
  * for reuse across episodes. The dropdown on image-prompts.vue shows
- * these in a "Custom" optgroup beside the built-in style presets.
+ * these in a "Custom" optgroup beside installed Content Pack styles.
  *
  * Stored on ProjectConfig (per-project) — not a global library — because
  * style choice is tightly coupled to a project's visual identity. A future
@@ -1996,7 +1996,7 @@ export interface ProjectConfig {
   style_presets?: StylePreset[]
   /**
    * v1.0.518 — the project's ACTIVE art style. Id of the `style_presets`
-   * entry (or a built-in style id the frontend seeds into `style_presets`)
+   * entry (or a legacy style id already materialized in `style_presets`)
    * that is auto-applied to every generated image prompt for this project.
    * When set, it fully replaces the format+niche style tag; the style's
    * preview image is also fed into img2img generation as a reference. Unset

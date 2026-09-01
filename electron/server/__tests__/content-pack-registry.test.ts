@@ -23,7 +23,7 @@ import { useTempDataDir } from './_helpers.js'
 import * as nicheLoader from '../services/niche-loader.js'
 import * as topicPackLoader from '../services/topic-pack-loader.js'
 import * as thumbnailTemplateLoader from '../services/thumbnail-template-loader.js'
-import { listVisualStyles } from '../services/visual-style-loader.js'
+import { listVisualStyles, loadVisualStyle } from '../services/visual-style-loader.js'
 import { router as nichesRouter } from '../routes/niches.js'
 
 const PUBLISHER_ID = 'com.storystudio'
@@ -46,7 +46,12 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-function documents(packId: string, suffix: string, recipeId = `${packId}.recipe`): ContentPackDocument[] {
+function documents(
+  packId: string,
+  suffix: string,
+  recipeId = `${packId}.recipe`,
+  styleCategory = 'Realistic',
+): ContentPackDocument[] {
   const formulaId = `${packId}.formula`
   const topicId = `${packId}.topic`
   const styleId = `${packId}.style`
@@ -68,7 +73,7 @@ function documents(packId: string, suffix: string, recipeId = `${packId}.recipe`
     },
     {
       kind: 'visual-style', schema_version: 1, id: styleId, name: `Style ${suffix}`, description: 'A signed visual style.',
-      category: 'Realistic', tags: ['archive'], style_bible: `Style bible ${suffix}`, negative_prompt: 'No text.',
+      category: styleCategory, tags: ['archive'], style_bible: `Style bible ${suffix}`, negative_prompt: 'No text.',
       preview_assets: ['assets/style.png'], compatible_formula_ids: [formulaId],
     },
     {
@@ -89,8 +94,9 @@ async function buildArchive(
   lifecycle: 'active' | 'retired' = 'active',
   minAppVersion = '1.0.0',
   recipeId?: string,
+  styleCategory = 'Realistic',
 ): Promise<Uint8Array> {
-  const docs = documents(packId, suffix, recipeId)
+  const docs = documents(packId, suffix, recipeId, styleCategory)
   const jsonFiles = docs.map((document, index) => ({
     path: `content/item-${index}.json`, bytes: Buffer.from(JSON.stringify(document)), document,
   }))
@@ -132,6 +138,35 @@ describe('verified Content Pack registry', () => {
     const response = await request(app).get('/api/visual-styles').expect(200)
     assert.ok(Array.isArray(response.body.visual_styles))
     assert.doesNotMatch(JSON.stringify(response.body), /(?:\/Users\/|file:)/i)
+  })
+
+  test('lists only installed signed styles and preserves author-defined categories', async () => {
+    const { paths, recoveryRoot, options } = await isolated()
+    const installedPack = 'com.storystudio.registry-natural-world'
+    const recoveryPack = 'com.storystudio.registry-editorial-recovery'
+    const installedArchive = await buildArchive(
+      installedPack, '1.0.0', 'natural world', 'active', '1.0.0', undefined, 'Natural world',
+    )
+    await installContentPack({ archiveBytes: installedArchive, source: 'local-import' }, { paths, policy })
+    const recoveryArchive = await buildArchive(
+      recoveryPack, '1.0.0', 'editorial recovery', 'active', '1.0.0', undefined, 'Editorial psychology',
+    )
+    await fs.writeFile(path.join(recoveryRoot, 'editorial-recovery.sspack'), recoveryArchive)
+
+    const styles = await listVisualStyles(options)
+    const pinnedRecoveryStyle = await loadVisualStyle(`${recoveryPack}.style`, {
+      ...options,
+      pins: [{
+        pack_id: recoveryPack,
+        version: '1.0.0',
+        archive_sha256: sha256(recoveryArchive),
+      }],
+    })
+
+    assert.deepEqual(styles.map(style => [style.id, style.category]), [
+      [`${installedPack}.style`, 'Natural world'],
+    ])
+    assert.equal(pinnedRecoveryStyle?.category, 'Editorial psychology')
   })
 
   test('orders pinned, active installed, recovery, then injected legacy fallback', async () => {

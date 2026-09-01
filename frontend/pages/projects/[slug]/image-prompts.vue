@@ -1040,7 +1040,7 @@
 </template>
 
 <script setup lang="ts">
-import { useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
+import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import {
   normalizePromptCharCapSetting,
   promptCharCapAboveModel,

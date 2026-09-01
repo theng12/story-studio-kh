@@ -227,7 +227,7 @@
       <ProjectStyleLibrary
         :project-slug="slug"
         title="Project style library"
-        :show-built-in-starters="true"
+        :show-catalog-starters="true"
       />
     </div>
 
@@ -594,6 +594,10 @@
                     Use this style
                   </button>
                 </template>
+                <small v-else-if="visualStylesLoading">Checking installed Content Pack styles…</small>
+                <small v-else-if="visualStylesError">
+                  Could not check installed Content Pack styles. Retry in Settings → Art Style.
+                </small>
                 <small v-else>
                   Not installed. Get it from the
                   <NuxtLink to="/content-store">Content Store</NuxtLink>, or keep the style you already use.
@@ -2025,10 +2029,21 @@
               <option v-for="s in savedStylePresets" :key="s.id" :value="s.id">{{ s.name }}</option>
             </optgroup>
             <optgroup label="Style library">
-              <option v-for="s in visualStyles" :key="s.id" :value="`builtin:${s.id}`">{{ s.name }}</option>
+              <option v-for="s in visualStyles" :key="s.id" :value="s.id">{{ s.name }}</option>
             </optgroup>
           </select>
         </div>
+        <p v-if="visualStylesLoading" class="text-muted text-sm mt-1">
+          Loading installed Content Pack styles…
+        </p>
+        <p v-else-if="visualStylesError" class="text-warning text-sm mt-1">
+          Installed Content Pack styles are unavailable. Existing saved style data is unchanged.
+          <button type="button" class="btn btn-ghost btn-sm" @click="refreshVisualStyles">Retry</button>
+        </p>
+        <p v-else-if="!visualStyles.length" class="text-muted text-sm mt-1">
+          No Content Pack styles are installed. Add one from the
+          <NuxtLink to="/content-store">Content Store</NuxtLink>.
+        </p>
         <p v-if="unresolvedArtStyleId" class="text-warning text-sm mt-1">
           This channel is saved against the art style <code>{{ humanizeCatalogId(unresolvedArtStyleId) }}</code>,
           but nothing installed provides it — images are being generated without it. Pick a style
@@ -2199,9 +2214,9 @@
 // FileBrowserModal (server mode / remote tailnet browser). Not auto-imported
 // — it's a bare named export, not a useX composable.
 import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
-// Reactive art-style catalog used by the per-project selector below; its
-// bundled recovery set remains available when the backend catalog is offline.
-import { useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
+// Reactive installed Content Pack catalog used by the per-project selector.
+// Project-local saved styles remain independent compatibility data.
+import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import {
   VOICE_PROVIDER_OPTIONS,
   firstVoiceProviderIndex,
@@ -2215,7 +2230,12 @@ useAppTitle('Settings')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put, patch, del } = useApi()
-const { styles: visualStyles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
+const {
+  styles: visualStyles,
+  loading: visualStylesLoading,
+  error: visualStylesError,
+  refresh: refreshVisualStyles,
+} = useVisualStyleCatalog()
 onMounted(() => { void refreshVisualStyles(); void loadCadence() })
 const { ask } = useConfirm()
 const { project, config, refreshConfig, loadProject } = useProject()
@@ -2417,7 +2437,7 @@ const productionKitStyleSuggestion = computed(() => {
 function useSuggestedProductionKitStyle(): void {
   const suggestion = productionKitStyleSuggestion.value
   if (!suggestion || !suggestion.installed || suggestion.inUse) return
-  artStyleSelection.value = `builtin:${suggestion.id}`
+  artStyleSelection.value = suggestion.id
 }
 const selectedProductionKitThumbnailName = computed(() =>
   humanizeCatalogId(selectedNicheProfile.value?.defaultThumbnailTemplateId))
@@ -4346,9 +4366,9 @@ const projectForm = reactive<{
 // ── Per-project Art Style (v1.0.518) ──────────────────────────────────────
 // The project's active art style is persisted as config.active_style_preset_id
 // (an id in config.style_presets). The generator auto-applies it to every
-// image prompt and feeds its preview image into img2img renders. Selecting a
-// built-in style first materialises it into config.style_presets, then marks
-// it active — the resolver only looks styles up in that array.
+// image prompt and feeds its preview image into img2img renders. A legacy
+// project-local style already lives in config.style_presets. A signed
+// catalog style resolves through its immutable Content Pack pin instead.
 const artStyleSelection = ref('')
 const artStyleSaveMessage = ref('')
 let artStyleSelectionInitialized = false
@@ -4363,6 +4383,7 @@ const savedStylePresets = computed(() =>
  * from a pack that has since been uninstalled. Say so, here, in the UI.
  */
 const unresolvedArtStyleId = computed(() => {
+  if (visualStylesLoading.value || visualStylesError.value) return ''
   const active = String((config.value as any)?.active_style_preset_id || '').trim()
   if (!active) return ''
   if (visualStyles.value.some(style => style.id === active)) return ''
@@ -4386,10 +4407,8 @@ watch(artStyleSelection, async (next, prev) => {
   try {
     const payload: Record<string, any> = {}
     let activeId = next
-    if (next.startsWith('builtin:')) {
-      const builtinId = next.slice('builtin:'.length)
-      const bs = visualStyles.value.find(b => b.id === builtinId)
-      if (!bs) throw new Error('Unknown built-in style')
+    const bs = visualStyles.value.find(style => style.id === next)
+    if (bs) {
       activeId = bs.id
       // A SIGNED style already resolves through the project's content pin, so
       // copying its prose into the project config would fork it: the pack

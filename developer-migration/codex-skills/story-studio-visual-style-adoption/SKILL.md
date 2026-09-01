@@ -1,36 +1,29 @@
 ---
 name: story-studio-visual-style-adoption
-description: Use when a user asks to match, recreate, add, ship, or wire a visual or art style into Story Studio KH, including a standalone Visual Style product.
+description: Use when a user asks to match, recreate, add, ship, audit, or wire a visual or art style into Story Studio KH as a standalone Visual Style Content Pack.
 ---
 
 # Story Studio Visual Style Adoption
 
-Add one reference-driven style without creating per-page catalogs or weakening existing styles.
-
-## Workflow branch (read first)
-
-- If the request mentions the Content Store, content packs, `.sspack`, or a product handoff, use the standalone Content Pack lane below. Skip ordinary built-in runtime/catalog/default/version/changelog/release mutation unless the request separately scopes a built-in migration; source/contract analysis and component-specific tests remain allowed.
-- Otherwise, use the ordinary built-in visual-style workflow below. The preview sourcing and evidence rules apply to both branches.
+Turn one reusable visual language into one independently purchasable Visual Style Content Pack. Story Studio has no ordinary built-in style lane: the visible Style Library contains only signed styles published by the Content Pack runtime.
 
 ## Workflow
 
-1. Read the repository `AGENTS.md`, inspect `git status`, and preserve unrelated work.
-2. Inspect every supplied reference. Describe medium, line quality, shape language, palette, lighting, composition, character grammar, environments, text treatment, and recurring motifs.
-3. Compare the references with every entry in `frontend/composables/useBuiltInStyles.ts`. Add a new style only when the visual contract is meaningfully distinct; otherwise propose a correction to the closest style before editing.
-4. Define a stable kebab-case id, concise name, one-line blurb, category, at least three unique visual search tags, a positive `style_bible`, and a provider-friendly `negative_prompt`.
-5. Keep the style bible about repeatable rendering traits. Do not bake episode subjects, channel topics, exact captions, or copied compositions into it.
-6. Obtain one original 16:9 preview only from owner-supplied original bytes or a Studio Hub production-preview handoff. This control Mac must not invoke production image generation. Demonstrate the distinguishing character, prop, environment, palette, and line treatment; avoid generated sentences and watermarks.
-7. Save the supplied or handed-off preview as a 1672x941 WebP over 20 KB at `frontend/public/builtin-style-previews/<style-slug>.webp`. Independently inspect the final workspace image visually and record WebP provenance, license/rights, SHA-256 checksum, decoding result, exact dimensions, and file size. Do not infer or invent missing evidence; mark it blocked instead.
-8. Add exactly one entry to `BUILT_IN_STYLES`. This shared source already feeds Character Sheet, Settings, Image Prompts, the searchable modal, project style starters, and render-time saved style data. Do not add parallel page-specific entries.
-9. Update `frontend/__tests__/builtInStyles.test.ts`: adjust the expected count and assert the new style's distinctive contract. The existing loop must prove the preview exists and is non-empty.
-10. Search all `BUILT_IN_STYLES` consumers to confirm the shared path remains intact. Verify style selection persists both `style_bible` and `negative_prompt`.
-11. Run the focused style tests, frontend tests, TypeScript/build checks, and visual asset dimension/size checks. Update version and changelog when making a release, then stage only owned files.
+1. Read the repository `AGENTS.md`, `docs/VISUAL_STYLE_CONTENT_PACK_FORMAT.md`, and `$story-studio-content-pack-authoring`; inspect `git status` and preserve unrelated work.
+2. Inspect every supplied reference. Describe medium, line quality, shape language, palette, lighting, composition, subject grammar, environments, text treatment, and recurring motifs.
+3. Compare the proposed contract with existing signed Visual Style documents under `content-packs/**/style/**/content/visual-style.json`. Add a style only when it is meaningfully distinct; otherwise propose a correction to the closest existing style.
+4. Consume only the parent workflow's registry-issued Story identity, reservation revision/receipt, brief, and separate family/SKU stocking proposal. Never invent or renumber identities.
+5. Define a concise name and description, one broad category, at least three useful search tags, a content-independent `style_bible`, a provider-friendly `negative_prompt`, and compatibility metadata supported by evidence.
+6. Obtain one original 16:9 preview only from owner-supplied original bytes or a Studio Hub production-preview handoff. This control Mac must not invoke production image generation.
+7. Save the verified 1672x941 WebP over 20 KB in the pack's `assets/` directory and declare it in `content/visual-style.json`. Record provenance, rights, SHA-256, decoding result, dimensions, and file size; do not invent missing evidence.
+8. Author exactly one standalone pack. Do not create a Channel Kit, `bundle_id`, coordinator product, shared entitlement, or dependency merely because another Formula, Topic Pack, or Thumbnail Recipe is compatible.
+9. Do not add a static frontend style record or preview. `frontend/composables/useVisualStyleCatalog.ts` must remain a consumer of `/api/visual-styles`, with no built-in or offline fallback.
+10. Verify schema, uniqueness, deterministic build, signed installation, catalog publication, search behavior, preview serving, and render-time persistence of both `style_bible` and `negative_prompt`.
+11. Require independent visual and contract review. Update app version and changelog only when the requested work ships an application release.
 
-## Standalone Content Pack lane
+## Canonical handoff
 
-For `.sspack` or Content Store work, first use `$story-studio-content-pack-authoring`. A Visual Style is its own independently purchasable product. Do not create a Channel Kit, `bundle_id`, coordinator product, shared entitlement, or dependency merely because a Thumbnail Recipe, Formula, or Topic Pack is compatible.
-
-Consume only the parent workflow's registry-issued Story identity, reservation revision/receipt, brief, and separate family/SKU stocking proposal. Never invent or renumber identities, and never imply a family/SKU is confirmed without field-exact GenStudio evidence. Return exactly one canonical Visual Style handoff:
+Return exactly one Visual Style handoff:
 
 ```text
 status: authored-for-review
@@ -54,15 +47,12 @@ review_requests: schema, originality/provenance, compatibility, prompt-equivalen
 blocked_by: [] or explicit blockers
 ```
 
-Every evidence field must include a concrete check/reference when passed, a reason when `not_applicable`, or the missing input/gate when `blocked`; do not invent a pass or omit an applicable field. `review_requests` must name each review above and include a `not_applicable` reason where applicable. Require independent visual review evidence.
+Every evidence field needs a concrete reference when passed, a reason when not applicable, or the missing gate when blocked. Candidate archives may use ephemeral test keys only. Do not populate live GenStudio fields, upload, publish, price, or stock anything without separate authority.
 
-Candidate archives may use ephemeral test keys only. Do not create or populate live GenStudio fields, upload or publish anything, or set pricing. Preview bytes in either branch come from owner-supplied originals or a Studio Hub production-preview handoff; this control Mac must not invoke production image generation and only verifies the returned bytes, provenance, license, checksum, decoding, dimensions, and size. Do not invent missing evidence; put the gap in `blocked_by`. Keep Visual Style and Thumbnail as separate component types, and preserve the shared catalog path; do not create page-specific catalogs or cross-wire thumbnail behavior into this lane.
-
-## Quality Rules
+## Quality rules
 
 - Prefer medium and rendering language before mood adjectives.
-- Separate a recurring character description from generic style traits when continuity matters.
-- Keep exact episode wording out of a visual style bible. For thumbnails, defer to `story-studio-thumbnail-adoption`: the selected image model must render the complete title directly in the image, with no post-render text overlay.
-- Preserve scene/thumbnail boundaries and the active project art-style precedence documented in `AGENTS.md`.
-- Never replace an existing preview unless the user explicitly asks to revise that style.
-- Report the preview source provenance and either the Studio Hub task/prompt reference or the owner-supplied source reference, along with the independent visual review and evidence status.
+- Keep episode content, exact wording, named characters, and copied compositions out of a reusable style bible.
+- Keep Visual Style and Thumbnail Recipe behavior separate.
+- Never replace an existing preview unless the user explicitly requests a revision.
+- Preserve project-local legacy `builtin-*` presets for old-project rendering, but never expose them as Style Library inventory.

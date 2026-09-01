@@ -9,19 +9,40 @@ const REGISTRY = new URL('../../../content-packs/authoring-registry.json', impor
 
 const unregisterTsx = register()
 const [
-  { BUILT_IN_STYLES },
   { BUILT_IN_SUBTITLE_PRESETS },
   { BUILT_IN_SCENE_MOTIONS, BUILT_IN_FOOTAGE_MOTIONS, BUILT_IN_OVERLAYS },
   { FONT_STYLES, TEXT_STYLES },
   { BUILT_IN_METADATA_FORMULA_IDS },
 ] = await Promise.all([
-  import(new URL('../../../frontend/composables/useBuiltInStyles.ts', import.meta.url)),
   import(new URL('../../../electron/server/contracts/subtitle-presets.ts', import.meta.url)),
   import(new URL('../../../electron/server/contracts/scene-effect-presets.ts', import.meta.url)),
   import(new URL('../../../electron/server/models/thumbnail-styles.ts', import.meta.url)),
   import(new URL('../../../electron/server/contracts/metadata-formulas.ts', import.meta.url)),
 ])
 unregisterTsx()
+
+// Historical inventory only. These identifiers remain frozen so the migration
+// ledger continues proving every retired runtime style has a disposition after
+// the static frontend catalog itself is removed.
+const RETIRED_VISUAL_STYLE_IDS = [
+  'builtin-anime-cel',
+  'builtin-archival-documentary-reconstruction',
+  'builtin-cinematic-photoreal',
+  'builtin-flat-vector-explainer',
+  'builtin-hand-drawn-cartoon-explainer',
+  'builtin-hand-drawn-editorial-diagram',
+  'builtin-minimal-stick-figure-explainer',
+  'builtin-ms-paint-fantasy',
+  'builtin-oil-painting-classical',
+  'builtin-paleo-documentary-tableau',
+  'builtin-pixel-art-story',
+  'builtin-prehistoric-stick-cartoon',
+  'builtin-sepia-ink-wash',
+  'builtin-studio-catalog-realism',
+  'builtin-watercolor-storybook',
+  'builtin-waxy-outline-cartoon',
+  'builtin-whiteboard-doodle-explainer',
+]
 
 const ALLOWED_DISPOSITIONS = new Set([
   'authored-standalone',
@@ -97,7 +118,7 @@ test('legacy migration ledger closes every real inventory key exactly once witho
   const runtimeInventories = new Map([
     ['runtime-niche', new Set(niches.map(entry => entry.id))],
     ['runtime-topic', new Set(topics.map(entry => entry.id))],
-    ['runtime-style', new Set(BUILT_IN_STYLES.map(entry => entry.id))],
+    ['runtime-style', new Set(RETIRED_VISUAL_STYLE_IDS)],
     ['runtime-thumbnail', new Set(thumbnails.map(entry => entry.id))],
     ['runtime-subtitle', new Set(BUILT_IN_SUBTITLE_PRESETS.map(entry => entry.id))],
     ['runtime-scene-effect', new Set([
@@ -116,7 +137,7 @@ test('legacy migration ledger closes every real inventory key exactly once witho
   const expectedKeys = new Set([
     ...niches.map(entry => `niche:${entry.id}`),
     ...topics.map(entry => `topic:${entry.id}`),
-    ...BUILT_IN_STYLES.map(entry => `style:${entry.id}`),
+    ...RETIRED_VISUAL_STYLE_IDS.map(id => `style:${id}`),
     ...thumbnails.map(entry => `thumbnail:${entry.id}`),
     ...BUILT_IN_SUBTITLE_PRESETS.map(entry => `subtitle:${entry.id}`),
     ...BUILT_IN_SCENE_MOTIONS.map(entry => `scene-effect:scene:${entry.id}`),

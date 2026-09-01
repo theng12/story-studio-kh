@@ -36,7 +36,6 @@ import { useTempDataDir } from './_helpers.js'
 
 const ROOT = path.resolve(fileURLToPath(new URL('../../..', import.meta.url)))
 const LOOKS = path.join(ROOT, 'content-packs', 'production-looks', 'style')
-const BUILTIN_PREVIEWS = path.join(ROOT, 'frontend', 'public', 'builtin-style-previews')
 const KEY_ID = 'com.storystudio.key.production-looks-test'
 const APP_VERSION = '1.0.0'
 
@@ -44,15 +43,6 @@ const SLUGS = [
   'anime-cel', 'hand-drawn-cartoon-explainer', 'pixel-art-story',
   'retro-paint-fantasy', 'studio-catalog-realism', 'whiteboard-doodle-explainer',
 ] as const
-
-/**
- * Retro Paint Fantasy was renamed off a third-party mark on 2026-08-28, before
- * it was ever stocked. The shipped swatch under `frontend/public/` keeps the
- * old slug, because existing projects pin the legacy `builtin-` id it belongs
- * to, so the preview comparison below maps back to it.
- */
-const BUILTIN_PREVIEW_SLUGS: Record<string, string> = { 'retro-paint-fantasy': 'ms-paint-fantasy' }
-const builtinPreviewSlug = (slug: string) => BUILTIN_PREVIEW_SLUGS[slug] ?? slug
 
 const keyPair = generateKeyPairSync('ed25519')
 const policy = createContentPackKeyring([{
@@ -156,7 +146,7 @@ describe('the six Production Looks reach the image generator as signed styles', 
 
   test('the legacy builtin route keeps the look but throws the negatives away', async () => {
     // This is the state a project is in today, before these packs exist: the
-    // Settings picker copies the built-in style_bible into a project-local
+    // The retired Settings picker copied the style_bible into a project-local
     // preset and copies nothing else. It is why productising these six is a
     // fix and not just a repackaging.
     const source = await sourceStyle('anime-cel')
@@ -186,7 +176,7 @@ describe('the six Production Looks reach the image generator as signed styles', 
     assert.equal(await resolver.resolveProjectArtStyle(project.slug, options), null)
   })
 
-  test('the preview a customer is shown is the preview that has always shipped', async () => {
+  test('the preview a customer is shown comes from the signed Content Pack source', async () => {
     for (const slug of SLUGS) {
       const published = (await styleLoader.listVisualStyles(options))
         .find(style => style.id === `com.storystudio.style.${slug}`)!
@@ -194,8 +184,8 @@ describe('the six Production Looks reach the image generator as signed styles', 
       assert.equal(response.headers['content-type'], 'image/webp')
       assert.equal(
         sha256(response.body),
-        sha256(await fs.readFile(path.join(BUILTIN_PREVIEWS, `${builtinPreviewSlug(slug)}.webp`))),
-        `${slug} serves a different swatch than the built-in it replaces`,
+        sha256(await fs.readFile(path.join(LOOKS, slug, 'assets', `${slug}.webp`))),
+        `${slug} serves bytes that differ from its signed source asset`,
       )
     }
   })

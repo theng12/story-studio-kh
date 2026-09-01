@@ -148,13 +148,14 @@ What follows from this:
   app/`app.asar` version against `main`. Never present or copy a worktree-built
   DMG into `main`'s `dist/` before its source is integrated.
 
-## Built-In Visual Style Workflow
+## Visual Style Content Pack Workflow
 
-- When a user provides visual references and asks to add a reusable style, use the `story-studio-visual-style-adoption` skill.
-- `frontend/composables/useBuiltInStyles.ts` is the single source of truth. Do not duplicate built-in style lists in Character Sheet, Settings, Image Prompts, or gallery components.
-- Every built-in style needs a unique id, searchable metadata, a render-ready style bible, a negative prompt, and a generated 1672x941 WebP preview in `frontend/public/builtin-style-previews/`.
+- When a user provides visual references and asks to add a reusable style, use the `story-studio-visual-style-adoption` skill and author exactly one standalone Visual Style Content Pack.
+- `frontend/composables/useVisualStyleCatalog.ts` is the only frontend catalog consumer. It displays styles published by the signed Content Pack runtime; do not add a static frontend style list or offline fallback.
+- Every style needs a registry-issued qualified id, searchable metadata, a render-ready style bible, a negative prompt, and a verified 1672x941 WebP preview inside its own Content Pack `assets/` directory.
 - Generate an original preview from the supplied references. Do not copy their composition or depend on generated captions; exact wording belongs in Story Studio's text-overlay pipeline.
-- Update `frontend/__tests__/builtInStyles.test.ts` and verify the shared catalog consumers rather than wiring the style separately into each page.
+- Verify the standalone source, deterministic archive, signed installation, published catalog entry, search behavior, and persistence of both `style_bible` and `negative_prompt`.
+- Legacy `builtin-*` ids may remain only inside existing project-local `style_presets` and historical migration evidence. Never republish them as visible library cards.
 
 ## Scene vs Thumbnail Split
 

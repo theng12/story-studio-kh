@@ -9,9 +9,9 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, before, test } from 'node:test'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 import { useTempDataDir } from './_helpers.js'
 import type { Niche, ProjectMeta, TopicPack } from '../models/types.js'
@@ -46,16 +46,16 @@ const FREE_STARTER_TOPIC_PACK_IDS = [
   'historical-wars-treaties-world-order',
   'pov-historical-occupations',
 ]
-const FREE_STARTER_STYLE_IDS = [
-  'builtin-waxy-outline-cartoon',
-  'builtin-prehistoric-stick-cartoon',
-  'builtin-paleo-documentary-tableau',
-  'builtin-hand-drawn-editorial-diagram',
-  'builtin-minimal-stick-figure-explainer',
-  'builtin-sepia-ink-wash',
-  'builtin-cinematic-photoreal',
-  'builtin-watercolor-storybook',
-  'builtin-flat-vector-explainer',
+const FREE_STARTER_STYLE_DIRECTORIES = [
+  'waxy-outline-cartoon',
+  'prehistoric-stick-cartoon-v1.0.1',
+  'paleo-documentary-tableau',
+  'hand-drawn-editorial-diagram',
+  'minimal-stick-figure-explainer-v1.0.1',
+  'sepia-ink-wash',
+  'cinematic-photoreal',
+  'watercolor-storybook',
+  'flat-vector-explainer',
 ]
 const FREE_STARTER_RECIPE_IDS = [
   'curiosity-question-cartoon',
@@ -239,19 +239,23 @@ async function readGolden(): Promise<GoldenCatalog> {
   return JSON.parse(await readFile(GOLDEN_URL, 'utf8')) as GoldenCatalog
 }
 
-async function loadBuiltInStyles(): Promise<Array<{
+async function loadFreeStarterStyles(): Promise<Array<{
   id: string
   name: string
   data: { style_bible: string; negative_prompt: string }
 }>> {
   const root = fileURLToPath(new URL('../../../', import.meta.url))
-  const moduleUrl = pathToFileURL(resolve(root, 'frontend/composables/useBuiltInStyles.ts')).href
-  const module = await import(moduleUrl) as { BUILT_IN_STYLES: Array<{
-    id: string
-    name: string
-    data: { style_bible: string; negative_prompt: string }
-  }> }
-  return module.BUILT_IN_STYLES
+  return Promise.all(FREE_STARTER_STYLE_DIRECTORIES.map(async directory => {
+    const source = JSON.parse(await readFile(
+      join(root, 'content-packs', 'free-starters', 'style', directory, 'content', 'visual-style.json'),
+      'utf8',
+    )) as { id: string; name: string; style_bible: string; negative_prompt: string }
+    return {
+      id: source.id,
+      name: source.name,
+      data: { style_bible: source.style_bible, negative_prompt: source.negative_prompt },
+    }
+  }))
 }
 
 function projectFor(
@@ -305,23 +309,22 @@ test('current catalog retains stable prompt facts and selected defaults through 
   assert.deepEqual(observedDeepTime, golden.deep_time_documentary)
 })
 
-test('free Starter Kit source components retain effective legacy prompt, style, and recipe facts', async () => {
+test('free Starter Kit source components retain effective prompt, style, and recipe facts', async () => {
   const golden = await readGolden()
-  const builtInStyles = await loadBuiltInStyles()
+  const styles = await loadFreeStarterStyles()
   const formulas = await Promise.all(FREE_STARTER_FORMULA_IDS.map(id => nicheLoader.getEffectiveNicheFor(projectFor(id))))
   const topics = await Promise.all(FREE_STARTER_TOPIC_PACK_IDS.map(id => topicPackLoader.loadTopicPack(id)))
   const recipes = await Promise.all(FREE_STARTER_RECIPE_IDS.map(id => thumbnailTemplateLoader.loadTemplate(id)))
-  const styles = FREE_STARTER_STYLE_IDS.map(id => builtInStyles.find(style => style.id === id))
 
   assert.ok(formulas.every(Boolean), 'every approved Starter Kit Formula must retain an effective legacy source')
   assert.ok(topics.every(Boolean), 'every migrated Starter Kit Topic Pack must retain its legacy source')
   assert.ok(recipes.every(Boolean), 'every migrated Starter Kit Thumbnail Recipe must retain its legacy source')
-  assert.ok(styles.every(Boolean), 'every approved Starter Kit Style must retain its legacy source')
+  assert.equal(styles.length, FREE_STARTER_STYLE_DIRECTORIES.length, 'every approved Starter Kit Style must retain its signed source')
 
   const observed = {
     formulas: formulas.map(formula => formulaFacts(formula!)),
     topics: topics.map(topic => topicPackFacts(topic!)),
-    styles: styles.map(style => visualStyleFacts(style!)),
+    styles: styles.map(visualStyleFacts),
     recipes: recipes.map(recipe => thumbnailRecipeFacts(recipe!)),
     blocked_recipe_sources: ['prehistoric-discovery', 'dreamscape-story-window'],
   }

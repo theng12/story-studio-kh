@@ -4,16 +4,11 @@ import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 import sharp from 'sharp'
-import { register } from 'tsx/esm/api'
 
 import { MARKS } from './forbidden-marks.mjs'
 
 const ROOT = new URL('../../../content-packs/production-looks/', import.meta.url)
 const REGISTRY = new URL('../../../content-packs/authoring-registry.json', import.meta.url)
-const LEGACY_SOURCE = new URL('../../../frontend/composables/useBuiltInStyles.ts', import.meta.url)
-const unregister = register()
-const { BUILT_IN_STYLES } = await import(LEGACY_SOURCE)
-unregister()
 // Re-minted on 2026-08-28 when the paint-fantasy pack's identifiers were
 // renamed off a third-party mark. The receipt hashes pack_id, item_id and
 // source_path, so the rename necessarily produced a new one.
@@ -21,12 +16,6 @@ const RECEIPT = 'authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a
 
 const STYLES = {
   'retro-paint-fantasy': {
-    // The product slug was renamed off a third-party mark before this pack was
-    // ever stocked. The legacy built-in it was productised from keeps the old
-    // slug — existing projects pin `builtin-ms-paint-fantasy` in their
-    // `active_style_preset_id`, and the shipped swatch is named for it — so
-    // only the rows that reach back to that legacy record use `legacy`.
-    legacy: 'ms-paint-fantasy',
     name: 'Retro Paint Fantasy',
     description: 'Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.',
     category: 'Digital',
@@ -89,9 +78,6 @@ const STYLES = {
 }
 
 const slugs = Object.keys(STYLES).sort()
-// The slug the legacy built-in record and its shipped swatch are named for.
-// Identical to the product slug for five of the six.
-const legacySlug = slug => STYLES[slug].legacy ?? slug
 const parseJson = async path => JSON.parse(await readFile(path, 'utf8'))
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 
@@ -126,25 +112,6 @@ test('production looks contain exactly the six receipt-authorized source trees',
     assert.deepEqual((await readdir(sourceRoot)).sort(), ['assets', 'content', 'pack.json'])
     assert.deepEqual(await readdir(new URL('assets/', sourceRoot)), [`${slug}.webp`])
     assert.deepEqual(await readdir(new URL('content/', sourceRoot)), ['visual-style.json'])
-    // Parity is checked against the evaluated legacy record, not against the
-    // source text. A quoting or formatting change in useBuiltInStyles.ts must
-    // not be able to pass or fail this on its own.
-    const legacy = BUILT_IN_STYLES.find(candidate => candidate.id === `builtin-${legacySlug(slug)}`)
-    assert.ok(legacy, `${slug} must still have a legacy built-in record to be a faithful productisation of`)
-    assert.deepEqual({
-      name: expected.name,
-      blurb: expected.description,
-      category: expected.category,
-      tags: expected.tags,
-      data: { style_bible: expected.style_bible, negative_prompt: expected.negative_prompt },
-    }, {
-      name: legacy.name,
-      blurb: legacy.blurb,
-      category: legacy.category,
-      tags: legacy.tags,
-      data: legacy.data,
-    }, `${slug} must retain its legacy renderer contract`)
-
     const manifest = await parseJson(new URL('pack.json', sourceRoot))
     assert.deepEqual(manifest, {
       pack_format: 1,
@@ -187,22 +154,18 @@ test('production look previews preserve approved bytes and complete provenance e
 
   for (const slug of slugs) {
     const expected = STYLES[slug]
-    const sourcePath = `frontend/public/builtin-style-previews/${legacySlug(slug)}.webp`
-    const destinationPath = `content-packs/production-looks/style/${slug}/assets/${slug}.webp`
-    const sourceBytes = await readFile(join(process.cwd(), sourcePath))
-    const destinationBytes = await readFile(join(process.cwd(), destinationPath))
+    const assetPath = `content-packs/production-looks/style/${slug}/assets/${slug}.webp`
+    const destinationBytes = await readFile(join(process.cwd(), assetPath))
 
     assert.equal(destinationBytes.length, expected.bytes)
     assert.ok(destinationBytes.length > 20 * 1024)
-    assert.equal(sha256(sourceBytes), expected.sha256)
     assert.equal(sha256(destinationBytes), expected.sha256)
-    assert.deepEqual(destinationBytes, sourceBytes)
     assert.deepEqual(
       await sharp(destinationBytes).metadata().then(({ format, width, height }) => ({ format, width, height })),
       { format: 'webp', width: 1672, height: 941 },
     )
 
-    for (const evidence of [sourcePath, destinationPath, `builtin-${legacySlug(slug)}`, expected.sha256, String(expected.bytes), '1672x941', 'WebP decode passed', 'byte-identical']) {
+    for (const evidence of [`com.storystudio.style.${slug}`, assetPath, expected.sha256, String(expected.bytes), '1672x941', 'WebP decode passed']) {
       assert.ok(provenance.includes(evidence), `${slug} provenance must record ${evidence}`)
     }
   }
@@ -218,10 +181,9 @@ test('production look previews preserve approved bytes and complete provenance e
  * text once already, so this pins their absence rather than trusting review to
  * catch a reintroduction.
  *
- * Scope is deliberately the six PRE-STOCK Production Looks and the legacy
- * records they were productised from. Already-published packs are not swept
- * here: changing those means new versions and republication, which is a
- * different decision with a different cost.
+ * Scope is deliberately the six PRE-STOCK Production Looks. Already-published
+ * packs are not swept here: changing those means new versions and
+ * republication, which is a different decision with a different cost.
  */
 // MARKS is imported from ./forbidden-marks.mjs rather than declared here, so that
 // widening the list widens this guard and the published-pack scrub guard together
@@ -231,14 +193,11 @@ test('production look previews preserve approved bytes and complete provenance e
 test('no sold Production Look carries a third-party product mark in customer-visible text', async () => {
   for (const slug of slugs) {
     const style = await parseJson(new URL(`style/${slug}/content/visual-style.json`, ROOT))
-    const legacy = BUILT_IN_STYLES.find(candidate => candidate.id === `builtin-${legacySlug(slug)}`)
 
-    // Everything the customer can read or search, from both surfaces.
+    // Everything the customer can read or search.
     const surfaces = [
       ['name', style.name], ['description', style.description], ['tags', style.tags.join(' ')],
       ['style_bible', style.style_bible], ['negative_prompt', style.negative_prompt],
-      ['legacy name', legacy.name], ['legacy blurb', legacy.blurb], ['legacy tags', legacy.tags.join(' ')],
-      ['legacy style_bible', legacy.data.style_bible], ['legacy negative_prompt', legacy.data.negative_prompt],
     ]
 
     for (const [field, text] of surfaces) {

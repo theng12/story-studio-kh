@@ -7,14 +7,14 @@ function source(path: string): string {
   return readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
 }
 
-const modal = source('../components/BuiltInStyleLibraryModal.vue')
+const modal = source('../components/ContentPackStyleLibraryModal.vue')
 const picker = source('../components/StylePicker.vue')
 const projectLibrary = source('../components/ProjectStyleLibrary.vue')
 const characterSheet = source('../pages/projects/[slug]/character-sheet.vue')
 const imagePrompts = source('../pages/projects/[slug]/image-prompts.vue')
 const settings = source('../pages/projects/[slug]/settings.vue')
 
-describe('scalable built-in style library', () => {
+describe('scalable Content Pack style library', () => {
   test('uses one searchable modal with categories, favorites, recents, and lazy previews', () => {
     assert.match(modal, /Style Library/)
     assert.match(modal, /v-model="query"/)
@@ -25,6 +25,15 @@ describe('scalable built-in style library', () => {
     assert.match(modal, /role="listbox"/)
   })
 
+  test('distinguishes loading, unavailable, installed-empty, and filtered-empty states', () => {
+    assert.match(modal, /visualStylesLoading/)
+    assert.match(modal, /visualStylesError/)
+    assert.match(modal, /Content Pack styles are unavailable/)
+    assert.match(modal, /No Content Pack styles installed/)
+    assert.match(modal, />Retry</)
+    assert.match(modal, /No styles found/)
+  })
+
   test('retains saved downloaded-style favorites while the reactive catalog is loading', () => {
     assert.match(modal, /parsed\.filter\(\(id\): id is string => typeof id === 'string'/)
     assert.doesNotMatch(modal, /parsed\.filter\(id => styles\.value\.some/)
@@ -33,16 +42,16 @@ describe('scalable built-in style library', () => {
 
   test('keeps the active style compact instead of rendering the full collection inline', () => {
     assert.match(picker, /style-picker-current/)
-    assert.match(picker, /BuiltInStyleLibraryModal/)
+    assert.match(picker, /ContentPackStyleLibraryModal/)
     assert.match(picker, /useVisualStyleCatalog/)
-    assert.doesNotMatch(picker, /v-for="style in BUILT_IN_STYLES"/)
+    assert.doesNotMatch(picker, /const\s+styles\s*=\s*\[/)
   })
 
-  test('reuses the modal for built-in starters in project settings', () => {
-    assert.match(projectLibrary, /BuiltInStyleLibraryModal/)
+  test('reuses the modal for Content Pack starters in project settings', () => {
+    assert.match(projectLibrary, /ContentPackStyleLibraryModal/)
     assert.match(projectLibrary, /useVisualStyleCatalog/)
     assert.match(projectLibrary, /Browse Style Library/)
-    assert.doesNotMatch(projectLibrary, /v-for="style in BUILT_IN_STYLES"/)
+    assert.doesNotMatch(projectLibrary, /const\s+styles\s*=\s*\[/)
   })
 
   test('uses the live GenStudio image catalog and one representative style proof', () => {
@@ -63,10 +72,26 @@ describe('scalable built-in style library', () => {
     }
   })
 
-  test('keeps every project style surface on the shared built-in catalog', () => {
+  test('keeps every project style surface on the shared Content Pack catalog', () => {
     assert.match(characterSheet, /<StylePicker/)
     assert.match(imagePrompts, /useVisualStyleCatalog/)
     assert.match(imagePrompts, /<StylePicker/)
     assert.match(settings, /useVisualStyleCatalog/)
+    assert.match(settings, /visualStylesError/)
+    assert.match(settings, /Installed Content Pack styles are unavailable/)
+    assert.match(settings, />Retry</)
+  })
+
+  test('reloads a persisted signed style as the selected Settings option', () => {
+    assert.match(settings, /:value="s\.id"/)
+    assert.match(settings, /visualStyles\.value\.find\(style => style\.id === next\)/)
+    assert.doesNotMatch(settings, /`catalog:\$\{s\.id\}`/)
+  })
+
+  test('does not call a Formula suggestion uninstalled before catalog resolution', () => {
+    assert.match(settings, /v-else-if="visualStylesLoading"/)
+    assert.match(settings, /Checking installed Content Pack styles/)
+    assert.match(settings, /v-else-if="visualStylesError"/)
+    assert.match(settings, /Could not check installed Content Pack styles/)
   })
 })
