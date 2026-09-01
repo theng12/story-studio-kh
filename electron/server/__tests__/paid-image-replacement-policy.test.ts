@@ -59,6 +59,44 @@ const imageModel = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+void test('job snapshots expose only the latest redacted paid image replacement attempt', async () => {
+  const queue = await import('../services/job-queue.js')
+  const projectSlug = 'paid-image-renderer-projection'
+  const projectDir = path.join(temp.dir, 'projects', projectSlug)
+  const attempt = {
+    asset_key: 'thumbnail:1', manifest_dir: '/private/manifest', manifest_key: 'thumb.png', output_path: '/private/output.png',
+    state: 'failed' as const, original_task_id: 'original-task-id', original_idempotency_key: 'original-idempotency-key',
+    input_hash: 'a'.repeat(64), output_selector: selector(), reference_inputs: [], reference_identity_hash: 'b'.repeat(64),
+    failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 8, settled_credits: 3, released_credits: 5,
+    terminal_observed_at: '2026-08-31T00:00:00.000Z', eligible_at: '2026-08-31T00:30:00.000Z',
+    quoted_credits: 6, price_version: 'image-price-v2', replacement_scope: 'private-replacement-scope',
+    replacement_committed_at: '2026-08-31T00:31:00.000Z', replacement_task_id: 'replacement-task-id',
+    actual_settled_credits: 4, reason: 'GenStudio reported a terminal failure.',
+  }
+  const durable: Job = {
+    job_id: 'renderer-projection-job', project_slug: projectSlug, type: 'thumb_images', episode_id: 'EP0001', title: 'Renderer projection',
+    status: 'error', created_at: '2026-08-31T00:00:00.000Z', started_at: '2026-08-31T00:00:00.000Z', finished_at: '2026-08-31T00:32:00.000Z',
+    error: 'Image replacement did not succeed.', output_lines: [], params: {},
+    paid_image_replacement_attempts: [{ ...attempt, state: 'waiting' }, attempt],
+  }
+  await mkdir(projectDir, { recursive: true })
+  await writeFile(path.join(projectDir, 'jobs.json'), JSON.stringify({ jobs: [durable] }))
+
+  const displayed = (await queue.getJobs(projectSlug))[0] as Job & {
+    paid_image_replacement_attempt?: Pick<typeof attempt,
+      'state' | 'eligible_at' | 'replacement_committed_at' | 'quoted_credits' | 'price_version' | 'reason' | 'actual_settled_credits'>
+  }
+  assert.deepEqual(displayed.paid_image_replacement_attempt, {
+    state: 'failed', eligible_at: '2026-08-31T00:30:00.000Z', replacement_committed_at: '2026-08-31T00:31:00.000Z',
+    quoted_credits: 6, price_version: 'image-price-v2', reason: 'GenStudio reported a terminal failure.', actual_settled_credits: 4,
+  }, 'the already-bounded attempt order determines the singular renderer projection')
+  assert.equal('paid_image_replacement_attempts' in displayed, false, 'raw durable attempts never cross the renderer boundary')
+  const payload = JSON.stringify(displayed)
+  for (const secret of ['original-task-id', 'original-idempotency-key', 'replacement-task-id', 'private-replacement-scope', '/private/manifest', '/private/output.png']) {
+    assert.equal(payload.includes(secret), false, `${secret} remains private to durable evidence`)
+  }
+})
+
 void test('paid image rate resolution uses one exact output row and the selected price pair', async (suite) => {
   const policy = await import('../services/image-paid-replacement.js')
   const normal = selector()

@@ -668,6 +668,16 @@ export interface JobEnqueuedResponse {
     additional_credit_ceiling: number | null
     snapshotted_at: string
   }
+  /** Latest bounded paid-image replacement state, redacted for renderer use. */
+  paid_image_replacement_attempt?: {
+    state: 'waiting' | 'committed' | 'submitted' | 'succeeded' | 'failed' | 'blocked'
+    eligible_at: string
+    replacement_committed_at?: string
+    quoted_credits?: number
+    price_version?: string
+    reason?: string
+    actual_settled_credits?: number
+  }
   /** Structured terminal outcome for audit-style jobs such as image repair. */
   result?: Record<string, any>
   params: Record<string, any>

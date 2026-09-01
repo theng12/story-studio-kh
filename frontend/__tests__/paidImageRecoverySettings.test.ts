@@ -1,0 +1,147 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import test from 'node:test'
+import { createApp, defineComponent, h, nextTick, type Component } from 'vue'
+import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
+import { transform } from 'esbuild'
+
+const settingsPath = '/app-settings/paid-image-replacement'
+
+interface PaidImageReplacementSetting {
+  enabled: boolean
+  additional_credit_ceiling: number | null
+}
+
+interface SettingsApi {
+  get<T>(path: string): Promise<T>
+  put<T>(path: string, body: unknown): Promise<T>
+  del(path: string): Promise<void>
+  post(path: string, body: unknown): Promise<unknown>
+}
+
+const apiHost = globalThis as typeof globalThis & { __paidImageRecoverySettingsApi?: SettingsApi }
+
+async function loadThisMacSettings(): Promise<Component> {
+  const filename = fileURLToPath(new URL('../components/ThisMacSettings.vue', import.meta.url))
+  const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
+  const script = compileScript(descriptor, { id: 'paid-image-recovery-settings' })
+  const template = compileTemplate({
+    source: descriptor.template!.content,
+    filename,
+    id: 'paid-image-recovery-settings',
+    compilerOptions: { bindingMetadata: script.bindings },
+  })
+  const vueUrl = await import.meta.resolve('vue')
+  const support = `
+    import { ref, reactive, onMounted } from ${JSON.stringify(vueUrl)}
+    const useApi = () => globalThis.__paidImageRecoverySettingsApi
+    const useConfirm = () => ({ ask: async () => true })
+    const useTheme = () => ({ mode: ref('system'), setMode: () => undefined })
+  `
+  const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const transformed = await transform(code, { loader: 'ts', format: 'esm' })
+  return (await import(`data:text/javascript;base64,${Buffer.from(
+    transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
+  ).toString('base64')}`)).default
+}
+
+async function flush(): Promise<void> {
+  await nextTick()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await nextTick()
+}
+
+async function mountSettings(setting: PaidImageReplacementSetting) {
+  const saves: Array<{ path: string; body: unknown }> = []
+  apiHost.__paidImageRecoverySettingsApi = {
+    async get<T>(path: string): Promise<T> {
+      if (path === settingsPath) return setting as T
+      if (path === '/app-settings/concurrency') return {
+        subtitle_episode_concurrency: 2, llm_concurrency: 8, image_episode_concurrency: 2,
+        image_fanout_per_episode: 'auto', thumbnail_episode_concurrency: 3, outline_chapter_headroom: 2,
+        genstudio_language_timeout_minutes: 30, language_floor_tokens_per_second: 25,
+        language_preferred_tokens_per_second: 50,
+      } as T
+      if (path === '/app-settings/genstudio') return { url: '', default_url: '' } as T
+      if (path === '/app-settings/api-keys') return { providers: [] } as T
+      if (path === '/app-settings/emoji') return { allow_emoji_in_generated_text: false } as T
+      throw new Error(`unexpected GET ${path}`)
+    },
+    async put<T>(path: string, body: unknown): Promise<T> {
+      saves.push({ path, body })
+      if (path !== settingsPath) throw new Error(`unexpected PUT ${path}`)
+      return { enabled: true, additional_credit_ceiling: 50 } as T
+    },
+    async del(): Promise<void> {},
+    async post(): Promise<unknown> { return undefined },
+  }
+  document.body.innerHTML = ''
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(await loadThisMacSettings())
+  app.component('ServerModeSettingsPanel', defineComponent({ setup: () => () => h('div') }))
+  app.mount(host)
+  await flush()
+  return { host, saves, unmount: () => app.unmount() }
+}
+
+test('This Mac keeps paid image replacement off until a positive whole-number ceiling is saved', async () => {
+  const rendered = await mountSettings({ enabled: false, additional_credit_ceiling: null })
+  try {
+    const section = rendered.host.querySelector<HTMLElement>('.paid-image-replacement')
+    assert.ok(section, 'the dedicated paid image replacement setting is rendered')
+    assert.match(section.textContent || '', /Automatically buy one replacement for a confirmed failed image/)
+    assert.match(section.textContent || '', /reconnects to the original GenStudio task first/i)
+    assert.match(section.textContent || '', /After GenStudio confirms that task failed/i)
+    assert.match(section.textContent || '', /waits 30 minutes/i)
+    assert.match(section.textContent || '', /exact current price/i)
+    assert.match(section.textContent || '', /per-Story-job credit limit/i)
+    assert.match(section.textContent || '', /Maximum 1 replacement per image/)
+    assert.match(section.textContent || '', /Time alone never proves a task stopped\./)
+
+    const enabled = section.querySelector<HTMLSelectElement>('select[name="paid-image-replacement-enabled"]')
+    assert.ok(enabled, 'the setting has a native labeled Off/On control')
+    assert.equal(enabled.value, 'false', 'an absent ceiling starts Off rather than guessing a budget')
+    assert.equal(section.querySelector('input[name="paid-image-replacement-ceiling"]'), null, 'Off has no ceiling field')
+
+    enabled.value = 'true'
+    enabled.dispatchEvent(new Event('change', { bubbles: true }))
+    await nextTick()
+    const ceiling = section.querySelector<HTMLInputElement>('input[name="paid-image-replacement-ceiling"]')
+    assert.ok(ceiling, 'enabling requires an explicit ceiling')
+    assert.equal(ceiling.min, '1')
+    assert.equal(ceiling.step, '1')
+    section.querySelector<HTMLButtonElement>('button')!.click()
+    await flush()
+    assert.equal(rendered.saves.length, 0, 'an empty enabled ceiling cannot reach the spending endpoint')
+    assert.match(section.textContent || '', /positive whole number/i)
+
+    ceiling.value = '50'
+    ceiling.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    section.querySelector<HTMLButtonElement>('button')!.click()
+    await flush()
+    assert.deepEqual(rendered.saves, [{
+      path: settingsPath,
+      body: { enabled: true, additional_credit_ceiling: 50 },
+    }], 'the independent setting save sends only the flat approved body')
+    assert.match(section.textContent || '', /saved/i)
+  } finally {
+    rendered.unmount()
+    delete apiHost.__paidImageRecoverySettingsApi
+  }
+})
+
+test('Jobs consumes only the redacted latest paid replacement display attempt', () => {
+  const jobs = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)), 'utf8')
+  const contracts = readFileSync(fileURLToPath(new URL('../../electron/server/contracts/index.ts', import.meta.url)), 'utf8')
+  assert.match(contracts, /paid_image_replacement_attempt\?: \{[\s\S]*?actual_settled_credits\?: number/)
+  assert.doesNotMatch(contracts, /paid_image_replacement_attempts\?:/)
+  assert.match(jobs, /paidImageReplacementAttemptText\(job\)/)
+  assert.match(jobs, /formatTime\(attempt\.eligible_at\)/)
+  assert.match(jobs, /quoted_credits/)
+  assert.match(jobs, /price_version/)
+  assert.match(jobs, /actual_settled_credits/)
+  assert.doesNotMatch(jobs, /replacement_task_id/)
+  assert.doesNotMatch(jobs, /original_idempotency_key/)
+})

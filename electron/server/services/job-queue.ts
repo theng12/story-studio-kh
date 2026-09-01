@@ -1385,15 +1385,35 @@ function safeJob(job: Job): Omit<Job, never> {
 }
 
 /** Public job snapshots derive controls at the last possible moment. */
-function serializeJob(job: Job): Job {
+type RendererPaidImageReplacementAttempt = Pick<PaidImageReplacementAttempt,
+  'state' | 'eligible_at' | 'replacement_committed_at' | 'quoted_credits' | 'price_version' | 'reason' | 'actual_settled_credits'>
+type RendererJob = Omit<Job, 'paid_image_replacement_attempts'> & {
+  paid_image_replacement_attempt?: RendererPaidImageReplacementAttempt
+}
+
+function serializeJob(job: Job): RendererJob {
   const copy = safeJob(job)
-  copy.controls = classifyJobControls(job, {
+  const latestPaidImageAttempt = copy.paid_image_replacement_attempts?.at(-1)
+  delete copy.paid_image_replacement_attempts
+  const rendererJob: RendererJob = copy
+  if (latestPaidImageAttempt) {
+    rendererJob.paid_image_replacement_attempt = {
+      state: latestPaidImageAttempt.state,
+      eligible_at: latestPaidImageAttempt.eligible_at,
+      ...(latestPaidImageAttempt.replacement_committed_at ? { replacement_committed_at: latestPaidImageAttempt.replacement_committed_at } : {}),
+      ...(latestPaidImageAttempt.quoted_credits !== undefined ? { quoted_credits: latestPaidImageAttempt.quoted_credits } : {}),
+      ...(latestPaidImageAttempt.price_version ? { price_version: latestPaidImageAttempt.price_version } : {}),
+      ...(latestPaidImageAttempt.reason ? { reason: latestPaidImageAttempt.reason } : {}),
+      ...(latestPaidImageAttempt.actual_settled_credits !== undefined ? { actual_settled_credits: latestPaidImageAttempt.actual_settled_credits } : {}),
+    }
+  }
+  rendererJob.controls = classifyJobControls(job, {
     remoteCancellationAudited: hasJobCancellationAuditor(job.type),
   })
-  copy.control = classifyJobControl(job, {
+  rendererJob.control = classifyJobControl(job, {
     remoteCancellationAudited: hasJobCancellationAuditor(job.type),
   })
-  return copy
+  return rendererJob
 }
 
 async function persistJob(job: Job): Promise<void> {
