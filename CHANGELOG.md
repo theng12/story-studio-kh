@@ -4,9 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
-## v1.4.92 — 2026-08-31
+## v1.4.92 — 2026-09-01
 
 - **Confirmed failed images can optionally be replaced, with a firm spending boundary.** This image-only setting is Off by default. When enabled, Story Studio waits a fixed 30 minutes and requires authoritative failed-task evidence before considering a replacement. It then refreshes the exact current published price for the same image request and allows at most one replacement per image, only within the additional-credit ceiling you must set for each Story job. Audio and video are unchanged.
+- **Thumbnail status now reports what is actually on disk.** Episode list and status responses include the expected thumbnail count, the number still present, and whether the set is complete. If a thumbnail file is removed after generation, connected tools can see the missing asset instead of relying on the historical completion flag.
 
 ## v1.4.91 — 2026-08-31
 

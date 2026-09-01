@@ -36,9 +36,9 @@ import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { bindInvalidator, ensureProjectWatcher, watcherTrustedSince } from './episode-folder-watcher.js'
 import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-paths.js'
 
-// v12 — scene-image counts now travel with the cached status so `/episodes`
-// can report them without a second filesystem scan. Discard v11 rows.
-export const SCHEMA_VERSION = 12 as const
+// v13 — thumbnail-image counts now travel with the cached status so `/episodes`
+// can report them without a second filesystem scan. Discard v12 rows.
+export const SCHEMA_VERSION = 13 as const
 const MAX_ENTRIES = 1000
 /**
  * Watcher-backed reads (see `trusted()`): how long an entry may be served
