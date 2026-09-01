@@ -95,6 +95,10 @@ void test('job snapshots expose only the latest redacted paid image replacement 
   for (const secret of ['original-task-id', 'original-idempotency-key', 'replacement-task-id', 'private-replacement-scope', '/private/manifest', '/private/output.png']) {
     assert.equal(payload.includes(secret), false, `${secret} remains private to durable evidence`)
   }
+
+  const internal = queue.getJob(durable.job_id)
+  assert.deepEqual(internal?.paid_image_replacement_attempts, durable.paid_image_replacement_attempts,
+    'internal recovery callers retain the full durable attempt evidence')
 })
 
 void test('paid image rate resolution uses one exact output row and the selected price pair', async (suite) => {

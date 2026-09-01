@@ -3764,7 +3764,7 @@ export async function getJobs(projectSlug: string): Promise<Job[]> {
 
 export function getJob(jobId: string): Job | null {
   const job = jobs.get(jobId)
-  return job ? serializeJob(job) : null
+  return job ? safeJob(job) : null
 }
 
 /**
