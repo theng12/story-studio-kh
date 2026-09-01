@@ -128,3 +128,15 @@ test('every compatible_formula_ids reference resolves to a Series Formula pack, 
     .map(({ id }) => id)
   assert.deepEqual(v102Ids, ['com.storystudio.formula.history-explained'])
 })
+
+test('the History Explained 1.0.2 free successor alone adds reciprocal Ancient Civilizations compatibility', async () => {
+  const sources = await Promise.all([
+    'content-packs/free-starters/formula/history-explained/content/series-formula.json',
+    'content-packs/free-starters/formula/history-explained-v1.0.1/content/series-formula.json',
+    'content-packs/free-starters/formula/history-explained-v1.0.2/content/series-formula.json',
+  ].map(async relativePath => ({ relativePath, document: JSON.parse(await readFile(new URL(`../../../${relativePath}`, import.meta.url), 'utf8')) })))
+  const topicId = 'com.storystudio.topic.economics-ancient-civilizations'
+  assert.equal(sources[0].document.compatible_topic_pack_ids.includes(topicId), false)
+  assert.equal(sources[1].document.compatible_topic_pack_ids.includes(topicId), false)
+  assert.equal(sources[2].document.compatible_topic_pack_ids.includes(topicId), true)
+})

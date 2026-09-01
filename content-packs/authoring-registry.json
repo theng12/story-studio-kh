@@ -1,5 +1,5 @@
 {
-  "revision": 126,
+  "revision": 133,
   "batches": [
     {
       "revision": 2,
@@ -3210,6 +3210,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 127,
+      "receipt_ref": "authoring:8c7e67e9aadaebc6e242665beedc55c9af896c4f08c9906ec0ca10f20f55147f",
+      "request": {
+        "expected_revision": 126,
+        "coordinator": {
+          "task": "legacy-content-closure-task-4",
+          "branch": "codex/legacy-content-closure"
+        },
+        "proposal_ref": "docs/superpowers/specs/2026-09-01-legacy-content-closure-design.md#history-explained-successor",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.formula.history-explained",
+            "item_id": "com.storystudio.formula.history-explained",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/history-explained-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.history-explained",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.history-explained",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -4941,6 +4977,108 @@
         },
         "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
         "pack_id": "com.storystudio.pack.formula.prayer",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 128,
+      "transition_ref": "lifecycle:47a6070256df45cbb19df333491c9980e598526e5d0f4f72d67ae2b3caf9995a",
+      "request": {
+        "expected_revision": 127,
+        "coordinator": {
+          "task": "legacy-content-closure-task-4",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:8c7e67e9aadaebc6e242665beedc55c9af896c4f08c9906ec0ca10f20f55147f",
+        "pack_id": "com.storystudio.pack.formula.history-explained",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 129,
+      "transition_ref": "lifecycle:dbe44ee9be5c42874b589dfe56309c6ed8fc3a34da2529ca3bd59f3b56191b52",
+      "request": {
+        "expected_revision": 128,
+        "coordinator": {
+          "task": "legacy-content-closure-task-4",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.ancient-humans-environments",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 130,
+      "transition_ref": "lifecycle:01b2a205703a06543f84e1c17e9a43e782d4158d99f170154e15d6dff59e3014",
+      "request": {
+        "expected_revision": 129,
+        "coordinator": {
+          "task": "legacy-content-closure-task-4",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.ancient-humans-social-life",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 131,
+      "transition_ref": "lifecycle:50c4a59d9f6863e79347f51b7164a071031ef0fbf1638c703eb5af661232a28c",
+      "request": {
+        "expected_revision": 130,
+        "coordinator": {
+          "task": "legacy-content-closure-task-4",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.ancient-humans-technology",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 132,
+      "transition_ref": "lifecycle:748fe8fc653c523a88b8e34562977d237806971ee009b90ef1edd42398c29b20",
+      "request": {
+        "expected_revision": 131,
+        "coordinator": {
+          "task": "legacy-content-closure-task-4",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.deep-time-speculative-earth",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 133,
+      "transition_ref": "lifecycle:416ded081e481f7ea6c818d5067f6db29bbea103da40544719d0f4091a6df4d5",
+      "request": {
+        "expected_revision": 132,
+        "coordinator": {
+          "task": "legacy-content-closure-task-4",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.economics-ancient-civilizations",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -9206,7 +9344,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-environments",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -9229,7 +9367,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-social-life",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -9252,7 +9390,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-technology",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -9275,7 +9413,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/deep-time-speculative-earth",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -9298,7 +9436,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/economics-ancient-civilizations",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -9468,6 +9606,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.pov-law-enforcement",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8c7e67e9aadaebc6e242665beedc55c9af896c4f08c9906ec0ca10f20f55147f",
+      "pack_id": "com.storystudio.pack.formula.history-explained",
+      "item_id": "com.storystudio.formula.history-explained",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/history-explained-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.history-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.history-explained",
           "status": "proposed"
         }
       }

@@ -10,6 +10,7 @@ import { applyFormulaEpisodeProfile } from '../services/formula-production-kit.j
 import { applyNicheToFormat, loadFormat } from '../services/format-loader.js'
 import { isCompatible } from '../services/topic-pack-loader.js'
 import { contentPackDocumentToTopicPack } from '../content-packs/legacy-adapters.js'
+import { planIdeaAssignments } from '../services/idea-campaign-planner.js'
 
 const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
 const FORMULA_ROOT = resolve(ROOT, 'content-packs/legacy-niche-conversion/formula')
@@ -20,6 +21,14 @@ const FORMULAS = [
   ['philosophy-real-problem', 'com.storystudio.formula.philosophy-real-problem'],
   ['pastoral-scripture', 'com.storystudio.formula.pastoral-scripture'],
   ['prayer', 'com.storystudio.formula.prayer'],
+] as const
+
+const TOPICS = [
+  ['ancient-humans-environments', 'ancient-humans-environments', ['com.storystudio.formula.ancient-humans']],
+  ['ancient-humans-social-life', 'ancient-humans-social-life', ['com.storystudio.formula.ancient-humans']],
+  ['ancient-humans-technology', 'ancient-humans-technology', ['com.storystudio.formula.ancient-humans']],
+  ['deep-time-speculative-earth', 'deep-time-speculative-earth', ['com.storystudio.formula.deep-time-documentary']],
+  ['economics-ancient-civilizations', 'economics-ancient-civilizations', ['com.storystudio.formula.economics-of', 'com.storystudio.formula.history-explained']],
 ] as const
 
 async function formula(slug: string) {
@@ -38,6 +47,14 @@ async function topic(path: string) {
   const document = parseContentPackDocument('topic-pack', raw)
   if (document.kind !== 'topic-pack') throw new Error(`${path} is not a Topic Pack`)
   return contentPackDocumentToTopicPack(document)
+}
+
+async function legacyTopic(slug: string) {
+  return JSON.parse(await readFile(resolve(ROOT, 'electron/server/topic-packs', `${slug}.json`), 'utf8'))
+}
+
+async function convertedTopic(slug: string) {
+  return topic(`content-packs/legacy-niche-conversion/topic/${slug}/content/topic-pack.json`)
 }
 
 test('legacy Formula adapters project every strict source into the current Niche contract', async () => {
@@ -201,5 +218,34 @@ test('Pastoral Scripture profiles reproduce both legacy modes through strict doc
     assert.equal(effective.script.defaultNarratorStyleId, narratorId)
     assert.equal(effective.idea.systemPromptRole, expected.ideaSystemPromptRole)
     assert.equal(effective.script.systemPromptRole, expected.scriptSystemPromptRole)
+  }
+})
+
+test('legacy Topic adapters preserve subjects, reciprocal compatibility, deterministic capacity, and safe exhaustion', async () => {
+  for (const [slug, legacySlug, formulaIds] of TOPICS) {
+    const [legacy, converted] = await Promise.all([legacyTopic(legacySlug), convertedTopic(slug)])
+    assert.deepEqual(converted.compatibleFormulaIds, formulaIds)
+    for (const subject of legacy.subjects) assert.ok(converted.subjects.includes(subject), `${slug} preserves ${subject}`)
+    assert.equal(converted.maxSiblingsPerSubject, 1)
+    assert.ok(converted.coverageGroups?.length)
+    for (const formulaId of formulaIds) assert.equal(isCompatible(converted, formulaId), true, `${slug} resolves ${formulaId}`)
+
+    const niche = {
+      id: formulaIds[0],
+      name: formulaIds[0],
+      activeTopicPacks: [converted],
+      ideaAxes: [],
+    } as any
+    const capacity = converted.subjects.length
+    const first = planIdeaAssignments({ niche, count: capacity, seed: `legacy-topic-${slug}` })
+    const second = planIdeaAssignments({ niche, count: capacity, seed: `legacy-topic-${slug}` })
+    assert.deepEqual(first, second, `${slug} planning is deterministic`)
+    assert.equal(first.length, capacity)
+    assert.equal(new Set(first.map(assignment => assignment.fingerprint)).size, capacity)
+    assert.throws(
+      () => planIdeaAssignments({ niche, count: 1, seed: `legacy-topic-${slug}`, usedFingerprints: first.map(assignment => assignment.fingerprint) }),
+      /cannot plan the requested campaign/i,
+      `${slug} exhausts safely after its declared capacity`,
+    )
   }
 })

@@ -5,6 +5,7 @@ import { register } from 'tsx/esm/api'
 
 const ROOT = new URL('../../../', import.meta.url)
 const FORMULA_ROOT = new URL('../../../content-packs/legacy-niche-conversion/formula/', import.meta.url)
+const TOPIC_ROOT = new URL('../../../content-packs/legacy-niche-conversion/topic/', import.meta.url)
 
 const FORMULAS = [
   {
@@ -51,6 +52,39 @@ const FORMULAS = [
   },
 ]
 
+const TOPICS = [
+  {
+    slug: 'ancient-humans-environments',
+    legacyPath: 'electron/server/topic-packs/ancient-humans-environments.json',
+    formulaIds: ['com.storystudio.formula.ancient-humans'],
+    safety: /do not generalize|uncertainty/i,
+  },
+  {
+    slug: 'ancient-humans-social-life',
+    legacyPath: 'electron/server/topic-packs/ancient-humans-social-life.json',
+    formulaIds: ['com.storystudio.formula.ancient-humans'],
+    safety: /do not project modern|uncertainty/i,
+  },
+  {
+    slug: 'ancient-humans-technology',
+    legacyPath: 'electron/server/topic-packs/ancient-humans-technology.json',
+    formulaIds: ['com.storystudio.formula.ancient-humans'],
+    safety: /do not portray|uncertainty/i,
+  },
+  {
+    slug: 'deep-time-speculative-earth',
+    legacyPath: 'electron/server/topic-packs/deep-time-speculative-earth.json',
+    formulaIds: ['com.storystudio.formula.deep-time-documentary'],
+    safety: /counterfactual|what-if|speculative/i,
+  },
+  {
+    slug: 'economics-ancient-civilizations',
+    legacyPath: 'electron/server/topic-packs/economics-ancient-civilizations.json',
+    formulaIds: ['com.storystudio.formula.economics-of', 'com.storystudio.formula.history-explained'],
+    safety: /do not|avoid|evidence/i,
+  },
+]
+
 async function json(url) {
   return JSON.parse(await readFile(url, 'utf8'))
 }
@@ -60,6 +94,15 @@ async function source(spec) {
   const [manifest, document] = await Promise.all([
     json(new URL('pack.json', root)),
     json(new URL('content/series-formula.json', root)),
+  ])
+  return { manifest, document }
+}
+
+async function topicSource(spec) {
+  const root = new URL(`${spec.slug}/`, TOPIC_ROOT)
+  const [manifest, document] = await Promise.all([
+    json(new URL('pack.json', root)),
+    json(new URL('content/topic-pack.json', root)),
   ])
   return { manifest, document }
 }
@@ -230,7 +273,13 @@ test('legacy Formula conversion excludes retired products and Channel Kit metada
       item_id: `com.storystudio.topic.${slug}`,
       kind: 'topic-pack',
       source_path: `content-packs/legacy-niche-conversion/topic/${slug}`,
-      status: 'reserved',
+      status: [
+        'ancient-humans-environments',
+        'ancient-humans-social-life',
+        'ancient-humans-technology',
+        'deep-time-speculative-earth',
+        'economics-ancient-civilizations',
+      ].includes(slug) ? 'authored' : 'reserved',
       family: `com.storystudio.family.topic.${slug}`,
       sku: `com.storystudio.sku.topic.${slug}`,
     })),
@@ -257,4 +306,46 @@ test('legacy Formula conversion excludes retired products and Channel Kit metada
     assert.equal(record.stocking_proposal.sku.status, 'proposed')
   }
   assert.equal(receiptRecords.some(record => record.kind === 'channel-kit' || 'bundle_id' in record), false)
+})
+
+test('legacy Topic sources preserve every legacy subject and strict bounded planning contract', async () => {
+  const unregister = register()
+  const { parseContentPackDocument, parseContentPackManifest } = await import(new URL('../../../electron/server/content-packs/schemas.ts', import.meta.url))
+  unregister()
+
+  for (const spec of TOPICS) {
+    const [{ manifest, document }, legacy] = await Promise.all([
+      topicSource(spec),
+      json(new URL(`../../../${spec.legacyPath}`, import.meta.url)),
+    ])
+    assert.doesNotThrow(() => parseContentPackDocument('topic-pack', document), spec.slug)
+    assert.doesNotThrow(() => parseContentPackManifest({
+      ...manifest,
+      key_id: 'com.storystudio.key.test',
+      min_app_version: '1.4.93',
+      items: [{ id: `com.storystudio.topic.${spec.slug}`, kind: 'topic-pack', schema_version: 1, path: 'content/topic-pack.json' }],
+      files: [{ path: 'content/topic-pack.json', sha256: '0'.repeat(64), bytes: 1, mime: 'application/json' }],
+    }), spec.slug)
+    assert.equal(manifest.pack_id, `com.storystudio.pack.topic.${spec.slug}`)
+    assert.equal(document.id, `com.storystudio.topic.${spec.slug}`)
+    assert.equal(manifest.version, '1.0.0')
+    assert.equal(manifest.publisher_id, 'com.storystudio')
+    assert.equal(manifest.min_app_version, '{{MIN_APP_VERSION}}')
+    assert.deepEqual(manifest.dependencies, [])
+    assert.equal('bundle_id' in manifest, false)
+    assert.deepEqual(document.compatible_formula_ids, spec.formulaIds)
+    assertContainsEvery(document.subjects, legacy.subjects, `${spec.slug} legacy subjects`)
+    for (const field of ['episode_objects', 'time_place_scopes', 'mechanisms', 'evidence_lenses']) {
+      assert.ok(document[field].length >= 2, `${spec.slug} needs material ${field}`)
+      assert.equal(new Set(document[field]).size, document[field].length, `${spec.slug} ${field} must not pad duplicates`)
+    }
+    assert.ok(document.coverage_groups?.length, `${spec.slug} needs an authored finite coverage group`)
+    assert.equal(document.max_siblings_per_subject, 1, `${spec.slug} declares one honest assignment per legacy subject`)
+    assert.ok(document.exclusions.some(exclusion => spec.safety.test(exclusion)), `${spec.slug} needs a domain-specific safety exclusion`)
+    assert.match(document.prompt_context, spec.safety, `${spec.slug} prompt context must retain its safety boundary`)
+    if (spec.slug === 'deep-time-speculative-earth') {
+      assert.match(document.prompt_context, /physical|evidence/i)
+      assert.ok(document.exclusions.some(exclusion => /counterfactual|what-if|speculative/i.test(exclusion)))
+    }
+  }
 })
