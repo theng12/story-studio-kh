@@ -1,5 +1,5 @@
 {
-  "revision": 111,
+  "revision": 120,
   "batches": [
     {
       "revision": 2,
@@ -4320,6 +4320,159 @@
           "status": "authored"
         }
       }
+    },
+    {
+      "revision": 112,
+      "transition_ref": "lifecycle:ededa341c190a72bda63e6bf1760367f00834198c794c94f5c5a5155fb18b4fa",
+      "request": {
+        "expected_revision": 111,
+        "coordinator": {
+          "task": "legacy-content-closure",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+        "pack_id": "com.storystudio.pack.thumbnail.prehistoric-survival-title-card",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 113,
+      "transition_ref": "lifecycle:0fbf9be7c93d4c58623160bd720fc6d0016f899f2c476ff0760fdd7f1934eff5",
+      "request": {
+        "expected_revision": 112,
+        "coordinator": {
+          "task": "legacy-content-closure",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+        "pack_id": "com.storystudio.pack.thumbnail.dreamlike-story-title-card",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 114,
+      "transition_ref": "lifecycle:f89b324d53f5dfed200c80024193ca540918ece430eb4d3980374c0dd218c724",
+      "request": {
+        "expected_revision": 113,
+        "coordinator": {
+          "task": "legacy-content-closure",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+        "pack_id": "com.storystudio.pack.style.hand-drawn-hardship-cartoon",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 115,
+      "transition_ref": "lifecycle:39fe155b4418debb3e85d57bbae427e8d0a3b521cf293e2769af1dbe032128ed",
+      "request": {
+        "expected_revision": 114,
+        "coordinator": {
+          "task": "legacy-content-closure",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+        "pack_id": "com.storystudio.pack.style.dreamlike-luminous-sleep-illustration",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 116,
+      "transition_ref": "lifecycle:648e15d0bf8ddc97c7320381c9031ff0a79464d26e9f79f4138f82258191cc5e",
+      "request": {
+        "expected_revision": 115,
+        "coordinator": {
+          "task": "legacy-content-closure",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+        "pack_id": "com.storystudio.pack.thumbnail.animal-hardship-annotation",
+        "version": "1.0.0",
+        "changes": {
+          "status": "withdrawn"
+        }
+      }
+    },
+    {
+      "revision": 117,
+      "transition_ref": "lifecycle:4e1d405303ef0e4094aeb3c17f83337bd1b48905d28614500582c9fb931ef494",
+      "request": {
+        "expected_revision": 116,
+        "coordinator": {
+          "task": "legacy-content-closure",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+        "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+        "version": "1.0.1",
+        "changes": {
+          "status": "withdrawn"
+        }
+      }
+    },
+    {
+      "revision": 118,
+      "transition_ref": "lifecycle:cb6b0695e4e29f3fca9f89bb03da75226f08a6f074ce5577f40d01d9a9484d46",
+      "request": {
+        "expected_revision": 117,
+        "coordinator": {
+          "task": "legacy-content-closure",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+        "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+        "version": "1.0.1",
+        "changes": {
+          "status": "withdrawn"
+        }
+      }
+    },
+    {
+      "revision": 119,
+      "transition_ref": "lifecycle:03ae84f210c62ffcbd41c2a3c1cc5331f4477db3106c4e18fdac50d175e946a4",
+      "request": {
+        "expected_revision": 118,
+        "coordinator": {
+          "task": "legacy-content-closure",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+        "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
+        "version": "1.0.1",
+        "changes": {
+          "status": "withdrawn"
+        }
+      }
+    },
+    {
+      "revision": 120,
+      "transition_ref": "lifecycle:bbd5a409fd4e18f52dd1dd76d21505c4bac1bc3a0923fbe5da9202e24ad2f6db",
+      "request": {
+        "expected_revision": 119,
+        "coordinator": {
+          "task": "legacy-content-closure",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:198cfa301a3178d36d285a5eb55543a29339bd2513483e33d11e8c5c5e384a67",
+        "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+        "version": "1.0.1",
+        "changes": {
+          "status": "withdrawn"
+        }
+      }
     }
   ],
   "records": [
@@ -5831,7 +5984,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation",
-      "status": "reserved",
+      "status": "withdrawn",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5854,7 +6007,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5877,7 +6030,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5900,7 +6053,7 @@
       "min_app_version_status": "release-bound",
       "kind": "visual-style",
       "source_path": "content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5946,7 +6099,7 @@
       "min_app_version_status": "release-bound",
       "kind": "visual-style",
       "source_path": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5969,7 +6122,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1",
-      "status": "reserved",
+      "status": "withdrawn",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5992,7 +6145,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1",
-      "status": "reserved",
+      "status": "withdrawn",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -6015,7 +6168,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1",
-      "status": "reserved",
+      "status": "withdrawn",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -8034,7 +8187,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1",
-      "status": "reserved",
+      "status": "withdrawn",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.human-behavior-explained",

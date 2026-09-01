@@ -374,16 +374,13 @@ test('leaf successor reservation is one receipt-bound batch with non-discoverabl
     assert.equal(JSON.stringify(scaffold).includes('component_summary'), false)
   }
 
-  // 2026-08-28 — these three paths used to be pinned ABSENT while the evidence gate was open.
-  // The gate is satisfied, so the absence assertion is inverted into a presence assertion that
-  // also pins each successor's manifest identity — strictly more than the old ENOENT check.
+  // The two creative leaves are independently authored. The unsold coordinator is
+  // withdrawn in the later legacy-closure pass, so its source cannot remain beside them.
   for (const [successorPath, expectedPackId] of [
     ['content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1',
       'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split'],
     ['content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1',
       'com.storystudio.pack.style.pastel-surreal-psychological-collage'],
-    ['content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1',
-      'com.storystudio.pack.kit.symbolic-psychology-studio'],
   ] as const) {
     const manifest = await readJson(path.join(ROOT, successorPath, 'pack.json'))
     assert.equal(manifest.pack_id, expectedPackId, `${successorPath} must declare its reserved pack id`)
@@ -392,12 +389,15 @@ test('leaf successor reservation is one receipt-bound batch with non-discoverabl
     assert.ok(typeof manifest.changelog === 'string' && manifest.changelog.length > 0,
       `${successorPath} must state what changed`)
   }
+  await assert.rejects(
+    fs.access(path.join(STUDIO_ROOT, 'kit', 'symbolic-psychology-studio-v1.0.1')),
+    { code: 'ENOENT' },
+  )
 })
 
 test('v1.0.1 successors carry the approved generated previews at the family WebP standard', async () => {
   const thumbRoot = path.join(PSYCHOLOGY_ROOT, 'thumbnail', 'editorial-psychology-symbolic-split-v1.0.1')
   const styleRoot = path.join(PSYCHOLOGY_ROOT, 'style', 'pastel-surreal-psychological-collage-v1.0.1')
-  const kitRoot = path.join(STUDIO_ROOT, 'kit', 'symbolic-psychology-studio-v1.0.1')
 
   const thumbDocument = await readJson(path.join(thumbRoot, 'content', 'thumbnail-recipe.json'))
   parseContentPackDocument('thumbnail-recipe', thumbDocument)
@@ -434,26 +434,9 @@ test('v1.0.1 successors carry the approved generated previews at the family WebP
     )
   }
 
-  // A Kit is exactly four pieces: one Formula, one Topic, one Style, one thumbnail Recipe.
-  const kitManifest = await readJson(path.join(kitRoot, 'pack.json')) as {
-    dependencies: Array<{ pack_id: string, version: string }>
-    bundles: Array<{ components: Array<{ pack_id: string, version: string, kind: string }> }>
-  }
-  const components = kitManifest.bundles[0]!.components
-  assert.equal(components.length, 4, 'a Kit is exactly four pieces')
-  assert.deepEqual([...components.map(component => component.kind)].sort(), [
-    'series-formula', 'thumbnail-recipe', 'topic-pack', 'visual-style',
-  ])
-  assert.deepEqual(kitManifest.dependencies, components.map(({ pack_id, version }) => ({ pack_id, version })))
-  // The kit's idea-capacity promise rides entirely on the Topic pin, so pin it explicitly.
-  assert.deepEqual(
-    components.map(component => `${component.pack_id}@${component.version}`),
-    [
-      'com.storystudio.pack.formula.human-behavior-explained@1.0.1',
-      'com.storystudio.pack.topic.human-behavior-social-dynamics@1.0.1',
-      'com.storystudio.pack.style.pastel-surreal-psychological-collage@1.0.1',
-      'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split@1.0.1',
-    ],
+  await assert.rejects(
+    fs.access(path.join(STUDIO_ROOT, 'kit', 'symbolic-psychology-studio-v1.0.1')),
+    { code: 'ENOENT' },
   )
 })
 

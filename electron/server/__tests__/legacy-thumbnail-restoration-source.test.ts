@@ -64,6 +64,7 @@ const RECIPE_ASSETS = [
   'animal-hardship-annotation-3.webp',
 ] as const
 const STYLE_ASSET = 'hand-drawn-hardship-cartoon.webp'
+const APPROVED_HAND_DRAWN_HARDSHIP_SHA256 = '75a392a4c5be8786dbdc468ee6f691a15e5cf027aa98988b27d075cb043d3c59'
 const IMPASTO_STYLE_ASSET = 'impasto-psychological-animals.webp'
 const PREHISTORIC_SURVIVAL_ASSETS = [
   'prehistoric-survival-title-card-1.webp',
@@ -106,33 +107,6 @@ const DREAMLIKE_STYLE_ASSET = 'dreamlike-luminous-sleep-illustration.webp'
 const FREE_STARTER_ROOT = path.join(ROOT, 'content-packs', 'free-starters')
 const VERSIONED_FREE_STARTER_GALLERIES = [
   {
-    slug: 'centered-hero-headline',
-    assets: [
-      'centered-hero-headline.webp',
-      'centered-hero-headline-2.webp',
-      'centered-hero-headline-3.webp',
-    ],
-    firstHash: '330334bf935e06fb8167a4ea8321d37a92f64b12a88e9564ccb9cf45f893d2ab',
-  },
-  {
-    slug: 'portrait-block-right',
-    assets: [
-      'portrait-block-right.webp',
-      'portrait-block-right-2.webp',
-      'portrait-block-right-3.webp',
-    ],
-    firstHash: 'd7f458e7e6a4025e8a52c22fab0827fcae32c3c2d576be1e32bf6da439ecc00f',
-  },
-  {
-    slug: 'dreamscape-story-window',
-    assets: [
-      'dreamscape-story-window.webp',
-      'dreamscape-story-window-2.webp',
-      'dreamscape-story-window-3.webp',
-    ],
-    firstHash: '1c2ea52dfd2677ce59178e308559c2ae7d97a3a7c2a4c6f6b73bdccf37a8d2ce',
-  },
-  {
     slug: 'prehistoric-discovery',
     assets: [
       'prehistoric-discovery.webp',
@@ -153,18 +127,33 @@ const forbiddenRuntimeMetadata = /\/Users\/|\bprovider\b|model_id|\bprice\b|\bdi
 const privateKeyMaterial = /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|private[ _-]?key/i
 const RESTORED_RECIPE_AUDIT = [
   ['com.storystudio.thumbnail.annotated-business-board', 'content-packs/free-starters/thumbnail/annotated-business-board'],
-  ['com.storystudio.thumbnail.centered-hero-headline', 'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1'],
   ['com.storystudio.thumbnail.curiosity-question-cartoon', 'content-packs/free-starters/thumbnail/curiosity-question-cartoon'],
   ['com.storystudio.thumbnail.documentary-label-tableau', 'content-packs/free-starters/thumbnail/documentary-label-tableau'],
-  ['com.storystudio.thumbnail.portrait-block-right', 'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1'],
   ['com.storystudio.thumbnail.prehistoric-discovery', 'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1'],
-  ['com.storystudio.thumbnail.dreamscape-story-window', 'content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1'],
   ['com.storystudio.thumbnail.archival-map-investigation', 'content-packs/paid/archival-ledger/thumbnail/archival-map-investigation'],
   ['com.storystudio.thumbnail.editorial-psychology-symbolic-split', 'content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split'],
-  ['com.storystudio.thumbnail.animal-hardship-annotation', 'content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation'],
+  ['com.storystudio.thumbnail.animal-hardship-annotation', 'content-packs/free-starters/thumbnail/animal-hardship-annotation'],
   ['com.storystudio.thumbnail.prehistoric-survival-title-card', 'content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card'],
   ['com.storystudio.thumbnail.dreamlike-story-title-card', 'content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card'],
 ] as const
+const PREPARED_RECORDS = [
+  ['com.storystudio.pack.thumbnail.prehistoric-survival-title-card', '1.0.0', PREHISTORIC_SURVIVAL_ROOT],
+  ['com.storystudio.pack.thumbnail.dreamlike-story-title-card', '1.0.0', DREAMLIKE_RECIPE_ROOT],
+  ['com.storystudio.pack.style.hand-drawn-hardship-cartoon', '1.0.0', STYLE_ROOT],
+  ['com.storystudio.pack.style.dreamlike-luminous-sleep-illustration', '1.0.0', DREAMLIKE_STYLE_ROOT],
+] as const
+const WITHDRAWN_RECORDS = [
+  ['com.storystudio.pack.thumbnail.animal-hardship-annotation', '1.0.0', RECIPE_ROOT],
+  ['com.storystudio.pack.thumbnail.centered-hero-headline', '1.0.1', path.join(FREE_STARTER_ROOT, 'thumbnail', 'centered-hero-headline-v1.0.1')],
+  ['com.storystudio.pack.thumbnail.portrait-block-right', '1.0.1', path.join(FREE_STARTER_ROOT, 'thumbnail', 'portrait-block-right-v1.0.1')],
+  ['com.storystudio.pack.thumbnail.dreamscape-story-window', '1.0.1', path.join(FREE_STARTER_ROOT, 'thumbnail', 'dreamscape-story-window-v1.0.1')],
+  ['com.storystudio.pack.kit.symbolic-psychology-studio', '1.0.1', path.join(ROOT, 'content-packs', 'symbolic-psychology-studio', 'kit', 'symbolic-psychology-studio-v1.0.1')],
+] as const
+const WITHDRAWN_FREE_STARTER_DIRECTORIES = new Set([
+  'centered-hero-headline-v1.0.1',
+  'portrait-block-right-v1.0.1',
+  'dreamscape-story-window-v1.0.1',
+])
 
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
@@ -245,30 +234,35 @@ async function assertFreeStarterWebp(root: string, asset: string, ownerId: strin
   assert.equal(record.sha256, sha256(bytes))
 }
 
-test('Animal Hardship Annotation has three ledgered, decodable original-generated recipe previews', async () => {
-  await assertPack(
-    RECIPE_ROOT,
-    'com.storystudio.pack.thumbnail.animal-hardship-annotation',
-    'com.storystudio.sku.thumbnail.animal-hardship-annotation',
-    'com.storystudio.family.thumbnail.animal-hardship-annotation',
-  )
-  const recipe = await readJson(path.join(RECIPE_ROOT, 'content', 'thumbnail-recipe.json'))
-  const ledger = await fs.readFile(path.join(RESTORATION_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
-  assert.doesNotMatch(JSON.stringify(recipe), forbiddenRuntimeMetadata)
-  parseContentPackDocument('thumbnail-recipe', recipe)
-  assert.equal(recipe.id, 'com.storystudio.thumbnail.animal-hardship-annotation')
-  assert.equal(recipe.layout, 'hero')
-  assert.equal(recipe.aspect_ratio, '16:9')
-  assert.equal(recipe.title_mode, 'ai')
-  assert.equal(recipe.headline_mode, 'episode-title')
-  assert.deepEqual(recipe.compatible_formula_ids, [FORMULA_ID])
-  assert.deepEqual(recipe.preview_assets, RECIPE_ASSETS.map(asset => `assets/${asset}`))
-  assert.match(String(recipe.composition_guidance), /one hand-drawn arrow/i)
-  assert.match(String(recipe.composition_guidance), /3[–-]6 word handwritten hardship annotation/i)
-  assert.match(String(recipe.headline_guidance), /full.*episode title/i)
-  for (const asset of RECIPE_ASSETS) await assertWebp(RECIPE_ROOT, asset, ledger)
-  for (const asset of RECIPE_ASSETS) assertOriginalGeneratedPreview(ledger, asset)
-  assert.match(String(recipe.avoid_elements), /copied channel title|multiple arrows|generic curiosity-only|watermarks|logos|malformed text|copied trade dress/i)
+test('prepared sources are authored while obsolete reservations are withdrawn and source-absent', async () => {
+  const registry = await readJson(path.join(ROOT, 'content-packs', 'authoring-registry.json')) as {
+    records: Array<{ pack_id: string, version: string, receipt_ref: string, status: string }>
+    transitions: Array<{ request: { pack_id: string, version: string, receipt_ref: string, changes: { status?: string } } }>
+  }
+  for (const [packId, version, sourceRoot] of PREPARED_RECORDS) {
+    const record = registry.records.find(candidate => candidate.pack_id === packId && candidate.version === version)
+    assert.ok(record, `${packId}@${version} remains registered`)
+    assert.equal(record.status, 'authored')
+    assert.equal(registry.transitions.filter(transition => (
+      transition.request.pack_id === packId
+      && transition.request.version === version
+      && transition.request.receipt_ref === record.receipt_ref
+      && transition.request.changes.status === 'authored'
+    )).length, 1, `${packId}@${version} has one receipt-bound promotion`)
+    await fs.access(sourceRoot)
+  }
+  for (const [packId, version, sourceRoot] of WITHDRAWN_RECORDS) {
+    const record = registry.records.find(candidate => candidate.pack_id === packId && candidate.version === version)
+    assert.ok(record, `${packId}@${version} remains a lineage tombstone`)
+    assert.equal(record.status, 'withdrawn')
+    assert.equal(registry.transitions.filter(transition => (
+      transition.request.pack_id === packId
+      && transition.request.version === version
+      && transition.request.receipt_ref === record.receipt_ref
+      && transition.request.changes.status === 'withdrawn'
+    )).length, 1, `${packId}@${version} has one receipt-bound withdrawal`)
+    await assert.rejects(fs.access(sourceRoot), { code: 'ENOENT' })
+  }
 })
 
 test('Prehistoric Survival Title Card remains a full-title survival recipe distinct from Prehistoric Discovery', async () => {
@@ -317,7 +311,7 @@ test('Prehistoric Survival Title Card remains a full-title survival recipe disti
   })
 })
 
-test('Hand-Drawn Hardship Cartoon has one ledgered, decodable owner-derived style preview', async () => {
+test('Hand-Drawn Hardship Cartoon retains the approved complete-animal preview and original-generation provenance', async () => {
   await assertPack(
     STYLE_ROOT,
     'com.storystudio.pack.style.hand-drawn-hardship-cartoon',
@@ -345,6 +339,17 @@ test('Hand-Drawn Hardship Cartoon has one ledgered, decodable owner-derived styl
   assert.match(String(style.negative_prompt), /malformed anatomy/i)
   assert.match(String(style.negative_prompt), /malformed text/i)
   await assertWebp(STYLE_ROOT, STYLE_ASSET, ledger)
+  assert.equal(
+    sha256(await fs.readFile(path.join(STYLE_ROOT, 'assets', STYLE_ASSET))),
+    APPROVED_HAND_DRAWN_HARDSHIP_SHA256,
+    'the rejected mayfly crop must never return as the Style preview',
+  )
+  const row = ledger.split('\n').find(line => line.includes(`style/hand-drawn-hardship-cartoon/assets/${STYLE_ASSET}`))
+  assert.ok(row, 'the Style preview retains its own provenance row')
+  assert.match(row, /nature-prehistoric\/receipt\.json#animal-hardship-annotation-1\.png/)
+  assert.match(row, /e7053b3cd0df7a7aebf1419de7a651b90854242ea4583721e78273ea946b18bd/)
+  assert.match(row, /publisher-created tool-generated original under recorded owner authorization/i)
+  assert.doesNotMatch(row, /saved-output|owner-supplied legacy project output/i)
 })
 
 test('Impasto Psychological Animals retains the Editorial recipe and supplies a distinct text-free style preview', async () => {
@@ -540,8 +545,14 @@ test('every published free-starter Recipe version keeps its exact bytes, whichev
     .filter(name => families.includes(name.replace(VERSION_SUFFIX, '')))
     .sort()
 
-  assert.deepEqual(onDisk, Object.keys(manifest.published_directories).sort(),
-    'every gallery directory on disk must be pinned, and every pinned directory must exist')
+  assert.deepEqual(onDisk, Object.keys(manifest.published_directories)
+    .filter(name => families.includes(name.replace(VERSION_SUFFIX, '')))
+    .filter(name => !WITHDRAWN_FREE_STARTER_DIRECTORIES.has(name))
+    .sort(), 'every non-withdrawn gallery directory on disk must be pinned')
+  for (const name of WITHDRAWN_FREE_STARTER_DIRECTORIES) {
+    assert.ok(manifest.published_directories[name], `${name} historical hashes remain ledgered`)
+    await assert.rejects(fs.access(path.join(thumbnailRoot, name)), { code: 'ENOENT' })
+  }
 
   const declared = new Map<string, { packId: string, version: string, hashes: Record<string, string> }>()
   for (const name of onDisk) {
@@ -588,7 +599,7 @@ test('every published free-starter Recipe version keeps its exact bytes, whichev
   }
 })
 
-test('published 1.0.0 free-starter sources retain their historical bytes while 1.0.1 successors carry the enriched galleries', async () => {
+test('the remaining free-starter successor retains its historical bytes and enriched gallery', async () => {
   for (const gallery of VERSIONED_FREE_STARTER_GALLERIES) {
     const successorRoot = path.join(FREE_STARTER_ROOT, 'thumbnail', `${gallery.slug}-v1.0.1`)
     const successorManifest = await readJson(path.join(successorRoot, 'pack.json'))
@@ -623,7 +634,6 @@ test('published 1.0.0 free-starter sources retain their historical bytes while 1
 
 test('Restoration runtime documents retain no owner paths or commercial/provider metadata', async () => {
   const runtimeDocuments = await Promise.all([
-    readJson(path.join(RECIPE_ROOT, 'content', 'thumbnail-recipe.json')),
     readJson(path.join(STYLE_ROOT, 'content', 'visual-style.json')),
     readJson(path.join(IMPASTO_STYLE_ROOT, 'content', 'visual-style.json')),
     readJson(path.join(DREAMLIKE_RECIPE_ROOT, 'content', 'thumbnail-recipe.json')),

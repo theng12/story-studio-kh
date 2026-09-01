@@ -17,30 +17,21 @@ const TEST_MIN_APP_VERSION = '9.9.9'
 
 const RESTORED_RECIPES = [
   ['com.storystudio.thumbnail.annotated-business-board', 'content-packs/free-starters/thumbnail/annotated-business-board'],
-  ['com.storystudio.thumbnail.centered-hero-headline', 'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1'],
   ['com.storystudio.thumbnail.curiosity-question-cartoon', 'content-packs/free-starters/thumbnail/curiosity-question-cartoon'],
   ['com.storystudio.thumbnail.documentary-label-tableau', 'content-packs/free-starters/thumbnail/documentary-label-tableau'],
-  ['com.storystudio.thumbnail.portrait-block-right', 'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1'],
   ['com.storystudio.thumbnail.prehistoric-discovery', 'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1'],
-  ['com.storystudio.thumbnail.dreamscape-story-window', 'content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1'],
   ['com.storystudio.thumbnail.archival-map-investigation', 'content-packs/paid/archival-ledger/thumbnail/archival-map-investigation'],
   ['com.storystudio.thumbnail.editorial-psychology-symbolic-split', 'content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split'],
-  ['com.storystudio.thumbnail.animal-hardship-annotation', 'content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation'],
+  ['com.storystudio.thumbnail.animal-hardship-annotation', 'content-packs/free-starters/thumbnail/animal-hardship-annotation'],
   ['com.storystudio.thumbnail.prehistoric-survival-title-card', 'content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card'],
   ['com.storystudio.thumbnail.dreamlike-story-title-card', 'content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card'],
 ]
 
 const QUALIFIED_SOURCES = [
-  'content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation',
   'content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon',
-  'content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals',
   'content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card',
   'content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card',
   'content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration',
-  'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1',
-  'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1',
-  'content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1',
-  'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1',
 ]
 
 const PRIVATE_MATERIAL = /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|private[ _-]?key/i
@@ -69,7 +60,7 @@ function assertNoPrivateMaterial(bytes, label, privateKeyPem) {
   assert.equal(Buffer.from(bytes).includes(Buffer.from(privateKeyPem)), false, `${label} must not contain the ephemeral private key`)
 }
 
-test('the restored thumbnail lineup has twelve original 16:9 recipe galleries', async t => {
+test('the live thumbnail lineup keeps 16:9 recipe galleries after source-only withdrawals', async t => {
   for (const [id, relativeDirectory] of RESTORED_RECIPES) {
     await t.test(id, async () => {
       const sourceDirectory = join(ROOT, relativeDirectory)
@@ -91,7 +82,7 @@ test('the restored thumbnail lineup has twelve original 16:9 recipe galleries', 
   }
 })
 
-test('ten restored source packs build deterministically and validate with one ephemeral key', async t => {
+test('four prepared sources build deterministically and validate with one ephemeral key', async t => {
   const temporary = await mkdtemp(join(tmpdir(), 'legacy-thumbnail-restoration-'))
   t.after(async () => {
     await rm(temporary, { recursive: true, force: true })

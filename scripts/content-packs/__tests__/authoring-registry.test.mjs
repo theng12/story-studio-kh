@@ -813,6 +813,29 @@ test('withdraws an unmaterialized reservation permanently without changing its o
   assert.deepEqual(await readFile(copy), beforeRejections)
 })
 
+test('withdraws an older reserved version when an authored same-lineage alternative already exists', async (t) => {
+  // This catches a validator that mistakes a predecessor being closed for a
+  // new successor being issued after withdrawal.
+  const { reserveAuthoringBatch, transitionAuthoringRecord } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const firstRequest = reservationRequest((await registrySnapshot(copy)).revision)
+  const predecessor = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: firstRequest })
+  const successorRequest = successorReservation({ receipt_ref: predecessor.receipt_ref, ...firstRequest.records[0] }, predecessor.revision)
+  const successor = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: successorRequest })
+
+  const withdrawn = await transitionAuthoringRecord({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: transitionRequest({ ...predecessor, record: firstRequest.records[0] }, successor.revision, { status: 'withdrawn' }),
+  })
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  assert.equal(registry.records.find(record => record.pack_id === firstRequest.records[0].pack_id && record.version === '1.0.0').status, 'withdrawn')
+  assert.equal(registry.records.find(record => record.pack_id === firstRequest.records[0].pack_id && record.version === '1.0.1').status, 'reserved')
+  assert.equal(withdrawn.revision, successor.revision + 1)
+})
+
 test('refuses withdrawal when the reserved source has been materialized without changing registry bytes', async (t) => {
   // This catches treating post-source retirement as pre-sale withdrawal.
   const { reserveAuthoringBatch, transitionAuthoringRecord } = await import(registryModule)
@@ -835,17 +858,17 @@ test('refuses withdrawal when the reserved source has been materialized without 
   assert.deepEqual(await readFile(copy), before)
 })
 
-test('refuses Channel Kit authored promotion but permits withdrawal of the reserved historical coordinator', async (t) => {
-  // This catches a new coordinator entering the authoring lifecycle while
-  // keeping the one existing unsold coordinator safely closable.
+test('keeps the withdrawn historical coordinator terminal', async (t) => {
+  // This catches a new coordinator entering the authoring lifecycle after the
+  // one legacy unsold coordinator has been closed.
   const { transitionAuthoringRecord } = await import(registryModule)
   const root = await temporaryRepository()
   t.after(() => rm(root, { recursive: true, force: true }))
   const copy = join(root, 'content-packs', 'authoring-registry.json')
   const registry = JSON.parse(await readFile(copy, 'utf8'))
   const coordinator = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.kit.symbolic-psychology-studio' && record.version === '1.0.1')
-  assert.ok(coordinator, 'the legacy Symbolic Psychology coordinator must remain registered for withdrawal')
-  assert.equal(coordinator.status, 'reserved')
+  assert.ok(coordinator, 'the legacy Symbolic Psychology coordinator must remain registered as a tombstone')
+  assert.equal(coordinator.status, 'withdrawn')
   const request = {
     expected_revision: registry.revision,
     coordinator: { task: 'legacy-content-closure', branch: 'codex/legacy-content-closure' },
@@ -857,24 +880,14 @@ test('refuses Channel Kit authored promotion but permits withdrawal of the reser
   const before = await readFile(copy)
   await assert.rejects(
     transitionAuthoringRecord({ registryPath: copy, repositoryRoot: root, request }),
-    /Channel Kit.*historical|Channel Kit.*read-only/i,
+    /withdrawn|terminal/i,
   )
   assert.deepEqual(await readFile(copy), before)
-
-  await rm(join(root, coordinator.source_path), { recursive: true, force: true })
-
-  const withdrawn = await transitionAuthoringRecord({
-    registryPath: copy,
-    repositoryRoot: root,
-    request: { ...request, changes: { status: 'withdrawn' } },
-  })
-  assert.equal(JSON.parse(await readFile(copy, 'utf8')).records.find(record => record.pack_id === coordinator.pack_id && record.version === coordinator.version).status, 'withdrawn')
-  assert.equal(withdrawn.revision, registry.revision + 1)
 })
 
-test('refuses live Channel Kit stocking-proposal mutation without changing registry bytes', async (t) => {
-  // This catches a proposal-only event making a historical Kit stockable after
-  // Kit reservation and promotion have already been closed.
+test('refuses withdrawn Channel Kit stocking-proposal mutation without changing registry bytes', async (t) => {
+  // This catches a proposal-only event making the historical Kit stockable
+  // after the closure transition.
   const { transitionAuthoringRecord } = await import(registryModule)
   const root = await temporaryRepository()
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -882,6 +895,7 @@ test('refuses live Channel Kit stocking-proposal mutation without changing regis
   const registry = JSON.parse(await readFile(copy, 'utf8'))
   const coordinator = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.kit.symbolic-psychology-studio' && record.version === '1.0.1')
   assert.ok(coordinator)
+  assert.equal(coordinator.status, 'withdrawn')
   const before = await readFile(copy)
 
   await assert.rejects(
@@ -897,7 +911,7 @@ test('refuses live Channel Kit stocking-proposal mutation without changing regis
         changes: { stocking_proposal: { family: { status: 'reserved' } } },
       },
     }),
-    /Channel Kit.*stocking|stocking.*Channel Kit/i,
+    /withdrawn|terminal/i,
   )
   assert.deepEqual(await readFile(copy), before)
 })
