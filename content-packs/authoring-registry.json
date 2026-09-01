@@ -1,5 +1,5 @@
 {
-  "revision": 136,
+  "revision": 140,
   "batches": [
     {
       "revision": 2,
@@ -5135,6 +5135,74 @@
           "status": "authored"
         }
       }
+    },
+    {
+      "revision": 137,
+      "transition_ref": "lifecycle:d3f14b302889bdbff58c38554696cc2628ae4e64294c680f2028948e66470aa6",
+      "request": {
+        "expected_revision": 136,
+        "coordinator": {
+          "task": "legacy-content-closure-task-6",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.pastoral-daily-reflection",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 138,
+      "transition_ref": "lifecycle:c4112427f1e973cd54ed5051e0c3827c17d9c554d348e728ccb8c668fcfd1cb8",
+      "request": {
+        "expected_revision": 137,
+        "coordinator": {
+          "task": "legacy-content-closure-task-6",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.pastoral-expository-teaching",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 139,
+      "transition_ref": "lifecycle:6456c77b88fb09a0fe4d193c964e579a6b23e647a6f17a9ec88af573c97f985e",
+      "request": {
+        "expected_revision": 138,
+        "coordinator": {
+          "task": "legacy-content-closure-task-6",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.pov-criminal-hierarchies",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 140,
+      "transition_ref": "lifecycle:b18338d5fe511a09121c55829ba13ecaaf696fffe355957699b031d32c992e5d",
+      "request": {
+        "expected_revision": 139,
+        "coordinator": {
+          "task": "legacy-content-closure-task-6",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.topic.pov-law-enforcement",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
     }
   ],
   "records": [
@@ -9579,7 +9647,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/pastoral-daily-reflection",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -9602,7 +9670,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/pastoral-expository-teaching",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -9625,7 +9693,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/pov-criminal-hierarchies",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -9648,7 +9716,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/legacy-niche-conversion/topic/pov-law-enforcement",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {

@@ -32,6 +32,10 @@ const TOPICS = [
   ['natural-world-fungi', 'natural-world-fungi', ['com.storystudio.formula.natural-world-explained', 'com.storystudio.formula.counted-explainer']],
   ['natural-world-insects', 'natural-world-insects', ['com.storystudio.formula.natural-world-explained', 'com.storystudio.formula.counted-explainer']],
   ['natural-world-plants', 'natural-world-plants', ['com.storystudio.formula.natural-world-explained', 'com.storystudio.formula.counted-explainer']],
+  ['pastoral-daily-reflection', 'pastoral-daily-reflection', ['com.storystudio.formula.pastoral-scripture']],
+  ['pastoral-expository-teaching', 'pastoral-expository-teaching', ['com.storystudio.formula.pastoral-scripture']],
+  ['pov-criminal-hierarchies', 'pov-criminal-hierarchies', ['com.storystudio.formula.pov-your-life-as']],
+  ['pov-law-enforcement', 'pov-law-enforcement', ['com.storystudio.formula.pov-your-life-as']],
 ] as const
 
 async function formula(slug: string) {
@@ -228,8 +232,9 @@ test('legacy Topic adapters preserve subjects, reciprocal compatibility, determi
   for (const [slug, legacySlug, formulaIds] of TOPICS) {
     const [legacy, converted] = await Promise.all([legacyTopic(legacySlug), convertedTopic(slug)])
     assert.deepEqual(converted.compatibleFormulaIds, formulaIds)
-    for (const subject of legacy.subjects) assert.ok(converted.subjects.includes(subject), `${slug} preserves ${subject}`)
-    const capacityPerSubject = converted.coverageProfiles ? 2 : 1
+    assert.deepEqual(converted.subjects, legacy.subjects, `${slug} preserves the exact ordered subject corpus`)
+    const capacityPerSubject = converted.maxSiblingsPerSubject
+    assert.ok(capacityPerSubject, `${slug} declares a finite per-subject capacity`)
     assert.equal(converted.maxSiblingsPerSubject, capacityPerSubject)
     assert.ok(converted.coverageGroups?.length || converted.coverageProfiles?.length)
     for (const formulaId of formulaIds) assert.equal(isCompatible(converted, formulaId), true, `${slug} resolves ${formulaId}`)

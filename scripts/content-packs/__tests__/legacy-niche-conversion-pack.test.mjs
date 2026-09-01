@@ -104,6 +104,38 @@ const TOPICS = [
     safety: /conscious decision|exclude fungi|exclude algae/i,
     organismProfiles: true,
   },
+  {
+    slug: 'pastoral-daily-reflection',
+    legacyPath: 'electron/server/topic-packs/pastoral-daily-reflection.json',
+    formulaIds: ['com.storystudio.formula.pastoral-scripture'],
+    safety: /scripture text|quotation.*interpretation|interpretation.*application/i,
+    siblingCapacity: 2,
+    task6Lane: 'faith',
+  },
+  {
+    slug: 'pastoral-expository-teaching',
+    legacyPath: 'electron/server/topic-packs/pastoral-expository-teaching.json',
+    formulaIds: ['com.storystudio.formula.pastoral-scripture'],
+    safety: /scripture text|quotation.*interpretation|interpretation.*application/i,
+    siblingCapacity: 2,
+    task6Lane: 'faith',
+  },
+  {
+    slug: 'pov-criminal-hierarchies',
+    legacyPath: 'electron/server/topic-packs/pov-criminal-hierarchies.json',
+    formulaIds: ['com.storystudio.formula.pov-your-life-as'],
+    safety: /non-glorifying|do not glorify/i,
+    siblingCapacity: 2,
+    task6Lane: 'institutional',
+  },
+  {
+    slug: 'pov-law-enforcement',
+    legacyPath: 'electron/server/topic-packs/pov-law-enforcement.json',
+    formulaIds: ['com.storystudio.formula.pov-your-life-as'],
+    safety: /due process|presumption of innocence/i,
+    siblingCapacity: 2,
+    task6Lane: 'institutional',
+  },
 ]
 
 async function json(url) {
@@ -294,16 +326,7 @@ test('legacy Formula conversion excludes retired products and Channel Kit metada
       item_id: `com.storystudio.topic.${slug}`,
       kind: 'topic-pack',
       source_path: `content-packs/legacy-niche-conversion/topic/${slug}`,
-      status: [
-        'ancient-humans-environments',
-        'ancient-humans-social-life',
-        'ancient-humans-technology',
-        'deep-time-speculative-earth',
-        'economics-ancient-civilizations',
-        'natural-world-fungi',
-        'natural-world-insects',
-        'natural-world-plants',
-      ].includes(slug) ? 'authored' : 'reserved',
+      status: 'authored',
       family: `com.storystudio.family.topic.${slug}`,
       sku: `com.storystudio.sku.topic.${slug}`,
     })),
@@ -364,7 +387,7 @@ test('legacy Topic sources preserve every legacy subject and strict bounded plan
       assert.equal(new Set(document[field]).size, document[field].length, `${spec.slug} ${field} must not pad duplicates`)
     }
     assert.ok(document.coverage_groups?.length || document.coverage_profiles?.length, `${spec.slug} needs authored finite coverage`)
-    assert.equal(document.max_siblings_per_subject, spec.organismProfiles ? 2 : 1, `${spec.slug} declares only its authored per-subject capacity`)
+    assert.equal(document.max_siblings_per_subject, spec.siblingCapacity ?? (spec.organismProfiles ? 2 : 1), `${spec.slug} declares only its authored per-subject capacity`)
     assert.ok(document.exclusions.some(exclusion => spec.safety.test(exclusion)), `${spec.slug} needs a domain-specific safety exclusion`)
     assert.match(document.prompt_context, spec.safety, `${spec.slug} prompt context must retain its safety boundary`)
     if (spec.organismProfiles) {
@@ -391,6 +414,42 @@ test('legacy Topic sources preserve every legacy subject and strict bounded plan
     if (spec.slug === 'deep-time-speculative-earth') {
       assert.match(document.prompt_context, /physical|evidence/i)
       assert.ok(document.exclusions.some(exclusion => /counterfactual|what-if|speculative/i.test(exclusion)))
+    }
+  }
+})
+
+test('legacy Topic pastoral and institutional leaves enforce distinct evidence and safety boundaries', async () => {
+  const rows = await Promise.all(TOPICS.filter(spec => spec.task6Lane).map(async spec => ({
+    spec,
+    document: (await topicSource(spec)).document,
+  })))
+
+  for (const field of ['episode_objects', 'time_place_scopes', 'mechanisms', 'evidence_lenses']) {
+    for (let left = 0; left < rows.length; left++) {
+      for (let right = left + 1; right < rows.length; right++) {
+        const overlap = rows[left].document[field].filter(value => rows[right].document[field].includes(value))
+        assert.deepEqual(overlap, [], `${rows[left].spec.slug} and ${rows[right].spec.slug} need materially distinct ${field}`)
+      }
+    }
+  }
+
+  for (const { spec, document } of rows) {
+    const contract = [document.prompt_context, ...document.exclusions, ...(document.evidence_expectations ?? [])].join(' ')
+    assert.ok(document.coverage_groups?.every(group => group.episode_objects.length === 2), `${spec.slug} declares two coherent finite planning tuples`)
+    if (spec.task6Lane === 'faith') {
+      assert.match(contract, /scripture text|quotation/i)
+      assert.match(contract, /interpretation/i)
+      assert.match(contract, /application/i)
+      assert.match(contract, /do not fabricate|verify.*quotation|verified translation/i)
+      assert.match(contract, /first-audience|historical context|literary context|exegesis/i)
+    } else {
+      assert.match(contract, /non-glorifying|do not glorify/i)
+      assert.match(contract, /operational criminal guidance|operational instructions/i)
+      assert.match(contract, /evasion|concealment|circumvention/i)
+      assert.match(contract, /victim|community impact/i)
+      assert.match(contract, /institutional records|court records|official records|historical scholarship/i)
+      assert.match(contract, /uncertainty/i)
+      assert.match(contract, /due process|presumption of innocence/i)
     }
   }
 })

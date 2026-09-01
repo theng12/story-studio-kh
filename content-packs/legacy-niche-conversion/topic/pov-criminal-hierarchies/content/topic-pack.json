@@ -1,0 +1,152 @@
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.pov-criminal-hierarchies",
+  "name": "Criminal Hierarchies",
+  "description": "Roles and ladders inside organized crime, smuggling, piracy, and outlaw networks examined through institutional evidence and human consequences.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.pov-your-life-as"
+  ],
+  "subjects": [
+    "pirate crew",
+    "Prohibition-era bootlegging ring",
+    "medieval bandit company",
+    "smuggling network",
+    "organized crime family",
+    "art theft crew",
+    "highway robbery gang",
+    "counterfeit coin operation",
+    "cattle rustling outfit",
+    "river pirate crew",
+    "black-market trading network",
+    "prison hierarchy",
+    "cybercrime group",
+    "drug trafficking cartel",
+    "illegal gambling syndicate",
+    "poaching ring",
+    "train robbery crew",
+    "ancient tomb-robbing gang",
+    "corsair fleet",
+    "urban pickpocket network"
+  ],
+  "episode_objects": [
+    "a documented rank chart annotated with duties, coercive power, and personal exposure",
+    "a historical prosecution record centered on victims, witnesses, and consequences rather than technique",
+    "a role transition reconstructed from testimony, financial evidence, and institutional response",
+    "a collapse timeline showing internal pressure, public harm, investigation, and legal aftermath"
+  ],
+  "time_place_scopes": [
+    "one historically bounded organization before and after a documented leadership change",
+    "a single court case and the affected community during the period established by evidence",
+    "an institution at one verified stage of expansion, conflict, or fragmentation",
+    "the interval between documented public harm and the accountable legal or political response"
+  ],
+  "mechanisms": [
+    "coercion, patronage, and unequal risk distribute authority without romanticizing status",
+    "secrecy and internal discipline impose costs on subordinates, victims, families, and communities",
+    "resource control and personal dependency shape advancement while increasing vulnerability",
+    "institutional pressure, testimony, and internal fracture weaken authority and expose consequences"
+  ],
+  "evidence_lenses": [
+    "court records and corroborated testimony separated into allegation, finding, and conviction",
+    "archival reporting and historical scholarship checked against victim and community accounts",
+    "financial records, commission findings, and institutional archives with gaps stated openly",
+    "sentencing records, public inquiries, and community histories interpreted within due-process limits"
+  ],
+  "exclusions": [
+    "Use a non-glorifying frame; do not turn criminal rank, wealth, violence, or notoriety into aspiration.",
+    "Do not provide operational criminal guidance, step-by-step tactics, concealment methods, or evasion advice.",
+    "Center victim and community impact as well as coercion, exploitation, injury, and legal consequence.",
+    "Respect due process and the presumption of innocence; label allegation, charge, finding, and conviction accurately.",
+    "State uncertainty and contested evidence instead of inventing private motives or undocumented hierarchy."
+  ],
+  "max_siblings_per_subject": 2,
+  "prompt_context": "Build a non-glorifying institutional POV from court records, official inquiries, archival reporting, and historical scholarship. Show hierarchy through duties, coercion, vulnerability, victim and community impact, and consequences. Never provide operational criminal guidance, concealment, or evasion instruction. Preserve uncertainty, due process, and the presumption of innocence by distinguishing allegations from findings and convictions.",
+  "idea_axes": [
+    {
+      "id": "institutional-pressure",
+      "label": "Institutional pressure",
+      "values": [
+        "internal coercion",
+        "resource dependency",
+        "public exposure",
+        "legal accountability"
+      ]
+    }
+  ],
+  "coverage_groups": [
+    {
+      "subjects": [
+        "pirate crew",
+        "Prohibition-era bootlegging ring",
+        "medieval bandit company",
+        "smuggling network",
+        "organized crime family",
+        "art theft crew",
+        "highway robbery gang",
+        "counterfeit coin operation",
+        "cattle rustling outfit",
+        "river pirate crew"
+      ],
+      "episode_objects": [
+        "a documented rank chart annotated with duties, coercive power, and personal exposure",
+        "a historical prosecution record centered on victims, witnesses, and consequences rather than technique"
+      ],
+      "time_place_scopes": [
+        "one historically bounded organization before and after a documented leadership change",
+        "a single court case and the affected community during the period established by evidence"
+      ],
+      "mechanisms": [
+        "coercion, patronage, and unequal risk distribute authority without romanticizing status",
+        "secrecy and internal discipline impose costs on subordinates, victims, families, and communities"
+      ],
+      "evidence_lenses": [
+        "court records and corroborated testimony separated into allegation, finding, and conviction",
+        "archival reporting and historical scholarship checked against victim and community accounts"
+      ]
+    },
+    {
+      "subjects": [
+        "black-market trading network",
+        "prison hierarchy",
+        "cybercrime group",
+        "drug trafficking cartel",
+        "illegal gambling syndicate",
+        "poaching ring",
+        "train robbery crew",
+        "ancient tomb-robbing gang",
+        "corsair fleet",
+        "urban pickpocket network"
+      ],
+      "episode_objects": [
+        "a role transition reconstructed from testimony, financial evidence, and institutional response",
+        "a collapse timeline showing internal pressure, public harm, investigation, and legal aftermath"
+      ],
+      "time_place_scopes": [
+        "an institution at one verified stage of expansion, conflict, or fragmentation",
+        "the interval between documented public harm and the accountable legal or political response"
+      ],
+      "mechanisms": [
+        "resource control and personal dependency shape advancement while increasing vulnerability",
+        "institutional pressure, testimony, and internal fracture weaken authority and expose consequences"
+      ],
+      "evidence_lenses": [
+        "financial records, commission findings, and institutional archives with gaps stated openly",
+        "sentencing records, public inquiries, and community histories interpreted within due-process limits"
+      ]
+    }
+  ],
+  "evidence_expectations": [
+    "Use institutional records and corroborated historical evidence without treating accusations as established facts.",
+    "Include victim and community impact and state whose perspective the surviving record omits.",
+    "Keep operational instructions, evasion, and concealment details out even when sources contain them."
+  ],
+  "compatibility_rules": [
+    "Use only with POV Your Life As and retain second-person immediacy without admiration or procedural detail."
+  ],
+  "tags": [
+    "crime",
+    "hierarchy",
+    "outlaws"
+  ]
+}

@@ -163,3 +163,32 @@ test('Natural World and Counted Explainer releases reciprocally admit all three 
     assert.deepEqual(release.document.compatible_topic_pack_ids.slice(-3), topicIds)
   }
 })
+
+test('Pastoral Scripture and POV Your Life As reciprocally admit only their exact legacy Topic conversions', async () => {
+  const cases = [
+    {
+      formulaPath: 'content-packs/legacy-niche-conversion/formula/pastoral-scripture/content/series-formula.json',
+      topicIds: [
+        'com.storystudio.topic.pastoral-daily-reflection',
+        'com.storystudio.topic.pastoral-expository-teaching',
+      ],
+    },
+    {
+      formulaPath: 'content-packs/free-starters/formula/pov-your-life-as-v1.0.2/content/series-formula.json',
+      topicIds: [
+        'com.storystudio.topic.pov-law-enforcement',
+        'com.storystudio.topic.pov-criminal-hierarchies',
+      ],
+    },
+  ]
+
+  for (const row of cases) {
+    const formula = JSON.parse(await readFile(new URL(`../../../${row.formulaPath}`, import.meta.url), 'utf8'))
+    for (const topicId of row.topicIds) {
+      assert.ok(formula.compatible_topic_pack_ids.includes(topicId), `${formula.id} admits ${topicId}`)
+      const slug = topicId.replace('com.storystudio.topic.', '')
+      const topic = JSON.parse(await readFile(new URL(`../../../content-packs/legacy-niche-conversion/topic/${slug}/content/topic-pack.json`, import.meta.url), 'utf8'))
+      assert.deepEqual(topic.compatible_formula_ids, [formula.id], `${topicId} admits only ${formula.id}`)
+    }
+  }
+})
