@@ -46,7 +46,6 @@ const KNOWN_UNRESOLVED = new Set([
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.1/content/thumbnail-recipe.json::com.storystudio.formula.fungi',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.1/content/thumbnail-recipe.json::com.storystudio.formula.insects',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.1/content/thumbnail-recipe.json::com.storystudio.formula.plants',
-  'content-packs/free-starters/thumbnail/portrait-block-right/content/thumbnail-recipe.json::com.storystudio.formula.prayer',
   'content-packs/free-starters/topic/economics-businesses/content/topic-pack.json::com.storystudio.formula.listicle-explainer',
   'content-packs/free-starters/topic/economics-businesses/content/topic-pack.json::com.storystudio.formula.pov-hustle',
   'content-packs/free-starters/topic/economics-businesses-v1.0.1/content/topic-pack.json::com.storystudio.formula.listicle-explainer',

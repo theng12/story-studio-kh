@@ -1,0 +1,246 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.build-under-constraints",
+  "name": "Build Under Constraints",
+  "description": "First-person, point-of-view creator content where ONE on-screen character walks the viewer through an aspirational, actionable plan — 'If I had $1000 today, here's exactly what I'd do', day-in-the-life, side-hustle challenges. Aspirational, candid, energetic, concrete. Pairs best with the Continuity format (character-locked img2img) where the same person carries every scene. Layer it when the channel is creator-led advice / money / productivity / challenge content.",
+  "channel_promise": "Constraint → concrete plan → trade-off",
+  "audience": "Viewers who want a relatable, first-person walkthrough they can imagine themselves doing — aspirational money / productivity / self-improvement audiences.",
+  "formula_family": "Immersive paths",
+  "tagline": "Here's exactly what I'd do.",
+  "perspective_policy": "Second-person practical simulation, never a hype monologue.",
+  "narrative_quality_contract": {
+    "opening_policy": "Start with the constraint, resource limit, or decision the viewer must work through.",
+    "forbidden_patterns": [
+      "Imagine this",
+      "You are about to",
+      "Watch what happens next",
+      "get rich quick"
+    ],
+    "required_habits": [
+      "Show trade-offs and consequences.",
+      "Keep advice specific and falsifiable.",
+      "Avoid invented urgency."
+    ],
+    "closing_policy": "End with the most useful decision rule."
+  },
+  "narrative_rules": [
+    "Opening word target: 80 words.",
+    "Opening beat premise_setup: set the premise in one line — the constraint, the amount, the deadline.",
+    "Opening beat personal_check_in: say where you are standing and what you are holding as you start; keep it physical.",
+    "Opening beat what_youll_learn: promise specifics — the actual steps, not the mindset.",
+    "Opening beat not_advice_note: one line that this is what you would do, not advice for anybody else’s situation.",
+    "Opening beat subscribe_cta: one line at the end of the opening, never at the start.",
+    "Opening beat transition: stop talking about it and start doing it."
+  ],
+  "title_rules": [
+    "Titles are FIRST-PERSON and pay off a concrete premise.",
+    "Established shapes (vary the constraint/goal across the batch):",
+    "  - 'If I had {Constraint} today, here's how I'd {Goal}'  (e.g. 'If I had $1000 today, here's how I'd multiply it')",
+    "  - 'How I'd {Goal} from {Starting Point}'                (e.g. 'How I'd get my first 1000 subscribers from scratch')",
+    "  - '{Goal}, step by step'                                (e.g. 'Turning $100 into real income, step by step')",
+    "REQUIRED: name a concrete constraint or starting point ($1000, a MacBook, 24 hours, zero) and imply a clear result the viewer wants.",
+    "FORBIDDEN: vague self-help phrasing ('Unlock your potential'), get-rich-quick hype, all-caps."
+  ],
+  "script_structure": {
+    "default_chapter_count": 8,
+    "chapter_count_range": [
+      5,
+      12
+    ],
+    "default_length_minutes": 25,
+    "length_minutes_range": [
+      20,
+      30
+    ],
+    "duration_presets": [
+      20,
+      25,
+      30
+    ],
+    "default_words_per_minute": 170,
+    "chapters_independent": false,
+    "pacing_arc": [
+      "Hook: state the first-person premise ('If I had X today…').",
+      "Setup: the starting situation, shown as an establishing scene.",
+      "Core: the step-by-step plan, each step its own concrete, visualizable beat.",
+      "Momentum: a busier stretch of quick actions (faster cuts).",
+      "Payoff: the result, tied back to the opening premise, with a clear call to action."
+    ],
+    "additional_rules": [
+      "Anchor each beat to a concrete, visualizable action or location — the planner turns these into scenes.",
+      "Prefer short, punchy sentences over long abstract ones; busy passages should imply faster cuts.",
+      "Keep one consistent on-screen persona — don't introduce new unnamed people the chain can't render consistently.",
+      "Stay aspirational and practical, never preachy or salesy. Show the steps, don't lecture.",
+      "Close with a clear payoff or call to action that lands the POV premise."
+    ]
+  },
+  "compatible_topic_pack_ids": [
+    "com.storystudio.topic.economics-businesses"
+  ],
+  "default_topic_pack_ids": [
+    "com.storystudio.topic.economics-businesses"
+  ],
+  "example_topics": [
+    "If I had $1000 today, here's exactly what I'd do to multiply it",
+    "If I had a MacBook today, here's how I'd make money with it",
+    "Starting a side hustle from zero in 24 hours",
+    "How I'd get my first 1000 subscribers from scratch",
+    "If I lost everything, here's my first 7 days",
+    "Turning $100 into a real income, step by step",
+    "My exact morning routine to get more done before 9am",
+    "How I'd learn a high-income skill in 30 days"
+  ],
+  "youtube_tags_hint": [
+    "side hustle",
+    "make money online",
+    "pov",
+    "first person",
+    "productivity",
+    "entrepreneurship",
+    "how i would",
+    "money",
+    "day in the life",
+    "challenge"
+  ],
+  "recommended_visual_style_ids": [],
+  "recommended_thumbnail_recipe_ids": [],
+  "idea_axes": [
+    {
+      "id": "constraint",
+      "label": "Constraint",
+      "values": [
+        "limited money",
+        "limited time",
+        "one tool",
+        "no audience",
+        "no prior experience",
+        "fixed deadline"
+      ]
+    },
+    {
+      "id": "operating-stage",
+      "label": "Operating stage",
+      "values": [
+        "starting",
+        "testing",
+        "first result",
+        "setback",
+        "adjustment",
+        "payoff"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "aspirational",
+      "motivating",
+      "candid",
+      "energetic",
+      "personal",
+      "practical",
+      "confident",
+      "hustle",
+      "grounded",
+      "real"
+    ],
+    "theme": [
+      "money",
+      "side-hustle",
+      "productivity",
+      "tech",
+      "entrepreneurship",
+      "self-improvement",
+      "daily-routine",
+      "challenge",
+      "first-person",
+      "lifestyle"
+    ],
+    "genre": [
+      "POV",
+      "vlog-style",
+      "challenge",
+      "how-I-would",
+      "day-in-the-life",
+      "walkthrough",
+      "experiment"
+    ],
+    "keyword": [
+      "if I had",
+      "here's what I'd do",
+      "how I would",
+      "starting from",
+      "in 24 hours",
+      "with just",
+      "step by step",
+      "from scratch",
+      "my plan to",
+      "first dollar",
+      "first client",
+      "first 1000",
+      "morning routine",
+      "high-income skill",
+      "passive income",
+      "side income",
+      "build in public",
+      "zero to one",
+      "day one",
+      "the exact steps",
+      "what I'd buy first",
+      "what I'd avoid"
+    ]
+  },
+  "audience_hint": "Viewers who want a relatable, first-person walkthrough they can imagine themselves doing — aspirational money / productivity / self-improvement audiences.",
+  "evidence_expectations": [
+    "Label hypothetical numbers and outcomes instead of presenting them as guarantees.",
+    "Make costs, time, tools, and constraints concrete enough to check.",
+    "Separate a personal walkthrough from financial, legal, or professional advice."
+  ],
+  "idea_system_prompt_role": "You generate first-person, point-of-view episode ideas for a creator-led channel where ONE consistent on-screen character carries the whole video. Frame every idea from the creator's perspective and make it lend itself to a sequence of concrete, visualizable moments the character physically moves through (sitting at a desk, opening a laptop, walking into a shop, counting cash). Favour aspirational, actionable, 'here's exactly what I'd do' angles over abstract commentary.",
+  "idea_guidance_text": "Each idea should imply a clear sequence of scenes the character physically moves through, so the continuity chain has distinct beats to render. 'How to save money' is too abstract; 'If I had $1000 today, here's exactly what I'd do to multiply it' gives a walkable, scene-by-scene arc. Keep it first-person and concrete.",
+  "script_context": "Write in first person as one on-screen creator walking the viewer through a concrete plan, step by step. Anchor each beat to a physical, visualizable action or location — the visual planner turns each into its own scene.",
+  "script_system_prompt_role": "You are writing a first-person, point-of-view narration where ONE creator carries the whole video and the visuals are rendered scene-by-scene to match the audio. Give the visual planner clear, concrete physical beats to latch onto — what the on-screen creator is doing, holding, looking at, or where they are. Short, vivid, action-anchored sentences beat long abstract ones. The tone is aspirational, candid, and practical — 'here's exactly what I'd do'.",
+  "script_closing_hint": "End on the payoff that resolves the opening 'if I had…' premise, then a clean call to action.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Casual first-person",
+      "description": "Relaxed, conversational 'talking to a friend' voice. The default for POV creator content."
+    },
+    {
+      "id": "b",
+      "label": "High-energy hustle",
+      "description": "Faster, punchier, motivational — leans into momentum and quick wins."
+    },
+    {
+      "id": "c",
+      "label": "Calm and deliberate",
+      "description": "Measured, confident, 'let me walk you through this' pacing. Good for thoughtful walkthroughs."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Titles are FIRST-PERSON and pay off a concrete premise.",
+    "Established shapes (vary the constraint/goal across the batch):",
+    "  - 'If I had {Constraint} today, here's how I'd {Goal}'  (e.g. 'If I had $1000 today, here's how I'd multiply it')",
+    "  - 'How I'd {Goal} from {Starting Point}'                (e.g. 'How I'd get my first 1000 subscribers from scratch')",
+    "  - '{Goal}, step by step'                                (e.g. 'Turning $100 into real income, step by step')",
+    "REQUIRED: name a concrete constraint or starting point ($1000, a MacBook, 24 hours, zero) and imply a clear result the viewer wants.",
+    "FORBIDDEN: vague self-help phrasing ('Unlock your potential'), get-rich-quick hype, all-caps."
+  ],
+  "title_length_range": [
+    5,
+    14
+  ],
+  "structural_variety": "vary-subject-only",
+  "metadata_title_style_hint": "first-person premise with a concrete payoff — 'If I had X, here's how I'd Y'",
+  "metadata_title_hook_rules": [
+    "Lead with the first-person premise the video pays off.",
+    "Name the concrete constraint or starting point ($1000, a MacBook, 24 hours).",
+    "Imply a clear result the viewer wants ('multiply it', 'make money', 'go from zero')."
+  ],
+  "metadata_tags_hook_rules": [
+    "Mix broad topic keywords (side hustle, make money online) with the specific premise.",
+    "Each tag 1-4 words, no '#' prefix."
+  ]
+}

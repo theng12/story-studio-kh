@@ -1,5 +1,5 @@
 {
-  "revision": 120,
+  "revision": 126,
   "batches": [
     {
       "revision": 2,
@@ -2822,6 +2822,394 @@
           }
         ]
       }
+    },
+    {
+      "revision": 121,
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "request": {
+        "expected_revision": 120,
+        "coordinator": {
+          "task": "legacy-content-closure-task-3",
+          "branch": "codex/legacy-content-closure"
+        },
+        "proposal_ref": "docs/superpowers/specs/2026-09-01-legacy-content-closure-design.md#new-standalone-series-formula-products",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.formula.counted-explainer",
+            "item_id": "com.storystudio.formula.counted-explainer",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/legacy-niche-conversion/formula/counted-explainer",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.counted-explainer",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.counted-explainer",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.build-under-constraints",
+            "item_id": "com.storystudio.formula.build-under-constraints",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/legacy-niche-conversion/formula/build-under-constraints",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.build-under-constraints",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.build-under-constraints",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.philosophy-real-problem",
+            "item_id": "com.storystudio.formula.philosophy-real-problem",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/legacy-niche-conversion/formula/philosophy-real-problem",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.philosophy-real-problem",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.philosophy-real-problem",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
+            "item_id": "com.storystudio.formula.pastoral-scripture",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/legacy-niche-conversion/formula/pastoral-scripture",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.pastoral-scripture",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.pastoral-scripture",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.prayer",
+            "item_id": "com.storystudio.formula.prayer",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/legacy-niche-conversion/formula/prayer",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.prayer",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.prayer",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.ancient-humans-environments",
+            "item_id": "com.storystudio.topic.ancient-humans-environments",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-environments",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.ancient-humans-environments",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.ancient-humans-environments",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.ancient-humans-social-life",
+            "item_id": "com.storystudio.topic.ancient-humans-social-life",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-social-life",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.ancient-humans-social-life",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.ancient-humans-social-life",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.ancient-humans-technology",
+            "item_id": "com.storystudio.topic.ancient-humans-technology",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-technology",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.ancient-humans-technology",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.ancient-humans-technology",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.deep-time-speculative-earth",
+            "item_id": "com.storystudio.topic.deep-time-speculative-earth",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/deep-time-speculative-earth",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.deep-time-speculative-earth",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.deep-time-speculative-earth",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.economics-ancient-civilizations",
+            "item_id": "com.storystudio.topic.economics-ancient-civilizations",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/economics-ancient-civilizations",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.economics-ancient-civilizations",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.economics-ancient-civilizations",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.natural-world-fungi",
+            "item_id": "com.storystudio.topic.natural-world-fungi",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-fungi",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.natural-world-fungi",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.natural-world-fungi",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.natural-world-insects",
+            "item_id": "com.storystudio.topic.natural-world-insects",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-insects",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.natural-world-insects",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.natural-world-insects",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.natural-world-plants",
+            "item_id": "com.storystudio.topic.natural-world-plants",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-plants",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.natural-world-plants",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.natural-world-plants",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.pastoral-daily-reflection",
+            "item_id": "com.storystudio.topic.pastoral-daily-reflection",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/pastoral-daily-reflection",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.pastoral-daily-reflection",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.pastoral-daily-reflection",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.pastoral-expository-teaching",
+            "item_id": "com.storystudio.topic.pastoral-expository-teaching",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/pastoral-expository-teaching",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.pastoral-expository-teaching",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.pastoral-expository-teaching",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.pov-criminal-hierarchies",
+            "item_id": "com.storystudio.topic.pov-criminal-hierarchies",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/pov-criminal-hierarchies",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.pov-criminal-hierarchies",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.pov-criminal-hierarchies",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.pov-law-enforcement",
+            "item_id": "com.storystudio.topic.pov-law-enforcement",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/legacy-niche-conversion/topic/pov-law-enforcement",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.pov-law-enforcement",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.pov-law-enforcement",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -4471,6 +4859,91 @@
         "version": "1.0.1",
         "changes": {
           "status": "withdrawn"
+        }
+      }
+    },
+    {
+      "revision": 122,
+      "transition_ref": "lifecycle:db461b991b63c86c89b0491bf154487232036bca8b9ea097c3f7943c895bbea7",
+      "request": {
+        "expected_revision": 121,
+        "coordinator": {
+          "task": "legacy-content-closure-task-3",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.formula.counted-explainer",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 123,
+      "transition_ref": "lifecycle:f19e1f960c4c5a2dada269b353376a093caac5f1b2179628d6badbb34d27958d",
+      "request": {
+        "expected_revision": 122,
+        "coordinator": {
+          "task": "legacy-content-closure-task-3",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.formula.build-under-constraints",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 124,
+      "transition_ref": "lifecycle:86826d8ea93ae731ad7c54170f5152d33837b6031892ec03b5fcb645ae8aaad2",
+      "request": {
+        "expected_revision": 123,
+        "coordinator": {
+          "task": "legacy-content-closure-task-3",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.formula.philosophy-real-problem",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 125,
+      "transition_ref": "lifecycle:58ac98fc8fe11f933ed7c4881fdae21aa932f330d57964c93950673c22087268",
+      "request": {
+        "expected_revision": 124,
+        "coordinator": {
+          "task": "legacy-content-closure-task-3",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 126,
+      "transition_ref": "lifecycle:c4384403ce15259ec68aad1068120eebf2d6d0602bb2797677ffbf3b26e462fb",
+      "request": {
+        "expected_revision": 125,
+        "coordinator": {
+          "task": "legacy-content-closure-task-3",
+          "branch": "codex/legacy-content-closure"
+        },
+        "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+        "pack_id": "com.storystudio.pack.formula.prayer",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
         }
       }
     }
@@ -8604,6 +9077,397 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.historical-wars-treaties-world-order",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.formula.counted-explainer",
+      "item_id": "com.storystudio.formula.counted-explainer",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/legacy-niche-conversion/formula/counted-explainer",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.counted-explainer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.counted-explainer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.formula.build-under-constraints",
+      "item_id": "com.storystudio.formula.build-under-constraints",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/legacy-niche-conversion/formula/build-under-constraints",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.build-under-constraints",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.build-under-constraints",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.formula.philosophy-real-problem",
+      "item_id": "com.storystudio.formula.philosophy-real-problem",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/legacy-niche-conversion/formula/philosophy-real-problem",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.philosophy-real-problem",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.philosophy-real-problem",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
+      "item_id": "com.storystudio.formula.pastoral-scripture",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/legacy-niche-conversion/formula/pastoral-scripture",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.pastoral-scripture",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.pastoral-scripture",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.formula.prayer",
+      "item_id": "com.storystudio.formula.prayer",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/legacy-niche-conversion/formula/prayer",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.prayer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.prayer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.ancient-humans-environments",
+      "item_id": "com.storystudio.topic.ancient-humans-environments",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-environments",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.ancient-humans-environments",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.ancient-humans-environments",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.ancient-humans-social-life",
+      "item_id": "com.storystudio.topic.ancient-humans-social-life",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-social-life",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.ancient-humans-social-life",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.ancient-humans-social-life",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.ancient-humans-technology",
+      "item_id": "com.storystudio.topic.ancient-humans-technology",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/ancient-humans-technology",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.ancient-humans-technology",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.ancient-humans-technology",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.deep-time-speculative-earth",
+      "item_id": "com.storystudio.topic.deep-time-speculative-earth",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/deep-time-speculative-earth",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.deep-time-speculative-earth",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.deep-time-speculative-earth",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.economics-ancient-civilizations",
+      "item_id": "com.storystudio.topic.economics-ancient-civilizations",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/economics-ancient-civilizations",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.economics-ancient-civilizations",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.economics-ancient-civilizations",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.natural-world-fungi",
+      "item_id": "com.storystudio.topic.natural-world-fungi",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-fungi",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.natural-world-fungi",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.natural-world-fungi",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.natural-world-insects",
+      "item_id": "com.storystudio.topic.natural-world-insects",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-insects",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.natural-world-insects",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.natural-world-insects",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.natural-world-plants",
+      "item_id": "com.storystudio.topic.natural-world-plants",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/natural-world-plants",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.natural-world-plants",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.natural-world-plants",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.pastoral-daily-reflection",
+      "item_id": "com.storystudio.topic.pastoral-daily-reflection",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/pastoral-daily-reflection",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.pastoral-daily-reflection",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.pastoral-daily-reflection",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.pastoral-expository-teaching",
+      "item_id": "com.storystudio.topic.pastoral-expository-teaching",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/pastoral-expository-teaching",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.pastoral-expository-teaching",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.pastoral-expository-teaching",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.pov-criminal-hierarchies",
+      "item_id": "com.storystudio.topic.pov-criminal-hierarchies",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/pov-criminal-hierarchies",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.pov-criminal-hierarchies",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.pov-criminal-hierarchies",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
+      "pack_id": "com.storystudio.pack.topic.pov-law-enforcement",
+      "item_id": "com.storystudio.topic.pov-law-enforcement",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/legacy-niche-conversion/topic/pov-law-enforcement",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.pov-law-enforcement",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.pov-law-enforcement",
           "status": "proposed"
         }
       }
