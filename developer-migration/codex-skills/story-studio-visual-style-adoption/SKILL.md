@@ -11,7 +11,7 @@ Turn one reusable visual language into one independently purchasable Visual Styl
 
 1. Read the repository `AGENTS.md`, `docs/VISUAL_STYLE_CONTENT_PACK_FORMAT.md`, and `$story-studio-content-pack-authoring`; inspect `git status` and preserve unrelated work.
 2. Inspect every supplied reference. Describe medium, line quality, shape language, palette, lighting, composition, subject grammar, environments, text treatment, and recurring motifs.
-3. Compare the proposed contract with existing signed Visual Style documents under `content-packs/**/style/**/content/visual-style.json`. Add a style only when it is meaningfully distinct; otherwise propose a correction to the closest existing style.
+3. Compare the proposed contract with existing signed Visual Style documents under `content-packs/**/style/**/content/visual-style.json`. Visual similarity is acceptable when the new rendering contract is visibly and distinctly differentiated. Reject only indistinguishable duplicates or mere renames; do not treat similarity alone as a correction request. Preserve originality, composition-copy, identity, safety, and commercial gates.
 4. Consume only the parent workflow's registry-issued Story identity, reservation revision/receipt, brief, and separate family/SKU stocking proposal. Never invent or renumber identities.
 5. Define a concise name and description, one broad category, at least three useful search tags, a content-independent `style_bible`, a provider-friendly `negative_prompt`, and compatibility metadata supported by evidence.
 6. Obtain one original 16:9 preview only from owner-supplied original bytes or a Studio Hub production-preview handoff. This control Mac must not invoke production image generation.
