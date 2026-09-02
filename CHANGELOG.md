@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.97 — 2026-09-02
+
+- **Durable queue evidence now coalesces safely during concurrent job updates.** A burst of pause, resume, cancellation, and recovery mutations is captured in the correct project snapshot instead of serialising into redundant writes or losing later intent after a failed write. Authoritative paid-work inspection now reads the persisted job record under the checkpoint lock, so a stale in-memory copy cannot authorize a replacement.
+
 ## v1.4.96 — 2026-09-02
 
 - **Relaxed-queue voice models now appear on their own clearly labelled shelf.** Story Studio preserves GenStudio's queue classification and availability notice, keeps direct and relaxed Fish Audio products separately selectable, and shows the relaxed shelf after the direct catalogue with GenStudio's disclaimer once for the group.

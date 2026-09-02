@@ -1551,10 +1551,13 @@ async function hydrateProjectBaseline(projectSlug: string, state: ProjectPersist
 }
 
 async function drainProjectPersistence(projectSlug: string, state: ProjectPersistenceState): Promise<void> {
+  let failedRevision = state.durableRevision
+  let retryAfterFailure = false
   try {
     while (state.dirty) {
       state.dirty = false
       const revision = state.revision
+      failedRevision = revision
       const baseline = state.baseline!
       const baselineEntries = new Map(baseline)
       const snapshot = retainJobsForPersistence(Array.from(baseline.values()).map(job => safeJob(job)))
@@ -1576,12 +1579,17 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
     }
   } catch (error) {
     state.dirty = true
-    const failed = state.waiters.filter(waiter => waiter.revision > state.durableRevision)
-    state.waiters = state.waiters.filter(waiter => waiter.revision <= state.durableRevision)
+    // Mutations that arrived after the failed snapshot was captured are still
+    // valid later intent. Keep their waiters for the retry instead of making a
+    // concurrent pause/cancel report the unrelated snapshot failure.
+    const failed = state.waiters.filter(waiter => waiter.revision <= failedRevision)
+    state.waiters = state.waiters.filter(waiter => waiter.revision > failedRevision)
     failed.forEach(waiter => waiter.reject(error))
+    retryAfterFailure = state.waiters.length > 0
     throw error
   } finally {
     state.writing = null
+    if (retryAfterFailure) queueMicrotask(() => startProjectPersistence(projectSlug, state))
   }
 }
 
@@ -1609,11 +1617,16 @@ async function persistProjectMutation(projectSlug: string, mutation: ProjectJobM
   state.pendingMutations++
   try {
     await hydrateProjectBaseline(projectSlug, state)
-    let durable!: Promise<void>
-    await withLock(jobsPath(projectSlug), async () => {
-      durable = applyProjectMutation(state, mutation)
-    })
-    startProjectPersistence(projectSlug, state)
+    // The baseline is process-owned and applyProjectMutation is synchronous.
+    // Locking this tiny in-memory step serializes every member of a batch
+    // behind the writer, defeating snapshot coalescing. The writer still
+    // holds the jobs.json lock for the only disk mutation; mutations arriving
+    // while it is writing are picked up by its next dirty pass.
+    const durable = applyProjectMutation(state, mutation)
+    // Let the current synchronous burst of mutations join the same snapshot
+    // before the writer captures its baseline. This is what makes a project
+    // batch one atomic write instead of one write per record.
+    queueMicrotask(() => startProjectPersistence(projectSlug, state))
     await durable
   } finally {
     state.pendingMutations--
@@ -1716,13 +1729,17 @@ async function persistJob(job: Job): Promise<void> {
  * authority under the same jobs.json lock as normal queue persistence; callers
  * must not use a worker's stale in-memory copy to authorize a charge.
  */
+async function readLockedAuthoritativeJob(file: string, jobId: string): Promise<Job | null> {
+  if (!existsSync(file)) return null
+  const parsed = JSON.parse(await fs.readFile(file, 'utf-8')) as { jobs?: unknown }
+  if (!Array.isArray(parsed.jobs)) throw new Error('jobs.json does not contain a jobs array')
+  const found = (parsed.jobs as Job[]).find(job => job.job_id === jobId)
+  return found ? structuredClone(found) : null
+}
+
 export async function loadAuthoritativeJob(projectSlug: string, jobId: string): Promise<Job | null> {
-  const state = projectPersistenceState(projectSlug)
-  await hydrateProjectBaseline(projectSlug, state)
-  return withLock(jobsPath(projectSlug), async () => {
-    const found = state.baseline!.get(jobId)
-    return found ? structuredClone(found) : null
-  })
+  const p = jobsPath(projectSlug)
+  return withLock(p, () => readLockedAuthoritativeJob(p, jobId))
 }
 
 /** Evaluate one read-only predicate while normal jobs.json persistence is excluded. */
@@ -1736,9 +1753,9 @@ export async function inspectAuthoritativeJob(
   const p = jobsPath(projectSlug)
   return withLock(p, async () => {
     if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('inspect', p)
-    const found = state.baseline!.get(jobId)
+    const found = await readLockedAuthoritativeJob(p, jobId)
     if (!found) return null
-    const result = inspect(structuredClone(found))
+    const result = inspect(found)
     if (typeof result !== 'boolean') throw new Error('authoritative job inspection must be synchronous')
     return result
   })
