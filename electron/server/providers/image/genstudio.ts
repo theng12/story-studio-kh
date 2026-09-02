@@ -182,6 +182,9 @@ const genstudioImageProvider: ImageProvider = {
         idempotencyKey: request.idempotencyKey,
         requiresAdmissionPermit: model.requires_admission_permit,
         beforeSubmit: assertSubmitAllowed,
+        onQueueState: state => state === 'waiting_account_capacity' || state === 'submitting'
+          ? request.onQueueState?.(state)
+          : undefined,
         isCancelled: request.isCancelled,
         onJobAccepted: request.onJobAccepted,
         onReconnect: request.onReconnect,

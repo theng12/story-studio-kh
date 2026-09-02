@@ -641,6 +641,20 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       active: [...activeItems.values()].sort((a, b) => a.label.localeCompare(b.label)),
     }
   }
+  async function publishImageQueueState(key: string, label: string, state: string): Promise<void> {
+    const current = activeItems.get(key)
+    if (!current) return
+    activeItems.set(key, {
+      label,
+      key,
+      state: state === 'waiting_account_capacity' ? 'waiting_retry' : 'running',
+      attempt: current.attempt,
+      max_attempts: current.max_attempts,
+      ...(state === 'waiting_account_capacity' ? { reason: 'Waiting for available image capacity' } : {}),
+    })
+    publishProgress()
+    await jq.checkpointJobState(job)
+  }
 
   // Gates ONLY the retry backoff sleep below — never threaded into the
   // provider submit calls themselves, which already cancel through the
@@ -912,6 +926,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             seed: req.seed,
             ...(sceneReferences.length ? { referenceImagePaths: sceneReferences } : {}),
             idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image:${current.scope}`,
+            onQueueState: state => publishImageQueueState(key, label, state),
             isCancelled: () => jq.isCancelled(job.job_id),
             onJobAccepted: async (taskId, idempotencyKey) => {
               acceptedTaskId = taskId
@@ -1292,6 +1307,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 job, filename, thumbDir, filename, replacementEntry,
               ),
             } : {}),
+            onQueueState: state => publishImageQueueState(key, label, state),
             isCancelled: () => jq.isCancelled(job.job_id),
             onJobAccepted: async (taskId, idempotencyKey) => {
               acceptedTaskId = taskId

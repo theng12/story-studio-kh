@@ -6683,13 +6683,19 @@ export async function recoverImageWithGenStudio(
 
 type GenStudioImageAdmissionOperation = 'text-to-image' | 'image-to-image'
 
-let imagePermitQueue: Promise<void> = Promise.resolve()
+const imagePermitQueues = new Map<string, Promise<void>>()
 
 function imagePermitIdempotencyKey(generationKey: string, sequence: number): string {
   const digest = createHash('sha256')
     .update(`${generationKey}:admission:${sequence}`)
     .digest('hex')
   return `story-image-permit-${digest}`
+}
+
+function imagePermitScope(baseUrl: string, apiKey: string, modelId: string, operation: GenStudioImageAdmissionOperation): string {
+  return createHash('sha256')
+    .update(`${baseUrl}\0${apiKey}\0${modelId}\0${operation}`)
+    .digest('hex')
 }
 
 async function assertImageSubmissionAllowed(request: GenStudioImageRequest): Promise<void> {
@@ -6736,6 +6742,7 @@ async function acquireImageAdmissionPermit(
         )
         const id = typeof permit?.id === 'string' ? permit.id.trim() : ''
         if (!id) throw new Error('GenStudio KH returned an invalid image admission permit')
+        await request.onQueueState?.('submitting')
         return id
       } catch (error) {
         if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
@@ -6751,8 +6758,14 @@ async function acquireImageAdmissionPermit(
       }
     }
   }
-  const result = imagePermitQueue.then(acquire)
-  imagePermitQueue = result.then(() => undefined, () => undefined)
+  const scope = imagePermitScope(baseUrl, apiKey, request.modelId.trim(), operation)
+  const previous = imagePermitQueues.get(scope) || Promise.resolve()
+  const result = previous.then(acquire)
+  const tail = result.then(() => undefined, () => undefined)
+  imagePermitQueues.set(scope, tail)
+  void tail.then(() => {
+    if (imagePermitQueues.get(scope) === tail) imagePermitQueues.delete(scope)
+  })
   return result
 }
 

@@ -39,6 +39,13 @@ function request(overrides: Record<string, unknown> = {}): any {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
 async function withFetch<T>(fetcher: typeof fetch, run: () => Promise<T>): Promise<T> {
   const original = globalThis.fetch
   globalThis.fetch = fetcher
@@ -130,6 +137,112 @@ test('permit 429 waits locally and never reaches the paid POST before admission'
   })
   assert.equal(permitCalls, 2)
   assert.equal(generationCalls, 1)
+})
+
+test('a permit Retry-After longer than ten minutes stays visible, never pays early, and continues', async () => {
+  const states: string[] = []
+  let permitCalls = 0
+  let generationCalls = 0
+  const originalNow = Date.now
+  const originalSetTimeout = globalThis.setTimeout
+  let now = Date.UTC(2026, 8, 3)
+  Date.now = () => now
+  globalThis.setTimeout = ((callback: (...args: any[]) => void, delay?: number, ...args: any[]) => {
+    now += Number(delay || 0)
+    queueMicrotask(() => callback(...args))
+    return 1 as any
+  }) as typeof setTimeout
+  try {
+    await withFetch((async (input: any, init?: any) => {
+      const url = String(input)
+      if (url.endsWith('/v1/images/admission/permits')) {
+        permitCalls++
+        if (permitCalls === 1) {
+          assert.equal(generationCalls, 0)
+          return Response.json({ code: 'ADMISSION_UNAVAILABLE' }, {
+            status: 429,
+            headers: { 'Retry-After': '601' },
+          })
+        }
+        return Response.json({ id: 'permit-after-long-wait' })
+      }
+      if (url.endsWith('/v1/images/generations')) {
+        assert.equal(states.at(-1), 'submitting')
+        generationCalls++
+        return Response.json(imageJob(JSON.parse(String(init?.body))), { status: 202 })
+      }
+      if (url.endsWith('/v1/images/image-task-1/file')) return new Response(PNG)
+      throw new Error(`Unexpected request ${url}`)
+    }) as typeof fetch, async () => {
+      await generateImageWithGenStudio('permit-long-wait-key', request({
+        onQueueState: (state: string) => { states.push(state) },
+      }))
+    })
+  } finally {
+    Date.now = originalNow
+    globalThis.setTimeout = originalSetTimeout
+  }
+  assert.ok(now - Date.UTC(2026, 8, 3) >= 601_000)
+  assert.deepEqual(states.filter(state => state === 'waiting_account_capacity' || state === 'submitting'), [
+    'waiting_account_capacity',
+    'submitting',
+  ])
+  assert.equal(generationCalls, 1)
+})
+
+test('permit queues serialize one scope without holding an unrelated operation', async () => {
+  const firstTextPermit = deferred<Response>()
+  const firstTextEntered = deferred<void>()
+  const unrelatedEntered = deferred<void>()
+  let textPermitCalls = 0
+  let generationCalls = 0
+  await withFetch((async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      const body = JSON.parse(String(init?.body))
+      if (body.operation === 'text-to-image') {
+        textPermitCalls++
+        if (textPermitCalls === 1) {
+          firstTextEntered.resolve()
+          return firstTextPermit.promise
+        }
+        return Response.json({ id: 'text-permit-2' })
+      }
+      unrelatedEntered.resolve()
+      return Response.json({ id: 'image-permit-1' })
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      generationCalls++
+      const body = JSON.parse(String(init?.body))
+      return Response.json(imageJob(body, `image-task-${generationCalls}`), { status: 202 })
+    }
+    if (/\/v1\/images\/image-task-\d+\/file$/.test(url)) return new Response(PNG)
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, async () => {
+    const first = generateImageWithGenStudio('permit-scope-key', request({ requestIdentity: 'scope-first' }))
+    await firstTextEntered.promise
+    const second = generateImageWithGenStudio('permit-scope-key', request({ requestIdentity: 'scope-second' }))
+    const unrelated = generateImageWithGenStudio('permit-scope-key', request({
+      requestIdentity: 'scope-unrelated',
+      referenceAssetIds: ['asset-1'],
+    }))
+    let concurrencyError: unknown
+    try {
+      await Promise.race([
+        unrelatedEntered.promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('unrelated permit scope was blocked')), 100)),
+      ])
+      assert.equal(textPermitCalls, 1, 'the second same-scope permit must remain queued')
+    } catch (error) {
+      concurrencyError = error
+    } finally {
+      firstTextPermit.resolve(Response.json({ id: 'text-permit-1' }))
+    }
+    await Promise.all([first, second, unrelated])
+    if (concurrencyError) throw concurrencyError
+  })
+  assert.equal(textPermitCalls, 2)
+  assert.equal(generationCalls, 3)
 })
 
 test('a lost permit response replays the identical permit key and body', async () => {
@@ -269,6 +382,29 @@ test('all production image entry paths forward the published permit requirement'
   for (const [label, source] of [['provider', provider], ['style preview', styles], ['lettering preview', lettering]] as const) {
     assert.match(source, /requiresAdmissionPermit:\s*\w+\.requires_admission_permit/, `${label} must forward permit policy`)
   }
+})
+
+test('every queued image generator exposes permit-capacity waiting on its exact item', async () => {
+  const [types, provider, continuity, images, scene, pool, composition] = await Promise.all([
+    readFile(path.join(SERVER, 'providers/types.ts'), 'utf8'),
+    readFile(path.join(SERVER, 'providers/image/genstudio.ts'), 'utf8'),
+    readFile(path.join(SERVER, 'generators/continuity-render.ts'), 'utf8'),
+    readFile(path.join(SERVER, 'generators/images.ts'), 'utf8'),
+    readFile(path.join(SERVER, 'generators/scene-image.ts'), 'utf8'),
+    readFile(path.join(SERVER, 'generators/image-pool-generate.ts'), 'utf8'),
+    readFile(path.join(SERVER, 'generators/composition-template.ts'), 'utf8'),
+  ])
+  assert.match(types, /onQueueState\?:[\s\S]{0,400}waiting_account_capacity/)
+  assert.match(types, /onQueueState\?:[\s\S]{0,400}submitting/)
+  assert.match(provider, /onQueueState:/)
+  for (const [label, source] of [
+    ['continuity', continuity], ['images', images], ['scene image', scene],
+    ['image pool', pool], ['composition', composition],
+  ] as const) {
+    assert.match(source, /onQueueState:/, `${label} must expose permit waiting`)
+  }
+  assert.match(continuity, /capacityWaitingCount:\s*capacityWaiting\.size/)
+  assert.match(continuity, /waiting_account_capacity[\s\S]{0,400}capacityWaiting/)
 })
 
 test('adaptive one/two-lane tail stays local and never treats account overview as image authority', async () => {

@@ -75,6 +75,8 @@ export interface ImageGenerationRequest {
   idempotencyKey?: string
   /** Revalidate owner-controlled authority immediately before a provider POST. */
   beforeSubmit?: () => void | Promise<void>
+  /** Provider submission state used to expose capacity waits on the exact item. */
+  onQueueState?: (state: 'waiting_account_capacity' | 'submitting') => void | Promise<void>
   /**
    * Durable providers call this as soon as upstream accepts the task, before
    * polling or downloading. The caller can then recover the same paid/free
