@@ -23,7 +23,7 @@ import {
   tryRecoverImageFromManifestEntry,
   type ImageRecoveryOutcome,
 } from '../lib/manifest-recovery.js'
-import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits, isGenStudioRouteExhausted , genStudioAdmissionSnapshot } from '../lib/genstudio-client.js'
+import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits, isGenStudioRouteExhausted } from '../lib/genstudio-client.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
@@ -1477,20 +1477,14 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     let launched = 0
     let settled = false
     let fatalError: unknown
-    // Stage independent Story assets promptly. The shared GenStudio admission
-    // pool applies the account's live paid concurrency; GenStudio owns its
-    // durable queue, rate limits, and provider execution.
+    // Stage independent Story assets promptly. GenStudio admission permits own
+    // remote image placement; this worker count is local memory/IO fanout only.
     // UNCHANGED — this is the fan-out width, not the retry/progress work
     // above; `currentConcurrency` only mirrors it for the item_progress
     // display, it never feeds back into what `ensureWorkers` does below.
-    // v1.4.40 — the width GenStudio says this account may run, not a constant.
-    // Measured 2026-08-23: a 108-image episode ran exactly 50 with NOTHING
-    // queued at GenStudio and a published ceiling of 128. Staging more is safe
-    // because GenStudio owns admission — it runs what it can and queues the
-    // rest, so Story can only ever fail to offer enough work.
     const maxWorkers = resolveGenStudioLocalFanout(
       items.length,
-      genStudioAdmissionSnapshot()?.burst_concurrency_ceiling,
+      undefined,
       jq.getImageFanoutOverride(),
     )
     currentConcurrency = maxWorkers

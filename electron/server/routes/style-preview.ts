@@ -143,6 +143,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
       modelId: modelName,
       aspectRatio,
       seed: selectedModel.supports_seed === false ? undefined : seed,
+      requiresAdmissionPermit: selectedModel.requires_admission_permit,
       requestIdentity: force
         ? `style-preview:${slug}:${randomUUID()}`
         : `style-preview:${slug}:${stablePreviewKey}`,

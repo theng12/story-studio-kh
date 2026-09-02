@@ -209,6 +209,7 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
       prompt,
       modelId,
       aspectRatio,
+      requiresAdmissionPermit: selected.requires_admission_permit,
       // Stable per style so a repeated request is the same paid identity, not
       // a second charge for the same swatch.
       requestIdentity: `lettering-swatch:${variantId}:${styleId}:${modelId}:${aspectRatio}`,

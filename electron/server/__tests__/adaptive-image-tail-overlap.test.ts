@@ -12,13 +12,11 @@ const queueSource = () => readFile(path.join(SERVER, 'services/job-queue.ts'), '
 let cleanup: (() => Promise<void>) | undefined
 let jq: typeof import('../services/job-queue.js')
 let pm: typeof import('../services/project-manager.js')
-let secrets: typeof import('../services/app-secrets-store.js')
 
 before(async () => {
   const isolated = await useTempDataDir()
   cleanup = isolated.cleanup
   pm = await import('../services/project-manager.js')
-  secrets = await import('../services/app-secrets-store.js')
   jq = await import('../services/job-queue.js')
 })
 
@@ -152,55 +150,19 @@ function deferred<T = void>() {
   return { promise, resolve, reject }
 }
 
-function verifiedCapacity(overrides: Record<string, unknown> = {}): any {
-  return {
-    credit_balance: 1_000,
-    paid_concurrency_limit: 10,
-    paid_active_jobs: 2,
-    paid_queued_jobs: 0,
-    max_queued_jobs: 25,
-    generation_submissions_per_minute: 60,
-    local_waiting: 0,
-    submitting: 0,
-    available_paid_slots: 8,
-    submissions_in_window: 0,
-    queue_near_capacity: false,
-    submissions_blocked: false,
-    submission_block_reason: null,
-    retry_after_ms: 0,
-    refreshed_at: '2026-08-31T00:00:00.000Z',
-    limitSource: 'account-overview',
-    capacity_verified: true,
-    ...overrides,
-  }
-}
-
 let adaptiveQueueImport = 0
 
-async function adaptiveAdmissionHarness(options: { base?: number; apiKey?: string } = {}) {
+async function adaptiveAdmissionHarness(options: { base?: number } = {}) {
   const queueUrl = new URL('../services/job-queue.js', import.meta.url).href
   const queue = await import(`${queueUrl}?adaptive-tail=${adaptiveQueueImport++}`) as typeof jq
-  const setRefresh = (queue as any)._setAdaptiveImageTailAdmissionRefreshForTesting
   const waitForAdmission = (queue as any)._waitForAdaptiveImageTailAdmissionForTesting
   const requestAdmission = (queue as any).requestAdaptiveImageTailAdmission
-  assert.equal(typeof setRefresh, 'function', 'adaptive admission must expose a deferred refresh seam')
   assert.equal(typeof waitForAdmission, 'function', 'adaptive admission tests must be able to await the event flight')
   assert.equal(typeof requestAdmission, 'function', 'the event-driven adaptive admission gate must exist')
 
-  await secrets.setApiKey('genstudio', options.apiKey ?? 'adaptive-tail-test-key')
   await queue.setQueuePaused(false)
   queue.setImageEpisodeConcurrency(options.base ?? 1)
   const project = await pm.createProject({ name: `Adaptive admission ${adaptiveQueueImport}` })
-  const response = deferred<any>()
-  const refreshEntered = deferred<void>()
-  let refreshCalls = 0
-  let refreshKey = ''
-  const restoreRefresh = setRefresh((apiKey: string) => {
-    refreshCalls++
-    refreshKey = apiKey
-    refreshEntered.resolve()
-    return response.promise
-  })
 
   const started: string[] = []
   const active = new Set<string>()
@@ -226,10 +188,7 @@ async function adaptiveAdmissionHarness(options: { base?: number; apiKey?: strin
   queue.registerExecutor('image_pool_generate', executor)
 
   const waitStarted = (episodeId: string): Promise<void> => {
-    if (started.some(value => value.endsWith(`:${episodeId}`))) return Promise.resolve()
-    const waiter = startWaiters.get(episodeId) || deferred<void>()
-    startWaiters.set(episodeId, waiter)
-    return waiter.promise
+    return waitFor(() => started.some(value => value.endsWith(`:${episodeId}`)), `${episodeId} to start`)
   }
   const enqueue = (type: 'continuity_render' | 'image_pool_generate', episodeId: string) => {
     const start = deferred<void>()
@@ -287,8 +246,6 @@ async function adaptiveAdmissionHarness(options: { base?: number; apiKey?: strin
   await waitForAdmission()
 
   const finish = async () => {
-    response.resolve(verifiedCapacity())
-    await waitForAdmission()
     holding = false
     for (const release of releases.values()) release.resolve()
     await queue.setQueuePaused(false)
@@ -298,7 +255,6 @@ async function adaptiveAdmissionHarness(options: { base?: number; apiKey?: strin
       'all adaptive admission jobs to persist terminal status and history checks',
       [opener.job_id],
     )
-    restoreRefresh()
   }
 
   return {
@@ -308,14 +264,10 @@ async function adaptiveAdmissionHarness(options: { base?: number; apiKey?: strin
     enqueue,
     waitStarted,
     release(episodeId: string) { releases.get(episodeId)?.resolve() },
-    response,
-    refreshEntered: refreshEntered.promise,
     requestAdmission,
     waitForAdmission,
     started,
     active,
-    refreshCalls: () => refreshCalls,
-    refreshKey: () => refreshKey,
     peakActive: () => peakActive,
     finish,
   }
@@ -912,32 +864,45 @@ describe('Continuity settling-tail proof', () => {
 })
 
 describe('adaptive image tail admission', () => {
-  test('admits exactly one fair Pool candidate through one verified single flight', async () => {
-    const harness = await adaptiveAdmissionHarness()
+  test('one configured lane opens exactly one local tail overlap', async () => {
+    const harness = await adaptiveAdmissionHarness({ base: 1 })
     try {
       harness.enqueue('image_pool_generate', 'p1')
       harness.enqueue('continuity_render', 'c2')
       harness.requestAdmission()
-      harness.requestAdmission()
-      await harness.refreshEntered
-
-      assert.equal(harness.refreshCalls(), 1, 'simultaneous triggers must share one capacity refresh')
-      assert.equal(harness.refreshKey(), 'adaptive-tail-test-key')
-      harness.response.resolve(verifiedCapacity())
       await harness.waitForAdmission()
       await harness.waitStarted('p1')
 
       assert.equal(harness.peakActive(), 2, 'the temporary maximum is base + one')
-      assert.deepEqual(
-        harness.started.slice(1),
-        ['image_pool_generate:p1'],
-        'Pool stays a fair candidate after Continuity opens the slot',
-      )
+      assert.equal(harness.started.includes('continuity_render:c2'), false, 'a second overflow must not start')
+    } finally {
+      await harness.finish()
+    }
+  })
 
+  test('two configured lanes open exactly one local tail overlap', async () => {
+    const harness = await adaptiveAdmissionHarness({ base: 2 })
+    try {
+      harness.enqueue('image_pool_generate', 'filler')
+      await harness.waitStarted('filler')
+      assert.ok(await (harness.queue as any).proveContinuitySettlingTail(harness.opener()))
+      harness.enqueue('image_pool_generate', 'tail')
+      harness.enqueue('continuity_render', 'blocked')
       harness.requestAdmission()
       await harness.waitForAdmission()
-      assert.equal(harness.refreshCalls(), 1, 'an existing overflow is the permit fact and blocks another refresh')
-      assert.equal(harness.started.includes('continuity_render:c2'), false, 'a second overflow must not start')
+      await waitFor(
+        () => harness.started.includes('image_pool_generate:tail')
+          || harness.started.includes('continuity_render:blocked'),
+        'one fair tail candidate to start',
+      )
+
+      assert.equal(harness.peakActive(), 3, 'the temporary maximum is base + one')
+      assert.equal(
+        Number(harness.started.includes('image_pool_generate:tail'))
+          + Number(harness.started.includes('continuity_render:blocked')),
+        1,
+        'tail overlap remains bounded',
+      )
     } finally {
       await harness.finish()
     }
@@ -945,126 +910,6 @@ describe('adaptive image tail admission', () => {
 
   test('Pool is a candidate but can never prove or open an adaptive tail', async () => {
     const poolSerialTail = { ...continuityTailJob(), type: 'image_pool_generate' }
-    const canOpenTail = async (job: any) => Boolean(await proveTail(job))
-
-    assert.equal(await canOpenTail(poolSerialTail), false)
-  })
-
-  test('fails closed for a missing key and every non-authoritative capacity result', async () => {
-    const missingKey = await adaptiveAdmissionHarness({ apiKey: '' })
-    try {
-      missingKey.enqueue('image_pool_generate', 'p1')
-      missingKey.requestAdmission()
-      await missingKey.waitForAdmission()
-      assert.equal(missingKey.refreshCalls(), 0, 'a missing API key cannot reach capacity refresh')
-      assert.equal(missingKey.started.includes('image_pool_generate:p1'), false)
-    } finally {
-      await missingKey.finish()
-    }
-
-    const rejected: Array<[string, any, Error?]> = [
-      ['stale capacity', verifiedCapacity({ capacity_verified: false }), undefined],
-      ['safe fallback source', verifiedCapacity({ limitSource: 'safe-fallback' }), undefined],
-      ['malformed refresh', null, undefined],
-      ['zero paid slots', verifiedCapacity({ available_paid_slots: 0 }), undefined],
-      ['provider queue pressure', verifiedCapacity({ queue_near_capacity: true }), undefined],
-      ['credit or release hold', verifiedCapacity({ submissions_blocked: true }), undefined],
-      ['rate hold', verifiedCapacity({ retry_after_ms: 1 }), undefined],
-      ['unreachable refresh', undefined, new Error('account overview unreachable')],
-    ]
-    for (const [name, snapshot, error] of rejected) {
-      const harness = await adaptiveAdmissionHarness()
-      try {
-        harness.enqueue('image_pool_generate', 'p1')
-        harness.requestAdmission()
-        await harness.refreshEntered
-        if (error) harness.response.reject(error)
-        else harness.response.resolve(snapshot)
-        await harness.waitForAdmission()
-
-        assert.equal(harness.peakActive(), 1, name)
-        assert.equal(harness.started.includes('image_pool_generate:p1'), false, name)
-      } finally {
-        await harness.finish()
-      }
-    }
-  })
-
-  test('re-proves pause, pending candidate, and exact opener facts after refresh', async () => {
-    const pause = await adaptiveAdmissionHarness()
-    try {
-      pause.enqueue('image_pool_generate', 'p1')
-      pause.requestAdmission()
-      await pause.refreshEntered
-      await pause.queue.setQueuePaused(true)
-      pause.response.resolve(verifiedCapacity())
-      await pause.waitForAdmission()
-      assert.equal(pause.started.includes('image_pool_generate:p1'), false, 'pause during refresh blocks overflow')
-    } finally {
-      await pause.finish()
-    }
-
-    const removed = await adaptiveAdmissionHarness()
-    try {
-      const candidate = removed.enqueue('image_pool_generate', 'p1')
-      removed.requestAdmission()
-      await removed.refreshEntered
-      await removed.queue.requestJobCancellation(removed.projectSlug, candidate.job_id)
-      removed.response.resolve(verifiedCapacity())
-      await removed.waitForAdmission()
-      assert.equal(removed.started.includes('image_pool_generate:p1'), false, 'a removed candidate cannot consume stale permission')
-    } finally {
-      await removed.finish()
-    }
-
-    const changed = await adaptiveAdmissionHarness()
-    try {
-      changed.enqueue('image_pool_generate', 'p1')
-      changed.requestAdmission()
-      await changed.refreshEntered
-      changed.opener().item_progress.completed = 1
-      await changed.queue.checkpointJobState(changed.opener())
-      changed.response.resolve(verifiedCapacity())
-      await changed.waitForAdmission()
-      assert.equal(changed.started.includes('image_pool_generate:p1'), false, 'changed opener evidence must be re-proved')
-    } finally {
-      await changed.finish()
-    }
-  })
-
-  test('does not reuse refreshed capacity after the opener completes', async () => {
-    const harness = await adaptiveAdmissionHarness()
-    try {
-      harness.enqueue('image_pool_generate', 'p1')
-      harness.requestAdmission()
-      await harness.refreshEntered
-      harness.release('opener')
-      await harness.waitStarted('p1')
-      harness.response.resolve(verifiedCapacity())
-      await harness.waitForAdmission()
-
-      assert.equal(harness.peakActive(), 1, 'the candidate may replace the opener at base, never overlap stale proof')
-    } finally {
-      await harness.finish()
-    }
-  })
-
-  test('a base decrease during refresh creates no new admission above the new base', async () => {
-    const harness = await adaptiveAdmissionHarness({ base: 2 })
-    try {
-      harness.enqueue('image_pool_generate', 'filler')
-      await harness.waitStarted('filler')
-      harness.enqueue('continuity_render', 'candidate')
-      harness.requestAdmission()
-      await harness.refreshEntered
-      harness.queue.setImageEpisodeConcurrency(1)
-      harness.response.resolve(verifiedCapacity())
-      await harness.waitForAdmission()
-
-      assert.equal(harness.peakActive(), 2, 'a live decrease does not preempt the two existing jobs')
-      assert.equal(harness.started.includes('continuity_render:candidate'), false, 'existing overflow blocks new admission')
-    } finally {
-      await harness.finish()
-    }
+    assert.equal(Boolean(await proveTail(poolSerialTail)), false)
   })
 })

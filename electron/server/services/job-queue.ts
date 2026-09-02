@@ -41,7 +41,6 @@ import {
 import { runWithJobContentPackProvenance } from '../content-packs/job-provenance-context.js'
 import { readManifest, recordPaidImageReplacementStrict, type TaskManifestEntry } from './task-manifest.js'
 import { isDecodableImage } from '../lib/image-validation.js'
-import { refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
@@ -3357,9 +3356,6 @@ export function _setContinuityTailManifestReaderForTesting(reader: ContinuityTai
   }
 }
 
-type AdaptiveImageTailRefresh = (apiKey: string) => Promise<GenStudioAdmissionSnapshot>
-
-let adaptiveImageTailRefresh: AdaptiveImageTailRefresh = refreshGenStudioAdmission
 let adaptiveImageTailAdmissionFlight: Promise<void> | null = null
 let adaptiveImageTailEventVersion = 0
 
@@ -3430,27 +3426,15 @@ async function attemptAdaptiveImageTailAdmission(): Promise<void> {
   const base = imageEpisodeConcurrency
   if (!hasExactAdaptiveLocalState(base)) return
 
-  const apiKey = (await getApiKey('genstudio').catch(() => '')).trim()
-  if (!apiKey || !hasExactAdaptiveLocalState(base)) return
-
   const proof = await findContinuityTailProof()
   if (!proof || !activeImageEpisodeJobIds.has(proof.job_id) || !hasExactAdaptiveLocalState(base)) return
 
-  let snapshot: GenStudioAdmissionSnapshot | null = null
-  try {
-    snapshot = await adaptiveImageTailRefresh(apiKey)
-  } catch {
-    return
-  }
-
-  if (!hasExactAdaptiveLocalState(base) || !activeImageEpisodeJobIds.has(proof.job_id)) return
   const current = jobs.get(proof.job_id)
   const freshProof = current ? await proveContinuitySettlingTail(current) : null
   if (
     !hasExactAdaptiveLocalState(base)
     || !activeImageEpisodeJobIds.has(proof.job_id)
     || !sameContinuityTailProof(proof, freshProof)
-    || !hasVerifiedGenStudioAdmission(snapshot)
   ) return
 
   pumpImageEpisodeGroup(base + 1)
@@ -3469,15 +3453,6 @@ export function requestAdaptiveImageTailAdmission(): void {
 function noteAdaptiveImageTailEvent(): void {
   adaptiveImageTailEventVersion++
   requestAdaptiveImageTailAdmission()
-}
-
-/** Test-only refresh injection; production always restores the GenStudio authority. */
-export function _setAdaptiveImageTailAdmissionRefreshForTesting(refresh: AdaptiveImageTailRefresh): () => void {
-  const previous = adaptiveImageTailRefresh
-  adaptiveImageTailRefresh = refresh
-  return () => {
-    if (adaptiveImageTailRefresh === refresh) adaptiveImageTailRefresh = previous
-  }
 }
 
 /** Test-only synchronization for deferred race fixtures. */

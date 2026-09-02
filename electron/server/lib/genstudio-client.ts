@@ -1097,6 +1097,8 @@ export interface GenStudioImageModel extends GenStudioCatalogLock, GenStudioProd
   prompt_token_allowance?: number
   /** Operations this model serves (e.g. `image.generation`, `image.edit`). */
   operations?: string[]
+  /** GenStudio requires a short-lived placement permit before paid submission. */
+  requires_admission_permit?: boolean
 }
 
 interface GenStudioImageJob {
@@ -1152,6 +1154,8 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   idempotencyKey?: string
   /** Revalidate owner-controlled authority at the final charged POST boundary. */
   beforeSubmit?: () => void | Promise<void>
+  /** Live image-catalog policy. Absent/false preserves the legacy direct route. */
+  requiresAdmissionPermit?: boolean
   onState?: (state: GenStudioJob['state']) => void
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
 }
@@ -6467,6 +6471,9 @@ async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Pr
     operations: Array.isArray(value?.operations)
       ? value.operations.filter((item: unknown): item is string => typeof item === 'string' && !!item.trim())
       : undefined,
+    ...(publishedFlag(value?.requires_admission_permit) === undefined
+      ? {}
+      : { requires_admission_permit: publishedFlag(value?.requires_admission_permit) }),
     })).filter((model: GenStudioImageModel) => model.id && model.display_name)
 }
 
@@ -6674,6 +6681,87 @@ export async function recoverImageWithGenStudio(
   return recoverImageWithGenStudioAdmitted(apiKey, jobId, request)
 }
 
+type GenStudioImageAdmissionOperation = 'text-to-image' | 'image-to-image'
+
+let imagePermitQueue: Promise<void> = Promise.resolve()
+
+function imagePermitIdempotencyKey(generationKey: string, sequence: number): string {
+  const digest = createHash('sha256')
+    .update(`${generationKey}:admission:${sequence}`)
+    .digest('hex')
+  return `story-image-permit-${digest}`
+}
+
+async function assertImageSubmissionAllowed(request: GenStudioImageRequest): Promise<void> {
+  if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+  await request.beforeSubmit?.()
+  if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+}
+
+/** GenStudio permits are issued serially; paid image execution remains remote-owned. */
+async function acquireImageAdmissionPermit(
+  baseUrl: string,
+  apiKey: string,
+  request: GenStudioImageRequest,
+  idempotencyKey: string,
+  operation: GenStudioImageAdmissionOperation,
+  sequence: number,
+  deadline: number,
+): Promise<string> {
+  const body = wellFormedJson({ model_id: request.modelId.trim(), operation })
+  const permitKey = imagePermitIdempotencyKey(idempotencyKey, sequence)
+  const acquire = async (): Promise<string> => {
+    let retry = 0
+    for (;;) {
+      await assertImageSubmissionAllowed(request)
+      try {
+        const permit = await requestJsonWithRetry(
+          `${apiBase(baseUrl)}/v1/images/admission/permits`,
+          {
+            method: 'POST',
+            headers: {
+              ...authorization(apiKey),
+              'Content-Type': 'application/json',
+              'Idempotency-Key': permitKey,
+            },
+            body,
+          },
+          request,
+          deadline,
+          undefined,
+          GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+          [],
+          false,
+          1,
+        )
+        const id = typeof permit?.id === 'string' ? permit.id.trim() : ''
+        if (!id) throw new Error('GenStudio KH returned an invalid image admission permit')
+        return id
+      } catch (error) {
+        if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+        const retryable = !(error instanceof GenStudioApiError)
+          || error.status === 429
+          || retryableStatus(error.status)
+        if (!retryable || Date.now() >= deadline) throw error
+        await request.onQueueState?.('waiting_account_capacity')
+        const hintMs = error instanceof GenStudioApiError && error.retryAfterSeconds != null
+          ? error.retryAfterSeconds * 1_000
+          : undefined
+        await retryDelay(++retry, request, deadline, hintMs)
+      }
+    }
+  }
+  const result = imagePermitQueue.then(acquire)
+  imagePermitQueue = result.then(() => undefined, () => undefined)
+  return result
+}
+
+function isAuthoritativelyUnchargedPermitFailure(error: unknown): boolean {
+  return error instanceof GenStudioApiError
+    && (error.status === 404 || error.status === 409)
+    && (error.code === 'ADMISSION_PERMIT_NOT_FOUND' || error.code === 'ADMISSION_PERMIT_INVALID')
+}
+
 /** Submit one durable GenStudio image task and return its verified private PNG. */
 async function generateImageWithGenStudioAdmitted(
   apiKey: string,
@@ -6696,7 +6784,7 @@ async function generateImageWithGenStudioAdmitted(
   // field is absent, which is exactly the right behaviour for a model that
   // publishes no output options at all.
   const resolution = (request.resolution || '').trim()
-  const body = {
+  const paidBody = {
     prompt,
     model_id: modelId,
     aspect_ratio: request.aspectRatio,
@@ -6720,6 +6808,15 @@ async function generateImageWithGenStudioAdmitted(
   })
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const operation: GenStudioImageAdmissionOperation = request.referenceAssetIds?.length
+    ? 'image-to-image'
+    : 'text-to-image'
+  let permitSequence = 1
+  let permitId = request.requiresAdmissionPermit === true
+    ? await acquireImageAdmissionPermit(
+      baseUrl, apiKey, request, idempotencyKey, operation, permitSequence, deadline,
+    )
+    : undefined
   const requestPreview = await recordGenStudioRequestPreview('image.generation', {
     method: 'POST',
     path: '/v1/images/generations',
@@ -6735,25 +6832,39 @@ async function generateImageWithGenStudioAdmitted(
       ['reference_asset_ids', request.referenceAssetIds?.length ? request.referenceAssetIds : undefined],
     ],
   })
-  await request.beforeSubmit?.()
-  const submitted = await submitJsonWithAdmission(
-    apiKey,
-    `${apiBase(baseUrl)}/v1/images/generations`,
-    {
-      method: 'POST',
-      headers: {
-        ...authorization(apiKey),
-        'Content-Type': 'application/json',
-        'Idempotency-Key': idempotencyKey,
-      },
-      body: wellFormedJson(body),
-    },
-    request,
-    deadline,
-    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
-    [],
-    { operation: 'image.generation', preview: requestPreview },
-  ) as GenStudioImageJob
+  let submitted: GenStudioImageJob
+  for (;;) {
+    await assertImageSubmissionAllowed(request)
+    try {
+      submitted = await requestJsonWithRetry(
+        `${apiBase(baseUrl)}/v1/images/generations`,
+        {
+          method: 'POST',
+          headers: {
+            ...authorization(apiKey),
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: wellFormedJson({
+            ...paidBody,
+            ...(permitId ? { admission_permit_id: permitId } : {}),
+          }),
+        },
+        request,
+        deadline,
+        apiKey,
+      ) as GenStudioImageJob
+      break
+    } catch (error) {
+      if (isGenStudioInsufficientCredits(error)) {
+        await recordGenStudioCreditRefusal({ operation: 'image.generation', preview: requestPreview }, error)
+      }
+      if (!request.requiresAdmissionPermit || !isAuthoritativelyUnchargedPermitFailure(error)) throw error
+      permitId = await acquireImageAdmissionPermit(
+        baseUrl, apiKey, request, idempotencyKey, operation, ++permitSequence, deadline,
+      )
+    }
+  }
   await recordGenStudioEvidence('image.generation', submitted, requestPreview)
   await reportQueueState(request, submitted)
   await request.onJobAccepted?.(submitted.id, idempotencyKey)

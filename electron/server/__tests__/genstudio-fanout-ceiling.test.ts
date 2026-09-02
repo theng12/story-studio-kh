@@ -73,11 +73,9 @@ describe('unknown stays conservative, never unlimited', () => {
   })
 })
 
-describe('every generator that fans out reads the ceiling', () => {
-  test('images, scene review, video and subtitles all pass it', async () => {
+describe('every generator uses the authority for its workload', () => {
+  test('video and subtitles still stage from the account ceiling', async () => {
     for (const [file, call] of [
-      ['generators/images.ts', 'items.length'],
-      ['generators/continuity-render.ts', 'scenes.length'],
       ['generators/ai-video.ts', 'prompts.length'],
       ['generators/subtitles.ts', 'sections.length'],
     ] as const) {
@@ -87,6 +85,20 @@ describe('every generator that fans out reads the ceiling', () => {
         new RegExp(`resolveGenStudioLocalFanout\\(\\s*\\n?\\s*${call.replace('.', '\\.')},[\\s\\S]{0,200}?burst_concurrency_ceiling`),
         `${file} still stages a constant width instead of the account's published ceiling`,
       )
+    }
+  })
+
+  test('image workers are local staging only because permits own remote admission', async () => {
+    for (const [file, call] of [
+      ['generators/images.ts', 'items.length'],
+      ['generators/continuity-render.ts', 'scenes.length'],
+    ] as const) {
+      const body = await read(file)
+      assert.match(
+        body,
+        new RegExp(`resolveGenStudioLocalFanout\\(\\s*\\n?\\s*${call.replace('.', '\\.')},\\s*\\n?\\s*undefined,`),
+      )
+      assert.doesNotMatch(body, /genStudioAdmissionSnapshot/)
     }
   })
 

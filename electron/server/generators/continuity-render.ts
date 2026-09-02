@@ -35,7 +35,7 @@ import {
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
-import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits , genStudioAdmissionSnapshot } from '../lib/genstudio-client.js'
+import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import {
   authoritativePaidImageSettledCredits,
@@ -570,7 +570,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
 
   const concurrency = resolveGenStudioLocalFanout(
       scenes.length,
-      genStudioAdmissionSnapshot()?.burst_concurrency_ceiling,
+      undefined,
       jq.getImageFanoutOverride(),
     )
 
