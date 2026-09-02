@@ -33,6 +33,7 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 let cacheMod: typeof import('../services/episode-status-cache.js')
 let watcherMod: typeof import('../services/episode-folder-watcher.js')
@@ -123,6 +124,37 @@ function markFreshlyVerified() {
   for (const entry of cacheMod.episodeStatusCache._dumpProject(SLUG)) entry.verifiedAt = now
 }
 
+/**
+ * Let the project's own set-up finish arriving before measuring anything.
+ *
+ * makeProject() writes six episode folders, and the watcher only attaches
+ * when the first list read asks for it — AFTER those writes. On macOS,
+ * FSEvents from a burst that began before attach can still be delivered
+ * after it. The watcher then does exactly its job: invalidate() is a map
+ * delete, so one freshly hydrated row vanishes, and a test that dumps the
+ * map right then sees five episodes instead of six. That is a race in the
+ * test's own set-up, not a defect in the cache — the sibling of the
+ * audit-clock race markFreshlyVerified() settles above.
+ *
+ * Reproduced on demand: it is the intermittent "5 !== 6" on
+ * "every episode is cached before the change".
+ *
+ * Not a fixed sleep — `no-new-wallclock-sleeps` forbids one, and rightly: a
+ * sleep asserts this machine schedules promptly, which is the same class of
+ * race being fixed. Instead, poll for the condition that matters: after a
+ * re-hydrating read, every episode is present again. waitFor()'s budget is
+ * scheduled time, so a loaded machine stretches the wait instead of failing.
+ * A straggler that deletes a row makes the probe false; the next read puts
+ * the row back; the probe turns true. From here on the only events are the
+ * ones a test raises deliberately.
+ */
+async function settleWatcher() {
+  await waitFor(async () => {
+    await listAll()
+    return cacheMod.episodeStatusCache._dumpProject(SLUG).length === CODES.length
+  }, { label: 'set-up watch events to land and every episode to be re-hydrated' })
+}
+
 describe('episode-status warm list', () => {
   before(async () => {
     tmp = await useTempDataDir()
@@ -163,23 +195,30 @@ describe('episode-status warm list', () => {
     }
 
     // The cold pass above may itself have outlived the trust window on a busy
-    // machine. Say what this test means — the entries are current — rather
-    // than depending on how long the previous line took.
+    // machine, and set-up events may still be landing. Say what this test
+    // means — the entries are current and settled — rather than depending on
+    // how long the previous line took.
+    await settleWatcher()
     markFreshlyVerified()
 
+    // getStats() counters are cumulative across the settle pass above, so
+    // measure this pass as a delta — the same way the convergence tests
+    // below read staleRecomputes.
+    const before = cacheMod.episodeStatusCache.getStats()
     const warm = await countStats(() => listAll())
     assert.equal(warm.stats, 0,
       `a warm list of unchanged episodes must not stat episode folders (saw ${warm.stats})`)
-    const stats = cacheMod.episodeStatusCache.getStats()
-    assert.equal(stats.watchedHits, CODES.length,
+    const after = cacheMod.episodeStatusCache.getStats()
+    assert.equal(after.watchedHits - before.watchedHits, CODES.length,
       'every row served on the watcher\'s word')
-    assert.equal(stats.staleRecomputes, 0, 'nothing recomputed')
+    assert.equal(after.staleRecomputes - before.staleRecomputes, 0, 'nothing recomputed')
   })
 
   test('a change to one episode recomputes only that episode', async () => {
     await makeProject()
     await listAll()
     if (watcherMod.watcherTrustedSince(SLUG) === null) return
+    await settleWatcher()
 
     const stamps = () => new Map(
       cacheMod.episodeStatusCache._dumpProject(SLUG).map(e => [e.episode_code, e.computedAt]),
@@ -209,6 +248,7 @@ describe('episode-status warm list', () => {
     const { dirs } = await makeProject()
     await listAll()
     if (watcherMod.watcherTrustedSince(SLUG) === null) return
+    await settleWatcher()
 
     // The watcher is alive as far as anyone can tell — it started without
     // error and was never closed — but no event arrives for this change.
@@ -275,6 +315,7 @@ describe('episode-status warm list', () => {
     await makeProject()
     await listAll()
     if (watcherMod.watcherTrustedSince(SLUG) === null) return
+    await settleWatcher()
 
     // Age every entry past the audit window. _dumpProject hands back the live
     // entries, so this is the same state a long-open app reaches on its own.
