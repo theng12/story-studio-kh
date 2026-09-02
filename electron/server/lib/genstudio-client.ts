@@ -2503,22 +2503,20 @@ async function recordGenStudioRequestPreview(
   input: GenStudioRequestPreviewInput,
 ): Promise<GenStudioRequestPreview> {
   const preview = buildGenStudioRequestPreview(input)
-  try {
-    const queue = await import('../services/job-queue.js')
-    const storyJobId = queue.currentJobId()
-    if (storyJobId && preview.idempotency_key) {
-      await queue.recordGenStudioJob(storyJobId, {
-        id: pendingGenStudioEntryId(preview.idempotency_key),
-        operation,
-        state: 'submitting',
-        model_id: preview.model_id,
-        queue_state: 'submitting',
-        updated_at: preview.captured_at,
-        request: preview,
-      })
-    }
-  } catch {
-    // Diagnostics must never be able to fail a paid generation.
+  const queue = await import('../services/job-queue.js')
+  const storyJobId = queue.currentJobId()
+  if (storyJobId && preview.idempotency_key) {
+    // This evidence is the crash-safe precondition for a paid POST.  If it
+    // cannot reach jobs.json, the caller must stop before submitting.
+    await queue.recordGenStudioJob(storyJobId, {
+      id: pendingGenStudioEntryId(preview.idempotency_key),
+      operation,
+      state: 'submitting',
+      model_id: preview.model_id,
+      queue_state: 'submitting',
+      updated_at: preview.captured_at,
+      request: preview,
+    })
   }
   return preview
 }

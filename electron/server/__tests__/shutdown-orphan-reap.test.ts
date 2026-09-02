@@ -36,7 +36,7 @@ before(async () => {
 after(async () => { await cleanup() })
 
 describe('killAllTrackedChildren()', () => {
-  test('SIGTERMs every tracked child within the fallback window', async () => {
+  test('shutdown drain waits for SIGTERM child exit and its final checkpoint', async () => {
     const proj = await pm.createProject({ name: 'KillAllShutdown' })
 
     // Real subprocess that would otherwise sleep forever. The executor
@@ -63,7 +63,7 @@ describe('killAllTrackedChildren()', () => {
       await exited
     })
 
-    jq.enqueuePreparedForTest({
+    const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'script-only', episode_id: 'KILL_ALL_1',
       title: 't', params: {},
     })
@@ -79,20 +79,51 @@ describe('killAllTrackedChildren()', () => {
     assert.ok(jq._trackedChildCountForTesting() >= 1,
       'expected at least 1 tracked child before shutdown')
 
-    // Fire the shutdown helper with a tight SIGKILL fallback so the test
-    // doesn't sit at the 2s default if SIGTERM is somehow ignored.
-    const pids = jq.killAllTrackedChildren(500)
-    assert.ok(pids.length >= 1, 'expected the helper to report at least one pid')
-
-    // Wait for the child to actually go away. The budget is scheduled time,
-    // so a loaded machine gets proportionally longer without the test
-    // becoming unable to fail.
-    await waitFor(() => childExited, {
-      label: 'the tracked child to exit after killAllTrackedChildren',
+    let releaseFinalWrite!: () => void
+    let enterFinalWrite!: () => void
+    const finalWriteReleased = new Promise<void>(resolve => { releaseFinalWrite = resolve })
+    const finalWriteEntered = new Promise<void>(resolve => { enterFinalWrite = resolve })
+    let blocked = false
+    const restore = jq._setJobFileLockProbeForTesting(async operation => {
+      if (operation !== 'persist' || blocked) return
+      blocked = true
+      enterFinalWrite()
+      await finalWriteReleased
     })
 
-    assert.equal(exitSignal, 'SIGTERM',
-      `expected child to exit with SIGTERM, got ${exitSignal}`)
+    // Fire the shutdown helper with a tight SIGKILL fallback so the test
+    // doesn't sit at the 2s default if SIGTERM is somehow ignored.
+    let drainResolved = false
+    let statusWhenDrainReturned: string | undefined
+    let trackedChildrenWhenDrainReturned: number | undefined
+    try {
+      const pids = jq.killAllTrackedChildren(500)
+      assert.ok(pids.length >= 1, 'expected the helper to report at least one pid')
+      const drain = jq.drainJobPersistenceForShutdown(5_000).then(result => {
+        drainResolved = true
+        statusWhenDrainReturned = jq.getJob(job.job_id)?.status
+        trackedChildrenWhenDrainReturned = jq._trackedChildCountForTesting()
+        return result
+      })
+
+      await finalWriteEntered
+      const drainResolvedBeforeFinalCheckpoint = drainResolved
+      releaseFinalWrite()
+      assert.equal(await drain, true)
+      await exited
+
+      assert.equal(drainResolvedBeforeFinalCheckpoint, false)
+      assert.equal(statusWhenDrainReturned, 'done')
+      assert.equal(trackedChildrenWhenDrainReturned, 0)
+      assert.equal(exitSignal, 'SIGTERM',
+        `expected child to exit with SIGTERM, got ${exitSignal}`)
+      assert.equal(childExited, true)
+    } finally {
+      restore()
+      releaseFinalWrite!()
+      await exited
+      await jq._waitForJobPersistenceForTesting()
+    }
   })
 })
 

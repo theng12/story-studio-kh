@@ -14,7 +14,12 @@ import fs from 'fs'
 import v8 from 'v8'
 import os from 'os'
 import { fileURLToPath } from 'url'
-import { killAllTrackedChildren, jobEvents, getJobs } from './server/services/job-queue.js'
+import {
+  drainJobPersistenceForShutdown,
+  killAllTrackedChildren,
+  jobEvents,
+  getJobs,
+} from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
 import { projectsRoot, migrateLegacyProjects } from './server/services/project-manager.js'
 import { getRunningFlagPath, patchLastSession } from './server/services/last-session.js'
@@ -749,11 +754,8 @@ const SHUTDOWN_DRAIN_MS = 800
 electronApp.on('before-quit', (event) => {
   if (isShuttingDown) return
   isShuttingDown = true
-  // Clear FIRST so a SIGKILL inside the 800ms drain still counts as unclean.
-  // (If we cleared after, a force-quit during drain would look clean next
-  // launch and the operator wouldn't know jobs were left half-finished.)
-  clearRunningFlag()
   event.preventDefault()
+  try { if (server) server.close() } catch (e) { logCrash('shutdown-server-close', e) }
   try {
     const pids = killAllTrackedChildren()
     if (pids.length > 0) {
@@ -762,8 +764,12 @@ electronApp.on('before-quit', (event) => {
   } catch (e) {
     logCrash('shutdown-killchildren', e)
   }
-  setTimeout(() => {
-    try { if (server) server.close() } catch (e) { logCrash('shutdown-server-close', e) }
+  void drainJobPersistenceForShutdown(SHUTDOWN_DRAIN_MS).then(drained => {
+    if (drained) clearRunningFlag()
+    else console.error('[shutdown] Job persistence did not drain before the shutdown deadline; preserving the running flag for recovery.')
     electronApp.quit()
-  }, SHUTDOWN_DRAIN_MS)
+  }).catch(e => {
+    logCrash('shutdown-job-persistence', e)
+    electronApp.quit()
+  })
 })
