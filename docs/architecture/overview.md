@@ -1,6 +1,6 @@
 # Story Studio KH — Architecture
 
-The mental map of this codebase. Read this first when debugging or planning a change. Last reviewed: 2026-05-21 (v1.0.114).
+The mental map of this codebase. Read this first when debugging or planning a change. Last reviewed: 2026-05-21 (v1.0.114); "What this app is" corrected 2026-09-02 (v1.4.95).
 
 ---
 
@@ -8,7 +8,7 @@ The mental map of this codebase. Read this first when debugging or planning a ch
 
 A personal-use desktop content-production pipeline for a single operator producing long-form YouTube content across multiple channels (sleep stories, prayer, devotional, listicles, etc.). It runs as an Electron app on a Mac mini M4 and can optionally expose itself headless over Tailscale ("server mode") so the same backend can be driven from a remote browser.
 
-**Not:** a SaaS. Not multi-tenant. No paying customers. The license/DRM scaffolding is dead code (see [project_personal_use](memory) — slated for removal).
+**Not:** a SaaS. Not multi-tenant. Story Studio itself holds no accounts or billing. It is no longer purely personal-use, though: it installs signed Content Packs that customers buy through GenStudio's Content Store, and the signing, delivery-attestation and entitlement code under `electron/server/content-store/` and `electron/server/content-packs/` is live and customer-facing — not scaffolding, not slated for removal.
 
 ---
 
