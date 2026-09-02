@@ -1,13 +1,17 @@
-# `episode-status-warm-list.test.ts` is red on `main` — watcher-latency race, not a product defect
+# `episode-status-warm-list.test.ts` is intermittently red on `main` — watcher-latency race, not a product defect
 
 **From:** the 24 GB Upload Center task (orchestrator) · **To:** whoever owns the episode warm-list / folder-watcher area · **Date:** 2026-09-02
-**Status:** open · causation established · **not fixed** — deliberately, see "Why not fixed from where it was found"
+**Status:** open · causation established · **intermittent, not deterministic** (corrected same day, see below) · **not fixed** — deliberately, see "Why not fixed from where it was found"
 
 ## What fails
 
-`electron/server/__tests__/episode-status-warm-list.test.ts` fails **6 of 6** when run in isolation against `origin/main` at `8b30d2a8`
-(`node scripts/testing/run-backend-tests.mjs --only episode-status-warm-list`). It makes the full `npm run test:backend` gate
-come back 4,374 / 4,375 for everyone, on every branch that merges `main`, with no code change of their own.
+`electron/server/__tests__/episode-status-warm-list.test.ts` **fails intermittently** against `origin/main`. Measured the same day:
+one run **6 of 6 red** in isolation (`node scripts/testing/run-backend-tests.mjs --only episode-status-warm-list`), then **3 of 3 green**
+in isolation and green in two full `npm run test:backend` runs a few hours later, with the file byte-identical throughout.
+When it fails it turns the full gate 4,374 / 4,375 for whoever hits it, on any branch that merges `main`, with no code change of their own.
+
+**Correction:** the first version of this brief said it "fails 6 of 6" as if deterministic. That overstated one measurement.
+It is a race — which is exactly why the closing verification below demands three consecutive green runs, not one.
 
 ## Causation — established, do not re-derive
 
