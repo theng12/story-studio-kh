@@ -133,14 +133,29 @@ What follows from this:
 
 ## Mandatory Release Integrity
 
-- Every shipped Story Studio change—including fixes, reliability work, UI/API
-  behavior, dependency updates, and workflow changes—must increase the version
-  in both `package.json` and `package-lock.json` in the same change set.
+- Classify the deliverable before applying application release steps.
+- **Application release:** fixes, reliability work, UI/API/runtime behavior,
+  dependency updates, migrations, or other code shipped inside Story Studio
+  must increase the version in both `package.json` and `package-lock.json` in
+  the same change set.
+- **Content-only distribution:** a new or updated standalone Content Pack whose
+  kind and schema are already supported is delivered as its own `.sspack`
+  release. Changes limited to pack sources/assets, registry records,
+  provenance, pack-specific tests/handoffs, or authoring documentation/skills
+  must not trigger an application version bump. Use the existing released
+  compatibility floor in `content-packs/release-floor.json`; do not add an app
+  changelog entry, build a DMG, deploy, or restart Story Studio solely for that
+  content release.
+- A mixed change follows the application-release path only for the runtime
+  behavior it actually changes. Do not force unrelated compatible packs into
+  an app release because they share a branch, batch, or launch date.
 - Add the matching newest-first `## vX.Y.Z` entry to `CHANGELOG.md`; this is the
-  source shown by the in-app **What's New** experience.
-- Run `npm run check:changelog` before finalizing. A release is incomplete if
+  source shown by the in-app **What's New** experience for an application
+  release.
+- Run `npm run check:changelog` before finalizing an application release. That
+  release is incomplete if
   the runtime version, newest changelog entry, and What's New details differ.
-- After verified desktop work is integrated into `main`, create the final DMG
+- After verified application/desktop work is integrated into `main`, create the final DMG
   from the main checkout using the official command for the release intent:
   `npm run dist:smoke` only for an unsigned smoke check, or `npm run dist:public`
   for a signed/notarized public candidate. The final artifact belongs in the

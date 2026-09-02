@@ -23,7 +23,7 @@ Use this workflow for scalable channel systems: one reusable main format (Series
 
 5. Give each formula enough production guidance to carry through scripts, research, scenes, titles, and thumbnails. Attach a thumbnail recipe only where it fits; do not conflate the niche system with visual art style.
 
-6. Test at least: formula/topic-pack compatibility, batch uniqueness, existing-idea avoidance, job queued/running/done/error states, partial output/retry recovery, and UI visibility. Complete required version/changelog/release checks.
+6. Test at least: formula/topic-pack compatibility, batch uniqueness, existing-idea avoidance, job queued/running/done/error states, partial output/retry recovery, and UI visibility. For application/runtime changes, complete the required version/changelog/release checks.
 
 ## Standalone Content Pack lane
 
@@ -32,6 +32,8 @@ For `.sspack` or Content Store work, first use `$story-studio-content-pack-autho
 Consume only the parent workflow's registry-issued Story identity, reservation revision/receipt, brief, and separate family/SKU stocking proposal. Never derive or repair identities, add `bundle_id`, or imply GenStudio confirmation without field-exact evidence. Keep `dependencies: []` unless one pack technically consumes an exact external `pack_id@version`; compatibility or a recommended pairing is not a dependency.
 
 Return the parent contract's `identity`, `source`, `intent`, `compatibility`, `dependencies`, `originality_provenance`, structured `evidence`, `review_requests`, and `blocked_by` fields for each pack. Candidate archives are independent. Do not create Channel Kit artifacts, live GenStudio fields, uploads, publication, pricing mutations, or production generation.
+
+An already-supported standalone Formula or Topic Pack is a `content-only` release: do not bump the Story application version or changelog, build a DMG, or restart the app. Use `requires-app-release` only when the pack needs new Story runtime behavior.
 
 ## Design rules
 

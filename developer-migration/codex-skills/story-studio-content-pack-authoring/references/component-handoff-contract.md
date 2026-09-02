@@ -2,6 +2,8 @@
 
 Use these shapes for new Content Store work. Each handoff describes one independently purchasable pack. A multi-pack launch repeats the shapes; it never adds a coordinator product, bundle, or Channel Kit.
 
+A shared build, test, or review command may cover several packs only when it returns separately attributable evidence and a gate outcome for each one. Do not convert a passing batch into assumed per-pack evidence.
+
 ## 1. Reservation and authoring handoff
 
 Keep these authorities separate:
@@ -15,6 +17,7 @@ Never manufacture a missing value. Each pack returns:
 ```text
 status: authored-for-review
 component: series-formula | topic-pack | visual-style | thumbnail-recipe | subtitle-style | scene-effect | overlay | lettering-style | metadata-formula
+release_classification: content-only | requires-app-release
 reservation: registry location/revision + receipt reference
 identity: exact registry-issued Story values only; bundle_id absent
 stocking_proposal: family/SKU plus proposed|reserved|confirmed status and confirmation reference when confirmed
@@ -27,6 +30,8 @@ evidence: structured shape below
 review_requests: named independent reviews still required
 blocked_by: [] or explicit blockers
 ```
+
+`content-only` requires evidence that the existing released runtime supports the pack kind and schema, plus the exact existing minimum-app-version floor used to build it. It means no application version/changelog bump, DMG, deployment, or restart. Use `requires-app-release` only when new Story runtime behavior must ship first; name that behavior and keep stocking blocked until its released minimum version exists.
 
 Compatibility is descriptive. Do not convert a suggested combination into a dependency. A pack must remain useful on its own unless its schema has a real runtime dependency.
 
@@ -67,6 +72,7 @@ Candidate state is a local review artifact, not a manifest property or live cata
 ```text
 status: candidate-validated | blocked
 content_identity: exact Story pack/item/version/publisher record; bundle_id absent
+release_classification: content-only | requires-app-release, with released runtime evidence
 stocking_proposal: family/SKU status and GenStudio confirmation reference only when confirmed
 dependencies: [] or exact technically required pack_id@version dependencies
 evidence: structured shape above; deterministic_build includes digest, byte count <= 52428800, and local validation profile
@@ -88,7 +94,7 @@ products: one entry per standalone pack with Story pack_id@version, item_id, pub
 merchandising_request: separate active product + published release + direct listing/purchase/delivery + one published 300-credit price version with no discount for each entry
 bundle_or_kit: not-applicable; do not create or mutate
 genstudio_identities: absent until returned by GenStudio
-production_gates: deployed delivery-attestation profile, released Story support, final sealing evidence, owner publication authorization
+production_gates: deployed delivery-attestation profile, existing released runtime support or named app-release blocker, final sealing evidence, owner publication authorization
 explicitly_not_done: Story-side upload, live product/release/price creation, purchase, grant, publication, production signing, or legacy-product mutation
 ```
 

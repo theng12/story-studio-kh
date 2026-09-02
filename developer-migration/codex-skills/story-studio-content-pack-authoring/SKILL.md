@@ -23,6 +23,16 @@ Use exactly one supported content kind per pack: `series-formula`, `topic-pack`,
 4. Require one canonical authoring handoff and one independently buildable candidate archive per pack. Verify schema, originality, compatibility, offline coverage, decoded previews where applicable, deterministic build, and independent review.
 5. After every included archive is usable and unblocked, prepare one complete stocking submission that lists separate standalone products. Keep Story authoring, candidate archives, and GenStudio stocking outcomes distinct.
 
+## Release classification
+
+Classify the work before applying repository release steps:
+
+- A new pack or pack version is a **content-only release** when the currently released Story Studio runtime already supports its content kind and schema, and the change is limited to pack sources/assets, registry records, provenance, pack tests, handoffs, or authoring guidance. A content-only release does not require a Story Studio application release. Use the existing released compatibility floor in `content-packs/release-floor.json`; do not bump `package.json` or `package-lock.json`, do not add an application `CHANGELOG.md` entry, and do not build a DMG or restart Story Studio merely because content changed.
+- Set `requires-app-release` only when the pack needs new or changed application behavior: a schema interpreter, runtime/store/install protocol, publisher trust support, UI, migration, or other code shipped inside Story Studio. Then follow the repository's application release workflow once and bind the affected pack's minimum version to that released capability.
+- When content and application work are mixed, separate them where practical. Do not turn unrelated content into an app release merely because it shares a branch or launch date.
+
+Several packs are faster as one approved batch because they may share one atomic registry reservation, parallel asset work, one source pull request, one content-focused verification pass, and one GenStudio stocking submission. Each pack still requires its own identity, provenance, independently validated archive, applicable review, product, price, purchase path, and delivery path. A shared command or review session must emit separate evidence and gate outcomes for every pack; batch-level success never substitutes for a pack's own result. Batching removes repeated coordination and CI overhead; it does not weaken or merge per-pack certification.
+
 ## Registry authority
 
 The sole Story content-identity authority is `content-packs/authoring-registry.json`. First run `npm run content-pack:registry -- validate`. A missing, invalid, unwritable, stale, collided, or unavailable registry is not an authority.
