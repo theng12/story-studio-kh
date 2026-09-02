@@ -1388,7 +1388,14 @@ async function persistProjectSnapshot(projectSlug: string): Promise<void> {
   // global map is lazy, so replacing from it can erase unloaded durable jobs.
   await Promise.all(Array.from(jobs.values())
     .filter(job => job.project_slug === projectSlug)
-    .map(job => persistProjectMutation(projectSlug, { kind: 'upsert', job })))
+    .map(job => {
+      const incoming = safeJob(job)
+      return persistProjectMutation(projectSlug, {
+        kind: 'transform',
+        jobId: job.job_id,
+        transform: current => mergeDurableJobEvidence(current, incoming),
+      })
+    }))
 }
 
 /**
@@ -1500,7 +1507,9 @@ type ProjectPersistenceState = {
   dirty: boolean
   waiters: Array<{ revision: number; resolve: () => void; reject: (error: unknown) => void }>
 }
-type ProjectJobMutation = { kind: 'upsert'; job: Job } | { kind: 'delete'; jobId: string }
+type ProjectJobMutation =
+  | { kind: 'transform'; jobId: string; transform: (current: Job | null) => Job | null }
+  | { kind: 'delete'; jobId: string }
 const projectPersistence = new Map<string, ProjectPersistenceState>()
 
 function projectPersistenceState(projectSlug: string): ProjectPersistenceState {
@@ -1569,10 +1578,10 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
 function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJobMutation): Promise<void> {
   if (mutation.kind === 'delete') state.baseline!.delete(mutation.jobId)
   else {
-    const next = safeJob(mutation.job)
-    const previous = state.baseline!.get(next.job_id)
-    const attempts = mergePaidImageReplacementAttempts(previous?.paid_image_replacement_attempts, next.paid_image_replacement_attempts)
-    state.baseline!.set(next.job_id, attempts ? { ...next, paid_image_replacement_attempts: attempts } : next)
+    const previous = state.baseline!.get(mutation.jobId) || null
+    const next = mutation.transform(previous ? structuredClone(previous) : null)
+    if (next) state.baseline!.set(mutation.jobId, safeJob(next))
+    else state.baseline!.delete(mutation.jobId)
   }
   const revision = ++state.revision
   state.dirty = true
@@ -1606,8 +1615,60 @@ export async function _waitForJobPersistenceForTesting(): Promise<void> {
   }
 }
 
+/** Drain already-started project writes within the Electron shutdown budget. */
+export async function drainJobPersistenceForShutdown(timeoutMs: number): Promise<boolean> {
+  const drained = (async () => {
+    while (true) {
+      const writers = [...projectPersistence.values()].flatMap(state => state.writing ? [state.writing] : [])
+      if (writers.length === 0) return true
+      const results = await Promise.allSettled(writers)
+      if (results.some(result => result.status === 'rejected')) return false
+    }
+  })()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<false>(resolve => {
+    timer = setTimeout(() => resolve(false), Math.max(0, timeoutMs))
+    timer.unref?.()
+  })
+  const result = await Promise.race([drained, timedOut])
+  if (timer) clearTimeout(timer)
+  return result
+}
+
+function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
+  if (!previous) return incoming
+  const providerById = new Map((previous.genstudio_jobs || []).map(entry => [entry.id, entry]))
+  for (const entry of incoming.genstudio_jobs || []) {
+    if (entry.request?.idempotency_key && !entry.id.startsWith('pending:')) {
+      providerById.delete(pendingGenStudioEntryId(entry.request.idempotency_key))
+    }
+    const existing = providerById.get(entry.id)
+    if (!existing || entry.updated_at >= existing.updated_at) providerById.set(entry.id, entry)
+  }
+  const remoteCancellations = { ...(previous.remote_cancellations || {}) }
+  for (const [key, record] of Object.entries(incoming.remote_cancellations || {})) {
+    const existing = remoteCancellations[key]
+    if (!existing || record.updated_at >= existing.updated_at) remoteCancellations[key] = record
+  }
+  const attempts = mergePaidImageReplacementAttempts(
+    previous.paid_image_replacement_attempts,
+    incoming.paid_image_replacement_attempts,
+  )
+  return {
+    ...incoming,
+    ...(providerById.size > 0 ? { genstudio_jobs: [...providerById.values()] } : {}),
+    ...(Object.keys(remoteCancellations).length > 0 ? { remote_cancellations: remoteCancellations } : {}),
+    ...(attempts ? { paid_image_replacement_attempts: attempts } : {}),
+  }
+}
+
 async function persistJob(job: Job): Promise<void> {
-  await persistProjectMutation(job.project_slug, { kind: 'upsert', job })
+  const incoming = safeJob(job)
+  await persistProjectMutation(job.project_slug, {
+    kind: 'transform',
+    jobId: job.job_id,
+    transform: current => mergeDurableJobEvidence(current, incoming),
+  })
   const settled = TERMINAL_JOB_STATUSES.has(job.status)
     || (job.status === 'paused' && !hasUnsettledProviderEvidence(job))
   if (job.type === 'continuity_render' && settled) {
@@ -1666,11 +1727,19 @@ export async function mutateAuthoritativeJob(
   await hydrateProjectBaseline(projectSlug, state)
   const result = await withLock(jobsPath(projectSlug), async () => {
     const found = state.baseline!.get(jobId)
-    const current = found ? structuredClone(found) : null
-    if (!current) return null
-    const next = mutate(current)
-    if (!next) return null
-    return { next, durable: applyProjectMutation(state, { kind: 'upsert', job: next }) }
+    if (!found) return null
+    let durableNext: Job | null = null
+    const durable = applyProjectMutation(state, {
+      kind: 'transform',
+      jobId,
+      transform: authoritative => {
+        if (!authoritative) return null
+        const transformed = mutate(authoritative)
+        durableNext = transformed ? mergeDurableJobEvidence(authoritative, transformed) : null
+        return durableNext
+      },
+    })
+    return durableNext ? { next: durableNext, durable } : null
   })
   if (!result) return null
   startProjectPersistence(projectSlug, state)

@@ -173,34 +173,129 @@ describe('project-owned durable job evidence', () => {
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
     const [job] = await createQueuedJobs(project.slug, 1)
     assert.ok(job)
+    let providerMutations = 0
+    let cancellationMutations = 0
 
     const [providerResult, cancellationResult] = await Promise.all([
-      jq.mutateAuthoritativeJob(project.slug, job.job_id, current => ({
-        ...current,
-        genstudio_jobs: [{
+      jq.mutateAuthoritativeJob(project.slug, job.job_id, current => {
+        providerMutations++
+        return {
+          ...current,
+          genstudio_jobs: [{
           id: 'provider-transform', operation: 'image.generation', state: 'running',
           updated_at: '2026-01-01T00:00:00.000Z',
-        }],
-      })),
-      jq.mutateAuthoritativeJob(project.slug, job.job_id, current => ({
-        ...current,
-        remote_cancellations: {
-          'image.generation:provider-transform': {
-            status: 'requested', operation: 'image.generation', provider_job_id: 'provider-transform',
-            requested_at: '2026-01-01T00:00:01.000Z', updated_at: '2026-01-01T00:00:01.000Z',
+          }],
+        }
+      }),
+      jq.mutateAuthoritativeJob(project.slug, job.job_id, current => {
+        cancellationMutations++
+        return {
+          ...current,
+          remote_cancellations: {
+            'image.generation:provider-transform': {
+              status: 'requested', operation: 'image.generation', provider_job_id: 'provider-transform',
+              requested_at: '2026-01-01T00:00:01.000Z', updated_at: '2026-01-01T00:00:01.000Z',
+            },
           },
-        },
-      })),
+        }
+      }),
     ])
 
     assert.ok(providerResult)
     assert.ok(cancellationResult)
+    assert.equal(providerMutations, 1)
+    assert.equal(cancellationMutations, 1)
     const persisted = (await readJobs(jobsFile)).find(candidate => candidate.job_id === job.job_id)
     assert.equal(persisted?.genstudio_jobs?.[0]?.id, 'provider-transform')
     assert.equal(persisted?.remote_cancellations?.['image.generation:provider-transform']?.status, 'requested')
     const live = jq.getJob(job.job_id)
     assert.equal(live?.genstudio_jobs?.[0]?.id, 'provider-transform')
     assert.equal(live?.remote_cancellations?.['image.generation:provider-transform']?.status, 'requested')
+  })
+
+  test('a blocked ordinary checkpoint cannot erase concurrent authoritative cancellation evidence', async () => {
+    const project = await pm.createProject({ name: 'Mixed Durable Mutation Race' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const [job] = await createQueuedJobs(project.slug, 1)
+    assert.ok(job)
+    let releaseWrite!: () => void
+    let enteredWrite!: () => void
+    const released = new Promise<void>(resolve => { releaseWrite = resolve })
+    const entered = new Promise<void>(resolve => { enteredWrite = resolve })
+    let blocked = false
+    const restore = jq._setJobFileLockProbeForTesting(async operation => {
+      if (operation !== 'persist' || blocked) return
+      blocked = true
+      enteredWrite()
+      await released
+    })
+    try {
+      const cancellationWrite = jq.mutateAuthoritativeJob(project.slug, job.job_id, current => ({
+        ...current,
+        remote_cancellations: {
+          ...(current.remote_cancellations || {}),
+          'image.generation:accepted-mixed-race': {
+            status: 'requested', operation: 'image.generation', provider_job_id: 'accepted-mixed-race',
+            requested_at: '2026-01-01T00:00:01.000Z', updated_at: '2026-01-01T00:00:01.000Z',
+          },
+        },
+      }))
+      await entered
+      const providerWrite = jq.recordGenStudioJob(job.job_id, {
+        id: 'accepted-mixed-race', operation: 'image.generation', state: 'running',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      })
+      releaseWrite()
+      await Promise.all([providerWrite, cancellationWrite])
+    } finally {
+      restore()
+      releaseWrite!()
+    }
+
+    const reloaded = (await readJobs(jobsFile)).find(candidate => candidate.job_id === job.job_id)
+    assert.equal(reloaded?.genstudio_jobs?.some(entry => entry.id === 'accepted-mixed-race'), true)
+    assert.equal(
+      reloaded?.remote_cancellations?.['image.generation:accepted-mixed-race']?.status,
+      'requested',
+    )
+  })
+
+  test('bounded shutdown drain waits for a blocked writer and reports timeout explicitly', async () => {
+    const project = await pm.createProject({ name: 'Shutdown Persistence Drain' })
+    const [job] = await createQueuedJobs(project.slug, 1)
+    assert.ok(job)
+    let releaseWrite!: () => void
+    let enteredWrite!: () => void
+    const released = new Promise<void>(resolve => { releaseWrite = resolve })
+    const entered = new Promise<void>(resolve => { enteredWrite = resolve })
+    let blocked = false
+    const restore = jq._setJobFileLockProbeForTesting(async operation => {
+      if (operation !== 'persist' || blocked) return
+      blocked = true
+      enteredWrite()
+      await released
+    })
+    try {
+      const write = jq.recordGenStudioJob(job.job_id, {
+        id: 'shutdown-drain', operation: 'image.generation', state: 'running',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      })
+      await entered
+      assert.equal(await jq.drainJobPersistenceForShutdown(5), false)
+      let drained = false
+      const drain = jq.drainJobPersistenceForShutdown(1_000).then(result => {
+        drained = result
+        return result
+      })
+      await Promise.resolve()
+      assert.equal(drained, false)
+      releaseWrite()
+      assert.equal(await drain, true)
+      await write
+    } finally {
+      restore()
+      releaseWrite!()
+    }
   })
 
   test('a failed writer rejects its waiter and the next mutation drains the retained latest state', async () => {
