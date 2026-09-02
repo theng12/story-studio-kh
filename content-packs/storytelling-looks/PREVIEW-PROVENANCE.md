@@ -7,7 +7,7 @@
 - Inspection-only reference inventory: six owner-supplied screenshots were used to define and review the reusable visual language, but none was submitted to GPT image generation: `6b82467a5d84da89fe025827fe1a6a49d527f41fd29bdf5d99761cd958003666`, `abe3556c77660c127f7bb1f064ecff77562b3867383342f767b545031423af6c`, `ae01f11211f01e7eaa2f28250eb9d3bc77a91b47b5552b6f4a53a02811096819`, `b765bcc1b389384152d2d0dfe841f36ca9fa580f6a51286d46a28b59f8be84d5`, `6a2e3a715a607c70267e559b4167035692f7de4e396fdab5b9617ff2523e3a48`, and `537d59d3f5f8ce24ffa98fe130c3302d98e84743e2601c3ed4edf0c8183ca36c`
 - Owner authority: explicit request on 2026-09-02 to use GPT image generation and proceed with generation, certification, repository integration, and sale
 - Rights basis: newly generated original output for the owner's project under the built-in generation service terms; no third-party image bytes were submitted or embedded as references
-- Original generated file: `/build/.codex/generated_images/019fe7d8-5d5a-7431-a655-8c9ea70710f3/exec-db1516aa-3f58-4925-beb1-74398210a935.png`
+- Original generated file: `<owner-home>/.codex/generated_images/019fe7d8-5d5a-7431-a655-8c9ea70710f3/exec-db1516aa-3f58-4925-beb1-74398210a935.png`
 - Original SHA-256: `6b190decc6365e95b2b0d6b29c7f5dc5f918aa981e177693c48d80dae5d14f10`
 - Original measurements: PNG, 1672x941, 2472858 bytes, RGB/sRGB, decode passed
 - Transformation: deterministic whole-image WebP encoding with repository `sharp`, quality 92, effort 6, smart subsampling; no crop, resize, repaint, mask, composite, text replacement, or regional edit
