@@ -130,6 +130,10 @@ What follows from this:
   the release gate did not run** — never quote a filtered run as a green suite.
 - An `--only` that matches nothing FAILS, and so does a run whose summary reports
   zero tests. A suite reporting no tests is a failure, not a pass.
+- Do not run competing suites against the repository: one test run at a time, and
+  read-only agents stay off the suite entirely. For every suite you cite, report the
+  actual exit status, the completion line, and the test count — a wrapper's exit code
+  is not the suite's, and "completed" is not "passed".
 
 ## Mandatory Release Integrity
 
