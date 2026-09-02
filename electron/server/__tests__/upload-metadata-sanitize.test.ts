@@ -169,6 +169,56 @@ describe('snippetFromMeta — integration', () => {
     assert.ok(joined.includes('description truncated'), 'description truncation logged')
   })
 
+  test('removes private finalizer markers before sending chapters and sources to YouTube', () => {
+    const logs: string[] = []
+    const out = snippetFromMeta({
+      title: 'The Day the City Burned',
+      description: [
+        'Opening paragraph.',
+        '',
+        '<!-- youtube:chapters:start -->',
+        'CHAPTERS',
+        '0:00 The Beginning',
+        '1:30 The Fire',
+        '<!-- youtube:chapters:end -->',
+        '',
+        '<!-- youtube:sources:start -->',
+        'SOURCES & FURTHER READING',
+        '• Museum archive — https://example.test/source',
+        '<!-- youtube:sources:end -->',
+      ].join('\n'),
+      tags: ['history'],
+      thumbnailPath: '',
+    }, logs)
+
+    assert.equal(out.description, [
+      'Opening paragraph.',
+      '',
+      'CHAPTERS',
+      '0:00 The Beginning',
+      '1:30 The Fire',
+      '',
+      'SOURCES & FURTHER READING',
+      '• Museum archive — https://example.test/source',
+    ].join('\n'))
+    assert.equal(out.description?.includes('<'), false)
+    assert.equal(out.description?.includes('>'), false)
+    assert.deepEqual(logs, ['private YouTube description markers removed'])
+  })
+
+  test('removes angle brackets that YouTube forbids from ordinary description text', () => {
+    const logs: string[] = []
+    const out = snippetFromMeta({
+      title: 'A Comparison',
+      description: 'The archive labels this <draft> and records 3 < 5 > 2.',
+      tags: [],
+      thumbnailPath: '',
+    }, logs)
+
+    assert.equal(out.description, 'The archive labels this draft and records 3  5  2.')
+    assert.deepEqual(logs, ['angle brackets removed from description'])
+  })
+
   test('logs parameter is optional — sanitization still runs', () => {
     const out = snippetFromMeta({
       title: 'check http://x.test now',

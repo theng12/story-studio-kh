@@ -284,6 +284,7 @@ const CONTROL_CHARS_RE = /[\x00-\x08\x0B-\x1F\x7F]/g
 // http(s)://… up to the next whitespace. Intentionally greedy on the path
 // so query strings and fragments go with it.
 const URL_RE = /https?:\/\/\S+/gi
+const PRIVATE_YOUTUBE_DESCRIPTION_MARKER_RE = /^[\t ]*<!--[\t ]*youtube:(?:chapters|sources):(start|end)[\t ]*-->[\t ]*(?:\r?\n|(?![\s\S]))/gim
 
 function stripControl(s: string): string {
   // Also repairs a lone surrogate: YouTube is a UTF-8 API and a model-written
@@ -304,6 +305,16 @@ function stripUrlsFromTitle(s: string, logs?: string[]): string {
   const cleaned = s.replace(URL_RE, '').replace(/\s+/g, ' ').trim()
   logs?.push('⚠ URL stripped from title (prompt-injection heuristic)')
   return cleaned
+}
+
+function cleanDescriptionForYouTube(s: string, logs?: string[]): string {
+  const markerStripped = s.replace(PRIVATE_YOUTUBE_DESCRIPTION_MARKER_RE, '')
+  const withoutMarkers = markerStripped !== s ? markerStripped.trimEnd() : markerStripped
+  if (markerStripped !== s) logs?.push('private YouTube description markers removed')
+
+  const withoutAngles = withoutMarkers.replace(/[<>]/g, '')
+  if (withoutAngles !== withoutMarkers) logs?.push('angle brackets removed from description')
+  return withoutAngles
 }
 
 function cleanTags(tags: string[], logs?: string[]): string[] {
@@ -361,8 +372,9 @@ export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[],
   title = capLength(title.trim(), YT_TITLE_MAX, 'title', logs)
 
   // Description: strip control chars (keeping newlines/tabs for formatting),
-  // drop any internal section name the model published as a heading, then cap
-  // length. YouTube auto-escapes `<>` here, so we leave them.
+  // drop any internal section name the model published as a heading, remove
+  // the finalizer's private block markers, then cap length. YouTube rejects
+  // literal angle brackets in both titles and descriptions.
   //
   // v1.4.75 — the last gate before the Data API. `resolveUploadMetadata`
   // already cleaned the generator's output; this repeats it (the strip is
@@ -377,7 +389,10 @@ export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[],
   // operator can type a description here, move this strip so it runs before
   // his override lands, the way the resolver already does.
   const description = capLength(
-    stripMarkdownScaffold(stripInternalSectionLabels(stripControl(meta.description))),
+    cleanDescriptionForYouTube(
+      stripMarkdownScaffold(stripInternalSectionLabels(stripControl(meta.description))),
+      logs,
+    ),
     YT_DESCRIPTION_MAX, 'description', logs,
   )
 

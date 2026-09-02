@@ -1627,12 +1627,12 @@ router.post('/projects/:slug/upload/youtube-backfill', async (req, res) => {
           slug,
           accountId,
           videoId: vid,
-          snippet: {
+          snippet: snippetFromMeta({
             title: row.sidecar.title || '',
             description: row.sidecar.description || '',
             tags: Array.isArray(row.sidecar.tags) ? row.sidecar.tags : [],
-            categoryId: effectiveCategoryId,
-          },
+            thumbnailPath: '',
+          }, undefined, effectiveCategoryId),
           status: {
             privacyStatus: current.privacyStatus,
             ...(current.publishAt ? { publishAt: current.publishAt } : {}),
