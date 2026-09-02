@@ -19,7 +19,7 @@ Turn one reusable visual language into one independently purchasable Visual Styl
 8. Author exactly one standalone pack. Do not create a Channel Kit, `bundle_id`, coordinator product, shared entitlement, or dependency merely because another Formula, Topic Pack, or Thumbnail Recipe is compatible.
 9. Do not add a static frontend style record or preview. `frontend/composables/useVisualStyleCatalog.ts` must remain a consumer of `/api/visual-styles`, with no built-in or offline fallback.
 10. Verify schema, uniqueness, deterministic build, signed installation, catalog publication, search behavior, preview serving, and render-time persistence of both `style_bible` and `negative_prompt`.
-11. Require independent visual and contract review. Update app version and changelog only when the requested work ships an application release.
+11. Require independent visual and contract review. A style whose kind and schema are already supported is a content-only release: no app version, application changelog, DMG, or restart. Require an app release only when the style needs new Story runtime behavior, then name that behavior and its released minimum version.
 
 ## Canonical handoff
 
@@ -28,6 +28,7 @@ Return exactly one Visual Style handoff:
 ```text
 status: authored-for-review
 component: visual-style
+release_classification: content-only | requires-app-release, with existing released runtime/minimum-floor evidence
 reservation: registry location/revision + receipt reference
 identity: exact registry-issued Story values only; bundle_id absent
 stocking_proposal: family/SKU plus proposed|reserved|confirmed status and confirmation reference when confirmed

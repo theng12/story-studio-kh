@@ -36,7 +36,7 @@ Before doing any other work, classify the request. For Content Store `.sspack` w
 
 6. Set a niche default only when the format belongs to that niche. Keep project overrides and visual art-style selection independent.
 
-7. Add regression tests covering catalog metadata/assets, exact in-image-title prompt enforcement, direct provider-output preservation, and UI browse/select visibility. Run focused tests, typecheck, and the release checks required by `AGENTS.md`.
+7. Add regression tests covering catalog metadata/assets, exact in-image-title prompt enforcement, direct provider-output preservation, and UI browse/select visibility. For built-in application work, run focused tests, typecheck, and the application release checks required by `AGENTS.md`.
 
 ## Standalone Content Pack lane
 
@@ -61,6 +61,8 @@ evidence:
 `decoded_previews` must carry the actual WebP dimensions, decoding result, byte size, checksum, provenance, and license evidence. Require applicable independent reviews in `review_requests`: schema, originality/provenance, compatibility, prompt-equivalence/exact-title, visual/thumbnail, safety, copy, and commercial-boundary. For any review that is not applicable, include the reason. If evidence or a required review is unavailable, report an explicit blocker in `blocked_by` instead of filling the gap with an assumption.
 
 Candidate archive builds may use ephemeral test keys only. Do not add live GenStudio fields, uploads, publishing, or pricing. This control Mac must not execute production image generation: owner-supplied originals or a Studio Hub production handoff supplies preview bytes, and this leaf only verifies them. Keep the thumbnail/visual-style boundary and the scene-generation boundary intact.
+
+Classify an already-supported standalone Thumbnail Recipe as `content-only`: merge and stock its pack release without an application version/changelog bump, DMG, or restart. Use `requires-app-release` only when its schema or rendering behavior needs new Story runtime code.
 
 ## Safety boundary
 
