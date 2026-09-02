@@ -35,7 +35,7 @@ import {
   isRelaxedQueue,
   queueClassGroupLabel,
 } from '../utils/genstudio-relaxed-queue.js'
-import { describeChatRate } from '../utils/genstudio-credit-cost.js'
+import { describeChatRate, describeVoiceRate } from '../utils/genstudio-credit-cost.js'
 import { thumbnailVisionModelMenuOption } from '../utils/thumbnail-vision-model-menu.js'
 
 const menuSource = readFileSync(new URL('../components/ModelMenu.vue', import.meta.url), 'utf8')
@@ -43,6 +43,7 @@ const menuTemplate = parse(menuSource).descriptor.template?.content
 assert.ok(menuTemplate, 'ModelMenu.vue must have a template')
 const selectorSource = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
 const researchSource = readFileSync(new URL('../pages/projects/[slug]/research.vue', import.meta.url), 'utf8')
+const audioSource = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
 const relaxedSource = readFileSync(new URL('../utils/genstudio-relaxed-queue.ts', import.meta.url), 'utf8')
 
 /**
@@ -121,6 +122,7 @@ test('no picker reads the words "Relaxed Queue" out of anything GenStudio publis
   for (const [name, source] of [
     ['ModelSelector.vue', selectorSource],
     ['research.vue', researchSource],
+    ['audio.vue', audioSource],
     ['genstudio-relaxed-queue.ts', relaxedSource],
   ] as const) {
     assert.doesNotMatch(
@@ -236,6 +238,11 @@ test('the section note is body text and is never clamped or hidden', () => {
   assert.match(menuTemplate as string, /<p v-if="group\.note" class="model-menu-group-note">\{\{ group\.note \}\}<\/p>/)
 })
 
+test('the published discount percentage keeps its hundredths', () => {
+  const note = describeRelaxedQueueHint({ ...HINT, discount_percent: 42.55 })
+  assert.match(note, /Discount 42\.55%/)
+})
+
 // ── 4. The price, with the full price struck through ──────────────────────
 
 test('a relaxed rate shows what is charged with the undiscounted price beside it', () => {
@@ -265,6 +272,31 @@ test('no discount tag appears where there is no discount', () => {
   // And an account being quoted list gets no second figure invented for it.
   const unsold = describeChatRate({ input_credits_per_million_tokens: 30, output_credits_per_million_tokens: 60 })
   assert.equal(unsold.text, '30 credits / 1M input tokens · 60 credits / 1M output tokens')
+})
+
+test('the TTS picker uses GenStudio queue metadata and shows the published full price', () => {
+  assert.match(audioSource, /queueClassGroupLabel\(model, model\.provider_name \|\| 'Voice models'\)/)
+  assert.match(
+    audioSource,
+    /groupNote: isRelaxedQueue\(model\) \? describeRelaxedQueueHint\(model\.relaxed_queue_hint\) : ''/,
+  )
+
+  const display = describeVoiceRate({
+    display_name: 'Fish Audio S2.1 Pro (Relaxed Queue)',
+    credits_per_1000_characters: 24,
+    standard_credits: 48,
+    sale_credits: 24,
+    sale_disclaimer: 'GenStudio publishes this sale disclaimer.',
+  })
+  assert.match(display.text, /24 credits \/ 1,000 characters \(was 48 credits\)/)
+  assert.match(display.title, /GenStudio publishes this sale disclaimer\./)
+  assert.match(display.notice || '', /GenStudio publishes this sale disclaimer\./)
+  assert.match(
+    menuTemplate as string,
+    /<small v-if="option\.priceNote" class="model-menu-option-price-note">\{\{ option\.priceNote \}\}<\/small>/,
+    'sale disclosure is visible in the picker instead of existing only in a title tooltip',
+  )
+  assert.match(audioSource, /priceNote: rate\.notice/)
 })
 
 // ── 5. GRACEFUL DEGRADATION — the deployed API serves none of this yet ────

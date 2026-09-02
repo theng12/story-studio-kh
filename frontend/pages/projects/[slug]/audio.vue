@@ -106,6 +106,7 @@
             </template>
             <span :title="modelRate.title">{{ modelRate.text }}</span>,
             minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request.
+            <span v-if="modelRate.notice"> {{ modelRate.notice }}</span>
             <template v-if="selectedTtsModel.supports_voice_cloning"> Supports voice cloning.</template>
             <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
           </p>
@@ -437,6 +438,11 @@ import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
 import { genstudioStaleNote } from '~/utils/genstudio-freshness'
 import {
+  describeRelaxedQueueHint,
+  isRelaxedQueue,
+  queueClassGroupLabel,
+} from '~/utils/genstudio-relaxed-queue'
+import {
   defaultTtsControlValues,
   resolveTtsControlValues,
   type GenStudioTtsControl,
@@ -477,10 +483,12 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
   return {
     id: model.id,
     label: model.display_name,
-    group: model.provider_name || 'Voice models',
+    group: queueClassGroupLabel(model, model.provider_name || 'Voice models'),
+    groupNote: isRelaxedQueue(model) ? describeRelaxedQueueHint(model.relaxed_queue_hint) : '',
     provider: model.provider_name || '',
     price: rate.text,
     priceTitle: rate.title,
+    priceNote: rate.notice,
     meta: [
       ...(model.supported_languages.length ? [`Languages ${model.supported_languages.join(', ')}`] : []),
       `Minimum ${formatCredits(model.minimum_credits)} per request`,

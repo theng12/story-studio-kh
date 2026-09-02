@@ -117,6 +117,7 @@
                   class="model-menu-option-price"
                   :title="option.priceTitle || option.price"
                 >Published rate · {{ option.price }}</small>
+                <small v-if="option.priceNote" class="model-menu-option-price-note">{{ option.priceNote }}</small>
                 <span v-if="option.description" class="model-menu-option-description">{{ option.description }}</span>
                 <span v-if="option.meta" class="model-menu-option-meta">{{ option.meta }}</span>
                 <small v-if="option.disabledReason">{{ option.disabledReason }}</small>
@@ -182,6 +183,7 @@ interface ModelMenuOption {
   description?: string
   price?: string
   priceTitle?: string
+  priceNote?: string
   disabled?: boolean
   disabledReason?: string
   badges?: ModelMenuBadge[]
@@ -527,6 +529,7 @@ function onListKeydown(event: KeyboardEvent) {
 .model-menu-option-copy strong { font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
 .model-menu-option-copy .model-menu-option-provider { color: var(--accent); font-size: var(--font-xs); font-weight: 750; letter-spacing: .08em; line-height: 1.2; text-transform: uppercase; }
 .model-menu-option-copy .model-menu-option-price { color: var(--warning); font-size: var(--font-xs); font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.model-menu-option-copy .model-menu-option-price-note { color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.4; overflow-wrap: anywhere; }
 .model-menu-option-copy span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; overflow-wrap: anywhere; }
 .model-menu-option-copy small { color: var(--warning); font-size: var(--font-xs); line-height: 1.3; }
 .model-menu-option-side { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 5px; }

@@ -100,6 +100,56 @@ test('the voice model catalogue is published with its price, minimum and boundar
   assert.equal(JSON.stringify(model).includes('km'), false, 'Story must not restore retired Khmer support')
 })
 
+test('the voice model catalogue keeps direct and relaxed Fish products separate with GenStudio sale metadata', async () => {
+  await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_test_story_tts_relaxed_catalog' })
+    .expect(200)
+
+  const relaxedQueueHint = {
+    discount_percent: 50,
+    unlock_threshold_cents: 5_000,
+    message: 'GenStudio publishes this availability and discount notice.',
+  }
+  const base = {
+    provider_id: 'fish', provider_name: 'Fish Audio', description: 'Multilingual narration',
+    credits_per_1000_characters: 48, minimum_credits: 10, maximum_input_characters: 12_000,
+    supports_speed: true, supports_voice_cloning: false, preview_policy: 'catalog',
+    generation_enabled: true, supported_languages: ['en'],
+  }
+
+  globalThis.fetch = async (input) => {
+    assert.equal(String(input), 'http://127.0.0.1:8000/v1/tts/models')
+    return Response.json([
+      { ...base, id: 'fish-s2.1-pro', display_name: 'Fish Audio S2.1 Pro', queue_class: 'direct' },
+      {
+        ...base,
+        id: 'fish-s2.1-pro-relaxed',
+        display_name: 'Fish Audio S2.1 Pro (Relaxed Queue)',
+        credits_per_1000_characters: 24,
+        standard_credits: 48,
+        sale_credits: 24,
+        sale_ends_at: null,
+        sale_disclaimer: 'GenStudio publishes this sale disclaimer.',
+        queue_class: 'relaxed',
+        relaxed_queue_hint: relaxedQueueHint,
+      },
+    ])
+  }
+
+  const response = await request(app).get('/api/app-settings/genstudio/tts-models').expect(200)
+  const [direct, relaxed] = response.body.models
+  assert.equal(direct.id, 'fish-s2.1-pro')
+  assert.equal(relaxed.id, 'fish-s2.1-pro-relaxed')
+  assert.equal(direct.queue_class, 'direct')
+  assert.equal(relaxed.queue_class, 'relaxed')
+  assert.deepEqual(relaxed.relaxed_queue_hint, relaxedQueueHint)
+  assert.equal(relaxed.standard_credits, 48)
+  assert.equal(relaxed.sale_credits, 24)
+  assert.equal(relaxed.sale_ends_at, null)
+  assert.equal(relaxed.sale_disclaimer, 'GenStudio publishes this sale disclaimer.')
+})
+
 test('the music model catalogue forwards GenStudio published details without inferring a provider', async () => {
   await request(app)
     .put('/api/app-settings/api-keys/genstudio')

@@ -18,6 +18,7 @@
 
 import type { GenStudioTtsControl, TtsControlValues } from '~/utils/tts-controls'
 import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
+import type { RelaxedQueueHint } from '~/utils/genstudio-relaxed-queue'
 
 /**
  * `TTSModelResponse`. Every field is published by GenStudio except the last
@@ -38,6 +39,12 @@ export interface GenStudioTtsModel {
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
+  standard_credits: number | null
+  sale_credits: number | null
+  sale_ends_at: string | null
+  sale_disclaimer: string | null
+  queue_class: 'direct' | 'relaxed'
+  relaxed_queue_hint: RelaxedQueueHint | null
   legacy_ids?: string[]
   /**
    * `TTSModelResponse.controls[]` — every extra knob THIS model takes, with its

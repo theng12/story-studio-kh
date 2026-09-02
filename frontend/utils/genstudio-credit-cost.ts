@@ -39,6 +39,8 @@ export interface CreditDisplay {
   basis: CreditBasis
   /** Longer explanation for a tooltip. Always says where the figure came from. */
   title: string
+  /** Commercial terms that must remain visible without relying on hover. */
+  notice?: string
 }
 
 export const CREDIT_BASIS_LABEL: Record<CreditBasis, string> = {
@@ -378,15 +380,47 @@ export function describeWebResearchRate(model: {
 export function describeVoiceRate(model: {
   display_name?: string
   credits_per_1000_characters?: number | null
+  standard_credits?: number | null
+  sale_credits?: number | null
+  sale_ends_at?: string | null
+  sale_disclaimer?: string | null
 } | null | undefined): CreditDisplay {
   const rate = publishedNumber(model?.credits_per_1000_characters)
   if (rate === null) return unpublishedCost(model?.display_name || 'This voice model')
-  return {
-    text: `${formatCredits(rate)} / 1,000 characters`,
-    basis: 'rate',
-    title: `GenStudio publishes ${formatCredits(rate)} per 1,000 characters for ${model?.display_name || 'this model'}. `
-      + 'Ask GenStudio for a quote to get the exact figure for a specific script; '
+  let text = `${formatCredits(rate)} / 1,000 characters`
+  const parts = [
+    `GenStudio publishes ${formatCredits(rate)} per 1,000 characters for ${model?.display_name || 'this model'}.`,
+  ]
+  const notices: string[] = []
+  const standard = publishedNumber(model?.standard_credits)
+  const sale = publishedNumber(model?.sale_credits)
+  if (standard !== null && standard > rate) {
+    text += ` (was ${formatCredits(standard)})`
+    const priceNotice = `The undiscounted price is ${formatCredits(standard)}${sale === rate ? `, on sale at ${formatCredits(sale)}` : ''}.`
+    parts.push(priceNotice)
+    notices.push(priceNotice)
+    const endsAt = model?.sale_ends_at?.trim()
+    if (endsAt) {
+      const when = new Date(endsAt)
+      const endNotice = Number.isNaN(when.getTime()) ? `The sale ends ${endsAt}.` : `The sale ends ${when.toLocaleDateString()}.`
+      parts.push(endNotice)
+      notices.push(endNotice)
+    }
+  }
+  const disclaimer = model?.sale_disclaimer?.trim()
+  if (disclaimer) {
+    parts.push(disclaimer)
+    notices.push(disclaimer)
+  }
+  parts.push(
+    'Ask GenStudio for a quote to get the exact figure for a specific script; '
       + 'GenStudio reports the actual charge on the finished job.',
+  )
+  return {
+    text,
+    basis: 'rate',
+    title: parts.join(' '),
+    notice: notices.join(' ') || undefined,
   }
 }
 
