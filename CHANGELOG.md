@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.98 — 2026-09-03
+
+- **YouTube uploads no longer fail because Story Studio's private chapter and source markers leaked into the description.** The readable chapters, timestamps, citations, and links remain exactly where expected, while the internal boundary lines are removed at the final upload gate. Any other angle bracket that YouTube forbids is also removed before submission, so the API can no longer reject an otherwise valid description with `invalidDescription` for this reason.
+
 ## v1.4.97 — 2026-09-02
 
 - **Durable queue evidence now coalesces safely during concurrent job updates.** A burst of pause, resume, cancellation, and recovery mutations is captured in the correct project snapshot instead of serialising into redundant writes or losing later intent after a failed write. Authoritative paid-work inspection now reads the persisted job record under the checkpoint lock, so a stale in-memory copy cannot authorize a replacement.
