@@ -298,6 +298,37 @@ describe('project-owned durable job evidence', () => {
     }
   })
 
+  test('shutdown drain observes a checkpoint scheduled from its first idle turn', async () => {
+    const project = await pm.createProject({ name: 'Idle Turn Shutdown Checkpoint' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const [job] = await createQueuedJobs(project.slug, 1)
+    assert.ok(job)
+    let checkpointStarted = false
+    let checkpointFinished = false
+    const checkpoint = new Promise<void>((resolve, reject) => {
+      setImmediate(() => {
+        checkpointStarted = true
+        void jq.recordGenStudioJob(job.job_id, {
+          id: 'idle-turn-checkpoint', operation: 'image.generation', state: 'running',
+          updated_at: '2026-01-01T00:00:00.000Z',
+        }).then(() => {
+          checkpointFinished = true
+          resolve()
+        }, reject)
+      })
+    })
+
+    assert.equal(await jq.drainJobPersistenceForShutdown(1_000), true)
+    const checkpointStartedBeforeDrainReturned = checkpointStarted
+    const checkpointFinishedBeforeDrainReturned = checkpointFinished
+    await checkpoint
+
+    assert.equal(checkpointStartedBeforeDrainReturned, true)
+    assert.equal(checkpointFinishedBeforeDrainReturned, true)
+    const persisted = (await readJobs(jobsFile)).find(candidate => candidate.job_id === job.job_id)
+    assert.equal(persisted?.genstudio_jobs?.[0]?.id, 'idle-turn-checkpoint')
+  })
+
   test('an invalid paid replacement checkpoint is a durable no-op, never a deletion', async () => {
     const project = await pm.createProject({ name: 'Paid Checkpoint No-op' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')

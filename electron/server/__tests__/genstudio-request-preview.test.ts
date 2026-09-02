@@ -16,6 +16,7 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import {
   buildGenStudioRequestPreview,
   boundGenStudioRequestPreviews,
@@ -453,10 +454,9 @@ describe('job-queue adopts the pre-submit preview', () => {
         type: 'script-only',
         episode_id: 'EP0002',
       })
-      const deadline = Date.now() + 3_000
-      while (Date.now() < deadline && jq.getJob(enqueued.job_id)?.status !== 'error') {
-        await new Promise(resolve => setTimeout(resolve, 10))
-      }
+      await waitFor(() => jq.getJob(enqueued.job_id)?.status === 'error', {
+        label: 'the failed durable preview job to reach error status',
+      })
 
       assert.equal(jq.getJob(enqueued.job_id)?.status, 'error')
       assert.equal(posts, 0, 'the generation POST requires a durable request preview')

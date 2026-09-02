@@ -1654,17 +1654,27 @@ export async function _waitForJobPersistenceForTesting(): Promise<void> {
   }
 }
 
-/** Drain already-started project writes within the Electron shutdown budget. */
+/** Drain tracked children and already-started project writes within the shutdown budget. */
 export async function drainJobPersistenceForShutdown(timeoutMs: number): Promise<boolean> {
+  let stopped = false
   const drained = (async () => {
-    while (true) {
+    let observedIdle = false
+    while (!stopped) {
       const states = [...projectPersistence.values()]
       if (states.some(state => state.dirty && !state.writing && state.pendingMutations === 0)) return false
       const active = states.flatMap(state => [
         ...(state.writing ? [state.writing] : []),
         ...(state.baseline === null && state.hydratePromise ? [state.hydratePromise] : []),
       ])
-      if (active.length === 0 && states.every(state => state.pendingMutations === 0 && !state.dirty)) return true
+      const idle = childrenByJob.size === 0 && active.length === 0
+        && states.every(state => state.pendingMutations === 0 && !state.dirty)
+      if (idle) {
+        if (observedIdle) return true
+        observedIdle = true
+        await new Promise<void>(resolve => setImmediate(resolve))
+        continue
+      }
+      observedIdle = false
       if (active.length === 0) {
         await new Promise<void>(resolve => setImmediate(resolve))
         continue
@@ -1672,13 +1682,18 @@ export async function drainJobPersistenceForShutdown(timeoutMs: number): Promise
       const results = await Promise.allSettled(active)
       if (results.some(result => result.status === 'rejected')) return false
     }
+    return false
   })()
   let timer: ReturnType<typeof setTimeout> | undefined
   const timedOut = new Promise<false>(resolve => {
-    timer = setTimeout(() => resolve(false), Math.max(0, timeoutMs))
+    timer = setTimeout(() => {
+      stopped = true
+      resolve(false)
+    }, Math.max(0, timeoutMs))
     timer.unref?.()
   })
   const result = await Promise.race([drained, timedOut])
+  stopped = true
   if (timer) clearTimeout(timer)
   return result
 }
