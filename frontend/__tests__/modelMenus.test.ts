@@ -110,7 +110,7 @@ describe('shared model menus', () => {
     // product published before `queue_class` existed.
     assert.match(modelSelector, /queueClassGroupLabel\(model, 'Language models'\)/)
     assert.match(imagePicker, /group: 'Image models'/)
-    assert.match(modelSurfaces.audio, /group: model\.provider_name \|\| 'Voice models'/)
+    assert.match(modelSurfaces.audio, /group: queueClassGroupLabel\(model, model\.provider_name \|\| 'Voice models'\)/)
     assert.match(imagePicker, /provider: model\.provider_name \|\| ''/)
     assert.match(modelSelector, /provider: model\.provider_name \|\| ''/)
     assert.match(modelSurfaces.audio, /provider: model\.provider_name \|\| ''/)

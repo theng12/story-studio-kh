@@ -437,6 +437,11 @@ import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
 import { genstudioStaleNote } from '~/utils/genstudio-freshness'
 import {
+  describeRelaxedQueueHint,
+  isRelaxedQueue,
+  queueClassGroupLabel,
+} from '~/utils/genstudio-relaxed-queue'
+import {
   defaultTtsControlValues,
   resolveTtsControlValues,
   type GenStudioTtsControl,
@@ -477,7 +482,8 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
   return {
     id: model.id,
     label: model.display_name,
-    group: model.provider_name || 'Voice models',
+    group: queueClassGroupLabel(model, model.provider_name || 'Voice models'),
+    groupNote: isRelaxedQueue(model) ? describeRelaxedQueueHint(model.relaxed_queue_hint) : '',
     provider: model.provider_name || '',
     price: rate.text,
     priceTitle: rate.title,

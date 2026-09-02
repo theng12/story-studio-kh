@@ -1263,6 +1263,12 @@ export interface GenStudioTtsModel extends GenStudioCatalogLock {
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
+  standard_credits: number | null
+  sale_credits: number | null
+  sale_ends_at: string | null
+  sale_disclaimer: string | null
+  queue_class: 'direct' | 'relaxed'
+  relaxed_queue_hint: GenStudioRelaxedQueueHint | null
   /** Exact language codes sold by this product. Empty means GenStudio did not publish a list. */
   supported_languages: string[]
   cost_tier?: GenStudioCostTier
@@ -3896,6 +3902,12 @@ export async function listTtsModelsSnapshot(
         supports_voice_cloning: value?.supports_voice_cloning === true,
         preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
         generation_enabled: value?.generation_enabled === true,
+        standard_credits: publishedCredits(value?.standard_credits) ?? null,
+        sale_credits: publishedCredits(value?.sale_credits) ?? null,
+        sale_ends_at: nullableText(value?.sale_ends_at),
+        sale_disclaimer: nullableText(value?.sale_disclaimer),
+        queue_class: value?.queue_class === 'relaxed' ? 'relaxed' : 'direct',
+        relaxed_queue_hint: parseRelaxedQueueHint(value?.relaxed_queue_hint),
         supported_languages: Array.isArray(value?.supported_languages)
           ? value.supported_languages
             .filter((code: unknown): code is string => typeof code === 'string' && !!code.trim())

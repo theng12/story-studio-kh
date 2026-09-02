@@ -35,7 +35,7 @@ import {
   isRelaxedQueue,
   queueClassGroupLabel,
 } from '../utils/genstudio-relaxed-queue.js'
-import { describeChatRate } from '../utils/genstudio-credit-cost.js'
+import { describeChatRate, describeVoiceRate } from '../utils/genstudio-credit-cost.js'
 import { thumbnailVisionModelMenuOption } from '../utils/thumbnail-vision-model-menu.js'
 
 const menuSource = readFileSync(new URL('../components/ModelMenu.vue', import.meta.url), 'utf8')
@@ -43,6 +43,7 @@ const menuTemplate = parse(menuSource).descriptor.template?.content
 assert.ok(menuTemplate, 'ModelMenu.vue must have a template')
 const selectorSource = readFileSync(new URL('../components/ModelSelector.vue', import.meta.url), 'utf8')
 const researchSource = readFileSync(new URL('../pages/projects/[slug]/research.vue', import.meta.url), 'utf8')
+const audioSource = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
 const relaxedSource = readFileSync(new URL('../utils/genstudio-relaxed-queue.ts', import.meta.url), 'utf8')
 
 /**
@@ -121,6 +122,7 @@ test('no picker reads the words "Relaxed Queue" out of anything GenStudio publis
   for (const [name, source] of [
     ['ModelSelector.vue', selectorSource],
     ['research.vue', researchSource],
+    ['audio.vue', audioSource],
     ['genstudio-relaxed-queue.ts', relaxedSource],
   ] as const) {
     assert.doesNotMatch(
@@ -265,6 +267,24 @@ test('no discount tag appears where there is no discount', () => {
   // And an account being quoted list gets no second figure invented for it.
   const unsold = describeChatRate({ input_credits_per_million_tokens: 30, output_credits_per_million_tokens: 60 })
   assert.equal(unsold.text, '30 credits / 1M input tokens · 60 credits / 1M output tokens')
+})
+
+test('the TTS picker uses GenStudio queue metadata and shows the published full price', () => {
+  assert.match(audioSource, /queueClassGroupLabel\(model, model\.provider_name \|\| 'Voice models'\)/)
+  assert.match(
+    audioSource,
+    /groupNote: isRelaxedQueue\(model\) \? describeRelaxedQueueHint\(model\.relaxed_queue_hint\) : ''/,
+  )
+
+  const display = describeVoiceRate({
+    display_name: 'Fish Audio S2.1 Pro (Relaxed Queue)',
+    credits_per_1000_characters: 24,
+    standard_credits: 48,
+    sale_credits: 24,
+    sale_disclaimer: 'GenStudio publishes this sale disclaimer.',
+  })
+  assert.match(display.text, /24 credits \/ 1,000 characters \(was 48 credits\)/)
+  assert.match(display.title, /GenStudio publishes this sale disclaimer\./)
 })
 
 // ── 5. GRACEFUL DEGRADATION — the deployed API serves none of this yet ────

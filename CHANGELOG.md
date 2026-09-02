@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.96 — 2026-09-02
+
+- **Relaxed-queue voice models now appear on their own clearly labelled shelf.** Story Studio preserves GenStudio's queue classification and availability notice, keeps direct and relaxed Fish Audio products separately selectable, and shows the relaxed shelf after the direct catalogue with GenStudio's disclaimer once for the group.
+- **Published TTS sale pricing is visible without changing how narration is charged.** The picker shows the current per-1,000-character rate beside GenStudio's undiscounted rate and carries GenStudio's sale details through unchanged; quotes and finished-job settlement remain authoritative.
+
 ## v1.4.95 — 2026-09-02
 
 - **Chinese Ink-Wash Storytelling is now a standalone visual style.** Its original full-frame preview, calligraphic wet-and-dry brush language, rice-paper negative space, mist-built depth, searchable metadata, and text/seal/UI exclusions ship together as one independently purchasable Content Pack.
