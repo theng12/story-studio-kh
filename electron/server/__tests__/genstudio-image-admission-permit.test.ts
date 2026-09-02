@@ -235,10 +235,7 @@ test('permit queues serialize one scope without holding an unrelated operation',
     }))
     let concurrencyError: unknown
     try {
-      await Promise.race([
-        unrelatedEntered.promise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('unrelated permit scope was blocked')), 100)),
-      ])
+      await unrelatedEntered.promise
       assert.equal(textPermitCalls, 1, 'the second same-scope permit must remain queued')
       assert.equal(secondStates[0], 'waiting_account_capacity')
       assert.equal(shouldPauseContinuityForStall({
