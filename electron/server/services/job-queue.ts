@@ -1309,6 +1309,30 @@ type JobFileLockProbe = (
 
 let jobFileLockProbeForTesting: JobFileLockProbe | undefined
 
+export type JobPersistenceCounters = {
+  project_snapshot_reads: number
+  safe_job_calls: number
+  atomic_writes: number
+  public_serializations: number
+}
+
+const jobPersistenceCounters: JobPersistenceCounters = {
+  project_snapshot_reads: 0,
+  safe_job_calls: 0,
+  atomic_writes: 0,
+  public_serializations: 0,
+}
+
+export function _getJobPersistenceCountersForTesting(): JobPersistenceCounters {
+  return { ...jobPersistenceCounters }
+}
+
+export function _resetJobPersistenceCountersForTesting(): void {
+  for (const key of Object.keys(jobPersistenceCounters) as Array<keyof JobPersistenceCounters>) {
+    jobPersistenceCounters[key] = 0
+  }
+}
+
 /** Test-only inside-lock synchronization; production has no hook installed. */
 export function _setJobFileLockProbeForTesting(probe: JobFileLockProbe): () => void {
   const previous = jobFileLockProbeForTesting
@@ -1326,14 +1350,11 @@ function jobsPath(projectSlug: string): string {
 }
 
 async function persistProjectSnapshot(projectSlug: string): Promise<void> {
-  const p = jobsPath(projectSlug)
-  assertWriteIsolatedInTests(p, 'job-queue')
-  await withLock(p, async () => {
-    const remaining = retainJobsForPersistence(Array.from(jobs.values())
-      .filter(j => j.project_slug === projectSlug)
-      .map(j => safeJob(j)))
-    await writeJsonAtomic(p, { jobs: remaining })
-  })
+  // A project snapshot is an upsert batch, not a replacement.  The process
+  // global map is lazy, so replacing from it can erase unloaded durable jobs.
+  await Promise.all(Array.from(jobs.values())
+    .filter(job => job.project_slug === projectSlug)
+    .map(job => persistProjectMutation(projectSlug, { kind: 'upsert', job })))
 }
 
 /**
@@ -1374,6 +1395,7 @@ export async function withProjectJobRemovalGuard<T>(
 }
 
 function safeJob(job: Job): Omit<Job, never> {
+  jobPersistenceCounters.safe_job_calls++
   // Jobs are both renderer-visible diagnostics and durable project records.
   // Provider adapters should never put credentials in params/output, but this
   // final boundary is deny-by-default so an accidental future field cannot
@@ -1397,6 +1419,7 @@ export const PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE =
   'Automatic image replacement is unavailable. No replacement was submitted.'
 
 function serializeJob(job: Job): RendererJob {
+  jobPersistenceCounters.public_serializations++
   const copy = safeJob(job)
   const latestPaidImageAttempt = copy.paid_image_replacement_attempts?.at(-1)
   const privateReasons = (copy.paid_image_replacement_attempts || [])
@@ -1434,38 +1457,103 @@ function serializeJob(job: Job): RendererJob {
   return rendererJob
 }
 
-async function persistJob(job: Job): Promise<void> {
-  const p = jobsPath(job.project_slug)
-  assertWriteIsolatedInTests(p, 'job-queue')
-  // Lock + atomic write: concurrent generators can finish at the same time and
-  // would otherwise race `read → splice → write` on this shared file.
-  await withLock(p, async () => {
-    if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('persist', p)
-    let data: { jobs: any[] } = { jobs: [] }
-    try {
-      if (existsSync(p)) {
-        data = JSON.parse(await fs.readFile(p, 'utf-8'))
-        if (!Array.isArray(data.jobs)) data.jobs = []
+type ProjectPersistenceState = {
+  baseline: Map<string, Job> | null
+  hydratePromise: Promise<void> | null
+  revision: number
+  durableRevision: number
+  writing: Promise<void> | null
+  dirty: boolean
+  waiters: Array<{ revision: number; resolve: () => void; reject: (error: unknown) => void }>
+}
+type ProjectJobMutation = { kind: 'upsert'; job: Job } | { kind: 'delete'; jobId: string }
+const projectPersistence = new Map<string, ProjectPersistenceState>()
+
+function projectPersistenceState(projectSlug: string): ProjectPersistenceState {
+  let state = projectPersistence.get(projectSlug)
+  if (!state) {
+    state = { baseline: null, hydratePromise: null, revision: 0, durableRevision: 0, writing: null, dirty: false, waiters: [] }
+    projectPersistence.set(projectSlug, state)
+  }
+  return state
+}
+
+async function hydrateProjectBaseline(projectSlug: string, state: ProjectPersistenceState): Promise<void> {
+  if (state.baseline) return
+  if (!state.hydratePromise) {
+    const p = jobsPath(projectSlug)
+    state.hydratePromise = withLock(p, async () => {
+      assertWriteIsolatedInTests(p, 'job-queue')
+      jobPersistenceCounters.project_snapshot_reads++
+      let durable: Job[] = []
+      try {
+        if (existsSync(p)) {
+          const parsed = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
+          if (!Array.isArray(parsed.jobs)) throw new Error('jobs.json does not contain a jobs array')
+          durable = parsed.jobs as Job[]
+        }
+      } catch (error) {
+        state.hydratePromise = null
+        throw error
       }
-    } catch { /* corrupt or missing — start fresh */ }
+      state.baseline = new Map(durable.map(job => [job.job_id, structuredClone(job)]))
+    })
+  }
+  await state.hydratePromise
+}
 
-    const idx = data.jobs.findIndex((j: any) => j.job_id === job.job_id)
-    const next = safeJob(job)
-    if (idx >= 0) {
-      const previous = data.jobs[idx] as Job
-      const attempts = mergePaidImageReplacementAttempts(
-        previous.paid_image_replacement_attempts,
-        next.paid_image_replacement_attempts,
-      )
-      data.jobs[idx] = attempts ? { ...next, paid_image_replacement_attempts: attempts } : next
-    } else {
-      data.jobs.push(next)
+async function drainProjectPersistence(projectSlug: string, state: ProjectPersistenceState): Promise<void> {
+  try {
+    while (state.dirty) {
+      state.dirty = false
+      const revision = state.revision
+      const baseline = state.baseline!
+      const snapshot = retainJobsForPersistence(Array.from(baseline.values()).map(job => safeJob(job)))
+      const p = jobsPath(projectSlug)
+      assertWriteIsolatedInTests(p, 'job-queue')
+      await withLock(p, async () => {
+        if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('persist', p)
+        await writeJsonAtomic(p, { jobs: snapshot })
+        jobPersistenceCounters.atomic_writes++
+      })
+      state.durableRevision = revision
+      const ready = state.waiters.filter(waiter => waiter.revision <= revision)
+      state.waiters = state.waiters.filter(waiter => waiter.revision > revision)
+      ready.forEach(waiter => waiter.resolve())
     }
+  } catch (error) {
+    state.dirty = true
+    const failed = state.waiters.filter(waiter => waiter.revision > state.durableRevision)
+    state.waiters = state.waiters.filter(waiter => waiter.revision <= state.durableRevision)
+    failed.forEach(waiter => waiter.reject(error))
+    throw error
+  } finally {
+    state.writing = null
+  }
+}
 
-    data.jobs = retainJobsForPersistence(data.jobs)
+async function persistProjectMutation(projectSlug: string, mutation: ProjectJobMutation): Promise<void> {
+  const state = projectPersistenceState(projectSlug)
+  await hydrateProjectBaseline(projectSlug, state)
+  if (mutation.kind === 'delete') state.baseline!.delete(mutation.jobId)
+  else {
+    const next = safeJob(mutation.job)
+    const previous = state.baseline!.get(next.job_id)
+    const attempts = mergePaidImageReplacementAttempts(previous?.paid_image_replacement_attempts, next.paid_image_replacement_attempts)
+    state.baseline!.set(next.job_id, attempts ? { ...next, paid_image_replacement_attempts: attempts } : next)
+  }
+  const revision = ++state.revision
+  state.dirty = true
+  const durable = new Promise<void>((resolve, reject) => state.waiters.push({ revision, resolve, reject }))
+  if (!state.writing) {
+    state.writing = drainProjectPersistence(projectSlug, state)
+    void state.writing.catch(() => {})
+  }
+  return durable
+}
 
-    await writeJsonAtomic(p, data)
-  })
+async function persistJob(job: Job): Promise<void> {
+  await persistProjectMutation(job.project_slug, { kind: 'upsert', job })
   const settled = TERMINAL_JOB_STATUSES.has(job.status)
     || (job.status === 'paused' && !hasUnsettledProviderEvidence(job))
   if (job.type === 'continuity_render' && settled) {
@@ -1479,17 +1567,10 @@ async function persistJob(job: Job): Promise<void> {
  * must not use a worker's stale in-memory copy to authorize a charge.
  */
 export async function loadAuthoritativeJob(projectSlug: string, jobId: string): Promise<Job | null> {
-  const p = jobsPath(projectSlug)
-  return withLock(p, async () => {
-    assertWriteIsolatedInTests(p, 'job-queue')
-    if (!existsSync(p)) return null
-    const data = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
-    if (!Array.isArray(data.jobs)) throw new Error('jobs.json does not contain a jobs array')
-    const found = data.jobs.find((candidate: unknown) => (
-      Boolean(candidate) && typeof candidate === 'object' && (candidate as Job).job_id === jobId
-    ))
-    return found ? structuredClone(found as Job) : null
-  })
+  const state = projectPersistenceState(projectSlug)
+  await hydrateProjectBaseline(projectSlug, state)
+  const found = state.baseline!.get(jobId)
+  return found ? structuredClone(found) : null
 }
 
 /** Evaluate one read-only predicate while normal jobs.json persistence is excluded. */
@@ -1498,21 +1579,13 @@ export async function inspectAuthoritativeJob(
   jobId: string,
   inspect: (job: Job) => boolean,
 ): Promise<boolean | null> {
-  const p = jobsPath(projectSlug)
-  return withLock(p, async () => {
-    if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('inspect', p)
-    assertWriteIsolatedInTests(p, 'job-queue')
-    if (!existsSync(p)) return null
-    const data = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
-    if (!Array.isArray(data.jobs)) throw new Error('jobs.json does not contain a jobs array')
-    const found = data.jobs.find((candidate: unknown) => (
-      Boolean(candidate) && typeof candidate === 'object' && (candidate as Job).job_id === jobId
-    ))
-    if (!found) return null
-    const result = inspect(structuredClone(found as Job))
-    if (typeof result !== 'boolean') throw new Error('authoritative job inspection must be synchronous')
-    return result
-  })
+  const state = projectPersistenceState(projectSlug)
+  await hydrateProjectBaseline(projectSlug, state)
+  const found = state.baseline!.get(jobId)
+  if (!found) return null
+  const result = inspect(structuredClone(found))
+  if (typeof result !== 'boolean') throw new Error('authoritative job inspection must be synchronous')
+  return result
 }
 
 /** The paired write side of `loadAuthoritativeJob`, retained as one test seam. */
@@ -1529,23 +1602,12 @@ export async function mutateAuthoritativeJob(
   jobId: string,
   mutate: (job: Job) => Job | null,
 ): Promise<Job | null> {
-  const p = jobsPath(projectSlug)
-  assertWriteIsolatedInTests(p, 'job-queue')
-  return withLock(p, async () => {
-    if (!existsSync(p)) return null
-    const data = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
-    if (!Array.isArray(data.jobs)) throw new Error('jobs.json does not contain a jobs array')
-    const index = data.jobs.findIndex((candidate: unknown) => (
-      Boolean(candidate) && typeof candidate === 'object' && (candidate as Job).job_id === jobId
-    ))
-    if (index < 0) return null
-    const next = mutate(structuredClone(data.jobs[index] as Job))
-    if (!next) return null
-    data.jobs[index] = safeJob(next)
-    data.jobs = retainJobsForPersistence(data.jobs)
-    await writeJsonAtomic(p, data)
-    return structuredClone(next)
-  })
+  const current = await loadAuthoritativeJob(projectSlug, jobId)
+  if (!current) return null
+  const next = mutate(current)
+  if (!next) return null
+  await persistProjectMutation(projectSlug, { kind: 'upsert', job: next })
+  return structuredClone(next)
 }
 
 /** Persist one provider-side transition of the already committed paid attempt. */
@@ -4132,7 +4194,7 @@ export function retryTerminalJob(
 
   jobs.delete(jobId)
   emitCleared(projectSlug, [jobId])
-  void persistProjectSnapshot(projectSlug).catch((error) => {
+  void persistProjectMutation(projectSlug, { kind: 'delete', jobId }).catch((error) => {
     console.warn('[job-queue] failed to persist retried job replacement', {
       projectSlug,
       jobId,
@@ -4474,7 +4536,7 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
     void deactivateSceneRenderStatus(job.project_slug, job.episode_id, job.job_id).catch(() => {})
   }
   emitCleared(projectSlug, [jobId])
-  void persistProjectSnapshot(projectSlug).catch(() => {})
+  void persistProjectMutation(projectSlug, { kind: 'delete', jobId }).catch(() => {})
   return true
 }
 
@@ -4499,7 +4561,7 @@ export async function clearFinished(projectSlug: string): Promise<number> {
   // Clearing history is a UI housekeeping action, not an asset mutation.
   // Return as soon as memory + SSE are updated; persist the compact snapshot
   // behind the response so an iCloud-backed project cannot freeze the button.
-  void persistProjectSnapshot(projectSlug).catch((e) => {
+  void Promise.all(clearedIds.map(jobId => persistProjectMutation(projectSlug, { kind: 'delete', jobId }))).catch((e) => {
     console.warn('[job-queue] failed to persist cleared history', { projectSlug, error: e?.message })
   })
   return count
