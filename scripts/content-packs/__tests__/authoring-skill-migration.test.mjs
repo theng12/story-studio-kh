@@ -56,6 +56,19 @@ test('installs and checks complete canonical Story authoring skill packages', as
     assert.doesNotMatch(skill, /Channel Kit component lane/)
   }
 
+  const visualStyleSkill = await readFile(
+    new URL('developer-migration/codex-skills/story-studio-visual-style-adoption/SKILL.md', repositoryRoot),
+    'utf8',
+  )
+  assert.match(visualStyleSkill, /visibly and distinctly differentiated/i)
+  assert.match(visualStyleSkill, /visual similarity is acceptable/i)
+  assert.match(visualStyleSkill, /reject only indistinguishable duplicates or mere renames/i)
+  assert.match(visualStyleSkill, /similarity alone as a correction request/i)
+  assert.doesNotMatch(visualStyleSkill, /otherwise propose a correction to the closest existing style/i)
+  for (const preservedGate of ['originality', 'composition-copy', 'identity', 'safety', 'commercial']) {
+    assert.match(visualStyleSkill, new RegExp(`preserve[^\\n]*${preservedGate}[^\\n]*gates?`, 'i'))
+  }
+
   const changed = join(skillsRoot, 'story-studio-content-pack-authoring', 'SKILL.md')
   await writeFile(changed, `${await readFile(changed, 'utf8')}tampered\n`, 'utf8')
   await assert.rejects(checkAuthoringSkills({ skillsRoot }), /differs from canonical migration package/i)

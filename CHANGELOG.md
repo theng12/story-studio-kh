@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.95 — 2026-09-02
+
+- **Chinese Ink-Wash Storytelling is now a standalone visual style.** Its original full-frame preview, calligraphic wet-and-dry brush language, rice-paper negative space, mist-built depth, searchable metadata, and text/seal/UI exclusions ship together as one independently purchasable Content Pack.
+- **Distinct visual variants are welcome when their rendering contracts are genuinely different.** Similarity alone no longer redirects an author to an existing style; only indistinguishable duplicates and simple renames are rejected, while originality, composition-copy, identity, safety, and commercial checks remain unchanged.
+
 ## v1.4.94 — 2026-09-02
 
 - **The Style Library now shows Content Packs only.** The 17 retired built-in cards and their duplicate frontend preview files are gone, so each installed signed style appears once and a new customer sees only styles they actually own or receive.

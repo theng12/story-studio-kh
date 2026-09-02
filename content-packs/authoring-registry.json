@@ -1,5 +1,5 @@
 {
-  "revision": 140,
+  "revision": 142,
   "batches": [
     {
       "revision": 2,
@@ -3246,6 +3246,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 141,
+      "receipt_ref": "authoring:544cc9ae4d80604d5a14b8683f3accb25c11d5386a63751947276d4ef4cc8353",
+      "request": {
+        "expected_revision": 140,
+        "coordinator": {
+          "task": "chinese-ink-wash-storytelling",
+          "branch": "feat/chinese-ink-wash-storytelling"
+        },
+        "proposal_ref": "docs/product/chinese-ink-wash-storytelling-proposal.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.chinese-ink-wash-storytelling",
+            "item_id": "com.storystudio.style.chinese-ink-wash-storytelling",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/storytelling-looks/style/chinese-ink-wash-storytelling",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.chinese-ink-wash-storytelling",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.chinese-ink-wash-storytelling",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -5198,6 +5234,23 @@
         },
         "receipt_ref": "authoring:a5a6e0d46ed35304d42f57e4fbb621f4854c82ec1d0a87606d942929c2c212f2",
         "pack_id": "com.storystudio.pack.topic.pov-law-enforcement",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 142,
+      "transition_ref": "lifecycle:964973fecffb6f8db1b1464c6652a8bdf421f3800ee47087e3a515bfe2d5fc32",
+      "request": {
+        "expected_revision": 141,
+        "coordinator": {
+          "task": "chinese-ink-wash-storytelling",
+          "branch": "feat/chinese-ink-wash-storytelling"
+        },
+        "receipt_ref": "authoring:544cc9ae4d80604d5a14b8683f3accb25c11d5386a63751947276d4ef4cc8353",
+        "pack_id": "com.storystudio.pack.style.chinese-ink-wash-storytelling",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -9748,6 +9801,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.formula.history-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:544cc9ae4d80604d5a14b8683f3accb25c11d5386a63751947276d4ef4cc8353",
+      "pack_id": "com.storystudio.pack.style.chinese-ink-wash-storytelling",
+      "item_id": "com.storystudio.style.chinese-ink-wash-storytelling",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/storytelling-looks/style/chinese-ink-wash-storytelling",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.chinese-ink-wash-storytelling",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.chinese-ink-wash-storytelling",
           "status": "proposed"
         }
       }

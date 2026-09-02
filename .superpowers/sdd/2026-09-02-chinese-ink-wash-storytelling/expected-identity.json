@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.style.chinese-ink-wash-storytelling",
+  "item_id": "com.storystudio.style.chinese-ink-wash-storytelling",
+  "version": "1.0.0",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "visual-style",
+  "source_path": "content-packs/storytelling-looks/style/chinese-ink-wash-storytelling",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.style.chinese-ink-wash-storytelling",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.style.chinese-ink-wash-storytelling",
+      "status": "proposed"
+    }
+  }
+}

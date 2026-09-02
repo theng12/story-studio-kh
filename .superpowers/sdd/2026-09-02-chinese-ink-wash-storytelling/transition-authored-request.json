@@ -1,0 +1,13 @@
+{
+  "expected_revision": 141,
+  "coordinator": {
+    "task": "chinese-ink-wash-storytelling",
+    "branch": "feat/chinese-ink-wash-storytelling"
+  },
+  "receipt_ref": "authoring:544cc9ae4d80604d5a14b8683f3accb25c11d5386a63751947276d4ef4cc8353",
+  "pack_id": "com.storystudio.pack.style.chinese-ink-wash-storytelling",
+  "version": "1.0.0",
+  "changes": {
+    "status": "authored"
+  }
+}
