@@ -7,6 +7,7 @@ import {
   generateImageWithGenStudio,
   listImageModels,
 } from '../lib/genstudio-client.js'
+import { shouldPauseContinuityForStall } from '../generators/continuity-render.js'
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PNG = Buffer.from(
@@ -196,6 +197,8 @@ test('permit queues serialize one scope without holding an unrelated operation',
   const unrelatedEntered = deferred<void>()
   let textPermitCalls = 0
   let generationCalls = 0
+  const generationPermitIds: string[] = []
+  const secondStates: string[] = []
   await withFetch((async (input: any, init?: any) => {
     const url = String(input)
     if (url.endsWith('/v1/images/admission/permits')) {
@@ -214,6 +217,7 @@ test('permit queues serialize one scope without holding an unrelated operation',
     if (url.endsWith('/v1/images/generations')) {
       generationCalls++
       const body = JSON.parse(String(init?.body))
+      generationPermitIds.push(String(body.admission_permit_id))
       return Response.json(imageJob(body, `image-task-${generationCalls}`), { status: 202 })
     }
     if (/\/v1\/images\/image-task-\d+\/file$/.test(url)) return new Response(PNG)
@@ -221,7 +225,10 @@ test('permit queues serialize one scope without holding an unrelated operation',
   }) as typeof fetch, async () => {
     const first = generateImageWithGenStudio('permit-scope-key', request({ requestIdentity: 'scope-first' }))
     await firstTextEntered.promise
-    const second = generateImageWithGenStudio('permit-scope-key', request({ requestIdentity: 'scope-second' }))
+    const second = generateImageWithGenStudio('permit-scope-key', request({
+      requestIdentity: 'scope-second',
+      onQueueState: (state: string) => { secondStates.push(state) },
+    }))
     const unrelated = generateImageWithGenStudio('permit-scope-key', request({
       requestIdentity: 'scope-unrelated',
       referenceAssetIds: ['asset-1'],
@@ -233,6 +240,17 @@ test('permit queues serialize one scope without holding an unrelated operation',
         new Promise((_, reject) => setTimeout(() => reject(new Error('unrelated permit scope was blocked')), 100)),
       ])
       assert.equal(textPermitCalls, 1, 'the second same-scope permit must remain queued')
+      assert.equal(secondStates[0], 'waiting_account_capacity')
+      assert.equal(shouldPauseContinuityForStall({
+        stallPauseRequested: false,
+        inFlightCount: 1,
+        pauseRequested: false,
+        fleetWaitingCount: 0,
+        capacityWaitingCount: 1,
+        elapsedMs: 11 * 60_000,
+      }), false)
+      assert.equal(generationPermitIds.some(id => id.startsWith('text-permit')), false,
+        'the queued follower must not make a paid request')
     } catch (error) {
       concurrencyError = error
     } finally {
@@ -243,6 +261,10 @@ test('permit queues serialize one scope without holding an unrelated operation',
   })
   assert.equal(textPermitCalls, 2)
   assert.equal(generationCalls, 3)
+  assert.deepEqual(secondStates.filter(state => state === 'waiting_account_capacity' || state === 'submitting'), [
+    'waiting_account_capacity',
+    'submitting',
+  ])
 })
 
 test('a lost permit response replays the identical permit key and body', async () => {

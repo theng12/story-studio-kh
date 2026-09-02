@@ -6759,8 +6759,15 @@ async function acquireImageAdmissionPermit(
     }
   }
   const scope = imagePermitScope(baseUrl, apiKey, request.modelId.trim(), operation)
-  const previous = imagePermitQueues.get(scope) || Promise.resolve()
-  const result = previous.then(acquire)
+  const previous = imagePermitQueues.get(scope)
+  const ready = previous
+    ? (async () => {
+        await assertImageSubmissionAllowed(request)
+        await request.onQueueState?.('waiting_account_capacity')
+        await previous
+      })()
+    : Promise.resolve()
+  const result = ready.then(acquire)
   const tail = result.then(() => undefined, () => undefined)
   imagePermitQueues.set(scope, tail)
   void tail.then(() => {
