@@ -60,9 +60,16 @@ export async function installAuthoringSkills({ skillsRoot = join(homedir(), '.co
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const command = process.argv[2]
-  if (!['--install', '--check'].includes(command) || process.argv.length !== 3) {
-    throw new Error('usage: sync-story-authoring-skills.mjs --install | --check')
+  // --skills-root installs the same canonical packages into a second agent's skills
+  // directory (e.g. ~/.claude/skills) so one repository copy serves every harness.
+  const rootFlag = process.argv.indexOf('--skills-root')
+  const skillsRoot = rootFlag === -1 ? undefined : process.argv[rootFlag + 1]
+  const argumentsValid = rootFlag === -1 ? process.argv.length === 3 : rootFlag === 3 && process.argv.length === 5 && Boolean(skillsRoot)
+  if (!['--install', '--check'].includes(command) || !argumentsValid) {
+    throw new Error('usage: sync-story-authoring-skills.mjs --install | --check [--skills-root <path>]')
   }
-  const result = command === '--install' ? await installAuthoringSkills() : await checkAuthoringSkills()
-  process.stdout.write(`Story authoring skills ${command === '--install' ? 'installed' : 'match canonical copies'}: ${result.packages} packages, ${result.files} files\n`)
+  const options = skillsRoot ? { skillsRoot } : {}
+  const result = command === '--install' ? await installAuthoringSkills(options) : await checkAuthoringSkills(options)
+  const where = skillsRoot ? ` in ${resolve(skillsRoot)}` : ''
+  process.stdout.write(`Story authoring skills ${command === '--install' ? 'installed' : 'match canonical copies'}${where}: ${result.packages} packages, ${result.files} files\n`)
 }

@@ -18,3 +18,14 @@ node scripts/developer/sync-story-authoring-skills.mjs --check
 
 Run `--install` again after the canonical packages change. It replaces only these five named skill
 directories and does not touch other personal skills.
+
+The same canonical packages serve other agent harnesses. Pass `--skills-root` to install or check a
+second skills directory, for example Claude Code's:
+
+```bash
+node scripts/developer/sync-story-authoring-skills.mjs --install --skills-root ~/.claude/skills
+node scripts/developer/sync-story-authoring-skills.mjs --check --skills-root ~/.claude/skills
+```
+
+Harnesses that do not read `agents/openai.yaml` ignore it, so every root receives the same bytes and
+the same inventory check.
