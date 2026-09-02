@@ -39,6 +39,8 @@ export interface CreditDisplay {
   basis: CreditBasis
   /** Longer explanation for a tooltip. Always says where the figure came from. */
   title: string
+  /** Commercial terms that must remain visible without relying on hover. */
+  notice?: string
 }
 
 export const CREDIT_BASIS_LABEL: Record<CreditBasis, string> = {
@@ -389,19 +391,27 @@ export function describeVoiceRate(model: {
   const parts = [
     `GenStudio publishes ${formatCredits(rate)} per 1,000 characters for ${model?.display_name || 'this model'}.`,
   ]
+  const notices: string[] = []
   const standard = publishedNumber(model?.standard_credits)
   const sale = publishedNumber(model?.sale_credits)
   if (standard !== null && standard > rate) {
     text += ` (was ${formatCredits(standard)})`
-    parts.push(`The undiscounted price is ${formatCredits(standard)}${sale === rate ? `, on sale at ${formatCredits(sale)}` : ''}.`)
+    const priceNotice = `The undiscounted price is ${formatCredits(standard)}${sale === rate ? `, on sale at ${formatCredits(sale)}` : ''}.`
+    parts.push(priceNotice)
+    notices.push(priceNotice)
     const endsAt = model?.sale_ends_at?.trim()
     if (endsAt) {
       const when = new Date(endsAt)
-      parts.push(Number.isNaN(when.getTime()) ? `The sale ends ${endsAt}.` : `The sale ends ${when.toLocaleDateString()}.`)
+      const endNotice = Number.isNaN(when.getTime()) ? `The sale ends ${endsAt}.` : `The sale ends ${when.toLocaleDateString()}.`
+      parts.push(endNotice)
+      notices.push(endNotice)
     }
   }
   const disclaimer = model?.sale_disclaimer?.trim()
-  if (disclaimer) parts.push(disclaimer)
+  if (disclaimer) {
+    parts.push(disclaimer)
+    notices.push(disclaimer)
+  }
   parts.push(
     'Ask GenStudio for a quote to get the exact figure for a specific script; '
       + 'GenStudio reports the actual charge on the finished job.',
@@ -410,6 +420,7 @@ export function describeVoiceRate(model: {
     text,
     basis: 'rate',
     title: parts.join(' '),
+    notice: notices.join(' ') || undefined,
   }
 }
 

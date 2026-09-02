@@ -106,6 +106,7 @@
             </template>
             <span :title="modelRate.title">{{ modelRate.text }}</span>,
             minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request.
+            <span v-if="modelRate.notice"> {{ modelRate.notice }}</span>
             <template v-if="selectedTtsModel.supports_voice_cloning"> Supports voice cloning.</template>
             <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
           </p>
@@ -487,6 +488,7 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
     provider: model.provider_name || '',
     price: rate.text,
     priceTitle: rate.title,
+    priceNote: rate.notice,
     meta: [
       ...(model.supported_languages.length ? [`Languages ${model.supported_languages.join(', ')}`] : []),
       `Minimum ${formatCredits(model.minimum_credits)} per request`,

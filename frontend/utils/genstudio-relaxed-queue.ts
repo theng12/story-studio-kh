@@ -74,7 +74,10 @@ export function describeRelaxedQueueHint(hint: RelaxedQueueHint | null | undefin
   const message = hint.message?.trim()
   if (!message) return ''
   if (!Number.isFinite(hint.discount_percent) || !Number.isFinite(hint.unlock_threshold_cents)) return ''
-  const percent = Math.round(hint.discount_percent * 10) / 10
+  const percent = hint.discount_percent.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })
   return `Discount ${percent}% · Unlocks at ${moneyFromCents(hint.unlock_threshold_cents)} — ${message}`
 }
 

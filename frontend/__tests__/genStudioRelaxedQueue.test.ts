@@ -238,6 +238,11 @@ test('the section note is body text and is never clamped or hidden', () => {
   assert.match(menuTemplate as string, /<p v-if="group\.note" class="model-menu-group-note">\{\{ group\.note \}\}<\/p>/)
 })
 
+test('the published discount percentage keeps its hundredths', () => {
+  const note = describeRelaxedQueueHint({ ...HINT, discount_percent: 42.55 })
+  assert.match(note, /Discount 42\.55%/)
+})
+
 // ── 4. The price, with the full price struck through ──────────────────────
 
 test('a relaxed rate shows what is charged with the undiscounted price beside it', () => {
@@ -285,6 +290,13 @@ test('the TTS picker uses GenStudio queue metadata and shows the published full 
   })
   assert.match(display.text, /24 credits \/ 1,000 characters \(was 48 credits\)/)
   assert.match(display.title, /GenStudio publishes this sale disclaimer\./)
+  assert.match(display.notice || '', /GenStudio publishes this sale disclaimer\./)
+  assert.match(
+    menuTemplate as string,
+    /<small v-if="option\.priceNote" class="model-menu-option-price-note">\{\{ option\.priceNote \}\}<\/small>/,
+    'sale disclosure is visible in the picker instead of existing only in a title tooltip',
+  )
+  assert.match(audioSource, /priceNote: rate\.notice/)
 })
 
 // ── 5. GRACEFUL DEGRADATION — the deployed API serves none of this yet ────

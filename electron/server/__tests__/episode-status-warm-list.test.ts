@@ -297,6 +297,13 @@ describe('episode-status warm list', () => {
 
   test('a full cache evicts other projects before the one being read', async () => {
     await makeProject()
+    // This case is about residency, not whether this filesystem delivers a
+    // delayed watch event from the project setup above. On a loaded full-suite
+    // run one such event can arrive while the filler rows are being inserted
+    // and remove an otherwise protected active-project row. Keep the watcher
+    // alive (so the warm-read assertion below remains meaningful), but make
+    // its invalidator deliberately deaf for this eviction-only case.
+    watcherMod.bindInvalidator(() => {})
     await listAll()   // SLUG becomes the active project
 
     // Two other projects' persisted rows are hydrated — together far more
