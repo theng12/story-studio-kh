@@ -1337,7 +1337,7 @@ function groupLimit(group: string): number {
 // ── Persistence ─────────────────────────────────────────────────────────────
 
 type JobFileLockProbe = (
-  operation: 'inspect' | 'persist',
+  operation: 'hydrate' | 'inspect' | 'persist',
   jobsFile: string,
 ) => void | Promise<void>
 
@@ -1505,6 +1505,7 @@ type ProjectPersistenceState = {
   durableRevision: number
   writing: Promise<void> | null
   dirty: boolean
+  pendingMutations: number
   waiters: Array<{ revision: number; resolve: () => void; reject: (error: unknown) => void }>
 }
 type ProjectJobMutation =
@@ -1515,7 +1516,10 @@ const projectPersistence = new Map<string, ProjectPersistenceState>()
 function projectPersistenceState(projectSlug: string): ProjectPersistenceState {
   let state = projectPersistence.get(projectSlug)
   if (!state) {
-    state = { baseline: null, hydratePromise: null, revision: 0, durableRevision: 0, writing: null, dirty: false, waiters: [] }
+    state = {
+      baseline: null, hydratePromise: null, revision: 0, durableRevision: 0,
+      writing: null, dirty: false, pendingMutations: 0, waiters: [],
+    }
     projectPersistence.set(projectSlug, state)
   }
   return state
@@ -1527,6 +1531,7 @@ async function hydrateProjectBaseline(projectSlug: string, state: ProjectPersist
     const p = jobsPath(projectSlug)
     state.hydratePromise = withLock(p, async () => {
       assertWriteIsolatedInTests(p, 'job-queue')
+      if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('hydrate', p)
       jobPersistenceCounters.project_snapshot_reads++
       let durable: Job[] = []
       try {
@@ -1551,13 +1556,18 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
       state.dirty = false
       const revision = state.revision
       const baseline = state.baseline!
+      const baselineEntries = new Map(baseline)
       const snapshot = retainJobsForPersistence(Array.from(baseline.values()).map(job => safeJob(job)))
+      const retainedIds = new Set(snapshot.map(job => job.job_id))
       const p = jobsPath(projectSlug)
       assertWriteIsolatedInTests(p, 'job-queue')
       await withLock(p, async () => {
         if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('persist', p)
         await writeJsonAtomic(p, { jobs: snapshot })
         jobPersistenceCounters.atomic_writes++
+        for (const [jobId, captured] of baselineEntries) {
+          if (!retainedIds.has(jobId) && baseline.get(jobId) === captured) baseline.delete(jobId)
+        }
       })
       state.durableRevision = revision
       const ready = state.waiters.filter(waiter => waiter.revision <= revision)
@@ -1581,7 +1591,6 @@ function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJ
     const previous = state.baseline!.get(mutation.jobId) || null
     const next = mutation.transform(previous ? structuredClone(previous) : null)
     if (next) state.baseline!.set(mutation.jobId, safeJob(next))
-    else state.baseline!.delete(mutation.jobId)
   }
   const revision = ++state.revision
   state.dirty = true
@@ -1597,21 +1606,38 @@ function startProjectPersistence(projectSlug: string, state: ProjectPersistenceS
 
 async function persistProjectMutation(projectSlug: string, mutation: ProjectJobMutation): Promise<void> {
   const state = projectPersistenceState(projectSlug)
-  await hydrateProjectBaseline(projectSlug, state)
-  let durable!: Promise<void>
-  await withLock(jobsPath(projectSlug), async () => {
-    durable = applyProjectMutation(state, mutation)
-  })
-  startProjectPersistence(projectSlug, state)
-  return durable
+  state.pendingMutations++
+  try {
+    await hydrateProjectBaseline(projectSlug, state)
+    let durable!: Promise<void>
+    await withLock(jobsPath(projectSlug), async () => {
+      durable = applyProjectMutation(state, mutation)
+    })
+    startProjectPersistence(projectSlug, state)
+    await durable
+  } finally {
+    state.pendingMutations--
+  }
 }
 
 /** Wait for already-started background writes before a test removes its data root. */
 export async function _waitForJobPersistenceForTesting(): Promise<void> {
+  let observedIdle = false
   while (true) {
-    const writers = [...projectPersistence.values()].flatMap(state => state.writing ? [state.writing] : [])
-    if (writers.length === 0) return
-    await Promise.allSettled(writers)
+    const states = [...projectPersistence.values()]
+    const active = states.flatMap(state => [
+      ...(state.writing ? [state.writing] : []),
+      ...(state.baseline === null && state.hydratePromise ? [state.hydratePromise] : []),
+    ])
+    if (active.length === 0 && states.every(state => state.pendingMutations === 0)) {
+      if (observedIdle) return
+      observedIdle = true
+      await new Promise<void>(resolve => setImmediate(resolve))
+      continue
+    }
+    observedIdle = false
+    if (active.length > 0) await Promise.allSettled(active)
+    else await new Promise<void>(resolve => setImmediate(resolve))
   }
 }
 
@@ -1619,9 +1645,18 @@ export async function _waitForJobPersistenceForTesting(): Promise<void> {
 export async function drainJobPersistenceForShutdown(timeoutMs: number): Promise<boolean> {
   const drained = (async () => {
     while (true) {
-      const writers = [...projectPersistence.values()].flatMap(state => state.writing ? [state.writing] : [])
-      if (writers.length === 0) return true
-      const results = await Promise.allSettled(writers)
+      const states = [...projectPersistence.values()]
+      if (states.some(state => state.dirty && !state.writing && state.pendingMutations === 0)) return false
+      const active = states.flatMap(state => [
+        ...(state.writing ? [state.writing] : []),
+        ...(state.baseline === null && state.hydratePromise ? [state.hydratePromise] : []),
+      ])
+      if (active.length === 0 && states.every(state => state.pendingMutations === 0 && !state.dirty)) return true
+      if (active.length === 0) {
+        await new Promise<void>(resolve => setImmediate(resolve))
+        continue
+      }
+      const results = await Promise.allSettled(active)
       if (results.some(result => result.status === 'rejected')) return false
     }
   })()
@@ -1714,6 +1749,13 @@ export async function writeAuthoritativeJob(job: Job): Promise<void> {
   await persistJob(job)
 }
 
+/** Test-only fixture reset; production mutations must use the canonical writer. */
+export function _forgetProjectPersistenceForTesting(projectSlug: string): void {
+  const state = projectPersistence.get(projectSlug)
+  if (state?.writing || state?.pendingMutations) throw new Error(`Cannot reset active persistence for ${projectSlug}`)
+  projectPersistence.delete(projectSlug)
+}
+
 /**
  * Atomic paid-attempt mutation. It shares the normal queue's jobs.json lock,
  * so a checkpoint cannot interleave between a paid read and its durable write.
@@ -1724,29 +1766,27 @@ export async function mutateAuthoritativeJob(
   mutate: (job: Job) => Job | null,
 ): Promise<Job | null> {
   const state = projectPersistenceState(projectSlug)
-  await hydrateProjectBaseline(projectSlug, state)
-  const result = await withLock(jobsPath(projectSlug), async () => {
-    const found = state.baseline!.get(jobId)
-    if (!found) return null
-    let durableNext: Job | null = null
-    const durable = applyProjectMutation(state, {
-      kind: 'transform',
-      jobId,
-      transform: authoritative => {
-        if (!authoritative) return null
-        const transformed = mutate(authoritative)
-        durableNext = transformed ? mergeDurableJobEvidence(authoritative, transformed) : null
-        return durableNext
-      },
+  state.pendingMutations++
+  try {
+    await hydrateProjectBaseline(projectSlug, state)
+    const result = await withLock(jobsPath(projectSlug), async () => {
+      const found = state.baseline!.get(jobId)
+      if (!found) return null
+      const transformed = mutate(structuredClone(found))
+      if (!transformed) return null
+      const next = mergeDurableJobEvidence(found, transformed)
+      const durable = applyProjectMutation(state, { kind: 'transform', jobId, transform: () => next })
+      return { next, durable }
     })
-    return durableNext ? { next: durableNext, durable } : null
-  })
-  if (!result) return null
-  startProjectPersistence(projectSlug, state)
-  await result.durable
-  const live = jobs.get(jobId)
-  if (live) Object.assign(live, result.next)
-  return structuredClone(result.next)
+    if (!result) return null
+    startProjectPersistence(projectSlug, state)
+    await result.durable
+    const live = jobs.get(jobId)
+    if (live) Object.assign(live, result.next)
+    return structuredClone(result.next)
+  } finally {
+    state.pendingMutations--
+  }
 }
 
 /** Persist one provider-side transition of the already committed paid attempt. */

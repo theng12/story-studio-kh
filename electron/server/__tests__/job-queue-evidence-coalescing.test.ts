@@ -298,6 +298,88 @@ describe('project-owned durable job evidence', () => {
     }
   })
 
+  test('an invalid paid replacement checkpoint is a durable no-op, never a deletion', async () => {
+    const project = await pm.createProject({ name: 'Paid Checkpoint No-op' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const [job] = await createQueuedJobs(project.slug, 1)
+    assert.ok(job)
+    const now = '2026-01-01T00:00:00.000Z'
+    const durable = await jq.mutateAuthoritativeJob(project.slug, job.job_id, current => ({
+      ...current,
+      paid_image_replacement_attempts: [{
+        asset_key: 'scene.png', manifest_dir: '/tmp', manifest_key: 'scene.png', output_path: '/tmp/scene.png',
+        state: 'waiting', original_task_id: 'original-task', original_idempotency_key: 'original-key',
+        input_hash: 'sha256:input', output_selector: {
+          resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal',
+        },
+        reference_inputs: [], reference_identity_hash: 'sha256:references', failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+        reserved_credits: 9, settled_credits: 0, released_credits: 9, terminal_observed_at: now, eligible_at: now,
+      }],
+    }))
+    assert.ok(durable)
+    Object.assign(job, durable)
+
+    await assert.rejects(
+      jq.checkpointPaidImageReplacementAttempt(job, 'scene.png', { state: 'waiting' }),
+      /could not transition/,
+    )
+    assert.ok(await jq.loadAuthoritativeJob(project.slug, job.job_id))
+    const reloaded = (await readJobs(jobsFile)).find(candidate => candidate.job_id === job.job_id)
+    assert.equal(reloaded?.paid_image_replacement_attempts?.[0]?.state, 'waiting')
+  })
+
+  test('shutdown drain waits for hydration that has not started a writer', async () => {
+    const project = await pm.createProject({ name: 'Blocked Hydration Drain' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const durableJob = makeJob(project.slug, 8_001)
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [durableJob] }))
+    let releaseHydration!: () => void
+    let enterHydration!: () => void
+    const released = new Promise<void>(resolve => { releaseHydration = resolve })
+    const entered = new Promise<void>(resolve => { enterHydration = resolve })
+    const restore = jq._setJobFileLockProbeForTesting(async operation => {
+      if (operation !== 'hydrate') return
+      enterHydration()
+      await released
+    })
+    try {
+      const mutation = jq.mutateAuthoritativeJob(project.slug, durableJob.job_id, current => ({
+        ...current,
+        remote_cancellations: {},
+      }))
+      await entered
+      assert.equal(await jq.drainJobPersistenceForShutdown(5), false)
+      releaseHydration()
+      assert.ok(await mutation)
+      assert.equal(await jq.drainJobPersistenceForShutdown(1_000), true)
+    } finally {
+      restore()
+      releaseHydration!()
+    }
+  })
+
+  test('retention removes pruned terminal jobs from authority so they cannot resurrect', async () => {
+    const project = await pm.createProject({ name: 'Retention Authority Reconciliation' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const terminal = Array.from(
+      { length: jq.MAX_PERSISTED_TERMINAL_HISTORY + 1 },
+      (_, index) => makeJob(project.slug, 10_000 + index, 'done'),
+    )
+    const pruned = terminal[0]!
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: terminal }))
+    const trigger = makeJob(project.slug, 20_000, 'queued')
+    await jq.checkpointJobState(trigger)
+    assert.equal((await readJobs(jobsFile)).some(job => job.job_id === pruned.job_id), false)
+
+    const resurrected = await jq.mutateAuthoritativeJob(project.slug, pruned.job_id, current => ({
+      ...current,
+      status: 'queued',
+      finished_at: null,
+    }))
+    assert.equal(resurrected, null)
+    assert.equal((await readJobs(jobsFile)).some(job => job.job_id === pruned.job_id), false)
+  })
+
   test('a failed writer rejects its waiter and the next mutation drains the retained latest state', async () => {
     const project = await pm.createProject({ name: 'Failed Evidence Drain' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
@@ -315,6 +397,7 @@ describe('project-owned durable job evidence', () => {
       }),
       /injected durable write failure/,
     )
+    assert.equal(await jq.drainJobPersistenceForShutdown(1_000), false)
     restore()
 
     await jq.recordGenStudioJob(second!.job_id, {

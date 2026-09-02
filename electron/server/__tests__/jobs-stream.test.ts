@@ -161,6 +161,7 @@ before(async () => {
 
 after(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()))
+  await jq._waitForJobPersistenceForTesting()
   await cleanup()
 })
 

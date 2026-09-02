@@ -7,6 +7,15 @@ import sharp from 'sharp'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
+async function writeAuthoritativeFixture(job: any): Promise<void> {
+  const queue = await import('../services/job-queue.js')
+  const pm = await import('../services/project-manager.js')
+  await queue._waitForJobPersistenceForTesting()
+  const jobsFile = path.join(pm.getProjectDir(job.project_slug)!, 'jobs.json')
+  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+  queue._forgetProjectPersistenceForTesting(job.project_slug)
+}
+
 async function createContinuityFixture(name: string) {
   const pm = await import('../services/project-manager.js')
   const ideas = await import('../services/idea-manager.js')
@@ -67,7 +76,7 @@ test('blocked checkpoint trusts an authoritative active attempt when the local c
   const project = await pm.createProject({ name: 'Authoritative paid block active' })
   const authoritative: any = blockedCheckpointJob(project.slug, 'waiting')
   const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
-  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [authoritative] }))
+  await writeAuthoritativeFixture(authoritative)
   const staleLocal = structuredClone(authoritative)
   delete staleLocal.paid_image_replacement_attempts
   let updates = 0
@@ -95,7 +104,7 @@ test('blocked checkpoint cleanly ignores a stale local active attempt when autho
   const project = await pm.createProject({ name: 'Authoritative paid block terminal' })
   const authoritative: any = blockedCheckpointJob(project.slug, 'succeeded')
   const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
-  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [authoritative] }))
+  await writeAuthoritativeFixture(authoritative)
   const staleLocal = structuredClone(authoritative)
   staleLocal.paid_image_replacement_attempts[0].state = 'waiting'
   let updates = 0
@@ -147,7 +156,7 @@ test('current machine Off revokes every supported committed image submit permiss
         replacement_committed_at: attempt.replacement_committed_at,
       }
       const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
-      await fs.writeFile(jobsFile, JSON.stringify({ jobs: [authoritative] }))
+      await writeAuthoritativeFixture(authoritative)
 
       const permission = await jq.getPaidImageReplacementSubmitPermission(
         authoritative, attempt.asset_key, attempt.manifest_dir, attempt.manifest_key, entry,
@@ -229,7 +238,7 @@ test('Continuity freezes the exact original request before POST and returns a du
       params: { episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
     }
     const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+    await writeAuthoritativeFixture(job)
     service.queueScenario('image', {
       states: ['accepted', 'failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 7, finalCredits: 2,
     })
@@ -280,7 +289,7 @@ test('Continuity freezes the exact original request before POST and returns a du
     const eligibleAt = Date.now() - 1_000
     durable.paid_image_replacement_attempts[0].eligible_at = new Date(eligibleAt).toISOString()
     durable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(eligibleAt - 30 * 60_000).toISOString()
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [durable] }))
+    await writeAuthoritativeFixture(durable)
     Object.assign(job, durable)
     exposeOriginalAsRunning = true
     await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
@@ -294,7 +303,7 @@ test('Continuity freezes the exact original request before POST and returns a du
     assert.equal(service.providerSubmissionCount('image'), 1, 'a blocked due Continuity attempt submits nothing')
     blockedContinuity.paid_image_replacement_attempts[0].state = 'waiting'
     delete blockedContinuity.paid_image_replacement_attempts[0].reason
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedContinuity] }))
+    await writeAuthoritativeFixture(blockedContinuity)
     Object.assign(job, blockedContinuity)
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     const committed = await decidePaidImageReplacement({
@@ -329,7 +338,7 @@ test('Continuity freezes the exact original request before POST and returns a du
     assert.equal(blockedMirror.paid_image_replacement_attempts[0].state, 'blocked')
     blockedMirror.paid_image_replacement_attempts[0].state = 'committed'
     delete blockedMirror.paid_image_replacement_attempts[0].reason
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedMirror] }))
+    await writeAuthoritativeFixture(blockedMirror)
     Object.assign(job, blockedMirror)
 
     await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
@@ -339,7 +348,7 @@ test('Continuity freezes the exact original request before POST and returns a du
     assert.equal(service.providerSubmissionCount('image'), 1, 'Off revokes a lane-delayed committed Continuity POST')
     revokedCommit.paid_image_replacement_attempts[0].state = 'committed'
     delete revokedCommit.paid_image_replacement_attempts[0].reason
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [revokedCommit] }))
+    await writeAuthoritativeFixture(revokedCommit)
     Object.assign(job, revokedCommit)
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
 
@@ -389,7 +398,7 @@ test('Continuity freezes the exact original request before POST and returns a du
     delete settledFailure.paid_image_replacement_attempts[0].replacement_task_id
     delete settledFailure.paid_image_replacement_attempts[0].actual_settled_credits
     delete settledFailure.paid_image_replacement_attempts[0].reason
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [settledFailure] }))
+    await writeAuthoritativeFixture(settledFailure)
     Object.assign(job, settledFailure)
     registry.registerImage(realProvider)
     restoreImageProvider = undefined
@@ -404,7 +413,7 @@ test('Continuity freezes the exact original request before POST and returns a du
     assert.equal(completed.paid_image_replacement_attempts[0].actual_settled_credits, 4, 'successful provider results preserve authoritative settlement')
 
     completed.paid_image_replacement_attempts[0].state = 'submitted'
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [completed] }))
+    await writeAuthoritativeFixture(completed)
     Object.assign(job, completed)
     await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
     assert.equal(await runContinuityRenderJob(job), undefined)
@@ -417,7 +426,7 @@ test('Continuity freezes the exact original request before POST and returns a du
     assert.equal(paidRecoveryEvidence.job_id, paidTaskId, 'accepted replacement task identity is durable')
     assert.match(paidRecoveryEvidence.idempotency_key, /^story-image-/, 'accepted replacement idempotency identity is durable')
     submittedWithoutArtifact.paid_image_replacement_attempts[0].state = 'submitted'
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [submittedWithoutArtifact] }))
+    await writeAuthoritativeFixture(submittedWithoutArtifact)
     Object.assign(job, submittedWithoutArtifact)
     await fs.rm(outputPath)
     const submissionsBeforeRecovery = service.providerSubmissionCount('image')
@@ -471,7 +480,7 @@ test('Continuity freezes the exact original request before POST and returns a du
         crashCandidate.paid_image_replacement_attempts[0].state = 'submitted'
         delete crashCandidate.paid_image_replacement_attempts[0].actual_settled_credits
         crashCase.mutate(crashCandidate)
-        await fs.writeFile(jobsFile, JSON.stringify({ jobs: [crashCandidate] }))
+        await writeAuthoritativeFixture(crashCandidate)
         Object.assign(job, crashCandidate)
         await settings.setPaidImageReplacementSetting({ enabled: crashCase.enabled, additional_credit_ceiling: 20 })
         await fs.rm(outputPath, { force: true })
@@ -562,7 +571,7 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
       params: { pool_id: pool.id, prompts: ['Already present.', 'A quiet archive at night.'], model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K', variants: 1, run_id: 'paid-run' },
     }
     const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+    await writeAuthoritativeFixture(job)
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_CAPACITY_UNAVAILABLE', reservedCredits: 9 })
     const { generateImagePoolImages } = await import('../generators/image-pool-generate.js')
     assert.deepEqual(await generateImagePoolImages(job), { kind: 'paid-image-wait' })
@@ -575,7 +584,7 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     const eligibleAt = Date.now() - 1_000
     durable.paid_image_replacement_attempts[0].eligible_at = new Date(eligibleAt).toISOString()
     durable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(eligibleAt - 30 * 60_000).toISOString()
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [durable] }))
+    await writeAuthoritativeFixture(durable)
     Object.assign(job, durable)
     await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
     await assert.rejects(generateImagePoolImages(job), /incomplete/i)
@@ -585,7 +594,7 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     assert.equal(service.providerSubmissionCount('image'), 1, 'a blocked due Pool attempt submits nothing')
     blockedPool.paid_image_replacement_attempts[0].state = 'waiting'
     delete blockedPool.paid_image_replacement_attempts[0].reason
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedPool] }))
+    await writeAuthoritativeFixture(blockedPool)
     Object.assign(job, blockedPool)
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     const { registry } = await import('../providers/registry.js')
@@ -609,7 +618,7 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     unknownSettlement.paid_image_replacement_attempts[0].state = 'committed'
     delete unknownSettlement.paid_image_replacement_attempts[0].replacement_task_id
     delete unknownSettlement.paid_image_replacement_attempts[0].reason
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [unknownSettlement] }))
+    await writeAuthoritativeFixture(unknownSettlement)
     Object.assign(job, unknownSettlement)
     registry.registerImage(realProvider)
     await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
@@ -619,7 +628,7 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     assert.equal(service.providerSubmissionCount('image'), 1, 'Off revokes a lane-delayed committed Pool POST')
     revokedCommit.paid_image_replacement_attempts[0].state = 'committed'
     delete revokedCommit.paid_image_replacement_attempts[0].reason
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [revokedCommit] }))
+    await writeAuthoritativeFixture(revokedCommit)
     Object.assign(job, revokedCommit)
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     let paidImageUrl = ''
@@ -644,7 +653,7 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     const committedArtifactBytes = await fs.readFile(poolArtifactPath)
     completed.paid_image_replacement_attempts[0].state = 'committed'
     delete completed.paid_image_replacement_attempts[0].replacement_task_id
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [completed] }))
+    await writeAuthoritativeFixture(completed)
     Object.assign(job, completed)
     assert.equal(await generateImagePoolImages(job), undefined)
     assert.equal(service.providerSubmissionCount('image'), 2, 'Pool committed/before-POST artifact reconciliation makes zero replacement POSTs')
@@ -667,7 +676,7 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
 
     completed.paid_image_replacement_attempts[0].state = 'submitted'
     completed.paid_image_replacement_attempts[0].replacement_task_id = paidTaskId
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [completed] }))
+    await writeAuthoritativeFixture(completed)
     Object.assign(job, completed)
     await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
     assert.equal(await generateImagePoolImages(job), undefined)
@@ -678,7 +687,7 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     const noIdentity = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
     noIdentity.paid_image_replacement_attempts[0].state = 'committed'
     delete noIdentity.paid_image_replacement_attempts[0].replacement_task_id
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [noIdentity] }))
+    await writeAuthoritativeFixture(noIdentity)
     Object.assign(job, noIdentity)
     await fs.rm(poolArtifactPath)
     registry.registerImage({
@@ -789,7 +798,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
       },
     }
     const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+    await writeAuthoritativeFixture(job)
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 8 })
     const { generateImages, resolveImageDirs } = await import('../generators/images.js')
     assert.deepEqual(await generateImages(job), { kind: 'paid-image-wait' })
@@ -808,7 +817,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     const eligibleAt = Date.now() - 1_000
     durable.paid_image_replacement_attempts[0].eligible_at = new Date(eligibleAt).toISOString()
     durable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(eligibleAt - 30 * 60_000).toISOString()
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [durable] }))
+    await writeAuthoritativeFixture(durable)
     Object.assign(job, durable)
     await fs.rm(savedReferencePath)
     await assert.rejects(generateImages(job), /incomplete/i)
@@ -818,7 +827,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     assert.equal(blockedReference.paid_image_replacement_attempts[0].state, 'blocked')
     blockedReference.paid_image_replacement_attempts[0].state = 'waiting'
     delete blockedReference.paid_image_replacement_attempts[0].reason
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedReference] }))
+    await writeAuthoritativeFixture(blockedReference)
     Object.assign(job, blockedReference)
 
     await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
@@ -829,7 +838,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     assert.equal(service.providerSubmissionCount('image'), 1, 'a blocked due thumbnail attempt submits nothing')
     blockedThumb.paid_image_replacement_attempts[0].state = 'waiting'
     delete blockedThumb.paid_image_replacement_attempts[0].reason
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [blockedThumb] }))
+    await writeAuthoritativeFixture(blockedThumb)
     Object.assign(job, blockedThumb)
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
 
@@ -861,7 +870,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     assert.equal(service.providerSubmissionCount('image'), 1, 'Off revokes a lane-delayed committed thumbnail POST')
     revokedCommit.paid_image_replacement_attempts[0].state = 'committed'
     delete revokedCommit.paid_image_replacement_attempts[0].reason
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [revokedCommit] }))
+    await writeAuthoritativeFixture(revokedCommit)
     Object.assign(job, revokedCommit)
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
 
@@ -887,7 +896,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     failed.paid_image_replacement_attempts[0].state = 'committed'
     delete failed.paid_image_replacement_attempts[0].replacement_task_id
     delete failed.paid_image_replacement_attempts[0].actual_settled_credits
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [failed] }))
+    await writeAuthoritativeFixture(failed)
     Object.assign(job, failed)
     await sharp({ create: { width: 1, height: 1, channels: 3, background: '#ffffff' } })
       .png().toFile(path.join(thumbDir, filename))
@@ -905,7 +914,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     delete failed.params.force
     failed.paid_image_replacement_attempts[0].state = 'submitted'
     failed.paid_image_replacement_attempts[0].replacement_task_id = failedReplacementTaskId
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [failed] }))
+    await writeAuthoritativeFixture(failed)
     Object.assign(job, failed)
     await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
     assert.equal(await generateImages(job), undefined)
@@ -929,14 +938,14 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
       params: { episode_id: fleetFixture.episodeId, mode: 'thumbs', model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
     }
     const fleetJobsFile = path.join(pm.projectsRoot(), fleetFixture.project.slug, 'jobs.json')
-    await fs.writeFile(fleetJobsFile, JSON.stringify({ jobs: [fleetJob] }))
+    await writeAuthoritativeFixture(fleetJob)
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 8 })
     assert.deepEqual(await generateImages(fleetJob), { kind: 'paid-image-wait' })
     const fleetDurable = JSON.parse(await fs.readFile(fleetJobsFile, 'utf8')).jobs[0]
     const fleetEligibleAt = Date.now() - 1_000
     fleetDurable.paid_image_replacement_attempts[0].eligible_at = new Date(fleetEligibleAt).toISOString()
     fleetDurable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(fleetEligibleAt - 30 * 60_000).toISOString()
-    await fs.writeFile(fleetJobsFile, JSON.stringify({ jobs: [fleetDurable] }))
+    await writeAuthoritativeFixture(fleetDurable)
     Object.assign(fleetJob, fleetDurable)
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_CAPACITY_UNAVAILABLE', reservedCredits: 4 })
     await assert.rejects(generateImages(fleetJob), /incomplete/i)
@@ -1001,7 +1010,7 @@ test('a successful paid thumbnail records only the completed GenStudio settlemen
       params: { episode_id: episodeId, mode: 'thumbs', model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
     }
     const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+    await writeAuthoritativeFixture(job)
     service.queueScenario('image', {
       states: ['accepted', 'failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 8, finalCredits: 2,
     })
@@ -1011,7 +1020,7 @@ test('a successful paid thumbnail records only the completed GenStudio settlemen
     const eligibleAt = Date.now() - 1_000
     durable.paid_image_replacement_attempts[0].eligible_at = new Date(eligibleAt).toISOString()
     durable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(eligibleAt - 30 * 60_000).toISOString()
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [durable] }))
+    await writeAuthoritativeFixture(durable)
     Object.assign(job, durable)
     service.queueScenario('image', { states: ['succeeded'], reservedCredits: 4, finalCredits: 4 })
     assert.equal(await generateImages(job), undefined)
@@ -1056,7 +1065,7 @@ test('a configured thumbnail reference missing before the original manifest exis
       },
     }
     const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+    await writeAuthoritativeFixture(job)
     const { generateImages } = await import('../generators/images.js')
     await assert.rejects(generateImages(job), /saved thumbnail reference is unavailable locally/i)
     assert.equal(service.providerSubmissionCount('image'), 0)
@@ -1121,7 +1130,7 @@ test('a thumbnail paid-wait latch wins after another active worker fails while t
       params: { episode_id: episodeId, mode: 'thumbs', model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
     }
     const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+    await writeAuthoritativeFixture(job)
     const realProvider = registry.getImageProvider('genstudio-image')!
     restoreImageProvider = () => registry.registerImage(realProvider)
     let providerCalls = 0
@@ -1200,7 +1209,7 @@ test('a Continuity paid-wait latch wins after another active worker fails while 
       params: { episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
     }
     const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
-    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+    await writeAuthoritativeFixture(job)
     const realProvider = registry.getImageProvider('genstudio-image')!
     restoreImageProvider = () => registry.registerImage(realProvider)
     let providerCalls = 0
