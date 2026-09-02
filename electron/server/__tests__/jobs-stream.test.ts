@@ -262,6 +262,44 @@ describe('SSE /projects/:slug/jobs/stream', () => {
       `expected cleared frame; got: ${frames.map(f => f.event).join(', ')}`,
     )
   })
+
+  test('paused reconciliation evidence waits for one deterministic dirty flush', async () => {
+    assert.equal(typeof jq._flushDirtyJobStreamsForTesting, 'function', 'the production dirty flush needs a deterministic test seam')
+    const proj = await pm.createProject({ name: 'SSE_Paused_Reconciliation' })
+    const jobsFile = path.join(tempDir, 'projects', proj.slug, 'jobs.json')
+    const paused = {
+      job_id: 'paused-reconciliation', project_slug: proj.slug, type: 'audio', episode_id: 'SSE_PAUSED', title: '',
+      status: 'paused', pause_origin: 'manual', created_at: '2026-01-01T00:00:00.000Z',
+      started_at: '2026-01-01T00:00:00.000Z', finished_at: null, error: null, output_lines: [], params: {},
+      remote_cancellations: {
+        'voice.tts:provider-paused': {
+          status: 'requested', operation: 'voice.tts', provider_job_id: 'provider-paused',
+          requested_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
+        },
+      },
+    }
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [paused] }))
+    await jq.getJobs(proj.slug)
+    const updates: any[] = []
+    const onUpdate = (job: any) => {
+      if (job.job_id === paused.job_id) updates.push(job)
+    }
+    jq.jobEvents.on('update', onUpdate)
+    try {
+      await jq.recordRemoteCancellation('paused-reconciliation', 'voice.tts', 'provider-paused', {
+        status: 'confirmed', cancelled: true,
+      })
+      assert.equal(updates.length, 0, 'nonterminal reconciliation evidence is cadence-bound')
+
+      jq._flushDirtyJobStreamsForTesting()
+
+      assert.equal(updates.length, 1)
+      assert.equal(updates[0].status, 'paused')
+      assert.equal(updates[0].remote_cancellations['voice.tts:provider-paused'].status, 'confirmed')
+    } finally {
+      jq.jobEvents.off('update', onUpdate)
+    }
+  })
 })
 
 describe('SSE /jobs/all/stream', () => {

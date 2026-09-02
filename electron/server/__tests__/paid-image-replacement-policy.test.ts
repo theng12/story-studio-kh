@@ -100,6 +100,7 @@ void test('job snapshots expose only the latest redacted paid image replacement 
   assert.equal(await queue.checkpointPaidImageReplacementBlockedIfPresent(
     internalBeforeBlock, attempt.asset_key, privateReason,
   ), true)
+  queue._flushDirtyJobStreamsForTesting()
   const streamed = await updatePromise
   const displayed = streamed as Job & {
     paid_image_replacement_attempt?: Pick<typeof attempt,

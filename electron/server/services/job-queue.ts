@@ -299,17 +299,31 @@ export function _trackedChildCountForTesting(): number {
 export const jobEvents = new EventEmitter()
 jobEvents.setMaxListeners(50)
 const lastLiveStreamSignatures = new Map<string, string>()
+const lastPublicJobStatuses = new Map<string, Job['status']>()
+let dirtyJobStreamIds = new Set<string>()
 
-function emitUpdate(job: Job): void {
+function emitPublicUpdate(job: Job): void {
   if (job.status === 'running') {
     lastLiveStreamSignatures.set(job.job_id, jobStreamSignature(job))
   } else {
     lastLiveStreamSignatures.delete(job.job_id)
   }
+  lastPublicJobStatuses.set(job.job_id, job.status)
+  if (jobEvents.listenerCount('update') === 0) return
   // Isolate listeners from each other — one bad handler shouldn't break the
   // queue's state machine. EventEmitter.emit is synchronous, so any throw
   // would propagate into the generator; swallow defensively.
   try { jobEvents.emit('update', serializeJob(job)) } catch { /* noop */ }
+}
+
+function emitUpdate(job: Job): void {
+  const previousStatus = lastPublicJobStatuses.get(job.job_id)
+  if (previousStatus === undefined || previousStatus !== job.status) {
+    dirtyJobStreamIds.delete(job.job_id)
+    emitPublicUpdate(job)
+    return
+  }
+  dirtyJobStreamIds.add(job.job_id)
 }
 
 // Stream running jobs' output_lines to SSE subscribers on a modest cadence.
@@ -324,17 +338,37 @@ function emitUpdate(job: Job): void {
 // those identical frames forced every page to reprocess global job state.
 // `.unref()` keeps the timer from holding the process alive at shutdown.
 const LIVE_OUTPUT_FLUSH_MS = 1_500
-setInterval(() => {
+function flushDirtyJobStreams(): void {
   for (const job of jobs.values()) {
     if (job.status !== 'running') continue
     const signature = jobStreamSignature(job)
     if (lastLiveStreamSignatures.get(job.job_id) === signature) continue
-    emitUpdate(job)
+    dirtyJobStreamIds.add(job.job_id)
   }
+
+  const pending = dirtyJobStreamIds
+  dirtyJobStreamIds = new Set()
+  for (const jobId of pending) {
+    const job = jobs.get(jobId)
+    if (job) emitPublicUpdate(job)
+  }
+}
+
+export function _flushDirtyJobStreamsForTesting(): void {
+  flushDirtyJobStreams()
+}
+
+setInterval(() => {
+  flushDirtyJobStreams()
 }, LIVE_OUTPUT_FLUSH_MS).unref()
 
 export interface JobsClearedEvent { project_slug: string; job_ids: string[] }
 function emitCleared(projectSlug: string, jobIds: string[]): void {
+  for (const jobId of jobIds) {
+    lastPublicJobStatuses.delete(jobId)
+    lastLiveStreamSignatures.delete(jobId)
+    dirtyJobStreamIds.delete(jobId)
+  }
   try { jobEvents.emit('cleared', { project_slug: projectSlug, job_ids: jobIds } satisfies JobsClearedEvent) } catch { /* noop */ }
 }
 
@@ -1532,9 +1566,7 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
   }
 }
 
-async function persistProjectMutation(projectSlug: string, mutation: ProjectJobMutation): Promise<void> {
-  const state = projectPersistenceState(projectSlug)
-  await hydrateProjectBaseline(projectSlug, state)
+function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJobMutation): Promise<void> {
   if (mutation.kind === 'delete') state.baseline!.delete(mutation.jobId)
   else {
     const next = safeJob(mutation.job)
@@ -1544,12 +1576,34 @@ async function persistProjectMutation(projectSlug: string, mutation: ProjectJobM
   }
   const revision = ++state.revision
   state.dirty = true
-  const durable = new Promise<void>((resolve, reject) => state.waiters.push({ revision, resolve, reject }))
+  return new Promise<void>((resolve, reject) => state.waiters.push({ revision, resolve, reject }))
+}
+
+function startProjectPersistence(projectSlug: string, state: ProjectPersistenceState): void {
   if (!state.writing) {
     state.writing = drainProjectPersistence(projectSlug, state)
     void state.writing.catch(() => {})
   }
+}
+
+async function persistProjectMutation(projectSlug: string, mutation: ProjectJobMutation): Promise<void> {
+  const state = projectPersistenceState(projectSlug)
+  await hydrateProjectBaseline(projectSlug, state)
+  let durable!: Promise<void>
+  await withLock(jobsPath(projectSlug), async () => {
+    durable = applyProjectMutation(state, mutation)
+  })
+  startProjectPersistence(projectSlug, state)
   return durable
+}
+
+/** Wait for already-started background writes before a test removes its data root. */
+export async function _waitForJobPersistenceForTesting(): Promise<void> {
+  while (true) {
+    const writers = [...projectPersistence.values()].flatMap(state => state.writing ? [state.writing] : [])
+    if (writers.length === 0) return
+    await Promise.allSettled(writers)
+  }
 }
 
 async function persistJob(job: Job): Promise<void> {
@@ -1569,8 +1623,10 @@ async function persistJob(job: Job): Promise<void> {
 export async function loadAuthoritativeJob(projectSlug: string, jobId: string): Promise<Job | null> {
   const state = projectPersistenceState(projectSlug)
   await hydrateProjectBaseline(projectSlug, state)
-  const found = state.baseline!.get(jobId)
-  return found ? structuredClone(found) : null
+  return withLock(jobsPath(projectSlug), async () => {
+    const found = state.baseline!.get(jobId)
+    return found ? structuredClone(found) : null
+  })
 }
 
 /** Evaluate one read-only predicate while normal jobs.json persistence is excluded. */
@@ -1581,11 +1637,15 @@ export async function inspectAuthoritativeJob(
 ): Promise<boolean | null> {
   const state = projectPersistenceState(projectSlug)
   await hydrateProjectBaseline(projectSlug, state)
-  const found = state.baseline!.get(jobId)
-  if (!found) return null
-  const result = inspect(structuredClone(found))
-  if (typeof result !== 'boolean') throw new Error('authoritative job inspection must be synchronous')
-  return result
+  const p = jobsPath(projectSlug)
+  return withLock(p, async () => {
+    if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('inspect', p)
+    const found = state.baseline!.get(jobId)
+    if (!found) return null
+    const result = inspect(structuredClone(found))
+    if (typeof result !== 'boolean') throw new Error('authoritative job inspection must be synchronous')
+    return result
+  })
 }
 
 /** The paired write side of `loadAuthoritativeJob`, retained as one test seam. */
@@ -1602,12 +1662,22 @@ export async function mutateAuthoritativeJob(
   jobId: string,
   mutate: (job: Job) => Job | null,
 ): Promise<Job | null> {
-  const current = await loadAuthoritativeJob(projectSlug, jobId)
-  if (!current) return null
-  const next = mutate(current)
-  if (!next) return null
-  await persistProjectMutation(projectSlug, { kind: 'upsert', job: next })
-  return structuredClone(next)
+  const state = projectPersistenceState(projectSlug)
+  await hydrateProjectBaseline(projectSlug, state)
+  const result = await withLock(jobsPath(projectSlug), async () => {
+    const found = state.baseline!.get(jobId)
+    const current = found ? structuredClone(found) : null
+    if (!current) return null
+    const next = mutate(current)
+    if (!next) return null
+    return { next, durable: applyProjectMutation(state, { kind: 'upsert', job: next }) }
+  })
+  if (!result) return null
+  startProjectPersistence(projectSlug, state)
+  await result.durable
+  const live = jobs.get(jobId)
+  if (live) Object.assign(live, result.next)
+  return structuredClone(result.next)
 }
 
 /** Persist one provider-side transition of the already committed paid attempt. */
@@ -2460,6 +2530,9 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
       false,
     )
     for (const type of stallLanes) released.lanes.add(type)
+    for (const job of jobs.values()) {
+      if (job.project_slug === projectSlug) lastPublicJobStatuses.set(job.job_id, job.status)
+    }
     for (const type of released.lanes) pump(type)
   })()
   loadingProjects.set(projectSlug, loading)

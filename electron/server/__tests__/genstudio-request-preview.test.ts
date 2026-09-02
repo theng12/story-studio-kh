@@ -275,7 +275,10 @@ describe('job-queue adopts the pre-submit preview', () => {
     pm = await import('../services/project-manager.js')
     jq = await import('../services/job-queue.js')
   })
-  after(async () => { await cleanup() })
+  after(async () => {
+    await jq._waitForJobPersistenceForTesting()
+    await cleanup()
+  })
 
   test('the real GenStudio id takes over the pending entry and keeps its preview', async () => {
     const project = await pm.createProject({ name: 'GenStudio Request Preview' })
@@ -399,6 +402,64 @@ describe('job-queue adopts the pre-submit preview', () => {
       assert.equal(job?.genstudio_jobs?.[0]?.reserved_credits, undefined)
       assert.equal(job?.genstudio_jobs?.[0]?.settled_credits, undefined)
       assert.equal(job?.genstudio_jobs?.[0]?.released_credits, undefined)
+    } finally {
+      globalThis.fetch = originalFetch
+      clearGenStudioCatalogCache()
+    }
+  })
+
+  test('a failed durable preview write prevents the paid POST', async () => {
+    const project = await pm.createProject({ name: 'GenStudio Preview Persistence Failure' })
+    const originalFetch = globalThis.fetch
+    clearGenStudioCatalogCache()
+    let posts = 0
+    try {
+      globalThis.fetch = async (input, init) => {
+        const url = String(input)
+        if (url.endsWith('/v1/chat/models')) {
+          return Response.json([{
+            id: 'durable-preview-writer', display_name: 'Durable Preview Writer', available: true,
+            qualification_only: false, context_window_tokens: 65_536, max_output_tokens: 8_192,
+            controls: ['max_output_tokens'], activation_blockers: [], structured_output_mode: 'json_object',
+            supports_structured_output: true,
+          }])
+        }
+        if (url.endsWith('/v1/account/overview')) {
+          return Response.json({
+            credit_balance: 76, paid_concurrency_limit: 1, paid_active_jobs: 0,
+            paid_queued_jobs: 0, max_queued_jobs: 25, generation_submissions_per_minute: 30,
+          })
+        }
+        if ((init?.method || 'GET').toUpperCase() === 'POST') posts += 1
+        return Response.json({ id: 'must-not-exist' })
+      }
+      jq.registerExecutor('script-only', async job => {
+        const restore = jq._setJobFileLockProbeForTesting(operation => {
+          if (operation === 'persist') throw new Error('injected preview persistence failure')
+        })
+        try {
+          await callChatWithGenStudio('preview-persistence-key', {
+            modelId: 'durable-preview-writer', system: '', userMessage: 'Write the episode.',
+            outputContract: { mode: 'json_object' },
+            idempotencyKey: `story-chat-preview-failure-${job.job_id}`,
+          })
+        } finally {
+          restore()
+        }
+      })
+
+      const enqueued = jq.enqueuePreparedForTest({
+        project_slug: project.slug,
+        type: 'script-only',
+        episode_id: 'EP0002',
+      })
+      const deadline = Date.now() + 3_000
+      while (Date.now() < deadline && jq.getJob(enqueued.job_id)?.status !== 'error') {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+
+      assert.equal(jq.getJob(enqueued.job_id)?.status, 'error')
+      assert.equal(posts, 0, 'the generation POST requires a durable request preview')
     } finally {
       globalThis.fetch = originalFetch
       clearGenStudioCatalogCache()
