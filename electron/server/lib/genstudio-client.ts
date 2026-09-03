@@ -6713,6 +6713,7 @@ async function assertImageSubmissionAllowed(request: GenStudioImageRequest): Pro
 
 function isRetryableImageAdmissionPermitFailure(error: unknown): boolean {
   if (error instanceof GenStudioApiError) return error.status === 429 || error.status >= 500
+  if (error instanceof DOMException) return error.name === 'TimeoutError'
   if (!(error instanceof TypeError)) return false
   return /fetch failed|network|socket|ECONN|timeout|timed out/i.test(error.message)
 }
@@ -6722,15 +6723,19 @@ async function waitForImageAdmissionPermitTurn(
   request: GenStudioImageRequest,
   deadline: number,
 ): Promise<void> {
-  for (;;) {
+  let previousCompleted = false
+  void previous.then(
+    () => { previousCompleted = true },
+    () => { previousCompleted = true },
+  )
+  while (!previousCompleted) {
     await assertImageSubmissionAllowed(request)
-    const previousCompleted = await Promise.race([
-      previous.then(() => true),
-      retryDelay(1, request, deadline, POLL_CANCEL_CHECK_MS, () => assertImageSubmissionAllowed(request))
-        .then(() => false),
-    ])
-    if (previousCompleted) return
+    if (previousCompleted) break
+    const left = deadline - Date.now()
+    if (left <= 0) throw new Error('GenStudio KH job timed out while waiting for completion')
+    await new Promise(resolve => setTimeout(resolve, Math.min(POLL_CANCEL_CHECK_MS, left)))
   }
+  await assertImageSubmissionAllowed(request)
 }
 
 /** GenStudio permits are issued serially; paid image execution remains remote-owned. */
@@ -6747,6 +6752,7 @@ async function acquireImageAdmissionPermit(
   const permitKey = imagePermitIdempotencyKey(idempotencyKey, sequence)
   const acquire = async (): Promise<string> => {
     let retry = 0
+    let permitId: string
     for (;;) {
       await assertImageSubmissionAllowed(request)
       try {
@@ -6769,10 +6775,8 @@ async function acquireImageAdmissionPermit(
           false,
           1,
         )
-        const id = typeof permit?.id === 'string' ? permit.id.trim() : ''
-        if (!id) throw new Error('GenStudio KH returned an invalid image admission permit')
-        await request.onQueueState?.('submitting')
-        return id
+        permitId = typeof permit?.id === 'string' ? permit.id.trim() : ''
+        if (!permitId) throw new Error('GenStudio KH returned an invalid image admission permit')
       } catch (error) {
         if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
         if (!isRetryableImageAdmissionPermitFailure(error) || Date.now() >= deadline) throw error
@@ -6781,7 +6785,10 @@ async function acquireImageAdmissionPermit(
           ? error.retryAfterSeconds * 1_000
           : undefined
         await retryDelay(++retry, request, deadline, hintMs, () => assertImageSubmissionAllowed(request))
+        continue
       }
+      await request.onQueueState?.('submitting')
+      return permitId
     }
   }
   const scope = imagePermitScope(baseUrl, apiKey, request.modelId.trim(), operation)

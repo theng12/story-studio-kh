@@ -276,6 +276,72 @@ test('a queued permit follower observes cancellation while its predecessor is un
   assert.equal(permitCalls, 1)
 })
 
+test('a queued permit follower keeps predecessor reactions bounded during repeated polling', async () => {
+  const firstPermit = deferred<Response>()
+  const firstPermitEntered = deferred<void>()
+  let permitCalls = 0
+  let guardCalls = 0
+  let reactionRegistrations = 0
+  const originalNow = Date.now
+  const originalSetTimeout = globalThis.setTimeout
+  const originalThen = Promise.prototype.then
+  let now = Date.UTC(2026, 8, 3)
+  Date.now = () => now
+  globalThis.setTimeout = ((callback: (...args: any[]) => void, delay?: number, ...args: any[]) => {
+    now += Number(delay || 0)
+    queueMicrotask(() => callback(...args))
+    return 1 as any
+  }) as typeof setTimeout
+  try {
+    await withFetch((async (input: any, init?: any) => {
+      const url = String(input)
+      if (url.endsWith('/v1/images/admission/permits')) {
+        permitCalls++
+        if (permitCalls === 1) {
+          firstPermitEntered.resolve()
+          return firstPermit.promise
+        }
+        throw new Error('A polling-only follower must not request another permit')
+      }
+      if (url.endsWith('/v1/images/generations')) {
+        return Response.json(imageJob(JSON.parse(String(init?.body))), { status: 202 })
+      }
+      if (url.endsWith('/v1/images/image-task-1/file')) return new Response(PNG)
+      throw new Error(`Unexpected request ${url}`)
+    }) as typeof fetch, async () => {
+      const leader = generateImageWithGenStudio('permit-reaction-key', request({ requestIdentity: 'leader' }))
+      await firstPermitEntered.promise
+      Promise.prototype.then = function(this: Promise<unknown>, ...args: any[]) {
+        reactionRegistrations++
+        return originalThen.apply(this, args as any)
+      } as typeof Promise.prototype.then
+      try {
+        await assert.rejects(
+          generateImageWithGenStudio('permit-reaction-key', request({
+            requestIdentity: 'follower',
+            beforeSubmit: () => {
+              guardCalls++
+              if (guardCalls === 48) throw new Error('Polling interrupted')
+            },
+          })),
+          /Polling interrupted/,
+        )
+      } finally {
+        firstPermit.resolve(Response.json({ id: 'permit-leader' }))
+      }
+      await leader
+    })
+  } finally {
+    Date.now = originalNow
+    globalThis.setTimeout = originalSetTimeout
+    Promise.prototype.then = originalThen
+  }
+  assert.ok(guardCalls >= 48, 'the test must exercise repeated predecessor polling')
+  assert.ok(reactionRegistrations <= 40,
+    `predecessor reactions must stay bounded, got ${reactionRegistrations} for ${guardCalls} guard checks`)
+  assert.equal(permitCalls, 1)
+})
+
 test('permit queues serialize one scope without holding an unrelated operation', async () => {
   const firstTextPermit = deferred<Response>()
   const firstTextEntered = deferred<void>()
@@ -375,6 +441,33 @@ test('a lost permit response replays the identical permit key and body', async (
   assert.equal(bodies[0], bodies[1])
 })
 
+test('a permit TimeoutError replays the same idempotency key as transport ambiguity', async () => {
+  const keys: string[] = []
+  let permitCalls = 0
+  let generationCalls = 0
+  await withFetch((async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      permitCalls++
+      keys.push(new Headers(init?.headers).get('Idempotency-Key') || '')
+      if (permitCalls === 1) throw new DOMException('The operation timed out', 'TimeoutError')
+      return Response.json({ id: 'permit-timeout-replayed' })
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      generationCalls++
+      const body = JSON.parse(String(init?.body))
+      return Response.json(imageJob(body), { status: 202 })
+    }
+    if (url.endsWith('/v1/images/image-task-1/file')) return new Response(PNG)
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, async () => {
+    await generateImageWithGenStudio('permit-timeout-key', request())
+  })
+  assert.equal(permitCalls, 2)
+  assert.equal(keys[0], keys[1])
+  assert.equal(generationCalls, 1)
+})
+
 test('an invalid successful permit response fails instead of becoming a capacity wait', async () => {
   const states: string[] = []
   await assert.rejects(withFetch((async (input: any) => {
@@ -415,6 +508,33 @@ test('permit queue-state persistence failure does not become a capacity wait', a
       if (state === 'waiting_account_capacity') throw new Error('A persistence failure must not be shown as capacity')
     },
   }))), /permit state persistence failed/)
+  assert.equal(states.includes('waiting_account_capacity'), false)
+})
+
+test('a submitting TimeoutError callback fails immediately without capacity retry', async () => {
+  let permitCalls = 0
+  let generationCalls = 0
+  const states: string[] = []
+  await assert.rejects(withFetch((async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      permitCalls++
+      return Response.json({ id: 'permit-callback-timeout' })
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      generationCalls++
+      return Response.json(imageJob(JSON.parse(String(init?.body))), { status: 202 })
+    }
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, () => generateImageWithGenStudio('permit-callback-timeout-key', request({
+    onQueueState: (state: string) => {
+      states.push(state)
+      if (state === 'submitting') throw new DOMException('callback timed out', 'TimeoutError')
+      if (state === 'waiting_account_capacity') throw new Error('A callback failure must not be shown as capacity')
+    },
+  }))), /callback timed out/)
+  assert.equal(permitCalls, 1)
+  assert.equal(generationCalls, 0)
   assert.equal(states.includes('waiting_account_capacity'), false)
 })
 
