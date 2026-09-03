@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.100 — 2026-09-04
+
+- **Unavailable LLM models now explain why they are paused.** Story Studio carries GenStudio's allowlisted daily-capacity or temporary-backpressure reason and published return time into the disabled picker row, formatted in the device's local date and time. Older catalogues keep the existing generic wording, and unavailable rows remain grey and unselectable.
+
 ## v1.4.99 — 2026-09-03
 
 - **Image work now enters GenStudio through its live admission permits.** Story Studio keeps the chosen episode-lane setting as local staging, waits locally when GenStudio has no confirmed capacity, and submits work only after GenStudio authorizes the exact account, model, and image operation.

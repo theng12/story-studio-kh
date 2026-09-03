@@ -242,3 +242,34 @@ describe('picker dialog opening focus', () => {
       + 'and VoicePicker is load-bearing, not defensive padding')
   })
 })
+
+test('ModelMenu keeps an unavailable row visibly disabled and unselectable', async () => {
+  let selected = 'paused'
+  const options = [{
+    id: 'paused',
+    label: 'Paused',
+    disabled: true,
+    disabledReason: 'Daily capacity is currently depleted. Available again at Jan 2, 2027, 7:00 AM.',
+  }]
+  document.body.innerHTML = ''
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(await loadModelMenu(), {
+    modelValue: selected,
+    options,
+    'onUpdate:modelValue': (value: string) => { selected = value },
+  })
+  app.component('PickerDialog', PickerDialogStub)
+  app.component('NuxtLink', PickerDialogStub)
+  app.mount(host)
+  host.querySelector<HTMLButtonElement>('.model-menu-trigger')!.click()
+  await nextTick()
+  await nextTick()
+
+  const row = host.querySelector<HTMLButtonElement>('.model-menu-option')!
+  assert.equal(row.classList.contains('disabled'), true)
+  assert.equal(row.getAttribute('aria-disabled'), 'true')
+  assert.match(row.textContent || '', /daily capacity is currently depleted/i)
+  row.click()
+  assert.equal(selected, 'paused')
+  app.unmount()
+})

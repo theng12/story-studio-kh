@@ -57,6 +57,7 @@ import {
   type RelaxedQueueHint,
 } from '../utils/genstudio-relaxed-queue.js'
 import { describeModelRetirement, isRetiring } from '../utils/genstudio-model-retirement.js'
+import { describeGenStudioAvailability } from '../utils/genstudio-availability.js'
 import { unverifiedSelectionLabel as unverifiedLabel } from '../utils/picker-trigger-label.js'
 
 interface LlmModelRow {
@@ -65,6 +66,8 @@ interface LlmModelRow {
   provider: 'genstudio'
   provider_name?: string | null
   available: boolean
+  availability_reason?: 'daily_quota_depleted' | 'temporary_backpressure' | null
+  available_again_at?: string | null
   disabled_reason?: string | null
   hint?: string | null
   supports_vision?: boolean
@@ -231,7 +234,10 @@ const menuOptions = computed(() => {
       priceTitle: rate.title,
       description: model.disabled_reason || model.hint || '',
       disabled: isDisabled(model),
-      disabledReason: genStudioModelLockReason(model) || model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
+      disabledReason: genStudioModelLockReason(model)
+        || describeGenStudioAvailability(model)
+        || model.disabled_reason
+        || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
       // Scannable in the list, before anything is opened. The sentence itself
       // is rendered in full beneath the selector once the model is chosen — a
       // badge is a signpost, never the disclosure.

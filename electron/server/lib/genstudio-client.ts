@@ -1437,6 +1437,10 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
   provider_name?: string
   description?: string
   available: boolean
+  /** GenStudio's published reason for a temporarily unavailable row. */
+  availability_reason?: 'daily_quota_depleted' | 'temporary_backpressure' | null
+  /** GenStudio's published future availability time, normalized to ISO. */
+  available_again_at?: string | null
   qualification_only: boolean
   /**
    * Total prompt-plus-output budget published for this product.
@@ -4312,6 +4316,11 @@ export async function listChatModelsSnapshot(
     provider_name: publishedText(value?.provider_name),
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
+    availability_reason: value?.availability_reason === 'daily_quota_depleted'
+      || value?.availability_reason === 'temporary_backpressure'
+      ? value.availability_reason
+      : null,
+    available_again_at: readReportedTimestamp(value?.available_again_at),
     qualification_only: value?.qualification_only !== false,
     ...parseGenStudioCatalogLock(value),
     context_window_tokens: readPublishedTokenLimit(

@@ -149,6 +149,30 @@ test('a standard rate that is not a real published figure stays absent', async (
   assert.equal(model?.standard_output_credits_per_million_tokens, null)
 })
 
+test('availability metadata is allowlisted and timestamps are normalized', async () => {
+  const models = await servedCatalog([
+    {
+      ...CHAT_BASE,
+      id: 'depleted',
+      display_name: 'Depleted',
+      availability_reason: 'daily_quota_depleted',
+      available_again_at: '2027-01-02T12:00:00+00:00',
+    },
+    {
+      ...CHAT_BASE,
+      id: 'unknown',
+      display_name: 'Unknown',
+      availability_reason: 'provider_outage',
+      available_again_at: 'not-a-date',
+    },
+  ], 'availability-metadata-key')
+
+  assert.equal(models[0]?.availability_reason, 'daily_quota_depleted')
+  assert.equal(models[0]?.available_again_at, '2027-01-02T12:00:00.000Z')
+  assert.equal(models[1]?.availability_reason, null)
+  assert.equal(models[1]?.available_again_at, null)
+})
+
 // ── 3. The whitelist that feeds the language picker ───────────────────────
 
 test('GET /models forwards the shelf, the hint and the undiscounted rates', async () => {
@@ -164,6 +188,8 @@ test('GET /models forwards the shelf, the hint and the undiscounted rates', asyn
           ...CHAT_BASE,
           id: 'relaxed-1',
           display_name: 'Relaxed Product',
+          availability_reason: 'temporary_backpressure',
+          available_again_at: '2027-01-02T12:00:00.000Z',
           queue_class: 'relaxed',
           relaxed_queue_hint: HINT,
           standard_input_credits_per_million_tokens: 60,
@@ -183,10 +209,14 @@ test('GET /models forwards the shelf, the hint and the undiscounted rates', asyn
     assert.deepEqual(relaxed.relaxed_queue_hint, HINT)
     assert.equal(relaxed.standard_input_credits_per_million_tokens, 60)
     assert.equal(relaxed.standard_output_credits_per_million_tokens, 120)
+    assert.equal(relaxed.availability_reason, 'temporary_backpressure')
+    assert.equal(relaxed.available_again_at, '2027-01-02T12:00:00.000Z')
 
     assert.equal(direct.queue_class, 'direct')
     assert.equal(direct.relaxed_queue_hint, null)
     assert.equal(direct.standard_input_credits_per_million_tokens, null)
+    assert.equal(direct.availability_reason, null)
+    assert.equal(direct.available_again_at, null)
   } finally {
     globalThis.fetch = originalFetch
     clearGenStudioCatalogCache()

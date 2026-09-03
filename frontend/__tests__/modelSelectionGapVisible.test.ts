@@ -225,6 +225,7 @@ const menuProps: Record<string, unknown> = {}
 const ModelMenuSpy = defineComponent({
   props: {
     modelValue: { type: String, default: '' },
+    options: { type: Array, default: () => [] },
     catalogNotice: { type: String, default: '' },
     missingSelectionLabel: { type: String, default: '' },
   },
@@ -307,6 +308,26 @@ describe('ModelSelector — a pinned model that left the catalogue', () => {
       'a still-listed product is not "no longer offered"; saying both would say it twice',
     )
     assert.equal(menuProps.missingSelectionLabel, '')
+    unmount()
+  })
+
+  test('present-but-capacity-limited rows carry the published reason and stay disabled', async () => {
+    const { unmount } = await mountModelSelector('writer-paused', [
+      ...catalogWithoutThePin,
+      {
+        id: 'writer-paused',
+        label: 'Paused Writer',
+        provider: 'genstudio',
+        available: false,
+        availability_reason: 'daily_quota_depleted',
+        available_again_at: '2027-01-02T12:00:00.000Z',
+      },
+    ])
+    const options = menuProps.options as Array<{ id: string; disabled?: boolean; disabledReason?: string }>
+    const paused = options.find(option => option.id === 'writer-paused')
+    assert.equal(paused?.disabled, true, 'capacity-limited models remain unselectable')
+    assert.match(paused?.disabledReason || '', /daily capacity is currently depleted/i)
+    assert.match(paused?.disabledReason || '', /Available again at/i)
     unmount()
   })
 
