@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.99 — 2026-09-03
+
+- **Image work now enters GenStudio through its live admission permits.** Story Studio keeps the chosen episode-lane setting as local staging, waits locally when GenStudio has no confirmed capacity, and submits work only after GenStudio authorizes the exact account, model, and image operation.
+- **A delayed image request stays safely recoverable.** Waiting, paused, and resumed work reuses the same request identity and permit evidence instead of treating elapsed time as permission to buy a second request. Capacity waits stay visible without consuming an image-episode lane, while a genuine final-wave tail overlap remains governed by the existing verified-headroom rule.
+
+---
+
 ## v1.4.98 — 2026-09-03
 
 - **YouTube uploads no longer fail because Story Studio's private chapter and source markers leaked into the description.** The readable chapters, timestamps, citations, and links remain exactly where expected, while the internal boundary lines are removed at the final upload gate. Any other angle bracket that YouTube forbids is also removed before submission, so the API can no longer reject an otherwise valid description with `invalidDescription` for this reason.
