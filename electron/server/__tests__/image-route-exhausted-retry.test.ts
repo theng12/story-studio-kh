@@ -262,10 +262,10 @@ test('images.ts reuses the retry-scope chain and progress machinery instead of i
   // the thing that would make it jump around under concurrency.
   assert.match(source, /completedCount \+ failedCount/)
 
-  // The fan-out width itself is untouched: still the shared account-level
-  // resolver, still called the same way inside the pool.
-  // v1.4.40 — reads the account's published ceiling instead of a constant 50.
-  assert.match(source, /const maxWorkers = resolveGenStudioLocalFanout\(\s*\n?\s*items\.length,[\s\S]{0,200}?burst_concurrency_ceiling/)
+  // The fan-out width is local staging only. GenStudio's admission permit,
+  // not the account overview snapshot, owns remote image placement.
+  assert.match(source, /const maxWorkers = resolveGenStudioLocalFanout\(\s*\n?\s*items\.length,\s*\n?\s*undefined,/)
+  assert.doesNotMatch(source, /genStudioAdmissionSnapshot/)
 
   // The old early-throw that bypassed the completion audit and only showed
   // the first 3 failures is gone.

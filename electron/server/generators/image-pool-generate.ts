@@ -518,6 +518,23 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
               job, item.filename, pool.folder_path, item.filename, entry,
             ),
           } : {}),
+          onQueueState: async state => {
+            job.item_progress = {
+              total,
+              completed: processed,
+              failed: 0,
+              concurrency: 1,
+              active: [{
+                label: item.filename,
+                key: item.filename,
+                state: state === 'waiting_account_capacity' ? 'waiting_retry' : 'running',
+                attempt: 1,
+                max_attempts: 1,
+                ...(state === 'waiting_account_capacity' ? { reason: 'Waiting for available image capacity' } : {}),
+              }],
+            }
+            await jq.checkpointJobState(job)
+          },
           isCancelled: () => jq.isCancelled(job.job_id),
           onJobAccepted: async (taskId, idempotencyKey) => {
             acceptedTaskId = taskId

@@ -210,6 +210,23 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     seed,
     idempotencyIdentity: requestIdentity,
     idempotencyKey,
+    onQueueState: async state => {
+      job.item_progress = {
+        total: 1,
+        completed: 0,
+        failed: 0,
+        concurrency: 1,
+        active: [{
+          label: `Scene ${scene.scene_index}`,
+          key: `${scene_id}.png`,
+          state: state === 'waiting_account_capacity' ? 'waiting_retry' : 'running',
+          attempt: 1,
+          max_attempts: 1,
+          ...(state === 'waiting_account_capacity' ? { reason: 'Waiting for available image capacity' } : {}),
+        }],
+      }
+      await jq.checkpointJobState(job)
+    },
     isCancelled: () => jq.isCancelled(job.job_id),
     onJobAccepted: async (taskId, acceptedIdempotencyKey) => {
       await recordTaskStrict(outDir, `${scene_id}.png`, {

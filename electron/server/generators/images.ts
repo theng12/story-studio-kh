@@ -23,7 +23,7 @@ import {
   tryRecoverImageFromManifestEntry,
   type ImageRecoveryOutcome,
 } from '../lib/manifest-recovery.js'
-import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits, isGenStudioRouteExhausted , genStudioAdmissionSnapshot } from '../lib/genstudio-client.js'
+import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits, isGenStudioRouteExhausted } from '../lib/genstudio-client.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
@@ -641,6 +641,20 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       active: [...activeItems.values()].sort((a, b) => a.label.localeCompare(b.label)),
     }
   }
+  async function publishImageQueueState(key: string, label: string, state: string): Promise<void> {
+    const current = activeItems.get(key)
+    if (!current) return
+    activeItems.set(key, {
+      label,
+      key,
+      state: state === 'waiting_account_capacity' ? 'waiting_retry' : 'running',
+      attempt: current.attempt,
+      max_attempts: current.max_attempts,
+      ...(state === 'waiting_account_capacity' ? { reason: 'Waiting for available image capacity' } : {}),
+    })
+    publishProgress()
+    await jq.checkpointJobState(job)
+  }
 
   // Gates ONLY the retry backoff sleep below — never threaded into the
   // provider submit calls themselves, which already cancel through the
@@ -912,6 +926,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             seed: req.seed,
             ...(sceneReferences.length ? { referenceImagePaths: sceneReferences } : {}),
             idempotencyIdentity: `${project_slug}:${episode_id}:scene:${scene.number}:image:${current.scope}`,
+            onQueueState: state => publishImageQueueState(key, label, state),
             isCancelled: () => jq.isCancelled(job.job_id),
             onJobAccepted: async (taskId, idempotencyKey) => {
               acceptedTaskId = taskId
@@ -1292,6 +1307,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 job, filename, thumbDir, filename, replacementEntry,
               ),
             } : {}),
+            onQueueState: state => publishImageQueueState(key, label, state),
             isCancelled: () => jq.isCancelled(job.job_id),
             onJobAccepted: async (taskId, idempotencyKey) => {
               acceptedTaskId = taskId
@@ -1477,20 +1493,14 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     let launched = 0
     let settled = false
     let fatalError: unknown
-    // Stage independent Story assets promptly. The shared GenStudio admission
-    // pool applies the account's live paid concurrency; GenStudio owns its
-    // durable queue, rate limits, and provider execution.
+    // Stage independent Story assets promptly. GenStudio admission permits own
+    // remote image placement; this worker count is local memory/IO fanout only.
     // UNCHANGED — this is the fan-out width, not the retry/progress work
     // above; `currentConcurrency` only mirrors it for the item_progress
     // display, it never feeds back into what `ensureWorkers` does below.
-    // v1.4.40 — the width GenStudio says this account may run, not a constant.
-    // Measured 2026-08-23: a 108-image episode ran exactly 50 with NOTHING
-    // queued at GenStudio and a published ceiling of 128. Staging more is safe
-    // because GenStudio owns admission — it runs what it can and queues the
-    // rest, so Story can only ever fail to offer enough work.
     const maxWorkers = resolveGenStudioLocalFanout(
       items.length,
-      genStudioAdmissionSnapshot()?.burst_concurrency_ceiling,
+      undefined,
       jq.getImageFanoutOverride(),
     )
     currentConcurrency = maxWorkers

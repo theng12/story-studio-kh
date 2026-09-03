@@ -35,7 +35,7 @@ import {
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
-import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits , genStudioAdmissionSnapshot } from '../lib/genstudio-client.js'
+import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import {
   authoritativePaidImageSettledCredits,
@@ -77,6 +77,22 @@ interface ContinuityRenderParams {
   height?: number
   /** Optional reproducible seed. */
   seed?: number
+}
+
+export function shouldPauseContinuityForStall(state: {
+  stallPauseRequested: boolean
+  inFlightCount: number
+  pauseRequested: boolean
+  fleetWaitingCount: number
+  capacityWaitingCount: number
+  elapsedMs: number
+}): boolean {
+  return !state.stallPauseRequested
+    && state.inFlightCount > 0
+    && !state.pauseRequested
+    && state.fleetWaitingCount === 0
+    && state.capacityWaitingCount === 0
+    && state.elapsedMs >= 10 * 60_000
 }
 
 interface ContinuityCfg {
@@ -570,7 +586,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
 
   const concurrency = resolveGenStudioLocalFanout(
       scenes.length,
-      genStudioAdmissionSnapshot()?.burst_concurrency_ceiling,
+      undefined,
       jq.getImageFanoutOverride(),
     )
 
@@ -594,6 +610,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     // Scenes deliberately sitting out a busy-fleet wait. Nothing is happening
     // and nothing is wrong — the one case a bare spinner misreports as a hang.
     const fleetWaiting = new Map<number, { attempt: number; maxAttempts: number; retryAt: string; reason: string }>()
+    const capacityWaiting = new Set<number>()
     const syncItemProgress = () => {
       const completed = usableRenderedIds.size
       const settling = inFlight.size
@@ -610,13 +627,16 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         concurrency,
         active: [...inFlight.entries()].sort(([left], [right]) => left - right).map(([sceneIndex, filename]) => {
           const waiting = fleetWaiting.get(sceneIndex)
+          const awaitingCapacity = capacityWaiting.has(sceneIndex)
           return {
             label: `Scene ${sceneIndex}`,
             key: filename,
-            state: waiting ? 'waiting_retry' as const : 'running' as const,
+            state: waiting || awaitingCapacity ? 'waiting_retry' as const : 'running' as const,
             attempt: waiting?.attempt ?? 1,
             max_attempts: waiting?.maxAttempts ?? 1,
-            ...(waiting ? { retry_at: waiting.retryAt, reason: waiting.reason } : {}),
+            ...(waiting
+              ? { retry_at: waiting.retryAt, reason: waiting.reason }
+              : awaitingCapacity ? { reason: 'Waiting for available image capacity' } : {}),
           }
         }),
       }
@@ -651,12 +671,14 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       }
     }
     const stallTimer = setInterval(() => {
-      if (stallPauseRequested || inFlight.size === 0 || jq.isPauseRequested(job.job_id)) return
-      // A scene waiting out a busy fleet is not a stall: we know exactly why
-      // nothing is completing, said so in the output, and the waits are
-      // bounded. Pausing the job here would cancel the very retry that fixes it.
-      if (fleetWaiting.size > 0) return
-      if (Date.now() - lastCompletedAt < 10 * 60_000) return
+      if (!shouldPauseContinuityForStall({
+        stallPauseRequested,
+        inFlightCount: inFlight.size,
+        pauseRequested: jq.isPauseRequested(job.job_id),
+        fleetWaitingCount: fleetWaiting.size,
+        capacityWaitingCount: capacityWaiting.size,
+        elapsedMs: Date.now() - lastCompletedAt,
+      })) return
       stallPauseRequested = true
       void jq.pauseJobForStall(job.job_id, 'No scene image completed for 10 minutes while provider work was active.')
     }, 30_000)
@@ -967,6 +989,12 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                       job, filename, outDir, filename, manifestEntry,
                     ),
                   } : {}),
+                  onQueueState: async state => {
+                    if (state === 'waiting_account_capacity') capacityWaiting.add(scene.scene_index)
+                    else capacityWaiting.delete(scene.scene_index)
+                    syncItemProgress()
+                    await jq.checkpointJobState(job)
+                  },
                   isCancelled: () => jq.isCancelled(job.job_id),
                   onJobAccepted: async (taskId, idempotencyKey) => {
                     acceptedTaskId = taskId

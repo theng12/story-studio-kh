@@ -1,8 +1,7 @@
 /**
  * Story Studio may stage many independent asset requests, but GenStudio owns
- * account admission, paid/relaxed concurrency, rate limits, and execution.
- * The shared GenStudio admission pool applies the live account limit before
- * any request reaches the service.
+ * remote admission, rate limits, and execution. Image placement uses explicit
+ * admission permits; this module bounds only local worker fanout.
  */
 /**
  * The fallback width, used ONLY when GenStudio has published no ceiling.

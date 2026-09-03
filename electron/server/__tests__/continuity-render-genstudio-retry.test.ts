@@ -31,7 +31,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { continuityFleetBusyRetryPlan } from '../generators/continuity-render.js'
+import {
+  continuityFleetBusyRetryPlan,
+  shouldPauseContinuityForStall,
+} from '../generators/continuity-render.js'
 import { FLEET_BUSY_RETRY_DELAYS_MS } from '../lib/genstudio-fleet-busy.js'
 import {
   GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE,
@@ -188,8 +191,15 @@ test('the batch waits under the owner\'s control and resubmits under a DERIVED i
   // would otherwise have to take on faith: this cost him nothing.
   assert.match(source, /nothing was charged/)
 
-  // The stall watchdog must not fight the fix it does not know about: ten
-  // minutes with nothing completing is normally a hang worth pausing for, but
-  // during a bounded fleet wait it is the expected, explained state.
-  assert.match(source, /if \(fleetWaiting\.size > 0\) return/)
+  // The stall watchdog must not fight deliberate capacity waits, regardless
+  // of whether the wait is local fleet retry or remote admission.
+  const stalled = {
+    stallPauseRequested: false,
+    inFlightCount: 1,
+    pauseRequested: false,
+    elapsedMs: 11 * 60_000,
+  }
+  assert.equal(shouldPauseContinuityForStall({ ...stalled, fleetWaitingCount: 1, capacityWaitingCount: 0 }), false)
+  assert.equal(shouldPauseContinuityForStall({ ...stalled, fleetWaitingCount: 0, capacityWaitingCount: 1 }), false)
+  assert.equal(shouldPauseContinuityForStall({ ...stalled, fleetWaitingCount: 0, capacityWaitingCount: 0 }), true)
 })

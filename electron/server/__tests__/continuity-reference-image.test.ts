@@ -31,11 +31,32 @@ import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/m
 import {
   EPISODE_REFERENCE_FILENAMES,
   planEpisodeReference,
+  shouldPauseContinuityForStall,
 } from '../generators/continuity-render.js'
 import { FITTED_REFERENCE_DIRNAME, fitReferenceBuffer, fitReferenceImage } from '../lib/reference-image-fit.js'
 import { publishedReferenceCeiling } from '../services/image-model-resolver.js'
 
 // ── The pure decision ────────────────────────────────────────────────────
+
+test('a capacity-permit wait beyond ten minutes is deliberate waiting, never an automatic stall pause', () => {
+  const afterElevenMinutes = 11 * 60_000
+  assert.equal(shouldPauseContinuityForStall({
+    stallPauseRequested: false,
+    inFlightCount: 1,
+    pauseRequested: false,
+    fleetWaitingCount: 0,
+    capacityWaitingCount: 1,
+    elapsedMs: afterElevenMinutes,
+  }), false)
+  assert.equal(shouldPauseContinuityForStall({
+    stallPauseRequested: false,
+    inFlightCount: 1,
+    pauseRequested: false,
+    fleetWaitingCount: 0,
+    capacityWaitingCount: 0,
+    elapsedMs: afterElevenMinutes,
+  }), true)
+})
 
 test('the switch OFF is the only silent way to send no reference', () => {
   const off = planEpisodeReference({

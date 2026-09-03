@@ -154,9 +154,15 @@ const genstudioImageProvider: ImageProvider = {
     // nothing about seeds, and the request field is part of the published
     // image contract, so the caller's seed still travels.
     const seed = model.supports_seed === false ? undefined : request.seed
+    const assertSubmitAllowed = async () => {
+      const queue = await import('../../services/job-queue.js')
+      const jobId = queue.currentJobId()
+      if (jobId) queue.throwIfPauseRequested(jobId)
+      await request.beforeSubmit?.()
+    }
 
     const submit = async () => {
-      await request.beforeSubmit?.()
+      await assertSubmitAllowed()
       const sources = referencePaths.length
         ? await Promise.all(referencePaths.map(path => uploadImageSourceWithGenStudio(request.apiKey, path)))
         : []
@@ -174,7 +180,11 @@ const genstudioImageProvider: ImageProvider = {
         seed,
         requestIdentity: request.idempotencyIdentity,
         idempotencyKey: request.idempotencyKey,
-        beforeSubmit: request.beforeSubmit,
+        requiresAdmissionPermit: model.requires_admission_permit,
+        beforeSubmit: assertSubmitAllowed,
+        onQueueState: state => state === 'waiting_account_capacity' || state === 'submitting'
+          ? request.onQueueState?.(state)
+          : undefined,
         isCancelled: request.isCancelled,
         onJobAccepted: request.onJobAccepted,
         onReconnect: request.onReconnect,
