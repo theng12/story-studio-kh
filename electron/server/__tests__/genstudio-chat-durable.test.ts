@@ -529,6 +529,46 @@ test('a non-stop finish_reason rejects instead of returning partial text', async
   }
 })
 
+test('the durable incomplete failure preserves partial text for bounded chapter repair', async () => {
+  const partial = '{"chapters":[{"n":1,"title":"Finished"}]}'
+  const stub = stubJobStates([{
+    state: 'failed',
+    output_text: partial,
+    output_retained: true,
+    finish_reason: 'length',
+    failure_code: 'LANGUAGE_PROVIDER_INCOMPLETE',
+  }])
+  try {
+    const error = await callChatWithGenStudio('durable-incomplete-code-key', baseRequest)
+      .then(result => result as unknown, (err: unknown) => err)
+    assert.ok(error instanceof GenStudioChatIncompleteError)
+    assert.equal(error.partialText, partial)
+    assert.equal(error.finishReason, 'length')
+    assert.equal(error.truncated, true)
+    assert.match(error.message, /cut off/i)
+  } finally {
+    stub.restore()
+  }
+})
+
+test('an empty durable language response stays an explicit manual retry', async () => {
+  const stub = stubJobStates([{
+    state: 'succeeded',
+    output_text: null,
+    output_retained: true,
+    finish_reason: 'stop',
+  }])
+  try {
+    const error = await callChatWithGenStudio('durable-empty-output-key', baseRequest)
+      .then(result => result as unknown, (err: unknown) => err)
+    assert.ok(error instanceof Error)
+    assert.match(error.message, /did not automatically resubmit/i)
+    assert.match(error.message, /Retry/i)
+  } finally {
+    stub.restore()
+  }
+})
+
 // ── The pre-network guards ───────────────────────────────────────────────
 
 test('every "no request or credit charge was made" guard runs before any fetch', async () => {

@@ -43,6 +43,7 @@ import type { TextProvider, TextGenerationRequest } from '../providers/types.js'
 interface FakeCall {
   kind: 'outline' | 'expansion'
   userMessage: string
+  outputBudget?: TextGenerationRequest['outputBudget']
   requestIdentity?: string
   recoverByIdempotencyKey?: boolean
   idempotencyKey?: string
@@ -71,14 +72,14 @@ const fakeProvider: TextProvider = {
     const isOutline = /Plan the chapter structure|Plan a listicle/.test(req.userMessage)
     if (isOutline) {
       fakeCalls.push({
-        kind: 'outline', userMessage: req.userMessage, requestIdentity: req.requestIdentity,
+        kind: 'outline', userMessage: req.userMessage, outputBudget: req.outputBudget, requestIdentity: req.requestIdentity,
         recoverByIdempotencyKey: req.recoverByIdempotencyKey,
         idempotencyKey: req.idempotencyKey, allowedRecoveryKeys: req.allowedRecoveryKeys,
       })
       return fakeOutlineResponse
     }
     fakeCalls.push({
-      kind: 'expansion', userMessage: req.userMessage, requestIdentity: req.requestIdentity,
+      kind: 'expansion', userMessage: req.userMessage, outputBudget: req.outputBudget, requestIdentity: req.requestIdentity,
       recoverByIdempotencyKey: req.recoverByIdempotencyKey,
       idempotencyKey: req.idempotencyKey, allowedRecoveryKeys: req.allowedRecoveryKeys,
     })
@@ -339,13 +340,53 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
       format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
     })
 
-    assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 2)
+    assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 3)
     assert.ok(job.output_lines.some(line => /GenStudio reported incomplete output \(error\); preserved 1 parsed chapter/.test(line)))
-    assert.ok(job.output_lines.some(line => /one bounded replacement pass/.test(line)))
+    assert.ok(job.output_lines.some(line => /one bounded single-chapter repair pass/.test(line)))
     assert.equal(result.chaptersWritten, 3)
     for (let n = 1; n <= 3; n++) {
       assert.equal(existsSync(path.join(scriptDir, `EPREPAIR2_Chapter_${String(n).padStart(2, '0')}.md`)), true)
     }
+  })
+
+  test('length-truncated batches keep complete chapters and repair each unfinished chapter once', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    fakeIncompleteExpansion = {
+      // Chapter 1 is a complete parseable block before the provider cut the
+      // response off. Chapters 2 and 3 were never delivered.
+      partialText: buildExpansionFor(1, 1),
+      finishReason: 'length',
+    }
+    const job = makeJob(scriptDir)
+
+    await generateNarrativeChunked(job, {
+      episode_id: 'EPREPAIR-LENGTH', title: 'Length Repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+
+    const expansionCalls = fakeCalls.filter(call => call.kind === 'expansion')
+    assert.equal(expansionCalls.length, 3, 'initial batch plus one bounded repair per unfinished chapter')
+    const slots = expansionCalls.map(call =>
+      [...call.userMessage.matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1])),
+    )
+    assert.deepEqual(slots, [[1, 2, 3], [2], [3]])
+    assert.deepEqual(
+      expansionCalls.slice(1).map(call => call.outputBudget),
+      [
+        { tier: 'workload', minimumTokens: 8_192 },
+        { tier: 'workload', minimumTokens: 8_192 },
+      ],
+      'each automatic repair is bounded independently at 8,192 output tokens',
+    )
+    assert.match(
+      await fs.readFile(path.join(scriptDir, 'EPREPAIR-LENGTH_Chapter_01.md'), 'utf8'),
+      /quick brown fox/,
+      'the complete chapter from the original response remains on disk',
+    )
+    assert.ok(job.output_lines.some(line => /incomplete output \(length\)/.test(line)))
+    assert.ok(job.output_lines.some(line => /bounded single-chapter repair/.test(line)))
   })
 
   test('resume skips chapters already on disk + reuses cached outline', async () => {

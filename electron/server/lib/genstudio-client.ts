@@ -2175,7 +2175,7 @@ export function isCompleteFinishReason(value: unknown): boolean {
 
 /** A finish reason that specifically means "ran out of output tokens". */
 function isTruncationFinishReason(reason: string | null): boolean {
-  return !!reason && /^(length|max_tokens|max_output_tokens|token_limit)$/i.test(reason.trim())
+  return !!reason && /^(length|max_tokens|max_output_tokens|token_limit|language_provider_incomplete)$/i.test(reason.trim())
 }
 
 /**
@@ -2216,6 +2216,31 @@ export class GenStudioChatIncompleteError extends Error {
     this.finishReason = finishReason
     this.truncated = truncated
   }
+}
+
+/**
+ * GenStudio's durable route settles a response that ran out of output as a
+ * failed job with `LANGUAGE_PROVIDER_INCOMPLETE`, while older/compatible
+ * envelopes may instead be `succeeded` with `finish_reason: "length"`.
+ * Normalize both forms to the same typed signal so chunked narration can keep
+ * parseable chapters and repair only the unfinished slots. This is deliberately
+ * an exact code check: generic provider failures and ambiguous submissions
+ * remain terminal and are never auto-resubmitted.
+ */
+function durableIncompleteChatError(job: GenStudioChatJob): GenStudioChatIncompleteError | null {
+  if (typeof job.failure_code !== 'string' || job.failure_code.trim().toUpperCase() !== 'LANGUAGE_PROVIDER_INCOMPLETE') {
+    return null
+  }
+  return new GenStudioChatIncompleteError({
+    id: job.id,
+    model_id: job.model_id,
+    output_text: job.output_text,
+    // The failure code is the durable contract; use it as the finish reason
+    // only when the provider omitted the compatible field.
+    finish_reason: job.finish_reason || 'LANGUAGE_PROVIDER_INCOMPLETE',
+    failure_code: job.failure_code,
+    state: job.state,
+  })
 }
 
 /**
@@ -2817,6 +2842,8 @@ export const GENSTUDIO_LANGUAGE_FAILURE_CODES = {
   PROVIDER_FAILED: 'LANGUAGE_PROVIDER_FAILED',
   PROVIDER_BACKPRESSURE: 'LANGUAGE_PROVIDER_BACKPRESSURE',
   SUBMISSION_UNCERTAIN: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+  /** The provider returned output cut short by the published token limit. */
+  INCOMPLETE: 'LANGUAGE_PROVIDER_INCOMPLETE',
   /** The reply came back, but it did not prove it came from the model sold. */
   MODEL_MISMATCH: 'LANGUAGE_PROVIDER_MODEL_MISMATCH',
 } as const
@@ -5698,7 +5725,11 @@ function parseLanguageOutput(
     throw new GenStudioChatIncompleteError(output)
   }
   if (typeof raw !== 'string' || !raw.trim()) {
-    throw new Error('GenStudio KH language product succeeded without usable output.')
+    throw new Error(
+      'GenStudio KH language product returned a successful envelope without usable output. '
+      + 'Story Studio did not automatically resubmit a replacement; inspect the recorded GenStudio '
+      + 'job and settlement, then use Retry deliberately.',
+    )
   }
   const value = validateStructuredOutput(raw, outputContract)
   if (outputContract.mode === 'prose') {
@@ -5979,6 +6010,8 @@ async function recoverChatByIdempotencyKey(
   await request.onState?.(initial.state, initial.id)
   if (initial.state === 'failed') {
     await genStudioAdmission.notifyTerminal(apiKey)
+    const incomplete = durableIncompleteChatError(initial)
+    if (incomplete) throw incomplete
     throw new GenStudioChatTerminalFailureError(initial)
   }
   const completed = initial.state === 'succeeded'
@@ -6042,7 +6075,11 @@ async function waitForChatJob(
     await reportState()
   }
   await genStudioAdmission.notifyTerminal(apiKey)
-  if (current.state === 'failed') throw new GenStudioChatTerminalFailureError(current)
+  if (current.state === 'failed') {
+    const incomplete = durableIncompleteChatError(current)
+    if (incomplete) throw incomplete
+    throw new GenStudioChatTerminalFailureError(current)
+  }
   return current
 }
 
@@ -6072,6 +6109,8 @@ async function recoverChatJobAdmitted(
     await reportQueueState(request, chatJobEvidence(initial))
     await request.onState?.(initial.state, initial.id)
     await genStudioAdmission.notifyTerminal(apiKey)
+    const incomplete = durableIncompleteChatError(initial)
+    if (incomplete) throw incomplete
     throw new GenStudioChatTerminalFailureError(initial)
   }
   return waitForChatJob(baseUrl, apiKey, initial, request, deadline)

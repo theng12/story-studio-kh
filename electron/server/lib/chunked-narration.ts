@@ -169,6 +169,21 @@ const BUDGET_FLOOR_TOKENS = 8_192
 const BUDGET_ROUNDING_STEP = 256
 
 /**
+ * Maximum output reserved for one automatic repair of one unfinished chapter.
+ * This is a PER-BATCH ceiling, not a whole-story limit: normal expansion still
+ * uses the selected product's live workload budget across as many sequential
+ * batches as the outline needs. Keeping the repair allowance bounded prevents
+ * a malformed or unusually verbose repair from becoming a runaway request;
+ * a chapter that genuinely needs more room stays missing for an explicit
+ * resume/manual repair instead of silently losing text.
+ */
+const SINGLE_CHAPTER_REPAIR_OUTPUT_TOKENS = 8_192
+
+function singleChapterRepairBudget(): { tier: 'workload'; minimumTokens: number } {
+  return { tier: 'workload', minimumTokens: SINGLE_CHAPTER_REPAIR_OUTPUT_TOKENS }
+}
+
+/**
  * Output tokens to request for one expansion batch.
  *
  * `wordTargets` is the per-chapter word target for every chapter in the batch,
@@ -1394,37 +1409,46 @@ async function expandNarrativeSequential(
     job.output_lines.push(`[chunked]   → wrote ${wrote.length} chapter(s) (${wrote.join(', ')})`)
 
     // A normal provider finish can still omit a requested block. For a
-    // provider-declared incomplete finish, replace the entire affected batch:
-    // its uncharged partial output is preserved for audit, but is never proof
-    // that a customer-facing batch completed. This is one deliberate, bounded
-    // repair submission—not the queue's generic auto-retry policy.
-    const repairBatch = incomplete
-      ? batch
-      : batch.filter(entry => !wrote.includes(entry.n))
-    if (!repairBatch.length) continue
+    // provider-declared incomplete finish, keep every parseable chapter that
+    // completed and repair only the unfinished slots. Each unfinished slot
+    // gets one separate request, capped at SINGLE_CHAPTER_REPAIR_OUTPUT_TOKENS.
+    // This is one deliberate, bounded repair allowance—not the queue's
+    // generic auto-retry policy. A chapter that still fails remains missing so
+    // resume/manual repair can handle it without touching completed files.
+    const repairBatches = incomplete
+      ? batch.filter(entry => !wrote.includes(entry.n)).map(entry => [entry])
+      : [batch.filter(entry => !wrote.includes(entry.n))]
+    if (!repairBatches[0]?.length) continue
 
     job.output_lines.push(
-      `[chunked]   → repairing chapters ${repairBatch.map(entry => entry.n).join(', ')} ` +
-      `(one bounded ${incomplete ? 'replacement' : 'missing-chapter'} pass)…`,
+      `[chunked]   → repairing chapters ${repairBatches.flat().map(entry => entry.n).join(', ')} ` +
+      `(one bounded ${incomplete ? 'single-chapter repair' : 'missing-chapter'} pass)…`,
     )
-    const effectiveRepairBatch = repairBatch
-    const repairPrompt = narrativeRepairPrompt(
-      params,
-      outline,
-      effectiveRepairBatch,
-      await narrativeTransitionWindow(params, effectiveRepairBatch[0]!.n),
-      useTOC,
-    )
-    const repairText = await withModelFallback(job, params, model => callAiWithRetry(
-      model, params.systemPrompt, repairPrompt, params.apiKeys, true, ctx,
-    ))
-    const repaired = await parseAndWriteBatch(params, effectiveRepairBatch, repairText)
-    const allWrote = [...new Set([...wrote, ...repaired])].sort((a, b) => a - b)
-    runningSidecar = markDone(runningSidecar, repaired)
-    await writeSidecar(params.scriptDir, runningSidecar)
-    job.output_lines.push(`[chunked]   → repair wrote ${repaired.length} chapter(s) (${repaired.join(', ')})`)
 
-    const stillMissing = batch.filter(entry => !allWrote.includes(entry.n)).map(entry => entry.n)
+    const allWrote = new Set(wrote)
+    for (const repairBatch of repairBatches) {
+      if (!repairBatch.length) continue
+      const repairPrompt = narrativeRepairPrompt(
+        params,
+        outline,
+        repairBatch,
+        await narrativeTransitionWindow(params, repairBatch[0]!.n),
+        useTOC,
+      )
+      const repairCtx = incomplete
+        ? { ...ctx, outputBudget: singleChapterRepairBudget() }
+        : ctx
+      const repairText = await withModelFallback(job, params, model => callAiWithRetry(
+        model, params.systemPrompt, repairPrompt, params.apiKeys, true, repairCtx,
+      ))
+      const repaired = await parseAndWriteBatch(params, repairBatch, repairText)
+      repaired.forEach(n => allWrote.add(n))
+      runningSidecar = markDone(runningSidecar, repaired)
+      await writeSidecar(params.scriptDir, runningSidecar)
+      job.output_lines.push(`[chunked]   → repair wrote ${repaired.length} chapter(s) (${repaired.join(', ')})`)
+    }
+
+    const stillMissing = batch.filter(entry => !allWrote.has(entry.n)).map(entry => entry.n)
     if (stillMissing.length) {
       throw new Error(
         `Narrative batch did not pass its one-repair completion check; missing ${stillMissing.join(', ')}. ` +
