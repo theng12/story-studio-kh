@@ -7,7 +7,7 @@ What's new in each release. Newest first.
 ## v1.4.99 — 2026-09-03
 
 - **Image work now enters GenStudio through its live admission permits.** Story Studio keeps the chosen episode-lane setting as local staging, waits locally when GenStudio has no confirmed capacity, and submits work only after GenStudio authorizes the exact account, model, and image operation.
-- **A delayed image request stays safely recoverable.** Waiting, paused, and resumed work reuses the same request identity and permit evidence instead of treating elapsed time as permission to buy a second request. Capacity waits stay visible without consuming an image-episode lane, while a genuine final-wave tail overlap remains governed by the existing verified-headroom rule.
+- **A delayed image request stays safely recoverable.** Waiting, paused, and resumed work reuses the same request identity and permit evidence instead of treating elapsed time as permission to buy a second request. Capacity waits remain in local staging until GenStudio permits the paid request; admitted generation then follows the selected image-episode lane setting, while a genuine final-wave tail overlap remains governed by the existing verified-headroom rule.
 
 ---
 

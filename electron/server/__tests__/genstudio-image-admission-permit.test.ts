@@ -8,6 +8,7 @@ import {
   listImageModels,
 } from '../lib/genstudio-client.js'
 import { shouldPauseContinuityForStall } from '../generators/continuity-render.js'
+import { waitFor } from './_timing.js'
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PNG = Buffer.from(
@@ -191,6 +192,90 @@ test('a permit Retry-After longer than ten minutes stays visible, never pays ear
   assert.equal(generationCalls, 1)
 })
 
+test('a permit retry rechecks the pause guard before its full Retry-After', async () => {
+  let permitCalls = 0
+  let guards = 0
+  const originalNow = Date.now
+  const originalSetTimeout = globalThis.setTimeout
+  const startedAt = Date.UTC(2026, 8, 3)
+  let now = startedAt
+  Date.now = () => now
+  globalThis.setTimeout = ((callback: (...args: any[]) => void, delay?: number, ...args: any[]) => {
+    now += Number(delay || 0)
+    queueMicrotask(() => callback(...args))
+    return 1 as any
+  }) as typeof setTimeout
+  try {
+    await assert.rejects(withFetch((async (input: any) => {
+      if (!String(input).endsWith('/v1/images/admission/permits')) throw new Error(`Unexpected request ${input}`)
+      permitCalls++
+      return Response.json({ code: 'ADMISSION_UNAVAILABLE' }, {
+        status: 429,
+        headers: { 'Retry-After': '0.6' },
+      })
+    }) as typeof fetch, () => generateImageWithGenStudio('permit-interrupt-key', request({
+      beforeSubmit: () => {
+        guards++
+        if (guards === 3) throw new Error('Paused by user')
+      },
+    }))), /Paused by user/)
+  } finally {
+    Date.now = originalNow
+    globalThis.setTimeout = originalSetTimeout
+  }
+  assert.ok(now - startedAt < 600, 'the pause guard must interrupt before the provider retry-after expires')
+  assert.equal(permitCalls, 1)
+})
+
+test('a queued permit follower observes cancellation while its predecessor is unresolved', async () => {
+  const firstPermit = deferred<Response>()
+  const firstPermitEntered = deferred<void>()
+  const followerAbort = new AbortController()
+  let permitCalls = 0
+  const first = withFetch((async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      permitCalls++
+      if (permitCalls === 1) {
+        firstPermitEntered.resolve()
+        return firstPermit.promise
+      }
+      throw new Error('A cancelled follower must not request another permit')
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      return Response.json(imageJob(JSON.parse(String(init?.body))), { status: 202 })
+    }
+    if (url.endsWith('/v1/images/image-task-1/file')) return new Response(PNG)
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, async () => {
+    const leader = generateImageWithGenStudio('permit-follower-key', request({ requestIdentity: 'leader' }))
+    await firstPermitEntered.promise
+    const follower = generateImageWithGenStudio('permit-follower-key', request({
+      requestIdentity: 'follower',
+      signal: followerAbort.signal,
+      onQueueState: (state: string) => {
+        if (state === 'waiting_account_capacity') queueMicrotask(() => followerAbort.abort())
+      },
+    }))
+    let followerError: unknown
+    void follower.catch(error => { followerError = error })
+    try {
+      await waitFor(() => followerError !== undefined, {
+        label: 'the queued follower to observe cancellation',
+      })
+      assert.ok(followerError instanceof Error)
+      assert.match(followerError.message, /Cancelled by user/)
+    } finally {
+      firstPermit.resolve(Response.json({ id: 'permit-leader' }))
+    }
+    await leader
+    await assert.rejects(follower, /Cancelled by user/)
+    await new Promise<void>(resolve => setImmediate(resolve))
+  })
+  await first
+  assert.equal(permitCalls, 1)
+})
+
 test('permit queues serialize one scope without holding an unrelated operation', async () => {
   const firstTextPermit = deferred<Response>()
   const firstTextEntered = deferred<void>()
@@ -288,6 +373,49 @@ test('a lost permit response replays the identical permit key and body', async (
   assert.ok(keys[0])
   assert.equal(keys[0], keys[1])
   assert.equal(bodies[0], bodies[1])
+})
+
+test('an invalid successful permit response fails instead of becoming a capacity wait', async () => {
+  const states: string[] = []
+  await assert.rejects(withFetch((async (input: any) => {
+    if (!String(input).endsWith('/v1/images/admission/permits')) throw new Error(`Unexpected request ${input}`)
+    return new Response('{not-json', { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch, () => generateImageWithGenStudio('permit-invalid-json-key', request({
+    onQueueState: (state: string) => {
+      states.push(state)
+      if (state === 'waiting_account_capacity') throw new Error('A contract failure must not be shown as capacity')
+    },
+  }))), /invalid JSON/)
+  assert.equal(states.includes('waiting_account_capacity'), false)
+})
+
+test('an invalid successful permit payload fails instead of becoming a capacity wait', async () => {
+  const states: string[] = []
+  await assert.rejects(withFetch((async (input: any) => {
+    if (!String(input).endsWith('/v1/images/admission/permits')) throw new Error(`Unexpected request ${input}`)
+    return Response.json({ id: '   ' })
+  }) as typeof fetch, () => generateImageWithGenStudio('permit-invalid-payload-key', request({
+    onQueueState: (state: string) => {
+      states.push(state)
+      if (state === 'waiting_account_capacity') throw new Error('A contract failure must not be shown as capacity')
+    },
+  }))), /invalid image admission permit/)
+  assert.equal(states.includes('waiting_account_capacity'), false)
+})
+
+test('permit queue-state persistence failure does not become a capacity wait', async () => {
+  const states: string[] = []
+  await assert.rejects(withFetch((async (input: any) => {
+    if (!String(input).endsWith('/v1/images/admission/permits')) throw new Error(`Unexpected request ${input}`)
+    return Response.json({ id: 'permit-persistence' })
+  }) as typeof fetch, () => generateImageWithGenStudio('permit-persistence-key', request({
+    onQueueState: (state: string) => {
+      states.push(state)
+      if (state === 'submitting') throw new TypeError('permit state persistence failed')
+      if (state === 'waiting_account_capacity') throw new Error('A persistence failure must not be shown as capacity')
+    },
+  }))), /permit state persistence failed/)
+  assert.equal(states.includes('waiting_account_capacity'), false)
 })
 
 test('an uncertain paid submission reuses one permit and the identical paid request', async () => {

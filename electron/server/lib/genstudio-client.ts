@@ -3282,13 +3282,20 @@ async function retryDelay(
   request: GenStudioOperationContext,
   deadline: number,
   retryAfterMs?: number | null,
+  beforeWaitSlice?: () => void | Promise<void>,
 ): Promise<void> {
-  if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
-  if (Date.now() >= deadline) throw new Error('GenStudio KH job timed out while waiting for completion')
   const fallbackMs = Math.min(4_000, 500 * (2 ** (attempt - 1)))
   const requestedMs = retryAfterMs == null ? fallbackMs : Math.max(0, retryAfterMs)
-  const delayMs = Math.min(requestedMs, Math.max(0, deadline - Date.now()))
-  await new Promise(resolve => setTimeout(resolve, delayMs))
+  const wakeAt = Date.now() + Math.min(requestedMs, Math.max(0, deadline - Date.now()))
+  for (;;) {
+    if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+    if (Date.now() >= deadline) throw new Error('GenStudio KH job timed out while waiting for completion')
+    const left = wakeAt - Date.now()
+    if (left <= 0) return
+    await beforeWaitSlice?.()
+    if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+    await new Promise(resolve => setTimeout(resolve, Math.min(POLL_CANCEL_CHECK_MS, left)))
+  }
 }
 
 async function requestJsonWithRetry(
@@ -6704,6 +6711,28 @@ async function assertImageSubmissionAllowed(request: GenStudioImageRequest): Pro
   if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
 }
 
+function isRetryableImageAdmissionPermitFailure(error: unknown): boolean {
+  if (error instanceof GenStudioApiError) return error.status === 429 || error.status >= 500
+  if (!(error instanceof TypeError)) return false
+  return /fetch failed|network|socket|ECONN|timeout|timed out/i.test(error.message)
+}
+
+async function waitForImageAdmissionPermitTurn(
+  previous: Promise<void>,
+  request: GenStudioImageRequest,
+  deadline: number,
+): Promise<void> {
+  for (;;) {
+    await assertImageSubmissionAllowed(request)
+    const previousCompleted = await Promise.race([
+      previous.then(() => true),
+      retryDelay(1, request, deadline, POLL_CANCEL_CHECK_MS, () => assertImageSubmissionAllowed(request))
+        .then(() => false),
+    ])
+    if (previousCompleted) return
+  }
+}
+
 /** GenStudio permits are issued serially; paid image execution remains remote-owned. */
 async function acquireImageAdmissionPermit(
   baseUrl: string,
@@ -6746,15 +6775,12 @@ async function acquireImageAdmissionPermit(
         return id
       } catch (error) {
         if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
-        const retryable = !(error instanceof GenStudioApiError)
-          || error.status === 429
-          || retryableStatus(error.status)
-        if (!retryable || Date.now() >= deadline) throw error
+        if (!isRetryableImageAdmissionPermitFailure(error) || Date.now() >= deadline) throw error
         await request.onQueueState?.('waiting_account_capacity')
         const hintMs = error instanceof GenStudioApiError && error.retryAfterSeconds != null
           ? error.retryAfterSeconds * 1_000
           : undefined
-        await retryDelay(++retry, request, deadline, hintMs)
+        await retryDelay(++retry, request, deadline, hintMs, () => assertImageSubmissionAllowed(request))
       }
     }
   }
@@ -6762,9 +6788,8 @@ async function acquireImageAdmissionPermit(
   const previous = imagePermitQueues.get(scope)
   const ready = previous
     ? (async () => {
-        await assertImageSubmissionAllowed(request)
         await request.onQueueState?.('waiting_account_capacity')
-        await previous
+        await waitForImageAdmissionPermitTurn(previous, request, deadline)
       })()
     : Promise.resolve()
   const result = ready.then(acquire)
