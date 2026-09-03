@@ -538,6 +538,33 @@ test('a submitting TimeoutError callback fails immediately without capacity retr
   assert.equal(states.includes('waiting_account_capacity'), false)
 })
 
+test('a failed-state TimeoutError from a non-retryable permit response never becomes a capacity retry', async () => {
+  let permitCalls = 0
+  let generationCalls = 0
+  const states: string[] = []
+  await assert.rejects(withFetch((async (input: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      permitCalls++
+      return Response.json({ detail: 'permit request is not accepted' }, { status: 400 })
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      generationCalls++
+      throw new Error('A paid generation request must not be made')
+    }
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, () => generateImageWithGenStudio('permit-failed-callback-timeout-key', request({
+    onQueueState: (state: string) => {
+      states.push(state)
+      if (state === 'failed') throw new DOMException('failed callback timed out', 'TimeoutError')
+      if (state === 'waiting_account_capacity') throw new Error('A failed callback must not be shown as capacity')
+    },
+  }))), /failed callback timed out/)
+  assert.equal(permitCalls, 1)
+  assert.equal(generationCalls, 0)
+  assert.equal(states.includes('waiting_account_capacity'), false)
+})
+
 test('an uncertain paid submission reuses one permit and the identical paid request', async () => {
   let permitCalls = 0
   const generationKeys: string[] = []

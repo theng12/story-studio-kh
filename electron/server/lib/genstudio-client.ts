@@ -3139,6 +3139,14 @@ export class GenStudioApiError extends Error {
   }
 }
 
+/** A control request timed out before its HTTP outcome was known. */
+class GenStudioTransportTimeoutError extends Error {
+  constructor(timeout: DOMException) {
+    super(timeout.message)
+    this.name = 'GenStudioTransportTimeoutError'
+  }
+}
+
 export function isGenStudioInsufficientCredits(error: unknown): error is GenStudioApiError {
   return error instanceof GenStudioApiError && error.status === 402
 }
@@ -3321,11 +3329,20 @@ async function requestJsonWithRetry(
     let retryAfterMs: number | null = null
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
     try {
-      const response = await fetch(url, {
-        ...init,
-        signal: operationSignal(request.signal, deadline, operationTimeoutMs),
-      })
-      const raw = await response.text()
+      let response: Response
+      let raw: string
+      try {
+        response = await fetch(url, {
+          ...init,
+          signal: operationSignal(request.signal, deadline, operationTimeoutMs),
+        })
+        raw = await response.text()
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'TimeoutError') {
+          throw new GenStudioTransportTimeoutError(error)
+        }
+        throw error
+      }
       let body: any = {}
       if (raw) {
         try { body = JSON.parse(raw) }
@@ -6713,7 +6730,7 @@ async function assertImageSubmissionAllowed(request: GenStudioImageRequest): Pro
 
 function isRetryableImageAdmissionPermitFailure(error: unknown): boolean {
   if (error instanceof GenStudioApiError) return error.status === 429 || error.status >= 500
-  if (error instanceof DOMException) return error.name === 'TimeoutError'
+  if (error instanceof GenStudioTransportTimeoutError) return true
   if (!(error instanceof TypeError)) return false
   return /fetch failed|network|socket|ECONN|timeout|timed out/i.test(error.message)
 }
