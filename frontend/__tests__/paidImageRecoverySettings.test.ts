@@ -7,6 +7,7 @@ import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 
 const settingsPath = '/app-settings/paid-image-replacement'
+const subtitleSettingsPath = '/app-settings/paid-subtitle-replacement'
 
 interface PaidImageReplacementSetting {
   enabled: boolean
@@ -59,7 +60,7 @@ async function mountSettings(
   const saves: Array<{ path: string; body: unknown }> = []
   apiHost.__paidImageRecoverySettingsApi = {
     async get<T>(path: string): Promise<T> {
-      if (path === settingsPath) {
+      if (path === settingsPath || path === subtitleSettingsPath) {
         if (options.paidSettingError) throw options.paidSettingError
         return setting as T
       }
@@ -76,7 +77,7 @@ async function mountSettings(
     },
     async put<T>(path: string, body: unknown): Promise<T> {
       saves.push({ path, body })
-      if (path !== settingsPath) throw new Error(`unexpected PUT ${path}`)
+      if (path !== settingsPath && path !== subtitleSettingsPath) throw new Error(`unexpected PUT ${path}`)
       return (options.savedSetting || { enabled: true, additional_credit_ceiling: 50 }) as T
     },
     async del(): Promise<void> {},
@@ -157,6 +158,36 @@ test('This Mac keeps paid image replacement disabled when its saved state is unk
     assert.equal(section.querySelector<HTMLButtonElement>('button')?.disabled, true)
     assert.match(section.textContent || '', /could not load.*paid image replacement/i)
     assert.equal(rendered.saves.length, 0)
+  } finally {
+    rendered.unmount()
+    delete apiHost.__paidImageRecoverySettingsApi
+  }
+})
+
+test('This Mac keeps paid subtitle replacement separately off until its own ceiling is saved', async () => {
+  const rendered = await mountSettings(
+    { enabled: false, additional_credit_ceiling: null },
+    { savedSetting: { enabled: true, additional_credit_ceiling: 17 } },
+  )
+  try {
+    const section = rendered.host.querySelector<HTMLElement>('.paid-subtitle-replacement')
+    assert.ok(section, 'the subtitle policy must be separately visible')
+    assert.match(section.textContent || '', /Automatically buy one replacement for a confirmed failed subtitle section/)
+    const enabled = section.querySelector<HTMLSelectElement>('select[name="paid-subtitle-replacement-enabled"]')
+    assert.equal(enabled?.value, 'false')
+    enabled!.value = 'true'
+    enabled!.dispatchEvent(new Event('change', { bubbles: true }))
+    await nextTick()
+    const ceiling = section.querySelector<HTMLInputElement>('input[name="paid-subtitle-replacement-ceiling"]')
+    assert.ok(ceiling)
+    ceiling.value = '17'
+    ceiling.dispatchEvent(new Event('input', { bubbles: true }))
+    section.querySelector<HTMLButtonElement>('button')!.click()
+    await flush()
+    assert.deepEqual(rendered.saves, [{
+      path: subtitleSettingsPath,
+      body: { enabled: true, additional_credit_ceiling: 17 },
+    }])
   } finally {
     rendered.unmount()
     delete apiHost.__paidImageRecoverySettingsApi

@@ -41,4 +41,12 @@ No full verification suite, build, DMG, deployment, publication, provider call, 
 
 The completed fix is deliberately fail-closed: subtitle jobs cannot claim completion without a verified stitched SRT, and the image paid-replacement setting is not reused for subtitles.
 
-AH-002 is **not fully complete** against the entire handoff. The durable per-episode recovery-plan DAG, automated free transcription reconciliation, manual `Buy missing subtitles now` action, and bounded automatic paid replacement execution/settlement protocol still need implementation and the corresponding acceptance suite. The new machine setting and UI are a safe authorization boundary only; they do not yet submit paid replacement transcription work. Full frontend/backend verification is also blocked by missing worktree frontend dependencies.
+AH-002 is **not fully complete** against the entire handoff. The durable per-episode recovery-plan DAG, automated free transcription reconciliation, manual `Buy missing subtitles now` action, and bounded automatic paid replacement execution/settlement protocol still need implementation and the corresponding acceptance suite. The new machine setting and UI are a safe authorization boundary only; they do not yet submit paid replacement transcription work.
+
+## Follow-up verification — 2026-09-05
+
+- Ran `npm ci` and `npm --prefix frontend ci` as requested. Root install reports 3 audit findings (2 moderate, 1 high); frontend install reports none. Neither lockfile changed.
+- `npm --prefix frontend run typecheck` now completes successfully.
+- Added the real mounted This Mac UI test for the independent subtitle setting and its separate endpoint/body. The broad frontend runner currently has unrelated failing tests and an unresolved `~` alias in `frontend/__tests__/useProject.test.ts`; it is not a clean release suite.
+
+The underlying AH-002 recovery-plan, paid commitment, settlement eligibility, and topological downstream advancement requirements remain unimplemented. This follow-up improves verified UI coverage only and does not widen the completed implementation claim.
