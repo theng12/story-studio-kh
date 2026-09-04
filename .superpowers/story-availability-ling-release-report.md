@@ -204,11 +204,54 @@ discards partial Chapter 2 and repairs it once.
 - `git diff --check` passed.
 - The final diff is limited to the approved availability/Ling behavior,
   assertions, required v1.4.100 metadata, and this audit report.
-- No deployment, publish, push, merge, DMG build, or live-data operation was
-  performed.
+- No deployment, publish, push, signing, notarization, or live-data operation
+  was performed.
 - After the local remediation and report commits, the worktree is clean.
 
 **Ready for independent review: yes.** The earlier independent-review blocker is
 fixed and covered by RED/GREEN and a fresh full release gate. The outstanding
 step is renewed independent review/integration only; no known release blocker
 remains.
+
+## Post-merge main closeout (2026-09-04)
+
+- Integrated `main`: `5c947566e783afa570d170692fdc8fb15567688d`; it matched
+  both `origin/main` and the reviewed head `2b5aefa4` exactly
+  (`git diff --quiet 2b5aefa4 5c947566e783afa570d170692fdc8fb15567688d`).
+- The main checkout was clean before this documentation-only closeout. The
+  source `package.json` version is `1.4.100`.
+- Fresh serial official gate:
+  `npm run verify > /tmp/story-main-5c947566-verify.log 2>&1` exited `0`
+  (recorded in `/tmp/story-main-5c947566-verify.exit`). Its exact completion
+  lines were:
+  - backend: `4273` pass, `0` fail, `0` skipped; `382/382` files;
+    `4902` marks including `629` suites.
+  - frontend: `1287` pass, `0` fail, `0` skipped; `137/137` files;
+    `1460` marks including `173` suites.
+  - release: `36` pass, `0` fail, `0` skipped; `4/4` files; `40` marks
+    including `4` suites.
+  - content packs: `194` pass, `0` fail, `2` documented skips; `27/27`
+    files; `196` marks.
+  Static frontend/Electron builds and built production-security and
+  desktop-release checks also passed.
+- Fresh unsigned main packaging smoke:
+  `npm run dist:smoke > /tmp/story-main-5c947566-dist-smoke.log 2>&1`
+  exited `0` (recorded in `/tmp/story-main-5c947566-dist-smoke.exit`). It
+  produced and verified the repository-root artifact
+  `dist/Story Studio KH 1.4.100-arm64.dmg`:
+  - bytes: `241525332`
+  - SHA-256: `d27942915fe01544a14474dd0f1e04cd39f10a079be8427ebf406e5710901db3`
+  - mounted read-only; launch smoke served `/api/health` in `5858ms`.
+- Bundle metadata independently agrees with main: the app at
+  `dist/mac-arm64/Story Studio KH.app` has
+  `com.storystudio.kh`, `CFBundleShortVersionString=1.4.100`, and
+  `CFBundleVersion=1.4.100`; its
+  `Contents/Resources/app.asar` `package.json` is
+  `story-studio-kh@1.4.100`.
+- This is an ad-hoc unsigned smoke artifact (no Developer ID), as required by
+  `dist:smoke`. No signing, notarization, publish, deploy, tag, or live-data
+  operation was performed.
+
+**Post-merge release smoke: GO.** The artifact is valid for the requested
+unsigned main-checkout smoke closeout; a public distribution would still need
+the separately authorized signed/notarized public-release path.
