@@ -8,6 +8,7 @@
 - Review-report checkpoint: `f45e41a8`
 - Remediation implementation head: `61bf368d` (`Harden Ling truncation repair boundary`)
 - Heading-boundary remediation head: `61ea5905` (`Preserve proven chapters at truncation heading boundary`)
+- Normalized-grammar remediation head: `ad6d48a0` (`Unify normalized Ling truncation boundaries`)
 - Application version: `1.4.100`
 - Branch commits reviewed:
   - `e25fccdc` — Explain unavailable GenStudio chat models
@@ -17,6 +18,8 @@
   - `61bf368d` — Harden Ling truncation repair boundary
   - `4fa96828` — Record Ling truncation remediation verification
   - `61ea5905` — Preserve proven chapters at truncation heading boundary
+  - `71a8b502` — Document heading-boundary release verification
+  - `ad6d48a0` — Unify normalized Ling truncation boundaries
 
 This is an application release. `package.json`, `package-lock.json`, and the
 newest `CHANGELOG.md` entry already agree on `1.4.100`; the release audit kept
@@ -152,6 +155,41 @@ provider-failure path changed.
   `/tmp/story-availability-verify-heading-boundary-20260904.exit`.
   - backend: `4185` pass, `0` fail; `382/382` files completed
     (`4814` total marks including `629` suites)
+  - frontend: `1287` pass, `0` fail; `137/137` files completed
+    (`1460` total marks including `173` suites)
+  - release: `36` pass, `0` fail; `4/4` files completed
+    (`40` total marks including `4` suites)
+  - content packs: `194` pass, `0` fail, `2` documented skips;
+    `27/27` files completed (`196` marks)
+  - static frontend and Electron builds, source and built production-security,
+    and source and built desktop-release checks all passed.
+
+### Normalized heading-grammar remediation
+
+The third review found that the heading-boundary implementation had a raw regex
+separate from `splitNarrationIntoChapters`. For an exact trailing
+`## Chapter 02: ` line, the raw matcher could see whitespace that the parser
+normalized away; the parser then retained the dangling heading as Chapter 1
+prose. `ad6d48a0` removes that duplicate grammar. The shared normalized parser
+now recognizes title-less supported heading prefixes as boundaries, excludes
+them from prose, and returns whether its final parsed chapter is boundary-
+proven. The truncation path consumes only that signal.
+
+The new exact-space parser regression proves Chapter 1 closes without retaining
+the dangling Chapter 2 prefix. Existing heading-only and mid-body fixtures
+remain: the former retains Chapter 1 and repairs only Chapters 2/3; the latter
+discards partial Chapter 2 and repairs it once.
+
+- RED: `node scripts/testing/run-backend-tests.mjs --only narration-assembly --only chunked-narration-smoke`
+  — 33 pass, 1 expected failure: the normalized title-less heading remained in
+  Chapter 1 prose.
+- GREEN: same command — 34/34 tests, 5/5 suites, 2/2 files completed.
+- Fresh official release gate (serial):
+  `npm run verify > /tmp/story-availability-verify-normalized-heading-20260904.log 2>&1`
+  — recorded terminal exit code `0` in
+  `/tmp/story-availability-verify-normalized-heading-20260904.exit`.
+  - backend: `4187` pass, `0` fail; `382/382` files completed
+    (`4816` total marks including `629` suites)
   - frontend: `1287` pass, `0` fail; `137/137` files completed
     (`1460` total marks including `173` suites)
   - release: `36` pass, `0` fail; `4/4` files completed
