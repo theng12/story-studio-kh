@@ -2609,6 +2609,7 @@ async function retryJob(job: RJob) {
         engine: 'genstudio',
         per_chapter: job.params?.per_chapter,
         force: job.params?.force,
+        sections: job.params?.sections,
       },
     },
   }

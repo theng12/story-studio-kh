@@ -127,6 +127,28 @@ test('paid image replacement defaults, validates exactly, and exposes only the f
   }
 })
 
+test('paid subtitle replacement stays independently off until its own whole-credit ceiling is saved', async () => {
+  await request(app)
+    .get('/app-settings/paid-subtitle-replacement')
+    .expect(200, { enabled: false, additional_credit_ceiling: null })
+
+  await request(app)
+    .put('/app-settings/paid-subtitle-replacement')
+    .send({ enabled: true, additional_credit_ceiling: 17 })
+    .expect(200, { enabled: true, additional_credit_ceiling: 17 })
+
+  const settings = await import('../services/app-settings.js')
+  assert.deepEqual(
+    await settings.getPaidImageReplacementSetting(),
+    { enabled: false, additional_credit_ceiling: null },
+    'enabling subtitles must never authorise image replacement',
+  )
+  await assert.rejects(
+    () => settings.setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 0 }),
+    /positive safe whole number/i,
+  )
+})
+
 test('only supported image enqueue snapshots the machine policy outside request params', async () => {
   const settings = await import('../services/app-settings.js')
   const queue = await import('../services/job-queue.js')

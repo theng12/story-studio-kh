@@ -13,10 +13,12 @@ import os from 'os'
 import path from 'path'
 
 let stitch: typeof import('../services/subtitle-stitcher.js')
+let subtitles: typeof import('../generators/subtitles.js')
 let tmp: string
 
 before(async () => {
   stitch = await import('../services/subtitle-stitcher.js')
+  subtitles = await import('../generators/subtitles.js')
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'sub-stitch-'))
 })
 after(async () => { await fs.rm(tmp, { recursive: true, force: true }) })
@@ -33,6 +35,13 @@ async function makeCase(name: string, chapters: any, files: Record<string, strin
 const SRT = '1\n00:00:00,000 --> 00:00:02,000\nHello world\n\n2\n00:00:02,000 --> 00:00:04,000\nSecond line\n'
 
 describe('subtitle stitcher', () => {
+  test('rejects a skipped auto-stitch so a complete section batch cannot become a done subtitle job', () => {
+    assert.throws(
+      () => subtitles.requireWrittenSubtitleStitch({ status: 'not-applicable', reason: 'no matching section files' }),
+      /subtitle stitch did not complete.*no matching section files/i,
+    )
+  })
+
   test('matches per-chapter SRT despite slug-format drift (chapter_1 ↔ EP0001_Chapter1.srt)', async () => {
     const inputs = await makeCase('drift', {
       gap_duration_s: 1.5,

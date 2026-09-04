@@ -14,6 +14,7 @@ import * as jq from '../services/job-queue.js'
 import { resolveSubfolderNames, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
+import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { scanEpisodeAssets } from './video.js'
 import {
   buildGenStudioTranscriptionIdempotencyKey,
@@ -91,6 +92,16 @@ export interface TranscribeSubtitlesRequest {
   sections?: string[]
   /** New work uses the current live transcription catalog. */
   engine?: 'genstudio' | 'openai' | 'voicestudio'
+}
+
+/**
+ * A completed chapter batch is not a completed subtitle job until the fresh
+ * stitched timeline exists. Keeping this boundary explicit prevents the queue
+ * from terminalizing an episode whose Scene Plan prerequisite is still absent.
+ */
+export function requireWrittenSubtitleStitch(outcome: { status: string; reason: string }): void {
+  if (outcome.status === 'stitched') return
+  throw new Error(`Subtitle stitch did not complete: ${outcome.reason}. Retry the local subtitle stitch before Scene Plan.`)
 }
 
 /**
@@ -1080,19 +1091,25 @@ async function transcribePerChapter(
       episodeCode: code,
     })
     if (outcome.status !== 'stitched') {
-      job.output_lines.push(`ℹ Auto-stitch skipped — ${outcome.reason}.`)
-    } else {
-      const r = outcome.result
-      job.output_lines.push(
-        `✓ Auto-stitched ${r.total_cues} cue(s) (${r.total_duration_sec.toFixed(1)}s)` +
-        ` → ${path.basename(r.output_path)}. Re-run Scene Plan to pick up the new timeline.`,
-      )
-      job.output_lines.push(`${outcome.lead_in.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(outcome.lead_in)}`)
+      requireWrittenSubtitleStitch(outcome)
+      throw new Error('Unreachable subtitle stitch state')
     }
+    const timeline = await readSubtitleTimelineIntegrity(outDir, code)
+    if (!timeline.complete) {
+      throw new Error(`Subtitle stitch did not verify: ${timeline.missing_sections.join(', ')}. Retry the local subtitle stitch before Scene Plan.`)
+    }
+    const r = outcome.result
+    job.output_lines.push(
+      `✓ Auto-stitched ${r.total_cues} cue(s) (${r.total_duration_sec.toFixed(1)}s)` +
+      ` → ${path.basename(r.output_path)}. Re-run Scene Plan to pick up the new timeline.`,
+    )
+    job.output_lines.push(`${outcome.lead_in.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(outcome.lead_in)}`)
   } catch (e: any) {
     const msg = (e as Error)?.message || String(e)
     const hint = msg.includes('audio_chapters.json not found') ? 'run Audio Assembly first' : msg
-    job.output_lines.push(`ℹ Auto-stitch skipped (${hint}). You can stitch manually in the Subtitles workspace.`)
+    job.result = { ...job.result, complete: false, stitch_complete: false, stitch_error: hint }
+    job.output_lines.push(`✗ STITCH INCOMPLETE — ${hint}`)
+    throw new Error(`Subtitle transcription is incomplete because its stitched timeline is not ready: ${hint}`)
   }
 }
 

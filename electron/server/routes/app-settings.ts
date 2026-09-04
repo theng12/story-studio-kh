@@ -20,6 +20,7 @@ import {
   getLastSeenVersion, setLastSeenVersion,
   getGenStudioUrl, setGenStudioUrl, DEFAULT_GENSTUDIO_URL,
   getPaidImageReplacementSetting, setPaidImageReplacementSetting,
+  getPaidSubtitleReplacementSetting, setPaidSubtitleReplacementSetting,
   setAppSetting,
 } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -58,6 +59,22 @@ router.put('/app-settings/paid-image-replacement', async (req, res) => {
     res.json(await setPaidImageReplacementSetting(req.body))
   } catch (e: any) {
     res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save paid image replacement setting'))
+  }
+})
+
+router.get('/app-settings/paid-subtitle-replacement', async (_req, res) => {
+  try {
+    res.json(await getPaidSubtitleReplacementSetting())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load paid subtitle replacement setting'))
+  }
+})
+
+router.put('/app-settings/paid-subtitle-replacement', async (req, res) => {
+  try {
+    res.json(await setPaidSubtitleReplacementSetting(req.body))
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save paid subtitle replacement setting'))
   }
 })
 

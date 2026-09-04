@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.102 — 2026-09-05
+
+- **Subtitle recovery now fails honestly when stitching cannot complete.** Complete chapter files alone no longer let a subtitle job report success: Story Studio requires a fresh, verified stitched timeline before Scene Plan or Scene Review can proceed, while keeping successful section files for a targeted retry.
+- **Optional paid subtitle replacement has its own separate machine setting.** It starts Off and needs its own per-Story-job credit ceiling; enabling image replacement never authorizes subtitle spending. Jobs retry now keeps a subtitle job's exact missing-section allow-list.
+
 ## v1.4.101 — 2026-09-05
 
 - **Generation fan-out now follows each GenStudio API key's live capacity publication.** Image, Scene Review, and thumbnail Auto staging use the keyed burst advisory while exact image permits remain mandatory. TTS combines its model's provider hint with the keyed account burst, and subtitle/video staging uses their own keyed capacity instead of inheriting the image dial. Unknown capacity stays conservative and explicit, with the local CPU/IO and LLM lane limits unchanged.

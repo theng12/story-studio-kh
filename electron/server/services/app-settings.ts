@@ -80,8 +80,14 @@ export interface PaidImageReplacementSetting {
 }
 
 export const PAID_IMAGE_REPLACEMENT_KEY = 'paid_image_replacement'
+export const PAID_SUBTITLE_REPLACEMENT_KEY = 'paid_subtitle_replacement'
 
 const PAID_IMAGE_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
+  enabled: false,
+  additional_credit_ceiling: null,
+}
+
+const PAID_SUBTITLE_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
   enabled: false,
   additional_credit_ceiling: null,
 }
@@ -89,6 +95,13 @@ const PAID_IMAGE_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
 function invalidPaidImageReplacementSetting(): never {
   throw Object.assign(
     new Error('Paid image replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.'),
+    { statusCode: 400, expose: true },
+  )
+}
+
+function invalidPaidSubtitleReplacementSetting(): never {
+  throw Object.assign(
+    new Error('Paid subtitle replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.'),
     { statusCode: 400, expose: true },
   )
 }
@@ -118,6 +131,38 @@ function parsePaidImageReplacementSetting(value: unknown, invalid: 'default' | '
   if (record.enabled && !validCeiling) {
     if (invalid === 'throw') return invalidPaidImageReplacementSetting()
     return { ...PAID_IMAGE_REPLACEMENT_DEFAULT }
+  }
+  return {
+    enabled: record.enabled,
+    additional_credit_ceiling: ceiling as number | null,
+  }
+}
+
+function parsePaidSubtitleReplacementSetting(value: unknown, invalid: 'default' | 'throw'): PaidImageReplacementSetting {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    if (invalid === 'throw') return invalidPaidSubtitleReplacementSetting()
+    return { ...PAID_SUBTITLE_REPLACEMENT_DEFAULT }
+  }
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record)
+  if (keys.length !== 2
+    || !keys.includes('enabled')
+    || !keys.includes('additional_credit_ceiling')
+    || typeof record.enabled !== 'boolean') {
+    if (invalid === 'throw') return invalidPaidSubtitleReplacementSetting()
+    return { ...PAID_SUBTITLE_REPLACEMENT_DEFAULT }
+  }
+  const ceiling = record.additional_credit_ceiling
+  const validCeiling = typeof ceiling === 'number'
+    && Number.isSafeInteger(ceiling)
+    && ceiling > 0
+  if (ceiling !== null && !validCeiling) {
+    if (invalid === 'throw') return invalidPaidSubtitleReplacementSetting()
+    return { ...PAID_SUBTITLE_REPLACEMENT_DEFAULT }
+  }
+  if (record.enabled && !validCeiling) {
+    if (invalid === 'throw') return invalidPaidSubtitleReplacementSetting()
+    return { ...PAID_SUBTITLE_REPLACEMENT_DEFAULT }
   }
   return {
     enabled: record.enabled,
@@ -222,6 +267,27 @@ export async function setPaidImageReplacementSetting(value: unknown): Promise<Pa
   await queue.withPaidImageWaitSettingMutation(async () => {
     await setAppSetting(PAID_IMAGE_REPLACEMENT_KEY, setting)
   })
+  return setting
+}
+
+/**
+ * Separate machine-local authority for subtitle replacement. Image policy is
+ * intentionally irrelevant: enabling one paid recovery surface never enables
+ * another after an upgrade.
+ */
+export async function getPaidSubtitleReplacementSetting(): Promise<PaidImageReplacementSetting> {
+  const settings = await readSettings()
+  return parsePaidSubtitleReplacementSetting(
+    settings && typeof settings === 'object' && !Array.isArray(settings)
+      ? settings[PAID_SUBTITLE_REPLACEMENT_KEY]
+      : undefined,
+    'default',
+  )
+}
+
+export async function setPaidSubtitleReplacementSetting(value: unknown): Promise<PaidImageReplacementSetting> {
+  const setting = parsePaidSubtitleReplacementSetting(value, 'throw')
+  await setAppSetting(PAID_SUBTITLE_REPLACEMENT_KEY, setting)
   return setting
 }
 

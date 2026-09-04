@@ -96,6 +96,46 @@
       </div>
     </section>
 
+    <section class="panel paid-subtitle-replacement">
+      <div>
+        <h4>Automatically buy one replacement for a confirmed failed subtitle section</h4>
+        <p>
+          Off by default. Story Studio always reconnects to accepted transcription tasks and retries safe download or stitch work for free.
+          Only after GenStudio confirms an eligible failed section may it buy one replacement, within this separate per-Story-job subtitle credit limit.
+        </p>
+      </div>
+      <label class="paid-subtitle-replacement-choice">
+        <span>Automatic replacement</span>
+        <select name="paid-subtitle-replacement-enabled" :value="paidSubtitleReplacementLoaded ? (paidSubtitleReplacementEnabled ? 'true' : 'false') : '__unknown'" :disabled="!paidSubtitleReplacementLoaded || paidSubtitleReplacementSaving" @change="setPaidSubtitleReplacementEnabled">
+          <option v-if="!paidSubtitleReplacementLoaded" value="__unknown" disabled>{{ paidSubtitleReplacementResult ? 'Saved state unavailable' : 'Loading saved setting…' }}</option>
+          <option value="false">Off</option>
+          <option value="true">On</option>
+        </select>
+      </label>
+      <label v-if="paidSubtitleReplacementEnabled" class="paid-subtitle-replacement-ceiling">
+        <span>Maximum additional credits per Story job</span>
+        <input
+          v-model="paidSubtitleReplacementCeiling"
+          name="paid-subtitle-replacement-ceiling"
+          type="number"
+          min="1"
+          step="1"
+          required
+          inputmode="numeric"
+          :disabled="!paidSubtitleReplacementLoaded || paidSubtitleReplacementSaving"
+          aria-describedby="paid-subtitle-replacement-limits"
+        />
+      </label>
+      <p id="paid-subtitle-replacement-limits" class="hint">Maximum 1 replacement per confirmed failed subtitle section</p>
+      <p v-if="!paidSubtitleReplacementLoaded && !paidSubtitleReplacementResult" class="hint" aria-live="polite">Loading saved paid subtitle replacement setting…</p>
+      <p v-if="paidSubtitleReplacementResult" :class="['result', paidSubtitleReplacementResult.kind]" aria-live="polite">{{ paidSubtitleReplacementResult.message }}</p>
+      <div class="paid-subtitle-replacement-actions">
+        <button class="btn btn-sm btn-primary" type="button" :disabled="!paidSubtitleReplacementLoaded || paidSubtitleReplacementSaving" @click="savePaidSubtitleReplacement">
+          {{ paidSubtitleReplacementSaving ? 'Saving…' : 'Save' }}
+        </button>
+      </div>
+    </section>
+
     <section class="panel appearance">
       <div>
         <span class="eyebrow">Display</span>
@@ -211,6 +251,11 @@ const paidImageReplacementCeiling = ref('')
 const paidImageReplacementLoaded = ref(false)
 const paidImageReplacementSaving = ref(false)
 const paidImageReplacementResult = ref<{ kind: 'ok' | 'err'; message: string } | null>(null)
+const paidSubtitleReplacementEnabled = ref(false)
+const paidSubtitleReplacementCeiling = ref('')
+const paidSubtitleReplacementLoaded = ref(false)
+const paidSubtitleReplacementSaving = ref(false)
+const paidSubtitleReplacementResult = ref<{ kind: 'ok' | 'err'; message: string } | null>(null)
 const result = ref<{
   kind: 'ok' | 'warn' | 'err'
   message: string
@@ -232,6 +277,14 @@ async function load(): Promise<void> {
     paidImageReplacementLoaded.value = true
   } catch {
     paidImageReplacementResult.value = { kind: 'err', message: 'Could not load the paid image replacement setting. It remains unavailable until its saved state is confirmed.' }
+  }
+  try {
+    const paidSubtitleReplacement = await get<PaidImageReplacementSetting>('/app-settings/paid-subtitle-replacement')
+    if (!isPaidImageReplacementSetting(paidSubtitleReplacement)) throw new Error('Saved setting was invalid.')
+    applyPaidSubtitleReplacementSetting(paidSubtitleReplacement)
+    paidSubtitleReplacementLoaded.value = true
+  } catch {
+    paidSubtitleReplacementResult.value = { kind: 'err', message: 'Could not load the paid subtitle replacement setting. It remains unavailable until its saved state is confirmed.' }
   }
   // Best-effort: the emoji switch must never be what stops this panel loading.
   try {
@@ -283,6 +336,45 @@ async function savePaidImageReplacement(): Promise<void> {
     paidImageReplacementResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not save that.' }
   } finally {
     paidImageReplacementSaving.value = false
+  }
+}
+
+function applyPaidSubtitleReplacementSetting(setting: PaidImageReplacementSetting): void {
+  paidSubtitleReplacementEnabled.value = setting.enabled
+  paidSubtitleReplacementCeiling.value = setting.enabled ? String(setting.additional_credit_ceiling) : ''
+}
+
+function setPaidSubtitleReplacementEnabled(event: Event): void {
+  paidSubtitleReplacementEnabled.value = (event.target as HTMLSelectElement).value === 'true'
+  paidSubtitleReplacementResult.value = null
+}
+
+function paidSubtitleReplacementCeilingValue(): number | null {
+  const value = Number(paidSubtitleReplacementCeiling.value)
+  return Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+async function savePaidSubtitleReplacement(): Promise<void> {
+  if (!paidSubtitleReplacementLoaded.value) return
+  const ceiling = paidSubtitleReplacementCeilingValue()
+  paidSubtitleReplacementResult.value = null
+  if (paidSubtitleReplacementEnabled.value && ceiling === null) {
+    paidSubtitleReplacementResult.value = { kind: 'err', message: 'Enter a positive whole number of additional credits.' }
+    return
+  }
+  paidSubtitleReplacementSaving.value = true
+  try {
+    const saved = await put<PaidImageReplacementSetting>('/app-settings/paid-subtitle-replacement', {
+      enabled: paidSubtitleReplacementEnabled.value,
+      additional_credit_ceiling: paidSubtitleReplacementEnabled.value ? ceiling : null,
+    })
+    if (!isPaidImageReplacementSetting(saved)) throw new Error('The saved setting was invalid.')
+    applyPaidSubtitleReplacementSetting(saved)
+    paidSubtitleReplacementResult.value = { kind: 'ok', message: 'Paid subtitle replacement setting saved.' }
+  } catch (error: any) {
+    paidSubtitleReplacementResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not save that.' }
+  } finally {
+    paidSubtitleReplacementSaving.value = false
   }
 }
 
@@ -688,6 +780,10 @@ onMounted(() => { void load(); void loadConcurrency() })
 .paid-image-replacement-choice, .paid-image-replacement-ceiling { display: grid; gap: 4px; max-width: 360px; }
 .paid-image-replacement-choice > span, .paid-image-replacement-ceiling > span { font-size: 13px; color: var(--text-secondary); }
 .paid-image-replacement-actions { display: flex; gap: 12px; }
+.paid-subtitle-replacement { display: grid; gap: 10px; }
+.paid-subtitle-replacement-choice, .paid-subtitle-replacement-ceiling { display: grid; gap: 4px; max-width: 360px; }
+.paid-subtitle-replacement-choice > span, .paid-subtitle-replacement-ceiling > span { font-size: 13px; color: var(--text-secondary); }
+.paid-subtitle-replacement-actions { display: flex; gap: 12px; }
 
 .emoji-toggle {
   display: flex;
