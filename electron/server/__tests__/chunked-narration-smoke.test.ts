@@ -423,6 +423,38 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.ok(job.output_lines.some(line => /bounded single-chapter repair/.test(line)))
   })
 
+  test('a heading-only truncation retains the preceding boundary-proven chapter', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    fakeIncompleteExpansion = {
+      // The next heading closes Chapter 1, but Chapter 2 has no body. The
+      // parser returns only Chapter 1, which is proven complete and must not
+      // be mistaken for the unproven final chapter.
+      partialText: [
+        '## Chapter 01: Chapter 1\n\nCOMPLETE ORIGINAL CHAPTER ONE.\n',
+        '## Chapter 02: Chapter 2',
+      ].join('\n'),
+      finishReason: 'length',
+    }
+
+    await generateNarrativeChunked(makeJob(scriptDir), {
+      episode_id: 'EPREPAIR-HEADING', title: 'Heading Boundary Repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+
+    const expansionCalls = fakeCalls.filter(call => call.kind === 'expansion')
+    const slots = expansionCalls.map(call =>
+      [...call.userMessage.matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1])),
+    )
+    assert.deepEqual(slots, [[1, 2, 3], [2], [3]],
+      'Chapter 1 is retained; only the heading-only slot and later missing slot are repaired once')
+    assert.match(
+      await fs.readFile(path.join(scriptDir, 'EPREPAIR-HEADING_Chapter_01.md'), 'utf8'),
+      /COMPLETE ORIGINAL CHAPTER ONE/,
+    )
+  })
+
   test('completion and resume reject an unproven final truncation block', async () => {
     const scriptDir = await freshDir()
     const episodeId = 'EPREPAIR-RESUME'
