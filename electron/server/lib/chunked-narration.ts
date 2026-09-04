@@ -1393,7 +1393,11 @@ async function expandNarrativeSequential(
         callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, ctx))
       wrote = await parseAndWriteBatch(params, batch, text)
     } catch (error) {
-      if (!(error instanceof GenStudioChatIncompleteError)) throw error
+      // A repair creates a new billable provider request. Only a confirmed
+      // output-token truncation makes that safe to do automatically: every
+      // other non-stop finish can be a provider/content failure and remains
+      // terminal for an explicit customer Retry.
+      if (!(error instanceof GenStudioChatIncompleteError) || !error.truncated) throw error
       incomplete = error
       if (error.partialText.trim()) {
         wrote = await parseAndWriteBatch(params, batch, error.partialText)
@@ -1409,7 +1413,7 @@ async function expandNarrativeSequential(
     job.output_lines.push(`[chunked]   → wrote ${wrote.length} chapter(s) (${wrote.join(', ')})`)
 
     // A normal provider finish can still omit a requested block. For a
-    // provider-declared incomplete finish, keep every parseable chapter that
+    // provider-declared truncation, keep every parseable chapter that
     // completed and repair only the unfinished slots. Each unfinished slot
     // gets one separate request, capped at SINGLE_CHAPTER_REPAIR_OUTPUT_TOKENS.
     // This is one deliberate, bounded repair allowance—not the queue's

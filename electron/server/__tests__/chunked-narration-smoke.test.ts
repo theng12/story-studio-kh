@@ -326,13 +326,13 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.equal(result.chaptersWritten, 3)
   })
 
-  test('replaces an uncharged provider-incomplete batch once and preserves its partial files', async () => {
+  test('repairs an uncharged provider-declared truncation once and preserves its partial files', async () => {
     const scriptDir = await freshDir()
     fakeOutlineResponse = buildOutlineJson(3, 'narrative')
     fakeExpansionFor = buildExpansionFor
     fakeIncompleteExpansion = {
       partialText: buildExpansionFor(1, 1),
-      finishReason: 'error',
+      finishReason: 'max_tokens',
     }
     const job = makeJob(scriptDir)
     const result = await generateNarrativeChunked(job, {
@@ -341,12 +341,39 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     })
 
     assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 3)
-    assert.ok(job.output_lines.some(line => /GenStudio reported incomplete output \(error\); preserved 1 parsed chapter/.test(line)))
+    assert.ok(job.output_lines.some(line => /GenStudio reported incomplete output \(max_tokens\); preserved 1 parsed chapter/.test(line)))
     assert.ok(job.output_lines.some(line => /one bounded single-chapter repair pass/.test(line)))
     assert.equal(result.chaptersWritten, 3)
     for (let n = 1; n <= 3; n++) {
       assert.equal(existsSync(path.join(scriptDir, `EPREPAIR2_Chapter_${String(n).padStart(2, '0')}.md`)), true)
     }
+  })
+
+  test('does not resubmit a non-truncation provider failure as a chapter repair', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    fakeIncompleteExpansion = {
+      partialText: buildExpansionFor(1, 1),
+      finishReason: 'content_filter',
+    }
+    const job = makeJob(scriptDir)
+
+    await assert.rejects(
+      generateNarrativeChunked(job, {
+        episode_id: 'EPREPAIR-NO-RETRY', title: 'No Provider Retry', totalChapters: 3, wordsPerChapter: 500,
+        format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+      }),
+      /incomplete chat output \(content_filter\)/i,
+    )
+
+    assert.equal(
+      fakeCalls.filter(call => call.kind === 'expansion').length,
+      1,
+      'a non-truncation provider result remains terminal instead of buying a replacement request',
+    )
+    assert.equal(existsSync(path.join(scriptDir, 'EPREPAIR-NO-RETRY_Chapter_01.md')), false,
+      'a terminal provider outcome does not write or preserve partial customer-facing output')
   })
 
   test('length-truncated batches keep complete chapters and repair each unfinished chapter once', async () => {
