@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import { useTempDataDir } from './_helpers.js'
+import { waitForValue } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
 const ONE_PIXEL_PNG = Buffer.from(
@@ -50,7 +51,17 @@ test('a batch generator stops claiming items after the first credit refusal', as
       const method = String(init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase()
       if (url.origin === service.baseUrl && url.pathname === '/v1/videos/generations' && method === 'POST') {
         videoPosts++
-        if (videoPosts === 1) return Response.json({ detail: 'Insufficient credits' }, { status: 402 })
+        if (videoPosts === 1) {
+          // Hold the first refusal until the other two live admission slots
+          // have reached the provider.  Without this condition the assertion
+          // races the generator's model-catalogue reads and sometimes rejects
+          // before those already-admitted siblings have submitted.
+          await waitForValue(
+            () => videoPosts >= 3,
+            { label: 'three admitted video submissions', timeoutMs: 2_000 },
+          )
+          return Response.json({ detail: 'Insufficient credits' }, { status: 402 })
+        }
       }
       const response = await originalFetch(input, init)
       if (url.origin !== service.baseUrl || !['/v1/video/models', '/v1/videos/models'].includes(url.pathname)) return response
