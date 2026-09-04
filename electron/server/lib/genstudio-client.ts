@@ -155,6 +155,8 @@ export type GenStudioQueueState =
 interface GenStudioOperationContext {
   /** Called after admission/waits and immediately before each physical POST. */
   beforePost?: () => void | Promise<void>
+  /** Optional per-attempt gate around the physical submission, not its retry wait. */
+  withPost?: (post: () => Promise<Response>) => Promise<Response>
   signal?: AbortSignal
   isCancelled?: () => boolean
   onQueueState?: (state: GenStudioQueueState, jobId?: string) => void | Promise<void>
@@ -1204,6 +1206,8 @@ export interface GenStudioTranscriptionRequest extends GenStudioOperationContext
   wordTimestamps?: boolean
   /** Persist and authorize the exact live quote before its charged confirmation. */
   beforeConfirm?: (quote: GenStudioTranscriptionQuote) => void | Promise<void>
+  /** Serialize authorization and the physical confirmation with policy mutations. */
+  withConfirm?: (confirm: () => Promise<Response>) => Promise<Response>
   onState?: (state: GenStudioTranscriptionJob['state'], jobId: string) => void | Promise<void>
   onJobAccepted?: (jobId: string, idempotencyKey: string, fileSha256: string) => void | Promise<void>
 }
@@ -3371,14 +3375,16 @@ async function requestJsonWithRetry(
     let retryAfterMs: number | null = null
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
     if (init.method === 'POST') await request.beforePost?.()
+    let physicalPostStarted = false
     try {
       let response: Response
       let raw: string
       try {
-        response = await fetch(url, {
-          ...init,
-          signal: operationSignal(request.signal, deadline, operationTimeoutMs),
-        })
+        const send = () => {
+          physicalPostStarted = true
+          return fetch(url, { ...init, signal: operationSignal(request.signal, deadline, operationTimeoutMs) })
+        }
+        response = await (init.method === 'POST' && request.withPost ? request.withPost(send) : send())
         raw = await response.text()
       } catch (error) {
         if (error instanceof DOMException && error.name === 'TimeoutError') {
@@ -3463,6 +3469,8 @@ async function requestJsonWithRetry(
         return body
       }
     } catch (error) {
+      // A policy/checkpoint failure is not a transport failure to retry.
+      if (init.method === 'POST' && request.withPost && !physicalPostStarted) throw error
       if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
       lastError = error
       if (isGenStudioSubmissionUncertain(error)) throw error
@@ -7276,9 +7284,12 @@ async function transcribeWithGenStudioAdmitted(
         'Idempotency-Key': confirmIdempotencyKey,
       },
     },
-    { ...request, beforePost: async () => {
-      await request.beforePost?.()
-      await request.beforeConfirm?.(quote)
+    { ...request, withPost: post => {
+      const confirm = async () => {
+        await request.beforeConfirm?.(quote)
+        return post()
+      }
+      return request.withConfirm ? request.withConfirm(confirm) : confirm()
     } },
     deadline,
     GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,

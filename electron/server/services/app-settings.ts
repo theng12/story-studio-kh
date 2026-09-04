@@ -287,8 +287,13 @@ export async function getPaidSubtitleReplacementSetting(): Promise<PaidImageRepl
 
 export async function setPaidSubtitleReplacementSetting(value: unknown): Promise<PaidImageReplacementSetting> {
   const setting = parsePaidSubtitleReplacementSetting(value, 'throw')
-  await setAppSetting(PAID_SUBTITLE_REPLACEMENT_KEY, setting)
+  await withPaidSubtitleConfirmation(() => setAppSetting(PAID_SUBTITLE_REPLACEMENT_KEY, setting))
   return setting
+}
+
+/** Off and the final authorization + physical confirm have one linearization gate. */
+export function withPaidSubtitleConfirmation<T>(work: () => Promise<T>): Promise<T> {
+  return withLock(`${appSettingsPath()}:paid-subtitle-confirm`, work)
 }
 
 // ── Voice presets + favourites (global, not per-project) ──────────────────

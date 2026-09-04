@@ -11,7 +11,7 @@ import {
   type GenStudioTranscriptionRequest, type GenStudioTranscriptionQuote,
 } from '../lib/genstudio-client.js'
 import { isFleetBusyFailure, FLEET_BUSY_FAILURE_CODES, FLEET_BUSY_RETRY_DELAYS_MS, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
-import { getAppSetting, getGenStudioUrl, PAID_SUBTITLE_REPLACEMENT_KEY } from './app-settings.js'
+import { getAppSetting, getGenStudioUrl, PAID_SUBTITLE_REPLACEMENT_KEY, withPaidSubtitleConfirmation } from './app-settings.js'
 import { readManifestStrict, recordTaskStrict } from './task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from './genstudio-recovery.js'
 import * as jq from './job-queue.js'
@@ -67,7 +67,19 @@ async function readLedger(file: string): Promise<Ledger> {
       || Object.values(parsed.sections).some(s => !s || ![s.section, s.planId, s.ownerJobId, s.inputHash,
         s.outputPath, s.idempotencyKey, s.submittedAt, s.state].every(text)
         || !parsed.plans[s.planId] || typeof s.taskId !== 'string' || typeof s.identityVerified !== 'boolean'
-        || !Number.isSafeInteger(s.freeRetries) || s.freeRetries < 0)) {
+        || !Number.isSafeInteger(s.freeRetries) || s.freeRetries < 0
+        || (s.confirmStarted !== undefined && typeof s.confirmStarted !== 'boolean')
+        || (s.freeRetryFromKey !== undefined && (!text(s.freeRetryFromKey) || !s.replacement))
+        || (s.replacement !== undefined && (!s.replacement || s.identityVerified !== true
+          || ![s.replacement.originalTaskId, s.replacement.originalIdempotencyKey].every(text)
+          || !s.replacement.failure || typeof s.replacement.failure.transient !== 'boolean'
+          || typeof s.replacement.failure.cancelled !== 'boolean'
+          || classifySubtitleFailure(s.replacement.failure) !== 'paid'
+          || !validReplacementKey(s)
+          || parsed.plans[s.planId]!.attempts.some(a => a.section === s.section
+            && (a.originalTaskId !== s.replacement!.originalTaskId
+              || a.originalIdempotencyKey !== s.replacement!.originalIdempotencyKey
+              || a.inputHash !== s.inputHash || a.outputPath !== s.outputPath)))))) {
       throw new Error('Invalid subtitle recovery ledger; repair its saved identity before buying work.')
     }
     return parsed
@@ -75,6 +87,17 @@ async function readLedger(file: string): Promise<Ledger> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, sections: {}, plans: {} }
     throw error // Corrupt authority is never an empty budget.
   }
+}
+
+/** A saved replacement key must descend from its original, not arbitrary authority. */
+function validReplacementKey(section: Section): boolean {
+  let key = `story-stt-${createHash('sha256').update(`${section.replacement!.originalIdempotencyKey}:subtitle-replacement:1`).digest('hex')}`
+  // freeRetries includes retries before replacement; it is an upper bound here.
+  for (let retry = 0; retry <= section.freeRetries; retry++) {
+    if (key === section.idempotencyKey) return true
+    key = `story-stt-${createHash('sha256').update(`${key}:free-retry`).digest('hex')}`
+  }
+  return false
 }
 
 export interface SubtitleRecoveryInput {
@@ -118,8 +141,10 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
       await writeJsonAtomic(file, ledger)
       return result
     })
+    let prior: Section | undefined
     let current = await change(ledger => {
       const saved = ledger.sections[manifestKey]
+      prior = saved
       ledger.activePlanId ||= String(job.params.subtitle_recovery_plan_id || job.job_id)
       if (input.force && saved && saved.ownerJobId !== job.job_id) ledger.activePlanId = job.job_id
       if (saved && saved.inputHash === input.inputHash
@@ -135,7 +160,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
       const reuse = !input.force && saved?.provider === 'genstudio'
         && (saved.input_hash === input.inputHash || saved.input_hash === input.audioHash) ? saved : null
       const key = reuse?.idempotency_key || buildGenStudioTranscriptionIdempotencyKey({
-        requestIdentity: input.force && saved ? `${input.request.requestIdentity}:manual-rerun:${job.job_id}` : input.request.requestIdentity,
+        requestIdentity: input.force && (saved || prior) ? `${input.request.requestIdentity}:manual-rerun:${job.job_id}` : input.request.requestIdentity,
         fileSha256: input.audioHash.replace(/^sha256:/, ''), modelId: input.request.modelId,
         language: input.request.language, wordTimestamps: input.request.wordTimestamps,
       })
@@ -258,6 +283,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
       if (stopped()) throw new Error('Subtitle recovery stopped by owner')
       const request: GenStudioTranscriptionRequest = {
         ...input.request, idempotencyKey: current.idempotencyKey, beforeConfirm,
+        withConfirm: confirm => current!.replacement ? withPaidSubtitleConfirmation(confirm) : confirm(),
         beforePost: async () => { if (stopped()) throw new Error('Subtitle submission stopped by owner') },
         onJobAccepted: async id => { current!.taskId = id; await persist('accepted') },
         onState: async (value, id) => { current!.taskId = id; await persist(value) },

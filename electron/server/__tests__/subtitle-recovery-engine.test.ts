@@ -6,7 +6,7 @@ import { after, test } from 'node:test'
 import express from 'express'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
-import { setAppSetting } from '../services/app-settings.js'
+import { setAppSetting, setPaidSubtitleReplacementSetting } from '../services/app-settings.js'
 import { recordTaskStrict, hashInput } from '../services/task-manifest.js'
 import type { Job } from '../models/types.js'
 
@@ -127,7 +127,7 @@ test('balanced transient zero-settlement is free while Off; a paid replacement f
 test('toggle Off while a quote is pending prevents confirmation', async t => {
   const f = await fixture(t)
   await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
-  f.beforeConfirm(() => setAppSetting('paid_subtitle_replacement', { enabled: false, additional_credit_ceiling: 5 }))
+  f.beforeConfirm(async () => { await setPaidSubtitleReplacementSetting({ enabled: false, additional_credit_ceiling: 5 }) })
   await assert.rejects(f.run(), /Off/)
   assert.equal(f.confirmations.length, 0)
 })
@@ -186,6 +186,79 @@ test('a corrupt saved ledger cannot silently create fresh paid authority', async
   await fs.writeFile(path.join(f.outDir, '.subtitle-recovery.json'), '{')
   await assert.rejects(f.run())
   assert.equal(f.calls.length, 0)
+})
+
+for (const [label, corrupt] of [
+  ['missing original task', (s: any) => { s.replacement.originalTaskId = '' }],
+  ['missing original key', (s: any) => { delete s.replacement.originalIdempotencyKey }],
+  ['unrelated original key', (s: any) => { s.replacement.originalIdempotencyKey = 'unrelated-key' }],
+  ['unverified identity', (s: any) => { s.identityVerified = false }],
+  ['truthy transient', (s: any) => { s.replacement.failure.transient = 'true' }],
+  ['missing cancellation', (s: any) => { delete s.replacement.failure.cancelled }],
+  ['missing settlement', (s: any) => { delete s.replacement.failure.settledCredits }],
+  ['unbalanced settlement', (s: any) => { s.replacement.failure.releasedCredits = 1 }],
+  ['missing failure', (s: any) => { delete s.replacement.failure }],
+] as const) test(`corrupt persisted replacement provenance (${label}) fails before provider submission`, async t => {
+  const f = await fixture(t)
+  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  f.beforeConfirm(async () => { throw new Error('simulated restart before quote response') })
+  await assert.rejects(f.run(), /simulated restart/)
+  const file = path.join(f.outDir, '.subtitle-recovery.json')
+  const ledger = JSON.parse(await fs.readFile(file, 'utf8'))
+  corrupt(ledger.sections['Chapter_01.srt'])
+  await fs.writeFile(file, JSON.stringify(ledger))
+  f.beforeConfirm(async () => {})
+  f.calls.length = 0
+  await assert.rejects(f.run(), /ledger/)
+  assert.equal(f.calls.length, 0, 'invalid durable authority must fail before even quoting')
+  assert.equal(f.confirmations.length, 0)
+})
+
+test('setting Off cannot interleave between the final policy snapshot and physical paid confirmation', async t => {
+  const f = await fixture(t)
+  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  let enter!: () => void
+  let release!: () => void
+  const entered = new Promise<void>(resolve => { enter = resolve })
+  const pending = new Promise<void>(resolve => { release = resolve })
+  t.after(() => release())
+  const readFile = fs.readFile
+  let paused = false
+  fs.readFile = (async (...args: Parameters<typeof fs.readFile>) => {
+    const data = await readFile(...args)
+    if (!paused && path.basename(String(args[0])) === 'app-settings.json') {
+      const ledger = JSON.parse(await readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+      if (ledger.sections['Chapter_01.srt']?.confirmStarted) {
+        paused = true
+        enter()
+        await pending // Hold a stale On snapshot at the final authorization boundary.
+      }
+    }
+    return data
+  }) as typeof fs.readFile
+  t.after(() => { fs.readFile = readFile })
+  const running = f.run()
+  await entered
+  const off = setPaidSubtitleReplacementSetting({ enabled: false, additional_credit_ceiling: 5 })
+  const winner = await Promise.race([off.then(() => 'off'), new Promise(resolve => setTimeout(() => resolve('pending'), 100))])
+  release()
+  await Promise.all([running, off])
+  assert.equal(winner, 'pending', 'Off must not acknowledge while an authorized confirm is crossing the same gate')
+  assert.equal(f.confirmations.length, 1)
+})
+
+test('forced rerun with only the durable ledger uses a fresh key and reuses it on restart', async t => {
+  const f = await fixture(t)
+  await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
+  assert.equal((await f.run()).srt, srt)
+  const originalKey = f.confirmations[0]
+  await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
+  const job = { ...f.job, job_id: `${f.job.job_id}-forced`, params: {}, output_lines: [] }
+  assert.equal((await f.run('Chapter_01', { force: true, job })).srt, srt)
+  assert.equal(f.confirmations.length, 2, 'explicit rerun must not replay the original billed identity')
+  assert.notEqual(f.confirmations[1], originalKey)
+  assert.equal((await f.run('Chapter_01', { force: true, job })).srt, srt)
+  assert.equal(f.confirmations.length, 2, 'restarting that forced job must reuse its new identity')
 })
 
 for (const [label, override] of [
