@@ -496,11 +496,10 @@ const throughputFields: ThroughputField[] = [
   {
     key: 'imageFanout',
     label: 'Cloud requests per episode at once',
-    help: 'Covers every fan-out inside ONE episode — images, AI video, continuity renders AND '
-      + 'subtitle transcription, which all share this dial. Auto follows what GenStudio says your '
-      + 'account can run, so it rises by itself as your capacity grows. A number overrides it either '
-      + 'way — higher is safe, since GenStudio queues the surplus, but lowering it slows subtitles '
-      + 'and video too, not just images.',
+    help: 'Covers image fan-out inside ONE episode, including Scene Review and thumbnails. Auto '
+      + 'follows the keyed GenStudio burst publication, so it rises by itself as your capacity '
+      + 'grows. A number is a local staging preference; GenStudio still owns remote admission. '
+      + 'Other cloud generation types keep their own live capacity.',
     choices: [
       { value: 'auto', label: 'Auto — follows your account (recommended)' },
       { value: 25, label: '25 — gentle' },

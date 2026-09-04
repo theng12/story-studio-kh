@@ -2306,8 +2306,8 @@ const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey): Promise<Ge
   }
 })
 
-export function genStudioAdmissionSnapshot() {
-  return genStudioAdmission.snapshot()
+export function genStudioAdmissionSnapshot(apiKey: string) {
+  return genStudioAdmission.snapshot(apiKey)
 }
 
 function withGenStudioAdmission<T>(

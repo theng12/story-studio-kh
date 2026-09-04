@@ -293,7 +293,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const batches = chunk(plan.scenes, batchSize)
   const completed = new Map((saved?.completed_batches || []).map(batch => [batch.index, batch]))
   const candidates: CueCandidate[] = [...completed.values()].flatMap(batch => batch.candidates as CueCandidate[])
-  const snapshot = genStudioAdmissionSnapshot()
+  const snapshot = genStudioAdmissionSnapshot(apiKey)
   const submissionSpacingMs = Math.ceil(60_000 / Math.max(1, snapshot.generation_submissions_per_minute))
   let progress: ContextualCueProgress = saved || {
     schema_version: 1,

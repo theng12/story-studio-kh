@@ -23,16 +23,13 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
-import {
-  GENSTUDIO_LOCAL_ADMISSION_MAX,
-  resolveGenStudioLocalFanout,
-} from '../lib/genstudio-runtime.js'
+import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (rel: string) => readFile(path.join(SERVER, rel), 'utf8')
 
 describe('the width follows the account', () => {
-  test('the exact case that was measured: 108 images, ceiling 128', () => {
+  test('the exact Scene Review case that was measured: 108 images, keyed burst 128', () => {
     assert.equal(resolveGenStudioLocalFanout(108, 128), 108,
       'the whole episode goes out at once; GenStudio decides what actually runs')
   })
@@ -54,15 +51,15 @@ describe('the width follows the account', () => {
 })
 
 describe('unknown stays conservative, never unlimited', () => {
-  test('no published ceiling falls back to the old constant', () => {
-    assert.equal(resolveGenStudioLocalFanout(108, undefined), GENSTUDIO_LOCAL_ADMISSION_MAX)
-    assert.equal(resolveGenStudioLocalFanout(108), GENSTUDIO_LOCAL_ADMISSION_MAX)
+  test('no published ceiling stages one item until capacity is known', () => {
+    assert.equal(resolveGenStudioLocalFanout(108, undefined), 1)
+    assert.equal(resolveGenStudioLocalFanout(108), 1)
   })
 
   test('a malformed or absurd ceiling is refused, not trusted', () => {
-    for (const bad of [0, -5, 1.5, NaN, null, 'lots', {}]) {
-      assert.equal(resolveGenStudioLocalFanout(108, bad as unknown), GENSTUDIO_LOCAL_ADMISSION_MAX,
-        `ceiling ${String(bad)} must fall back rather than be believed`)
+    for (const bad of [0, -5, 1.5, NaN, null, '128', 'lots', {}]) {
+      assert.equal(resolveGenStudioLocalFanout(108, bad as unknown), 1,
+        `ceiling ${String(bad)} must stay conservative rather than be guessed`)
     }
   })
 
@@ -73,8 +70,8 @@ describe('unknown stays conservative, never unlimited', () => {
   })
 })
 
-describe('every generator uses the authority for its workload', () => {
-  test('video and subtitles still stage from the account ceiling', async () => {
+describe('every generator uses the keyed publication for its staging workload', () => {
+  test('video and subtitles stage from their keyed account ceiling', async () => {
     for (const [file, call] of [
       ['generators/ai-video.ts', 'prompts.length'],
       ['generators/subtitles.ts', 'sections.length'],
@@ -85,10 +82,12 @@ describe('every generator uses the authority for its workload', () => {
         new RegExp(`resolveGenStudioLocalFanout\\(\\s*\\n?\\s*${call.replace('.', '\\.')},[\\s\\S]{0,200}?burst_concurrency_ceiling`),
         `${file} still stages a constant width instead of the account's published ceiling`,
       )
+      assert.match(body, /refreshGenStudioAdmission\(/, `${file} must refresh the keyed advisory before staging`)
+      assert.doesNotMatch(body, /jq\.getImageFanoutOverride\(\)/, `${file} must not reuse the image dial`)
     }
   })
 
-  test('image workers are local staging only because permits own remote admission', async () => {
+  test('image workers use the keyed live burst as local staging only because permits own remote admission', async () => {
     for (const [file, call] of [
       ['generators/images.ts', 'items.length'],
       ['generators/continuity-render.ts', 'scenes.length'],
@@ -96,16 +95,16 @@ describe('every generator uses the authority for its workload', () => {
       const body = await read(file)
       assert.match(
         body,
-        new RegExp(`resolveGenStudioLocalFanout\\(\\s*\\n?\\s*${call.replace('.', '\\.')},\\s*\\n?\\s*undefined,`),
+        new RegExp(`resolveGenStudioLocalFanout\\(\\s*\\n?\\s*${call.replace('.', '\\.')},\\s*\\n?\\s*admission\\.burst_concurrency_ceiling,`),
       )
-      assert.doesNotMatch(body, /genStudioAdmissionSnapshot/)
+      assert.match(body, /refreshGenStudioAdmission\(/)
     }
   })
 
-  test('the constant is documented as a fallback, not the normal cap', async () => {
+  test('unknown capacity is documented as conservative staging', async () => {
     const body = await read('lib/genstudio-runtime.ts')
-    assert.match(body, /used ONLY when GenStudio has published no ceiling/)
-    assert.match(body, /It is no longer the normal cap/)
+    assert.match(body, /Unknown capacity stays conservative/)
+    assert.doesNotMatch(body, /GENSTUDIO_LOCAL_ADMISSION_MAX/)
   })
 })
 
@@ -132,8 +131,8 @@ describe('the owner can override it in either direction', () => {
     }
   })
 
-  test('with no ceiling AND no override, the old constant still applies', () => {
-    assert.equal(resolveGenStudioLocalFanout(108, undefined, 0), GENSTUDIO_LOCAL_ADMISSION_MAX)
+  test('with no ceiling AND no override, staging remains conservative', () => {
+    assert.equal(resolveGenStudioLocalFanout(108, undefined, 0), 1)
   })
 })
 
@@ -150,23 +149,16 @@ describe('the override is reachable, not just present', () => {
     assert.match(panel, /Cloud requests per episode at once/)
   })
 
-  // MEASURED 2026-08-28, diagnosing "subtitles are slow". The dial's storage key
-  // says `image_fanout_per_episode` and its screen used to say "Images per
-  // episode at once", but `generators/subtitles.ts` reads the SAME override for
-  // chapter transcription (see the sweep below). An owner who turns this down to
-  // leave image headroom silently narrows subtitle transcription too, with
-  // nothing on the screen saying so. The key stays put — renaming it would need a
-  // migration for no gain — so the SCREEN has to carry the truth instead.
-  test('the screen names every fan-out this dial governs, not just images', async () => {
+  test('the screen names the image fan-outs this dial governs, not unrelated modalities', async () => {
     const panel = await readFile(
       path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
     const field = panel.slice(panel.indexOf("key: 'imageFanout'"))
       .slice(0, panel.slice(panel.indexOf("key: 'imageFanout'")).indexOf('choices:'))
-    for (const governed of [/subtitle/i, /video/i, /continuity/i, /image/i]) {
-      assert.match(field, governed,
-        `the dial governs this fan-out but the screen never mentions it — an owner lowering `
-        + `the dial cannot see what else he is slowing down`)
-    }
+    assert.match(field, /image/i)
+    assert.match(field, /thumbnail/i)
+    assert.doesNotMatch(field, /subtitle/i)
+    assert.doesNotMatch(field, /video/i)
+    assert.doesNotMatch(field, /continuity/i)
   })
 
   test('boot applies it, or it is a number in a file nobody reads', async () => {
@@ -175,13 +167,14 @@ describe('the override is reachable, not just present', () => {
     assert.match(boot, /setImageFanoutOverride/)
   })
 
-  test('every fan-out site passes the override, not just some', async () => {
-    for (const file of [
-      'generators/images.ts', 'generators/continuity-render.ts',
-      'generators/ai-video.ts', 'generators/subtitles.ts',
-    ]) {
+  test('only image fan-outs pass the image override', async () => {
+    for (const file of ['generators/images.ts', 'generators/continuity-render.ts']) {
       assert.match(await read(file), /jq\.getImageFanoutOverride\(\)/,
         `${file} ignores the owner's override`)
+    }
+    for (const file of ['generators/ai-video.ts', 'generators/subtitles.ts']) {
+      assert.doesNotMatch(await read(file), /jq\.getImageFanoutOverride\(\)/,
+        `${file} must not inherit the image override`)
     }
   })
 })

@@ -1775,6 +1775,7 @@ export class MockGenStudioService {
         subscription_plan_name: 'Angkor Pro',
         api_concurrency_limit: 3,
         paid_concurrency_limit: 3,
+        burst_concurrency_ceiling: 3,
         paid_active_jobs: 0,
         paid_queued_jobs: 0,
         max_queued_jobs: 100,

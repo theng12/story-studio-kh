@@ -76,6 +76,32 @@ const SAFE_FALLBACK: GenStudioAccountCapacity = {
   generation_submissions_per_minute: 5,
 }
 
+interface CapacityState {
+  capacity: GenStudioAccountCapacity
+  limitSource: GenStudioAdmissionSnapshot['limitSource']
+  capacityVerified: boolean
+  refreshedAt: number
+  refreshAfter: number
+  refreshPromise: Promise<void> | null
+  holdUntil: number
+  submitting: number
+  submissionTimes: number[]
+}
+
+function freshCapacityState(): CapacityState {
+  return {
+    capacity: { ...SAFE_FALLBACK },
+    limitSource: 'safe-fallback',
+    capacityVerified: false,
+    refreshedAt: 0,
+    refreshAfter: 0,
+    refreshPromise: null,
+    holdUntil: 0,
+    submitting: 0,
+    submissionTimes: [],
+  }
+}
+
 function whole(value: unknown, fallback: number, minimum = 0): number {
   const parsed = Math.floor(Number(value))
   return Number.isFinite(parsed) ? Math.max(minimum, parsed) : fallback
@@ -158,19 +184,18 @@ function normalizeCapacity(value: GenStudioAccountCapacity): GenStudioAccountCap
  * GenStudio remains authoritative for account execution and provider capacity.
  */
 export class GenStudioAdmissionPool {
-  private capacity = { ...SAFE_FALLBACK }
-  private limitSource: GenStudioAdmissionSnapshot['limitSource'] = 'safe-fallback'
-  private capacityVerified = false
-  private refreshedAt = 0
-  private refreshAfter = 0
-  private refreshPromise: Promise<void> | null = null
-  private submitting = 0
-  private holdUntil = 0
+  // Capacity facts are scoped to the API key that proved them. Two keys may
+  // belong to different accounts, and a refresh for one must never overwrite
+  // the advisory used to stage work for the other.
+  private readonly capacityStates = new Map<string, CapacityState>()
+  // Submission ordering remains one FIFO queue; each drain picks its first
+  // runnable waiter. Capacity gates are per key so an exhausted account cannot
+  // throttle an unrelated account's local staging.
+  // GenStudio is still the remote admission authority.
   private globalFailure: Error | null = null
   private globalFailureUntil = 0
   private readonly creditBalances = new Map<string, number>()
   private readonly creditHolds = new Map<string, CreditHold>()
-  private readonly submissionTimes: number[] = []
   private readonly waiters: AdmissionWaiter[] = []
   private wakeTimer: ReturnType<typeof setTimeout> | null = null
   private wakeAt = 0
@@ -181,25 +206,26 @@ export class GenStudioAdmissionPool {
     private readonly retryMs = QUEUED_REFRESH_MS,
   ) {}
 
-  snapshot(): GenStudioAdmissionSnapshot {
+  snapshot(apiKey: string): GenStudioAdmissionSnapshot {
+    const state = this.stateFor(apiKey)
     const now = Date.now()
-    this.pruneWindow(now)
+    this.pruneWindow(state, now)
     return {
-      ...this.capacity,
-      local_waiting: this.waiters.length,
-      submitting: this.submitting,
+      ...state.capacity,
+      local_waiting: this.waiters.filter(waiter => waiter.apiKey === apiKey).length,
+      submitting: state.submitting,
       available_paid_slots: Math.max(
         0,
-        this.capacity.paid_concurrency_limit - this.capacity.paid_active_jobs,
+        state.capacity.paid_concurrency_limit - state.capacity.paid_active_jobs,
       ),
-      submissions_in_window: this.submissionTimes.length,
-      queue_near_capacity: this.queueNearCapacity(),
+      submissions_in_window: state.submissionTimes.length,
+      queue_near_capacity: this.queueNearCapacity(state),
       submissions_blocked: Boolean(this.globalFailure && this.globalFailureUntil > now),
       submission_block_reason: this.globalFailure?.message || null,
-      retry_after_ms: Math.max(0, this.holdUntil - now, this.globalFailureUntil - now),
-      refreshed_at: this.refreshedAt ? new Date(this.refreshedAt).toISOString() : null,
-      limitSource: this.limitSource,
-      capacity_verified: this.capacityVerified,
+      retry_after_ms: Math.max(0, state.holdUntil - now, this.globalFailureUntil - now),
+      refreshed_at: state.refreshedAt ? new Date(state.refreshedAt).toISOString() : null,
+      limitSource: state.limitSource,
+      capacity_verified: state.capacityVerified,
     }
   }
 
@@ -237,9 +263,9 @@ export class GenStudioAdmissionPool {
   }
 
   async refreshNow(apiKey: string): Promise<GenStudioAdmissionSnapshot> {
-    this.refreshAfter = 0
+    this.stateFor(apiKey).refreshAfter = 0
     await this.refresh(apiKey)
-    return this.snapshot()
+    return this.snapshot(apiKey)
   }
 
   async notifyTerminal(apiKey: string): Promise<void> {
@@ -249,7 +275,8 @@ export class GenStudioAdmissionPool {
 
   async noteRateLimit(apiKey: string, retryAfterMs: number): Promise<void> {
     const jitterMs = Math.floor(Math.random() * Math.min(750, Math.max(100, retryAfterMs * 0.1)))
-    this.holdUntil = Math.max(this.holdUntil, Date.now() + Math.max(0, retryAfterMs) + jitterMs)
+    const state = this.stateFor(apiKey)
+    state.holdUntil = Math.max(state.holdUntil, Date.now() + Math.max(0, retryAfterMs) + jitterMs)
     await this.refreshNow(apiKey).catch(() => undefined)
     this.scheduleWake()
   }
@@ -306,11 +333,12 @@ export class GenStudioAdmissionPool {
       if (balance !== undefined) this.creditBalances.set(apiKey, balance)
       if (hold.balance !== null && balance !== undefined && balance > hold.balance) {
         this.creditHolds.delete(apiKey)
-        this.capacity = fresh
-        this.limitSource = 'account-overview'
-        this.capacityVerified = hasVerifiedCapacity(overview)
-        this.refreshedAt = Date.now()
-        this.refreshAfter = Date.now() + this.cacheMs
+        const state = this.stateFor(apiKey)
+        state.capacity = fresh
+        state.limitSource = 'account-overview'
+        state.capacityVerified = hasVerifiedCapacity(overview)
+        state.refreshedAt = Date.now()
+        state.refreshAfter = Date.now() + this.cacheMs
         return
       }
     } catch {
@@ -320,60 +348,70 @@ export class GenStudioAdmissionPool {
   }
 
   private async refresh(apiKey: string): Promise<void> {
-    if (Date.now() < this.refreshAfter) return
-    if (this.refreshPromise) return this.refreshPromise
-    this.refreshPromise = (async () => {
+    const state = this.stateFor(apiKey)
+    if (Date.now() < state.refreshAfter) return
+    if (state.refreshPromise) return state.refreshPromise
+    state.refreshPromise = (async () => {
       try {
         const overview = await this.loadCapacity(apiKey)
-        this.capacity = normalizeCapacity(overview)
-        if (this.capacity.credit_balance !== undefined) {
-          this.creditBalances.set(apiKey, this.capacity.credit_balance)
+        state.capacity = normalizeCapacity(overview)
+        if (state.capacity.credit_balance !== undefined) {
+          this.creditBalances.set(apiKey, state.capacity.credit_balance)
         }
-        this.limitSource = 'account-overview'
-        this.capacityVerified = hasVerifiedCapacity(overview)
-        this.refreshedAt = Date.now()
-        this.refreshAfter = Date.now() + this.cacheMs
+        state.limitSource = 'account-overview'
+        state.capacityVerified = hasVerifiedCapacity(overview)
+        state.refreshedAt = Date.now()
+        state.refreshAfter = Date.now() + this.cacheMs
       } catch {
         // A missing usage scope or temporary overview failure must fail
         // closed. The accepted job remains GenStudio-owned and recoverable.
-        this.capacity = { ...SAFE_FALLBACK }
-        this.limitSource = 'safe-fallback'
-        this.capacityVerified = false
-        this.refreshedAt = Date.now()
-        this.refreshAfter = Date.now() + this.retryMs
+        state.capacity = { ...SAFE_FALLBACK }
+        state.limitSource = 'safe-fallback'
+        state.capacityVerified = false
+        state.refreshedAt = Date.now()
+        state.refreshAfter = Date.now() + this.retryMs
       }
     })().finally(() => {
-      this.refreshPromise = null
+      state.refreshPromise = null
       this.drain()
     })
-    return this.refreshPromise
+    return state.refreshPromise
   }
 
-  private queueNearCapacity(): boolean {
-    const reserve = Math.max(1, Math.ceil(this.capacity.max_queued_jobs * 0.05))
-    return this.capacity.paid_queued_jobs >= this.capacity.max_queued_jobs - reserve
+  private stateFor(apiKey: string): CapacityState {
+    let state = this.capacityStates.get(apiKey)
+    if (!state) {
+      state = freshCapacityState()
+      this.capacityStates.set(apiKey, state)
+    }
+    return state
   }
 
-  private pruneWindow(now = Date.now()): void {
-    while (this.submissionTimes.length && this.submissionTimes[0]! <= now - WINDOW_MS) {
-      this.submissionTimes.shift()
+  private queueNearCapacity(state: CapacityState): boolean {
+    const reserve = Math.max(1, Math.ceil(state.capacity.max_queued_jobs * 0.05))
+    return state.capacity.paid_queued_jobs >= state.capacity.max_queued_jobs - reserve
+  }
+
+  private pruneWindow(state: CapacityState, now = Date.now()): void {
+    while (state.submissionTimes.length && state.submissionTimes[0]! <= now - WINDOW_MS) {
+      state.submissionTimes.shift()
     }
   }
 
-  private nextDelay(now = Date.now()): number {
-    this.pruneWindow(now)
-    if (this.holdUntil > now) return this.holdUntil - now
-    if (this.submissionTimes.length >= this.capacity.generation_submissions_per_minute) {
-      return Math.max(25, this.submissionTimes[0]! + WINDOW_MS - now)
+  private nextDelay(state: CapacityState, now = Date.now()): number {
+    this.pruneWindow(state, now)
+    if (state.holdUntil > now) return state.holdUntil - now
+    if (state.submissionTimes.length >= state.capacity.generation_submissions_per_minute) {
+      return Math.max(25, state.submissionTimes[0]! + WINDOW_MS - now)
     }
-    if (this.queueNearCapacity()) return this.retryMs
+    if (this.queueNearCapacity(state)) return this.retryMs
     return 0
   }
 
-  private dispatchLimit(): number {
+  private dispatchLimit(state: CapacityState): number {
     const available = Math.max(
       0,
-      this.capacity.paid_concurrency_limit - this.capacity.paid_active_jobs,
+      state.capacity.paid_concurrency_limit - state.capacity.paid_active_jobs,
     )
     // GenStudio accepts and durably queues valid work. When account execution
     // is full, submit at most one paced request at a time while queue headroom
@@ -393,37 +431,48 @@ export class GenStudioAdmissionPool {
       this.clearWake()
       return
     }
-    const delay = this.nextDelay(now)
-    if (delay > 0) {
-      const state: GenStudioAdmissionState = this.queueNearCapacity()
-        ? 'waiting_account_capacity'
-        : 'waiting_local'
-      for (const waiter of this.waiters) void this.setWaiterState(waiter, state)
-      this.scheduleWake(delay)
-      return
-    }
     const probingAfterGlobalFailure = Boolean(this.globalFailure)
-    while (
-      this.waiters.length
-      && this.submitting < this.dispatchLimit()
-      && this.submissionTimes.length < this.capacity.generation_submissions_per_minute
-      && !this.queueNearCapacity()
-    ) {
-      const waiter = this.waiters.shift()!
-      const creditHold = this.creditHolds.get(waiter.apiKey)
-      if (creditHold) {
-        this.rejectWaiter(waiter, creditHold.error)
-        continue
+    let earliestDelay = Number.POSITIVE_INFINITY
+    while (this.waiters.length) {
+      let selectedIndex = -1
+      let selectedState: CapacityState | null = null
+      for (let index = 0; index < this.waiters.length; index++) {
+        const waiter = this.waiters[index]!
+        const creditHold = this.creditHolds.get(waiter.apiKey)
+        if (creditHold) {
+          this.waiters.splice(index, 1)
+          this.rejectWaiter(waiter, creditHold.error)
+          index--
+          continue
+        }
+        if (waiter.signal?.aborted) {
+          this.waiters.splice(index, 1)
+          this.rejectWaiter(waiter, new Error('Cancelled by user'))
+          index--
+          continue
+        }
+        const state = this.stateFor(waiter.apiKey)
+        const delay = this.nextDelay(state, now)
+        if (delay > 0 || state.submitting >= this.dispatchLimit(state)) {
+          const waiterState: GenStudioAdmissionState = this.queueNearCapacity(state)
+            ? 'waiting_account_capacity'
+            : 'waiting_local'
+          void this.setWaiterState(waiter, waiterState)
+          if (delay > 0) earliestDelay = Math.min(earliestDelay, delay)
+          continue
+        }
+        selectedIndex = index
+        selectedState = state
+        break
       }
-      if (waiter.signal?.aborted) {
-        waiter.abort?.()
-        continue
-      }
+      if (selectedIndex < 0 || !selectedState) break
+
+      const waiter = this.waiters.splice(selectedIndex, 1)[0]!
       if (waiter.signal && waiter.abort) {
         waiter.signal.removeEventListener('abort', waiter.abort)
       }
-      this.submitting += 1
-      this.submissionTimes.push(Date.now())
+      selectedState.submitting += 1
+      selectedState.submissionTimes.push(Date.now())
       void this.setWaiterState(waiter, 'submitting')
       void waiter.work().then(
         value => {
@@ -432,12 +481,16 @@ export class GenStudioAdmissionPool {
         },
         error => waiter.reject(error instanceof Error ? error : new Error(String(error))),
       ).finally(() => {
-        this.submitting = Math.max(0, this.submitting - 1)
+        selectedState!.submitting = Math.max(0, selectedState!.submitting - 1)
         this.drain()
       })
       if (probingAfterGlobalFailure) break
     }
-    if (this.waiters.length) this.scheduleWake(this.retryMs)
+    if (this.waiters.length) {
+      this.scheduleWake(
+        Number.isFinite(earliestDelay) ? earliestDelay : this.retryMs,
+      )
+    }
   }
 
   private async setWaiterState(
@@ -466,7 +519,8 @@ export class GenStudioAdmissionPool {
       this.wakeTimer = null
       this.wakeAt = 0
       const apiKey = this.waiters[0]?.apiKey
-      if (apiKey && (this.queueNearCapacity() || Date.now() >= this.refreshAfter)) {
+      const state = apiKey ? this.stateFor(apiKey) : null
+      if (apiKey && state && (this.queueNearCapacity(state) || Date.now() >= state.refreshAfter)) {
         void this.refreshNow(apiKey)
       } else {
         this.drain()

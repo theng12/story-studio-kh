@@ -34,7 +34,7 @@ test('insufficient credits reject same-key waiters without touching another key'
 
   await assert.rejects(sameKey, /insufficient credits/)
   assert.equal(sameKeySubmitted, false)
-  assert.equal(fullKeySubmitted, false)
+  assert.equal(fullKeySubmitted, true, 'an unrelated key keeps its own admission capacity')
 
   activeGate.resolve()
   await active
@@ -101,7 +101,7 @@ const deferred = () => {
   return { promise, resolve }
 }
 
-test('one FIFO scheduler is shared across modalities and API keys', async () => {
+test('each API key preserves its own FIFO order while using independent capacity slots', async () => {
   const pool = new GenStudioAdmissionPool(async () => capacity())
   const releases = Array.from({ length: 5 }, deferred)
   const started: string[] = []
@@ -118,18 +118,76 @@ test('one FIFO scheduler is shared across modalities and API keys', async () => 
   ))
 
   await new Promise(resolve => setImmediate(resolve))
-  assert.deepEqual(started, ['chat', 'image', 'tts'])
-  assert.equal(pool.snapshot().local_waiting, 2)
-  assert.equal(pool.snapshot().submitting, 3)
-  assert.equal(pool.snapshot().paid_concurrency_limit, 3)
+  assert.equal(started.length, operations.length)
+  assert.deepEqual(
+    started.filter(operation => ['chat', 'tts', 'video'].includes(operation)),
+    ['chat', 'tts', 'video'],
+  )
+  assert.deepEqual(
+    started.filter(operation => ['image', 'transcription'].includes(operation)),
+    ['image', 'transcription'],
+  )
+  const firstSnapshot = pool.snapshot('first-key')
+  const secondSnapshot = pool.snapshot('second-key-same-account')
+  assert.equal(firstSnapshot.local_waiting + secondSnapshot.local_waiting, 0)
+  assert.equal(firstSnapshot.submitting + secondSnapshot.submitting, 5)
+  assert.equal(firstSnapshot.paid_concurrency_limit, 3)
 
-  releases[0]!.resolve()
-  await new Promise(resolve => setImmediate(resolve))
-  assert.deepEqual(started, ['chat', 'image', 'tts', 'transcription'])
-
-  for (const gate of releases.slice(1)) gate.resolve()
+  for (const gate of releases) gate.resolve()
   assert.deepEqual(await Promise.all(jobs), [0, 1, 2, 3, 4])
-  assert.equal(pool.snapshot().submitting, 0)
+  assert.equal(pool.snapshot('first-key').submitting + pool.snapshot('second-key-same-account').submitting, 0)
+})
+
+test('an exhausted key does not throttle an unrelated key', async () => {
+  const pool = new GenStudioAdmissionPool(async apiKey => capacity({
+    paid_concurrency_limit: apiKey === 'key-a' ? 1 : 2,
+    generation_submissions_per_minute: apiKey === 'key-a' ? 1 : 2,
+  }))
+  const firstGate = deferred()
+  const secondKeyGates = [deferred(), deferred()]
+  const started: string[] = []
+  const controller = new AbortController()
+  const first = pool.run('key-a', undefined, async () => {
+    started.push('key-a-1')
+    await firstGate.promise
+  })
+  const blocked = pool.run('key-a', controller.signal, async () => {
+    started.push('key-a-2')
+  })
+  const secondKeyJobs = secondKeyGates.map((gate, index) => pool.run('key-b', undefined, async () => {
+    started.push(`key-b-${index + 1}`)
+    await gate.promise
+  }))
+
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(started, ['key-a-1', 'key-b-1', 'key-b-2'])
+  assert.equal(pool.snapshot('key-a').submitting, 1)
+  assert.equal(pool.snapshot('key-a').local_waiting, 1)
+  assert.equal(pool.snapshot('key-a').submissions_in_window, 1)
+  assert.equal(pool.snapshot('key-b').submitting, 2)
+  assert.equal(pool.snapshot('key-b').local_waiting, 0)
+  assert.equal(pool.snapshot('key-b').submissions_in_window, 2)
+
+  controller.abort()
+  await assert.rejects(blocked, /Cancelled by user/)
+  firstGate.resolve()
+  for (const gate of secondKeyGates) gate.resolve()
+  await Promise.all([first, ...secondKeyJobs])
+})
+
+test('capacity snapshots stay isolated when API keys publish different bursts', async () => {
+  const pool = new GenStudioAdmissionPool(async apiKey => capacity({
+    paid_concurrency_limit: apiKey === 'key-a' ? 1 : 5,
+    burst_concurrency_ceiling: apiKey === 'key-a' ? 2 : 8,
+  }))
+
+  await pool.refreshNow('key-a')
+  assert.equal(pool.snapshot('key-a').burst_concurrency_ceiling, 2)
+  await pool.refreshNow('key-b')
+  assert.equal(pool.snapshot('key-b').burst_concurrency_ceiling, 8)
+  assert.equal(pool.snapshot('key-a').burst_concurrency_ceiling, 2)
+  assert.equal(pool.snapshot('key-a').paid_concurrency_limit, 1)
+  assert.equal(pool.snapshot('key-b').paid_concurrency_limit, 5)
 })
 
 test('account queue backpressure pauses new submissions until overview refreshes', async () => {
@@ -148,7 +206,7 @@ test('account queue backpressure pauses new submissions until overview refreshes
 
   await new Promise(resolve => setTimeout(resolve, 2))
   assert.equal(submitted, false)
-  assert.equal(pool.snapshot().queue_near_capacity, true)
+  assert.equal(pool.snapshot('one-account-key').queue_near_capacity, true)
   assert.ok(states.includes('waiting_account_capacity'))
 
   await pool.refreshNow('one-account-key')
@@ -169,11 +227,11 @@ test('GenStudio admission fails closed when account overview is unavailable', as
 
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(secondStarted, false)
-  assert.equal(pool.snapshot().submitting, 1)
-  assert.equal(pool.snapshot().local_waiting, 1)
-  assert.equal(pool.snapshot().limitSource, 'safe-fallback')
-  assert.equal(pool.snapshot().capacity_verified, false)
-  assert.equal(pool.snapshot().generation_submissions_per_minute, 5)
+  assert.equal(pool.snapshot('scoped-key').submitting, 1)
+  assert.equal(pool.snapshot('scoped-key').local_waiting, 1)
+  assert.equal(pool.snapshot('scoped-key').limitSource, 'safe-fallback')
+  assert.equal(pool.snapshot('scoped-key').capacity_verified, false)
+  assert.equal(pool.snapshot('scoped-key').generation_submissions_per_minute, 5)
   firstGate.resolve()
   await first
   await second
@@ -198,9 +256,9 @@ for (const [value, label] of [
 
     await pool.refreshNow('malformed-overview-key')
 
-    assert.equal(pool.snapshot().limitSource, 'account-overview')
-    assert.equal(pool.snapshot().capacity_verified, false)
-    assert.equal(pool.snapshot().generation_submissions_per_minute, 5)
+    assert.equal(pool.snapshot('malformed-overview-key').limitSource, 'account-overview')
+    assert.equal(pool.snapshot('malformed-overview-key').capacity_verified, false)
+    assert.equal(pool.snapshot('malformed-overview-key').generation_submissions_per_minute, 5)
   })
 }
 
@@ -211,8 +269,8 @@ test('GenStudio admission preserves a valid published submission rate', async ()
 
   await pool.refreshNow('published-overview-key')
 
-  assert.equal(pool.snapshot().generation_submissions_per_minute, 7)
-  assert.equal(pool.snapshot().capacity_verified, true)
+  assert.equal(pool.snapshot('published-overview-key').generation_submissions_per_minute, 7)
+  assert.equal(pool.snapshot('published-overview-key').capacity_verified, true)
 })
 
 test('GenStudio admission preserves valid capacity display facts without admitting above standard lanes', async () => {
@@ -247,7 +305,7 @@ test('GenStudio admission preserves valid capacity display facts without admitti
 
   await new Promise(resolve => setImmediate(resolve))
 
-  const snapshot = pool.snapshot() as any
+  const snapshot = pool.snapshot('capacity-key') as any
   assert.equal(snapshot.burst_concurrency_ceiling, 4)
   assert.equal(snapshot.service_tier.current.display_name, '$5 tier')
   assert.deepEqual(started, [1])
@@ -264,13 +322,13 @@ test('GenStudio admission omits malformed capacity display facts and fallback me
     service_tier: { current: { display_name: '$5 tier' } } as any,
   }))
   await malformed.refreshNow('malformed-display-key')
-  assert.equal((malformed.snapshot() as any).burst_concurrency_ceiling, undefined)
-  assert.equal((malformed.snapshot() as any).service_tier, undefined)
+  assert.equal((malformed.snapshot('malformed-display-key') as any).burst_concurrency_ceiling, undefined)
+  assert.equal((malformed.snapshot('malformed-display-key') as any).service_tier, undefined)
 
   const fallback = new GenStudioAdmissionPool(async () => { throw new Error('offline') })
   await fallback.refreshNow('fallback-display-key')
-  assert.equal((fallback.snapshot() as any).burst_concurrency_ceiling, undefined)
-  assert.equal((fallback.snapshot() as any).service_tier, undefined)
+  assert.equal((fallback.snapshot('fallback-display-key') as any).burst_concurrency_ceiling, undefined)
+  assert.equal((fallback.snapshot('fallback-display-key') as any).service_tier, undefined)
 })
 
 test('a malformed published submission rate admits five requests before rate limiting the sixth', async () => {
@@ -292,8 +350,8 @@ test('a malformed published submission rate admits five requests before rate lim
 
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(started, [0, 1, 2, 3, 4])
-  assert.equal(pool.snapshot().submissions_in_window, 5)
-  assert.equal(pool.snapshot().local_waiting, 1)
+  assert.equal(pool.snapshot('malformed-rate-key').submissions_in_window, 5)
+  assert.equal(pool.snapshot('malformed-rate-key').local_waiting, 1)
 
   controller.abort()
   await assert.rejects(jobs[5], /Cancelled by user/)
@@ -352,15 +410,15 @@ test('rolling account submission limit prevents local bursts across every modali
 
   const controller = new AbortController()
   let secondSubmitted = false
-  const second = pool.run('another-key-same-account', controller.signal, async () => {
+  const second = pool.run('same-account', controller.signal, async () => {
     secondSubmitted = true
   })
   await new Promise(resolve => setImmediate(resolve))
 
   assert.equal(submissions, 1)
   assert.equal(secondSubmitted, false)
-  assert.equal(pool.snapshot().submissions_in_window, 1)
-  assert.equal(pool.snapshot().local_waiting, 1)
+  assert.equal(pool.snapshot('same-account').submissions_in_window, 1)
+  assert.equal(pool.snapshot('same-account').local_waiting, 1)
 
   controller.abort()
   await assert.rejects(second, /Cancelled by user/)
@@ -375,7 +433,7 @@ test('one account-wide release failure rejects every unsent modality', async () 
   const image = pool.run('same-account', undefined, async () => {
     imageSubmitted = true
   })
-  const transcription = pool.run('another-key-same-account', undefined, async () => {
+  const transcription = pool.run('same-account', undefined, async () => {
     transcriptionSubmitted = true
   })
   await new Promise(resolve => setImmediate(resolve))
@@ -387,8 +445,8 @@ test('one account-wide release failure rejects every unsent modality', async () 
   await assert.rejects(transcription, /not generation-ready/)
   assert.equal(imageSubmitted, false)
   assert.equal(transcriptionSubmitted, false)
-  assert.equal(pool.snapshot().submissions_blocked, true)
-  assert.match(pool.snapshot().submission_block_reason || '', /not generation-ready/)
+  assert.equal(pool.snapshot('same-account').submissions_blocked, true)
+  assert.match(pool.snapshot('same-account').submission_block_reason || '', /not generation-ready/)
 
   firstGate.resolve()
   await first

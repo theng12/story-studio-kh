@@ -19,6 +19,7 @@ import {
   recoverTtsToFile as recoverTtsGenStudio,
   listTtsModels as listGenStudioTtsModels,
   listVoices as listGenStudioVoices,
+  refreshGenStudioAdmission,
 } from '../lib/genstudio-client.js'
 import { isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
 import {
@@ -328,6 +329,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // boundary, because both have to survive the handover into `processTask`.
   const genStudioModelId = ttsModel.id
   const genStudioProviderLabel = ttsModel.provider_name || 'this voice provider'
+  const admission = await refreshGenStudioAdmission(apiKey)
   const requestBudget = resolveTtsRequestBudget(ttsModel)
   // The control values this run submits, resolved against THIS model's
   // published `controls[]`. A name the model does not publish is dropped and a
@@ -551,9 +553,13 @@ export async function generateAudio(job: Job): Promise<void> {
     }
   }
 
-  // The selected model's live hint is advisory. GenStudio admission remains
-  // authoritative; no provider identity is inferred as a dispatch limit.
-  const concurrency = resolveGenStudioTtsFanout(tasks.length, ttsModel.provider_submit_concurrency)
+  // Both live publications are advisory local staging hints. GenStudio
+  // admission remains authoritative; neither value is a remote gate.
+  const concurrency = resolveGenStudioTtsFanout(
+    tasks.length,
+    ttsModel.provider_submit_concurrency,
+    admission.burst_concurrency_ceiling,
+  )
 
   if (tasks.length > 1) {
     job.output_lines.push(

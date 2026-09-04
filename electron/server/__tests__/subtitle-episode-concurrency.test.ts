@@ -36,15 +36,16 @@ describe('chapters stay wide, episodes become narrow', () => {
   test('a ten-chapter episode still fans out ten ways', () => {
     // The part that decides how long a SINGLE episode takes. If this ever
     // narrows, every episode gets slower — the opposite of what was asked for.
-    assert.equal(resolveGenStudioLocalFanout(10), 10)
-    assert.equal(resolveGenStudioLocalFanout(4), 4)
+    assert.equal(resolveGenStudioLocalFanout(10, 128), 10)
+    assert.equal(resolveGenStudioLocalFanout(4, 128), 4)
+    assert.equal(resolveGenStudioLocalFanout(10), 1, 'unknown account capacity must stay conservative')
   })
 
   test('the default admits two episodes, not fifty', () => {
     assert.equal(SUBTITLE_EPISODE_CONCURRENCY_DEFAULT, 2)
     // Two episodes of ten chapters is ~20 requests in flight. The run that
     // failed peaked at 103 and lost 122 of 353.
-    const inFlight = SUBTITLE_EPISODE_CONCURRENCY_DEFAULT * resolveGenStudioLocalFanout(10)
+    const inFlight = SUBTITLE_EPISODE_CONCURRENCY_DEFAULT * resolveGenStudioLocalFanout(10, 128)
     assert.ok(inFlight <= 25, `${inFlight} in flight is still a flood`)
     assert.ok(inFlight >= 10, 'a single episode must still run all its chapters at once')
   })
@@ -55,7 +56,7 @@ describe('chapters stay wide, episodes become narrow', () => {
     const OLD_GROUP_LIMIT = 50
     const admitted = Math.min(30, OLD_GROUP_LIMIT)
     assert.equal(admitted, 30, 'all thirty were admitted at once — nothing queued')
-    assert.ok(admitted * resolveGenStudioLocalFanout(11) > 300,
+    assert.ok(admitted * resolveGenStudioLocalFanout(11, 128) > 300,
       'the wave that exhausted the fleet')
   })
 })

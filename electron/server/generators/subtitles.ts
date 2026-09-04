@@ -24,6 +24,7 @@ import {
   isGenStudioInsufficientCredits,
   listTranscriptionModels,
   recoverTranscriptionWithGenStudio,
+  refreshGenStudioAdmission,
   transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
 import type { GenStudioTranscriptionModel } from '../lib/genstudio-client.js'
@@ -660,8 +661,11 @@ async function transcribePerChapter(
   const failures: Array<{ slug: string; error: string }> = []
 
   const { resolveGenStudioLocalFanout } = await import('../lib/genstudio-runtime.js')
-  const { genStudioAdmissionSnapshot } = await import('../lib/genstudio-client.js')
-  const concurrency = resolveGenStudioLocalFanout(sections.length, genStudioAdmissionSnapshot()?.burst_concurrency_ceiling, jq.getImageFanoutOverride())
+  const admission = await refreshGenStudioAdmission(genstudio.apiKey)
+  const concurrency = resolveGenStudioLocalFanout(
+    sections.length,
+    admission.burst_concurrency_ceiling,
+  )
   job.output_lines.push(
     `Staging ${sections.length} transcription request(s); GenStudio account admission is authoritative…`,
   )
