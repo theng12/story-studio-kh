@@ -50,3 +50,11 @@ AH-002 is **not fully complete** against the entire handoff. The durable per-epi
 - Added the real mounted This Mac UI test for the independent subtitle setting and its separate endpoint/body. The broad frontend runner currently has unrelated failing tests and an unresolved `~` alias in `frontend/__tests__/useProject.test.ts`; it is not a clean release suite.
 
 The underlying AH-002 recovery-plan, paid commitment, settlement eligibility, and topological downstream advancement requirements remain unimplemented. This follow-up improves verified UI coverage only and does not widen the completed implementation claim.
+
+## Task 1b partial implementation — 2026-09-05
+
+- RED: `node scripts/testing/run-backend-tests.mjs --only subtitle-paid-replacement` failed because the dedicated subtitle decision module did not exist.
+- GREEN: the new pure, fail-closed decision seam distinguishes fully released zero-settlement free retries from eligible paid replacements; it rejects disabled policy, incomplete settlement, unavailable price, repeat sections, and a shared-ceiling overrun. The focused test passes.
+- `npm run typecheck:electron` was rerun after the implementation and passes.
+
+This commit does **not** yet wire the new decision seam into the merged/per-chapter provider POST branches or durable job/manifest commitment lifecycle. Therefore it does not satisfy Task 1b's full paid recovery behavior and must not be presented as doing so.
