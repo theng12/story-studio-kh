@@ -8,6 +8,7 @@ What's new in each release. Newest first.
 
 - **Subtitle recovery now fails honestly when stitching cannot complete.** Complete chapter files alone no longer let a subtitle job report success: Story Studio requires a fresh, verified stitched timeline before Scene Plan or Scene Review can proceed, while keeping successful section files for a targeted retry.
 - **Optional paid subtitle replacement has its own separate machine setting.** It starts Off and needs its own per-Story-job credit ceiling; enabling image replacement never authorizes subtitle spending. Jobs retry now keeps a subtitle job's exact missing-section allow-list.
+- **Subtitle recovery reconnects before it buys.** Both whole-track and chapter transcription recover accepted tasks for free, distinguish fully refunded retries from paid replacements, and checkpoint one replacement per eligible missing section against a shared subtitle ceiling before confirmation. Restart and repeated requests reuse the saved provider identity; a dedicated manual purchase action accepts only the failed job's exact missing sections.
 
 ## v1.4.101 — 2026-09-05
 

@@ -139,7 +139,7 @@ export async function readManifest(assetDir: string): Promise<Manifest> {
 }
 
 /** Paid commitment must never turn a corrupt sidecar into a new authority. */
-async function readManifestStrict(assetDir: string): Promise<Manifest> {
+export async function readManifestStrict(assetDir: string): Promise<Manifest> {
   const p = manifestPath(assetDir)
   const raw = await fs.readFile(p, 'utf-8')
   const parsed = JSON.parse(raw) as Partial<Manifest>

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   isTerminalGenStudioTranscriptionProviderError,
@@ -13,7 +12,7 @@ import {
   GenStudioTtsTerminalFailureError,
 } from '../lib/genstudio-client.js'
 
-test('terminal GenStudio transcription tasks receive a fresh manual-retry identity', () => {
+test('terminal transcription states and typed provider outcomes are classified without matching prose', () => {
   assert.equal(isTerminalGenStudioTranscriptionTaskFailure({ task_id: 'stt-failed', last_state: 'failed' }), true)
   assert.equal(isTerminalGenStudioTranscriptionTaskFailure({ idempotency_key: 'story-stt-expired', last_state: 'expired' }), true)
   assert.equal(isTerminalGenStudioTranscriptionTaskFailure({ task_id: 'stt-expired', last_state: 'expired' }), true)
@@ -44,12 +43,6 @@ test('terminal GenStudio transcription tasks receive a fresh manual-retry identi
     false,
   )
 
-  const source = readFileSync(new URL('../generators/subtitles.ts', import.meta.url), 'utf8')
-  assert.match(source, /const recoveryTask = terminalFailure \? null : reusableTask/)
-  assert.match(source, /manual-retry:\$\{job\.job_id\}/)
-  assert.match(source, /previous GenStudio transcription task failed terminally; submitting one fresh recovery task/i)
-  assert.match(source, /saved GenStudio transcription request had expired; submitting one fresh replacement now/i)
-  assert.match(source, /if \(!recoveryTask\)/)
 })
 
 /**

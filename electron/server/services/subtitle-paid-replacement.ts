@@ -44,21 +44,28 @@ export interface SubtitleReplacementInput {
 function completeSettlement(failure: SubtitleReplacementInput['failure']): boolean {
   return [failure.reservedCredits, failure.settledCredits, failure.releasedCredits]
     .every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+    && failure.settledCredits! + failure.releasedCredits! === failure.reservedCredits
 }
 
-export function decideSubtitleReplacement(input: SubtitleReplacementInput): SubtitleReplacementDecision {
-  const { failure } = input
+export function classifySubtitleFailure(failure: SubtitleReplacementInput['failure']): 'blocked' | 'free-retry' | 'paid' {
+  if (!failure.transient || failure.cancelled || !completeSettlement(failure)) {
+    return 'blocked'
+  }
   if (completeSettlement(failure)
     && failure.settledCredits === 0
     && failure.releasedCredits === failure.reservedCredits) {
-    return { action: 'free-retry', reason: 'GenStudio confirmed a fully released zero-settlement transcription failure.' }
+    return 'free-retry'
   }
+  return 'paid'
+}
+
+export function decideSubtitleReplacement(input: SubtitleReplacementInput): SubtitleReplacementDecision {
+  const classification = classifySubtitleFailure(input.failure)
+  if (classification === 'blocked') return { action: 'blocked', reason: 'the transcription failure is not an eligible settled transient failure' }
+  if (classification === 'free-retry') return { action: 'free-retry', reason: 'GenStudio confirmed a fully released zero-settlement transcription failure.' }
   if (!input.enabled) return { action: 'blocked', reason: 'automatic paid subtitle replacement is Off' }
   const ceiling = input.ceiling
   if (typeof ceiling !== 'number' || !Number.isSafeInteger(ceiling) || ceiling < 1) return { action: 'blocked', reason: 'the subtitle additional-credit ceiling is unavailable' }
-  if (!failure.transient || failure.cancelled || !completeSettlement(failure)) {
-    return { action: 'blocked', reason: 'the transcription failure is not an eligible settled transient failure' }
-  }
   if (!input.livePrice || !Number.isFinite(input.livePrice.credits) || input.livePrice.credits < 0 || !input.livePrice.priceVersion.trim()) {
     return { action: 'blocked', reason: 'the current transcription price is unavailable' }
   }

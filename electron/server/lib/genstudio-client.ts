@@ -153,6 +153,8 @@ export type GenStudioQueueState =
   | 'cancelled'
 
 interface GenStudioOperationContext {
+  /** Called after admission/waits and immediately before each physical POST. */
+  beforePost?: () => void | Promise<void>
   signal?: AbortSignal
   isCancelled?: () => boolean
   onQueueState?: (state: GenStudioQueueState, jobId?: string) => void | Promise<void>
@@ -1200,8 +1202,17 @@ export interface GenStudioTranscriptionRequest extends GenStudioOperationContext
   idempotencyKey?: string
   language?: string
   wordTimestamps?: boolean
+  /** Persist and authorize the exact live quote before its charged confirmation. */
+  beforeConfirm?: (quote: GenStudioTranscriptionQuote) => void | Promise<void>
   onState?: (state: GenStudioTranscriptionJob['state'], jobId: string) => void | Promise<void>
   onJobAccepted?: (jobId: string, idempotencyKey: string, fileSha256: string) => void | Promise<void>
+}
+
+export interface GenStudioTranscriptionQuote {
+  id: string
+  quoted_credit_cost?: number
+  price_version?: string
+  expires_at?: string
 }
 
 export interface GenStudioSubmission {
@@ -3359,6 +3370,7 @@ async function requestJsonWithRetry(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let retryAfterMs: number | null = null
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+    if (init.method === 'POST') await request.beforePost?.()
     try {
       let response: Response
       let raw: string
@@ -7023,12 +7035,11 @@ function transcriptionMediaType(filename: string): string {
 }
 
 /**
- * Statuses that mean this quote can never be confirmed: it is gone, already
- * settled, or no longer valid for this account. 402/429/5xx are deliberately
- * excluded — those are retryable and must not retire a paid identity.
+ * Only explicit expiry retires a quote. A malformed request, missing endpoint,
+ * or already-settled conflict cannot prove that no transcription was charged.
  */
 function isTerminalQuoteStatus(status: number): boolean {
-  return status === 400 || status === 404 || status === 409 || status === 410 || status === 422
+  return status === 410
 }
 
 export function buildGenStudioTranscriptionIdempotencyKey(input: {
@@ -7252,7 +7263,7 @@ async function transcribeWithGenStudioAdmitted(
       throw new GenStudioTranscriptionQuoteExpiredError(error.status, error.detail)
     }
     throw error
-  }) as { id?: string }
+  }) as GenStudioTranscriptionQuote
   if (!quote.id) throw new Error('GenStudio KH transcription quote returned no quote id.')
   const confirmIdempotencyKey = `${idempotencyKey}-confirm`
   const submitted = await submitJsonWithAdmission(
@@ -7265,7 +7276,10 @@ async function transcribeWithGenStudioAdmitted(
         'Idempotency-Key': confirmIdempotencyKey,
       },
     },
-    request,
+    { ...request, beforePost: async () => {
+      await request.beforePost?.()
+      await request.beforeConfirm?.(quote)
+    } },
     deadline,
     GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
     [],
