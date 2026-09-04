@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { createHash } from 'node:crypto'
 import { after, test } from 'node:test'
 import express from 'express'
 import request from 'supertest'
@@ -61,8 +62,12 @@ async function fixture(t: any, sections = ['Chapter_01']) {
     }
     if (url.endsWith('/srt')) return new Response(srt)
     const id = decodeURIComponent(url.split('/').pop()!)
-    if (url.includes('/by-idempotency-key/')) return confirmations.includes(id)
-      ? Response.json(replacement(`new-${id}`)) : Response.json({ detail: 'not found' }, { status: 404 })
+    if (url.includes('/by-idempotency-key/')) {
+      const section = sections.find(s => id === `original-${s}-confirm`)
+      if (section) return Response.json(original(`old-${section}`))
+      return confirmations.includes(id)
+        ? Response.json(replacement(`new-${id}`)) : Response.json({ detail: 'not found' }, { status: 404 })
+    }
     return Response.json(id.startsWith('old-') ? original(id) : replacement(id))
   }
   const job = { job_id: path.basename(outDir), project_slug: '_app_', episode_id: 'EP0001',
@@ -186,6 +191,58 @@ test('a corrupt saved ledger cannot silently create fresh paid authority', async
   await fs.writeFile(path.join(f.outDir, '.subtitle-recovery.json'), '{')
   await assert.rejects(f.run())
   assert.equal(f.calls.length, 0)
+})
+
+test('coherently forged replacement authority must reconcile outside the ledger before any paid POST', async t => {
+  const f = await fixture(t)
+  await assert.rejects(f.run(), /Off/)
+  const file = path.join(f.outDir, '.subtitle-recovery.json')
+  const ledger = JSON.parse(await fs.readFile(file, 'utf8'))
+  const section = ledger.sections['Chapter_01.srt']
+  section.replacement = {
+    originalTaskId: 'forged-original-task', originalIdempotencyKey: 'forged-original-key',
+    failure: { transient: true, cancelled: false, reservedCredits: 3, settledCredits: 3, releasedCredits: 0 },
+  }
+  section.identityVerified = true
+  section.idempotencyKey = `story-stt-${createHash('sha256').update('forged-original-key:subtitle-replacement:1').digest('hex')}`
+  section.taskId = ''
+  section.confirmStarted = false
+  section.state = 'prepared'
+  assert.equal(ledger.plans[section.planId].attempts.length, 0)
+  await fs.writeFile(file, JSON.stringify(ledger))
+  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  f.calls.length = 0
+  await assert.rejects(f.run(), /original.*verif|authority.*verif/i)
+  assert.equal(f.calls.some(c => c.startsWith('POST')), false)
+  assert.equal(f.confirmations.length, 0)
+  assert.equal(f.job.result?.recovery_state, 'needs_attention')
+})
+
+test('legitimate pending replacement rebinds original provider authority after restart and resumes once', async t => {
+  const f = await fixture(t)
+  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  f.beforeConfirm(async () => { throw new Error('restart before replacement quote response') })
+  await assert.rejects(f.run(), /restart before/)
+  f.beforeConfirm(async () => {})
+  for (const remote of [
+    (id: string) => failed(id, { settled_credits: null }),
+    (_id: string) => failed('different-original-task'),
+  ]) {
+    f.original(remote)
+    f.calls.length = 0
+    await assert.rejects(f.run(), /original.*verif|authority.*verif/i)
+    assert.equal(f.calls.some(c => c.startsWith('POST')), false, 'saved settlement and identity cannot override provider truth')
+    assert.equal(f.confirmations.length, 0)
+  }
+  f.original(id => failed(id))
+  f.calls.length = 0
+  assert.equal((await f.run()).srt, srt)
+  const rebound = f.calls.findIndex(c => c.includes('/by-idempotency-key/original-Chapter_01-confirm'))
+  const submitted = f.calls.findIndex(c => c.startsWith('POST'))
+  assert.ok(rebound >= 0 && rebound < submitted, 'read-only original reconciliation must precede the replacement quote')
+  assert.equal(f.confirmations.length, 1)
+  assert.equal((await f.run()).srt, srt)
+  assert.equal(f.confirmations.length, 1)
 })
 
 for (const [label, corrupt] of [

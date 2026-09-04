@@ -54,6 +54,14 @@ interface Ledger {
 }
 type ManualAction = false | 'buy_missing_subtitles' | 'rerun_subtitle_section'
 
+function subtitleFailure(error: GenStudioTerminalFailureError): SubtitleReplacementInput['failure'] {
+  return {
+    transient: error.failureClass === 'provider_transient' || isFleetBusyFailure(error, 'transcription'),
+    cancelled: error.cancelled, reservedCredits: error.reservedCredits,
+    settledCredits: error.settledCredits, releasedCredits: error.releasedCredits,
+  }
+}
+
 async function readLedger(file: string): Promise<Ledger> {
   try {
     const parsed = JSON.parse(await fs.readFile(file, 'utf8')) as Ledger
@@ -222,9 +230,27 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         ceiling: input.manualCreditCeiling ?? setting.additional_credit_ceiling,
       }
     }
+    // Deliberately invocation-local: a saved ledger flag is never spending authority.
+    let originalAuthorityVerified = false
+    const rebindOriginalAuthority = async () => {
+      try {
+        const provenance = current!.replacement!
+        const original = await getGenStudioJobByIdempotencyKey('audio.transcription', await getGenStudioUrl(), input.apiKey,
+          `${provenance.originalIdempotencyKey}-confirm`, input.request, Date.now() + 30_000)
+        if (original.id !== provenance.originalTaskId || original.state !== 'failed') throw new Error('Original task mismatch')
+        const failure = subtitleFailure(new GenStudioTerminalFailureError('transcription', original, 'Original transcription failed'))
+        if (classifySubtitleFailure(failure) !== 'paid') throw new Error('Original settlement is not eligible')
+        provenance.failure = failure // Replace self-asserted ledger settlement with GenStudio truth.
+        originalAuthorityVerified = true
+      } catch {
+        return block('The original transcription authority could not be verified; no replacement was bought. Recover the original task or explicitly re-run this section.',
+          'rerun_subtitle_section')
+      }
+    }
     const beforeConfirm = async (quote: GenStudioTranscriptionQuote) => {
       if (stopped()) throw new Error('Subtitle submission stopped by owner')
       if (current!.replacement) {
+        if (!originalAuthorityVerified) return block('The original transcription authority could not be verified; no replacement was bought.', 'rerun_subtitle_section')
         const authority = await policy()
         const reason = await change(ledger => {
           const attempts = ledger.plans[current!.planId]!.attempts
@@ -292,6 +318,9 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         if (!current.taskId && current.confirmStarted) {
           await reclaimKey(request)
         }
+        // Reclaim accepted replacement tasks first for free. Only a new POST
+        // requires binding the claimed original key/task to provider settlement.
+        if (!current.taskId && current.replacement && !originalAuthorityVerified) await rebindOriginalAuthority()
         if (current.taskId) await state('free_recovery', 'Recovering existing subtitle task (free).')
         const result = current.taskId
           ? await recoverTranscriptionWithGenStudio(input.apiKey, current.taskId, request)
@@ -311,11 +340,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         } else if (error instanceof GenStudioTerminalFailureError && error.modality === 'transcription') {
           current.taskId = error.jobId
           await persist('failed')
-          const failure = {
-            transient: error.failureClass === 'provider_transient' || isFleetBusyFailure(error, 'transcription'),
-            cancelled: error.cancelled, reservedCredits: error.reservedCredits,
-            settledCredits: error.settledCredits, releasedCredits: error.releasedCredits,
-          }
+          const failure = subtitleFailure(error)
           const classification = classifySubtitleFailure(failure)
           if (classification === 'blocked') {
             const unsettled = failure.reservedCredits == null || failure.settledCredits == null || failure.releasedCredits == null
