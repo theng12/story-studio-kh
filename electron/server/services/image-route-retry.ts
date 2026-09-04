@@ -12,12 +12,12 @@
  *
  * Kept as ITS OWN module rather than a re-export of the TTS constants
  * because the two modalities dispatch at very different widths. TTS follows
- * its selected model's published submit hint (or serialises when unknown —
- * see `resolveGenStudioTtsFanout`). Images legitimately fan out to
- * `resolveGenStudioLocalFanout`'s full account concurrency (up to 50 at
- * once) and that width is explicitly NOT being changed by this file. An
- * operator tuning one modality's retry pacing via its env var must not
- * silently move the other's.
+ * its selected model's published submit hint together with its keyed account
+ * burst (or serialises when unknown — see `resolveGenStudioTtsFanout`). Images
+ * use `resolveGenStudioLocalFanout` with the same keyed burst as a local
+ * staging advisory; exact image permits remain the remote authority. An
+ * operator tuning one modality's retry pacing via its env var must not silently
+ * move the other's.
  *
  * Retry IDENTITY is deliberately NOT reinvented here. Images already own a
  * deterministic identity chain for exactly this situation —

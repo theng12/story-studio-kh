@@ -262,10 +262,10 @@ test('images.ts reuses the retry-scope chain and progress machinery instead of i
   // the thing that would make it jump around under concurrency.
   assert.match(source, /completedCount \+ failedCount/)
 
-  // The fan-out width is local staging only. GenStudio's admission permit,
-  // not the account overview snapshot, owns remote image placement.
-  assert.match(source, /const maxWorkers = resolveGenStudioLocalFanout\(\s*\n?\s*items\.length,\s*\n?\s*undefined,/)
-  assert.doesNotMatch(source, /genStudioAdmissionSnapshot/)
+  // The fan-out width is local staging only. The keyed live burst is advisory;
+  // GenStudio's exact admission permit owns remote image placement.
+  assert.match(source, /const maxWorkers = resolveGenStudioLocalFanout\(\s*\n?\s*items\.length,\s*\n?\s*admission\.burst_concurrency_ceiling,/)
+  assert.match(source, /refreshGenStudioAdmission\(/)
 
   // The old early-throw that bypassed the completion audit and only showed
   // the first 3 failures is gone.

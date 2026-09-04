@@ -258,9 +258,9 @@ void test('an exhausted route retries into exactly one new job, and a replay buy
 test('the audio generator paces, retries and reports what it is doing', () => {
   const source = readFileSync(new URL('../generators/audio.ts', import.meta.url), 'utf8')
 
-  // Paced by the selected model's live submit hint, not by provider identity
-  // or the shared GenStudio staging cap.
-  assert.match(source, /resolveGenStudioTtsFanout\(tasks\.length, ttsModel\.provider_submit_concurrency\)/)
+  // Staged by the tighter selected-model hint and keyed account burst. Neither
+  // publication is remote authority; the central GenStudio admission gate is.
+  assert.match(source, /resolveGenStudioTtsFanout\(\s*tasks\.length,\s*ttsModel\.provider_submit_concurrency,\s*admission\.burst_concurrency_ceiling,?\s*\)/)
   assert.doesNotMatch(source, /resolveGenStudioLocalFanout/)
 
   // Retried on the codes that prove nothing was bought, and bounded.

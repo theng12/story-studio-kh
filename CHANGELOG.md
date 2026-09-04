@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.101 — 2026-09-05
+
+- **Generation fan-out now follows each GenStudio API key's live capacity publication.** Image, Scene Review, and thumbnail Auto staging use the keyed burst advisory while exact image permits remain mandatory. TTS combines its model's provider hint with the keyed account burst, and subtitle/video staging uses their own keyed capacity instead of inheriting the image dial. Unknown capacity stays conservative and explicit, with the local CPU/IO and LLM lane limits unchanged.
+
 ## v1.4.100 — 2026-09-04
 
 - **Unavailable LLM models now explain why they are paused.** Story Studio carries GenStudio's allowlisted daily-capacity or temporary-backpressure reason and published return time into the disabled picker row, formatted in the device's local date and time. Older catalogues keep the existing generic wording, and unavailable rows remain grey and unselectable.

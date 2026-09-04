@@ -720,11 +720,12 @@ test('shared image provider composes queue pause with any paid replacement guard
   assert.match(source, /beforeSubmit:\s*assertSubmitAllowed/)
 })
 
-test('image workers use only local fanout while permits own remote admission', async () => {
+test('image workers use keyed live fanout while permits own remote admission', async () => {
   for (const file of ['generators/continuity-render.ts', 'generators/images.ts']) {
     const source = await readFile(path.join(SERVER, file), 'utf8')
     const calls = source.match(/resolveGenStudioLocalFanout\([\s\S]{0,240}?\)/g) || []
     assert.ok(calls.length > 0, `${file} must retain bounded local fanout`)
-    for (const call of calls) assert.doesNotMatch(call, /burst_concurrency_ceiling|genStudioAdmissionSnapshot/)
+    for (const call of calls) assert.match(call, /burst_concurrency_ceiling|admission\./)
+    assert.match(source, /refreshGenStudioAdmission\(/)
   }
 })

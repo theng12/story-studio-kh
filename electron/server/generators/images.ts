@@ -23,7 +23,7 @@ import {
   tryRecoverImageFromManifestEntry,
   type ImageRecoveryOutcome,
 } from '../lib/manifest-recovery.js'
-import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits, isGenStudioRouteExhausted } from '../lib/genstudio-client.js'
+import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits, isGenStudioRouteExhausted, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
@@ -303,6 +303,9 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   }
   const imageProvider = registry.getImageProvider('genstudio-image')
   if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
+  // The keyed account burst is advisory local staging only. Exact image
+  // admission permits remain mandatory at the provider boundary.
+  const admission = await refreshGenStudioAdmission(apiKey)
 
   // Full generation and both preview surfaces share the same tier resolver.
   // This ensures the selected resolution affects the provider payload as well
@@ -1500,7 +1503,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     // display, it never feeds back into what `ensureWorkers` does below.
     const maxWorkers = resolveGenStudioLocalFanout(
       items.length,
-      undefined,
+      admission.burst_concurrency_ceiling,
       jq.getImageFanoutOverride(),
     )
     currentConcurrency = maxWorkers

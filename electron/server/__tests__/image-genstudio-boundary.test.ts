@@ -52,10 +52,10 @@ test('Scene Review batches recover accepted work and leave scheduling to GenStud
   const generator = await fs.readFile(path.join(serverRoot, 'generators/continuity-render.ts'), 'utf8')
   const route = await fs.readFile(path.join(serverRoot, 'routes/scene-review.ts'), 'utf8')
 
-  // Local width protects Story Studio's memory/IO. GenStudio's admission
-  // permit is the sole authority for remote image placement.
-  assert.match(generator, /resolveGenStudioLocalFanout\(\s*\n?\s*scenes\.length,\s*\n?\s*undefined,/)
-  assert.doesNotMatch(generator, /genStudioAdmissionSnapshot/)
+  // The keyed burst only stages local workers. GenStudio's admission permit
+  // is the sole authority for remote image placement.
+  assert.match(generator, /resolveGenStudioLocalFanout\(\s*\n?\s*scenes\.length,\s*\n?\s*admission\.burst_concurrency_ceiling,/)
+  assert.match(generator, /refreshGenStudioAdmission\(/)
   assert.match(generator, /tryRecoverImageFromManifest[\s\S]*imageProvider\.generateImage/)
   assert.match(generator, /manifestEntry\?\.input_hash === expectedInputHash/)
   assert.match(generator, /render_attempt_id/)
