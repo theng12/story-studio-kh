@@ -1400,7 +1400,14 @@ async function expandNarrativeSequential(
       if (!(error instanceof GenStudioChatIncompleteError) || !error.truncated) throw error
       incomplete = error
       if (error.partialText.trim()) {
-        wrote = await parseAndWriteBatch(params, batch, error.partialText)
+        // `splitNarrationIntoChapters` deliberately flushes its final
+        // non-empty block. On a provider-declared truncation that block has
+        // no closing heading or finish boundary to prove it complete, so it
+        // must not reach durable files or chapters_done. Earlier blocks are
+        // proven by the next heading and remain safe to preserve.
+        wrote = await parseAndWriteBatch(params, batch, error.partialText, {
+          discardFinalParsedChapter: true,
+        })
       }
       job.output_lines.push(
         `[chunked]   → GenStudio reported incomplete output${error.finishReason ? ` (${error.finishReason})` : ''}; ` +
@@ -1793,15 +1800,24 @@ Output ONLY the chapter blocks above.`
  * write each parsed chapter to its own docx via `writeChapterFiles`,
  * and return the list of chapter numbers actually written. The caller
  * passes the expected `batch` so we can warn (and skip) if the model
- * returned a chapter we didn't ask for.
+ * returned a chapter we didn't ask for. A provider-declared truncated
+ * response can ask us to discard the final parsed block: the parser flushes
+ * that non-empty block for normal input, but a truncated response supplies no
+ * completion boundary to prove it is safe to persist.
  */
+interface ParseAndWriteBatchOptions {
+  discardFinalParsedChapter?: boolean
+}
+
 async function parseAndWriteBatch(
   params: ChunkedNarrationParams, batch: OutlineEntry[], text: string,
+  options: ParseAndWriteBatchOptions = {},
 ): Promise<number[]> {
   const expected = new Set(batch.map(e => e.n))
   const parts = splitNarrationIntoChapters(text)
   const filtered: NarrationParts = {
-    chapters: parts.chapters.filter(c => expected.has(c.number)),
+    chapters: (options.discardFinalParsedChapter ? parts.chapters.slice(0, -1) : parts.chapters)
+      .filter(c => expected.has(c.number)),
   }
   if (filtered.chapters.length === 0) return []
   await writeChapterFiles(params.scriptDir, params.episode_id, params.title, filtered)

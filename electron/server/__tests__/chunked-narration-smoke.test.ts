@@ -326,7 +326,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.equal(result.chaptersWritten, 3)
   })
 
-  test('repairs an uncharged provider-declared truncation once and preserves its partial files', async () => {
+  test('repairs an uncharged provider-declared truncation without retaining its unproven final block', async () => {
     const scriptDir = await freshDir()
     fakeOutlineResponse = buildOutlineJson(3, 'narrative')
     fakeExpansionFor = buildExpansionFor
@@ -340,8 +340,8 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
       format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
     })
 
-    assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 3)
-    assert.ok(job.output_lines.some(line => /GenStudio reported incomplete output \(max_tokens\); preserved 1 parsed chapter/.test(line)))
+    assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 4)
+    assert.ok(job.output_lines.some(line => /GenStudio reported incomplete output \(max_tokens\); preserved 0 parsed chapter/.test(line)))
     assert.ok(job.output_lines.some(line => /one bounded single-chapter repair pass/.test(line)))
     assert.equal(result.chaptersWritten, 3)
     for (let n = 1; n <= 3; n++) {
@@ -376,14 +376,18 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
       'a terminal provider outcome does not write or preserve partial customer-facing output')
   })
 
-  test('length-truncated batches keep complete chapters and repair each unfinished chapter once', async () => {
+  test('length-truncated batches preserve only proven chapters and repair the final partial slot plus later slots once', async () => {
     const scriptDir = await freshDir()
     fakeOutlineResponse = buildOutlineJson(3, 'narrative')
     fakeExpansionFor = buildExpansionFor
     fakeIncompleteExpansion = {
-      // Chapter 1 is a complete parseable block before the provider cut the
-      // response off. Chapters 2 and 3 were never delivered.
-      partialText: buildExpansionFor(1, 1),
+      // Chapter 1 ends before the next heading, so it is proven complete.
+      // The parser can also make a non-empty Chapter 2 block from this cut
+      // response, but no response-completion boundary proves that block safe.
+      partialText: [
+        '## Chapter 01: Chapter 1\n\nCOMPLETE ORIGINAL CHAPTER ONE.\n',
+        '## Chapter 02: Chapter 2\n\nUNPROVEN PARTIAL CHAPTER TWO ends mid-sentence',
+      ].join('\n'),
       finishReason: 'length',
     }
     const job = makeJob(scriptDir)
@@ -394,7 +398,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     })
 
     const expansionCalls = fakeCalls.filter(call => call.kind === 'expansion')
-    assert.equal(expansionCalls.length, 3, 'initial batch plus one bounded repair per unfinished chapter')
+    assert.equal(expansionCalls.length, 3, 'initial batch plus one bounded repair per unproven or missing chapter')
     const slots = expansionCalls.map(call =>
       [...call.userMessage.matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1])),
     )
@@ -409,11 +413,61 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     )
     assert.match(
       await fs.readFile(path.join(scriptDir, 'EPREPAIR-LENGTH_Chapter_01.md'), 'utf8'),
-      /quick brown fox/,
-      'the complete chapter from the original response remains on disk',
+      /COMPLETE ORIGINAL CHAPTER ONE/,
+      'the complete chapter from the original response remains on disk and is not overwritten',
     )
+    const repairedSecond = await fs.readFile(path.join(scriptDir, 'EPREPAIR-LENGTH_Chapter_02.md'), 'utf8')
+    assert.match(repairedSecond, /quick brown fox/)
+    assert.doesNotMatch(repairedSecond, /UNPROVEN PARTIAL CHAPTER TWO/)
     assert.ok(job.output_lines.some(line => /incomplete output \(length\)/.test(line)))
     assert.ok(job.output_lines.some(line => /bounded single-chapter repair/.test(line)))
+  })
+
+  test('completion and resume reject an unproven final truncation block', async () => {
+    const scriptDir = await freshDir()
+    const episodeId = 'EPREPAIR-RESUME'
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    let leaveSecondMissing = true
+    fakeExpansionFor = (firstN, batchSize) => (
+      firstN === 2 && leaveSecondMissing ? '' : buildExpansionFor(firstN, batchSize)
+    )
+    fakeIncompleteExpansion = {
+      partialText: [
+        '## Chapter 01: Chapter 1\n\nCOMPLETE ORIGINAL CHAPTER ONE.\n',
+        '## Chapter 02: Chapter 2\n\nUNPROVEN PARTIAL CHAPTER TWO ends mid-sentence',
+      ].join('\n'),
+      finishReason: 'length',
+    }
+
+    await assert.rejects(
+      generateNarrativeChunked(makeJob(scriptDir), {
+        episode_id: episodeId, title: 'Length Resume Repair', totalChapters: 3, wordsPerChapter: 500,
+        format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+      }),
+      /one-repair completion check; missing 2/i,
+    )
+
+    assert.equal(existsSync(path.join(scriptDir, `${episodeId}_Chapter_02.md`)), false,
+      'an unproven final block is never retained as a resumable chapter')
+    const incomplete = await inspectChunkedScriptCompletion(scriptDir, episodeId)
+    assert.equal(incomplete.complete, false)
+    assert.deepEqual(incomplete.missing, [2])
+
+    fakeCalls = []
+    leaveSecondMissing = false
+    await expandChapters(makeJob(scriptDir), {
+      episode_id: episodeId, title: 'Length Resume Repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+    const resumeSlots = fakeCalls.filter(call => call.kind === 'expansion').map(call =>
+      [...call.userMessage.matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1])),
+    )
+    assert.deepEqual(resumeSlots, [[2]], 'resume cannot accept the partial file and requests only its unfinished slot')
+    assert.match(
+      await fs.readFile(path.join(scriptDir, `${episodeId}_Chapter_01.md`), 'utf8'),
+      /COMPLETE ORIGINAL CHAPTER ONE/,
+      'resume does not overwrite an earlier proven chapter',
+    )
   })
 
   test('resume skips chapters already on disk + reuses cached outline', async () => {

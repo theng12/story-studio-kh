@@ -244,7 +244,8 @@ describe('picker dialog opening focus', () => {
 })
 
 test('ModelMenu keeps an unavailable row visibly disabled and unselectable', async () => {
-  let selected = 'paused'
+  let selected = 'active'
+  let selectionHandlerCalls = 0
   const options = [{
     id: 'paused',
     label: 'Paused',
@@ -256,7 +257,10 @@ test('ModelMenu keeps an unavailable row visibly disabled and unselectable', asy
   const app = createApp(await loadModelMenu(), {
     modelValue: selected,
     options,
-    'onUpdate:modelValue': (value: string) => { selected = value },
+    'onUpdate:modelValue': (value: string) => {
+      selectionHandlerCalls += 1
+      selected = value
+    },
   })
   app.component('PickerDialog', PickerDialogStub)
   app.component('NuxtLink', PickerDialogStub)
@@ -270,6 +274,7 @@ test('ModelMenu keeps an unavailable row visibly disabled and unselectable', asy
   assert.equal(row.getAttribute('aria-disabled'), 'true')
   assert.match(row.textContent || '', /daily capacity is currently depleted/i)
   row.click()
-  assert.equal(selected, 'paused')
+  assert.equal(selectionHandlerCalls, 0, 'disabled rows do not emit a selection update')
+  assert.equal(selected, 'active')
   app.unmount()
 })
