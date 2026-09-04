@@ -7,6 +7,7 @@
 - Audited implementation head: `54f1afcf` (`feat/story-availability-reason`)
 - Review-report checkpoint: `f45e41a8`
 - Remediation implementation head: `61bf368d` (`Harden Ling truncation repair boundary`)
+- Heading-boundary remediation head: `61ea5905` (`Preserve proven chapters at truncation heading boundary`)
 - Application version: `1.4.100`
 - Branch commits reviewed:
   - `e25fccdc` — Explain unavailable GenStudio chat models
@@ -14,6 +15,8 @@
   - `54f1afcf` — Keep narrative repair limited to truncation
   - `f45e41a8` — Document availability and Ling release audit
   - `61bf368d` — Harden Ling truncation repair boundary
+  - `4fa96828` — Record Ling truncation remediation verification
+  - `61ea5905` — Preserve proven chapters at truncation heading boundary
 
 This is an application release. `package.json`, `package-lock.json`, and the
 newest `CHANGELOG.md` entry already agree on `1.4.100`; the release audit kept
@@ -113,6 +116,42 @@ warnings, 0 errors); this branch does not add or modify them.
   `/tmp/story-availability-verify-remediation-20260904.exit`.
   - backend: `4184` pass, `0` fail; `382/382` files completed
     (`4813` total marks including `629` suites)
+  - frontend: `1287` pass, `0` fail; `137/137` files completed
+    (`1460` total marks including `173` suites)
+  - release: `36` pass, `0` fail; `4/4` files completed
+    (`40` total marks including `4` suites)
+  - content packs: `194` pass, `0` fail, `2` documented skips;
+    `27/27` files completed (`196` marks)
+  - static frontend and Electron builds, source and built production-security,
+    and source and built desktop-release checks all passed.
+
+### Renewed heading-boundary remediation
+
+Renewed review correctly identified that the first remediation discarded the
+last non-empty parsed chapter unconditionally. A provider can truncate exactly
+after the next chapter heading: that empty heading closes the preceding chapter,
+so the parser returns only the preceding, boundary-proven block. Dropping it
+would trigger an unnecessary billable repair.
+
+`61ea5905` uses the raw truncated text's final recognized chapter heading as
+the smallest sufficient signal. The final parsed block is discarded only when
+that same heading has non-empty trailing body text; an empty trailing heading
+retains the preceding parsed chapter. No retry policy, output budget, or normal
+provider-failure path changed.
+
+- RED: `node scripts/testing/run-backend-tests.mjs --only chunked-narration-smoke`
+  — 16 pass, 1 expected failure: a heading-only Chapter 2 cutoff re-requested
+  already-complete Chapter 1.
+- GREEN: `node scripts/testing/run-backend-tests.mjs --only chunked-narration-smoke`
+  — 17/17 tests, 2/2 suites, 1/1 file completed. The fixture proves Chapter 1
+  is retained and never re-requested; the heading-only Chapter 2 and later
+  missing Chapter 3 each receive exactly one bounded repair.
+- Fresh official release gate (serial):
+  `npm run verify > /tmp/story-availability-verify-heading-boundary-20260904.log 2>&1`
+  — recorded terminal exit code `0` in
+  `/tmp/story-availability-verify-heading-boundary-20260904.exit`.
+  - backend: `4185` pass, `0` fail; `382/382` files completed
+    (`4814` total marks including `629` suites)
   - frontend: `1287` pass, `0` fail; `137/137` files completed
     (`1460` total marks including `173` suites)
   - release: `36` pass, `0` fail; `4/4` files completed
