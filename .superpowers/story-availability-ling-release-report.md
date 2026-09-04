@@ -5,11 +5,15 @@
 - Base: `0762a886` (`main`)
 - Reviewed branch head before this release audit: `103ce3d7` (`feat/story-availability-reason`)
 - Audited implementation head: `54f1afcf` (`feat/story-availability-reason`)
+- Review-report checkpoint: `f45e41a8`
+- Remediation implementation head: `61bf368d` (`Harden Ling truncation repair boundary`)
 - Application version: `1.4.100`
 - Branch commits reviewed:
   - `e25fccdc` — Explain unavailable GenStudio chat models
   - `103ce3d7` — Repair truncated narrative chapters safely
   - `54f1afcf` — Keep narrative repair limited to truncation
+  - `f45e41a8` — Document availability and Ling release audit
+  - `61bf368d` — Harden Ling truncation repair boundary
 
 This is an application release. `package.json`, `package-lock.json`, and the
 newest `CHANGELOG.md` entry already agree on `1.4.100`; the release audit kept
@@ -27,10 +31,12 @@ second bump.
    excluded from keyboard selection, and guarded against click selection.
 2. **Ling output truncation:** the durable
    `LANGUAGE_PROVIDER_INCOMPLETE` result and compatible truncation finish
-   reasons become the typed incomplete signal. Parseable chapters from a
-   truncated batch remain on disk; only missing chapter slots receive one
-   separate repair request, each sized at the bounded 8,192-token workload
-   budget. Completed slots are not overwritten.
+   reasons become the typed incomplete signal. Only chapters terminated by a
+   following chapter heading are retained from a truncated batch; the final
+   parser-flushed block has no completion boundary and is never written or
+   marked done. Missing or unproven chapter slots receive one separate repair
+   request, each sized at the bounded 8,192-token workload budget. Completed
+   slots are not overwritten.
 
 ## Finding fixed during this audit
 
@@ -43,6 +49,31 @@ The repair guard now requires `error.truncated`. Non-truncation incomplete
 results stay terminal and require explicit Retry; their partial customer-facing
 chapter output is not written. The regression test was first run red, then
 green, and verifies exactly one original expansion request with no repair.
+
+## Independent-review remediation
+
+The independent review correctly found that a typed truncation still passed its
+entire partial response to `splitNarrationIntoChapters`. That parser rightly
+flushes a final non-empty block for ordinary complete responses, but a provider
+truncation supplies no boundary proving that final block complete. It could
+therefore be written and added to `chapters_done`, excluding the slot from the
+bounded repair path.
+
+`61bf368d` adds a narrowly scoped `discardFinalParsedChapter` option used only
+for the typed truncated-response call site. It discards the final parsed block
+before any file or sidecar write; earlier blocks remain because their following
+heading proves their boundary. The existing one-pass repair policy is unchanged:
+the final/unproven slot and later missing slots each receive exactly one bounded
+8,192-token request, while non-truncation provider failures remain terminal.
+
+The TDD fixture has Chapter 1 complete, Chapter 2 cut mid-sentence, and Chapter
+3 missing. It proves Chapter 1 stays byte-distinct and is never requested again;
+Chapters 2 and 3 are each repaired once; the partial Chapter 2 text never lands
+on disk. A second fixture forces the Chapter 2 repair empty, proves completion
+reports Chapter 2 missing rather than accepting a partial file, then proves
+resume requests only Chapter 2 and leaves Chapter 1 untouched. The picker test
+now starts on a different selected ID and asserts zero disabled-row update
+handler calls.
 
 ## Verification evidence
 
@@ -67,6 +98,30 @@ green, and verifies exactly one original expansion request with no repair.
 `npm run verify` retains the repository's existing lint warnings (1,772
 warnings, 0 errors); this branch does not add or modify them.
 
+### Remediation verification (fresh serial run)
+
+- RED: `node scripts/testing/run-backend-tests.mjs --only chunked-narration-smoke`
+  — 14 pass, 2 expected failures: the unproven final Chapter 2 was counted as
+  written (so it was not repaired), and completion accepted it.
+- GREEN: `node scripts/testing/run-backend-tests.mjs --only chunked-narration-smoke`
+  — 16/16 tests, 2/2 suites, 1/1 file completed.
+- GREEN: `cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/pickerDialogFocus.test.ts`
+  — 7/7 tests, 1/1 suite.
+- Fresh official release gate (serial, no competing test runs):
+  `npm run verify > /tmp/story-availability-verify-remediation-20260904.log 2>&1`
+  — recorded terminal exit code `0` in
+  `/tmp/story-availability-verify-remediation-20260904.exit`.
+  - backend: `4184` pass, `0` fail; `382/382` files completed
+    (`4813` total marks including `629` suites)
+  - frontend: `1287` pass, `0` fail; `137/137` files completed
+    (`1460` total marks including `173` suites)
+  - release: `36` pass, `0` fail; `4/4` files completed
+    (`40` total marks including `4` suites)
+  - content packs: `194` pass, `0` fail, `2` documented skips;
+    `27/27` files completed (`196` marks)
+  - static frontend and Electron builds, source and built production-security,
+    and source and built desktop-release checks all passed.
+
 ## Final review and release state
 
 - `git diff --check` passed.
@@ -74,7 +129,9 @@ warnings, 0 errors); this branch does not add or modify them.
   assertions, required v1.4.100 metadata, and this audit report.
 - No deployment, publish, push, merge, DMG build, or live-data operation was
   performed.
-- After the local audit-fix and report commits, the worktree is clean.
+- After the local remediation and report commits, the worktree is clean.
 
-**Ready for independent review: yes.** The outstanding step is independent
-review/integration only; no known release blocker remains.
+**Ready for independent review: yes.** The earlier independent-review blocker is
+fixed and covered by RED/GREEN and a fresh full release gate. The outstanding
+step is renewed independent review/integration only; no known release blocker
+remains.
