@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.100 — 2026-09-04
+
+- **Unavailable LLM models now explain why they are paused.** Story Studio carries GenStudio's allowlisted daily-capacity or temporary-backpressure reason and published return time into the disabled picker row, formatted in the device's local date and time. Older catalogues keep the existing generic wording, and unavailable rows remain grey and unselectable.
+- **Long narrative batches now recover cleanly from output truncation.** When GenStudio reports `finish_reason: length` or its durable `LANGUAGE_PROVIDER_INCOMPLETE` code, complete chapters remain untouched and only unfinished chapters receive one bounded, single-chapter repair request. The 8,192-token allowance applies to each repair batch, not the whole story; generic provider failures and ambiguous submissions still require explicit Retry. A malformed empty response remains a visible manual-retry outcome because its settlement is not safe to infer.
+
 ## v1.4.99 — 2026-09-03
 
 - **Image work now enters GenStudio through its live admission permits.** Story Studio keeps the chosen episode-lane setting as local staging, waits locally when GenStudio has no confirmed capacity, and submits work only after GenStudio authorizes the exact account, model, and image operation.

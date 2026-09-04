@@ -133,6 +133,16 @@ describe('splitNarrationIntoChapters', () => {
     )
   })
 
+  test('treats a normalized title-less chapter heading prefix as a closing boundary', () => {
+    const parts = splitNarrationIntoChapters(
+      '## Chapter 01: First\n\nComplete first chapter.\n\n## Chapter 02: ',
+    )
+    assert.equal(parts.chapters.length, 1)
+    assert.match(parts.chapters[0]!.text, /Complete first chapter/)
+    assert.doesNotMatch(parts.chapters[0]!.text, /Chapter 02/)
+    assert.equal(parts.finalChapterBoundaryProven, true)
+  })
+
   test('skips title-card / preamble lines before the first heading', () => {
     const text = [
       'Title goes here',

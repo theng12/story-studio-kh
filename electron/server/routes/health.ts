@@ -124,6 +124,8 @@ router.get('/models', async (_req, res) => {
       locked: model.locked,
       lock_reason: model.lock_reason,
       available: model.available,
+      availability_reason: model.availability_reason,
+      available_again_at: model.available_again_at,
       disabled_reason: model.available
         ? null
         : (model.activation_blockers.join(' ') || 'This model is not currently available in GenStudio.'),

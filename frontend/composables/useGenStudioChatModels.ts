@@ -15,6 +15,8 @@ export interface GenStudioChatModelInfo {
   provider_name?: string
   description?: string
   available: boolean
+  availability_reason?: 'daily_quota_depleted' | 'temporary_backpressure' | null
+  available_again_at?: string | null
   qualification_only: boolean
   context_window_tokens?: number
   max_output_tokens?: number

@@ -33,6 +33,8 @@ export interface NarrationParts {
     title: string
     text: string
   }>
+  /** True when the final parsed chapter ended at a later recognised heading. */
+  finalChapterBoundaryProven?: boolean
 }
 
 export interface WriteChapterFilesOptions {
@@ -61,17 +63,28 @@ export interface WriteChapterFilesOptions {
  * Pure function (no I/O) so it's fixture-friendly and unit-testable
  * without writing docx files.
  */
+function parseNarrationChapterHeading(line: string): { number: number, title?: string } | null {
+  const match = line.match(/^##\s+(Chapter|Reason|Topic|Section|Part|Lesson|Bit|Beat)\s+(\d+)\s*[:\-–—](.*)$/i)
+  if (!match) return null
+  const title = match[3]!.trim()
+  return { number: parseInt(match[2]!, 10), ...(title ? { title } : {}) }
+}
+
 export function splitNarrationIntoChapters(narrationText: string): NarrationParts {
   const lines = narrationText.split('\n')
   let mode: 'preamble' | 'intro' | 'between' | 'chapter' = 'preamble'
   let introBuf: string[] = []
   let currentChapter: { number: number; title: string; lines: string[] } | null = null
   const chapters: Array<{ number: number; title: string; text: string }> = []
+  let finalChapterBoundaryProven = false
 
-  function flushChapter() {
+  function flushChapter(boundaryProven = false) {
     if (!currentChapter) return
     const text = currentChapter.lines.join('\n').trim()
-    if (text) chapters.push({ number: currentChapter.number, title: currentChapter.title, text })
+    if (text) {
+      chapters.push({ number: currentChapter.number, title: currentChapter.title, text })
+      finalChapterBoundaryProven = boundaryProven
+    }
     currentChapter = null
   }
 
@@ -83,14 +96,14 @@ export function splitNarrationIntoChapters(narrationText: string): NarrationPart
     if (trimmed.startsWith('# ') && !trimmed.startsWith('## ')) {
       const headingText = trimmed.slice(2).trim().toLowerCase()
       if (/^intro(duction)?\b/.test(headingText)) {
-        flushChapter()
+        flushChapter(true)
         introBuf = []
         mode = 'intro'
         continue
       }
       // Anything else at level 1 (e.g. "{title} — Narration") is a
       // separator between intro and chapters. Don't capture it as text.
-      flushChapter()
+      flushChapter(true)
       mode = 'between'
       continue
     }
@@ -103,15 +116,17 @@ export function splitNarrationIntoChapters(narrationText: string): NarrationPart
     // slug derivation reuses the term verbatim, so audio MP3 filenames
     // and the audio_chapters.json slugs naturally reflect what the
     // format calls itself ("Reason_01.mp3", not "Chapter_01.mp3").
-    const chapterMatch = trimmed.match(/^##\s+(Chapter|Reason|Topic|Section|Part|Lesson|Bit|Beat)\s+(\d+)\s*[:\-–—]\s*(.+)$/i)
-    if (chapterMatch) {
-      flushChapter()
-      currentChapter = {
-        number: parseInt(chapterMatch[2]!, 10),
-        title: chapterMatch[3]!.trim(),
-        lines: [],
+    const chapterHeading = parseNarrationChapterHeading(trimmed)
+    if (chapterHeading) {
+      flushChapter(true)
+      if (chapterHeading.title) {
+        currentChapter = { number: chapterHeading.number, title: chapterHeading.title, lines: [] }
+        mode = 'chapter'
+      } else {
+        // A recognised heading prefix with no title is a boundary, not prose.
+        // It closes the prior chapter but cannot become a chapter itself.
+        mode = 'between'
       }
-      mode = 'chapter'
       continue
     }
 
@@ -127,7 +142,7 @@ export function splitNarrationIntoChapters(narrationText: string): NarrationPart
   flushChapter()
 
   const intro = introBuf.join('\n').trim()
-  const out: NarrationParts = { chapters }
+  const out: NarrationParts = { chapters, finalChapterBoundaryProven }
   if (intro) out.intro = { text: intro }
   return out
 }

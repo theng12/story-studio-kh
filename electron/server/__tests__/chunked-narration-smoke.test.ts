@@ -43,6 +43,7 @@ import type { TextProvider, TextGenerationRequest } from '../providers/types.js'
 interface FakeCall {
   kind: 'outline' | 'expansion'
   userMessage: string
+  outputBudget?: TextGenerationRequest['outputBudget']
   requestIdentity?: string
   recoverByIdempotencyKey?: boolean
   idempotencyKey?: string
@@ -71,14 +72,14 @@ const fakeProvider: TextProvider = {
     const isOutline = /Plan the chapter structure|Plan a listicle/.test(req.userMessage)
     if (isOutline) {
       fakeCalls.push({
-        kind: 'outline', userMessage: req.userMessage, requestIdentity: req.requestIdentity,
+        kind: 'outline', userMessage: req.userMessage, outputBudget: req.outputBudget, requestIdentity: req.requestIdentity,
         recoverByIdempotencyKey: req.recoverByIdempotencyKey,
         idempotencyKey: req.idempotencyKey, allowedRecoveryKeys: req.allowedRecoveryKeys,
       })
       return fakeOutlineResponse
     }
     fakeCalls.push({
-      kind: 'expansion', userMessage: req.userMessage, requestIdentity: req.requestIdentity,
+      kind: 'expansion', userMessage: req.userMessage, outputBudget: req.outputBudget, requestIdentity: req.requestIdentity,
       recoverByIdempotencyKey: req.recoverByIdempotencyKey,
       idempotencyKey: req.idempotencyKey, allowedRecoveryKeys: req.allowedRecoveryKeys,
     })
@@ -325,13 +326,13 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.equal(result.chaptersWritten, 3)
   })
 
-  test('replaces an uncharged provider-incomplete batch once and preserves its partial files', async () => {
+  test('repairs an uncharged provider-declared truncation without retaining its unproven final block', async () => {
     const scriptDir = await freshDir()
     fakeOutlineResponse = buildOutlineJson(3, 'narrative')
     fakeExpansionFor = buildExpansionFor
     fakeIncompleteExpansion = {
       partialText: buildExpansionFor(1, 1),
-      finishReason: 'error',
+      finishReason: 'max_tokens',
     }
     const job = makeJob(scriptDir)
     const result = await generateNarrativeChunked(job, {
@@ -339,13 +340,192 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
       format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
     })
 
-    assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 2)
-    assert.ok(job.output_lines.some(line => /GenStudio reported incomplete output \(error\); preserved 1 parsed chapter/.test(line)))
-    assert.ok(job.output_lines.some(line => /one bounded replacement pass/.test(line)))
+    assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 4)
+    assert.ok(job.output_lines.some(line => /GenStudio reported incomplete output \(max_tokens\); preserved 0 parsed chapter/.test(line)))
+    assert.ok(job.output_lines.some(line => /one bounded single-chapter repair pass/.test(line)))
     assert.equal(result.chaptersWritten, 3)
     for (let n = 1; n <= 3; n++) {
       assert.equal(existsSync(path.join(scriptDir, `EPREPAIR2_Chapter_${String(n).padStart(2, '0')}.md`)), true)
     }
+  })
+
+  test('does not resubmit a non-truncation provider failure as a chapter repair', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    fakeIncompleteExpansion = {
+      partialText: buildExpansionFor(1, 1),
+      finishReason: 'content_filter',
+    }
+    const job = makeJob(scriptDir)
+
+    await assert.rejects(
+      generateNarrativeChunked(job, {
+        episode_id: 'EPREPAIR-NO-RETRY', title: 'No Provider Retry', totalChapters: 3, wordsPerChapter: 500,
+        format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+      }),
+      /incomplete chat output \(content_filter\)/i,
+    )
+
+    assert.equal(
+      fakeCalls.filter(call => call.kind === 'expansion').length,
+      1,
+      'a non-truncation provider result remains terminal instead of buying a replacement request',
+    )
+    assert.equal(existsSync(path.join(scriptDir, 'EPREPAIR-NO-RETRY_Chapter_01.md')), false,
+      'a terminal provider outcome does not write or preserve partial customer-facing output')
+  })
+
+  test('length-truncated batches preserve only proven chapters and repair the final partial slot plus later slots once', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    fakeIncompleteExpansion = {
+      // Chapter 1 ends before the next heading, so it is proven complete.
+      // The parser can also make a non-empty Chapter 2 block from this cut
+      // response, but no response-completion boundary proves that block safe.
+      partialText: [
+        '## Chapter 01: Chapter 1\n\nCOMPLETE ORIGINAL CHAPTER ONE.\n',
+        '## Chapter 02: Chapter 2\n\nUNPROVEN PARTIAL CHAPTER TWO ends mid-sentence',
+      ].join('\n'),
+      finishReason: 'length',
+    }
+    const job = makeJob(scriptDir)
+
+    await generateNarrativeChunked(job, {
+      episode_id: 'EPREPAIR-LENGTH', title: 'Length Repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+
+    const expansionCalls = fakeCalls.filter(call => call.kind === 'expansion')
+    assert.equal(expansionCalls.length, 3, 'initial batch plus one bounded repair per unproven or missing chapter')
+    const slots = expansionCalls.map(call =>
+      [...call.userMessage.matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1])),
+    )
+    assert.deepEqual(slots, [[1, 2, 3], [2], [3]])
+    assert.deepEqual(
+      expansionCalls.slice(1).map(call => call.outputBudget),
+      [
+        { tier: 'workload', minimumTokens: 8_192 },
+        { tier: 'workload', minimumTokens: 8_192 },
+      ],
+      'each automatic repair is bounded independently at 8,192 output tokens',
+    )
+    assert.match(
+      await fs.readFile(path.join(scriptDir, 'EPREPAIR-LENGTH_Chapter_01.md'), 'utf8'),
+      /COMPLETE ORIGINAL CHAPTER ONE/,
+      'the complete chapter from the original response remains on disk and is not overwritten',
+    )
+    const repairedSecond = await fs.readFile(path.join(scriptDir, 'EPREPAIR-LENGTH_Chapter_02.md'), 'utf8')
+    assert.match(repairedSecond, /quick brown fox/)
+    assert.doesNotMatch(repairedSecond, /UNPROVEN PARTIAL CHAPTER TWO/)
+    assert.ok(job.output_lines.some(line => /incomplete output \(length\)/.test(line)))
+    assert.ok(job.output_lines.some(line => /bounded single-chapter repair/.test(line)))
+  })
+
+  test('a heading-only truncation retains the preceding boundary-proven chapter', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    fakeIncompleteExpansion = {
+      // The next heading closes Chapter 1, but Chapter 2 has no body. The
+      // parser returns only Chapter 1, which is proven complete and must not
+      // be mistaken for the unproven final chapter.
+      partialText: [
+        '## Chapter 01: Chapter 1\n\nCOMPLETE ORIGINAL CHAPTER ONE.\n',
+        '## Chapter 02: Chapter 2',
+      ].join('\n'),
+      finishReason: 'length',
+    }
+
+    await generateNarrativeChunked(makeJob(scriptDir), {
+      episode_id: 'EPREPAIR-HEADING', title: 'Heading Boundary Repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+
+    const expansionCalls = fakeCalls.filter(call => call.kind === 'expansion')
+    const slots = expansionCalls.map(call =>
+      [...call.userMessage.matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1])),
+    )
+    assert.deepEqual(slots, [[1, 2, 3], [2], [3]],
+      'Chapter 1 is retained; only the heading-only slot and later missing slot are repaired once')
+    assert.match(
+      await fs.readFile(path.join(scriptDir, 'EPREPAIR-HEADING_Chapter_01.md'), 'utf8'),
+      /COMPLETE ORIGINAL CHAPTER ONE/,
+    )
+  })
+
+  test('a title-less heading prefix with trailing whitespace closes the preceding chapter', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    fakeIncompleteExpansion = {
+      // This exact trailing space is normalized away by the chapter parser.
+      // It must still be a recognized boundary rather than Chapter 1 prose.
+      partialText: '## Chapter 01: Chapter 1\n\nCOMPLETE ORIGINAL CHAPTER ONE.\n\n## Chapter 02: ',
+      finishReason: 'length',
+    }
+
+    await generateNarrativeChunked(makeJob(scriptDir), {
+      episode_id: 'EPREPAIR-HEADING-PREFIX', title: 'Heading Prefix Repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+
+    const expansionCalls = fakeCalls.filter(call => call.kind === 'expansion')
+    const slots = expansionCalls.map(call =>
+      [...call.userMessage.matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1])),
+    )
+    assert.deepEqual(slots, [[1, 2, 3], [2], [3]])
+    const first = await fs.readFile(path.join(scriptDir, 'EPREPAIR-HEADING-PREFIX_Chapter_01.md'), 'utf8')
+    assert.match(first, /COMPLETE ORIGINAL CHAPTER ONE/)
+    assert.doesNotMatch(first, /Chapter 02/, 'the unproven heading prefix is not retained in Chapter 1')
+  })
+
+  test('completion and resume reject an unproven final truncation block', async () => {
+    const scriptDir = await freshDir()
+    const episodeId = 'EPREPAIR-RESUME'
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    let leaveSecondMissing = true
+    fakeExpansionFor = (firstN, batchSize) => (
+      firstN === 2 && leaveSecondMissing ? '' : buildExpansionFor(firstN, batchSize)
+    )
+    fakeIncompleteExpansion = {
+      partialText: [
+        '## Chapter 01: Chapter 1\n\nCOMPLETE ORIGINAL CHAPTER ONE.\n',
+        '## Chapter 02: Chapter 2\n\nUNPROVEN PARTIAL CHAPTER TWO ends mid-sentence',
+      ].join('\n'),
+      finishReason: 'length',
+    }
+
+    await assert.rejects(
+      generateNarrativeChunked(makeJob(scriptDir), {
+        episode_id: episodeId, title: 'Length Resume Repair', totalChapters: 3, wordsPerChapter: 500,
+        format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+      }),
+      /one-repair completion check; missing 2/i,
+    )
+
+    assert.equal(existsSync(path.join(scriptDir, `${episodeId}_Chapter_02.md`)), false,
+      'an unproven final block is never retained as a resumable chapter')
+    const incomplete = await inspectChunkedScriptCompletion(scriptDir, episodeId)
+    assert.equal(incomplete.complete, false)
+    assert.deepEqual(incomplete.missing, [2])
+
+    fakeCalls = []
+    leaveSecondMissing = false
+    await expandChapters(makeJob(scriptDir), {
+      episode_id: episodeId, title: 'Length Resume Repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+    const resumeSlots = fakeCalls.filter(call => call.kind === 'expansion').map(call =>
+      [...call.userMessage.matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1])),
+    )
+    assert.deepEqual(resumeSlots, [[2]], 'resume cannot accept the partial file and requests only its unfinished slot')
+    assert.match(
+      await fs.readFile(path.join(scriptDir, `${episodeId}_Chapter_01.md`), 'utf8'),
+      /COMPLETE ORIGINAL CHAPTER ONE/,
+      'resume does not overwrite an earlier proven chapter',
+    )
   })
 
   test('resume skips chapters already on disk + reuses cached outline', async () => {
