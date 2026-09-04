@@ -4,10 +4,12 @@
 
 - Base: `0762a886` (`main`)
 - Reviewed branch head before this release audit: `103ce3d7` (`feat/story-availability-reason`)
+- Audited implementation head: `54f1afcf` (`feat/story-availability-reason`)
 - Application version: `1.4.100`
 - Branch commits reviewed:
   - `e25fccdc` — Explain unavailable GenStudio chat models
   - `103ce3d7` — Repair truncated narrative chapters safely
+  - `54f1afcf` — Keep narrative repair limited to truncation
 
 This is an application release. `package.json`, `package-lock.json`, and the
 newest `CHANGELOG.md` entry already agree on `1.4.100`; the release audit kept
