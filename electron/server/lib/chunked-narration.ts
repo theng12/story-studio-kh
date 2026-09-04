@@ -1815,18 +1815,13 @@ async function parseAndWriteBatch(
 ): Promise<number[]> {
   const expected = new Set(batch.map(e => e.n))
   const parts = splitNarrationIntoChapters(text)
-  const chapterHeadings = [...text.matchAll(/^##\s+(Chapter|Reason|Topic|Section|Part|Lesson|Bit|Beat)\s+(\d+)\s*[:\-–—]\s*(.+)$/gim)]
-  const finalHeading = chapterHeadings[chapterHeadings.length - 1]
-  const finalParsedChapter = parts.chapters[parts.chapters.length - 1]
-  // A heading with no body closes the preceding chapter, but produces no
-  // parser chapter of its own. Only discard when the final heading actually
-  // produced the final non-empty parsed block and has body text that the
-  // truncation left without a following completion boundary.
+  // The shared parser normalizes headings before classifying them, including a
+  // title-less trailing prefix that closes the preceding chapter. Only its
+  // final-boundary signal decides whether a truncation's final parsed block is
+  // unproven; keeping a second raw regex here would drift from that grammar.
   const finalParsedChapterIsUnproven = options.discardFinalParsedChapter
-    && finalHeading !== undefined
-    && finalParsedChapter !== undefined
-    && Number(finalHeading[2]) === finalParsedChapter.number
-    && text.slice((finalHeading.index ?? 0) + finalHeading[0].length).trim().length > 0
+    && parts.chapters.length > 0
+    && !parts.finalChapterBoundaryProven
   const filtered: NarrationParts = {
     chapters: (finalParsedChapterIsUnproven ? parts.chapters.slice(0, -1) : parts.chapters)
       .filter(c => expected.has(c.number)),

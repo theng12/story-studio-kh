@@ -455,6 +455,32 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     )
   })
 
+  test('a title-less heading prefix with trailing whitespace closes the preceding chapter', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    fakeIncompleteExpansion = {
+      // This exact trailing space is normalized away by the chapter parser.
+      // It must still be a recognized boundary rather than Chapter 1 prose.
+      partialText: '## Chapter 01: Chapter 1\n\nCOMPLETE ORIGINAL CHAPTER ONE.\n\n## Chapter 02: ',
+      finishReason: 'length',
+    }
+
+    await generateNarrativeChunked(makeJob(scriptDir), {
+      episode_id: 'EPREPAIR-HEADING-PREFIX', title: 'Heading Prefix Repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+
+    const expansionCalls = fakeCalls.filter(call => call.kind === 'expansion')
+    const slots = expansionCalls.map(call =>
+      [...call.userMessage.matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1])),
+    )
+    assert.deepEqual(slots, [[1, 2, 3], [2], [3]])
+    const first = await fs.readFile(path.join(scriptDir, 'EPREPAIR-HEADING-PREFIX_Chapter_01.md'), 'utf8')
+    assert.match(first, /COMPLETE ORIGINAL CHAPTER ONE/)
+    assert.doesNotMatch(first, /Chapter 02/, 'the unproven heading prefix is not retained in Chapter 1')
+  })
+
   test('completion and resume reject an unproven final truncation block', async () => {
     const scriptDir = await freshDir()
     const episodeId = 'EPREPAIR-RESUME'
