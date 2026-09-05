@@ -14,8 +14,8 @@ The older no-spending-toggle prohibition remains superseded by the accepted
 
 ## Workspace and commits
 
-- Source checkout: `/build/Developer/story-studio-kh`
-- Isolated worktree: `/build/Developer/story-studio-kh/.worktrees/story-preflight-handoff`
+- Source checkout: `<owner-home>/Developer/story-studio-kh`
+- Isolated worktree: `<owner-home>/Developer/story-studio-kh/.worktrees/story-preflight-handoff`
 - Branch: `codex/story-preflight-handoff`
 - Start head: `72a5aa1da35213c4d4f29da1630f18245a17584f`
 - Implementation commit: `c3f2effc29136ecd7e6b99e3e1aaabefd471c6ca`
@@ -88,9 +88,27 @@ Fresh focused verification after the final implementation:
 - `git diff --cached --check`
 - exit 0 before the implementation commit.
 
-The complete release suite, push, pull request, merge, and release artifact were
-deliberately not run or created. The coordinator requested inspection of this
-focused report and an independent review before those lifecycle steps.
+The complete release suite, push, pull request, merge, and release artifact had
+not been run or created when this focused report was prepared. The coordinator
+required review before those lifecycle steps.
+
+## Coordinator review and release hygiene
+
+The coordinator independently reviewed the complete production diff, the
+168-line regression file, and the existing `preflightBatch()` / `run-batch`
+context. The review accepted the change: targeted Scene Plan and Scene Review
+now use the existing dependency and status authorities before enqueue;
+`metadata` and unrelated single-step behavior remain unchanged; invalid cases
+prove HTTP 400, a named prerequisite, and an unchanged job count; valid cases
+prove HTTP 201. No production-code blocker or additional independent review was
+identified.
+
+The initial handoff used the owner's literal home path in two workspace notes.
+Both now use the repository's approved `<owner-home>` placeholder. The exact
+release-hygiene gate was rerun after that repair:
+
+- `node --test --test-name-pattern="no tracked file contains the owner's real home path" scripts/release/__tests__/public-release.test.mjs`
+- exit 0; 1 test, 1 suite, 1 passed, 0 failed.
 
 ## Exit checklist
 
@@ -108,10 +126,10 @@ focused report and an independent review before those lifecycle steps.
 - No provider call, paid work, customer data mutation, deployment, publish,
   push, merge, or full release suite occurred.
 
-## Review request
+## Review result
 
-Independently verify that excluding only `metadata`, `scene_plan`, and
+The coordinator accepted that excluding only `metadata`, `scene_plan`, and
 `scene_review` from the single-step bypass preserves every other targeted
 workflow, and that the test artifacts exercise the same status authorities used
-by production. If accepted, the coordinator can run the remaining required
-release gate and repository integration lifecycle.
+by production. The remaining required release gate and repository integration
+lifecycle may proceed from this reviewed head.
