@@ -67,6 +67,16 @@ test('saved missing set narrows but never widens an exact source allow-list', as
   assert.throws(() => createEpisodeRecoveryPlan([source('subtitles_transcribe', { sections: ['Chapter_02', 99] })]), /scope/i)
 })
 
+test('explicit cancelled source selection owns settings even beside a newer unrelated row', async () => {
+  const { createEpisodeRecoveryPlan } = await subject()
+  const chosen = { ...source('subtitles_transcribe', { force: true, sections: ['Chapter_02'], model: 'chosen' }), status: 'cancelled' as const }
+  const newer = { ...chosen, job_id: 'newer-other', status: 'done' as const, created_at: '2026-09-06T00:00:00Z', params: { sections: ['Chapter_99'], model: 'other' } }
+  const plan = createEpisodeRecoveryPlan([chosen, newer], [chosen.job_id])
+  assert.deepEqual(plan.steps.subtitle_sections?.params.sections, ['Chapter_02'])
+  assert.equal(plan.steps.subtitle_sections?.params.model, 'chosen')
+  assert.equal(plan.steps.subtitle_sections?.params.force, false)
+})
+
 test('pipeline continuation is captured without creating a competing downstream chain', async () => {
   const { createEpisodeRecoveryPlan } = await subject()
   const plan = createEpisodeRecoveryPlan([source('subtitles_transcribe', {
@@ -304,5 +314,95 @@ test('manual purchase replay keeps one Story job and exact persisted sections ev
     assert.equal(replay.body.job_id, first.body.job_id)
     assert.deepEqual(replay.body.params.sections, ['Chapter_02'])
     assert.equal(replay.body.params.episode_recovery_id, 'dag-plan')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('explicit cancelled retries create one new topological plan while preserving all cancellation tombstones', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Explicit cancelled episode retry' })
+    await jq.setQueuePaused(true)
+    const { recoverEpisode, dispatchEpisodeRecoveryStep } = await subject()
+    const original = rows().map(job => ({ ...job, job_id: `cancel-source-${job.type}`, project_slug: project.slug, params: { ...job.params, force: true } }))
+    for (const job of original) await jq.writeAuthoritativeJob(job)
+    const old = (await recoverEpisode(project.slug, 'EP0001'))!
+    for (const job of original) await jq.mutateAuthoritativeJob(project.slug, job.job_id, row => ({ ...row, status: 'cancelled' }))
+    const tombstones = await jq.getJobs(project.slug)
+    assert.equal((await recoverEpisode(project.slug, 'EP0001', false))!.id, old.id, 'automatic continuation cannot create a new cancellation epoch')
+    const { router } = await import('../routes/jobs.js')
+    const app = express().use(express.json()).use(router)
+    const url = `/projects/${project.slug}/jobs/recover-episode/EP0001`
+    const intent = { source_job_ids: original.map(job => job.job_id) }
+    const [first, duplicate] = await Promise.all([request(app).post(url).send(intent), request(app).post(url).send(intent)])
+    assert.equal(first.status, 202, JSON.stringify(first.body))
+    const plan = first.body.plan
+    assert.notEqual(plan.id, old.id)
+    assert.equal(duplicate.body.plan.id, plan.id)
+    assert.equal(plan.first_unresolved, 'audio_merge')
+    assert.equal(plan.steps.subtitle_sections.params.force, false)
+    assert.equal(plan.steps.scene_plan_run.params.force, false)
+    assert.equal(plan.steps.continuity_render.params.force, false)
+    assert.deepEqual(plan.steps.subtitle_sections.params.sections, ['Chapter_02', 'Chapter_16'])
+    for (const job of original) {
+      const single = await request(app).post(`/projects/${project.slug}/jobs/${job.job_id}/retry`).send({})
+      assert.equal(single.status, 202)
+      assert.equal(single.body.plan.id, plan.id)
+    }
+    const all = await request(app).post(`/jobs/all/${original[0].job_id}/retry`).send({})
+    assert.equal(all.body.plan.id, plan.id)
+    assert.deepEqual(await jq.getJobs(project.slug), tombstones, 'cancelled rows are neither resumed, deleted, nor relabelled')
+    const saved = JSON.parse(await fs.readFile(path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json'), 'utf8'))
+    assert.equal(saved.retired_plans[old.id].id, old.id)
+    assert.equal((await request(app).post(url).send({ source_job_ids: ['not-owned'] })).status, 409)
+    assert.equal((await request(app).post(url).send({ ...intent, force: true })).status, 400)
+    await dispatchEpisodeRecoveryStep(plan, { verified: { ...ready, subtitle_sections: false, subtitle_stitch: false, scene_plan_run: false, continuity_render: false }, message: '', missing: ['Chapter_02', 'Chapter_16'] }, await jq.getJobs(project.slug))
+    const fresh = (await jq.getJobs(project.slug)).filter(job => job.status !== 'cancelled')
+    assert.deepEqual(fresh.map(job => job.type), ['subtitles_transcribe'])
+    assert.equal(fresh[0].params.force, false)
+    assert.deepEqual(fresh[0].params.sections, ['Chapter_02', 'Chapter_16'])
+    assert.notEqual(fresh[0].job_id, 'subtitles_transcribe')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('individual cancelled DAG retries start through the owned queue route without reviving any original row', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const { router } = await import('../routes/jobs.js')
+    const { recoverEpisode } = await subject()
+    const app = express().use(express.json()).use(router)
+    await jq.setQueuePaused(true)
+    for (const type of ['subtitles_transcribe', 'scene_plan_run', 'continuity_render'] as const) {
+      const project = await pm.createProject({ name: `Individual cancellation ${type}` })
+      const job = { ...source(type, { force: true, sections: ['Chapter_02'] }), job_id: `individual-${type}`, project_slug: project.slug, status: 'cancelled' as const }
+      await jq.writeAuthoritativeJob(job)
+      await jq.getJobs(project.slug)
+      assert.equal(await recoverEpisode(project.slug, 'EP0001', false), null)
+      const response = await request(app).post(`/projects/${project.slug}/jobs/${job.job_id}/retry`).send({})
+      assert.equal(response.status, 202, JSON.stringify(response.body))
+      assert.equal(response.body.plan.first_unresolved, 'audio_merge')
+      assert.equal((await jq.getJobs(project.slug)).length, 1)
+      assert.equal(jq.getJob(job.job_id)?.status, 'cancelled')
+      assert.equal(jq.getJob(job.job_id)?.params.force, true)
+      assert.equal(jq.getJob(job.job_id)?.params.episode_recovery_id, undefined)
+    }
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('automatic recovery does not select unrelated cancelled source jobs', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Unselected cancelled recovery' })
+    await jq.setQueuePaused(true)
+    const { recoverEpisode } = await subject()
+    for (const row of rows()) await jq.writeAuthoritativeJob({ ...row, job_id: `unselected-${row.type}`, project_slug: project.slug, status: 'cancelled' })
+    assert.equal(await recoverEpisode(project.slug, 'EP0001', false), null)
+    await assert.rejects(recoverEpisode(project.slug, 'EP0001'), /No recoverable/)
+    assert.equal((await jq.getJobs(project.slug)).every(job => job.status === 'cancelled'), true)
   } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })

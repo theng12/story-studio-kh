@@ -31,6 +31,7 @@ export interface EpisodeRecoveryPlan {
   continuation?: Array<{ type: JobType; title?: string; params?: Job['params'] }>
   continuation_dispatched?: boolean
   pipeline_batch_id?: string
+  retry_source_job_ids?: string[]
   next_free_check_at?: string
 }
 
@@ -47,7 +48,7 @@ export function episodeRecoveryStep(type: string): EpisodeRecoveryStep | null {
   return EPISODE_RECOVERY_ORDER.includes(type as EpisodeRecoveryStep) ? type as EpisodeRecoveryStep : null
 }
 
-export function createEpisodeRecoveryPlan(jobs: Job[]): EpisodeRecoveryPlan {
+export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = []): EpisodeRecoveryPlan {
   if (!jobs.length) throw new Error('Recovery requires an existing episode job.')
   const first = jobs[0]
   const id = randomUUID()
@@ -59,6 +60,7 @@ export function createEpisodeRecoveryPlan(jobs: Job[]): EpisodeRecoveryPlan {
     const params = structuredClone(input || {})
     delete params.pipeline_chain
     delete params.subtitle_purchase
+    if (source?.status === 'cancelled') params.force = false
     if (step === 'subtitle_sections') {
       assertSectionScope(params)
       params.force = false
@@ -86,6 +88,8 @@ export function createEpisodeRecoveryPlan(jobs: Job[]): EpisodeRecoveryPlan {
     }
   }
   for (const job of sorted) add(job.type, job.title, job.params, job)
+  // Explicit saved-source selection outranks a newer, unrelated history row.
+  for (const job of sorted.filter(row => sourceJobIds.includes(row.job_id))) add(job.type, job.title, job.params, job)
   return plan
 }
 
@@ -171,7 +175,7 @@ async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
   return { verified, message: sectionMessage }
 }
 
-interface RecoveryStore { version: 1; plans: Record<string, EpisodeRecoveryPlan> }
+interface RecoveryStore { version: 1; plans: Record<string, EpisodeRecoveryPlan>; retired_plans?: Record<string, EpisodeRecoveryPlan> }
 
 export async function dispatchEpisodeRecoveryStep(
   plan: EpisodeRecoveryPlan,
@@ -182,7 +186,7 @@ export async function dispatchEpisodeRecoveryStep(
   const cancelled = jobs.find(job => job.params?.episode_recovery_id === plan.id && (job.status === 'cancelled' || job.force_abandoned))
   if (cancelled) {
     plan.first_unresolved = episodeRecoveryStep(cancelled.type)
-    plan.message = 'Episode recovery stopped after cancellation. Start a new deliberate operation to continue.'
+    plan.message = 'Episode recovery stopped after cancellation. Use Retry to start a new recovery plan from the cancelled job.'
     return
   }
   for (const job of jobs) {
@@ -253,7 +257,7 @@ async function readPlans(file: string): Promise<RecoveryStore> {
 }
 
 /** One lock, one record per episode; all callers consume the same queue identities. */
-export async function recoverEpisode(projectSlug: string, episodeId: string, create = true): Promise<EpisodeRecoveryPlan | null> {
+export async function recoverEpisode(projectSlug: string, episodeId: string, create = true, sourceJobIds: string[] = []): Promise<EpisodeRecoveryPlan | null> {
   const projectDir = getProjectDir(projectSlug)
   if (!projectDir) throw new Error('Project not found.')
   await jq.getJobs(projectSlug)
@@ -262,11 +266,21 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
     const jobs = (await jq.getJobs(projectSlug)).filter(job => job.episode_id === episodeId)
     const store = await readPlans(file)
     let plan = store.plans[episodeId]
-    if (!plan) {
+    const selected = sourceJobIds.map(id => jobs.find(job => job.job_id === id))
+    if (selected.some(job => !job || !episodeRecoveryStep(job.type) || job.force_abandoned
+      || !['error', 'cancelled'].includes(job.status))) throw new Error('Recovery source must be an owned failed or cancelled episode job.')
+    // Only an explicit saved-source intent can supersede a cancellation. Replay
+    // of the same intent reuses its plan; automatic observers never select it.
+    const newCancellationIntent = selected.some(job => job!.status === 'cancelled' && !plan?.retry_source_job_ids?.includes(job!.job_id))
+    if (!plan || newCancellationIntent) {
       if (!create) return null
       const relevant = jobs.filter(job => episodeRecoveryStep(job.type) && !job.force_abandoned && job.status !== 'cancelled')
+      for (const job of selected) if (!relevant.some(row => row.job_id === job!.job_id)) relevant.push(job!)
       if (!relevant.length) throw new Error('No recoverable episode jobs were found.')
-      plan = store.plans[episodeId] = createEpisodeRecoveryPlan(relevant)
+      const priorSourceIds = plan?.retry_source_job_ids || []
+      if (plan) (store.retired_plans ||= {})[plan.id] = plan
+      plan = store.plans[episodeId] = createEpisodeRecoveryPlan(relevant, sourceJobIds)
+      plan.retry_source_job_ids = [...new Set([...priorSourceIds, ...sourceJobIds])]
       await writeJsonAtomic(file, store) // identity first, before any queue insertion
     }
     if (plan.project_slug !== projectSlug) throw new Error('Episode recovery belongs to another project.')

@@ -15,9 +15,26 @@ test('Retry All groups dependent rows once without altering subtitle allow-lists
     { job_id: 'other', project_slug: 'p', episode_id: 'EP0001', type: 'metadata' },
   ]
   const grouped = groupEpisodeRecoveryRetries(jobs)
-  assert.deepEqual(grouped.episodes, [{ project_slug: 'p', episode_id: 'EP0001' }])
+  assert.deepEqual(grouped.episodes, [{ project_slug: 'p', episode_id: 'EP0001', source_job_ids: ['s', 'p', 'r'] }])
   assert.deepEqual(grouped.other, [jobs[3]])
   assert.deepEqual(jobs[0].params!.sections, ['Chapter_02'])
+})
+
+test('cancelled subtitle, Scene Plan, and Scene Review retries use saved source intent, never raw generator posts', async () => {
+  const { groupEpisodeRecoveryRetries } = await import('../utils/episode-recovery')
+  const jobs = ['subtitles_transcribe', 'scene_plan_run', 'continuity_render'].map(type => ({
+    type, job_id: type, project_slug: 'p', episode_id: 'EP0001', status: 'cancelled', params: { force: true, sections: ['Chapter_02'] },
+  }))
+  const grouped = groupEpisodeRecoveryRetries(jobs)
+  assert.deepEqual(grouped.other, [])
+  assert.deepEqual(grouped.episodes, [{ project_slug: 'p', episode_id: 'EP0001', source_job_ids: jobs.map(job => job.job_id) }])
+  const page = readFileSync(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url), 'utf8')
+  const retry = page.slice(page.indexOf('async function retryJob('), page.indexOf('const endpointMap:', page.indexOf('async function retryJob(')))
+  assert.match(retry, /if \(isEpisodeRecoveryType\(job.type\)\)/)
+  assert.match(retry, /source_job_ids: \[job.job_id\]/)
+  assert.doesNotMatch(retry, /status !== 'cancelled'/)
+  assert.doesNotMatch(page.slice(page.indexOf('async function retryJob(')), /video-editor\/subtitles\/transcribe/)
+  assert.deepEqual(jobs[0].params, { force: true, sections: ['Chapter_02'] })
 })
 
 async function component() {

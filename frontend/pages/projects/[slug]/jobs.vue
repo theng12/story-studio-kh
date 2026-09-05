@@ -1634,7 +1634,7 @@ async function retryAllFailed() {
     // Dependent rows share one server-owned plan. No per-row POST or delete
     // may race its prerequisite, even when a downstream row already failed.
     for (const episode of grouped.episodes) {
-      await post(`/projects/${episode.project_slug}/jobs/recover-episode/${episode.episode_id}`, {})
+      await post(`/projects/${episode.project_slug}/jobs/recover-episode/${episode.episode_id}`, { source_job_ids: episode.source_job_ids })
     }
     // Bounded the same way Repair-all is. Posting is not running — each retry
     // enqueues a job and the queue paces execution (the episode lane is bounded
@@ -2544,9 +2544,9 @@ async function retryJob(job: RJob) {
   // license a later Retry all.
   setRepairState(job.job_id, null)
   const projectSlug = jobProjectSlug(job)
-  if (isEpisodeRecoveryType(job.type) && job.status !== 'cancelled') {
+  if (isEpisodeRecoveryType(job.type)) {
     try {
-      const response = await post<{ plan: { message: string } }>(`/projects/${projectSlug}/jobs/recover-episode/${job.episode_id}`, {})
+      const response = await post<{ plan: { message: string } }>(`/projects/${projectSlug}/jobs/recover-episode/${job.episode_id}`, { source_job_ids: [job.job_id] })
       info(response.plan.message)
     } catch (cause: any) { showError(cause?.data?.detail || cause?.message || 'Episode recovery could not be advanced.') }
     return
@@ -2584,18 +2584,9 @@ async function retryJob(job: RJob) {
     thumb_images:    { url: `/projects/${projectSlug}/generate/images`,  params: { ...job.params, mode: 'thumbs' } },
     images:          { url: `/projects/${projectSlug}/generate/images`,  params: job.params },
     audio:           { url: `/projects/${projectSlug}/generate/audio`,   params: job.params },
-    audio_merge:     { url: `/projects/${projectSlug}/generate/audio-merge`,    params: job.params },
     video:           { url: `/projects/${projectSlug}/generate/video`,         params: job.params },
     video_assembly:  { url: `/projects/${projectSlug}/generate/video-assembly`, params: job.params },
     images_repair:   { url: `/projects/${projectSlug}/generate/images-repair`,  params: { episode_id: job.episode_id } },
-    continuity_render: {
-      url: `/projects/${projectSlug}/scene-review/${job.episode_id}/continuity-render`,
-      params: job.params,
-    },
-    scene_images_batch: {
-      url: `/projects/${projectSlug}/scene-review/${job.episode_id}/continuity-render`,
-      params: job.params,
-    },
     scene_image_generate: {
       url: `/projects/${projectSlug}/scene-review/${job.episode_id}/generate-image`,
       params: job.params,
@@ -2615,21 +2606,6 @@ async function retryJob(job: RJob) {
     scene_clips_batch: {
       url: `/projects/${projectSlug}/scene-review/${job.episode_id}/generate-clips-batch`,
       params: job.params,
-    },
-    // Transcription uses a non-`/generate` URL because the endpoint lives
-    // under /video-editor. Always heal old jobs onto the one GenStudio route;
-    // preserve the remaining request identity so manual Retry fills only the
-    // work that is still missing.
-    subtitles_transcribe: {
-      url: `/projects/${projectSlug}/video-editor/subtitles/transcribe/${job.episode_id}`,
-      params: {
-        language: job.params?.language,
-        model: job.params?.model,
-        engine: 'genstudio',
-        per_chapter: job.params?.per_chapter,
-        force: job.params?.force,
-        sections: job.params?.sections,
-      },
     },
   }
   // Batch-only types — `metadata` and `image_prompts` are enqueued exclusively
