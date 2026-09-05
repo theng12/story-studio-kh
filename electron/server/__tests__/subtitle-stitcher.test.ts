@@ -14,11 +14,15 @@ import path from 'path'
 
 let stitch: typeof import('../services/subtitle-stitcher.js')
 let subtitles: typeof import('../generators/subtitles.js')
+let autostitch: typeof import('../lib/subtitle-autostitch.js')
+let timelineIntegrity: typeof import('../services/scene-timeline-integrity.js')
 let tmp: string
 
 before(async () => {
   stitch = await import('../services/subtitle-stitcher.js')
   subtitles = await import('../generators/subtitles.js')
+  autostitch = await import('../lib/subtitle-autostitch.js')
+  timelineIntegrity = await import('../services/scene-timeline-integrity.js')
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'sub-stitch-'))
 })
 after(async () => { await fs.rm(tmp, { recursive: true, force: true }) })
@@ -35,11 +39,40 @@ async function makeCase(name: string, chapters: any, files: Record<string, strin
 const SRT = '1\n00:00:00,000 --> 00:00:02,000\nHello world\n\n2\n00:00:02,000 --> 00:00:04,000\nSecond line\n'
 
 describe('subtitle stitcher', () => {
-  test('rejects a skipped auto-stitch so a complete section batch cannot become a done subtitle job', () => {
-    assert.throws(
-      () => subtitles.requireWrittenSubtitleStitch({ status: 'not-applicable', reason: 'no matching section files' }),
-      /subtitle stitch did not complete.*no matching section files/i,
-    )
+  test('rejects skipped, stale, and malformed stitch states', () => {
+    for (const status of ['not-applicable', 'kept', 'stale', 'malformed']) {
+      assert.throws(
+        () => subtitles.requireWrittenSubtitleStitch({ status, reason: 'timeline is not verified' }),
+        /subtitle stitch did not complete.*timeline is not verified/i,
+      )
+    }
+  })
+
+  test('accepts an unchanged complete stitch only after its recorded inputs and timeline remain valid', async () => {
+    const inputs = await makeCase('fresh-complete', {
+      gap_duration_s: 1,
+      sections: [{ slug: 'Chapter_01', duration_s: 60 }],
+    }, { 'EP0001_Chapter_01.srt': SRT })
+    const mergedAudioDir = path.join(inputs.episode_dir, 'merged')
+    await fs.mkdir(mergedAudioDir)
+    await fs.writeFile(path.join(mergedAudioDir, 'EP0001_merged_audio.mp3'), 'audio')
+    await fs.writeFile(path.join(mergedAudioDir, 'EP0001_merged_audio.completion.json'), JSON.stringify({
+      output_filename: 'EP0001_merged_audio.mp3',
+      opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
+    }))
+
+    const options = {
+      episodeDir: inputs.episode_dir,
+      subtitlesDir: inputs.subtitles_dir,
+      mergedAudioDir,
+      episodeCode: inputs.episode_code,
+    }
+    assert.equal((await autostitch.ensureStitchedSubtitle(options)).status, 'stitched')
+    const fresh = await autostitch.ensureStitchedSubtitle(options)
+    assert.equal(fresh.status, 'fresh')
+    assert.ok(await autostitch.readRecordedSignature(fresh.path), 'a fresh stitch must carry its input fingerprint')
+    assert.equal((await timelineIntegrity.readSubtitleTimelineIntegrity(inputs.subtitles_dir, inputs.episode_code)).complete, true)
+    assert.doesNotThrow(() => subtitles.requireWrittenSubtitleStitch(fresh))
   })
 
   test('matches per-chapter SRT despite slug-format drift (chapter_1 ↔ EP0001_Chapter1.srt)', async () => {
