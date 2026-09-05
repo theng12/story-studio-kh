@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.103 — 2026-09-05
+
+- **Targeted Scene Plan and Scene Review runs now stop before creating a job when their saved prerequisites are incomplete.** Pipeline names the missing Subtitles or Scene Plan artifact immediately, while valid targeted regeneration and every other single-step workflow keep their existing behavior.
+
 ## v1.4.102 — 2026-09-05
 
 - **Retry All now recovers each episode in prerequisite order.** Audio Assembly, exact missing subtitle sections, a verified fresh stitch, Scene Plan, required Contextual Cues, and Scene Review share one saved recovery plan. Failed downstream rows wait their turn; restart and repeated clicks retain each queued job's identity. Jobs shows free recovery/settlement progress and a bounded **Buy missing subtitles now** action when eligible.

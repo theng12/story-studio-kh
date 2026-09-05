@@ -376,9 +376,9 @@ async function preflightBatch(
     }
     for (const step of steps) {
       // A single selected step is normally a targeted repair/regeneration
-      // operation. YouTube Finalizer is the exception: it must not spend an
-      // LLM call until measured Audio Assembly timing exists.
-      if (steps.length === 1 && step !== 'metadata') {
+      // operation. Downstream Story stages still need their durable artifact:
+      // Scene Plan needs Subtitles, and Scene Review needs Scene Plan.
+      if (steps.length === 1 && step !== 'metadata' && step !== 'scene_plan' && step !== 'scene_review') {
         available.add(step)
         continue
       }
