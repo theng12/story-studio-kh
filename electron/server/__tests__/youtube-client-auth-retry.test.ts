@@ -23,21 +23,22 @@ import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 const realFetch = globalThis.fetch
 
 let tempDir: string
 let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
-let store: typeof import('../services/upload-store.js')
 let client: typeof import('../lib/youtube-client.js')
+let connections: typeof import('../services/youtube-connection-store.js')
 
 before(async () => {
   const t = await useTempDataDir()
   tempDir = t.dir
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')
-  store = await import('../services/upload-store.js')
   client = await import('../lib/youtube-client.js')
+  connections = await import('../services/youtube-connection-store.js')
 })
 
 after(async () => {
@@ -51,26 +52,30 @@ beforeEach(async () => {
   await fs.mkdir(projectsDir, { recursive: true })
 })
 
-const ACCOUNT_ID = 'acc_test'
+const CHANNEL_ID = 'channel_test'
 const STALE_TOKEN = 'stale-access-token'
 const FRESH_TOKEN = 'fresh-access-token'
 const REFRESH_TOKEN = 'refresh-token-still-valid'
 
 async function seedAccount(): Promise<string> {
   const project = await pm.createProject({ name: 'Auth Retry Test' })
-  await store.writeOAuthClient(project.slug, 'youtube', {
+  await connections.configureYouTubeApplication({
     client_id: 'test-client-id',
     client_secret: 'test-client-secret',
   })
   // expires_at is well in the future so the proactive refresh path doesn't
   // fire — we want to exercise the *reactive* path triggered by Google's
   // 401, not the proactive expires_at - 60s branch.
-  await store.writeTokens(project.slug, 'youtube', ACCOUNT_ID, {
-    access_token: STALE_TOKEN,
-    refresh_token: REFRESH_TOKEN,
-    expires_at: Date.now() + 30 * 60 * 1000,
-    scope: 'https://www.googleapis.com/auth/youtube',
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: CHANNEL_ID, title: 'Auth Retry Channel', granted_scopes: ['https://www.googleapis.com/auth/youtube'] },
+    tokens: {
+      access_token: STALE_TOKEN,
+      refresh_token: REFRESH_TOKEN,
+      expires_at: Date.now() + 30 * 60 * 1000,
+      scope: 'https://www.googleapis.com/auth/youtube',
+    },
   })
+  await connections.assignProjectYouTubeChannel({ project_slug: project.slug, channel_id: CHANNEL_ID, expected_previous_channel_id: null })
   return project.slug
 }
 
@@ -82,8 +87,28 @@ function jsonResponse(status: number, body: any): Response {
 }
 
 describe('fetchWithAuthRetry — reactive 401 handling', () => {
+  test('rejects a registry channel that is not assigned to this project before provider I/O', async () => {
+    await seedAccount()
+    const other = await pm.createProject({ name: 'Unassigned Auth Test' })
+    let fetchCalls = 0
+    globalThis.fetch = (async () => {
+      fetchCalls++
+      return jsonResponse(200, { items: [] })
+    }) as any
+
+    await assert.rejects(
+      () => client.listPlaylists(other.slug, client.registryCredentialFor(CHANNEL_ID)),
+      (error: unknown) => (error as { code?: string }).code === 'YOUTUBE_RECONNECT_REQUIRED'
+        && /not assigned/i.test((error as Error).message),
+    )
+    assert.equal(fetchCalls, 0)
+  })
+
   test('retries once on 401 with a freshly refreshed token, then succeeds', async () => {
     const slug = await seedAccount()
+    const quota = await import('../services/youtube-quota-ledger.js')
+    const applicationId = (await connections.readYouTubeConnectionRegistry()).application!.application_id
+    const quotaBefore = (await quota.readYouTubeQuota(applicationId)).buckets.other_endpoints.used
 
     let playlistCalls = 0
     let refreshCalls = 0
@@ -113,17 +138,22 @@ describe('fetchWithAuthRetry — reactive 401 handling', () => {
       throw new Error(`unexpected fetch in test: ${u}`)
     }) as any
 
-    const playlists = await client.listPlaylists(slug, ACCOUNT_ID)
+    const playlists = await client.listPlaylists(slug, client.registryCredentialFor(CHANNEL_ID))
 
     assert.deepEqual(playlists, [], 'wrapper should return the post-retry success body')
     assert.equal(playlistCalls, 2, 'YouTube endpoint must be hit exactly twice (initial + one retry)')
     assert.equal(refreshCalls, 1, 'token endpoint must be hit exactly once')
     assert.equal(tokensSeen[0], `Bearer ${STALE_TOKEN}`, 'first attempt uses the stale token')
     assert.equal(tokensSeen[1], `Bearer ${FRESH_TOKEN}`, 'retry uses the freshly refreshed token')
+    assert.equal(
+      (await quota.readYouTubeQuota(applicationId)).buckets.other_endpoints.used,
+      quotaBefore + 2,
+      'both real playlist attempts are charged',
+    )
 
     // And: the refreshed bundle was persisted, so subsequent calls within
     // this session would not need to re-refresh.
-    const after = await store.readTokens(slug, 'youtube', ACCOUNT_ID)
+    const after = await connections.readYouTubeChannelTokensForServer(CHANNEL_ID)
     assert.equal(after?.access_token, FRESH_TOKEN, 'refreshed token must be written to secrets store')
   })
 
@@ -156,7 +186,7 @@ describe('fetchWithAuthRetry — reactive 401 handling', () => {
     }) as any
 
     await assert.rejects(
-      () => client.listPlaylists(slug, ACCOUNT_ID),
+      () => client.listPlaylists(slug, client.registryCredentialFor(CHANNEL_ID)),
       (err: any) => {
         // The 401 body must be preserved, not swallowed behind a generic
         // "reconnect required" message — the caller surfaces it to the

@@ -23,21 +23,22 @@ import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 const realFetch = globalThis.fetch
 
 let tempDir: string
 let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
-let store: typeof import('../services/upload-store.js')
 let client: typeof import('../lib/youtube-client.js')
+let connections: typeof import('../services/youtube-connection-store.js')
 
 before(async () => {
   const t = await useTempDataDir()
   tempDir = t.dir
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')
-  store = await import('../services/upload-store.js')
   client = await import('../lib/youtube-client.js')
+  connections = await import('../services/youtube-connection-store.js')
 })
 
 after(async () => {
@@ -49,9 +50,12 @@ beforeEach(async () => {
   const projectsDir = path.join(tempDir, 'projects')
   await fs.rm(projectsDir, { recursive: true, force: true })
   await fs.mkdir(projectsDir, { recursive: true })
+  await fs.rm(path.join(tempDir, 'youtube'), { recursive: true, force: true })
+  await fs.rm(path.join(tempDir, 'app-secrets.json'), { force: true })
 })
 
-const ACCOUNT_ID = 'acc_proactive'
+const CHANNEL_ID = 'acc_proactive'
+const ACCOUNT_ID = `registry:${CHANNEL_ID}`
 const STALE_TOKEN = 'stale-access-token'
 const FRESH_TOKEN = 'fresh-access-token'
 const REFRESH_TOKEN = 'refresh-token-still-valid'
@@ -65,16 +69,20 @@ function jsonResponse(status: number, body: any): Response {
 
 async function seedAccount(expiresAtOffsetMs: number): Promise<string> {
   const project = await pm.createProject({ name: `Pre-expiry ${Date.now()}-${Math.random()}` })
-  await store.writeOAuthClient(project.slug, 'youtube', {
+  await connections.configureYouTubeApplication({
     client_id: 'test-client-id',
     client_secret: 'test-client-secret',
   })
-  await store.writeTokens(project.slug, 'youtube', ACCOUNT_ID, {
-    access_token: STALE_TOKEN,
-    refresh_token: REFRESH_TOKEN,
-    expires_at: Date.now() + expiresAtOffsetMs,
-    scope: 'https://www.googleapis.com/auth/youtube',
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: CHANNEL_ID, title: CHANNEL_ID, granted_scopes: ['https://www.googleapis.com/auth/youtube'] },
+    tokens: {
+      access_token: STALE_TOKEN,
+      refresh_token: REFRESH_TOKEN,
+      expires_at: Date.now() + expiresAtOffsetMs,
+      scope: 'https://www.googleapis.com/auth/youtube',
+    },
   })
+  await connections.assignProjectYouTubeChannel({ project_slug: project.slug, channel_id: CHANNEL_ID, expected_previous_channel_id: null })
   return project.slug
 }
 
@@ -111,7 +119,7 @@ describe('getValidAccessToken — proactive 60s pre-expiry refresh', () => {
       assert.equal(spy.calls(), 1, 'refresh must fire when expiry is inside the 60s window')
       assert.equal(token, FRESH_TOKEN, 'returned token must be the freshly refreshed one')
       // And the refreshed bundle was persisted.
-      const after = await store.readTokens(slug, 'youtube', ACCOUNT_ID)
+      const after = await connections.readYouTubeChannelTokensForServer(CHANNEL_ID)
       assert.equal(after?.access_token, FRESH_TOKEN)
     } finally {
       spy.restore()

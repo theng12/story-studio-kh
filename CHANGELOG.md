@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.107 — 2026-09-05
+
+- **YouTube publishing now has one Upload Center with separate Overview, Publish, Library, Reconcile, Comments, and Analytics pages.** Preview names the exact assigned channel and payload before confirmation. Settings manages YouTube application credentials, channel connections, reconnects, and project assignment in one place, with secrets kept in encrypted storage.
+- **Interrupted uploads now resume without creating a duplicate video.** Story Studio ties the accepted channel, metadata, upload mode, source identity, resumable session, and provider result to one durable operation; a later project edit cannot change or relabel work that was already approved.
+- **Library actions preserve live YouTube fields and concurrent edits.** Metadata corrections fresh-read the exact video and use its ETag, while operation-bound thumbnail and playlist actions keep uncertain provider success visible instead of retrying blindly. Reconcile, processing status, comments, and analytics stay scoped to the assigned channel.
+- **Upload cleanup and quota reporting now follow the evidence they actually have.** Ordinary archive or storage cleanup requires a usable remote copy of the exact local render, and every YouTube Data API page or retry is counted against the application and channel credential that made it.
+
 ## v1.4.106 — 2026-09-05
 
 - **You can now generate or regenerate exactly one chapter's subtitles from the Subtitles page.** Every chapter has its own action, missing chapters stand out, and the page says that the selected chapter starts a new GenStudio request under the current quote. The other chapter files stay untouched.

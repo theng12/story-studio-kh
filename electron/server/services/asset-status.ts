@@ -949,10 +949,11 @@ export async function hasFinalVideoFast(
   slug: string,
   code: string,
   title: string,
+  cache?: ProjectFactsCache,
 ): Promise<boolean> {
   try {
     // Path A: project tree (canonical _final_video, or any non-scene mp4).
-    const paths = await resolveEpisodePaths(slug, code, title || '')
+    const paths = await resolveEpisodePaths(slug, code, title || '', cache)
     if (await findCanonicalFinal(paths.video_dir, code)) return true
 
     // Path B: external_final_video_root (per-machine Settings → Storage).
@@ -1345,8 +1346,9 @@ export async function computeEpisodeStatus(
 
   status.merged_audio = mergedS.status === 'fulfilled' && mergedS.value.present
 
-  // Video-assembly completion requires the canonical final filename, a valid
-  // upload sidecar, or the same canonical final at the configured external root.
+  // Video-assembly completion requires the canonical final filename, usable
+  // canonical/reconciled/legacy YouTube evidence, or the same canonical final
+  // at the configured external root.
   try {
     const ideasList = await getIdeasOnce()
     const CODE = code.toUpperCase()
@@ -1364,21 +1366,15 @@ export async function computeEpisodeStatus(
     const hasFinalInVideoDir = !!finalInVideoDir
     if (finalInVideoDir) finalVideoAbsPath = path.join(paths.video_dir, finalInVideoDir)
 
-    // Path D — YouTube sidecar shows uploaded. Once `video_id` is set in
-    // {episode_dir}/youtube_upload.json, the local final video is
-    // operationally redundant — the canonical copy lives on YouTube.
-    // Treating sidecar-uploaded as `video_assembly: true` lets the user
-    // delete the local file (manually or via the Storage UI) without
-    // the pipeline nagging about a "missing" assembly. The sidecar
-    // itself is small (a few KB) and is always inside episode_dir, so
-    // it survives any iCloud-sync cleanup the user did on the videos.
-    let hasSidecarUploaded = false
+    // Path D — a usable remote copy survives local cleanup. A merely accepted,
+    // failed, rejected, or uncertain provider identity is not completion.
+    let hasUsableRemote = false
     if (!hasFinalInVideoDir) {
       try {
-        const { readSidecar } = await import('./upload-sidecar.js')
-        const sc = await readSidecar(slug, code, title, 'youtube')
-        if (sc?.video_id) hasSidecarUploaded = true
-      } catch { /* sidecar missing or unreadable → leave false */ }
+        const { usableYouTubeRemoteEvidence, youtubeRetentionEvidenceFor } = await import('./youtube-remote-video.js')
+        const evidence = await youtubeRetentionEvidenceFor(slug, code, title, undefined, undefined, cache)
+        hasUsableRemote = usableYouTubeRemoteEvidence(evidence).usable
+      } catch { /* unreadable/corrupt evidence cannot claim completion */ }
     }
 
     // Path E — external final-video root (per-machine app setting).
@@ -1389,7 +1385,7 @@ export async function computeEpisodeStatus(
     // pipeline view sees finals that live outside the iCloud-synced
     // project folder.
     let hasFinalAtExternalRoot = false
-    if (!hasFinalInVideoDir && !hasSidecarUploaded) {
+    if (!hasFinalInVideoDir && !hasUsableRemote) {
       try {
         const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
         const externalDir = await resolveExternalFinalVideoDir(slug, code, title)
@@ -1404,7 +1400,7 @@ export async function computeEpisodeStatus(
     }
 
     status.video_assembly = hasFinalInVideoDir
-      || hasSidecarUploaded
+      || hasUsableRemote
       || hasFinalAtExternalRoot
 
     // Surface file size for whichever local path matched. Sidecar-only

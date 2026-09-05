@@ -7,10 +7,10 @@
  *  1. When `resumeFromSessionUrl` is set, the init endpoint is NOT hit.
  *  2. The resume probe (PUT Content-Range: bytes star-slash-N) is issued first.
  *  3. The chunk loop continues from Google's server-side high-water mark.
- *  4. `recordQuotaUsage('videos_insert')` is NOT called a second time —
+ *  4. the app-scoped `videos_insert` quota bucket is NOT charged a second time —
  *     the persisted sidecar already records a quota_charged: true. This
  *     is the whole point of the fix; redoing the upload from scratch
- *     would burn another 1600 units (16% of the default daily 10K).
+ *     would spend another provider upload call.
  *  5. The transient sidecar is deleted after the final 200.
  */
 
@@ -22,22 +22,23 @@ import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 let tempDir: string
 let cleanup: () => Promise<void>
 let yt: typeof import('../lib/youtube-client.js')
 let pm: typeof import('../services/project-manager.js')
-let store: typeof import('../services/upload-store.js')
+let connections: typeof import('../services/youtube-connection-store.js')
 let resume: typeof import('../services/upload-resume-sidecar.js')
-let quota: typeof import('../services/upload-quota.js')
+let quota: typeof import('../services/youtube-quota-ledger.js')
 
 before(async () => {
   const t = await useTempDataDir()
   tempDir = t.dir
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')
-  store = await import('../services/upload-store.js')
+  connections = await import('../services/youtube-connection-store.js')
   resume = await import('../services/upload-resume-sidecar.js')
-  quota = await import('../services/upload-quota.js')
+  quota = await import('../services/youtube-quota-ledger.js')
   yt = await import('../lib/youtube-client.js')
 })
 
@@ -47,22 +48,23 @@ beforeEach(async () => {
   const projectsDir = path.join(tempDir, 'projects')
   await fs.rm(projectsDir, { recursive: true, force: true })
   await fs.mkdir(projectsDir, { recursive: true })
+  await fs.rm(path.join(tempDir, 'youtube'), { recursive: true, force: true })
+  await fs.rm(path.join(tempDir, 'app-secrets.json'), { force: true })
 })
 
 async function setupProject() {
   const proj = await pm.createProject({ name: 'Resume', episode_prefix: 'EP', episode_digits: 3 })
-  // Seed OAuth client + tokens so getValidAccessToken doesn't try to refresh.
-  await store.writeOAuthClient(proj.slug, 'youtube', {
-    client_id: 'test-client',
-    client_secret: 'test-secret',
+  await connections.configureYouTubeApplication({ client_id: 'test-client', client_secret: 'test-secret' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: 'UC_resume', title: 'Resume', granted_scopes: ['youtube.upload'] },
+    tokens: {
+      access_token: 'access-token-fresh',
+      refresh_token: 'refresh-token',
+      expires_at: Date.now() + 60 * 60 * 1000,
+      scope: 'youtube.upload',
+    },
   })
-  await store.writeTokens(proj.slug, 'youtube', 'acc_test', {
-    access_token: 'access-token-fresh',
-    refresh_token: 'refresh-token',
-    expires_at: Date.now() + 60 * 60 * 1000, // 1h ahead
-    scope: 'youtube.upload',
-    token_type: 'Bearer',
-  } as any)
+  await connections.assignProjectYouTubeChannel({ project_slug: proj.slug, channel_id: 'UC_resume', expected_previous_channel_id: null })
   return proj
 }
 
@@ -164,7 +166,7 @@ describe('uploadVideo resume path', () => {
     // interrupted run that left this behind).
     await resume.writeResumeSidecar(proj.slug, 'EP001', {
       platform: 'youtube',
-      account_id: 'acc_test',
+      account_id: 'registry:UC_resume',
       file_path: filePath,
       file_size: totalBytes,
       session_url: sessionUrl,
@@ -173,13 +175,14 @@ describe('uploadVideo resume path', () => {
     })
 
     // Snapshot quota before the resume — used must NOT change after.
-    const beforeQuota = await quota.readQuota(proj.slug)
+    const applicationId = (await connections.readYouTubeConnectionRegistry()).application!.application_id
+    const beforeQuota = await quota.readYouTubeQuota(applicationId)
 
     const logLines: string[] = []
     try {
       const result = await yt.uploadVideo({
         slug: proj.slug,
-        accountId: 'acc_test',
+        accountId: 'registry:UC_resume',
         filePath,
         snippet: { title: 'resumed' },
         status: { privacyStatus: 'private' },
@@ -192,11 +195,11 @@ describe('uploadVideo resume path', () => {
       server.close()
     }
 
-    // 1. Quota counter unchanged — we did NOT pay another 1600 units.
-    const afterQuota = await quota.readQuota(proj.slug)
+    // 1. App-scoped upload counter unchanged — the existing session is not charged twice.
+    const afterQuota = await quota.readYouTubeQuota(applicationId)
     assert.equal(
-      afterQuota.used,
-      beforeQuota.used,
+      afterQuota.buckets.video_uploads.used,
+      beforeQuota.buckets.video_uploads.used,
       'resume must not charge videos_insert again',
     )
 
@@ -249,7 +252,7 @@ describe('uploadVideo resume path', () => {
 
     await resume.writeResumeSidecar(proj.slug, 'EP003', {
       platform: 'youtube',
-      account_id: 'acc_test',
+      account_id: 'registry:UC_resume',
       file_path: filePath,
       file_size: totalBytes,
       session_url: sessionUrl,
@@ -260,7 +263,7 @@ describe('uploadVideo resume path', () => {
     try {
       const result = await yt.uploadVideo({
         slug: proj.slug,
-        accountId: 'acc_test',
+        accountId: 'registry:UC_resume',
         filePath,
         snippet: { title: 'deferred' },
         status: { privacyStatus: 'private' },
@@ -298,7 +301,7 @@ describe('uploadVideo resume path', () => {
 
     await resume.writeResumeSidecar(proj.slug, 'EP002', {
       platform: 'youtube',
-      account_id: 'acc_test',
+      account_id: 'registry:UC_resume',
       file_path: filePath,
       file_size: totalBytes,
       session_url: goneSessionUrl,
@@ -319,7 +322,7 @@ describe('uploadVideo resume path', () => {
       await assert.rejects(
         () => yt.uploadVideo({
           slug: proj.slug,
-          accountId: 'acc_test',
+          accountId: 'registry:UC_resume',
           filePath,
           snippet: { title: 'fallback' },
           status: { privacyStatus: 'private' },

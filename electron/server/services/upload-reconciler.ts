@@ -18,7 +18,7 @@
 import * as im from './idea-manager.js'
 import { listRecentUploads } from '../lib/youtube-client.js'
 import { readSidecar, writeSidecar } from './upload-sidecar.js'
-import * as store from './upload-store.js'
+import { describeYouTubeCredential } from './youtube-credential.js'
 import type { UploadSidecar } from './upload-sidecar.js'
 
 export interface RemoteVideo {
@@ -60,10 +60,11 @@ export interface ReconcilePreview {
  * local candidate. No writes — just returns the computed match table.
  */
 export async function buildReconcilePreview(slug: string, accountId: string): Promise<ReconcilePreview> {
-  const [remoteList, ideas] = await Promise.all([
+  const [remoteResult, ideas] = await Promise.all([
     listRecentUploads(slug, accountId, { maxPages: 8 }),  // up to 400 videos
     im.getIdeas(slug, 'accepted'),
   ])
+  const remoteList = remoteResult.videos
   const episodes: LocalEpisode[] = ideas
     .filter(i => i.episode_code)
     .map(i => ({ episode_code: i.episode_code!, title: i.title || '' }))
@@ -179,7 +180,7 @@ export interface ConfirmResult {
  */
 export async function confirmReconcile(slug: string, accountId: string, links: ConfirmLink[]): Promise<ConfirmResult> {
   const result: ConfirmResult = { written: [], errors: [], titles_synced: [] }
-  const account = (await store.listAccounts(slug, 'youtube')).find(a => a.id === accountId)
+  const account = await describeYouTubeCredential(slug, accountId)
   if (!account) throw new Error(`YouTube account ${accountId} not found`)
 
   const ideas = await im.getIdeas(slug, 'accepted')

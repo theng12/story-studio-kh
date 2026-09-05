@@ -12,7 +12,7 @@ import { selectEpisodesNeedingThumbnail, type RefreshRow } from '../generators/y
 function row(over: Partial<RefreshRow>): RefreshRow {
   return {
     episode_code: 'EP0001', title: 't', episode_dir: '/d', sidecar_path: '/d/youtube_upload.json',
-    video_id: 'vid', account_id: 'acct-A', thumbnail_set: false, deleted_at: null, ...over,
+    video_id: 'vid', account_id: 'acct-A', channel_id: 'UC-A', thumbnail_set: false, deleted_at: null, ...over,
   }
 }
 
@@ -22,21 +22,22 @@ describe('selectEpisodesNeedingThumbnail', () => {
     row({ episode_code: 'EP02', thumbnail_set: true }),                        // already set
     row({ episode_code: 'EP03', video_id: '' }),                              // not uploaded
     row({ episode_code: 'EP04', deleted_at: '2026-01-01' }),                  // deleted on YT
-    row({ episode_code: 'EP05', account_id: 'acct-B' }),                      // other channel
+    row({ episode_code: 'EP05', account_id: 'legacy-random-id' }),             // same channel, old local id
+    row({ episode_code: 'EP06', channel_id: 'UC-B' }),                         // other channel
   ]
 
   test("mode 'missing' → only uploaded, active-account, not-deleted, not-yet-set", () => {
-    const got = selectEpisodesNeedingThumbnail(rows, { mode: 'missing', accountId: 'acct-A' })
-    assert.deepEqual(got.map(r => r.episode_code), ['EP01'])
+    const got = selectEpisodesNeedingThumbnail(rows, { mode: 'missing', channelId: 'UC-A' })
+    assert.deepEqual(got.map(r => r.episode_code), ['EP01', 'EP05'])
   })
 
   test("mode 'all' → every uploaded active-account non-deleted video (incl. already-set)", () => {
-    const got = selectEpisodesNeedingThumbnail(rows, { mode: 'all', accountId: 'acct-A' })
-    assert.deepEqual(got.map(r => r.episode_code), ['EP01', 'EP02'])
+    const got = selectEpisodesNeedingThumbnail(rows, { mode: 'all', channelId: 'UC-A' })
+    assert.deepEqual(got.map(r => r.episode_code), ['EP01', 'EP02', 'EP05'])
   })
 
-  test('account filter isolates channels', () => {
-    const got = selectEpisodesNeedingThumbnail(rows, { mode: 'all', accountId: 'acct-B' })
-    assert.deepEqual(got.map(r => r.episode_code), ['EP05'])
+  test('immutable channel filter isolates remote ownership', () => {
+    const got = selectEpisodesNeedingThumbnail(rows, { mode: 'all', channelId: 'UC-B' })
+    assert.deepEqual(got.map(r => r.episode_code), ['EP06'])
   })
 })

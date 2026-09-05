@@ -9,7 +9,7 @@
  *    simulate "app restart" by re-importing the module and showing the
  *    sidecar is still discoverable.
  * 3. End-to-end resume flow: stub fetch + fs, drive uploadVideo with a
- *    persisted session URL, assert quota.recordQuotaUsage is NOT called.
+ *    persisted session URL; the provider upload call is not charged again.
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test'

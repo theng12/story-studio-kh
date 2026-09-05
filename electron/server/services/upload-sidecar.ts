@@ -16,7 +16,7 @@
 import fsp from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
-import { resolveEpisodePaths } from './utils.js'
+import { resolveEpisodePathsByCodeWithSidecar, resolveEpisodePaths, type ProjectFactsCache } from './utils.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { UploadPlatform } from './upload-store.js'
 
@@ -118,6 +118,15 @@ async function readSidecarAtPath(filePath: string): Promise<UploadSidecar | null
   }
 }
 
+async function readSidecarAtPathStrict(filePath: string): Promise<UploadSidecar | null> {
+  if (!existsSync(filePath)) return null
+  const data = JSON.parse(await fsp.readFile(filePath, 'utf-8'))
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error(`${path.basename(filePath)} is not a sidecar object.`)
+  }
+  return data as UploadSidecar
+}
+
 /**
  * Returns the parsed sidecar only when the episode is actually uploaded
  * (i.e. carries a non-empty `video_id`). The video_id gate is what makes
@@ -144,10 +153,43 @@ export async function readSidecar(slug: string, episode_code: string, fallback_t
  * this when the question is "what's the planned schedule / privacy /
  * etc. for this episode?" rather than "is this episode uploaded?".
  */
-export async function readSidecarRaw(slug: string, episode_code: string, fallback_title: string, platform: UploadPlatform): Promise<UploadSidecar | null> {
-  const paths = await resolveEpisodePaths(slug, episode_code, fallback_title || '')
+export async function readSidecarRaw(slug: string, episode_code: string, fallback_title: string, platform: UploadPlatform, cache?: ProjectFactsCache): Promise<UploadSidecar | null> {
+  // Drift-tolerant FIRST, exactly as `lib/upload-metadata.ts` does it.
+  //
+  // `resolveEpisodePaths` derives the folder from the title passed in, so
+  // renaming an episode pointed this read at a directory that no longer
+  // exists and the sidecar came back null — "never uploaded" for an episode
+  // that was live on YouTube. `resolveEpisodePathsByCodeWithSidecar` finds the
+  // folder that actually OWNS the sidecar, by code, whatever the title is now.
+  // No `.catch()` back to the title-derived path. That fallback was added in
+  // the same round that stopped trusting the title, and it hid a real resolver
+  // failure behind exactly the read this function exists to replace.
+  // The caller's request-scoped facts cache, threaded to the resolver that
+  // already accepts one. Without it a sweep re-parsed ideas.json and project.json
+  // per episode — the resolver is the expensive part, not the file read.
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_code, `${platform}_upload.json`, cache)
   const p = sidecarPath(paths.episode_dir, platform)
   return readSidecarAtPath(p)
+}
+
+/**
+ * The sidecar, or a THROWN error — never a silent null for a file that exists.
+ *
+ * `readSidecarAtPath` returns null on any read or parse failure, which is the
+ * right answer for the eleven callers asking "what is planned / what is the
+ * state?". It is the wrong answer for the ONE caller asking "is this episode
+ * already on YouTube?", where null means "go ahead and upload": a truncated,
+ * unreadable or non-object sidecar would produce a second public video of an
+ * episode that is already published, and YouTube has no replace.
+ *
+ * So this read distinguishes absent (null, uploadable) from unreadable
+ * (throws, refuse loudly). Used ONLY by `remoteVideoFor` — deliberately not
+ * offered to the tolerant callers, whose behaviour is unchanged.
+ */
+export async function readSidecarStrict(slug: string, episode_code: string, platform: UploadPlatform, cache?: ProjectFactsCache): Promise<UploadSidecar | null> {
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_code, `${platform}_upload.json`, cache)
+  const p = sidecarPath(paths.episode_dir, platform)
+  return readSidecarAtPathStrict(p)
 }
 
 export async function writeSidecar(slug: string, episode_code: string, fallback_title: string, sidecar: UploadSidecar): Promise<void> {
@@ -200,7 +242,7 @@ export async function checkpointPlaylistSync(
   slug: string,
   episode_code: string,
   fallback_title: string,
-  expected: { playlist_id: string; video_id: string; account_id: string },
+  expected: { playlist_id: string; video_id: string; account_id: string; channel_id?: string },
 ): Promise<UploadSidecar> {
   const paths = await resolveEpisodePaths(slug, episode_code, fallback_title || '')
   const p = sidecarPath(paths.episode_dir, 'youtube')
@@ -210,11 +252,17 @@ export async function checkpointPlaylistSync(
     if (current.video_id !== expected.video_id) {
       throw new Error(`Upload record changed from ${expected.video_id} to ${current.video_id}; playlist checkpoint was not written.`)
     }
-    if (current.account_id !== expected.account_id) {
+    if (expected.channel_id && current.channel_id !== expected.channel_id) {
+      throw new Error(`Upload channel changed from ${expected.channel_id} to ${current.channel_id}; playlist checkpoint was not written.`)
+    }
+    if (!expected.channel_id && current.account_id !== expected.account_id) {
       throw new Error(`Upload account changed from ${expected.account_id} to ${current.account_id}; playlist checkpoint was not written.`)
     }
     const next: UploadSidecar = {
       ...current,
+      // A verified remote action on the same immutable channel is the safe
+      // point to replace a pre-registry local account id with current identity.
+      ...(expected.channel_id ? { account_id: expected.account_id } : {}),
       playlist_sync: {
         ...(current.playlist_sync || {}),
         [expected.playlist_id]: {
@@ -255,7 +303,7 @@ export function inspectThumbnailCheckpoint(
  */
 export async function checkpointThumbnailStateAtPath(
   filePath: string,
-  expected: { video_id: string; account_id: string },
+  expected: { video_id: string; account_id: string; channel_id?: string },
   state: { set: boolean; error?: string; remotely_verified: boolean },
 ): Promise<UploadSidecar> {
   let lastError: unknown
@@ -267,11 +315,15 @@ export async function checkpointThumbnailStateAtPath(
         if (current.video_id !== expected.video_id) {
           throw new Error(`Upload record changed from ${expected.video_id} to ${current.video_id}; thumbnail checkpoint was not written.`)
         }
-        if (current.account_id !== expected.account_id) {
+        if (expected.channel_id && current.channel_id !== expected.channel_id) {
+          throw new Error(`Upload channel changed from ${expected.channel_id} to ${current.channel_id}; thumbnail checkpoint was not written.`)
+        }
+        if (!expected.channel_id && current.account_id !== expected.account_id) {
           throw new Error(`Upload account changed from ${expected.account_id} to ${current.account_id}; thumbnail checkpoint was not written.`)
         }
         const next: UploadSidecar = {
           ...current,
+          ...(expected.channel_id && state.remotely_verified ? { account_id: expected.account_id } : {}),
           thumbnail_set: state.set,
           last_error: state.error || undefined,
           last_sync_at: new Date().toISOString(),
@@ -291,7 +343,7 @@ export async function checkpointThumbnailStateAtPath(
     } catch (error) {
       lastError = error
       const detail = error instanceof Error ? error.message : String(error)
-      if (/Upload record changed|Upload account changed|without a valid upload sidecar/i.test(detail)) throw error
+      if (/Upload record changed|Upload account changed|Upload channel changed|without a valid upload sidecar/i.test(detail)) throw error
       if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 150 * attempt))
     }
   }
@@ -385,7 +437,7 @@ export async function setScheduledFor(
   await fsp.mkdir(paths.episode_dir, { recursive: true })
   const p = sidecarPath(paths.episode_dir, platform)
   await withLock(p, async () => {
-    const existing = await readSidecarAtPath(p)
+    const existing = await readSidecarAtPathStrict(p)
     if (!existing) {
       if (!scheduled_for) return
       await writeJsonAtomic(p, makePlanningStubSidecar(platform, scheduled_for))

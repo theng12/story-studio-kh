@@ -16,6 +16,7 @@ import { test, describe, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 let mod: typeof import('../lib/youtube-comments.js')
 let pm: typeof import('../services/project-manager.js')
 let tmp: { dir: string; cleanup: () => Promise<void> }
@@ -28,10 +29,17 @@ before(async () => {
   mod = await import('../lib/youtube-comments.js')
   pm = await import('../services/project-manager.js')
   await pm.createProject({ name: 'Comments Test', episode_prefix: 'CT' } as any)
-  const { writeTokens } = await import('../services/upload-store.js')
-  await writeTokens('comments-test', 'youtube', 'acct-1', {
-    access_token: 'fake', refresh_token: 'r', expires_at: Date.now() + 3_600_000,
-    scope: 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube',
+  const connections = await import('../services/youtube-connection-store.js')
+  await connections.configureYouTubeApplication({ client_id: 'comments-client', client_secret: 'comments-secret' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: 'acct-1', title: 'Comments', granted_scopes: ['https://www.googleapis.com/auth/youtube'] },
+    tokens: {
+      access_token: 'fake', refresh_token: 'r', expires_at: Date.now() + 3_600_000,
+      scope: 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube',
+    },
+  })
+  await connections.assignProjectYouTubeChannel({
+    project_slug: 'comments-test', channel_id: 'acct-1', expected_previous_channel_id: null,
   })
   globalThis.fetch = (async (input: any, init?: any) => {
     const url = typeof input === 'string' ? input : input.toString()
@@ -108,7 +116,7 @@ describe('youtube-comments — listVideoCommentThreads', () => {
       },
     })
 
-    const result = await mod.listVideoCommentThreads('comments-test', 'acct-1', 'vid-1')
+    const result = await mod.listVideoCommentThreads('comments-test', 'registry:acct-1', 'vid-1')
     assert.equal(result.video_id, 'vid-1')
     assert.equal(result.threads.length, 1)
     const t = result.threads[0]!
@@ -143,7 +151,7 @@ describe('youtube-comments — listVideoCommentThreads', () => {
         }],
       },
     })
-    const result = await mod.listVideoCommentThreads('comments-test', 'acct-1', 'v1')
+    const result = await mod.listVideoCommentThreads('comments-test', 'registry:acct-1', 'v1')
     assert.equal(result.threads[0]!.replies.length, 5)
     assert.equal(result.threads[0]!.reply_count, 8, 'reply_count is the YouTube total, not the slice')
   })
@@ -158,7 +166,7 @@ describe('youtube-comments — listVideoCommentThreads', () => {
         ],
       },
     })
-    const result = await mod.listVideoCommentThreads('comments-test', 'acct-1', 'v1')
+    const result = await mod.listVideoCommentThreads('comments-test', 'registry:acct-1', 'v1')
     assert.equal(result.threads.length, 1)
     assert.equal(result.threads[0]!.id, 'good-1')
   })
@@ -173,7 +181,7 @@ describe('youtube-comments — listVideoCommentThreads', () => {
         },
       },
     })
-    const result = await mod.listVideoCommentThreads('comments-test', 'acct-1', 'vid-locked')
+    const result = await mod.listVideoCommentThreads('comments-test', 'registry:acct-1', 'vid-locked')
     assert.deepEqual(result.threads, [])
     assert.equal(result.has_more, false)
     assert.equal(result.video_id, 'vid-locked')
@@ -182,7 +190,7 @@ describe('youtube-comments — listVideoCommentThreads', () => {
   test('other 4xx errors throw with statusCode', async () => {
     fetchQueue.push({ status: 404, body: { error: { message: 'Video not found' } } })
     await assert.rejects(
-      () => mod.listVideoCommentThreads('comments-test', 'acct-1', 'no-such-video'),
+      () => mod.listVideoCommentThreads('comments-test', 'registry:acct-1', 'no-such-video'),
       (err: any) => {
         assert.equal(err.statusCode, 404)
         return true
@@ -191,7 +199,7 @@ describe('youtube-comments — listVideoCommentThreads', () => {
   })
 
   test('empty videoId returns empty result without an API call', async () => {
-    const result = await mod.listVideoCommentThreads('comments-test', 'acct-1', '')
+    const result = await mod.listVideoCommentThreads('comments-test', 'registry:acct-1', '')
     assert.deepEqual(result.threads, [])
     assert.equal(fetchQueue.length, 0, 'no fetch issued')
   })
@@ -206,7 +214,7 @@ describe('youtube-comments — listVideoCommentThreads', () => {
         nextPageToken: 'page2',
       },
     })
-    const result = await mod.listVideoCommentThreads('comments-test', 'acct-1', 'v1', { maxResults: 1 })
+    const result = await mod.listVideoCommentThreads('comments-test', 'registry:acct-1', 'v1', { maxResults: 1 })
     assert.equal(result.threads.length, 1)
     assert.equal(result.has_more, true, 'cap reached but more pages exist')
   })
@@ -219,7 +227,7 @@ describe('youtube-comments — listVideoCommentThreads', () => {
           topLevelComment: { id: 'c1', snippet: { authorDisplayName: 'A', textOriginal: 'a', likeCount: 0, publishedAt: '', updatedAt: '' } } } }],
       },
     })
-    const result = await mod.listVideoCommentThreads('comments-test', 'acct-1', 'v1', { maxResults: 50 })
+    const result = await mod.listVideoCommentThreads('comments-test', 'registry:acct-1', 'v1', { maxResults: 50 })
     assert.equal(result.has_more, false)
     assert.equal(result.threads.length, 1)
   })
@@ -241,7 +249,7 @@ describe('youtube-comments — listVideoCommentThreads', () => {
         },
       })
     }
-    const result = await mod.listVideoCommentThreads('comments-test', 'acct-1', 'v1', { maxResults: 100, pageSize: 1 })
+    const result = await mod.listVideoCommentThreads('comments-test', 'registry:acct-1', 'v1', { maxResults: 100, pageSize: 1 })
     assert.equal(result.threads.length, 3)
     assert.deepEqual(result.threads.map(t => t.id), ['t0', 't1', 't2'])
     assert.equal(result.has_more, false)
@@ -269,7 +277,7 @@ describe('youtube-comments — postCommentReply', () => {
         },
       },
     })
-    const reply = await mod.postCommentReply('comments-test', 'acct-1', 'c-top-1', 'Thanks for watching!')
+    const reply = await mod.postCommentReply('comments-test', 'registry:acct-1', 'c-top-1', 'Thanks for watching!')
     assert.equal(reply.id, 'c-new-1')
     assert.equal(reply.author, 'Channel')
     assert.equal(reply.text, 'Thanks for watching!')
@@ -277,7 +285,7 @@ describe('youtube-comments — postCommentReply', () => {
 
   test('rejects empty parentCommentId', async () => {
     await assert.rejects(
-      () => mod.postCommentReply('comments-test', 'acct-1', '', 'hi'),
+      () => mod.postCommentReply('comments-test', 'registry:acct-1', '', 'hi'),
       /parentCommentId is required/,
     )
     assert.equal(fetchQueue.length, 0)
@@ -285,7 +293,7 @@ describe('youtube-comments — postCommentReply', () => {
 
   test('rejects empty / whitespace-only text', async () => {
     await assert.rejects(
-      () => mod.postCommentReply('comments-test', 'acct-1', 'c-1', '   '),
+      () => mod.postCommentReply('comments-test', 'registry:acct-1', 'c-1', '   '),
       /reply text is required/,
     )
     assert.equal(fetchQueue.length, 0)
@@ -294,7 +302,7 @@ describe('youtube-comments — postCommentReply', () => {
   test('throws with statusCode on API error', async () => {
     fetchQueue.push({ status: 400, body: { error: { message: 'Bad parent' } } })
     await assert.rejects(
-      () => mod.postCommentReply('comments-test', 'acct-1', 'bad-parent', 'hi'),
+      () => mod.postCommentReply('comments-test', 'registry:acct-1', 'bad-parent', 'hi'),
       (err: any) => {
         assert.equal(err.statusCode, 400)
         return true

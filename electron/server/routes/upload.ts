@@ -16,27 +16,45 @@ import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as store from '../services/upload-store.js'
-import { startOAuthFlow, getFlowStatus } from '../lib/youtube-oauth.js'
+import {
+  describeYouTubeCredential,
+  resolveYouTubeAccountId,
+  resolveYouTubeAccountIdForChannel,
+  resolveYouTubeCredential,
+} from '../services/youtube-credential.js'
+import {
+  disconnectYouTubeChannel,
+  readYouTubeChannelTokensForServer,
+  readYouTubeConnectionRegistry,
+} from '../services/youtube-connection-store.js'
 import { computeEpisodeStatus, hasFinalVideoFast, getFinalVideoBytes } from '../services/asset-status.js'
-import { readSidecar, readSidecarRaw } from '../services/upload-sidecar.js'
+import { readSidecar, readSidecarRaw, readSidecarStrict } from '../services/upload-sidecar.js'
 import { listUploadThumbnails, resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
 import * as plans from '../services/upload-plans.js'
 import * as uq from '../services/upload-queue.js'
 import * as reconciler from '../services/upload-reconciler.js'
-import * as quota from '../services/upload-quota.js'
 import * as playlistsSvc from '../services/upload-playlists.js'
 import * as orphans from '../services/upload-orphans.js'
 import * as renumberUndo from '../services/upload-renumber-undo.js'
 import { updateVideoMetadata, createPlaylist, listVideoStatuses, listVideoSnippetStatus } from '../lib/youtube-client.js'
-import { callAi, callAiWithRetry } from '../lib/ai-client.js'
-import { getApiKey } from '../services/app-secrets-store.js'
-import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
 import { getYoutubeDefaults } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { previewThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
 import { fetchYouTubeChannelAvatar } from '../lib/youtube-channel-avatar.js'
+import { listYouTubeOperations } from '../services/youtube-operation-store.js'
+import { readYouTubeProjectPublishingState } from '../services/youtube-project-publishing-store.js'
+
+async function readAssignedYouTubeTokens(slug: string, requestedAccountId?: string) {
+  const credential = await resolveYouTubeCredential(slug)
+  if (!credential || (requestedAccountId && requestedAccountId !== credential.accountId)) return null
+  return readYouTubeChannelTokensForServer(credential.channelId)
+}
+
+async function resolveRequestedYouTubeAccountId(slug: string, raw: unknown): Promise<string> {
+  const requested = typeof raw === 'string' && raw.trim() ? raw.trim() : undefined
+  return resolveYouTubeAccountId(slug, requested)
+}
 import type { JobType } from '../models/types.js'
-import { applyEmojiPolicy, noEmojiDirective } from '../lib/emoji-policy.js'
 
 export const router = Router()
 
@@ -49,9 +67,7 @@ export const router = Router()
 router.get('/projects/:slug/upload/playlists', async (req, res) => {
   try {
     const slug = req.params.slug
-    const accountId = typeof req.query.account_id === 'string' && req.query.account_id
-      ? req.query.account_id
-      : await store.getDefaultAccountId(slug, 'youtube')
+    const accountId = await resolveRequestedYouTubeAccountId(slug, req.query.account_id)
     if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
     const force = req.query.force === '1' || req.query.force === 'true'
     const playlists = await playlistsSvc.getPlaylists(slug, accountId, force)
@@ -65,9 +81,7 @@ router.get('/projects/:slug/upload/playlists', async (req, res) => {
 router.post('/projects/:slug/upload/playlists', async (req, res) => {
   try {
     const slug = req.params.slug
-    const accountId = typeof req.body?.account_id === 'string' && req.body.account_id
-      ? req.body.account_id
-      : await store.getDefaultAccountId(slug, 'youtube')
+    const accountId = await resolveRequestedYouTubeAccountId(slug, req.body?.account_id)
     if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
     const title = typeof req.body?.title === 'string' ? req.body.title.trim() : ''
     if (!title) return res.status(400).json({ detail: 'title required' })
@@ -83,101 +97,10 @@ router.post('/projects/:slug/upload/playlists', async (req, res) => {
   }
 })
 
-// v1.0.108+ — LLM-write a playlist description from the title + the
-// project's niche/format context. Doesn't call YouTube; just returns
-// text the user can review + edit + paste into the create-playlist
-// form (or use directly via the new "✨ Generate with AI" button).
-router.post('/projects/:slug/upload/playlists/generate-description', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : ''
-    if (!title) return res.status(400).json({ detail: 'title required' })
-
-    // Pull niche + format for tone + voice context. Both are optional —
-    // the prompt degrades gracefully when a project hasn't set them.
-    const { getEffectiveNiche } = await import('../services/niche-loader.js')
-    const { getEffectiveFormat } = await import('../services/format-loader.js')
-    const niche = await getEffectiveNiche(slug)
-    const format = await getEffectiveFormat(slug)
-
-    const config = await pm.getConfig(slug)
-    if (!config) return res.status(400).json({ detail: 'Project config not found' })
-    const apiKeys = {
-      anthropic_api_key: config.anthropic_api_key,
-      openai_api_key: config.openai_api_key,
-      kie_api_key: config.kie_api_key,
-    }
-    // Default model — uses whatever the caller/project provided; a missing
-    // model is resolved against GenStudio's live catalog rather than a
-    // hardcoded external product id (GenStudio owns the catalog; a
-    // retired/renamed literal must never be submitted blind).
-    const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
-    // `healed` used to be discarded right here, so a description written by a
-    // substituted model came back looking like the saved model's own work.
-    let modelNotice = ''
-    const model = requestedModel || await (async () => {
-      const apiKey = await getApiKey('genstudio').catch(() => '')
-      if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating a playlist description.')
-      const saved = typeof (config as any)?.prompt_model === 'string' ? (config as any).prompt_model : null
-      const resolved = await resolveDefaultChatModel(apiKey, saved)
-      modelNotice = describeHealedDefaultChatModel(resolved) || ''
-      return resolved.modelId
-    })()
-
-    // Optional caller-provided overrides
-    const videoCount = typeof req.body?.video_count === 'number' && req.body.video_count > 0
-      ? Math.floor(req.body.video_count)
-      : null
-    const targetLength = typeof req.body?.target_length === 'number' && req.body.target_length > 0
-      ? Math.floor(req.body.target_length)
-      : 500 // YouTube playlists soft-cap descriptions ~5000 chars; 500 is a
-            // comfortable hand-readable size that fits the playlist sidebar
-            // on desktop without truncation.
-
-    const nicheVoice = niche?.metadataDescription?.voiceGuidance
-      ? `\nChannel voice: ${niche.metadataDescription.voiceGuidance}`
-      : ''
-    const nicheBenediction = niche?.metadataDescription?.closingBenediction
-      ? `\nClose with this benediction verbatim: "${niche.metadataDescription.closingBenediction}"`
-      : ''
-    const formatBlurb = format?.name && format?.description
-      ? `\nFormat: ${format.name} — ${format.description}`
-      : ''
-
-    const system = `You write YouTube PLAYLIST descriptions — short, evocative paragraphs that tell a viewer what they'll get when they binge the playlist. Different from per-video descriptions: a playlist description should pitch the OVERALL theme, the kind of viewer it's for, and (if a count is known) how many videos are in it. NEVER include episode-specific spoilers. Keep it to ${targetLength} characters or less. Output ONLY the description text — no preamble, no markdown headers, no quotation marks around the whole thing.`
-
-    const userMsg = `Generate a YouTube playlist description.
-
-Playlist title: ${title}${videoCount ? `
-Approximate video count in this playlist: ${videoCount}` : ''}${formatBlurb}${nicheVoice}${nicheBenediction}
-
-Write a description that:
-- Opens with one or two sentences capturing the overall theme
-- Names the kind of viewer it's for (without being preachy)
-- ${videoCount ? `Mentions the playlist has around ${videoCount} videos and what to expect` : 'Mentions that this is a growing collection'}
-- Ends with a soft, on-brand closing line (or the benediction above if one was given)
-
-Target ~${targetLength} characters. Plain prose — no bullet lists, no all-caps.${await noEmojiDirective()}`
-
-    // Standard: a multi-paragraph playlist description.
-    const raw = await callAiWithRetry(model, system, userMsg, apiKeys, false, {
-      slug, outputBudget: 'standard',
-    })
-    const text = await applyEmojiPolicy(raw.trim(), [userMsg, system])
-    // Synchronous route with no job log — the substitution travels with the
-    // result rather than being dropped.
-    res.json({ description: text, model, length: text.length, ...(modelNotice ? { model_notice: modelNotice } : {}) })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to generate playlist description'))
-  }
-})
-
 router.put('/projects/:slug/upload/playlists/default', async (req, res) => {
   try {
     const slug = req.params.slug
-    const accountId = typeof req.body?.account_id === 'string' && req.body.account_id
-      ? req.body.account_id
-      : await store.getDefaultAccountId(slug, 'youtube')
+    const accountId = await resolveRequestedYouTubeAccountId(slug, req.body?.account_id)
     if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
     // Empty string clears the default. Otherwise accept any non-empty string
     // (we don't validate against listPlaylists here since that would burn a
@@ -202,12 +125,11 @@ router.put('/projects/:slug/upload/playlists/default', async (req, res) => {
 router.get('/projects/:slug/upload/analytics', async (req, res) => {
   try {
     const slug = req.params.slug
-    const accountId = (req.query.account_id as string)
-      || await store.getDefaultAccountId(slug, 'youtube')
+    const accountId = await resolveRequestedYouTubeAccountId(slug, req.query.account_id)
     if (!accountId) {
-      return res.status(400).json({ detail: 'No YouTube account connected. Connect one in the Accounts tab first.' })
+      return res.status(400).json({ detail: 'No YouTube channel is assigned. Connect or select one in Settings → YouTube.' })
     }
-    const tokens = await store.readTokens(slug, 'youtube', accountId)
+    const tokens = await readAssignedYouTubeTokens(slug, accountId)
     if (!tokens) {
       return res.status(404).json({ detail: 'No tokens for this account — reconnect YouTube.' })
     }
@@ -243,10 +165,9 @@ router.get('/projects/:slug/upload/analytics', async (req, res) => {
 router.get('/projects/:slug/upload/comments', async (req, res) => {
   try {
     const slug = req.params.slug
-    const accountId = (req.query.account_id as string)
-      || await store.getDefaultAccountId(slug, 'youtube')
+    const accountId = await resolveRequestedYouTubeAccountId(slug, req.query.account_id)
     if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
-    const tokens = await store.readTokens(slug, 'youtube', accountId)
+    const tokens = await readAssignedYouTubeTokens(slug, accountId)
     if (!tokens) return res.status(404).json({ detail: 'No tokens for this account — reconnect YouTube.' })
     const videoId = String(req.query.video_id || '').trim()
     if (!videoId) return res.status(400).json({ detail: 'video_id query param is required' })
@@ -264,50 +185,12 @@ router.get('/projects/:slug/upload/comments', async (req, res) => {
   }
 })
 
-router.post('/projects/:slug/upload/comments/draft', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const config = await pm.getConfig(slug)
-    if (!config) return res.status(404).json({ detail: 'Project config not found' })
-
-    const commentId = String(req.body?.comment_id || '').trim()
-    const commentText = String(req.body?.comment_text || '').trim()
-    if (!commentText) return res.status(400).json({ detail: 'comment_text is required' })
-    const commentAuthor = String(req.body?.comment_author || '').trim()
-    const videoTitle = req.body?.video_title ? String(req.body.video_title).trim() : undefined
-    const count = Math.max(1, Math.min(parseInt(String(req.body?.count || 3), 10) || 3, 5))
-    const model = String(req.body?.model || '').trim()
-    if (!model) return res.status(400).json({ detail: 'model is required' })
-
-    const { buildReplyDraftPrompt, parseReplyDrafts } = await import('../lib/reply-drafter.js')
-    const project = await pm.getProject(slug)
-
-    const prompt = buildReplyDraftPrompt({
-      commentText, commentAuthor, videoTitle, count, projectName: project?.name,
-    })
-
-    const apiKeys = {
-      anthropic_api_key: (config as any).anthropic_api_key,
-      openai_api_key: (config as any).openai_api_key,
-      kie_api_key: (config as any).kie_api_key,
-    }
-    const { callAi } = await import('../lib/ai-client.js')
-    const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, { slug })
-    const drafts = parseReplyDrafts(raw, count)
-    res.json({ comment_id: commentId, drafts })
-  } catch (e: any) {
-    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
-    res.status(status).json(humanizeBackendError(e, 'Failed to draft reply'))
-  }
-})
-
 router.post('/projects/:slug/upload/comments/reply', async (req, res) => {
   try {
     const slug = req.params.slug
-    const accountId = String(req.body?.account_id || '').trim()
-      || await store.getDefaultAccountId(slug, 'youtube')
+    const accountId = await resolveRequestedYouTubeAccountId(slug, req.body?.account_id)
     if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
-    const tokens = await store.readTokens(slug, 'youtube', accountId)
+    const tokens = await readAssignedYouTubeTokens(slug, accountId)
     if (!tokens) return res.status(404).json({ detail: 'No tokens for this account — reconnect YouTube.' })
 
     const parentCommentId = String(req.body?.parent_comment_id || '').trim()
@@ -353,33 +236,6 @@ router.put('/projects/:slug/upload/mode', async (req, res) => {
   }
 })
 
-// ── Quota (YouTube Data API budget) ───────────────────────────────────────
-
-router.get('/projects/:slug/upload/quota', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const snap = await quota.readQuota(slug)
-    res.json(snap)
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to read quota'))
-  }
-})
-
-router.put('/projects/:slug/upload/quota/ceiling', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const ceiling = Number(req.body?.ceiling)
-    if (!Number.isFinite(ceiling) || ceiling < 1 || ceiling > 1_000_000) {
-      return res.status(400).json({ detail: 'ceiling must be a positive integer up to 1,000,000' })
-    }
-    await quota.setQuotaCeiling(slug, Math.floor(ceiling))
-    const snap = await quota.readQuota(slug)
-    res.json(snap)
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to save quota ceiling'))
-  }
-})
-
 // ── Platforms catalogue ───────────────────────────────────────────────────
 
 router.get('/projects/:slug/upload/platforms', async (req, res) => {
@@ -392,121 +248,34 @@ router.get('/projects/:slug/upload/platforms', async (req, res) => {
   })
 })
 
-// ── OAuth client (client_id + client_secret) CRUD ─────────────────────────
-// The client_secret is returned masked on GET — never the raw value. Saving
-// re-writes both fields; clearing (empty strings) deletes the record.
+// Connection setup moved to the one app-level Settings → YouTube surface.
+// Keep these former project routes as explicit tombstones so stale clients do
+// not create an unassigned global grant or mutate the shared application.
+
+function retiredProjectOAuth(_req: import('express').Request, res: import('express').Response): void {
+  res.status(410).json({ detail: 'Manage the YouTube application, channel connection, and project assignment in Settings → YouTube.' })
+}
 
 router.get('/projects/:slug/upload/oauth-client', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const platform = readPlatform(req.query.platform)
-    if (!platform) return res.status(400).json({ detail: 'platform query param required' })
-    const creds = await store.readOAuthClient(slug, platform)
-    if (!creds) return res.json({ configured: false })
-    res.json({
-      configured: true,
-      client_id: creds.client_id,
-      client_secret_masked: maskSecret(creds.client_secret),
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to read OAuth client'))
-  }
+  retiredProjectOAuth(req, res)
 })
 
 router.put('/projects/:slug/upload/oauth-client', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const platform = readPlatform(req.body?.platform)
-    if (!platform) return res.status(400).json({ detail: 'platform required' })
-    const client_id = typeof req.body?.client_id === 'string' ? req.body.client_id.trim() : ''
-    const client_secret = typeof req.body?.client_secret === 'string' ? req.body.client_secret.trim() : ''
-    if (!client_id || !client_secret) {
-      return res.status(400).json({ detail: 'client_id and client_secret both required' })
-    }
-    await store.writeOAuthClient(slug, platform, { client_id, client_secret })
-    res.json({ ok: true })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to save OAuth client'))
-  }
+  retiredProjectOAuth(req, res)
 })
 
 router.delete('/projects/:slug/upload/oauth-client', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const platform = readPlatform(req.query.platform)
-    if (!platform) return res.status(400).json({ detail: 'platform query param required' })
-    await store.deleteOAuthClient(slug, platform)
-    res.json({ ok: true })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to delete OAuth client'))
-  }
+  retiredProjectOAuth(req, res)
 })
 
 // ── OAuth flow ────────────────────────────────────────────────────────────
 
 router.post('/projects/:slug/upload/oauth/start', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const platform = readPlatform(req.body?.platform)
-    if (!platform) return res.status(400).json({ detail: 'platform required' })
-    if (platform !== 'youtube') {
-      return res.status(400).json({ detail: `${platform} upload is not enabled yet.` })
-    }
-    const creds = await store.readOAuthClient(slug, platform)
-    if (!creds) return res.status(400).json({ detail: 'OAuth client is not configured. Save your Google Cloud client_id + client_secret first.' })
-
-    const state = await startOAuthFlow({
-      client_id: creds.client_id,
-      client_secret: creds.client_secret,
-    })
-    // Resolve promise in the background — success triggers the account
-    // record write so GET /accounts reflects it on the user's next poll.
-    state.promise.then(async (result) => {
-      const account = await store.addAccount(slug, 'youtube', {
-        label: result.channel.channel_title,
-        remote_id: result.channel.channel_id,
-        remote_title: result.channel.channel_title,
-        custom_url: result.channel.custom_url,
-        thumbnail_url: result.channel.thumbnail_url,
-      })
-      await store.writeTokens(slug, 'youtube', account.id, result.tokens)
-      // v1.4.20 — turn the channel's publishing cadence into a real plan now
-      // that there is an account to key one to. Does nothing when the channel
-      // set no cadence, and nothing when this account already has an active
-      // plan: re-authorising an expired token must never reset a schedule the
-      // owner has since tuned. Never allowed to fail the connection.
-      try {
-        const { ensurePlanForAccount } = await import('../services/publish-cadence.js')
-        await ensurePlanForAccount(slug, 'youtube', account.id, account.label)
-      } catch { /* a channel without a plan is still a connected channel */ }
-    }).catch(() => { /* surfaced via getFlowStatus */ })
-
-    res.json({ flow_id: state.flow_id, auth_url: state.auth_url })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to start OAuth flow'))
-  }
+  retiredProjectOAuth(req, res)
 })
 
 router.get('/projects/:slug/upload/oauth/status', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const flow_id = typeof req.query.flow_id === 'string' ? req.query.flow_id : ''
-    if (!flow_id) return res.status(400).json({ detail: 'flow_id query param required' })
-    const s = getFlowStatus(flow_id)
-    if (s.status === 'success') {
-      // Don't leak the raw tokens back to the client. Return the channel
-      // metadata only — the frontend re-fetches /accounts to see the new
-      // row. Tokens stay in secrets.json.
-      res.json({
-        status: 'success',
-        channel: s.result.channel,
-      })
-    } else {
-      res.json(s)
-    }
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to read flow status'))
-  }
+  retiredProjectOAuth(req, res)
 })
 
 // ── Connected accounts ────────────────────────────────────────────────────
@@ -515,9 +284,24 @@ router.get('/projects/:slug/upload/accounts', async (req, res) => {
   try {
     const slug = req.params.slug
     const accounts = await store.listAllAccounts(slug)
+    accounts.youtube = []
     const defaults: Record<string, string> = {}
     for (const p of store.UPLOAD_PLATFORMS) {
-      defaults[p] = await store.getDefaultAccountId(slug, p)
+      defaults[p] = p === 'youtube' ? await resolveYouTubeAccountId(slug) : await store.getDefaultAccountId(slug, p)
+    }
+    const credential = await resolveYouTubeCredential(slug)
+    if (credential) {
+      const channel = (await readYouTubeConnectionRegistry()).channels[credential.channelId]
+      if (channel) accounts.youtube = [{
+        id: credential.accountId,
+        platform: 'youtube',
+        label: channel.title,
+        remote_id: channel.channel_id,
+        remote_title: channel.title,
+        custom_url: channel.handle,
+        thumbnail_url: channel.thumbnail_url,
+        connected_at: channel.connected_at,
+      }]
     }
     res.json({ accounts, defaults })
   } catch (e: any) {
@@ -527,8 +311,11 @@ router.get('/projects/:slug/upload/accounts', async (req, res) => {
 
 router.get('/projects/:slug/upload/accounts/:id/avatar', async (req, res) => {
   try {
-    const account = (await store.listAccounts(req.params.slug, 'youtube'))
-      .find(item => item.id === req.params.id)
+    const credential = await resolveYouTubeCredential(req.params.slug)
+    const channel = credential && credential.accountId === req.params.id
+      ? (await readYouTubeConnectionRegistry()).channels[credential.channelId]
+      : null
+    const account = channel ? { thumbnail_url: channel.thumbnail_url } : null
     if (!account) return res.status(404).json({ detail: 'YouTube account not found.' })
     if (!account.thumbnail_url) return res.status(404).json({ detail: 'This YouTube channel has no icon.' })
 
@@ -547,7 +334,14 @@ router.put('/projects/:slug/upload/accounts/:id/default', async (req, res) => {
     const slug = req.params.slug
     const platform = readPlatform(req.body?.platform)
     if (!platform) return res.status(400).json({ detail: 'platform required' })
-    await store.setDefaultAccountId(slug, platform, req.params.id)
+    if (platform === 'youtube') {
+      const credential = await resolveYouTubeCredential(slug)
+      if (!credential || credential.accountId !== req.params.id) {
+        return res.status(409).json({ detail: 'Choose the project channel in Settings → YouTube.' })
+      }
+    } else {
+      await store.setDefaultAccountId(slug, platform, req.params.id)
+    }
     res.json({ ok: true })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to set default account'))
@@ -559,8 +353,14 @@ router.delete('/projects/:slug/upload/accounts/:id', async (req, res) => {
     const slug = req.params.slug
     const platform = readPlatform(req.query.platform)
     if (!platform) return res.status(400).json({ detail: 'platform query param required' })
-    const removed = await store.removeAccount(slug, platform, req.params.id)
-    if (!removed) return res.status(404).json({ detail: 'Account not found' })
+    if (platform === 'youtube') {
+      const credential = await resolveYouTubeCredential(slug)
+      if (!credential || credential.accountId !== req.params.id) return res.status(404).json({ detail: 'Account not found' })
+      await disconnectYouTubeChannel({ channel_id: credential.channelId })
+    } else {
+      const removed = await store.removeAccount(slug, platform, req.params.id)
+      if (!removed) return res.status(404).json({ detail: 'Account not found' })
+    }
     res.json({ ok: true })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to remove account'))
@@ -1116,177 +916,8 @@ router.get('/projects/:slug/upload/queue', async (req, res) => {
   }
 })
 
-// ── Pre-upload preview (v1.0.41) ────────────────────────────────────────
-//
-// Returns the exact metadata + thumbnail that would be pushed to YouTube
-// for a single episode. The Upload Center's per-row Upload button opens
-// a confirm modal populated by this endpoint so the user can audit the
-// title / description / tags / thumbnail BEFORE the upload runs.
-//
-// Cheap: same path as `enrichPage` for one row, plus the
-// upload_metadata_overrides.json read in resolveUploadMetadata. No cache
-// — preview is a per-click action, freshness wins over speed.
-
-router.get('/projects/:slug/upload/queue/:episode_code/preview', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const code = req.params.episode_code
-    const platform = readPlatform(req.query.platform) || 'youtube'
-
-    const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === code)
-    if (!idea) return res.status(404).json({ detail: `Episode ${code} not found` })
-
-    const metadataInput = {
-      slug,
-      episode_code: code,
-      fallback_title: idea.title,
-      platform,
-    } as const
-    const [meta, thumbnailOptions] = await Promise.all([
-      resolveUploadMetadata(metadataInput),
-      listUploadThumbnails(metadataInput),
-    ])
-
-    // Sidecar state — drives "this would be a metadata PATCH not a
-    // fresh upload" copy in the modal so the user understands when
-    // YouTube quota is and isn't spent.
-    const sidecar = await readSidecar(slug, code, idea.title || '', platform)
-    const itemSchedule = await plans.readItemSchedule(slug)
-    const scheduled_for = sidecar?.scheduled_for || itemSchedule[code] || null
-
-    const thumbnailFilename = meta.thumbnailPath ? meta.thumbnailPath.split('/').pop() || '' : ''
-
-    res.json({
-      episode_code: code,
-      title: meta.title,
-      description: meta.description,
-      tags: meta.tags,
-      thumbnail_filename: thumbnailFilename,
-      thumbnail_pinned: !!thumbnailOptions.find(option => option.filename === thumbnailFilename)?.is_pinned,
-      thumbnail_path: meta.thumbnailPath,
-      thumbnail_options: thumbnailOptions,
-      already_uploaded: !!sidecar?.video_id,
-      video_id: sidecar?.video_id || '',
-      privacy_status: sidecar?.privacy_status || 'private',
-      scheduled_for,
-      // ~1600 quota units per fresh upload (videos.insert); ~50 per
-      // metadata-only PATCH (videos.update). Surface so the user can
-      // weigh against their daily 10k cap.
-      estimated_quota: sidecar?.video_id ? 50 : 1600,
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to load upload preview'))
-  }
-})
-
-// Kick off an upload. Either starts a fresh resumable upload or queues a
-// metadata-only update depending on sidecar state (see job executor).
-router.post('/projects/:slug/upload/upload', async (req, res) => {
-  try {
-    const slug = req.params.slug
-    const platform = readPlatform(req.body?.platform) || 'youtube'
-    if (platform !== 'youtube') return res.status(400).json({ detail: `${platform} upload is not enabled yet.` })
-    const episode_id: string = typeof req.body?.episode_id === 'string' ? req.body.episode_id : ''
-    if (!episode_id) return res.status(400).json({ detail: 'episode_id required' })
-
-    // Pick account: explicit > default.
-    const account_id = typeof req.body?.account_id === 'string' && req.body.account_id
-      ? req.body.account_id
-      : (await store.getDefaultAccountId(slug, 'youtube'))
-    if (!account_id) {
-      return res.status(400).json({ detail: 'No YouTube account connected. Open Upload Center → Accounts and connect a channel first.' })
-    }
-
-    if (jq.isDuplicate(slug, episode_id, 'youtube_upload' as JobType)) {
-      return res.status(409).json({ detail: `YouTube upload already queued/running for ${episode_id}` })
-    }
-
-    // Schedule resolution: explicit body > per-item plan schedule > null.
-    // Preserves the plan-computed time without requiring the UI to send it
-    // every single click. Item I-eager moved per-item schedule into the
-    // episode's sidecar (planning stubs cover not-yet-uploaded rows), so
-    // the lookup is a single sidecar read rather than a project-wide map
-    // walk.
-    let scheduled_for: string | null = typeof req.body?.scheduled_for === 'string' ? req.body.scheduled_for : null
-    if (!scheduled_for) {
-      const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === episode_id)
-      if (idea?.episode_code) {
-        const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', 'youtube')
-        if (sc?.scheduled_for) scheduled_for = sc.scheduled_for
-      }
-    }
-    const privacy_status = typeof req.body?.privacy_status === 'string' ? req.body.privacy_status : 'private'
-    // preserve_status routes through to the executor's metadata-only branch.
-    // `true` = leave YouTube's existing privacy + publishAt alone (the safe
-    // default for "↻ Update metadata" clicks on already-uploaded rows).
-    // `false` (or unset) = old behavior: re-push privacy/publishAt from the
-    // request, which is correct for fresh uploads that need to declare a
-    // privacyStatus. Frontend defaults to true when item.uploaded.
-    const preserve_status = req.body?.preserve_status === true
-    // Per-upload playlist override (A5). Sentinel `_none_` means skip the
-    // project default; empty/null/missing means "use project default (if any)".
-    const playlist_id = typeof req.body?.playlist_id === 'string' ? req.body.playlist_id : null
-    const thumbnail_filename = typeof req.body?.thumbnail_filename === 'string'
-      ? req.body.thumbnail_filename.trim()
-      : ''
-
-    if (thumbnail_filename) {
-      const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === episode_id)
-      if (!idea) return res.status(404).json({ detail: `Episode ${episode_id} not found` })
-      // Resolve once before enqueueing. This validates the filename against
-      // the episode's own thumbnail directory and gives immediate feedback
-      // instead of letting a queued upload fail later.
-      try {
-        await resolveUploadMetadata({
-          slug,
-          episode_code: episode_id,
-          fallback_title: idea.title,
-          platform,
-          thumbnail_filename,
-        })
-      } catch (error: any) {
-        return res.status(400).json({
-          detail: error?.message || `Thumbnail "${thumbnail_filename}" is not available for ${episode_id}`,
-        })
-      }
-    }
-
-    // Surface quota issues BEFORE the job enters the queue — nicer than
-    // having the user watch it start, then instantly fail. The executor
-    // re-checks inside uploadVideo so a slow-running queue doesn't let
-    // stale snapshots through, but this pre-check catches the common case.
-    try {
-      await quota.checkQuota(slug, 'videos_insert')
-    } catch (e: any) {
-      if (e?.name === 'QuotaExceededError') {
-        return res.status(429).json({
-          detail: e.message,
-          quota: e.snapshot,
-        })
-      }
-      throw e
-    }
-
-    const job = await jq.enqueue({
-      project_slug: slug,
-      type: 'youtube_upload' as JobType,
-      episode_id,
-      title: `YouTube upload — ${episode_id}`,
-      params: {
-        episode_id,
-        account_id,
-        scheduled_for,
-        privacy_status,
-        playlist_id,
-        preserve_status,
-        thumbnail_filename: thumbnail_filename || undefined,
-      },
-    })
-    res.status(201).json(job)
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to queue upload'))
-  }
-})
+// The retired per-project preview/upload pair was removed. The confirmed
+// /youtube/upload route owns upload preview and enqueueing.
 
 // v1.0.524 — Backfill thumbnails onto already-uploaded videos that are missing
 // one (thumbnails.set on the existing video_id; no re-upload). `dry_run:true`
@@ -1297,10 +928,8 @@ router.post('/projects/:slug/upload/refresh-thumbnails', async (req, res) => {
     const slug = req.params.slug
     const platform = readPlatform(req.body?.platform) || 'youtube'
     if (platform !== 'youtube') return res.status(400).json({ detail: `${platform} thumbnail backfill is not enabled yet.` })
-    const account_id = (typeof req.body?.account_id === 'string' && req.body.account_id)
-      ? req.body.account_id
-      : (await store.getDefaultAccountId(slug, 'youtube'))
-    if (!account_id) return res.status(400).json({ detail: 'No YouTube account connected. Connect a channel in Upload Center → Accounts first.' })
+    const account_id = await resolveRequestedYouTubeAccountId(slug, req.body?.account_id)
+    if (!account_id) return res.status(400).json({ detail: 'No YouTube channel is assigned. Connect or select one in Settings → YouTube.' })
     const mode: 'missing' | 'all' = req.body?.mode === 'all' ? 'all' : 'missing'
 
     if (req.body?.dry_run === true) {
@@ -1338,11 +967,9 @@ router.post('/projects/:slug/upload/update-playlist', async (req, res) => {
     const episode_id: string = typeof req.body?.episode_id === 'string' ? req.body.episode_id : ''
     if (!episode_id) return res.status(400).json({ detail: 'episode_id required' })
 
-    const account_id = typeof req.body?.account_id === 'string' && req.body.account_id
-      ? req.body.account_id
-      : (await store.getDefaultAccountId(slug, 'youtube'))
+    const account_id = await resolveRequestedYouTubeAccountId(slug, req.body?.account_id)
     if (!account_id) {
-      return res.status(400).json({ detail: 'No YouTube account connected. Open Upload Center → Accounts and connect a channel first.' })
+      return res.status(400).json({ detail: 'No YouTube channel is assigned. Connect or select one in Settings → YouTube.' })
     }
 
     if (jq.isDuplicate(slug, episode_id, 'youtube_playlist_update' as JobType)) {
@@ -1442,11 +1069,11 @@ function isCategoryCacheFresh(cache: CategoryCache | null): boolean {
 }
 
 async function fetchYouTubeCategories(slug: string, accountId: string, regionCode: string): Promise<CategoryEntry[]> {
-  const { fetchWithAuthRetry } = await import('../lib/youtube-client.js')
+  const { fetchWithAuthRetry, youtubeTransport } = await import('../lib/youtube-client.js')
   const url = `https://www.googleapis.com/youtube/v3/videoCategories?part=snippet&regionCode=${encodeURIComponent(regionCode)}`
-  const resp = await fetchWithAuthRetry(slug, accountId, async (token) => fetch(url, {
+  const resp = await fetchWithAuthRetry(slug, accountId, async (token) => youtubeTransport(url, {
     headers: { Authorization: `Bearer ${token}` },
-  }))
+  }), 'video_categories_list')
   if (!resp.ok) {
     const txt = await resp.text().catch(() => '')
     throw new Error(`videoCategories.list ${resp.status}: ${txt.slice(0, 200)}`)
@@ -1477,7 +1104,7 @@ router.get('/projects/:slug/upload/youtube-categories', async (req, res) => {
       return res.json({ source: 'cache', region: regionCode, fetched_at: cached!.fetched_at, categories: cached!.categories })
     }
 
-    const accountId = await store.getDefaultAccountId(slug, 'youtube')
+    const accountId = await resolveYouTubeAccountId(slug)
     if (!accountId) {
       // No connected account — return whatever we have (even if stale)
       // so the Settings dropdown still shows category names. If nothing
@@ -1489,9 +1116,6 @@ router.get('/projects/:slug/upload/youtube-categories', async (req, res) => {
     try {
       const categories = await fetchYouTubeCategories(slug, accountId, regionCode)
       await writeCategoryCache(regionCode, categories).catch(() => {})
-      // Quota cost: 1 unit per call. Not tracked in our ledger because
-      // it's de minimis (1 unit per 7d per region) and the existing
-      // ledger schema doesn't have a key for videoCategories.list.
       res.json({ source: 'live', region: regionCode, fetched_at: new Date().toISOString(), categories })
     } catch (e: any) {
       // Item J — soft fallback. If the live fetch fails (network down,
@@ -1548,15 +1172,34 @@ router.post('/projects/:slug/upload/youtube-backfill', async (req, res) => {
       ? String(cfg.category_id)
       : String(appDefaults.default_yt_category_id)
 
-    // 2. Enumerate sidecars.
+    const credential = await resolveYouTubeCredential(slug)
+    if (!credential) return res.status(400).json({ detail: 'No YouTube channel is assigned to this project.' })
+    const accountId = credential.accountId
+
+    // 2. Enumerate the current channel's canonical video identities. A
+    // historical sidecar remains a final legacy fallback only.
     const ideas = await im.getIdeas(slug, 'accepted')
-    const eligible: Array<{ episode_code: string; title: string; sidecar: any }> = []
+    const [operations, publishingState] = await Promise.all([
+      listYouTubeOperations(slug),
+      readYouTubeProjectPublishingState(slug),
+    ])
+    const eligible: Array<{ episode_code: string; title: string; video_id: string }> = []
+    const seenVideoIds = new Set<string>()
     for (const idea of ideas) {
       if (!idea.episode_code) continue
-      const sc = await readSidecar(slug, idea.episode_code, idea.title || '', 'youtube').catch(() => null)
-      if (!sc || !sc.video_id) continue
-      if (sc.deleted_at) continue
-      eligible.push({ episode_code: idea.episode_code, title: idea.title || '', sidecar: sc })
+      const canonical = operations.filter(record => record.episode_code === idea.episode_code
+        && record.channel_id === credential.channelId && !!record.video_id?.trim()).at(-1)
+      const link = publishingState.episode_video_links[idea.episode_code]
+      let videoId = canonical?.video_id?.trim() || ''
+      if (!videoId && link?.channel_id === credential.channelId) videoId = link.video_id.trim()
+      if (!videoId) {
+        const sidecar = await readSidecarStrict(slug, idea.episode_code, 'youtube')
+        if (sidecar?.video_id?.trim() && !sidecar.deleted_at
+          && sidecar.channel_id === credential.channelId) videoId = sidecar.video_id.trim()
+      }
+      if (!videoId || seenVideoIds.has(videoId)) continue
+      seenVideoIds.add(videoId)
+      eligible.push({ episode_code: idea.episode_code, title: idea.title || '', video_id: videoId })
     }
 
     if (!eligible.length) {
@@ -1571,14 +1214,8 @@ router.post('/projects/:slug/upload/youtube-backfill', async (req, res) => {
       })
     }
 
-    // We need an account to read + patch. Use the default; backfill across
-    // multiple accounts isn't supported — if a project's videos span
-    // multiple accounts the user runs the backfill once per account.
-    const accountId = await store.getDefaultAccountId(slug, 'youtube')
-    if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
-
     // 3. Batch-fetch current state.
-    const videoIds = eligible.map(e => e.sidecar.video_id)
+    const videoIds = eligible.map(e => e.video_id)
     const live = await listVideoSnippetStatus(slug, accountId, videoIds)
 
     // 4. Decide per-video what to do.
@@ -1594,7 +1231,7 @@ router.post('/projects/:slug/upload/youtube-backfill', async (req, res) => {
     let updated = 0, skipped = 0, failed = 0
 
     for (const row of eligible) {
-      const vid = row.sidecar.video_id
+      const vid = row.video_id
       const current = live[vid]
       if (!current) {
         details.push({ episode_code: row.episode_code, video_id: vid, action: 'missing', reason: 'Video no longer accessible (deleted or privacy hides it from this account).' })
@@ -1619,25 +1256,12 @@ router.post('/projects/:slug/upload/youtube-backfill', async (req, res) => {
       }
 
       try {
-        // Build the PATCH. We always send snippet (so categoryId can change),
-        // and status (because containsSyntheticMedia lives there). To avoid
-        // clobbering current privacy / publishAt, we propagate the live
-        // values we just read back into the request.
         await updateVideoMetadata({
           slug,
           accountId,
           videoId: vid,
-          snippet: snippetFromMeta({
-            title: row.sidecar.title || '',
-            description: row.sidecar.description || '',
-            tags: Array.isArray(row.sidecar.tags) ? row.sidecar.tags : [],
-            thumbnailPath: '',
-          }, undefined, effectiveCategoryId),
-          status: {
-            privacyStatus: current.privacyStatus,
-            ...(current.publishAt ? { publishAt: current.publishAt } : {}),
-            containsSyntheticMedia: effectiveAi,
-          },
+          ...(needCat ? { snippet: { categoryId: effectiveCategoryId } } : {}),
+          ...(needAi ? { status: { containsSyntheticMedia: effectiveAi } } : {}),
         })
         updated++
         details.push({ episode_code: row.episode_code, video_id: vid, action: 'updated', changed })
@@ -1767,14 +1391,17 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
           targetIdeas.set(idea.episode_code, { title: idea.title || '' })
         }
       }
-      latestFutureClaimMs = await plans.latestFutureClaimMs(
-        slug, plan.platform, targetSet,
-        { getAcceptedIdeas: s => im.getIdeas(s, 'accepted'), readSidecar: readSidecarRaw },
-        nowMs,
+      latestFutureClaimMs = await plans.latestFutureProjectClaimMs(
+        slug, plan.platform, targetSet, nowMs,
       )
+      const publicationStates = plan.platform === 'youtube'
+        ? await plans.readItemPublicationStates(slug)
+        : null
       const publicChecks = await Promise.all(Array.from(targetIdeas.entries()).map(async ([code, info]) => {
-        const sc = await readSidecarRaw(slug, code, info.title, plan.platform)
-        return sc?.privacy_status === 'public' ? code : null
+        const privacy = publicationStates
+          ? publicationStates[code]?.privacy_status
+          : (await readSidecarRaw(slug, code, info.title, plan.platform))?.privacy_status
+        return privacy === 'public' ? code : null
       }))
       publicSkipCodes = publicChecks.filter((c): c is string => !!c)
     }
@@ -1838,9 +1465,8 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
     // Replaces the v1.0.42 `claimedSlots` Set<string> approach, which
     // silently failed on any sidecar `scheduled_for` whose ISO format
     // didn't include `.000Z` milliseconds (YouTube-synced values).
-    const latestFutureClaimMs = await plans.latestFutureClaimMs(
+    const latestFutureClaimMs = await plans.latestFutureProjectClaimMs(
       slug, plan.platform, new Set(episode_codes),
-      { getAcceptedIdeas: s => im.getIdeas(s, 'accepted'), readSidecar: readSidecarRaw },
     )
 
     const minStartDate = latestFutureClaimMs ? new Date(latestFutureClaimMs) : undefined
@@ -1931,7 +1557,12 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
     // patch with "No tokens for this account" even though the (single)
     // account is healthy. Resolve once for the batch; persist the fix back to
     // the plan so future applies don't need the fallback.
-    const patchAccountId = await store.resolveUsableAccountId(slug, plan.platform, plan.account_id)
+    const patchAccountId = plan.platform === 'youtube'
+      ? await resolveYouTubeAccountId(slug, plan.account_id)
+      : await store.resolveUsableAccountId(slug, plan.platform, plan.account_id)
+    if (!patchAccountId) {
+      return res.status(409).json({ detail: 'Reconnect the assigned channel in Settings → YouTube before applying this plan.' })
+    }
     if (patchAccountId !== plan.account_id) {
       try { await plans.upsertPlan(slug, { ...plan, account_id: patchAccountId }) } catch { /* best-effort heal */ }
     }
@@ -1956,14 +1587,10 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
         continue
       }
       try {
-        const meta = await resolveUploadMetadata({
-          slug, episode_code: a.episode_code, fallback_title: idea.title, platform: plan.platform,
-        })
         await updateVideoMetadata({
           slug,
           accountId: patchAccountId,
           videoId: sidecar.video_id,
-          snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
           status: { privacyStatus: plan.defaults.privacy_status, publishAt: a.publishAt },
         })
         // Refresh sidecar's scheduled_for so the queue view reflects the
@@ -2305,9 +1932,7 @@ router.get('/projects/:slug/upload/imports/folder', async (req, res) => {
 router.post('/projects/:slug/upload/reconcile/preview', async (req, res) => {
   try {
     const slug = req.params.slug
-    const account_id = typeof req.body?.account_id === 'string' && req.body.account_id
-      ? req.body.account_id
-      : (await store.getDefaultAccountId(slug, 'youtube'))
+    const account_id = await resolveRequestedYouTubeAccountId(slug, req.body?.account_id)
     if (!account_id) return res.status(400).json({ detail: 'No YouTube account connected.' })
     const preview = await reconciler.buildReconcilePreview(slug, account_id)
     res.json({ account_id, ...preview })
@@ -2319,9 +1944,7 @@ router.post('/projects/:slug/upload/reconcile/preview', async (req, res) => {
 router.post('/projects/:slug/upload/reconcile/confirm', async (req, res) => {
   try {
     const slug = req.params.slug
-    const account_id = typeof req.body?.account_id === 'string' && req.body.account_id
-      ? req.body.account_id
-      : (await store.getDefaultAccountId(slug, 'youtube'))
+    const account_id = await resolveRequestedYouTubeAccountId(slug, req.body?.account_id)
     if (!account_id) return res.status(400).json({ detail: 'No YouTube account connected.' })
     const links = Array.isArray(req.body?.links) ? req.body.links : []
     const valid = links.filter((l: any) =>
@@ -2357,9 +1980,7 @@ router.post('/projects/:slug/upload/reconcile/confirm', async (req, res) => {
 router.get('/projects/:slug/upload/orphans', async (req, res) => {
   try {
     const slug = req.params.slug
-    const accountId = typeof req.query.account_id === 'string' && req.query.account_id
-      ? req.query.account_id
-      : await store.getDefaultAccountId(slug, 'youtube')
+    const accountId = await resolveRequestedYouTubeAccountId(slug, req.query.account_id)
     if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
     const result = await orphans.listOrphans(slug, accountId)
     res.json(result)
@@ -2371,9 +1992,7 @@ router.get('/projects/:slug/upload/orphans', async (req, res) => {
 router.post('/projects/:slug/upload/orphans/adopt-single', async (req, res) => {
   try {
     const slug = req.params.slug
-    const accountId = typeof req.body?.account_id === 'string' && req.body.account_id
-      ? req.body.account_id
-      : await store.getDefaultAccountId(slug, 'youtube')
+    const accountId = await resolveRequestedYouTubeAccountId(slug, req.body?.account_id)
     if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
     const video = req.body?.video
     const episode_code = typeof req.body?.episode_code === 'string' ? req.body.episode_code.trim() : ''
@@ -2390,9 +2009,7 @@ router.post('/projects/:slug/upload/orphans/adopt-single', async (req, res) => {
 router.post('/projects/:slug/upload/orphans/adopt-bulk', async (req, res) => {
   try {
     const slug = req.params.slug
-    const accountId = typeof req.body?.account_id === 'string' && req.body.account_id
-      ? req.body.account_id
-      : await store.getDefaultAccountId(slug, 'youtube')
+    const accountId = await resolveRequestedYouTubeAccountId(slug, req.body?.account_id)
     if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
     const mode = req.body?.mode
     const videos = Array.isArray(req.body?.videos) ? req.body.videos : []
@@ -2561,10 +2178,10 @@ router.post('/projects/:slug/upload/queue/:episode_code/link-existing-video', as
     // Account / channel attribution: use the project's default account.
     // The video has to be on the connected channel (it came back from
     // listChannelVideos) so attribution is unambiguous.
-    const accountId = await store.getDefaultAccountId(slug, 'youtube')
-    if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected. Connect one on the Accounts tab first.' })
-    const account = (await store.listAccounts(slug, 'youtube')).find(a => a.id === accountId)
-    if (!account) return res.status(400).json({ detail: 'YouTube account not found' })
+    const accountId = await resolveYouTubeAccountId(slug)
+    if (!accountId) return res.status(400).json({ detail: 'No YouTube channel is assigned. Connect or select one in Settings → YouTube.' })
+    const account = await describeYouTubeCredential(slug, accountId)
+    if (!account) return res.status(400).json({ detail: 'Reconnect the assigned channel in Settings → YouTube.' })
 
     // Preserve any prior sidecar fields so a re-link doesn't clobber
     // local-only state (e.g. a previously-set scheduled_for that's now
@@ -2712,14 +2329,14 @@ router.patch('/projects/:slug/upload/queue/:episode_code/schedule', async (req, 
     let patch_error: string | null = null
     if (sidecar?.video_id && idea) {
       try {
-        const meta = await resolveUploadMetadata({ slug, episode_code: code, fallback_title: idea.title, platform: 'youtube' })
-        // v1.0.502 — heal a stale sidecar→account binding (see resolveUsableAccountId).
-        const accountId = await store.resolveUsableAccountId(slug, 'youtube', sidecar.account_id)
+        // The immutable channel id survives the clean break from legacy local
+        // account ids; a different current channel remains fail-closed.
+        const accountId = await resolveYouTubeAccountIdForChannel(slug, sidecar.channel_id)
+        if (!accountId) throw new Error('Reconnect the YouTube channel recorded for this upload in Settings before editing its schedule.')
         await updateVideoMetadata({
           slug,
           accountId,
           videoId: sidecar.video_id,
-          snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
           status: { privacyStatus: 'private', publishAt: publish_at },
         })
         // Refresh sidecar so the queue shows the new time immediately.
@@ -2763,17 +2380,15 @@ router.delete('/projects/:slug/upload/queue/:episode_code/schedule', async (req,
     let patch_error: string | null = null
     if (sidecar?.video_id && idea) {
       try {
-        const meta = await resolveUploadMetadata({ slug, episode_code: code, fallback_title: idea.title, platform: 'youtube' })
-        // v1.0.502 — heal a stale sidecar→account binding (see resolveUsableAccountId).
-        const accountId = await store.resolveUsableAccountId(slug, 'youtube', sidecar.account_id)
+        const accountId = await resolveYouTubeAccountIdForChannel(slug, sidecar.channel_id)
+        if (!accountId) throw new Error('Reconnect the YouTube channel recorded for this upload in Settings before changing its schedule.')
         await updateVideoMetadata({
           slug,
           accountId,
           videoId: sidecar.video_id,
-          snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
           // No publishAt → video detaches from its scheduled publish. Privacy
           // is either 'private' (for YT-Studio hand-off) or 'public' (go live now).
-          status: { privacyStatus: make },
+          status: { privacyStatus: make, publishAt: null },
         })
         const { writeSidecar } = await import('../services/upload-sidecar.js')
         await writeSidecar(slug, code, idea.title || '', {
@@ -2813,8 +2428,9 @@ router.post('/projects/:slug/upload/queue/sync-from-youtube', async (req, res) =
   try {
     const slug = req.params.slug
 
-    const accountId = await store.getDefaultAccountId(slug, 'youtube')
-    if (!accountId) return res.status(400).json({ detail: 'No default YouTube account set for this project.' })
+    const credential = await resolveYouTubeCredential(slug)
+    if (!credential) return res.status(400).json({ detail: 'No YouTube channel is assigned to this project.' })
+    const accountId = credential.accountId
 
     const filterCodes: string[] | null = Array.isArray(req.body?.episode_codes)
       ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c)
@@ -2839,9 +2455,10 @@ router.post('/projects/:slug/upload/queue/sync-from-youtube', async (req, res) =
     candidates.forEach((idea, i) => {
       const sidecar = sidecarsByIdea[i]
       if (!sidecar?.video_id) return
-      // Only sync rows that belong to the *currently active* account —
-      // calling videos.list with someone else's tokens would 404 those ids.
-      if (sidecar.account_id && sidecar.account_id !== accountId) return
+      // Old local account ids do not survive the registry clean break. The
+      // immutable channel id does, and remains the provider authorization
+      // boundary for historical upload evidence.
+      if (sidecar.channel_id !== credential.channelId) return
       rows.push({ code: idea.episode_code!, idea, sidecar: sidecar as Row['sidecar'] })
     })
 
@@ -3029,13 +2646,13 @@ router.delete('/projects/:slug/upload/item-schedule', async (req, res) => {
         const sidecar = sidecarsByClearCode.get(code) || null
         if (!sidecar?.video_id) continue
         try {
-          const meta = await resolveUploadMetadata({ slug, episode_code: code, fallback_title: idea.title, platform: 'youtube' })
+          const accountId = await resolveYouTubeAccountIdForChannel(slug, sidecar.channel_id)
+          if (!accountId) throw new Error('Reconnect the YouTube channel recorded for this upload in Settings before clearing its schedule.')
           await updateVideoMetadata({
             slug,
-            accountId: sidecar.account_id,
+            accountId,
             videoId: sidecar.video_id,
-            snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
-            status: { privacyStatus: 'private' },
+            status: { privacyStatus: 'private', publishAt: null },
           })
           const { writeSidecar } = await import('../services/upload-sidecar.js')
           await writeSidecar(slug, code, idea.title || '', {
@@ -3078,10 +2695,4 @@ function validateFilename(name: string | undefined): string | null {
   }
   if (name.includes('\0')) return 'filename may not contain null bytes'
   return null
-}
-
-function maskSecret(s: string): string {
-  if (!s) return ''
-  if (s.length <= 8) return '••••'
-  return `${s.slice(0, 4)}••••${s.slice(-4)}`
 }

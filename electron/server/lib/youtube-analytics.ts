@@ -22,8 +22,10 @@
  * channels with >200 videos in the date range get the top 200 by views.
  */
 
-import { fetchWithAuthRetry } from './youtube-client.js'
+import { fetchWithAuthRetry, youtubeTransport } from './youtube-client.js'
 import type { AnalyticsResult, EpisodeAnalytics } from '../models/types.js'
+import { logLine } from '../services/logger.js'
+import { recordYouTubeQuotaAttempt } from '../services/youtube-quota-ledger.js'
 
 const ANALYTICS_ENDPOINT = 'https://youtubeanalytics.googleapis.com/v2/reports'
 
@@ -74,18 +76,39 @@ class AnalyticsApiError extends Error {
  * response shape. Returns the raw `{ columnHeaders, rows }` from the
  * API so per-call parsing stays in the caller.
  */
-async function runReport(
+export async function runReport(
   slug: string,
   accountId: string,
   params: Record<string, string>,
 ): Promise<{ columnHeaders: Array<{ name: string }>; rows: any[][] }> {
   const url = new URL(ANALYTICS_ENDPOINT)
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
-  const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
-    fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }),
-  )
+  // Through the shared transport seam, as every other YouTube caller does.
+  // Behaviour is identical (it defaults to global fetch); what it adds is that
+  // a provider-free test can intercept this call, which is why the comments
+  // library was moved onto it in Phase 7. This one was missed.
+  const resp = await fetchWithAuthRetry(slug, accountId, async (accessToken, identity) => {
+    try {
+      return await youtubeTransport(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+    } finally {
+      // Analytics has a separate provider-owned allowance with no guessed
+      // local ceiling. Record each real reports.query attempt, including the
+      // first 401 when auth retry makes a second request.
+      await recordYouTubeQuotaAttempt({
+        ...identity,
+        bucket: 'analytics',
+        operation: 'reports.query',
+        amount: 1,
+      }).catch((error: unknown) => {
+        logLine('warn', `[youtube-analytics] quota ledger write failed: ${(error as Error)?.message || 'unknown'}`, {
+          slug,
+          bucket: 'analytics',
+        })
+      })
+    }
+  })
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
     throw new AnalyticsApiError(resp.status, text)
@@ -98,7 +121,7 @@ async function runReport(
 }
 
 /** Map a row array → an object keyed by column name. */
-function asKeyed(headers: Array<{ name: string }>, row: any[]): Record<string, any> {
+export function asKeyed(headers: Array<{ name: string }>, row: any[]): Record<string, any> {
   const out: Record<string, any> = {}
   for (let i = 0; i < headers.length; i++) {
     out[headers[i]!.name] = row[i]
@@ -232,10 +255,14 @@ async function fetchVideoMetadata(
     const url = new URL('https://www.googleapis.com/youtube/v3/videos')
     url.searchParams.set('part', 'snippet')
     url.searchParams.set('id', batch.join(','))
+    // Through the shared seam, like every other YouTube call in this file.
+    // The last bare `fetch` here: identical behaviour, but a provider-free test
+    // can intercept it instead of reaching the ambient network.
     const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
-      fetch(url.toString(), {
+      youtubeTransport(url.toString(), {
         headers: { Authorization: `Bearer ${accessToken}` },
       }),
+      'videos_list',
     )
     if (!resp.ok) continue
     const data = await resp.json() as any
@@ -388,6 +415,15 @@ export interface TopPerformer {
   ctr_percentage?: number
 }
 
+type TopPerformerUnavailableReason = 'not_connected' | 'scope_missing' | 'analytics_unavailable'
+
+function noteTopPerformerUnavailable(slug: string, reason: TopPerformerUnavailableReason): void {
+  logLine('info', '[youtube-analytics] top-performer enrichment unavailable; generation will continue without it', {
+    slug,
+    reason,
+  })
+}
+
 /**
  * Pull the top N video titles by views for the project's default
  * YouTube account, using the analytics cache when available. Failures
@@ -402,12 +438,24 @@ export async function getTopPerformersForSlug(
   limit: number = 5,
 ): Promise<TopPerformer[]> {
   try {
-    const store = await import('../services/upload-store.js')
+    const { resolveYouTubeCredential } = await import('../services/youtube-credential.js')
+    const { readYouTubeChannelTokensForServer } = await import('../services/youtube-connection-store.js')
     const { tokenHasAnalyticsScope } = await import('./youtube-oauth.js')
-    const accountId = await store.getDefaultAccountId(slug, 'youtube')
-    if (!accountId) return []
-    const tokens = await store.readTokens(slug, 'youtube', accountId)
-    if (!tokens || !tokenHasAnalyticsScope(tokens.scope)) return []
+    const credential = await resolveYouTubeCredential(slug)
+    if (!credential) {
+      noteTopPerformerUnavailable(slug, 'not_connected')
+      return []
+    }
+    const accountId = credential.accountId
+    const tokens = await readYouTubeChannelTokensForServer(credential.channelId)
+    if (!tokens) {
+      noteTopPerformerUnavailable(slug, 'not_connected')
+      return []
+    }
+    if (!tokenHasAnalyticsScope(tokens.scope)) {
+      noteTopPerformerUnavailable(slug, 'scope_missing')
+      return []
+    }
     const result = await getEpisodeAnalyticsCached(slug, accountId, {
       maxResults: Math.max(limit * 2, 20),
     })
@@ -421,6 +469,7 @@ export async function getTopPerformersForSlug(
       }))
   } catch {
     // Generators must never break because analytics is unavailable.
+    noteTopPerformerUnavailable(slug, 'analytics_unavailable')
     return []
   }
 }

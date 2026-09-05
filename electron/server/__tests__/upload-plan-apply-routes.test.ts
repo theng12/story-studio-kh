@@ -34,13 +34,15 @@ import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 let tempDir: string
 let cleanup: () => Promise<void>
 let app: any
 let pm: typeof import('../services/project-manager.js')
-let store: typeof import('../services/upload-store.js')
+let connections: typeof import('../services/youtube-connection-store.js')
 let plans: typeof import('../services/upload-plans.js')
 let sidecar: typeof import('../services/upload-sidecar.js')
+let operations: typeof import('../services/youtube-operation-store.js')
 
 let slug = ''
 let accountId = ''
@@ -106,16 +108,20 @@ before(async () => {
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   app = (await import('../app.js')).app
   pm = await import('../services/project-manager.js')
-  store = await import('../services/upload-store.js')
+  connections = await import('../services/youtube-connection-store.js')
   plans = await import('../services/upload-plans.js')
   sidecar = await import('../services/upload-sidecar.js')
+  operations = await import('../services/youtube-operation-store.js')
 
   const project = await pm.createProject({ name: 'Plan Apply Routes' })
   slug = project.slug
-  const account = await store.addAccount(slug, 'youtube', {
-    label: 'test-channel', remote_id: 'UC_test', remote_title: 'test-channel',
-  } as any)
-  accountId = account.id
+  await connections.configureYouTubeApplication({ client_id: 'plan-client', client_secret: 'plan-secret' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: 'UC_test', title: 'test-channel', granted_scopes: ['youtube.upload'] },
+    tokens: { access_token: 'plan-access', refresh_token: 'plan-refresh', expires_at: Date.now() + 3_600_000 },
+  })
+  await connections.assignProjectYouTubeChannel({ project_slug: slug, channel_id: 'UC_test', expected_previous_channel_id: null })
+  accountId = 'registry:UC_test'
   const plan = await plans.upsertPlan(slug, {
     name: 'Test cadence', platform: 'youtube', account_id: accountId,
     schedule: SCHEDULE as any,
@@ -248,4 +254,42 @@ describe('a plan that cannot cover the request says so', () => {
       .send({ episode_codes: [] })
     assert.equal(res.status, 400)
   })
+})
+
+test('canonical current-channel publication state overrides stale sidecar schedule facts', async () => {
+  await writeSidecarFor('EP0004', {
+    scheduled_for: new Date(Date.now() + 10 * 86_400_000).toISOString(),
+    privacy_status: 'private',
+    video_id: 'legacy-EP0004',
+  })
+  const payload = {
+    snippet_json: JSON.stringify({ title: 'Episode 4', description: '', tags: [], categoryId: '24' }),
+    status_json: JSON.stringify({ privacyStatus: 'private' }),
+    source_sha256: 'c'.repeat(64),
+  }
+  const opened = await operations.createYouTubeOperation({
+    project_slug: slug, episode_code: 'EP0004', channel_id: 'UC_test',
+    source_revision: 'canonical-EP0004', metadata_revision: payload.source_sha256,
+    final_payload: payload, origin: 'manual', final_action: 'manual_upload',
+  })
+  const accepted = await operations.acceptYouTubeOperation({
+    project_slug: slug, operation_id: opened.operation_id, expected_revision: opened.revision,
+    channel_id: 'UC_test', video_id: 'canonical-EP0004', accepted_at: new Date().toISOString(),
+    final_payload: payload,
+  })
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: accepted.operation_id, expected_revision: accepted.revision,
+    mutate(record) {
+      record.lifecycle = 'ready'
+      record.remote_snapshot = {
+        fetched_at: new Date().toISOString(), title: 'Episode 4', description: '', tags: [],
+        privacy_status: 'public', scheduled_for: null,
+      }
+    },
+  })
+
+  const states = await plans.readItemPublicationStates(slug)
+  assert.deepEqual(states.EP0004, { privacy_status: 'public', scheduled_for: null })
+  const body = await preview(['EP0004'])
+  assert.deepEqual(body.public_skip_codes, ['EP0004'])
 })

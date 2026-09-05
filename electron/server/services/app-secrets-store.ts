@@ -2,9 +2,9 @@
  * App-level secrets store.
  *
  * One file per Mac at `<userData>/app-secrets.json` (mode 0600, encrypted via
- * Electron safeStorage by default. The owner-only plaintext fallback is used
- * only when the OS encryption service is unavailable or explicitly disabled
- * for development/recovery; see lib/safe-storage.ts.
+ * Electron safeStorage by default. Provider keys retain the existing
+ * owner-only plaintext fallback for development/recovery; YouTube OAuth
+ * credentials are accepted and written only with OS encryption available.
  *
  * Replaces the per-project `secrets.json` model. Project folders may live
  * in iCloud Drive across multiple Macs, so secrets stored inside them got
@@ -35,6 +35,7 @@ import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
 import { logLine } from './logger.js'
 import { getUserDataDir } from './project-manager.js'
+import { isValidYouTubeChannelId } from '../contracts/youtube-upload-center.js'
 
 export const APP_SECRETS_SCHEMA_VERSION = 3 as const
 const MAX_CONTENT_STORE_ANCHOR_KEYS = 100
@@ -56,6 +57,8 @@ export interface AppSecretsV3 {
   // is what makes the per-machine local-modal URLs (voicestudio/imagestudio)
   // fully user-controlled: whatever you Save is what the app uses.
   providers: Partial<Record<ProviderId, { apiKey: string; userSet?: boolean; generation?: string }>>
+  /** Server-only YouTube credentials; never returned by public routes. */
+  youtube?: YouTubeSecretBucket
 }
 
 export interface ContentStoreKeyAnchor {
@@ -63,6 +66,33 @@ export interface ContentStoreKeyAnchor {
   account_id: string
   content_account_id: string
   keys: Array<{ key_id: string; public_key_base64: string }>
+}
+
+export interface OAuthTokenBundle {
+  access_token: string
+  refresh_token: string
+  expires_at: number
+  scope?: string
+}
+
+export interface YouTubeOAuthClientSecret {
+  application_id: string
+  client_secret: string
+}
+
+export interface YouTubeChannelTokenSecret extends OAuthTokenBundle {
+  application_id: string
+}
+
+export interface YouTubePendingRegistryTransaction {
+  transaction_id: string
+  registry: Record<string, unknown>
+}
+
+export interface YouTubeSecretBucket {
+  oauth_client?: YouTubeOAuthClientSecret
+  channel_tokens?: Record<string, YouTubeChannelTokenSecret>
+  pending_registry?: YouTubePendingRegistryTransaction
 }
 
 interface EncryptedEnvelope {
@@ -107,6 +137,79 @@ function isKnownProvider(p: string): p is ProviderId {
   return (SECRET_PROVIDERS as readonly string[]).includes(p)
 }
 
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return !!raw && typeof raw === 'object' && !Array.isArray(raw)
+}
+
+function hasOnlyKeys(source: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const accepted = new Set(allowed)
+  return Object.keys(source).every(key => accepted.has(key))
+}
+
+/** Strictly parse the bucket so an unrelated provider save can never erase damaged or future fields. */
+function parseYouTubeSecretBucket(raw: unknown): YouTubeSecretBucket | null {
+  if (!isRecord(raw)) return null
+  const source = raw as Record<string, unknown>
+  if (!hasOnlyKeys(source, ['oauth_client', 'channel_tokens', 'pending_registry'])) return null
+  const result: YouTubeSecretBucket = {}
+  if (Object.hasOwn(source, 'oauth_client')) {
+    const oauthClient = source.oauth_client
+    if (!isRecord(oauthClient) || !hasOnlyKeys(oauthClient, ['application_id', 'client_secret'])) return null
+    const value = oauthClient as Record<string, unknown>
+    if (typeof value.application_id !== 'string' || !value.application_id
+      || typeof value.client_secret !== 'string' || !value.client_secret) return null
+    result.oauth_client = { application_id: value.application_id, client_secret: value.client_secret }
+  }
+  if (Object.hasOwn(source, 'channel_tokens')) {
+    const channelTokens = source.channel_tokens
+    if (!isRecord(channelTokens)) return null
+    const entries: Array<[string, YouTubeChannelTokenSecret]> = []
+    for (const [channelId, rawToken] of Object.entries(channelTokens)) {
+      if (!isValidYouTubeChannelId(channelId)
+        || !isRecord(rawToken)
+        || !hasOnlyKeys(rawToken, ['application_id', 'access_token', 'refresh_token', 'expires_at', 'scope'])) return null
+      const value = rawToken as Record<string, unknown>
+      if (typeof value.application_id !== 'string' || !value.application_id
+        || typeof value.access_token !== 'string' || !value.access_token
+        || typeof value.refresh_token !== 'string' || !value.refresh_token
+        || typeof value.expires_at !== 'number' || !Number.isFinite(value.expires_at)) return null
+      const token: YouTubeChannelTokenSecret = {
+        application_id: value.application_id,
+        access_token: value.access_token,
+        refresh_token: value.refresh_token,
+        expires_at: value.expires_at,
+      }
+      if (Object.hasOwn(value, 'scope')) {
+        if (typeof value.scope !== 'string' || !value.scope.trim()) return null
+        token.scope = value.scope.trim().split(/\s+/).join(' ')
+      }
+      entries.push([channelId, token])
+    }
+    result.channel_tokens = Object.fromEntries(entries)
+  }
+  if (Object.hasOwn(source, 'pending_registry')) {
+    const pending = source.pending_registry
+    if (!isRecord(pending) || !hasOnlyKeys(pending, ['transaction_id', 'registry'])) return null
+    const value = pending as Record<string, unknown>
+    if (typeof value.transaction_id !== 'string' || !value.transaction_id) return null
+    if (!isRecord(value.registry)) return null
+    // `readSecretFile` already JSON-parsed this snapshot, so it is JSON-safe.
+    // Keep its full shape; the connection registry's decoder validates it on recovery.
+    result.pending_registry = { transaction_id: value.transaction_id, registry: value.registry }
+  }
+  registerYouTubeSecrets(result)
+  return result
+}
+
+function registerYouTubeSecrets(bucket: YouTubeSecretBucket | undefined): void {
+  if (!bucket) return
+  if (bucket.oauth_client) registerSecretForRedaction(bucket.oauth_client.client_secret)
+  for (const token of Object.values(bucket.channel_tokens ?? {})) {
+    registerSecretForRedaction(token.access_token)
+    registerSecretForRedaction(token.refresh_token)
+  }
+}
+
 /**
  * Path is `<userData>/app-secrets.json`. Honours STORY_STUDIO_DATA_DIR for
  * tests via `getUserDataDir()`.
@@ -137,7 +240,7 @@ async function readSecretFile(filePath: string): Promise<SecretRead> {
   return { kind: 'plaintext', value: raw }
 }
 
-function parseV3(raw: unknown): AppSecretsV3 | null {
+function parseV3Base(raw: unknown): AppSecretsV3 | null {
   const out = emptyV3()
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const record = raw as Record<string, unknown>
@@ -146,19 +249,33 @@ function parseV3(raw: unknown): AppSecretsV3 | null {
   const providers = record.providers as Record<string, unknown>
   if (providers) {
     for (const [k, v] of Object.entries(providers)) {
-      if (!isKnownProvider(k)) continue
-      if (!v || typeof v !== 'object' || Array.isArray(v) || typeof (v as any).apiKey !== 'string') return null
-      const apiKey = (v as any).apiKey
-      // Preserve the `userSet` marker (an explicit Save) so getApiKey's
-      // "explicit value wins" rule survives the read/normalise round-trip.
-      const userSet = (v as any)?.userSet === true
-      const generation = typeof (v as any)?.generation === 'string' && (v as any).generation.length <= 128
-        ? (v as any).generation : undefined
-      if (apiKey) {
-        registerSecretForRedaction(apiKey)
-        out.providers[k] = { apiKey, ...(userSet ? { userSet: true } : {}), ...(generation ? { generation } : {}) }
+      if (!isKnownProvider(k) || !isRecord(v) || !hasOnlyKeys(v, ['apiKey', 'userSet', 'generation'])) return null
+      if (typeof v.apiKey !== 'string' || !v.apiKey) return null
+      if (Object.hasOwn(v, 'userSet') && typeof v.userSet !== 'boolean') return null
+      if (Object.hasOwn(v, 'generation')
+        && (typeof v.generation !== 'string' || !v.generation || v.generation.length > 128)) return null
+      registerSecretForRedaction(v.apiKey)
+      out.providers[k] = {
+        apiKey: v.apiKey,
+        ...(Object.hasOwn(v, 'userSet') ? { userSet: v.userSet as boolean } : {}),
+        ...(Object.hasOwn(v, 'generation') ? { generation: v.generation as string } : {}),
       }
     }
+  }
+  return out
+}
+
+function parseV3(raw: unknown, allowYouTube = false): AppSecretsV3 | null {
+  const out = parseV3Base(raw)
+  if (!out) return null
+  const record = raw as Record<string, unknown>
+  // YouTube grants are accepted only from an OS-protected envelope. Validate
+  // any present bucket even in a plaintext file so malformed nested state can
+  // never be silently discarded by a later rewrite.
+  if (Object.hasOwn(record, 'youtube')) {
+    const youtube = parseYouTubeSecretBucket(record.youtube)
+    if (!youtube) return null
+    if (allowYouTube) out.youtube = youtube
   }
   return out
 }
@@ -271,9 +388,61 @@ export async function readAppSecrets(): Promise<AppSecretsV3> {
   if (read.kind === 'missing' || read.kind === 'undecryptable') return emptyV3()
   if (read.kind === 'io-error') throw read.error
   if (read.kind === 'invalid') throw new Error('App secrets file is invalid')
-  const parsed = parseV3(read.value)
+  const parsed = parseV3(read.value, read.kind === 'encrypted')
   if (!parsed) throw new Error('App secrets payload is invalid')
   return parsed
+}
+
+/**
+ * Whether the YouTube-only credential bucket can be deliberately removed.
+ * General provider corruption and an undecryptable envelope remain separate,
+ * non-recoverable states; this never treats them as an empty configuration.
+ */
+export async function youtubeSecretRecoveryRequired(): Promise<boolean> {
+  const read = await readSecretFile(appSecretsPath())
+  if (read.kind === 'missing') return false
+  if (read.kind === 'io-error') throw read.error
+  if (read.kind === 'invalid' || read.kind === 'undecryptable') {
+    throw new Error('App secrets file is invalid or unavailable')
+  }
+  const base = parseV3Base(read.value)
+  if (!base) throw new Error('App secrets provider payload is invalid')
+  const record = read.value as Record<string, unknown>
+  if (!Object.hasOwn(record, 'youtube')) return false
+  return read.kind === 'plaintext' || parseYouTubeSecretBucket(record.youtube) === null
+}
+
+/**
+ * Stage a scoped YouTube credential reset while retaining valid provider keys.
+ * The pending public-registry target makes the two-file update recoverable.
+ */
+export async function stageYouTubeSecretRecovery(
+  pending: YouTubePendingRegistryTransaction,
+): Promise<void> {
+  const filePath = appSecretsPath()
+  assertWriteIsolatedInTests(filePath, 'app-secrets')
+  if (!isEncryptionAvailable()) throw new Error('YouTube credential recovery requires available OS safeStorage')
+  await withCrossProcessLock(filePath, async () => {
+    const read = await readSecretFile(filePath)
+    if (read.kind === 'io-error') throw read.error
+    if (read.kind === 'missing' || read.kind === 'invalid' || read.kind === 'undecryptable') {
+      throw new Error('YouTube credentials are not eligible for scoped recovery')
+    }
+    const base = parseV3Base(read.value)
+    if (!base) throw new Error('App secrets provider payload is invalid')
+    const record = read.value as Record<string, unknown>
+    const hasYouTube = Object.hasOwn(record, 'youtube')
+    const eligible = hasYouTube && (read.kind === 'plaintext' || parseYouTubeSecretBucket(record.youtube) === null)
+    if (!eligible) throw new Error('YouTube credentials are not eligible for scoped recovery')
+    base.youtube = { pending_registry: pending }
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    await writeRaw(filePath, base)
+  })
+  await logSecretMutation({
+    operation: 'youtube-secret-recovery', input_state: 'recoverable', result: 'written',
+    safe_storage_available: true, anchor_key_count_before: 'not-read', anchor_key_count_after: 'not-read',
+    backup_outcome: 'not-needed', operation_id: pending.transaction_id,
+  })
 }
 
 /** Atomically mutate the app-level secrets store. */
@@ -293,9 +462,18 @@ export async function writeAppSecrets(
       inputState = read.kind
       if (read.kind === 'io-error') throw read.error
       if (read.kind === 'invalid') throw new Error('App secrets file or encrypted envelope is invalid')
-      const v3 = read.kind === 'missing' || read.kind === 'undecryptable' ? emptyV3() : parseV3(read.value)
+      if (read.kind === 'plaintext' && isRecord(read.value) && Object.hasOwn(read.value, 'youtube')) {
+        throw new Error('Plaintext YouTube secrets cannot be rewritten. In Settings → YouTube, remove unusable YouTube credentials, then reconnect.')
+      }
+      const v3 = read.kind === 'missing' || read.kind === 'undecryptable'
+        ? emptyV3()
+        : parseV3(read.value, read.kind === 'encrypted')
       if (!v3) throw new Error('App secrets payload is invalid')
       await mutate(v3)
+      registerYouTubeSecrets(v3.youtube)
+      if (v3.youtube && !isEncryptionAvailable()) {
+        throw new Error('YouTube secrets require encrypted safeStorage')
+      }
       // Drop providers with empty keys.
       for (const pid of SECRET_PROVIDERS) {
         const bucket = v3.providers[pid]

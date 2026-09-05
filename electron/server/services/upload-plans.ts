@@ -19,8 +19,10 @@
 import { randomUUID } from 'crypto'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
-import { readSidecarRaw, setScheduledFor } from './upload-sidecar.js'
+import { readSidecarStrict, setScheduledFor } from './upload-sidecar.js'
 import type { UploadPlatform } from './upload-store.js'
+import { operationPublicationFacts, readYouTubeRetentionStores } from './youtube-remote-video.js'
+import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
 
 export interface UploadSchedule {
   /** 0-6, Sunday = 0. Empty array + monthly_day set = monthly mode. */
@@ -213,6 +215,25 @@ export async function latestFutureClaimMs(
   return latest
 }
 
+/** Production claim walk using the canonical project schedule reader. */
+export async function latestFutureProjectClaimMs(
+  slug: string,
+  platform: UploadPlatform,
+  excludeCodes: Iterable<string>,
+  now: number = Date.now(),
+): Promise<number> {
+  const schedule = platform === 'youtube' ? await readItemSchedule(slug) : null
+  return latestFutureClaimMs(slug, platform, excludeCodes, {
+    getAcceptedIdeas: projectSlug => im.getIdeas(projectSlug, 'accepted'),
+    readSidecar: schedule
+      ? async (_projectSlug, code) => ({ scheduled_for: schedule[code] || null })
+      : async (projectSlug, code, title, selectedPlatform) => {
+        const { readSidecarRaw } = await import('./upload-sidecar.js')
+        return readSidecarRaw(projectSlug, code, title, selectedPlatform)
+      },
+  }, now)
+}
+
 export function computeSlots(
   schedule: UploadSchedule,
   count: number,
@@ -382,32 +403,43 @@ function daysBetween(a: Date, b: Date, _tz: string): number {
   return Math.round((b.getTime() - a.getTime()) / 86_400_000)
 }
 
-// ── Per-item scheduled_for map (item I-eager: sidecar-backed) ─────────────
-//
-// Episode schedules live in their YouTube sidecars. Imported videos have no
-// episode sidecar, so their `import:*` schedule entries remain in config.
+// ── Per-item publication facts and schedule map ───────────────────────────
 
 export const LEGACY_SCHEDULE_FIELD = 'upload_item_schedule'
 
-/**
- * Build the merged schedule map for a project. Episode-coded entries
- * come from each accepted episode's sidecar (`scheduled_for`); any
- * non-episode keys (today only `import:*`) come from the legacy config
- * map. Falsy values are filtered so consumers can use `truthy-check`
- * for "is this scheduled?" without surprises from `null` carry-overs.
- */
-export async function readItemSchedule(slug: string): Promise<Record<string, string>> {
-  const out: Record<string, string> = {}
-
-  // Sidecar reads — one per accepted episode. Project counts are tiny
-  // (personal-use), and each read is a small JSON file, so the parallel
-  // fan-out keeps this comfortably under a frame budget.
-  const ideas = await im.getIdeas(slug, 'accepted').catch(() => [])
+export async function readItemPublicationStates(slug: string): Promise<Record<string, {
+  privacy_status?: string
+  scheduled_for?: string | null
+}>> {
+  const out: Record<string, { privacy_status?: string; scheduled_for?: string | null }> = {}
+  const ideas = await im.getIdeas(slug, 'accepted')
+  const { records: operations } = await readYouTubeRetentionStores(slug)
+  const assignedChannel = (await getProjectYouTubeAssignment(slug))?.channel_id
   await Promise.all(ideas.map(async (idea) => {
     if (!idea.episode_code) return
-    const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', 'youtube')
-    if (sc?.scheduled_for) out[idea.episode_code] = sc.scheduled_for
+    const canonical = operations.filter(record => record.episode_code === idea.episode_code
+      && (!assignedChannel || record.channel_id === assignedChannel)).at(-1)
+    const facts = canonical ? operationPublicationFacts(canonical) : {}
+    const sc = await readSidecarStrict(slug, idea.episode_code, 'youtube')
+    out[idea.episode_code] = {
+      ...(facts.privacy_status !== undefined
+        ? { privacy_status: facts.privacy_status }
+        : sc?.privacy_status ? { privacy_status: sc.privacy_status } : {}),
+      ...(Object.prototype.hasOwnProperty.call(facts, 'scheduled_for')
+        ? { scheduled_for: facts.scheduled_for }
+        : sc ? { scheduled_for: sc.scheduled_for } : {}),
+    }
   }))
+  return out
+}
+
+/** Build the canonical schedule map, with planning/legacy sidecars as fallback. */
+export async function readItemSchedule(slug: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  const states = await readItemPublicationStates(slug)
+  for (const [code, state] of Object.entries(states)) {
+    if (state.scheduled_for) out[code] = state.scheduled_for
+  }
 
   // Legacy map — merge in non-episode keys. Episode-coded keys may also
   // linger in the map on the first boot before migration runs (or if
@@ -447,7 +479,7 @@ export async function writeItemSchedule(slug: string, map: Record<string, string
   // and non-episode keys ride the legacy map. We can't tell from a key
   // alone what's "episode-coded" without consulting accepted ideas, so
   // walk that list first.
-  const ideas = await im.getIdeas(slug, 'accepted').catch(() => [])
+  const ideas = await im.getIdeas(slug, 'accepted')
   const ideaByCode = new Map<string, { title: string }>()
   for (const i of ideas) {
     if (i.episode_code) ideaByCode.set(i.episode_code, { title: i.title || '' })

@@ -19,8 +19,7 @@ import fs from 'fs'
 import fsp from 'fs/promises'
 import type { OAuthTokenBundle } from './youtube-oauth.js'
 import { refreshAccessToken } from './youtube-oauth.js'
-import * as store from '../services/upload-store.js'
-import { checkQuota, recordQuotaUsage, friendlyQuotaErrorMessage, type QuotaKey } from '../services/upload-quota.js'
+import { friendlyQuotaErrorMessage, QUOTA_COST, type QuotaKey } from '../services/upload-quota.js'
 import { logLine } from '../services/logger.js'
 import { prepareThumbnail } from './thumbnail-prepare.js'
 import {
@@ -32,21 +31,121 @@ import { truncateChars } from './well-formed-text.js'
 import { assertPublishableMetadata } from './metadata-scaffold.js'
 
 /**
- * Wrapper around `recordQuotaUsage` that logs at warn level on failure
- * instead of swallowing silently. The underlying YouTube API call has
- * already succeeded by the time we get here, so we never re-throw — but a
- * silent ledger miss leaves the UI showing a stale "0 / 10,000" while
- * Google's real counter ticks up. recordQuotaUsage also writes a
- * `youtube_quota_ledger_stale: true` flag to config.json on failure so the
- * UI banner can warn the user.
+ * The one door every YouTube request goes through.
+ *
+ * This module had fifteen bare `fetch(` calls, so the only way to test it was
+ * to patch the global — which silently affects every other module in the same
+ * process. Routing them through one binding lets a test hand this file a fake
+ * transport and nothing else. Production keeps the platform `fetch`.
+ *
+ * Test-only: `__setYouTubeTransportForTests` is never called by product code.
  */
-async function recordQuotaOrLog(slug: string, key: QuotaKey): Promise<void> {
+let youtubeFetch: typeof fetch = (...args) => globalThis.fetch(...args)
+
+/**
+ * The same seam, for sibling modules that make YouTube requests of their own.
+ *
+ * `youtube-comments.ts` called the global `fetch` directly while this file
+ * routed everything through the binding — a guard present in one file and
+ * absent in its neighbour, which left every comment request untestable and
+ * able to reach the real API from a test.
+ */
+export const youtubeTransport: typeof fetch = (...args) => youtubeFetch(...args)
+
+export function __setYouTubeTransportForTests(transport: typeof fetch): void {
+  youtubeFetch = transport
+}
+
+export function __resetYouTubeTransportForTests(): void {
+  youtubeFetch = (...args) => globalThis.fetch(...args)
+}
+
+export interface YouTubeQuotaPermit {
+  application_id: string
+  channel_id: string
+  key: QuotaKey
+}
+
+export interface YouTubeCredentialContext {
+  access_token: string
+  application_id: string
+  channel_id: string
+}
+
+export async function recordQuotaOrLog(permit: YouTubeQuotaPermit | null): Promise<void> {
+  await recordCloudProjectQuota(permit)
+}
+
+/**
+ * Also charge the Cloud-project ledger, which is the one the redesigned Upload
+ * Center reads.
+ *
+ * Quota belongs to the Google Cloud project, and every OAuth client sharing it
+ * shares the counter. This is the only local quota authority.
+ *
+ * Charged from the single funnel every call site already goes through, rather
+ * than from twelve separate sites, so a new endpoint cannot forget to pay.
+ *
+ * Best-effort in exactly the same way the operation recorder is: a project with
+ * no owner application or no assigned channel has nothing to charge, and must
+ * keep working. Never throws — the API call already succeeded by the time this
+ * runs, and a bookkeeping failure must not fail it.
+ */
+/**
+ * How much one call costs in the Cloud-project ledger.
+ *
+ * The buckets do NOT share a unit (spec section 6): `video_uploads` and
+ * `search` count CALLS with a default ceiling of 100 per day, while
+ * `other_endpoints` counts UNITS with a ceiling of 10,000. Charging
+ * videos.insert's 1,600 units into the 100-CALL upload bucket instantly
+ * exhausted it on the first upload.
+ */
+function cloudProjectQuotaCharge(key: QuotaKey): { bucket: 'video_uploads' | 'other_endpoints'; amount: number } {
+  return key === 'videos_insert'
+    ? { bucket: 'video_uploads', amount: 1 }
+    : { bucket: 'other_endpoints', amount: QUOTA_COST[key] }
+}
+
+/**
+ * Refuse a request that would exceed the Cloud-project ceiling for its bucket.
+ *
+ * Unlike the charge, this one THROWS: refusing before the request is the whole
+ * point. The caller supplies the exact application and channel captured with
+ * the token, so a later reassignment cannot move this request to another
+ * ledger.
+ */
+export async function checkCloudProjectQuota(context: YouTubeCredentialContext, key: QuotaKey): Promise<YouTubeQuotaPermit> {
+  const { checkYouTubeQuota } = await import('../services/youtube-quota-ledger.js')
+  // NOT `.catch(() => null)`. This is the funnel every provider request passes
+  // through, and swallowing the read made a corrupt registry mean "no ceiling,
+  // carry on" - the same tell-1 collapse the upload route had, on the path that
+  // guards ALL of them. An unreadable registry now refuses here, loudly.
+  const charge = cloudProjectQuotaCharge(key)
+  await checkYouTubeQuota(context.application_id, charge.bucket, charge.amount)
+  return {
+    application_id: context.application_id,
+    channel_id: context.channel_id,
+    key,
+  }
+}
+
+async function recordCloudProjectQuota(permit: YouTubeQuotaPermit | null): Promise<void> {
+  if (!permit) return
   try {
-    await recordQuotaUsage(slug, key)
+    const { recordYouTubeQuotaAttempt } = await import('../services/youtube-quota-ledger.js')
+    const charge = cloudProjectQuotaCharge(permit.key)
+    await recordYouTubeQuotaAttempt({
+      application_id: permit.application_id,
+      channel_id: permit.channel_id,
+      bucket: charge.bucket,
+      operation: permit.key,
+      amount: charge.amount,
+    })
   } catch (e: any) {
-    logLine('warn', `[upload-quota] ledger write failed: ${e?.message || 'unknown'}`, {
-      slug,
-      key,
+    logLine('warn', `[youtube-quota] cloud-project ledger write failed: ${e?.message || 'unknown'}`, {
+      application_id: permit.application_id,
+      channel_id: permit.channel_id,
+      key: permit.key,
     })
   }
 }
@@ -80,7 +179,7 @@ export type PrivacyStatus = 'private' | 'unlisted' | 'public'
 export interface VideoStatus {
   privacyStatus: PrivacyStatus
   /** ISO 8601 when to flip to public. Only used when privacyStatus is 'private'. */
-  publishAt?: string
+  publishAt?: string | null
   selfDeclaredMadeForKids?: boolean
   /**
    * YouTube's "altered or synthetic content" disclosure (introduced 2024-10).
@@ -96,6 +195,9 @@ export interface VideoStatus {
    * (which is the default for new projects).
    */
   containsSyntheticMedia?: boolean
+  embeddable?: boolean
+  license?: string
+  publicStatsViewable?: boolean
 }
 
 export interface UploadVideoArgs {
@@ -124,6 +226,8 @@ export interface UploadVideoArgs {
    * the permanent video id, closing the crash window between those writes.
    */
   deferResumeCleanup?: boolean
+  /** Persist the session hash in the durable operation before sending bytes. */
+  onResumableSessionReady?: (sessionUrlHash: string, sourceBytes: number) => Promise<void>
 }
 
 export interface UploadedVideo {
@@ -143,39 +247,104 @@ export interface UploadedVideo {
 // refresh_token itself, we surface a distinct "reconnect required" error
 // so callers can tell the user to re-run Connect.
 
-async function refreshAndPersist(slug: string, accountId: string): Promise<string> {
-  const tokens = await store.readTokens(slug, 'youtube', accountId)
-  if (!tokens) throw new Error('No tokens for this account — reconnect YouTube.')
-  const client = await store.readOAuthClient(slug, 'youtube')
-  if (!client) throw new Error('OAuth client missing — re-enter client_id/client_secret in Settings.')
+export const REGISTRY_CREDENTIAL_PREFIX = 'registry:'
+
+export function registryCredentialFor(channelId: string): string {
+  return `${REGISTRY_CREDENTIAL_PREFIX}${channelId}`
+}
+
+function registryChannelOf(accountId: string): string | null {
+  if (!accountId.startsWith(REGISTRY_CREDENTIAL_PREFIX)) return null
+  return accountId.slice(REGISTRY_CREDENTIAL_PREFIX.length) || null
+}
+
+function reconnectRequired(message: string): Error {
+  return Object.assign(new Error(message), { code: 'YOUTUBE_RECONNECT_REQUIRED' })
+}
+
+async function refreshAndPersist(
+  slug: string,
+  accountId: string,
+  expectedApplicationId?: string,
+): Promise<YouTubeCredentialContext> {
+  const channelId = registryChannelOf(accountId)
+  if (!channelId) {
+    throw reconnectRequired('This project has no current YouTube connection. Reconnect it in Settings → YouTube.')
+  }
+  const connections = await import('../services/youtube-connection-store.js')
+  const credential = await connections.readYouTubeRequestCredentialForServer(slug, channelId)
+  if (!credential || (expectedApplicationId && credential.application_id !== expectedApplicationId)) {
+    throw reconnectRequired('This YouTube connection changed. Reconnect the channel in Settings → YouTube and retry.')
+  }
   try {
     const fresh = await refreshAccessToken({
-      client_id: client.client_id,
-      client_secret: client.client_secret,
-      refresh_token: tokens.refresh_token,
+      client_id: credential.client_id,
+      client_secret: credential.client_secret,
+      refresh_token: credential.tokens.refresh_token,
+      // Google omits `scope` from most refresh responses, and without this the
+      // stored grant loses it on the first refresh. Everything that ASKS what
+      // a token may do then gets the wrong answer — including the analytics
+      // scope check, which would report "grant analytics access" forever on a
+      // connection that has it.
+      ...(credential.tokens.scope ? { previous_scope: credential.tokens.scope } : {}),
     })
-    await store.writeTokens(slug, 'youtube', accountId, fresh)
-    return fresh.access_token
+    const saved = await connections.saveYouTubeChannelTokens({
+      channel_id: channelId,
+      expected_access_token: credential.tokens.access_token,
+      tokens: fresh,
+    })
+    if (saved) return {
+      access_token: fresh.access_token,
+      application_id: credential.application_id,
+      channel_id: channelId,
+    }
+    const winner = await connections.readYouTubeRequestCredentialForServer(slug, channelId)
+    if (winner?.application_id === credential.application_id) return {
+      access_token: winner.tokens.access_token,
+      application_id: winner.application_id,
+      channel_id: channelId,
+    }
+    throw new Error('The YouTube connection changed while its token was refreshing.')
   } catch (e: any) {
-    throw new Error(`Token refresh failed (${e.message || 'unknown'}). Disconnect and reconnect the YouTube account.`)
+    throw reconnectRequired(`Token refresh failed (${e?.message || 'unknown'}). Reconnect the channel in Settings → YouTube.`)
   }
 }
 
-export async function getValidAccessToken(slug: string, accountId: string): Promise<string> {
-  const tokens = await store.readTokens(slug, 'youtube', accountId)
-  if (!tokens) throw new Error('No tokens for this account — reconnect YouTube.')
+export async function getValidCredentialContext(slug: string, accountId: string): Promise<YouTubeCredentialContext> {
+  const channelId = registryChannelOf(accountId)
+  if (!channelId) {
+    throw reconnectRequired('This project has no current YouTube connection. Reconnect it in Settings → YouTube.')
+  }
+  const { getProjectYouTubeAssignment, readYouTubeRequestCredentialForServer } = await import('../services/youtube-connection-store.js')
+  if ((await getProjectYouTubeAssignment(slug))?.channel_id !== channelId) {
+    throw reconnectRequired('This project is not assigned to that YouTube channel. Select its channel in Settings → YouTube.')
+  }
+  const credential = await readYouTubeRequestCredentialForServer(slug, channelId)
+  if (!credential) throw reconnectRequired('This YouTube channel needs to be reconnected in Settings → YouTube.')
   const now = Date.now()
   // Refresh 60s before the real expiry so in-flight requests don't 401.
-  if (tokens.expires_at - 60_000 > now) return tokens.access_token
-  return refreshAndPersist(slug, accountId)
+  if (credential.tokens.expires_at - 60_000 > now) return {
+    access_token: credential.tokens.access_token,
+    application_id: credential.application_id,
+    channel_id: channelId,
+  }
+  return refreshAndPersist(slug, accountId, credential.application_id)
+}
+
+export async function getValidAccessToken(slug: string, accountId: string): Promise<string> {
+  return (await getValidCredentialContext(slug, accountId)).access_token
 }
 
 // Bypass the expires_at check and force a refresh against Google. Used by
 // fetchWithAuthRetry when Google rejects a token our clock said was still
 // good. Intentionally not exported — callers should go through the wrapper
 // rather than re-implementing the retry semantics inline.
-async function forceRefreshAccessToken(slug: string, accountId: string): Promise<string> {
-  return refreshAndPersist(slug, accountId)
+async function forceRefreshCredentialContext(
+  slug: string,
+  accountId: string,
+  expectedApplicationId: string,
+): Promise<YouTubeCredentialContext> {
+  return refreshAndPersist(slug, accountId, expectedApplicationId)
 }
 
 // Internal helper. Retries once on 401 by forcing a token refresh.
@@ -189,14 +358,27 @@ async function forceRefreshAccessToken(slug: string, accountId: string): Promise
 export async function fetchWithAuthRetry(
   slug: string,
   accountId: string,
-  buildRequest: (accessToken: string) => Promise<Response>,
+  buildRequest: (accessToken: string, context: Readonly<YouTubeCredentialContext>) => Promise<Response>,
+  quotaKey?: QuotaKey,
 ): Promise<Response> {
-  let accessToken = await getValidAccessToken(slug, accountId)
-  let resp = await buildRequest(accessToken)
+  const attempt = async (context: YouTubeCredentialContext): Promise<Response> => {
+    if (!quotaKey) return buildRequest(context.access_token, context)
+    const permit = await checkCloudProjectQuota(context, quotaKey)
+    try {
+      return await buildRequest(context.access_token, context)
+    } finally {
+      // The provider received an attempt even when it rejected the request or
+      // the transport lost the response. Record every real attempt, including
+      // the 401 that causes the one permitted auth retry.
+      await recordQuotaOrLog(permit)
+    }
+  }
+  let context = await getValidCredentialContext(slug, accountId)
+  let resp = await attempt(context)
   if (resp.status !== 401) return resp
   // 401 on a token we thought was valid — force a refresh and retry once.
-  accessToken = await forceRefreshAccessToken(slug, accountId)
-  return buildRequest(accessToken)
+  context = await forceRefreshCredentialContext(slug, accountId, context.application_id)
+  return attempt(context)
 }
 
 // ── Resumable upload ──────────────────────────────────────────────────────
@@ -235,7 +417,7 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
       if (initialCursor === totalBytes) {
         // PUTs landed but we never observed the final 200. Re-issue the
         // probe so Google hands us the video resource it created.
-        const finalProbe = await fetch(sessionUrl, {
+        const finalProbe = await youtubeFetch(sessionUrl, {
           method: 'PUT',
           headers: { 'Content-Length': '0', 'Content-Range': `bytes */${totalBytes}` },
           signal: args.signal,
@@ -277,7 +459,6 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
     // Google already billed videos.insert at the original session
     // creation, and the persisted sidecar's `quota_charged` flag is the
     // breadcrumb that says "don't double-charge."
-    await checkQuota(args.slug, 'videos_insert')
 
     // Step 1: initiate
     // YouTube rejects videos.insert/update with `publishAt` set when
@@ -304,7 +485,7 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
       },
     }
     const initResp = await fetchWithAuthRetry(args.slug, args.accountId, (accessToken) =>
-      fetch(`${UPLOAD_INIT_URL}?uploadType=resumable&part=snippet,status`, {
+      youtubeFetch(`${UPLOAD_INIT_URL}?uploadType=resumable&part=snippet,status`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -315,16 +496,15 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
         body: JSON.stringify(initBody),
         signal: args.signal,
       }),
+      'videos_insert',
     )
     if (!initResp.ok) {
       const text = await initResp.text().catch(() => '')
       const quotaMsg = friendlyQuotaErrorMessage(initResp.status, text)
       throw new Error(quotaMsg || `Upload init failed (${initResp.status}): ${text.slice(0, 400)}`)
     }
-    // Record the quota cost as soon as init succeeds — Google bills a
-    // videos.insert at session creation, not at PUT. If the PUT fails later
-    // we still spent the 1600 units.
-    await recordQuotaOrLog(args.slug, 'videos_insert')
+    // fetchWithAuthRetry records this init attempt even when it fails. Google
+    // bills videos.insert at session creation, before any later chunk PUT.
     const location = initResp.headers.get('location') || initResp.headers.get('Location')
     if (!location) throw new Error('Upload init succeeded but no resumable session URL returned.')
     sessionUrl = location
@@ -347,12 +527,14 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
           quota_charged: true,
         })
       } catch (e: any) {
+        if (args.onResumableSessionReady) throw e
         logLine('warn', `[upload-resume] sidecar persist failed: ${e?.message || 'unknown'}`, {
           slug: args.slug,
           episode_code: args.episodeCode,
         })
       }
     }
+    await args.onResumableSessionReady?.(sessionUrlHash(sessionUrl), totalBytes)
   }
 
   // ── Chunked PUT (used by both fresh + resume paths) ────────────────────
@@ -417,7 +599,7 @@ export async function getResumePoint(
   totalBytes: number,
   signal?: AbortSignal,
 ): Promise<number> {
-  const resp = await fetch(sessionUrl, {
+  const resp = await youtubeFetch(sessionUrl, {
     method: 'PUT',
     headers: {
       'Content-Length': '0',
@@ -491,7 +673,7 @@ async function uploadChunkedWithRetry(args: {
       try {
         const chunkStream = fs.createReadStream(args.filePath, { start: cursor, end })
         const webStream = nodeStreamToWeb(chunkStream)
-        const resp = await fetch(args.sessionUrl, {
+        const resp = await youtubeFetch(args.sessionUrl, {
           method: 'PUT',
           headers: {
             'Content-Length': String(chunkLen),
@@ -559,7 +741,7 @@ async function uploadChunkedWithRetry(args: {
         if (probed === totalBytes) {
           // Upload actually finished during the flurry of retries — ask
           // Google for the video resource it created.
-          const finalProbe = await fetch(args.sessionUrl, {
+          const finalProbe = await youtubeFetch(args.sessionUrl, {
             method: 'PUT',
             headers: { 'Content-Length': '0', 'Content-Range': `bytes */${totalBytes}` },
             signal: args.signal,
@@ -633,7 +815,7 @@ export async function updateVideoMetadata(opts: {
   slug: string
   accountId: string
   videoId: string
-  snippet: VideoSnippet
+  snippet?: Partial<VideoSnippet>
   /**
    * Optional. When omitted, the PATCH only includes `snippet` (title /
    * description / tags / categoryId) — YouTube's privacyStatus and
@@ -643,58 +825,73 @@ export async function updateVideoMetadata(opts: {
    * publishAt schedule, which is rarely what the user wants when they
    * just fixed a typo in the title.
    */
-  status?: VideoStatus
+  status?: Partial<VideoStatus>
 }): Promise<UploadedVideo> {
-  // The second and last door to the Data API. See uploadVideo above.
-  assertPublishableMetadata(opts.snippet)
-  const body: Record<string, unknown> = {
-    id: opts.videoId,
-    snippet: {
-      title: opts.snippet.title,
-      description: opts.snippet.description || '',
-      tags: Array.isArray(opts.snippet.tags) ? opts.snippet.tags : [],
-      categoryId: opts.snippet.categoryId || '24',
-    },
+  if (!opts.snippet && !opts.status) throw new Error('Name at least one YouTube metadata part to update.')
+  const live = (await listVideoSnippetStatus(opts.slug, opts.accountId, [opts.videoId]))[opts.videoId]
+  if (!live) throw new Error('YouTube did not return the exact video requested for metadata update.')
+  if (!live.etag) throw new Error('YouTube did not return an ETag; refusing to overwrite metadata without concurrency protection.')
+  const body: Record<string, unknown> = { id: opts.videoId }
+  if (opts.snippet) {
+    const snippet: VideoSnippet = {
+      title: opts.snippet.title ?? live.title,
+      description: opts.snippet.description ?? live.description,
+      tags: opts.snippet.tags ?? live.tags,
+      categoryId: opts.snippet.categoryId ?? live.categoryId,
+      ...(opts.snippet.defaultLanguage !== undefined
+        ? { defaultLanguage: opts.snippet.defaultLanguage }
+        : live.defaultLanguage !== undefined ? { defaultLanguage: live.defaultLanguage } : {}),
+      ...(opts.snippet.defaultAudioLanguage !== undefined
+        ? { defaultAudioLanguage: opts.snippet.defaultAudioLanguage }
+        : live.defaultAudioLanguage !== undefined ? { defaultAudioLanguage: live.defaultAudioLanguage } : {}),
+    }
+    assertPublishableMetadata(snippet)
+    body.snippet = snippet
   }
   // Same publishAt/privacy invariant as uploadVideo — enforce here too
   // so metadata-only updates don't 400 on the "scheduled public" footgun.
   // Only build the status block when the caller passed one; omitting it
   // tells YouTube to leave the existing video's status alone.
   if (opts.status) {
-    const effectivePrivacy = opts.status.publishAt ? 'private' : opts.status.privacyStatus
+    const publishAt = Object.prototype.hasOwnProperty.call(opts.status, 'publishAt')
+      ? opts.status.publishAt : live.publishAt ?? undefined
+    const privacyStatus = opts.status.privacyStatus ?? live.privacyStatus
+    const effectivePrivacy = publishAt ? 'private' : privacyStatus
     body.status = {
       privacyStatus: effectivePrivacy,
-      ...(opts.status.publishAt ? { publishAt: opts.status.publishAt } : {}),
-      ...(opts.status.selfDeclaredMadeForKids !== undefined
-        ? { selfDeclaredMadeForKids: opts.status.selfDeclaredMadeForKids }
-        : {}),
-      ...(opts.status.containsSyntheticMedia !== undefined
-        ? { containsSyntheticMedia: opts.status.containsSyntheticMedia }
-        : {}),
+      ...(publishAt ? { publishAt } : {}),
+      selfDeclaredMadeForKids: opts.status.selfDeclaredMadeForKids ?? live.selfDeclaredMadeForKids,
+      containsSyntheticMedia: opts.status.containsSyntheticMedia ?? live.containsSyntheticMedia,
+      embeddable: opts.status.embeddable ?? live.embeddable,
+      license: opts.status.license ?? live.license,
+      publicStatsViewable: opts.status.publicStatsViewable ?? live.publicStatsViewable,
     }
   }
   // The `part` query param must list exactly the fields we're sending.
   // Including `status` when we didn't send a status block makes YouTube
   // wipe the existing status to defaults — defeating the whole point of
   // the preserve-status path.
-  const partParam = opts.status ? 'snippet,status' : 'snippet'
-  await checkQuota(opts.slug, 'videos_update')
+  const partParam = [opts.snippet ? 'snippet' : '', opts.status ? 'status' : '']
+    .filter(Boolean)
+    .join(',')
   const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, (accessToken) =>
-    fetch(`${VIDEOS_UPDATE_URL}?part=${partParam}`, {
+    youtubeFetch(`${VIDEOS_UPDATE_URL}?part=${partParam}`, {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
+        'If-Match': live.etag,
       },
       body: JSON.stringify(body),
     }),
+    'videos_update',
   )
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
     const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
+    if (resp.status === 412) throw new Error('YouTube metadata changed after it was read. Reload the video and review the update again.')
     throw new Error(quotaMsg || `Metadata update failed (${resp.status}): ${text.slice(0, 400)}`)
   }
-  await recordQuotaOrLog(opts.slug, 'videos_update')
   const result = await resp.json() as any
   return { id: result.id, snippet: result.snippet, status: result.status }
 }
@@ -722,7 +919,6 @@ export async function setThumbnail(opts: {
   videoId: string
   filePath: string
 }): Promise<void> {
-  await checkQuota(opts.slug, 'thumbnails_set')
   // v1.0.524 — guarantee ≤2 MB / ≤1280 px so YouTube doesn't 413 the file.
   // Small images pass through untouched (a crisp PNG stays a PNG).
   const prepared = await prepareThumbnail(opts.filePath)
@@ -731,7 +927,7 @@ export async function setThumbnail(opts: {
   // inside fetchWithAuthRetry). backoff.length + 1 total attempts.
   for (let attempt = 0; ; attempt++) {
     const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, (accessToken) =>
-      fetch(`${THUMBNAILS_SET_URL}?videoId=${encodeURIComponent(opts.videoId)}`, {
+      youtubeFetch(`${THUMBNAILS_SET_URL}?videoId=${encodeURIComponent(opts.videoId)}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -739,9 +935,9 @@ export async function setThumbnail(opts: {
         },
         body: prepared.buffer,
       }),
+      'thumbnails_set',
     )
     if (resp.ok) {
-      await recordQuotaOrLog(opts.slug, 'thumbnails_set')
       return
     }
     const text = await resp.text().catch(() => '')
@@ -770,7 +966,6 @@ export interface Playlist {
 }
 
 export async function listPlaylists(slug: string, accountId: string): Promise<Playlist[]> {
-  await checkQuota(slug, 'playlists_list')
   const out: Playlist[] = []
   let pageToken = ''
   // Cap at 5 pages × 50 = 250 playlists. Channels with more are rare; extend if needed.
@@ -782,9 +977,10 @@ export async function listPlaylists(slug: string, accountId: string): Promise<Pl
     })
     if (pageToken) params.set('pageToken', pageToken)
     const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
-      fetch(`${PLAYLISTS_URL}?${params}`, {
+      youtubeFetch(`${PLAYLISTS_URL}?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       }),
+      'playlists_list',
     )
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
@@ -804,7 +1000,6 @@ export async function listPlaylists(slug: string, accountId: string): Promise<Pl
     if (!data.nextPageToken) break
     pageToken = data.nextPageToken
   }
-  await recordQuotaOrLog(slug, 'playlists_list')
   return out
 }
 
@@ -815,7 +1010,6 @@ export async function createPlaylist(opts: {
   description?: string
   privacyStatus?: 'public' | 'unlisted' | 'private'
 }): Promise<Playlist> {
-  await checkQuota(opts.slug, 'playlists_insert')
   const body = {
     snippet: {
       title: truncateChars(opts.title, 150),          // YouTube playlist title cap
@@ -824,7 +1018,7 @@ export async function createPlaylist(opts: {
     status: { privacyStatus: opts.privacyStatus || 'private' },
   }
   const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, (accessToken) =>
-    fetch(`${PLAYLISTS_URL}?part=snippet,status`, {
+    youtubeFetch(`${PLAYLISTS_URL}?part=snippet,status`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -832,13 +1026,13 @@ export async function createPlaylist(opts: {
       },
       body: JSON.stringify(body),
     }),
+    'playlists_insert',
   )
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
     const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
     throw new Error(quotaMsg || `playlists.insert failed (${resp.status}): ${text.slice(0, 300)}`)
   }
-  await recordQuotaOrLog(opts.slug, 'playlists_insert')
   const pl = await resp.json() as any
   return {
     id: pl.id,
@@ -855,7 +1049,6 @@ export async function addVideoToPlaylist(opts: {
   playlistId: string
   videoId: string
 }): Promise<void> {
-  await checkQuota(opts.slug, 'playlist_items_insert')
   const body = {
     snippet: {
       playlistId: opts.playlistId,
@@ -863,7 +1056,7 @@ export async function addVideoToPlaylist(opts: {
     },
   }
   const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, (accessToken) =>
-    fetch(`${PLAYLIST_ITEMS_URL}?part=snippet`, {
+    youtubeFetch(`${PLAYLIST_ITEMS_URL}?part=snippet`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -871,13 +1064,13 @@ export async function addVideoToPlaylist(opts: {
       },
       body: JSON.stringify(body),
     }),
+    'playlist_items_insert',
   )
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
     const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
     throw new Error(quotaMsg || `playlistItems.insert failed (${resp.status}): ${text.slice(0, 300)}`)
   }
-  await recordQuotaOrLog(opts.slug, 'playlist_items_insert')
 }
 
 /** A one-unit preflight/verification read used to prevent duplicate
@@ -894,18 +1087,17 @@ export async function isVideoInPlaylist(opts: {
     videoId: opts.videoId,
     maxResults: '1',
   })
-  await checkQuota(opts.slug, 'playlist_items_list')
   const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, accessToken =>
-    fetch(`${PLAYLIST_ITEMS_URL}?${params}`, {
+    youtubeFetch(`${PLAYLIST_ITEMS_URL}?${params}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     }),
+    'playlist_items_list',
   )
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
     const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
     throw new Error(quotaMsg || `playlistItems.list failed (${resp.status}): ${text.slice(0, 300)}`)
   }
-  await recordQuotaOrLog(opts.slug, 'playlist_items_list')
   const data = await resp.json() as { items?: unknown[] }
   return Array.isArray(data.items) && data.items.length > 0
 }
@@ -939,17 +1131,16 @@ export async function listVideoStatuses(slug: string, accountId: string, videoId
   if (!unique.length) return out
   for (let i = 0; i < unique.length; i += 50) {
     const batch = unique.slice(i, i + 50)
-    await checkQuota(slug, 'videos_list')
     const url = `${VIDEOS_UPDATE_URL}?part=status&id=${batch.map(encodeURIComponent).join(',')}`
     const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
-      fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      youtubeFetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      'videos_list',
     )
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
       const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
       throw new Error(quotaMsg || `videos.list failed (${resp.status}): ${text.slice(0, 300)}`)
     }
-    await recordQuotaOrLog(slug, 'videos_list')
     const data = await resp.json() as any
     for (const item of (data.items || [])) {
       const vid = item.id as string | undefined
@@ -989,12 +1180,142 @@ export async function listVideoStatuses(slug: string, accountId: string, videoId
  * are absent from the returned map; callers should treat that as "skip".
  */
 export interface VideoBackfillView {
+  etag: string
+  title: string
+  description: string
   privacyStatus: 'private' | 'unlisted' | 'public'
   publishAt: string | null
   categoryId: string
   /** undefined when YouTube hasn't echoed the field (legacy uploads predate the disclosure). */
   containsSyntheticMedia?: boolean
+  /**
+   * The tags currently live on the video. Already in the `part=snippet` this
+   * call requests, so reading it costs no extra request and no extra quota. The
+   * backfill needs it to tell "replacing an empty tag list with an empty one"
+   * from "erasing the tags a published video has".
+   */
+  tags: string[]
+  defaultLanguage?: string
+  defaultAudioLanguage?: string
+  selfDeclaredMadeForKids: boolean
+  embeddable: boolean
+  license: string
+  publicStatsViewable: boolean
 }
+/**
+ * Bulk-fetch what a video's PUBLICATION actually is: the processing outcome
+ * plus the live snippet/status, for the Upload Center's
+ * Processing → Ready / Failed / Rejected states.
+ *
+ * A new read rather than a wider `part=` on the two existing ones: those two
+ * serve the schedule display and the metadata backfill, and quietly changing
+ * what they request changes the quota cost of both.
+ *
+ * A video that does not come back is ABSENT from the map. Absent means "we
+ * could not see it", which the caller must not confuse with any known state.
+ *
+ * Cost: 1 quota unit (`videos_list`) per batch of 50.
+ */
+export interface VideoPublicationDetails {
+  uploadStatus?: string
+  failureReason?: string
+  rejectionReason?: string
+  privacyStatus?: string
+  publishAt?: string | null
+  processingStatus?: string
+  title?: string
+  description?: string
+  tags?: string[]
+  thumbnailEtag?: string
+}
+
+const COMMENTS_MODERATION_URL = 'https://www.googleapis.com/youtube/v3/comments/setModerationStatus'
+
+/**
+ * Approve or reject a comment, and optionally ban its author.
+ *
+ * The first moderation write this product has ever made. Two things are
+ * deliberate:
+ *
+ * `banAuthor` is an explicit argument that defaults to false and is never
+ * inferred from the status. Banning is irreversible from Story Studio's side
+ * and spec section 14 requires it to be an individual, separately confirmed
+ * action - so it can only happen when a caller asks for it in so many words.
+ *
+ * There is no delete. Spec section 14 gives Story Studio approve, reject and
+ * ban; rejection HIDES a comment. A delete path would be a capability nobody
+ * asked for, on data that cannot be recovered.
+ */
+export async function setCommentModerationStatus(opts: {
+  slug: string
+  accountId: string
+  commentId: string
+  status: 'published' | 'rejected' | 'heldForReview'
+  banAuthor?: boolean
+}): Promise<void> {
+  if (!opts.commentId) throw new Error('commentId is required')
+  if (opts.banAuthor && opts.status !== 'rejected') {
+    // YouTube only accepts banAuthor alongside a rejection, and silently
+    // ignoring it would mean telling the owner someone was banned when they
+    // were not.
+    throw new Error('An author can only be banned while rejecting their comment.')
+  }
+  const url = new URL(COMMENTS_MODERATION_URL)
+  url.searchParams.set('id', opts.commentId)
+  url.searchParams.set('moderationStatus', opts.status)
+  if (opts.banAuthor) url.searchParams.set('banAuthor', 'true')
+
+  const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, (accessToken) =>
+    youtubeFetch(url.toString(), { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    'comments_insert',
+  )
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
+    throw new Error(quotaMsg || `comments.setModerationStatus failed (${resp.status}): ${text.slice(0, 300)}`)
+  }
+}
+
+export async function listVideoPublicationDetails(
+  slug: string, accountId: string, videoIds: string[],
+): Promise<Record<string, VideoPublicationDetails>> {
+  const out: Record<string, VideoPublicationDetails> = {}
+  const unique = Array.from(new Set(videoIds.filter(Boolean)))
+  if (!unique.length) return out
+  for (let i = 0; i < unique.length; i += 50) {
+    const batch = unique.slice(i, i + 50)
+    const url = `${VIDEOS_UPDATE_URL}?part=snippet,status,processingDetails&id=${batch.map(encodeURIComponent).join(',')}`
+    const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
+      youtubeFetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      'videos_list',
+    )
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
+      throw new Error(quotaMsg || `videos.list failed (${resp.status}): ${text.slice(0, 300)}`)
+    }
+    const data = await resp.json() as any
+    for (const item of (data.items || [])) {
+      if (!item?.id) continue
+      const snippet = item.snippet || {}
+      const status = item.status || {}
+      out[item.id] = {
+        uploadStatus: status.uploadStatus,
+        failureReason: status.failureReason,
+        rejectionReason: status.rejectionReason,
+        privacyStatus: status.privacyStatus,
+        publishAt: status.publishAt ?? null,
+        processingStatus: item.processingDetails?.processingStatus,
+        title: snippet.title,
+        description: snippet.description,
+        tags: Array.isArray(snippet.tags) ? snippet.tags : [],
+        thumbnailEtag: snippet.thumbnails?.default?.url,
+      }
+    }
+  }
+  return out
+}
+
 export async function listVideoSnippetStatus(
   slug: string, accountId: string, videoIds: string[],
 ): Promise<Record<string, VideoBackfillView>> {
@@ -1003,17 +1324,16 @@ export async function listVideoSnippetStatus(
   if (!unique.length) return out
   for (let i = 0; i < unique.length; i += 50) {
     const batch = unique.slice(i, i + 50)
-    await checkQuota(slug, 'videos_list')
     const url = `${VIDEOS_UPDATE_URL}?part=snippet,status&id=${batch.map(encodeURIComponent).join(',')}`
     const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
-      fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      youtubeFetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      'videos_list',
     )
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
       const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
       throw new Error(quotaMsg || `videos.list failed (${resp.status}): ${text.slice(0, 300)}`)
     }
-    await recordQuotaOrLog(slug, 'videos_list')
     const data = await resp.json() as any
     for (const item of (data.items || [])) {
       const vid = item.id as string | undefined
@@ -1027,12 +1347,22 @@ export async function listVideoSnippetStatus(
         ? st.publishAt
         : null
       out[vid] = {
+        etag: typeof item.etag === 'string' ? item.etag : '',
+        title: typeof sn.title === 'string' ? sn.title : '',
+        description: typeof sn.description === 'string' ? sn.description : '',
         privacyStatus,
         publishAt,
         categoryId: typeof sn.categoryId === 'string' ? sn.categoryId : '24',
         containsSyntheticMedia: typeof st.containsSyntheticMedia === 'boolean'
           ? st.containsSyntheticMedia
           : undefined,
+        tags: Array.isArray(sn.tags) ? sn.tags.filter((tag: unknown) => typeof tag === 'string') : [],
+        ...(typeof sn.defaultLanguage === 'string' ? { defaultLanguage: sn.defaultLanguage } : {}),
+        ...(typeof sn.defaultAudioLanguage === 'string' ? { defaultAudioLanguage: sn.defaultAudioLanguage } : {}),
+        selfDeclaredMadeForKids: st.selfDeclaredMadeForKids === true,
+        embeddable: st.embeddable !== false,
+        license: typeof st.license === 'string' ? st.license : 'youtube',
+        publicStatsViewable: st.publicStatsViewable !== false,
       }
     }
   }
@@ -1042,17 +1372,31 @@ export async function listVideoSnippetStatus(
 export async function getUploadsPlaylistId(slug: string, accountId: string): Promise<string> {
   const url = `${CHANNELS_URL}?${new URLSearchParams({ part: 'contentDetails', mine: 'true' })}`
   const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
-    fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    youtubeFetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    'channels_list',
   )
   if (!resp.ok) throw new Error(`channels.list failed (${resp.status})`)
-  await recordQuotaOrLog(slug, 'channels_list')
   const data = await resp.json() as any
   const id = data?.items?.[0]?.contentDetails?.relatedPlaylists?.uploads
   if (!id) throw new Error('No uploads playlist found on authenticated channel.')
   return id
 }
 
-export async function listRecentUploads(slug: string, accountId: string, opts: { maxPages?: number } = {}): Promise<Array<{ videoId: string; title: string; publishedAt: string; privacyStatus?: string }>> {
+/**
+ * The channel's recent uploads, and whether the listing STOPPED EARLY.
+ *
+ * It pages to `maxPages` and then returns. Silently. A caller that treats the
+ * result as the whole channel concludes that anything past the cap does not
+ * exist on YouTube - and Reconcile does exactly that, printing "In Story Studio
+ * only: EP0250" for an episode whose video was simply never fetched. That is a
+ * false statement about the owner's own back catalogue.
+ *
+ * So the truncation is returned, not swallowed: `truncated` is true when the
+ * page budget ran out while YouTube still had more (tell 1b - a collection
+ * returned at its maximum size is a truncation signal, never a complete
+ * answer).
+ */
+export async function listRecentUploads(slug: string, accountId: string, opts: { maxPages?: number } = {}): Promise<{ videos: Array<{ videoId: string; title: string; publishedAt: string; privacyStatus?: string }>, truncated: boolean }> {
   const playlistId = await getUploadsPlaylistId(slug, accountId)
   const maxPages = opts.maxPages ?? 4  // 4 × 50 = 200 videos before pagination stops
   let pageToken = ''
@@ -1066,10 +1410,10 @@ export async function listRecentUploads(slug: string, accountId: string, opts: {
     if (pageToken) params.set('pageToken', pageToken)
     const url = `${PLAYLIST_ITEMS_URL}?${params}`
     const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
-      fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      youtubeFetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      'playlist_items_list',
     )
     if (!resp.ok) throw new Error(`playlistItems.list failed (${resp.status})`)
-    await recordQuotaOrLog(slug, 'playlist_items_list')
     const data = await resp.json() as any
     for (const it of data.items || []) {
       items.push({
@@ -1079,8 +1423,12 @@ export async function listRecentUploads(slug: string, accountId: string, opts: {
         privacyStatus: it.status?.privacyStatus,
       })
     }
-    if (!data.nextPageToken) break
+    if (!data.nextPageToken) {
+      return { videos: items, truncated: false }
+    }
     pageToken = data.nextPageToken
   }
-  return items
+  // The loop ended with a page token still in hand: YouTube has more than the
+  // budget allowed us to read.
+  return { videos: items, truncated: true }
 }

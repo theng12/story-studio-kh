@@ -87,9 +87,3 @@ test('generator pickers keep stale selections visible until the user replaces th
   assert.doesNotMatch(motionPage, /const fallback = exact \|\| mapped \|\|/)
   assert.doesNotMatch(transcription, /\|\| models\.value\[0\]/)
 })
-
-test('Upload Center reply drafting uses the shared locked and Economy-only selection policy', () => {
-  const uploadPage = readFileSync(new URL('../pages/projects/[slug]/upload.vue', import.meta.url), 'utf8')
-  assert.match(uploadPage, /selectLiveGenStudioModel\(savedModel, liveModels\)/)
-  assert.doesNotMatch(uploadPage, /liveModels\.find\(entry => entry\.available\)/)
-})

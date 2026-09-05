@@ -4,6 +4,7 @@ import { installTestSafeStorage } from '../safe-storage-test-double.js'
 
 installTestSafeStorage()
 const { recordContentStoreKeyAnchor, setApiKey } = await import('../../services/app-secrets-store.js')
+const { configureYouTubeApplication } = await import('../../services/youtube-connection-store.js')
 
 const action = process.env.ACTION
 const ready = process.env.READY!
@@ -21,6 +22,11 @@ if (action === 'provider') {
     account_id: 'acct_a',
     content_account_id: 'acct_a',
     keys: [{ key_id: 'key_a', public_key_base64: Buffer.alloc(32, 4).toString('base64') }],
+  })
+} else if (action === 'youtube') {
+  await configureYouTubeApplication({
+    client_id: 'concurrent-client.apps.googleusercontent.com',
+    client_secret: 'concurrent-youtube-secret',
   })
 } else {
   throw new Error(`Unknown worker action: ${String(action)}`)

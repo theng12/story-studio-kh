@@ -18,14 +18,22 @@ import { existsSync, readFileSync, rmSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
+import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 
 let sweep: typeof import('../services/archive-sweep.js')
 let pm: typeof import('../services/project-manager.js')
+let connections: typeof import('../services/youtube-connection-store.js')
+let operations: typeof import('../services/youtube-operation-store.js')
+let sourceVideo: typeof import('../services/youtube-source-video.js')
 let tmp: { dir: string; cleanup: () => Promise<void> }
 
 before(async () => {
   sweep = await import('../services/archive-sweep.js')
   pm = await import('../services/project-manager.js')
+  connections = await import('../services/youtube-connection-store.js')
+  operations = await import('../services/youtube-operation-store.js')
+  sourceVideo = await import('../services/youtube-source-video.js')
 })
 beforeEach(async () => {
   await tmp?.cleanup()
@@ -57,7 +65,8 @@ async function seedEpisode(code: string, title: string, uploaded: boolean, slug 
       slug, name: slug, episode_prefix: code.replace(/\d+$/, ''), episode_digits: 4,
       season_size: 20, season_prefix: 'Season',
       folder_template: '{season_prefix} {season_num}/{code} - {title}/',
-      subfolder_names: {}, 
+      subfolder_names: DEFAULT_SUBFOLDER_NAMES,
+      created_at: new Date().toISOString(),
     }))
   }
   const ideasPath = path.join(projDir, 'ideas.json')
@@ -95,7 +104,60 @@ async function seedExport(sourceRoot: string, code: string, bytes = 2048, slug =
   await fs.mkdir(dir, { recursive: true })
   const file = path.join(dir, `${code}_final_video.mp4`)
   await fs.writeFile(file, Buffer.alloc(bytes, code.charCodeAt(0)))
+  // When this fixture has a receipt, the exported bytes are the bytes that
+  // were uploaded. Persist the receipt after the candidate write so its
+  // timestamp can truthfully prove this exact legacy file is not newer.
+  const projectDir = path.join(pm.projectsRoot(), slug)
+  const ideas = JSON.parse(await fs.readFile(path.join(projectDir, 'ideas.json'), 'utf-8'))
+  const title = ideas.ideas.find((idea: any) => idea.episode_code === code)?.title
+  if (title) {
+    const epNum = parseInt(code.replace(/^[A-Za-z]+/, ''), 10) || 1
+    const season = `Season ${String(Math.floor((epNum - 1) / 20) + 1).padStart(3, '0')}`
+    const receiptPath = path.join(projectDir, 'episodes', season, `${code} - ${title}`, 'youtube_upload.json')
+    if (existsSync(receiptPath)) {
+      const receipt = JSON.parse(await fs.readFile(receiptPath, 'utf-8'))
+      receipt.uploaded_at = new Date().toISOString()
+      await fs.writeFile(receiptPath, JSON.stringify(receipt))
+    }
+  }
   return file
+}
+
+async function writeCanonicalOperation(
+  slug: string,
+  code: string,
+  file: string,
+  lifecycle: 'ready' | 'failed' | 'rejected' = 'ready',
+  videoId = `canonical-${code}`,
+): Promise<void> {
+  const channelId = `channel-${slug}`
+  await connections.configureYouTubeApplication({ client_id: 'archive-client', client_secret: 'archive-secret' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: channelId, title: slug, granted_scopes: ['youtube.upload'] },
+    tokens: { access_token: `access-${slug}`, refresh_token: `refresh-${slug}`, expires_at: Date.now() + 3_600_000 },
+  })
+  await connections.assignProjectYouTubeChannel({
+    project_slug: slug, channel_id: channelId, expected_previous_channel_id: null,
+  })
+  const payload = {
+    snippet_json: JSON.stringify({ title: code, description: '', tags: [], categoryId: '24' }),
+    status_json: JSON.stringify({ privacyStatus: 'public' }),
+    source_sha256: 'b'.repeat(64),
+  }
+  const opened = await operations.createYouTubeOperation({
+    project_slug: slug, episode_code: code, channel_id: channelId,
+    source_revision: await sourceVideo.resolveYouTubeSourceRevision(file),
+    metadata_revision: payload.source_sha256, final_payload: payload,
+    origin: 'manual', final_action: 'manual_upload',
+  })
+  const accepted = await operations.acceptYouTubeOperation({
+    project_slug: slug, operation_id: opened.operation_id, expected_revision: opened.revision,
+    channel_id: channelId, video_id: videoId, accepted_at: new Date().toISOString(), final_payload: payload,
+  })
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: accepted.operation_id, expected_revision: accepted.revision,
+    mutate(record) { record.lifecycle = lifecycle },
+  })
 }
 
 describe('deciding what may be moved', () => {
@@ -116,7 +178,7 @@ describe('deciding what may be moved', () => {
     assert.equal(ready.slug, SLUG)
 
     const unproven = preview.candidates.find(c => c.code === 'TN0002')!
-    assert.match(unproven.reason!, /not confirmed uploaded/)
+    assert.match(unproven.reason!, /not the exact render confirmed usable/)
     const stray = preview.candidates.find(c => c.filename === 'holiday-clip.mp4')!
     assert.match(stray.reason!, /no episode code/)
   })
@@ -175,6 +237,61 @@ describe('deciding what may be moved', () => {
     const preview = await sweep.previewArchiveSweep({ sourceRoot: path.join(tmp.dir, 'nope') })
     assert.equal(preview.source_exists, false)
     assert.equal(preview.ready_count, 0)
+  })
+
+  test('a ready canonical operation authorizes only its exact source revision', async () => {
+    const src = path.join(tmp.dir, 'canonical-exports')
+    await seedEpisode('TN0020', 'Canonical Archive', false)
+    const file = await seedExport(src, 'TN0020')
+    await writeCanonicalOperation(SLUG, 'TN0020', file)
+
+    let preview = await sweep.previewArchiveSweep({ sourceRoot: src })
+    assert.equal(preview.ready_count, 1)
+    assert.equal(preview.candidates[0]?.youtube_video_id, 'canonical-TN0020')
+
+    await fs.writeFile(file, Buffer.alloc(4096))
+    preview = await sweep.previewArchiveSweep({ sourceRoot: src })
+    assert.equal(preview.ready_count, 0)
+    assert.equal(preview.candidates[0]?.reason_code, 'not_uploaded')
+    assert.equal(existsSync(file), true)
+  })
+
+  test('a legacy receipt cannot authorize an export rendered after its upload', async () => {
+    const src = path.join(tmp.dir, 'legacy-newer-exports')
+    const episodeDir = await seedEpisode('TN0021', 'Legacy Newer', true)
+    const file = await seedExport(src, 'TN0021')
+    const receipt = JSON.parse(await fs.readFile(path.join(episodeDir, 'youtube_upload.json'), 'utf-8'))
+    await fs.writeFile(file, Buffer.alloc(4096))
+    const newer = new Date(Date.parse(receipt.uploaded_at) + 1_000)
+    await fs.utimes(file, newer, newer)
+
+    const preview = await sweep.previewArchiveSweep({ sourceRoot: src })
+    assert.equal(preview.ready_count, 0)
+    assert.equal(preview.candidates[0]?.reason_code, 'not_uploaded')
+    assert.equal(existsSync(file), true)
+  })
+
+  test('a failed canonical operation blocks its same-video sidecar from authorizing archive', async () => {
+    const src = path.join(tmp.dir, 'failed-same-video')
+    await seedEpisode('TN0022', 'Failed Same Video', true)
+    const file = await seedExport(src, 'TN0022')
+    await writeCanonicalOperation(SLUG, 'TN0022', file, 'failed', 'vid-TN0022')
+
+    const preview = await sweep.previewArchiveSweep({ sourceRoot: src })
+    assert.equal(preview.ready_count, 0)
+    assert.equal(preview.candidates[0]?.reason_code, 'not_uploaded')
+    assert.equal(existsSync(file), true)
+  })
+
+  test('a failed retry for another video does not invalidate historical archive proof', async () => {
+    const src = path.join(tmp.dir, 'failed-different-video')
+    await seedEpisode('TN0023', 'Failed Different Video', true)
+    const file = await seedExport(src, 'TN0023')
+    await writeCanonicalOperation(SLUG, 'TN0023', file, 'failed', 'failed-retry-TN0023')
+
+    const preview = await sweep.previewArchiveSweep({ sourceRoot: src })
+    assert.equal(preview.ready_count, 1)
+    assert.equal(preview.candidates[0]?.youtube_video_id, 'vid-TN0023')
   })
 })
 
@@ -458,5 +575,3 @@ describe('the run acts on the list he approved', () => {
     assert.ok(existsSync(kept))
   })
 })
-
-

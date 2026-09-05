@@ -321,8 +321,6 @@ describe('the prose call sites are left alone', () => {
     'generators/episode.ts',              // legacy generateEpisode script + prompt paths
     'routes/scripts.ts',                  // interactive metadata routes
     'services/audio-expression.ts',       // performance-tag markup
-    'routes/upload.ts',                   // playlist description + reply drafts
-    'lib/reply-drafter.ts',               // reply draft parsing
   ]
   for (const file of untouched) {
     test(`${file} declares no contract at all`, () => {

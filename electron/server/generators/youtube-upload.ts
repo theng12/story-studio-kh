@@ -17,19 +17,30 @@ import { existsSync } from 'fs'
 import type { Job } from '../models/types.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import * as im from '../services/idea-manager.js'
-import * as pm from '../services/project-manager.js'
 import { isCancelled } from '../services/job-queue.js'
 import { probeForUpload } from '../lib/ffprobe-check.js'
-import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
-import { uploadVideo, updateVideoMetadata, setThumbnail, type PrivacyStatus } from '../lib/youtube-client.js'
+import { resolveUploadMetadata } from '../lib/upload-metadata.js'
+import { resolveYouTubeUploadSettings, buildYouTubeMetadataPackage, metadataPackageFromFinalPayload } from '../services/youtube-metadata-package.js'
+import { uploadVideo, setThumbnail, type PrivacyStatus } from '../lib/youtube-client.js'
+import {
+  beginYouTubeOperation,
+  completeYouTubeOperation,
+  markYouTubeOperationFailedBeforeSession,
+  markYouTubeOperationUploading,
+  resolveSourceRevision,
+  type YouTubeOperationHandle,
+} from '../services/youtube-operation-recorder.js'
+import { listYouTubeOperations } from '../services/youtube-operation-store.js'
+import type { YouTubeMetadataPackage } from '../services/youtube-metadata-package.js'
 import {
   checkpointPlaylistSync,
   checkpointThumbnailStateAtPath,
   checkpointUploadSidecarIdentity,
   inspectUploadSidecarIdentity,
-  readSidecar,
+  readSidecarRaw,
   type UploadSidecar,
 } from '../services/upload-sidecar.js'
+import { remoteVideoFor, alreadyOnYouTubeReason } from '../services/youtube-remote-video.js'
 import * as store from '../services/upload-store.js'
 import * as playlistsSvc from '../services/upload-playlists.js'
 import {
@@ -41,21 +52,24 @@ import {
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { ensureYoutubePlaylistMembership } from '../services/youtube-playlist-sync.js'
+import { describeYouTubeCredential, resolveYouTubeAccountId } from '../services/youtube-credential.js'
+import { findYouTubeSourceVideoPath } from '../services/youtube-source-video.js'
 
 interface YouTubeUploadParams {
   episode_id: string
   account_id?: string
+  /** Channel shown in the confirmation. A changed assignment cannot inherit consent. */
+  expected_channel_id?: string
+  /** Exact preview revision. Fresh uploads refuse if live inputs changed afterward. */
+  expected_package_revision?: string
+  /** Source fingerprint captured when the confirmed request was admitted. */
+  expected_source_revision?: string
+  /** Server-owned exact payload accepted at the route boundary. */
+  approved_final_payload?: YouTubeMetadataPackage['final_payload']
+  /** Upload-mode choice pinned when the exact package was accepted. */
+  approved_upload_mode?: store.UploadMode
   scheduled_for?: string | null   // ISO 8601; null/omitted = upload as private, no publishAt
   privacy_status?: PrivacyStatus
-  /**
-   * When true on the metadata-only path, omit the YouTube `status` block
-   * entirely so the existing video's privacyStatus and publishAt stay
-   * exactly as they are on YouTube. Default for the per-row "↻ Update
-   * metadata" button: users who just want to fix a title typo shouldn't
-   * silently flip a published video back to private. Ignored on the
-   * fresh-upload path (a new video must declare a privacyStatus).
-   */
-  preserve_status?: boolean
   /**
    * Per-upload playlist override (A5). If set, wins over the project's
    * default-playlist config. Empty string or null means "fall through to
@@ -65,13 +79,12 @@ interface YouTubeUploadParams {
   playlist_id?: string | null
   /** Exact episode thumbnail selected in Upload preview. */
   thumbnail_filename?: string
-  // NOTE: the previous `force_fresh` escape hatch was removed in the
-  // production-readiness audit. Re-running an upload on an episode that
-  // already has a sidecar always does a metadata-only PATCH; video
-  // content is immutable once uploaded. If a "Replace video" feature is
-  // ever added, it needs its own explicit confirmation flow, a clear
-  // warning that the old YouTube URL will be orphaned, and an optional
-  // pre-delete of the old video — not a boolean param.
+  // NOTE: this job only ever UPLOADS. Re-running it on an episode that is
+  // already published is REFUSED (see `remoteVideoFor` below), not turned into
+  // a metadata PATCH — that behaviour existed until v1.5.0 and silently
+  // rewrote live videos. If a "Replace video" feature is ever added it needs
+  // its own confirmation flow, a warning that the old URL will be orphaned,
+  // and an optional pre-delete — not a boolean param.
 }
 
 export async function generateYoutubeUpload(job: Job): Promise<void> {
@@ -82,12 +95,13 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
 
   job.output_lines.push(`YouTube upload — ${episodeId}`)
 
-  // Resolve account — default if not specified.
-  const accountId = params.account_id || (await store.getDefaultAccountId(slug, 'youtube'))
-  if (!accountId) throw new Error('No YouTube account connected. Open Upload Center and connect a channel first.')
-  const accounts = await store.listAccounts(slug, 'youtube')
-  const account = accounts.find(a => a.id === accountId)
-  if (!account) throw new Error(`YouTube account ${accountId} not found — reconnect in Upload Center.`)
+  const accountId = await resolveYouTubeAccountId(slug, params.account_id)
+  if (!accountId) throw new Error('No YouTube channel is assigned. Reconnect it in Settings → YouTube.')
+  const account = await describeYouTubeCredential(slug, accountId)
+  if (!account) throw new Error('This upload names an old YouTube connection. Reconnect it in Settings → YouTube.')
+  if (params.expected_channel_id && params.expected_channel_id !== account.remote_id) {
+    throw new Error('The assigned YouTube channel changed after confirmation. Preview and confirm the upload again.')
+  }
   job.output_lines.push(`Using channel: ${account.remote_title} (${account.remote_id})`)
 
   // Lookup episode + paths.
@@ -96,58 +110,35 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   if (!idea) throw new Error(`Accepted idea not found for ${episodeId}`)
   const paths = await resolveEpisodePaths(slug, episodeId, idea.title || '')
 
-  // Item J — resolve the project's YouTube videoCategories.list ID once
-  // for this run; threaded into both snippetFromMeta call sites below
-  // (fresh upload + metadata-only PATCH). Falls back to undefined on any
-  // error → snippetFromMeta defaults to '24' (Entertainment), the right
-  // bucket for narrative AI/story content.
-  const projectConfig = await pm.getConfig(slug).catch(() => null) as any
-  const categoryId: number | undefined = (typeof projectConfig?.category_id === 'number'
-    && Number.isFinite(projectConfig.category_id)
-    && projectConfig.category_id > 0)
-    ? projectConfig.category_id : undefined
+  // "Is this already on YouTube?" is asked BEFORE any local video lookup,
+  // because the answer does not depend on a local file — and an episode whose
+  // final video has been deleted to save disk space must still be recognised as
+  // published rather than refused for the wrong reason. It also avoids an
+  // ffprobe on a file that is about to be irrelevant.
+  // ONE predicate, the same one the route and the page ask (tell 13). This job
+  // used to read the sidecar privately and, when it found a video id, quietly
+  // PATCH the live public video instead of uploading — the fourth review's
+  // defect. That branch is gone: this job UPLOADS, and refuses if the episode
+  // is already published rather than deciding for itself what to do about it.
+  // ONE predicate answers this, and it answers the CHANNEL question too. The
+  // job used to carry its own channel-mismatch guard: the predicate returned
+  // null for an old-channel sidecar (so the page offered Upload and the route
+  // accepted it) and the job then refused — the disagreement only visible after
+  // the owner pressed the button. Tell 13, fourth instance.
+  const operations = await listYouTubeOperations(slug)
+  const remote = await remoteVideoFor(slug, episodeId, idea.title || '', account.remote_id, operations)
+  if (remote?.video_id) throw new Error(`${alreadyOnYouTubeReason(episodeId, remote)} Nothing was uploaded.`)
 
-  // v1.0.77 — YouTube's "altered or synthetic content" disclosure flag.
-  // Project-level toggle wins over app-level default; missing on both →
-  // app default (true) since Story Studio's primary use case is AI-generated
-  // narration / images / video. Threaded into the fresh-upload status block
-  // below; metadata-only PATCH leaves the existing flag alone (use the
-  // backfill action under Settings → YouTube to update existing videos).
-  let markAsAiGenerated: boolean
-  if (typeof projectConfig?.mark_as_ai_generated === 'boolean') {
-    markAsAiGenerated = projectConfig.mark_as_ai_generated
-  } else {
-    const { getAppSetting } = await import('../services/app-settings.js')
-    const appLevel = await getAppSetting('default_mark_as_ai_generated').catch(() => undefined)
-    markAsAiGenerated = typeof appLevel === 'boolean' ? appLevel : true
-  }
-
-  // Branch: fresh upload vs metadata-only update.
-  //
-  // A sidecar with a video_id means we've uploaded this episode before —
-  // any subsequent click is a metadata PATCH on the existing YouTube
-  // video, NOT a re-upload (video content is immutable by design). We
-  // check the sidecar BEFORE any video-file lookup because:
-  //   1. metadata-only PATCH doesn't need the local video at all — and
-  //      requiring it broke the "↻ Update metadata" button after users
-  //      cleared their local final-video to save disk space (Issue 5,
-  //      2026-04-28 batch). The job would fail with "No final video
-  //      file found" even though the upload was already on YouTube.
-  //   2. ffprobe also runs on the file, so reordering also avoids a
-  //      pointless probe on a file we'd never read.
-  const existing = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
-  const shouldUpdateOnly = !!existing && !!existing.video_id
-  const preserveExistingStatus = shouldUpdateOnly && params.preserve_status !== false
-
+  // This job always uploads, so the local video file is always required.
   let videoPath: string | null = null
-  if (!shouldUpdateOnly) {
+  {
     // Fresh-upload path needs the local video file. We pass slug + code
     // + title so the lookup can check the external_final_video_root
     // (per-machine Settings → Storage path) BEFORE falling back to the
     // project-tree video_dir — same precedence the asset-status detector
     // uses so the pipeline view and the upload generator never disagree
     // about whether the final exists.
-    videoPath = await findFinalVideoPath(paths, slug, episodeId, idea.title || '')
+    videoPath = await findYouTubeSourceVideoPath(paths, slug, episodeId, idea.title || '')
     if (!videoPath) {
       throw new Error(`No final video file found for ${episodeId}. Run Video Assembly or drop a file into this episode's video folder (or the external final-video root if configured in Settings → Storage).`)
     }
@@ -159,8 +150,6 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     const probe = await probeForUpload(videoPath)
     if (!probe.ok) throw new Error(probe.error || 'ffprobe rejected the file')
     job.output_lines.push(`Probe OK — ${Math.round(probe.durationSec / 60)} min · ${probe.width}×${probe.height} · ${probe.hasAudio ? 'audio present' : 'no audio'}`)
-  } else {
-    job.output_lines.push(`Metadata-only update — skipping local video lookup (existing upload: ${existing!.video_id}).`)
   }
 
   // Resolve metadata.
@@ -171,85 +160,14 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     platform: 'youtube',
     thumbnail_filename: params.thumbnail_filename,
   })
-  job.output_lines.push(
-    `Metadata — title: "${meta.title}", tags: ${meta.tags.length}, thumbnail: ${meta.thumbnailPath ? path.basename(meta.thumbnailPath) : 'none'}`,
-  )
-
-  // Update-only data-quality guard: if the user clicked "Update metadata"
-  // but no metadata.json exists on disk, resolveUploadMetadata silently
-  // falls back to title-only (the idea title). Pushing that to YouTube
-  // would erase the rich description/tags the user already had on the
-  // existing video — a stealth data loss. Refuse with an actionable
-  // error instead so the user generates metadata first.
-  if (shouldUpdateOnly) {
-    const hasMetadataFile = existsSync(paths.metadata_json) || existsSync(paths.metadata_txt)
-    if (!hasMetadataFile) {
-      throw new Error(
-        `No metadata file for ${episodeId}. Run YouTube Finalizer (or fill it manually) before updating YouTube — ` +
-        `pushing the title-only fallback would overwrite the description and tags currently on the YouTube video. ` +
-        `Expected file: ${path.relative(paths.episode_dir, paths.metadata_json)}`,
-      )
-    }
-  }
-
   const privacy: PrivacyStatus = params.privacy_status || 'private'
-  // Private-first mode: user wants to manage scheduling inside YouTube
-  // Studio directly. We still upload as private (that's always our
-  // default) but we DROP any publishAt the plan / item-schedule map
-  // computed. The video lands on YouTube with no scheduled transition;
-  // YT Studio's scheduling UI takes over. Reading the mode here keeps
-  // every upload path (per-row Upload, plan Apply, bulk) honoring it
-  // consistently with no callers remembering to gate on their end.
-  const uploadMode = await store.getUploadMode(slug, 'youtube')
-  const publishAt = uploadMode === 'private'
-    ? undefined
-    : (params.scheduled_for || undefined)
-  if (uploadMode === 'private' && params.scheduled_for) {
-    job.output_lines.push(`Private-first mode: ignoring plan publishAt (${params.scheduled_for}); manage schedule in YouTube Studio.`)
-  }
 
+  let operationHandle!: YouTubeOperationHandle
+  let metadataPackage!: YouTubeMetadataPackage
   let videoId: string
   let uploaded: any
 
-  if (shouldUpdateOnly) {
-    // Channel-mismatch guard. If the project's currently-connected
-    // channel differs from the channel the sidecar was written against,
-    // PATCHing would resolve videoId against the wrong tokens and
-    // YouTube would 404. Surface an actionable message that points at
-    // the existing per-row Reset button.
-    if (existing!.channel_id && existing!.channel_id !== account.remote_id) {
-      throw new Error(
-        `This episode was uploaded to channel "${existing!.channel_id}" but your project is now connected to channel "${account.remote_id}" (${account.remote_title}). ` +
-        `Click ♻ Reset on this row to clear the old upload record, then Upload again — a fresh video will be created on the current channel. ` +
-        `The old video on "${existing!.channel_id}" is unaffected.`
-      )
-    }
-    job.output_lines.push(`Existing upload detected (${existing!.video_id}) — updating metadata in place.`)
-    // Preserve current YouTube privacy + publishAt by default. Re-pushing
-    // privacyStatus on a metadata-only update would silently flip a
-    // public video to private, or wipe an existing schedule, which is
-    // almost never what the user wants when they just clicked "↻ Update
-    // metadata" to fix a title typo. The caller can opt out by passing
-    // preserve_status: false (e.g. a future "Update metadata + privacy"
-    // affordance).
-    if (preserveExistingStatus) {
-      job.output_lines.push('Preserving current YouTube privacy + schedule (not changed). Pass preserve_status: false to also update them.')
-    }
-    uploaded = await updateVideoMetadata({
-      slug,
-      accountId,
-      videoId: existing!.video_id,
-      snippet: snippetFromMeta(meta, job.output_lines, categoryId),
-      ...(preserveExistingStatus ? {} : { status: { privacyStatus: privacy, publishAt } }),
-    })
-    videoId = uploaded.id
-    job.progress = 90
-  } else {
-    // Fresh-upload branch — videoPath was assigned + non-null-checked in
-    // the matching !shouldUpdateOnly block above. Re-narrow for TS, since
-    // the type-narrowing from that block doesn't carry across the meta-
-    // resolution code that sits between them.
-    if (!videoPath) throw new Error('internal: missing videoPath in fresh-upload branch')
+  {
     // Restart-safe resume: if a transient
     // sidecar from a prior interrupted run exists AND its TTL hasn't
     // expired AND file_size matches AND account_id matches, hand the
@@ -257,30 +175,60 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     // charge. Mismatches drop the sidecar so the next attempt starts
     // fresh against a usable session.
     const resumeSidecar = await readResumeSidecar(slug, episodeId, 'youtube')
+    const sourceBytes = (await fsp.stat(videoPath)).size
+    const sourceRevision = await resolveSourceRevision(videoPath)
+    if (params.expected_source_revision && sourceRevision !== params.expected_source_revision) {
+      throw new Error('The rendered video changed after confirmation. Preview and confirm the upload again; nothing was uploaded.')
+    }
+    const openOperations = operations.filter(record => record.episode_code === episodeId
+      && record.channel_id === account.remote_id && !record.video_id
+      && ['preparing', 'uploading'].includes(record.lifecycle))
     let resumeFromSessionUrl: string | undefined
+    let recoveredOperation = false
+    let uploadModeForRecord!: store.UploadMode
     if (resumeSidecar) {
-      const fileStat = await fsp.stat(videoPath).catch(() => null)
-      const currentFileSize = fileStat?.size ?? -1
       const usable = isSidecarUsable({
         sidecar: resumeSidecar,
-        currentFileSize,
+        currentFileSize: sourceBytes,
         currentAccountId: accountId,
       })
       if (usable.ok) {
+        const sessionHash = sessionUrlHash(resumeSidecar.session_url)
+        const identityMatches = openOperations.filter(record => record.lifecycle === 'uploading'
+          && record.source_revision === sourceRevision
+          && record.final_payload)
+        const matches = identityMatches.filter(record => !record.resumable || (
+          record.resumable.session_url_hash === sessionHash
+          && record.resumable.source_bytes === sourceBytes
+        ))
+        if (openOperations.length !== 1 || matches.length !== 1) {
+          throw new Error(`The saved upload session for ${episodeId} does not match exactly one durable operation. Nothing was uploaded; review the interrupted upload before retrying.`)
+        }
+        const record = matches[0]!
+        operationHandle = { operation_id: record.operation_id, channel_id: record.channel_id, revision: record.revision }
+        metadataPackage = metadataPackageFromFinalPayload(record.final_payload!)
+        // uploadVideo persists the credential-bearing sidecar before it calls
+        // the operation checkpoint. A process/store failure in that narrow
+        // window leaves a valid session beside the one matching uploading
+        // record, but no hash on the record yet. Reconcile that exact pair now,
+        // before probing or sending any bytes. Ambiguity was rejected above.
+        if (!record.resumable) {
+          await markYouTubeOperationUploading({
+            project_slug: slug,
+            handle: operationHandle,
+            source_bytes: sourceBytes,
+            session_url_hash: sessionHash,
+          })
+        }
+        recoveredOperation = true
         resumeFromSessionUrl = resumeSidecar.session_url
         job.output_lines.push(
           `Found resumable upload from ${resumeSidecar.created_at} — will resume against existing session ${sessionUrlHash(resumeSidecar.session_url)} (no fresh quota charge).`,
         )
-        if (resumeSidecar.created_at && publishAt && resumeSidecar.session_url) {
-          // The init snippet was sent to Google when the session was
-          // created. publishAt / privacy_status changes the user makes
-          // between init and the resumed upload can't be honored here —
-          // they'd require a metadata PATCH after the upload completes.
-          job.output_lines.push(
-            `⚠ Resuming with the original metadata; if you changed scheduled_for or privacy after the original upload started, those changes will need a separate metadata update after the upload completes.`,
-          )
-        }
       } else {
+        if (openOperations.length) {
+          throw new Error(`The saved upload session for ${episodeId} no longer matches its open durable operation. Nothing was uploaded; review the interrupted upload before retrying.`)
+        }
         await deleteResumeSidecar(slug, episodeId, 'youtube').catch(() => {})
         const reasonCopy =
           usable.reason === 'expired'
@@ -294,9 +242,76 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       }
     }
 
+    if (!recoveredOperation) {
+      if (openOperations.length || remote) {
+        throw new Error(`${alreadyOnYouTubeReason(episodeId, remote ?? {
+          video_id: '', source: 'operation_record', channel_id: account.remote_id,
+          lifecycle: openOperations[0]?.lifecycle ?? 'uploading',
+        })} Nothing was uploaded.`)
+      }
+      if (params.expected_package_revision) {
+        if (!params.approved_final_payload) {
+          throw new Error('The approved YouTube upload details are missing. Preview and confirm the upload again; nothing was uploaded.')
+        }
+        if (params.approved_upload_mode !== 'apply-plan' && params.approved_upload_mode !== 'private') {
+          throw new Error('The approved YouTube upload mode is missing. Preview and confirm the upload again; nothing was uploaded.')
+        }
+        metadataPackage = metadataPackageFromFinalPayload(params.approved_final_payload)
+        if (metadataPackage.package_revision !== params.expected_package_revision) {
+          throw new Error('The approved YouTube upload details are invalid. Preview and confirm the upload again; nothing was uploaded.')
+        }
+        uploadModeForRecord = params.approved_upload_mode
+      } else {
+        // Legacy jobs have no approved package, so resolve their mutable upload
+        // mode here. Admitted Upload Center jobs use the frozen payload above;
+        // a later Settings edit cannot rewrite what the owner approved.
+        const uploadMode = await store.getUploadMode(slug, 'youtube')
+        uploadModeForRecord = uploadMode
+        const publishAt = uploadMode === 'private'
+          ? undefined
+          : (params.scheduled_for || undefined)
+        if (uploadMode === 'private' && params.scheduled_for) {
+          job.output_lines.push(`Private-first mode: ignoring plan publishAt (${params.scheduled_for}); manage schedule in YouTube Studio.`)
+        }
+        const uploadSettings = await resolveYouTubeUploadSettings(slug)
+        metadataPackage = await buildYouTubeMetadataPackage({
+          project_slug: slug,
+          episode_code: episodeId,
+          privacy_status: privacy,
+          ...(publishAt ? { publish_at: publishAt } : {}),
+          ...(uploadSettings.category_id !== undefined ? { category_id: uploadSettings.category_id } : {}),
+          mark_as_ai_generated: uploadSettings.mark_as_ai_generated,
+          fallback_title: idea.title || '',
+          ...(params.thumbnail_filename ? { thumbnail_filename: params.thumbnail_filename } : {}),
+        })
+      }
+      operationHandle = await beginYouTubeOperation({
+        project_slug: slug,
+        episode_code: episodeId,
+        source_revision: sourceRevision,
+        metadata_package: metadataPackage,
+        final_action: uploadModeForRecord === 'private' ? 'private_upload' : 'manual_upload',
+        provider_channel_id: account.remote_id,
+      })
+      await markYouTubeOperationUploading({
+        project_slug: slug,
+        handle: operationHandle,
+        source_bytes: sourceBytes,
+      })
+    }
+
+    for (const change of metadataPackage.modifications) job.output_lines.push(`${change.field}: ${change.reason}`)
+    for (const warning of metadataPackage.warnings) job.output_lines.push(`⚠ ${warning}`)
+    job.output_lines.push(
+      `Metadata — title: "${metadataPackage.snippet.title}", tags: ${metadataPackage.snippet.tags?.length ?? 0}, thumbnail: ${meta.thumbnailPath ? path.basename(meta.thumbnailPath) : 'none'}`,
+    )
+
+    // Open and checkpoint the durable operation BEFORE the provider request.
+    // If source identity or durable state cannot be recorded, stop: uploading
+    // without that evidence makes an interrupted attempt unsafe to retry.
     job.output_lines.push(resumeFromSessionUrl ? 'Resuming resumable upload…' : 'Starting resumable upload…')
     job.output_lines.push(
-      markAsAiGenerated
+      metadataPackage.status.containsSyntheticMedia
         ? 'Disclosing video as AI-generated / altered or synthetic content (status.containsSyntheticMedia=true).'
         : 'NOT disclosing video as altered/synthetic — toggle in Settings → YouTube if your content is AI-generated.',
     )
@@ -318,16 +333,13 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       const pct = Math.floor((sent / total) * 85)
       if (pct !== job.progress) job.progress = pct
     }, 250)
-    uploaded = await uploadVideo({
+    try {
+      uploaded = await uploadVideo({
       slug,
       accountId,
       filePath: videoPath,
-      snippet: snippetFromMeta(meta, job.output_lines, categoryId),
-      status: {
-        privacyStatus: privacy,
-        publishAt,
-        containsSyntheticMedia: markAsAiGenerated,
-      },
+      snippet: metadataPackage.snippet,
+      status: metadataPackage.status,
       signal: abort.signal,
       episodeCode: episodeId,
       deferResumeCleanup: true,
@@ -343,7 +355,25 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         // a ReadableStream that reports chunk sizes.
         writeProgress(sent, total)
       },
-    })
+        ...(!recoveredOperation ? { onResumableSessionReady: async (hash: string, bytes: number) => {
+          await markYouTubeOperationUploading({
+            project_slug: slug,
+            handle: operationHandle,
+            source_bytes: bytes,
+            session_url_hash: hash,
+          })
+        } } : {}),
+      })
+    } catch (error) {
+      if (!await readResumeSidecar(slug, episodeId, 'youtube')) {
+        await markYouTubeOperationFailedBeforeSession({
+          project_slug: slug,
+          handle: operationHandle,
+          error_code: 'provider_not_started',
+        })
+      }
+      throw error
+    }
     // Freeze metrics at completion so the UI stops mid-flight tickers.
     job.bytes_done = job.bytes_total
     job.speed_bps = 0
@@ -354,29 +384,39 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   }
 
   if (!videoId?.trim()) throw new Error('YouTube returned success without a video id; no upload record was written.')
-  if (shouldUpdateOnly && videoId !== existing!.video_id) {
-    throw new Error(`YouTube metadata update returned video ${videoId}, but this episode is linked to ${existing!.video_id}. No local record was changed.`)
-  }
 
   // Checkpoint the permanent remote identity before thumbnail or playlist
   // work. uploadVideo deliberately retains the transient resumable-session
   // sidecar until this durable write succeeds. That closes the crash window
   // that could otherwise make Retry upload the same video again and spend
   // another 1,600 quota units.
-  let thumbnail_set = existing?.thumbnail_set || false
+  // Built from scratch, carrying NOTHING forward.
+  //
+  // This spread used to be dead: `existing` came from `readSidecar`, which is
+  // null unless a video_id is set, and any non-null value took the update
+  // branch instead. Removing that branch and switching to the raw read made the
+  // spread LIVE — so a re-upload inherited the previous video's `deleted_at`
+  // (re-tombstoning the new video the moment it was created), `thumbnail_set`
+  // (making the no-thumbnail warning unreachable and checkpointing the old
+  // video's thumbnail state against the new id), `thumbnail_sync`,
+  // `playlist_sync`, `last_error` and `uploaded_at`.
+  //
+  // This IS the permanent `youtube_upload.json`, not the transient
+  // resumable-session sidecar (that is `upload-resume-sidecar.ts`). A fresh
+  // upload is a fresh video: every field describes THIS one.
+  let thumbnail_set = false
   const sidecar: UploadSidecar = {
-    ...(existing || {}),
     platform: 'youtube',
     video_id: videoId,
     account_id: accountId,
     channel_id: account.remote_id,
-    uploaded_at: existing?.uploaded_at || new Date().toISOString(),
+    uploaded_at: new Date().toISOString(),
     last_sync_at: new Date().toISOString(),
-    scheduled_for: preserveExistingStatus ? existing!.scheduled_for : (publishAt || null),
-    privacy_status: preserveExistingStatus ? existing!.privacy_status : privacy,
-    title: meta.title,
-    description: meta.description,
-    tags: meta.tags,
+    scheduled_for: metadataPackage.status.publishAt || null,
+    privacy_status: metadataPackage.status.privacyStatus,
+    title: metadataPackage.snippet.title,
+    description: metadataPackage.snippet.description || '',
+    tags: metadataPackage.snippet.tags || [],
     thumbnail_set,
   }
   const identityCheckpoint = await checkpointUploadSidecarIdentity(slug, episodeId, idea.title || '', sidecar)
@@ -392,6 +432,26 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   }
   await deleteResumeSidecar(slug, episodeId, 'youtube').catch(() => {})
   job.output_lines.push(`Permanent upload checkpoint saved for https://youtu.be/${videoId}.`)
+
+  // Same checkpoint, on the new record: accepted identity is durable BEFORE
+  // any thumbnail or playlist work, so a crash here can never be mistaken for
+  // "never uploaded" and re-spend the quota.
+  {
+    try {
+      await completeYouTubeOperation({
+        project_slug: slug,
+        episode_code: episodeId,
+        handle: operationHandle,
+        video_id: videoId,
+        metadata_package: metadataPackage,
+      })
+    } catch (e: any) {
+      // The video is already accepted by YouTube. A bookkeeping failure here
+      // must never look like an upload failure, and must never trigger a retry
+      // that uploads again.
+      job.output_lines.push(`⚠ Durable upload record could not be completed (${e?.message || e}). The video is uploaded; reconcile it from the Upload Center.`)
+    }
+  }
 
   // Thumbnail — best-effort. Channel must be verified for custom thumbnails;
   // a failure here is a warning in the sidecar, not a fatal error.
@@ -427,7 +487,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     { video_id: videoId, account_id: accountId },
     { set: thumbnail_set, error: thumb_error || undefined, remotely_verified: thumbnailVerifiedThisRun },
   )
-  const finalCheckpoint = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
+  const finalCheckpoint = await readSidecarRaw(slug, episodeId, idea.title || '', 'youtube')
   const sidecarErrors = inspectUploadSidecarIdentity(finalCheckpoint, {
     platform: 'youtube', video_id: videoId, account_id: accountId, channel_id: account.remote_id,
   })
@@ -480,61 +540,4 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       job.output_lines.push(`⚠ Playlist add failed: ${e?.message || 'unknown'} — upload itself is OK.`)
     }
   }
-}
-
-/**
- * Find the canonical final assembled video for an episode. This intentionally
- * matches asset-status.ts so Upload cannot silently choose a preview or
- * intermediate render that the Production Board does not consider final.
- */
-async function findFinalVideoPath(
-  paths: { episode_dir: string; video_dir: string },
-  slug: string,
-  code: string,
-  title: string,
-): Promise<string> {
-  code = code.toUpperCase()
-  const VIDEO_EXTS = ['.mp4', '.mov', '.mkv', '.webm', '.m4v']
-  const isVideo = (n: string) => VIDEO_EXTS.some(e => n.toLowerCase().endsWith(e))
-  const isCanonical = (n: string) => n.startsWith(`${code}_final_video.`) && isVideo(n)
-  async function validFile(dir: string, name: string): Promise<string> {
-    const candidate = path.join(dir, name)
-    const stat = await fsp.stat(candidate).catch(() => null)
-    return stat?.isFile() && stat.size > 0 ? candidate : ''
-  }
-
-  // 0. EXTERNAL final-video root takes priority over the project tree.
-  // When the user has configured `external_final_video_root` (Settings →
-  // Storage), the video-assembly generator writes finals there, NOT into
-  // the iCloud-synced project tree's video_dir. Without this branch the
-  // upload generator would fail with "No final video file found" even
-  // though the file is sitting on disk at the user's chosen external
-  // location. Mirrors Path E in asset-status.ts so detection + upload
-  // stay in lockstep.
-  try {
-    const { resolveExternalFinalVideoDir } = await import('../services/external-video-store.js')
-    const externalDir = await resolveExternalFinalVideoDir(slug, code, title)
-    if (externalDir) {
-      try {
-        const extFiles = await fsp.readdir(externalDir)
-        const final = extFiles.find(isCanonical)
-        if (final) {
-          const valid = await validFile(externalDir, final)
-          if (valid) return valid
-        }
-      } catch { /* external dir not yet created — fall through */ }
-    }
-  } catch { /* import failure — fall through */ }
-
-  // 1. Native `{code}_final_video.*` wins.
-  try {
-    const videoDirFiles = await fsp.readdir(paths.video_dir)
-    const final = videoDirFiles.find(isCanonical)
-    if (final) {
-      const valid = await validFile(paths.video_dir, final)
-      if (valid) return valid
-    }
-  } catch { /* fall through */ }
-
-  return ''
 }

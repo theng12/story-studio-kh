@@ -2960,6 +2960,9 @@ export interface CommentReply {
   /** YouTube comment id — needed when posting a reply (parentId). */
   id: string
   author: string
+  /** Author's channel id. The only reliable way to tell whether a reply came
+   *  from THIS channel — display names are not unique and can be changed. */
+  author_channel_id?: string
   /** Avatar URL (small, square). May be empty for some authors. */
   author_avatar?: string
   /** Plain-text content. We deliberately use textOriginal (not textDisplay)
@@ -2988,6 +2991,10 @@ export interface CommentThread {
   /** False when the comment is held for review or marked spam. UI hides
    *  these to avoid wasting a reply on a comment the public can't see. */
   is_public: boolean
+  /** YouTube's own moderation status for the top comment, when it tells us.
+   *  Only the channel owner sees this. Absent is NOT "published" — it means
+   *  YouTube did not say, and `is_public` is the weaker fallback. */
+  moderation_status?: 'published' | 'heldForReview' | 'likelySpam' | 'rejected'
 }
 
 export interface CommentThreadsResult {
@@ -2998,6 +3005,16 @@ export interface CommentThreadsResult {
   /** True when there are more threads beyond `threads.length`. v1 caps at
    *  one page (100 threads) so this surfaces "open in YouTube for the rest". */
   has_more: boolean
+  /** True when YouTube refused because commenting is off for this video.
+   *  Distinct from an empty list: "nobody commented" and "nobody CAN comment"
+   *  are different facts, and only the second explains why replying fails. */
+  comments_disabled?: boolean
+  /**
+   * Where the next sweep resumes. Additive and optional: absent means there is
+   * nothing further to read, which is not the same as a token we failed to
+   * record.
+   */
+  next_page_token?: string
 }
 
 // ── YouTube Analytics ──────────────────────────────────────────────────────

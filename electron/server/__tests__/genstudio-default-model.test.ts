@@ -234,7 +234,6 @@ describe('no owned source file expresses a hardcoded external product id as a ge
     'routes/audio.ts',
     'routes/image-prompts-edit.ts',
     'routes/pipeline.ts',
-    'routes/upload.ts',
     'services/audio-expression.ts',
     'services/research/genstudio.ts',
     'services/genstudio-default-model.ts',

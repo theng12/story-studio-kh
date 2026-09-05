@@ -18,8 +18,8 @@
  * pattern; this module is stateless.
  */
 
-import { fetchWithAuthRetry } from './youtube-client.js'
-import { checkQuota, recordQuotaUsage, friendlyQuotaErrorMessage } from '../services/upload-quota.js'
+import { fetchWithAuthRetry, youtubeTransport } from './youtube-client.js'
+import { friendlyQuotaErrorMessage } from '../services/upload-quota.js'
 import type { CommentThread, CommentThreadsResult, CommentReply } from '../models/types.js'
 
 const COMMENT_THREADS_URL = 'https://www.googleapis.com/youtube/v3/commentThreads'
@@ -41,6 +41,8 @@ function toCommentReply(item: any): CommentReply {
   return {
     id: String(item?.id || ''),
     author: String(s.authorDisplayName || ''),
+    // Channel id, not display name: names repeat and change, ids do not.
+    ...(s.authorChannelId?.value ? { author_channel_id: String(s.authorChannelId.value) } : {}),
     author_avatar: s.authorProfileImageUrl ? String(s.authorProfileImageUrl) : undefined,
     // textOriginal is the raw user input. textDisplay is HTML-escaped + auto-linked
     // by YouTube — fine for a viewer, but bad for an LLM prompt or a textarea.
@@ -52,13 +54,29 @@ function toCommentReply(item: any): CommentReply {
 }
 
 export interface ListCommentThreadsOptions {
-  /** 'time' (newest first) or 'relevance' (YouTube's relevance ranking). */
+  /**
+   * Newest first, and only newest first.
+   *
+   * `'relevance'` was the other member of this union, and its only producer was
+   * the legacy Upload page's comments route, deleted in Phase 9. The Upload
+   * Center's inbox is a work queue - it wants the newest comment first, not
+   * YouTube's ranking - so the option is gone rather than left as a setting
+   * nothing sets.
+   */
   order?: 'time' | 'relevance'
   /** Total threads to return across all pages. Caps at 500 (5 pages × 100). */
   maxResults?: number
   /** Per-page size. API hard-caps at 100; we default to 100 to minimize
    *  pagination round-trips. */
   pageSize?: number
+  /**
+   * Resume from this page instead of the newest batch.
+   *
+   * Without it every sweep restarts at page 1, so a video with more threads
+   * than one sweep collects can never be read past its first batch however
+   * many times it is fetched.
+   */
+  pageToken?: string
 }
 
 /**
@@ -81,11 +99,10 @@ export async function listVideoCommentThreads(
   const order = options.order || 'time'
 
   const threads: CommentThread[] = []
-  let pageToken: string | undefined = undefined
+  let pageToken: string | undefined = options.pageToken
   let hasMore = false
 
   while (threads.length < maxResults) {
-    await checkQuota(slug, 'comment_threads_list')
     const url = new URL(COMMENT_THREADS_URL)
     url.searchParams.set('part', 'snippet,replies')
     url.searchParams.set('videoId', videoId)
@@ -95,19 +112,23 @@ export async function listVideoCommentThreads(
     if (pageToken) url.searchParams.set('pageToken', pageToken)
 
     const resp = await fetchWithAuthRetry(slug, accountId, (token) =>
-      fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } }),
+      youtubeTransport(url.toString(), { headers: { Authorization: `Bearer ${token}` } }),
+      'comment_threads_list',
     )
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
       if (resp.status === 403 && /commentsDisabled/.test(text)) {
-        return { fetched_at: new Date().toISOString(), video_id: videoId, threads: [], has_more: false }
+        // Say WHY it is empty. An empty list alone cannot distinguish
+        // "nobody commented" from "nobody can comment".
+        return {
+          fetched_at: new Date().toISOString(), video_id: videoId,
+          threads: [], has_more: false, comments_disabled: true,
+        }
       }
       const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
       throw new CommentsApiError(resp.status, quotaMsg || text)
     }
-
-    await recordQuotaUsage(slug, 'comment_threads_list').catch(() => {})
 
     const data = await resp.json() as any
     for (const item of (data.items || [])) {
@@ -127,6 +148,11 @@ export async function listVideoCommentThreads(
         replies,
         can_reply: s.canReply !== false,
         is_public: s.isPublic !== false,
+        // Only the channel owner is told this, so it is often absent. Absent
+        // is not "published" — the inbox falls back to is_public and says so.
+        ...(top?.snippet?.moderationStatus
+          ? { moderation_status: String(top.snippet.moderationStatus) as NonNullable<CommentThread['moderation_status']> }
+          : {}),
       })
       if (threads.length >= maxResults) break
     }
@@ -148,6 +174,9 @@ export async function listVideoCommentThreads(
     video_id: videoId,
     threads,
     has_more: hasMore,
+    // Only when there IS a next page. Returning the token unconditionally
+    // would make "finished" and "more to come" look alike to the caller.
+    ...(hasMore && pageToken ? { next_page_token: pageToken } : {}),
   }
 }
 
@@ -168,7 +197,6 @@ export async function postCommentReply(
   if (!parentCommentId) throw new Error('parentCommentId is required')
   if (!textOriginal || !textOriginal.trim()) throw new Error('reply text is required')
 
-  await checkQuota(slug, 'comments_insert')
   const url = new URL(COMMENTS_URL)
   url.searchParams.set('part', 'snippet')
   const body = {
@@ -178,7 +206,7 @@ export async function postCommentReply(
     },
   }
   const resp = await fetchWithAuthRetry(slug, accountId, (token) =>
-    fetch(url.toString(), {
+    youtubeTransport(url.toString(), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -186,6 +214,7 @@ export async function postCommentReply(
       },
       body: JSON.stringify(body),
     }),
+    'comments_insert',
   )
 
   if (!resp.ok) {
@@ -194,8 +223,6 @@ export async function postCommentReply(
     throw new CommentsApiError(resp.status, quotaMsg || text)
   }
 
-  await recordQuotaUsage(slug, 'comments_insert').catch(() => {})
-
-  const data = await resp.json() as any
+  const data = await resp.json().catch(() => ({})) as any
   return toCommentReply(data)
 }
