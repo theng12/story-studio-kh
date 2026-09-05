@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.108 — 2026-09-06
+
+- **Failed visual Scene Plan jobs can now repair only their missing or duplicated prompts from Jobs.** The explicit **Auto repair prompts · credits** action preserves every verified prompt and timeline boundary, derives the exact episode and model from the saved job, and sends each remaining scene as its own GenStudio request.
+- **Paid prompt repair keeps going while the saved plan improves and stops at safe boundaries.** It can continue beyond two repair passes, but stops before another request when a provider submission is unresolved, authorization or local saving fails, or a full pass adds no verified prompt. **Pause** lets the accepted request settle and then starts no new one; ordinary **Retry** remains available for timeline, setup, and other failures.
+
 ## v1.4.107 — 2026-09-05
 
 - **YouTube publishing now has one Upload Center with separate Overview, Publish, Library, Reconcile, Comments, and Analytics pages.** Preview names the exact assigned channel and payload before confirmation. Settings manages YouTube application credentials, channel connections, reconnects, and project assignment in one place, with secrets kept in encrypted storage.

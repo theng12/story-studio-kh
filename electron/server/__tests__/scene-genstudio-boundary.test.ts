@@ -68,7 +68,7 @@ test('scene motion and planning source contain no executable direct provider or 
   assert.match(plan, /Scene planning did not call any fallback route/)
 })
 
-test('bulk visual and motion repairs use bounded GenStudio packs instead of per-scene generation', () => {
+test('ordinary bulk repairs stay bounded while explicit paid auto-repair opts into one-scene requests', () => {
   const plan = readFileSync(path.join(serverRoot, 'generators/scene-plan.ts'), 'utf8')
   const planRoute = readFileSync(path.join(serverRoot, 'routes/scene-plan.ts'), 'utf8')
 
@@ -84,9 +84,11 @@ test('bulk visual and motion repairs use bounded GenStudio packs instead of per-
   // That is a pack size CHOSEN by `scenePromptRepairPackSize` and still fed to
   // the splitter — not a fan-out around it — so what is asserted here is that
   // the splitter remains the only door.
-  assert.match(plan, /const targetPacks = packScenePromptItems\(targets, effectivePackSize\)/)
+  assert.match(plan, /const targetPacks = explicitPaidRepair[\s\S]*\? \[targets\][\s\S]*: packScenePromptItems\(targets, effectivePackSize\)/)
   assert.match(plan, /scenePromptRepairPackSize\(targets\.length, promptPackSize\)/)
-  assert.match(plan, /const repairGroups = packScenePromptItems\(\s*outstanding,\s*scenePromptRepairPackSize\(outstanding\.length, outstanding\.length\),\s*\)/)
+  assert.match(plan, /explicitPaidRepair \? 1 : scenePromptRepairPackSize\(outstanding\.length, outstanding\.length\)/)
+  assert.match(plan, /appendGroupLabel: explicitPaidRepair/)
+  assert.match(plan, /scenePromptRequestLabel\(input\.requestLabel, group, input\.appendGroupLabel !== false\)/)
   assert.doesNotMatch(plan, /if \(params\.regenerate_empty_prompts\) \{[\s\S]*generatePromptsForScenes/)
   assert.doesNotMatch(plan, /if \(params\.regenerate_empty_motion_prompts\) \{[\s\S]*generateMotionPromptsForScenes/)
   assert.match(planRoute, /regenerate_empty_prompts: true,[\s\S]*prompt_pack_size: promptPackSize/)

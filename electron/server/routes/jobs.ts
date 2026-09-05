@@ -1,8 +1,13 @@
 import { Router } from 'express'
+import fs from 'node:fs/promises'
+import { isDeepStrictEqual } from 'node:util'
 import * as jq from '../services/job-queue.js'
 import * as pm from '../services/project-manager.js'
 import { JOB_TYPES, type Job, type JobType } from '../models/types.js'
 import { episodeRecoveryStep, recoverEpisode } from '../services/episode-recovery.js'
+import { inspectScenePromptIntegrity } from '../services/scene-prompt-integrity.js'
+import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
+import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 
 export const router = Router()
 
@@ -75,6 +80,123 @@ function sendTerminalOnlyConflict(res: import('express').Response, job: Job): vo
     control: job.control,
     detail: 'Only finished jobs can be removed from history.',
   })
+}
+
+const SCENE_PROMPT_WRITER_FLAGS = [
+  'force',
+  'prompt_limit',
+  'target_scene_count',
+  'regenerate_prompt_scene_id',
+  'reword_prompt',
+  'replan_scene_id',
+  'regenerate_motion_prompt_scene_id',
+  'regenerate_empty_motion_prompts',
+  'generate_motion_prompts',
+  'motion_level',
+  'planning_mode',
+  'window_size',
+  'cross_window_context',
+  'skip_intro',
+  'scene_prompt_recoveries',
+] as const
+
+export interface ScenePromptRecoveryDescriptor {
+  idempotency_key: string
+  scene_ids: string[]
+}
+
+function scenePromptIdsFromExactPreview(responseFormat: string | undefined): string[] | null {
+  if (!responseFormat) return null
+  let parsed: any
+  try { parsed = JSON.parse(responseFormat) } catch { return null }
+  const ids = parsed?.json_schema?.schema?.properties?.results?.items?.properties?.scene_id?.enum
+  if (!Array.isArray(ids) || !ids.length || ids.some((id: unknown) => typeof id !== 'string' || !id.trim())) return null
+  const unique = [...new Set(ids)]
+  if (unique.length !== ids.length) return null
+  const contract = scenePromptPackOutputContract(unique, 'visual')
+  if (contract.mode !== 'json_object') return null
+  const exact = {
+    type: 'json_schema',
+    json_schema: { name: 'story_scene_prompt_pack', strict: true, schema: contract.schema },
+  }
+  return isDeepStrictEqual(parsed, exact) ? unique : null
+}
+
+export function scenePromptAutoRepairRecoveries(job: Job, missingIds: readonly string[]): ScenePromptRecoveryDescriptor[] {
+  const missing = new Set(missingIds)
+  const recoveries: ScenePromptRecoveryDescriptor[] = []
+  const newestFirst = [...(job.genstudio_jobs || [])].sort((left, right) => (
+    right.updated_at.localeCompare(left.updated_at) || right.id.localeCompare(left.id)
+  ))
+  for (const entry of newestFirst) {
+    if (entry.operation !== 'chat.response' || entry.state !== 'succeeded') continue
+    const key = entry.request?.idempotency_key?.trim()
+    const sceneIds = scenePromptIdsFromExactPreview(entry.request?.response_format)
+    if (!key || !sceneIds) continue
+    const relevant = sceneIds.filter(id => missing.has(id))
+    if (!relevant.length) continue
+    recoveries.push({ idempotency_key: key, scene_ids: sceneIds })
+  }
+  return recoveries
+}
+
+export function scenePromptAutoRepairParams(
+  original: Record<string, unknown>,
+  episodeId: string,
+  recoveries: readonly ScenePromptRecoveryDescriptor[] = [],
+): Record<string, unknown> {
+  const params = structuredClone(original)
+  for (const key of SCENE_PROMPT_WRITER_FLAGS) delete params[key]
+  return {
+    ...params,
+    episode_id: episodeId,
+    stage: 'visual',
+    regenerate_empty_prompts: true,
+    auto_repair_missing_prompts: true,
+    ...(recoveries.length ? { scene_prompt_recoveries: structuredClone(recoveries) } : {}),
+  }
+}
+
+async function scenePromptAutoRepairMissing(job: Job): Promise<string[]> {
+  if (job.type !== 'scene_plan_run') {
+    throw Object.assign(new Error('Paid prompt auto-repair is available only for Scene Plan jobs.'), { status: 409, expose: true })
+  }
+  const params = (job.params || {}) as Record<string, unknown>
+  const wasVisualPromptWork = params.stage === 'visual'
+    || params.regenerate_empty_prompts === true
+    || typeof params.regenerate_prompt_scene_id === 'string'
+    || (params.stage == null && Array.isArray(params.pipeline_chain))
+  if (
+    !wasVisualPromptWork
+    || params.stage === 'timeline'
+    || params.stage === 'motion'
+    || params.model === 'deterministic-timeline'
+    || typeof params.replan_scene_id === 'string'
+    || params.regenerate_empty_motion_prompts === true
+    || typeof params.regenerate_motion_prompt_scene_id === 'string'
+  ) {
+    throw Object.assign(new Error('This Scene Plan job was not visual-prompt work. Use Retry for the original step.'), { status: 409, expose: true })
+  }
+  if (typeof params.model !== 'string' || !params.model.trim()) {
+    throw Object.assign(new Error('The original Scene Plan job has no saved model. Use Retry to choose the current model.'), { status: 409, expose: true })
+  }
+  try {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const planPath = await resolveScenePlanPath(job.project_slug, job.episode_id, paths.episode_dir)
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as { scenes?: unknown }
+    if (!Array.isArray(plan.scenes) || !plan.scenes.length) throw new Error('scene_plan.json has no scenes')
+    const missing = inspectScenePromptIntegrity(plan.scenes as any).invalid_ids
+    if (!missing.length) {
+      throw Object.assign(new Error('Every visual prompt is already complete. No paid repair request was submitted.'), { status: 409, expose: true })
+    }
+    return missing
+  } catch (error: any) {
+    if (error?.status === 409) throw error
+    throw Object.assign(
+      new Error('No authoritative Scene Plan with repairable visual prompts was found. Use Retry for the original step.'),
+      { status: 409, expose: true },
+    )
+  }
 }
 
 // ── Job stream (SSE) ────────────────────────────────────────────────────────
@@ -404,6 +526,41 @@ router.post('/projects/:slug/jobs/:jobId/retry', async (req, res) => {
   }
   const job = jq.retryTerminalJob(req.params.slug, req.params.jobId)
   res.status(202).json({ ok: true, job })
+})
+
+router.post('/projects/:slug/jobs/:jobId/auto-repair-scene-prompts', async (req, res) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length) {
+    return res.status(400).json({ detail: 'Request body must be an empty object. Scene IDs and settings come from the saved job and Scene Plan.' })
+  }
+  const original = jq.getJob(req.params.jobId)
+  if (!original || original.project_slug !== req.params.slug) {
+    return res.status(404).json({ detail: 'Job not found' })
+  }
+  try {
+    const missing = await scenePromptAutoRepairMissing(original)
+    // The disk audit above is asynchronous. Re-read immediately before the
+    // synchronous replacement boundary so a provider request that settled
+    // while the file was inspected is recovered instead of replaced.
+    const refreshed = jq.getJob(req.params.jobId)
+    if (!refreshed || refreshed.project_slug !== req.params.slug) {
+      return res.status(404).json({ detail: 'Job not found' })
+    }
+    if ((refreshed.genstudio_jobs || []).some(entry => (
+      entry.operation === 'chat.response'
+      && entry.failure_code === 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN'
+    ))) {
+      throw Object.assign(new Error('GenStudio could not prove whether an earlier prompt request was accepted. Story Studio kept that evidence and did not submit fresh paid work. Check GenStudio before trying again.'), { status: 409, expose: true })
+    }
+    const recoveries = scenePromptAutoRepairRecoveries(refreshed, missing)
+    const job = jq.retryTerminalJob(
+      req.params.slug,
+      req.params.jobId,
+      scenePromptAutoRepairParams((refreshed.params || {}) as Record<string, unknown>, refreshed.episode_id, recoveries),
+    )
+    res.status(202).json({ ok: true, job, missing_prompts: missing.length })
+  } catch (error: any) {
+    res.status(Number(error?.status) || 409).json({ detail: error?.message || 'Prompt auto-repair is unavailable.' })
+  }
 })
 
 router.post('/projects/:slug/jobs/:jobId/pause', async (req, res) => {

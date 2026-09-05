@@ -431,8 +431,17 @@
               Recover this episode
             </NuxtLink>
             <button
-              v-if="job.status === 'error' || job.status === 'cancelled'"
+              v-if="(job.status === 'error' || job.status === 'cancelled') && canOfferScenePromptAutoRepair(job)"
+              class="btn btn-xs btn-primary prompt-auto-repair-btn"
+              :disabled="controlBusy.has(job.job_id)"
+              :aria-label="`Auto repair missing prompts for ${job.episode_id}; GenStudio credits may be charged`"
+              title="PAID AUTO REPAIR — Keeps every verified prompt and submits each missing or duplicated scene alone. Continues only while verified progress improves. Pause stops new requests after any accepted request settles. GenStudio credits may be charged."
+              @click="autoRepairScenePrompts(job)"
+            >{{ controlBusy.has(job.job_id) ? 'Starting…' : 'Auto repair prompts · credits' }}</button>
+            <button
+              v-if="(job.status === 'error' || job.status === 'cancelled') && job.params?.auto_repair_missing_prompts !== true"
               class="btn btn-xs btn-secondary"
+              :disabled="controlBusy.has(job.job_id)"
               @click="retryJob(job)"
               :title="retryTooltip(job)"
             >
@@ -768,8 +777,17 @@
                 Recover this episode
               </NuxtLink>
               <button
-                v-if="job.status === 'error' || job.status === 'cancelled'"
+                v-if="(job.status === 'error' || job.status === 'cancelled') && canOfferScenePromptAutoRepair(job)"
+                class="btn btn-xs btn-primary prompt-auto-repair-btn"
+                :disabled="controlBusy.has(job.job_id)"
+                :aria-label="`Auto repair missing prompts for ${job.episode_id}; GenStudio credits may be charged`"
+                title="PAID AUTO REPAIR — Keeps every verified prompt and submits each missing or duplicated scene alone. Continues only while verified progress improves. Pause stops new requests after any accepted request settles. GenStudio credits may be charged."
+                @click="autoRepairScenePrompts(job)"
+              >{{ controlBusy.has(job.job_id) ? 'Starting…' : 'Auto repair prompts · credits' }}</button>
+              <button
+                v-if="(job.status === 'error' || job.status === 'cancelled') && job.params?.auto_repair_missing_prompts !== true"
                 class="btn btn-xs btn-secondary"
+                :disabled="controlBusy.has(job.job_id)"
                 @click="retryJob(job)"
                 :title="retryTooltip(job)"
               >
@@ -1602,7 +1620,9 @@ async function repairAllFailed() {
 // repair path at all, subtitles among them).
 const retryingAllFailed = ref(false)
 const failedJobsForRetryAll = computed(() =>
-  jobs.value.filter((j: RJob) => j.status === 'error' || j.status === 'cancelled')
+  jobs.value.filter((j: RJob) =>
+    (j.status === 'error' || j.status === 'cancelled')
+    && j.params?.auto_repair_missing_prompts !== true)
 )
 const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
   failedJobsForRetryAll.value as RJob[],
@@ -2374,6 +2394,21 @@ function jobCanBeRepaired(jobOrType: Pick<RJob, 'type' | 'params'> | string): bo
   return jobOrType.type in REPAIR_ENDPOINTS
 }
 
+function canOfferScenePromptAutoRepair(job: Pick<RJob, 'type' | 'params'>): boolean {
+  if (job.type !== 'scene_plan_run' || typeof job.params?.model !== 'string' || !job.params.model.trim()) return false
+  const wasVisualPromptWork = job.params.stage === 'visual'
+    || job.params.regenerate_empty_prompts === true
+    || typeof job.params.regenerate_prompt_scene_id === 'string'
+    || (job.params.stage == null && Array.isArray(job.params.pipeline_chain))
+  return wasVisualPromptWork
+    && job.params.stage !== 'timeline'
+    && job.params.stage !== 'motion'
+    && job.params.model !== 'deterministic-timeline'
+    && typeof job.params.replan_scene_id !== 'string'
+    && job.params.regenerate_empty_motion_prompts !== true
+    && typeof job.params.regenerate_motion_prompt_scene_id !== 'string'
+}
+
 // v1.0.308 — type-aware Retry tooltip so the cost/behaviour is honest per job
 // type. image_prompts now does a smart gap-fill; image/audio/video have a free
 // Repair to click first; everything else re-runs whole.
@@ -2665,6 +2700,25 @@ async function retryJob(job: RJob) {
     await post(target.url, target.params)
     success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
   } catch (e: any) { showError(customerJobText(e.data?.detail || 'Failed to retry job', job)) }
+}
+
+async function autoRepairScenePrompts(job: RJob) {
+  const busy = new Set(controlBusy.value)
+  busy.add(job.job_id)
+  controlBusy.value = busy
+  try {
+    const response = await post<{ missing_prompts: number }>(
+      `/projects/${jobProjectSlug(job)}/jobs/${job.job_id}/auto-repair-scene-prompts`,
+      {},
+    )
+    success(`Auto repair started for ${response.missing_prompts} missing or duplicated prompt${response.missing_prompts === 1 ? '' : 's'}. Each scene is a separate GenStudio request; credits may be charged.`)
+  } catch (e: any) {
+    showError(customerJobText(e?.data?.detail || e?.message || 'Prompt auto-repair could not start.', job))
+  } finally {
+    const next = new Set(controlBusy.value)
+    next.delete(job.job_id)
+    controlBusy.value = next
+  }
 }
 
 /**
@@ -3151,6 +3205,10 @@ async function clearFinished() {
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Meta row */
@@ -3418,7 +3476,7 @@ async function clearFinished() {
   .genstudio-capacity-summary { justify-content: flex-start; }
   .job-row-main { align-items: flex-start; flex-wrap: wrap; }
   .job-identity { flex-basis: 100%; }
-  .job-actions { margin-left: auto; }
+  .job-actions { margin-left: 0; width: 100%; justify-content: flex-start; }
   .project-filter { width: 100%; }
   .project-filter select { min-width: 0; flex: 1; }
   .sort-bar { flex-wrap: wrap; min-width: 0; }

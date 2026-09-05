@@ -34,6 +34,7 @@ import {
   MAX_SCENES_PER_SMALL_REPAIR_PACK,
   packScenePromptItems,
   scenePromptRepairPackSize,
+  scenePromptRequestLabel,
 } from '../generators/scene-plan.js'
 
 /** The grouping a repair path actually performs: pick the repair pack size,
@@ -95,4 +96,9 @@ describe('small scene-prompt repair sets are split one scene per request', () =>
     assert.equal(scenePromptRepairPackSize(333, 40), 40)
     assert.equal(scenePromptRepairPackSize(41, 10), 10)
   })
+})
+
+test('existing pack replay labels stay exact while explicit single-scene repair gets a stable suffix', () => {
+  assert.equal(scenePromptRequestLabel('visual-0008', ['scene-0151'], false), 'visual-0008')
+  assert.equal(scenePromptRequestLabel('visual-0008:repair-1', ['scene-0151'], true), 'visual-0008:repair-1:scene-0151')
 })

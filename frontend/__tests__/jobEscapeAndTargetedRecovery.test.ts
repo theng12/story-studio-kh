@@ -50,9 +50,9 @@ describe('force-abandon on the Jobs page', () => {
     assert.doesNotMatch(jobControl, /FORCE_ABANDON_REASON[\s\S]{0,600}?(WARNING|irreversible|cannot be undone)/i)
   })
 
-  it('re-running is reachable from the same row, because Retry covers cancelled jobs', () => {
-    const retryButtons = jobsPage.match(/v-if="job\.status === 'error' \|\| job\.status === 'cancelled'"/g) || []
-    assert.equal(retryButtons.length, 2, 'both the active and the history lists must offer Retry')
+  it('re-running is reachable from normal cancelled rows without disguising paid auto-repair as Retry', () => {
+    const retryButtons = jobsPage.match(/v-if="\(job\.status === 'error' \|\| job\.status === 'cancelled'\) && job\.params\?\.auto_repair_missing_prompts !== true"/g) || []
+    assert.equal(retryButtons.length, 2, 'both the active and the history lists must offer Retry for ordinary jobs')
   })
 })
 
