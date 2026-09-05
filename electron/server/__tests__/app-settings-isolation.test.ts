@@ -32,6 +32,7 @@ import { test, describe, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
@@ -116,6 +117,59 @@ describe('app-settings write guard', () => {
       await realSettingsSnapshot(), REAL_SETTINGS_AT_START,
       'the real app-settings.json changed while this test file ran',
     )
+  })
+})
+
+describe('app-secrets write guard', () => {
+  async function withDisposableHome(run: (home: string) => Promise<void>): Promise<void> {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'story-secrets-isolation-'))
+    const homeVariables = ['HOME', 'USERPROFILE', 'APPDATA', 'XDG_CONFIG_HOME'] as const
+    const previousHome = new Map(homeVariables.map(name => [name, process.env[name]]))
+    const previousDataDir = process.env.STORY_STUDIO_DATA_DIR
+    for (const name of homeVariables) process.env[name] = path.join(home, name.toLowerCase())
+    delete process.env.STORY_STUDIO_DATA_DIR
+    try {
+      await run(home)
+    } finally {
+      for (const [name, value] of previousHome) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      if (previousDataDir === undefined) delete process.env.STORY_STUDIO_DATA_DIR
+      else process.env.STORY_STUDIO_DATA_DIR = previousDataDir
+      await fs.rm(home, { recursive: true, force: true })
+    }
+  }
+
+  test('refuses provider-key writes without a claimed test data dir', async () => {
+    await withDisposableHome(async (home) => {
+      const secrets = await import('../services/app-secrets-store.js')
+      const target = secrets.appSecretsPath()
+      assert.equal(path.relative(home, target).startsWith('..'), false)
+      await assert.rejects(
+        () => secrets.setApiKey('genstudio', 'gsk_test_isolation_probe'),
+        /app-secrets isolation violation/i,
+      )
+      assert.equal(existsSync(target), false)
+    })
+  })
+
+  test('refuses Content Store anchor writes without a claimed test data dir', async () => {
+    await withDisposableHome(async (home) => {
+      const secrets = await import('../services/app-secrets-store.js')
+      const target = secrets.appSecretsPath()
+      assert.equal(path.relative(home, target).startsWith('..'), false)
+      await assert.rejects(
+        () => secrets.recordContentStoreKeyAnchor({
+          origin: 'https://genstudio.test',
+          account_id: 'account-test',
+          content_account_id: 'content-account-test',
+          keys: [{ key_id: 'key-test', public_key_base64: 'public-key-test' }],
+        }),
+        /app-secrets isolation violation/i,
+      )
+      assert.equal(existsSync(target), false)
+    })
   })
 })
 
