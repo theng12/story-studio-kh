@@ -297,6 +297,10 @@ describe('episode-status warm list', () => {
     // The watcher dies — evicted by the LRU cap, an error event, an
     // unsupported platform. Whatever the reason, correctness must not
     // depend on it.
+    // Ignore any delayed native events from the setup writes, then establish
+    // the exact cached precondition this test needs before stopping it.
+    watcherMod.bindInvalidator(() => {})
+    await listAll()
     watcherMod.stopProjectWatcher(SLUG)
     assert.equal(watcherMod.watcherTrustedSince(SLUG), null, 'trust withdrawn')
 

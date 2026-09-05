@@ -73,4 +73,4 @@ capture('xcrun', ['stapler', 'validate', dmgPath])
 
 console.log(`Signed and notarized desktop artifact verified: ${dmgPath}`)
 console.log(`  runtime dependency closure inside app.asar: ${dependencyResult.resolvedCount} packages`)
-console.log(`  launch smoke test: booted and served /api/health on port ${launchResult.port} in ${launchResult.ms}ms`)
+console.log(`  launch smoke test: booted and served /api/health + Upload Center overview on port ${launchResult.port} in ${launchResult.ms}ms`)

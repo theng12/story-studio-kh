@@ -92,6 +92,21 @@ describe('Project routes', () => {
     assert.equal(res.body.episode_prefix, 'RT')
   })
 
+  test('GET /api/projects/:slug/youtube/overview is mounted by the production route bootstrap', async () => {
+    const res = await request(app).get(`/api/projects/${projectSlug}/youtube/overview`)
+    assert.equal(res.status, 200)
+    assert.match(res.headers['content-type'] || '', /application\/json/)
+    assert.equal(res.body.assigned_channel, null)
+    assert.equal(res.body.unavailable_reason, 'no_oauth_application')
+  })
+
+  test('GET /api/projects/:slug/youtube/overview keeps the shared unknown-project boundary', async () => {
+    const res = await request(app).get('/api/projects/nonexistent-slug/youtube/overview')
+    assert.equal(res.status, 404)
+    assert.match(res.headers['content-type'] || '', /application\/json/)
+    assert.deepEqual(res.body, { detail: 'Project not found' })
+  })
+
   test('GET and PUT redact a legacy Research policy without rewriting it', async () => {
     const projectPath = path.join(tempDir, 'projects', projectSlug, 'project.json')
     const legacy = JSON.parse(await fs.readFile(projectPath, 'utf8'))

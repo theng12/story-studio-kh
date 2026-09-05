@@ -36,6 +36,8 @@
 </template>
 
 <script setup lang="ts">
+definePageMeta({ layout: 'dashboard' })
+
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 

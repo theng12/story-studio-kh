@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.109 — 2026-09-06
+
+- **The YouTube Upload Center now loads after YouTube setup.** Overview, Publish, Library, Reconcile, Comments, and Analytics open for the channel assigned to the project.
+- **Project navigation remains visible throughout the Upload Center.** You can move between publishing and the rest of the channel workspace without leaving the project view.
+
 ## v1.4.108 — 2026-09-06
 
 - **Failed visual Scene Plan jobs can now repair only their missing or duplicated prompts from Jobs.** The explicit **Auto repair prompts · credits** action preserves every verified prompt and timeline boundary, derives the exact episode and model from the saved job, and sends each remaining scene as its own GenStudio request.

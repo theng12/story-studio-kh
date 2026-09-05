@@ -13,7 +13,9 @@
  *   inside the Electron main process (electron/main.ts), so if the main
  *   process is healthy enough to answer HTTP on its own port, the imports
  *   resolved, the boot migrations ran, and the app is alive. That is what
- *   this asserts: `GET /api/health` returning `boot_complete: true`.
+ *   this asserts: `GET /api/health` returning `boot_complete: true`, then
+ *   creates a throwaway project and reads its Upload Center overview through
+ *   the production route bootstrap.
  *
  * Isolation:
  *   Launched with its own `--user-data-dir` and `STORY_STUDIO_DATA_DIR`, both
@@ -45,7 +47,7 @@ function argValue(name) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
- * @returns {Promise<{ ok: boolean, errors: string[], port?: number, health?: object, ms?: number }>}
+ * @returns {Promise<{ ok: boolean, errors: string[], port?: number, health?: object, uploadCenter?: object, ms?: number }>}
  */
 export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {} } = {}) {
   const errors = []
@@ -144,7 +146,47 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
       if (!health) await sleep(500)
     }
 
-    // 3. A module that failed to resolve is reported on stderr even though
+    // 3. Exercise a feature route through the packaged app's real route
+    //    bootstrap. Direct router tests cannot catch a router that exists but
+    //    was never mounted in production.
+    let createdResponse
+    try {
+      createdResponse = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Packaged route smoke' }),
+        signal: AbortSignal.timeout(Math.max(1, timeoutMs - (Date.now() - started))),
+      })
+    } catch (error) {
+      errors.push(`POST /api/projects did not complete during the packaged route smoke: ${error}`)
+      return { ok: false, errors }
+    }
+    if (!createdResponse.ok) {
+      errors.push(`POST /api/projects failed during the packaged route smoke (${createdResponse.status})`)
+      return { ok: false, errors }
+    }
+    const created = await createdResponse.json()
+    let overviewResponse
+    try {
+      overviewResponse = await fetch(
+        `http://127.0.0.1:${port}/api/projects/${encodeURIComponent(created.slug)}/youtube/overview`,
+        { signal: AbortSignal.timeout(Math.max(1, timeoutMs - (Date.now() - started))) },
+      )
+    } catch (error) {
+      errors.push(`GET /api/projects/:slug/youtube/overview did not complete during the packaged route smoke: ${error}`)
+      return { ok: false, errors }
+    }
+    if (!overviewResponse.ok) {
+      errors.push(`GET /api/projects/:slug/youtube/overview failed during the packaged route smoke (${overviewResponse.status})`)
+      return { ok: false, errors }
+    }
+    const uploadCenter = await overviewResponse.json()
+    if (uploadCenter?.assigned_channel !== null || uploadCenter?.unavailable_reason !== 'no_oauth_application') {
+      errors.push('GET /api/projects/:slug/youtube/overview returned an invalid unconfigured-project response')
+      return { ok: false, errors }
+    }
+
+    // 4. A module that failed to resolve is reported on stderr even though
     //    main.ts refuses to exit on it. Treat that as a failed launch.
     const moduleError = /(ERR_MODULE_NOT_FOUND|Cannot find (?:package|module) '[^']+')/.exec(output)
     if (moduleError) {
@@ -152,7 +194,7 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
       return { ok: false, errors }
     }
 
-    return { ok: true, errors, port, health, ms: Date.now() - started }
+    return { ok: true, errors, port, health, uploadCenter, ms: Date.now() - started }
   } finally {
     await shutdown()
     fs.rmSync(sandbox, { recursive: true, force: true })
@@ -176,6 +218,7 @@ async function run() {
   }
 
   console.log(`  GET /api/health -> ${JSON.stringify(result.health)}`)
+  console.log(`  GET /api/projects/:slug/youtube/overview -> ${JSON.stringify(result.uploadCenter)}`)
   console.log(`  the packaged app booted and served in ${result.ms}ms, then quit cleanly`)
 }
 
