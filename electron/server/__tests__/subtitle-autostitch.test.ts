@@ -241,6 +241,34 @@ describe('bringing an episode\'s stitch up to date', () => {
     }
   })
 
+  test('rebuilds truncated, malformed, and hash-mismatched stitched output despite unchanged sources and metadata', async () => {
+    const { root, episodeDir, subtitlesDir, mergedDir } = await makeEpisode()
+    try {
+      await writeMergedRecord(mergedDir, 16.07)
+      const args = { episodeDir, subtitlesDir, mergedAudioDir: mergedDir, episodeCode: CODE }
+      await ensureStitchedSubtitle(args)
+      const stitchedPath = path.join(subtitlesDir, `${CODE}_stitched.srt`)
+      const valid = await fs.readFile(stitchedPath, 'utf-8')
+      assert.ok(JSON.parse(await fs.readFile(`${stitchedPath}.json`, 'utf-8')).inputs, 'the retained sidecar must keep a source fingerprint')
+      assert.ok(valid.includes('00:00:16,070'), 'fixture must provide a cue boundary to alter')
+
+      for (const [label, corrupt] of [
+        ['truncated', valid.split(/\n\n+/)[0]!],
+        ['malformed', 'this is not an SRT file'],
+        ['hash-mismatched', valid.replace('00:00:16,070', '00:00:16,071')],
+      ]) {
+        const metadata = await fs.readFile(`${stitchedPath}.json`, 'utf-8')
+        await fs.writeFile(stitchedPath, corrupt, 'utf-8')
+        assert.equal(await fs.readFile(`${stitchedPath}.json`, 'utf-8'), metadata, `${label} output must retain valid metadata`)
+        const outcome = await ensureStitchedSubtitle(args)
+        assert.equal(outcome.status, 'stitched', `${label} output must be rebuilt, never reported fresh`)
+        assert.equal(await fs.readFile(stitchedPath, 'utf-8'), valid, `${label} output must be restored from unchanged source artifacts`)
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   test('an edited chapter is re-stitched even when its timestamp says otherwise', async () => {
     const { root, episodeDir, subtitlesDir, mergedDir } = await makeEpisode()
     try {
