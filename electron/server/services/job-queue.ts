@@ -2857,6 +2857,8 @@ async function recordChainHandoffFailure(
  * directly-following metadata step: its own finalizer records the incomplete
  * subtitle warning while still using authoritative Audio Assembly timing.
  */
+export function subtitleFinalizerJobId(sourceJobId: string): string { return `subtitle-finalizer-${sourceJobId}` }
+
 async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
   if (job.type !== 'subtitles_transcribe') return
   const chain = job.params?.pipeline_chain
@@ -2866,7 +2868,7 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
 
   try {
     const batchId = job.params?.pipeline_batch_id
-    await enqueue({
+    await enqueueEpisodeRecoveryOnce(subtitleFinalizerJobId(job.job_id), {
       project_slug: job.project_slug,
       type: 'metadata',
       episode_id: job.episode_id,
@@ -2879,6 +2881,7 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
         subtitle_verification_warning: job.error || 'Subtitle generation did not complete.',
       },
     })
+    job.params.subtitle_finalizer_dispatched = true
     job.output_lines.push(
       '→ Subtitle verification remains failed and repairable; YouTube Finalizer was still queued with a warning.',
     )
@@ -2921,7 +2924,12 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
     if (joined?.conflict) throw new Error(`An existing scene render already owns a different Pipeline continuation for ${job.episode_id}`)
     if (joined) job.output_lines.push(`→ Joined existing scene render ${joined.job.job_id}; duplicate Hub work was not queued.`)
     else {
-      await enqueue({ project_slug: job.project_slug, type: nextStep.type as JobType, episode_id: job.episode_id, title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`, params: nextParams })
+      const options = { project_slug: job.project_slug, type: nextStep.type as JobType, episode_id: job.episode_id, title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`, params: nextParams }
+      if (job.type === 'subtitles_transcribe' && nextStep.type === 'metadata') {
+        await enqueueEpisodeRecoveryOnce(subtitleFinalizerJobId(job.job_id), options)
+        job.params.subtitle_finalizer_dispatched = true
+      }
+      else await enqueue(options)
       job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
     }
   } catch (error) {
@@ -4187,14 +4195,15 @@ export async function enqueueEpisodeRecoveryOnce(jobId: string, opts: EnqueueOpt
   })
 }
 
-/** Rejoin free reconciliation using the same saved subtitle/provider identities. */
-export async function resumeSubtitleRecoveryJob(jobId: string): Promise<void> {
+/** Explicit retries and free subtitle observations retain the same durable identities. */
+export async function resumeEpisodeRecoveryJob(jobId: string, explicit = false): Promise<void> {
   await withLock(`episode-recovery-job:${jobId}`, async () => {
     const job = jobs.get(jobId)
-    if (!job || job.type !== 'subtitles_transcribe' || job.status !== 'error'
-      || !job.params?.episode_recovery_id || job.params.force || job.force_abandoned || hasCancellationContext(job)) return
+    if (!job || job.status !== 'error'
+      || !job.params?.episode_recovery_id || (!explicit && job.params.force) || job.force_abandoned || hasCancellationContext(job)) return
     const states = Object.values(job.params?.subtitle_recovery?.sections || {}) as Array<{ state?: string }>
-    if (!states.some(state => state.state === 'waiting_settlement' || state.state === 'free_recovery')) return
+    if (!explicit && (job.type !== 'subtitles_transcribe'
+      || !states.some(state => state.state === 'waiting_settlement' || state.state === 'free_recovery'))) return
     const previous = { status: job.status, error: job.error, finished_at: job.finished_at }
     job.status = 'queued'
     job.error = null

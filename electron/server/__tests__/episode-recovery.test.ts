@@ -284,6 +284,88 @@ test('settlement polling resumes the same subtitle job only when due; paid block
   } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })
 
+test('explicit recovery Retry re-enters failed download, transport, and Scene Plan edges once without a new identity', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    await jq.setQueuePaused(true)
+    for (const [index, failure] of ['Download interrupted', 'Transport unavailable', 'Scene Plan response lost'].entries()) {
+      const project = await pm.createProject({ name: `Explicit failed edge ${index}` })
+      const plan = createEpisodeRecoveryPlan(rows().map(job => ({ ...job, project_slug: project.slug })))
+      const isScene = index === 2
+      const facts = { verified: { ...ready, ...(isScene ? { scene_plan_run: false } : { subtitle_sections: false }) }, message: '', missing: ['Chapter_02'] }
+      await dispatchEpisodeRecoveryStep(plan, facts, [])
+      const id = plan.steps[isScene ? 'scene_plan_run' : 'subtitle_sections']!.job_id
+      const originalPosition = (await jq.getJobs(project.slug))[0].queue_position
+      await jq.mutateAuthoritativeJob(project.slug, id, job => ({ ...job, status: 'error', error: failure,
+        params: { ...job.params, force: isScene, durable_request_key: 'original-key', subtitle_recovery_plan_id: 'original-budget' } }))
+      await dispatchEpisodeRecoveryStep(plan, facts, await jq.getJobs(project.slug))
+      assert.equal(jq.getJob(id)?.status, 'error', 'automatic observation does not loop terminal failures')
+      const restarted = JSON.parse(JSON.stringify(plan))
+      await Promise.all([1, 2].map(async () => dispatchEpisodeRecoveryStep(restarted, facts, await jq.getJobs(project.slug), [id])))
+      assert.equal(jq.getJob(id)?.status, 'queued')
+      assert.equal(jq.getJob(id)?.params.durable_request_key, 'original-key')
+      assert.equal(jq.getJob(id)?.params.subtitle_recovery_plan_id, 'original-budget')
+      assert.equal(jq.getJob(id)?.params.force, isScene, 'explicit retry retains the same prior operation, never a fresh epoch')
+      assert.equal((await jq.getJobs(project.slug)).length, 1)
+      assert.equal((await jq.getJobs(project.slug))[0].queue_position, originalPosition)
+    }
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('whole-track recovery retains merged scope through failure, restart, and verified success without chapter jobs', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Whole track recovery' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep, inspectRecoverySubtitles, inspectRecoverySubtitlePrerequisites } = await subject()
+    const job = { ...source('subtitles_transcribe', { per_chapter: false, force: false, sections: ['ignored-in-whole-track-mode'], subtitle_recovery_plan_id: 'accepted-merged' }), project_slug: project.slug,
+      result: { missing_sections: ['merged'] } }
+    const plan = createEpisodeRecoveryPlan([job])
+    const subs = path.join(temp.dir, 'whole-subs')
+    await fs.mkdir(subs)
+    const failed = await inspectRecoverySubtitles(temp.dir, subs, 'EP0001', false)
+    assert.deepEqual(failed, { expected: ['merged'], missing: ['merged'], complete: false })
+    const facts = { verified: { ...ready, subtitle_sections: false }, message: '0/1 track ready', missing: failed.missing }
+    await dispatchEpisodeRecoveryStep(plan, facts, [])
+    const id = plan.steps.subtitle_sections!.job_id
+    assert.equal(jq.getJob(id)?.params.per_chapter, false)
+    assert.deepEqual(jq.getJob(id)?.params.sections, ['merged'])
+    await jq.mutateAuthoritativeJob(project.slug, id, row => ({ ...row, status: 'error', error: 'accepted track download interrupted' }))
+    await dispatchEpisodeRecoveryStep(JSON.parse(JSON.stringify(plan)), facts, await jq.getJobs(project.slug), [id])
+    assert.equal(jq.getJob(id)?.status, 'queued')
+    await fs.writeFile(path.join(subs, 'EP0001_whisper.srt'), '1\n00:00:00,000 --> 00:00:02,000\nRecovered whole track\n')
+    assert.deepEqual(await inspectRecoverySubtitles(temp.dir, subs, 'EP0001', false), { expected: ['merged'], missing: [], complete: true })
+    await jq.mutateAuthoritativeJob(project.slug, id, row => ({ ...row, status: 'done' }))
+    const paths = { episodeDir: temp.dir, subtitlesDir: subs, mergedAudioDir: path.join(temp.dir, 'merged'), episodeCode: 'EP0001' }
+    const success = await inspectRecoverySubtitlePrerequisites(plan, paths, await jq.getJobs(project.slug))
+    await dispatchEpisodeRecoveryStep(plan, success, await jq.getJobs(project.slug))
+    assert.equal(plan.first_unresolved, null)
+    assert.equal((await jq.getJobs(project.slug)).length, 1)
+    assert.equal(jq.getJob(id)?.params.subtitle_recovery_plan_id, 'accepted-merged')
+    const downstream = createEpisodeRecoveryPlan([job, { ...source('scene_plan_run'), project_slug: project.slug }])
+    const blocked = await inspectRecoverySubtitlePrerequisites(downstream, paths, [])
+    assert.equal(blocked.verified.subtitle_sections, true)
+    assert.equal(blocked.verified.subtitle_stitch, false)
+    assert.match(blocked.message, /Whole-track transcription is complete.*verified per-section subtitle stitch/)
+    await dispatchEpisodeRecoveryStep(downstream, blocked, [])
+    assert.equal(downstream.first_unresolved, 'subtitle_stitch')
+    assert.equal((await jq.getJobs(project.slug)).length, 1, 'no invented chapter job or early Scene Plan')
+    await fs.mkdir(paths.mergedAudioDir)
+    await fs.writeFile(path.join(temp.dir, 'audio_chapters.json'), JSON.stringify({ gap_duration_s: 0, sections: [{ slug: 'Chapter_01', duration_s: 4 }] }))
+    await fs.writeFile(path.join(subs, 'EP0001_Chapter_01.srt'), '1\n00:00:00,000 --> 00:00:02,000\nExisting chapter\n')
+    await fs.writeFile(path.join(paths.mergedAudioDir, 'EP0001_merged_audio.mp3'), 'fixture')
+    await fs.writeFile(path.join(paths.mergedAudioDir, 'EP0001_merged_audio.completion.json'), JSON.stringify({ output_filename: 'EP0001_merged_audio.mp3', opening: { lead_in_sec: 0, music_lead_in_sec: 0 } }))
+    assert.equal((await inspectRecoverySubtitlePrerequisites(downstream, paths, [])).verified.subtitle_stitch, true)
+    const chapter = await fs.readFile(path.join(subs, 'EP0001_Chapter_01.srt'), 'utf8')
+    assert.match(chapter, /Existing chapter/)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
 test('an active or cancelled prerequisite cannot release downstream work from stale ready artifacts', async () => {
   const temp = await useTempDataDir()
   const pm = await import('../services/project-manager.js')

@@ -326,12 +326,14 @@ describe('pipeline chain handoff failures', () => {
   test('subtitle failure stays visible but still hands off to warning-capable finalizer', async () => {
     const proj = await pm.createProject({ name: 'JQ Subtitle Warning Handoff' })
     let finalizerRuns = 0
+    let paidChildRuns = 0
     jq.registerExecutor('subtitles_transcribe', async () => {
       throw new Error('Chapter 03 subtitle is incomplete')
     })
     jq.registerExecutor('metadata', async () => {
       finalizerRuns++
     })
+    jq.registerExecutor('thumb_images', async () => { paidChildRuns++ })
     const subtitle = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'subtitles_transcribe',
@@ -343,7 +345,7 @@ describe('pipeline chain handoff failures', () => {
           type: 'metadata',
           title: 'YouTube Finalizer',
           params: {},
-        }],
+        }, { type: 'thumb_images', params: { model: 'saved-thumbnail-model' } }],
       },
     })
 
@@ -358,6 +360,22 @@ describe('pipeline chain handoff failures', () => {
     assert.ok(
       failedSubtitle?.output_lines.some(line => /Finalizer was still queued with a warning/.test(line)),
     )
+    const finalizer = (await jq.getJobs(proj.slug)).find(job => job.type === 'metadata')!
+    await waitForJobStatus(finalizer.job_id, 'done')
+    const recovery = await import('../services/episode-recovery.js')
+    const plan = recovery.createEpisodeRecoveryPlan([failedSubtitle!])
+    assert.equal(plan.continuation_dispatched, true, 'the source retains the completed handoff even after tail history is pruned')
+    const verified = Object.fromEntries(recovery.EPISODE_RECOVERY_ORDER.map(step => [step, true])) as Record<import('../services/episode-recovery.js').EpisodeRecoveryStep, boolean>
+    await recovery.dispatchEpisodeRecoveryStep(plan, { verified, message: 'repaired' }, await jq.getJobs(proj.slug))
+    await recovery.dispatchEpisodeRecoveryStep(JSON.parse(JSON.stringify(plan)), { verified, message: 'restarted' }, await jq.getJobs(proj.slug))
+    await jq._waitForJobPersistenceForTesting()
+    const tails = (await jq.getJobs(proj.slug)).filter(job => job.type === 'metadata')
+    assert.equal(tails.length, 1, 'warning finalizer and recovery use one durable tail handoff')
+    assert.equal(finalizerRuns, 1)
+    const children = (await jq.getJobs(proj.slug)).filter(job => job.type === 'thumb_images')
+    assert.equal(children.length, 1)
+    await waitForJobStatus(children[0].job_id, 'done')
+    assert.equal(paidChildRuns, 1, 'the finalizer tail cannot repeat paid children')
   })
 
   test('persists a failed child job instead of reporting a false-success batch', async () => {

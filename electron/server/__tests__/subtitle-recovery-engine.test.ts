@@ -98,6 +98,26 @@ test('accepted task is recovered before any POST, even if local state says faile
   assert.equal(f.calls.filter(c => c.startsWith('POST')).length, 0)
 })
 
+test('whole-track accepted task recovers after transport and artifact download failures with no fresh POST', async t => {
+  const f = await fixture(t, ['merged'])
+  f.original(id => ({ id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }) as any)
+  const transport = globalThis.fetch
+  let failure: 'transport' | 'download' | null = 'transport'
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    if (failure === 'transport' || (failure === 'download' && url.endsWith('/srt'))) throw new Error(`Temporary ${failure} interruption`)
+    return transport(input, init)
+  }
+  await assert.rejects(f.run(), /interruption/)
+  failure = 'download'
+  await assert.rejects(f.run('merged', { job: JSON.parse(JSON.stringify(f.job)) }), /interruption/)
+  failure = null
+  const recovered = await f.run('merged', { job: JSON.parse(JSON.stringify(f.job)) })
+  assert.equal(recovered.srt, srt)
+  assert.equal(f.confirmations.length, 0)
+  assert.equal(f.calls.some(call => call.startsWith('POST ')), false)
+})
+
 test('Off blocks paid work and leaves an explicit manual purchase state', async t => {
   const f = await fixture(t)
   await assert.rejects(f.run(), /Off/)

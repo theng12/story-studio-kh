@@ -30,6 +30,7 @@ export interface EpisodeRecoveryPlan {
   message: string
   continuation?: Array<{ type: JobType; title?: string; params?: Job['params'] }>
   continuation_dispatched?: boolean
+  continuation_job_id?: string
   pipeline_batch_id?: string
   retry_source_job_ids?: string[]
   next_free_check_at?: string
@@ -65,7 +66,8 @@ export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = 
       assertSectionScope(params)
       params.force = false
       const missing = source?.result?.missing_sections
-      if (Array.isArray(missing)) {
+      if (params.per_chapter === false) params.sections = ['merged']
+      else if (Array.isArray(missing)) {
         params.sections = missing.filter((s: unknown) => typeof s === 'string' && s.trim()
           && (!Array.isArray(input.sections) || input.sections.includes(s)))
       }
@@ -81,6 +83,9 @@ export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = 
     const lastRecovery = chain.map((child: { type?: string }) => !!episodeRecoveryStep(child?.type || '')).lastIndexOf(true)
     if (chain.length > lastRecovery + 1) {
       plan.continuation = structuredClone(chain.slice(lastRecovery + 1))
+      plan.continuation_job_id = lastRecovery === -1 && job.type === 'subtitles_transcribe' && chain[0]?.type === 'metadata'
+        ? jq.subtitleFinalizerJobId(job.job_id) : undefined
+      plan.continuation_dispatched = !!plan.continuation_job_id && job.params.subtitle_finalizer_dispatched === true
       plan.pipeline_batch_id = job.params.pipeline_batch_id
     }
     for (const child of chain) {
@@ -120,7 +125,12 @@ const labels: Record<EpisodeRecoveryStep, string> = {
 }
 
 /** Read real source cues, not merely non-empty filenames or a stale derivative. */
-export async function inspectRecoverySubtitles(episodeDir: string, subtitlesDir: string, code: string) {
+export async function inspectRecoverySubtitles(episodeDir: string, subtitlesDir: string, code: string, perChapter = true) {
+  if (!perChapter) {
+    const cues = parseSrt(await fs.readFile(path.join(subtitlesDir, `${code.toUpperCase()}_whisper.srt`), 'utf8').catch(() => ''))
+    const complete = cues.some(cue => cue.text.trim() && cue.end_sec > cue.start_sec)
+    return { expected: ['merged'], missing: complete ? [] : ['merged'], complete }
+  }
   const stitch = await readStitchPlan(episodeDir, subtitlesDir, code)
   if (!stitch.ok) return { expected: [] as string[], missing: [] as string[], complete: false }
   const missing: string[] = []
@@ -151,30 +161,45 @@ export async function ensureRecoveryStitch(options: EnsureStitchedOptions): Prom
   return outcome.status === 'stitched' && await valid(outcome.path)
 }
 
-async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
+export async function inspectRecoverySubtitlePrerequisites(plan: EpisodeRecoveryPlan, paths: EnsureStitchedOptions, jobs: Job[]) {
   const verified = Object.fromEntries(EPISODE_RECOVERY_ORDER.map(step => [step, false])) as Record<EpisodeRecoveryStep, boolean>
-  if (jobs.some(job => job.type === 'audio_merge' && ['queued', 'running', 'paused'].includes(job.status))) {
-    return { verified, message: 'Waiting for the active Audio Assembly job.' }
-  }
-  const audio = await inspectAudioAssemblyReadiness(plan.project_slug, plan.episode_id)
-  verified.audio_merge = audio.audio_assembly_ready
-  if (!verified.audio_merge) return { verified, message: audio.issues.join(' ') }
-  const paths = await resolveEpisodePathsByCode(plan.project_slug, plan.episode_id)
-  const coverage = await inspectRecoverySubtitles(paths.episode_dir, paths.subtitles_dir, plan.episode_id)
+  verified.audio_merge = true // The caller establishes Audio Assembly before inspecting subtitles.
+  const wholeTrack = plan.steps.subtitle_sections?.params.per_chapter === false
+  const coverage = await inspectRecoverySubtitles(paths.episodeDir, paths.subtitlesDir, plan.episode_id, !wholeTrack)
   verified.subtitle_sections = coverage.complete
-  const sectionMessage = `${coverage.expected.length - coverage.missing.length}/${coverage.expected.length} sections ready`
+  const sectionMessage = `${coverage.expected.length - coverage.missing.length}/${coverage.expected.length} ${wholeTrack ? 'whole track' : 'sections'} ready`
   if (!coverage.complete) return { verified, message: sectionMessage, missing: coverage.missing }
   // Never race a still-running transcription's source writes.
   if (jobs.some(job => job.type === 'subtitles_transcribe' && ['queued', 'running', 'paused'].includes(job.status))) {
     return { verified, message: `${sectionMessage}. Scene Plan waiting for subtitle stitch.` }
   }
+  if (wholeTrack && plan.target === 'subtitle_stitch') {
+    verified.subtitle_stitch = true // Whole-track transcription has no chapter-stitch edge.
+    return { verified, message: sectionMessage }
+  }
   try {
-    verified.subtitle_stitch = await ensureRecoveryStitch({ episodeDir: paths.episode_dir, subtitlesDir: paths.subtitles_dir,
-      mergedAudioDir: paths.merged_audio_dir, episodeCode: plan.episode_id })
+    verified.subtitle_stitch = await ensureRecoveryStitch(paths)
   } catch (error) {
     return { verified, message: `Scene Plan waiting for subtitle stitch: ${error instanceof Error ? error.message : String(error)}` }
   }
-  if (!verified.subtitle_stitch) return { verified, message: `${sectionMessage}. Scene Plan waiting for subtitle stitch.` }
+  if (!verified.subtitle_stitch) return { verified, message: wholeTrack
+    ? `${sectionMessage}. Whole-track transcription is complete. Scene Plan requires a verified per-section subtitle stitch; no chapter transcription was started.`
+    : `${sectionMessage}. Scene Plan waiting for subtitle stitch.` }
+  return { verified, message: sectionMessage }
+}
+
+async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
+  const unresolved = Object.fromEntries(EPISODE_RECOVERY_ORDER.map(step => [step, false])) as Record<EpisodeRecoveryStep, boolean>
+  if (jobs.some(job => job.type === 'audio_merge' && ['queued', 'running', 'paused'].includes(job.status))) {
+    return { verified: unresolved, message: 'Waiting for the active Audio Assembly job.' }
+  }
+  const audio = await inspectAudioAssemblyReadiness(plan.project_slug, plan.episode_id)
+  if (!audio.audio_assembly_ready) return { verified: unresolved, message: audio.issues.join(' ') }
+  const paths = await resolveEpisodePathsByCode(plan.project_slug, plan.episode_id)
+  const facts = await inspectRecoverySubtitlePrerequisites(plan, { episodeDir: paths.episode_dir, subtitlesDir: paths.subtitles_dir,
+    mergedAudioDir: paths.merged_audio_dir, episodeCode: plan.episode_id }, jobs)
+  const { verified } = facts
+  if (!verified.subtitle_stitch || plan.target === 'subtitle_stitch') return facts
   const status = await computeEpisodeStatus(plan.project_slug, plan.episode_id)
   const scenePlanPath = await resolveScenePlanPath(plan.project_slug, plan.episode_id, paths.episode_dir)
   const drift = await inspectPlanTimelineDrift(scenePlanPath, path.join(paths.subtitles_dir, `${plan.episode_id.toUpperCase()}_stitched.srt`))
@@ -182,7 +207,7 @@ async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
   verified.contextual_cues = status.contextual_cues === true
     && (!plan.steps.contextual_cues || status.contextual_cues_generated === true)
   verified.continuity_render = status.scene_review
-  return { verified, message: sectionMessage }
+  return facts
 }
 
 interface RecoveryStore { version: 1; plans: Record<string, EpisodeRecoveryPlan>; retired_plans?: Record<string, EpisodeRecoveryPlan> }
@@ -191,6 +216,7 @@ export async function dispatchEpisodeRecoveryStep(
   plan: EpisodeRecoveryPlan,
   facts: { verified: Record<EpisodeRecoveryStep, boolean>; message: string; missing?: string[] },
   jobs: Job[],
+  sourceJobIds: string[] = [],
 ): Promise<void> {
   const verified = { ...facts.verified }
   const cancelled = jobs.find(job => job.params?.episode_recovery_id === plan.id && (job.status === 'cancelled' || job.force_abandoned))
@@ -206,9 +232,11 @@ export async function dispatchEpisodeRecoveryStep(
   const step = nextEpisodeRecoveryStep(plan, verified)
   plan.message = step ? `${facts.message}. Waiting for ${labels[step]}.` : 'Episode recovery complete.'
   if (!step) {
+    if (plan.continuation_job_id && jobs.some(job => jq.subtitleFinalizerJobId(job.job_id) === plan.continuation_job_id
+      && job.params.subtitle_finalizer_dispatched === true)) plan.continuation_dispatched = true
     if (plan.continuation?.length && !plan.continuation_dispatched) {
       const [next, ...rest] = plan.continuation
-      await jq.enqueueEpisodeRecoveryOnce(`recovery-${plan.id}-continuation`, {
+      await jq.enqueueEpisodeRecoveryOnce(plan.continuation_job_id || `recovery-${plan.id}-continuation`, {
         project_slug: plan.project_slug, episode_id: plan.episode_id, type: next.type, title: next.title,
         params: { ...next.params, episode_id: plan.episode_id, pipeline_chain: rest,
           ...(plan.pipeline_batch_id ? { pipeline_batch_id: plan.pipeline_batch_id } : {}) },
@@ -226,13 +254,15 @@ export async function dispatchEpisodeRecoveryStep(
   if (existing) {
     const states = Object.values(existing.params?.subtitle_recovery?.sections || {}) as Array<{ state?: string; message?: string }>
     plan.message = states.map(state => state.message).filter(Boolean).join(' ') || existing.error || plan.message
-    if (step === 'subtitle_sections' && existing.status === 'error'
+    if (existing.status === 'error' && sourceJobIds.length) {
+      await jq.resumeEpisodeRecoveryJob(existing.job_id, true)
+    } else if (step === 'subtitle_sections' && existing.status === 'error'
       && states.some(state => state.state === 'waiting_settlement' || state.state === 'free_recovery')) {
       const due = Date.parse(plan.next_free_check_at || '')
       plan.next_free_check_at ||= new Date(Date.now() + 30_000).toISOString()
       if (Number.isFinite(due) && due <= Date.now()) {
         plan.next_free_check_at = new Date(Date.now() + 30_000).toISOString()
-        await jq.resumeSubtitleRecoveryJob(existing.job_id)
+        await jq.resumeEpisodeRecoveryJob(existing.job_id)
       }
     }
     return
@@ -278,7 +308,8 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
     let plan = store.plans[episodeId]
     const selected = sourceJobIds.map(id => jobs.find(job => job.job_id === id))
     if (selected.some(job => !job || !episodeRecoveryStep(job.type) || job.force_abandoned
-      || !['error', 'cancelled'].includes(job.status))) throw new Error('Recovery source must be an owned failed or cancelled episode job.')
+      || (!['error', 'cancelled'].includes(job.status)
+        && !Object.values(plan?.steps || {}).some(node => node.job_id === job.job_id)))) throw new Error('Recovery source must be an owned failed or cancelled episode job.')
     // Only an explicit saved-source intent can supersede a cancellation. Replay
     // of the same intent reuses its plan; automatic observers never select it.
     const newCancellationIntent = selected.some(job => job!.status === 'cancelled' && !plan?.retry_source_job_ids?.includes(job!.job_id))
@@ -296,7 +327,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
     if (plan.project_slug !== projectSlug) throw new Error('Episode recovery belongs to another project.')
     try {
       const facts = await inspectRecovery(plan, jobs)
-      await dispatchEpisodeRecoveryStep(plan, facts, jobs)
+      await dispatchEpisodeRecoveryStep(plan, facts, jobs, sourceJobIds)
     } catch (error) {
       plan.message = error instanceof Error ? error.message : String(error)
     }
