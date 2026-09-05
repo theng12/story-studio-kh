@@ -26,8 +26,12 @@ import { fileURLToPath } from 'node:url'
 import { buildGenStudioTranscriptionIdempotencyKey } from '../lib/genstudio-client.js'
 import { TRANSCRIPTION_WORD_TIMESTAMPS } from '../generators/subtitles.js'
 
-const source = readFileSync(
+const generatorSource = readFileSync(
   fileURLToPath(new URL('../generators/subtitles.ts', import.meta.url)),
+  'utf8',
+)
+const recoverySource = readFileSync(
+  fileURLToPath(new URL('../services/subtitle-recovery.ts', import.meta.url)),
   'utf8',
 )
 
@@ -60,29 +64,29 @@ describe('per-word timings change the request, not just the payload', () => {
 
   test('no transcription hash input is left hardcoded to false', () => {
     assert.ok(
-      !/wordTimestamps:\s*false/.test(source),
+      !/wordTimestamps:\s*false/.test(`${generatorSource}\n${recoverySource}`),
       'a hardcoded false in the reuse hash or idempotency key replays the old, word-less job',
     )
   })
 
-  test('every idempotency-key call in the generator passes the flag', () => {
-    const calls = [...source.matchAll(/buildGenStudioTranscriptionIdempotencyKey\(\{([\s\S]*?)\n\s*\}\)/g)]
-    assert.ok(calls.length >= 4, `expected the four submit/retry sites, found ${calls.length}`)
+  test('the recovery service folds the requested flag into every new provider identity', () => {
+    const calls = [...recoverySource.matchAll(/buildGenStudioTranscriptionIdempotencyKey\(\{([\s\S]*?)\n\s*\}\)/g)]
+    assert.ok(calls.length >= 1, `expected the shared identity builder, found ${calls.length}`)
     for (const [, body] of calls) {
-      assert.match(body!, /wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS/)
+      assert.match(body!, /wordTimestamps: input\.request\.wordTimestamps/)
     }
   })
 
   test('both local reuse hashes fold the flag in', () => {
-    const hashes = [...source.matchAll(/hashInput\(JSON\.stringify\(\{([\s\S]*?)\n\s*\}\)\)/g)]
+    const hashes = [...generatorSource.matchAll(/hashInput\(JSON\.stringify\(\{([\s\S]*?)\n\s*\}\)\)/g)]
     assert.ok(hashes.length >= 2, `expected the merged and per-chapter reuse hashes, found ${hashes.length}`)
     for (const [, body] of hashes) {
       assert.match(body!, /wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS/)
     }
   })
 
-  test('every transcription request sends the flag', () => {
-    const requests = [...source.matchAll(/const transcriptionRequest: GenStudioTranscriptionRequest = \{([\s\S]*?)\n\s{4,6}\}/g)]
+  test('both generator modes send the flag into the shared recovery boundary', () => {
+    const requests = [...generatorSource.matchAll(/request:\s*\{([\s\S]*?)\n\s*\},/g)]
     assert.ok(requests.length >= 2, `expected the merged and per-chapter requests, found ${requests.length}`)
     for (const [, body] of requests) {
       assert.match(body!, /wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS/)
@@ -93,12 +97,11 @@ describe('per-word timings change the request, not just the payload', () => {
     // Without this, a transcript made before v1.1.0 and one made after are
     // indistinguishable on disk, and the customer sees two episodes with
     // different caption quality and no explanation. Every transcription task
-    // this generator records must carry the marker — counted rather than
-    // pattern-matched, because the field's position inside the object literal
-    // varies between the multi-line and compact call shapes.
-    const writes = (source.match(/recordTaskStrict\(/g) || []).length
-    const marked = (source.match(/word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS/g) || []).length
-    assert.ok(writes >= 9, `expected every transcription manifest write, found ${writes}`)
-    assert.equal(marked, writes, 'every recorded transcription task must say whether word timings were requested')
+    // the shared durable writer must carry the request marker. Later immutable
+    // provenance writes spread that already-validated manifest entry.
+    assert.match(
+      recoverySource,
+      /recordTaskStrict\(outDir, manifestKey,[\s\S]{0,360}?word_timestamps: input\.request\.wordTimestamps/,
+    )
   })
 })

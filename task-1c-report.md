@@ -2,7 +2,7 @@
 
 ## Scope and checkpoint
 
-- Worktree: `/build/Developer/story-studio-kh/.worktrees/agent-handoff-story-dag`
+- Worktree: `<owner-home>/Developer/story-studio-kh/.worktrees/agent-handoff-story-dag`
 - Branch: `codex/agent-handoff-story-dag`
 - Start: `5813c9732b56aab09f25265f4f153c1aa319fa6e` (Task 1b baseline).
 - Implementation commit: `e19f931b06fcdc30902604303f37c0bd4b9d759d` (`fix: recover episode prerequisites in durable dependency order`).

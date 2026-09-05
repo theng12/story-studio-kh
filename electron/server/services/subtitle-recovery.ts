@@ -405,7 +405,10 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         const delay = FLEET_BUSY_RETRY_DELAYS_MS[freeRetriesThisRun++]
         if (delay === undefined) return block('Free subtitle retries exhausted; retry recovery later.', false, 'needs_attention')
         current.freeRetries++
-        await state('free_retry', 'No charge was settled. Retrying transcription for free without consuming a replacement allowance.')
+        await state(
+          'free_retry',
+          `No charge was settled. Retrying transcription for free (attempt ${freeRetriesThisRun} of ${FLEET_BUSY_RETRY_DELAYS_MS.length}) without consuming a replacement allowance.`,
+        )
         if (error instanceof GenStudioTerminalFailureError && FLEET_BUSY_FAILURE_CODES.has(error.failureCode || '')) {
           await waitUnlessStopped(delay, () => !!stopped())
         }

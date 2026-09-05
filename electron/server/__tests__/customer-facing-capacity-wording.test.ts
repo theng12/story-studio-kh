@@ -41,6 +41,7 @@ const CAPACITY_SOURCES = [
   'generators/contextual-cues.ts',
   'generators/subtitles.ts',
   'generators/scene-plan.ts',
+  'services/subtitle-recovery.ts',
   'services/job-retry-policy.ts',
 ]
 
@@ -159,8 +160,8 @@ describe('customer-facing capacity wording (v1.4.82)', () => {
     const clip = await readFile(path.join(SERVER_ROOT, 'generators/scene-clip.ts'), 'utf-8')
     assert.match(clip, /nothing was charged and the credits were returned/)
     assert.match(clip, /trying again/)
-    const subtitles = await readFile(path.join(SERVER_ROOT, 'generators/subtitles.ts'), 'utf-8')
-    assert.match(subtitles, /so no charge was made/)
-    assert.match(subtitles, /attempt \$\{fleetBusyAttempt\} of/)
+    const subtitles = await readFile(path.join(SERVER_ROOT, 'services/subtitle-recovery.ts'), 'utf-8')
+    assert.match(subtitles, /No charge was settled/)
+    assert.match(subtitles, /attempt \$\{freeRetriesThisRun\} of/)
   })
 })

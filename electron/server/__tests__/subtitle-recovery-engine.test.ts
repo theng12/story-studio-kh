@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { after, test } from 'node:test'
 import express from 'express'
 import request from 'supertest'
+import { waitFor } from './_timing.js'
 import { useTempDataDir } from './_helpers.js'
 import { setAppSetting, setPaidSubtitleReplacementSetting } from '../services/app-settings.js'
 import { recordTaskStrict, hashInput } from '../services/task-manifest.js'
@@ -364,9 +365,12 @@ test('setting Off cannot interleave between the final policy snapshot and physic
   t.after(() => release())
   const readFile = fs.readFile
   let paused = false
+  let competingSettingsReadStarted = false
   fs.readFile = (async (...args: Parameters<typeof fs.readFile>) => {
+    const isSettingsRead = path.basename(String(args[0])) === 'app-settings.json'
+    if (isSettingsRead && paused) competingSettingsReadStarted = true
     const data = await readFile(...args)
-    if (!paused && path.basename(String(args[0])) === 'app-settings.json') {
+    if (!paused && isSettingsRead) {
       const ledger = JSON.parse(await readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
       if (ledger.sections['Chapter_01.srt']?.confirmStarted) {
         paused = true
@@ -380,10 +384,14 @@ test('setting Off cannot interleave between the final policy snapshot and physic
   const running = f.run()
   await entered
   const off = setPaidSubtitleReplacementSetting({ enabled: false, additional_credit_ceiling: 5 })
-  const winner = await Promise.race([off.then(() => 'off'), new Promise(resolve => setTimeout(() => resolve('pending'), 100))])
+  // Give an ungated setter its queued microtask. The read hook proves whether
+  // it crossed the boundary; this does not depend on wall-clock scheduling.
+  await Promise.resolve()
+  assert.equal(competingSettingsReadStarted, false,
+    'Off must not begin its settings read while an authorized confirm holds the gate')
   release()
   await Promise.all([running, off])
-  assert.equal(winner, 'pending', 'Off must not acknowledge while an authorized confirm is crossing the same gate')
+  assert.equal(competingSettingsReadStarted, true, 'Off must proceed once the confirmation gate is released')
   assert.equal(f.confirmations.length, 1)
 })
 
@@ -551,9 +559,10 @@ test('HTTP manual action ignores caller section widening and enqueues exact fail
   assert.equal(response.body.params.force, false)
   assert.deepEqual(response.body.params.subtitle_purchase, { additional_credit_ceiling: 4 })
   // The isolated fixture has no Audio Assembly; the real executor fails its local preflight, never a provider call.
-  for (let i = 0; i < 100 && ['queued', 'running'].includes(queue.getJob(response.body.job_id)?.status || ''); i++) {
-    await new Promise(resolve => setTimeout(resolve, 10))
-  }
+  await waitFor(
+    () => !['queued', 'running'].includes(queue.getJob(response.body.job_id)?.status || ''),
+    { label: 'manual subtitle purchase job to leave the queue' },
+  )
   assert.equal(f.confirmations.length, 0)
 })
 
