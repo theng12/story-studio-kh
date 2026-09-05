@@ -1311,6 +1311,7 @@ test('image generation automatically reconnects an accepted task after polling i
 
 test('Story transcription has no direct OpenAI, Studio Hub, or Voice Studio route', () => {
   const generator = readFileSync(new URL('../generators/subtitles.ts', import.meta.url), 'utf8')
+    + readFileSync(new URL('../services/subtitle-recovery.ts', import.meta.url), 'utf8')
   const audioRoutes = readFileSync(new URL('../routes/audio.ts', import.meta.url), 'utf8')
   const pipeline = readFileSync(new URL('../routes/pipeline.ts', import.meta.url), 'utf8')
   assert.match(generator, /transcribeWithGenStudio/)

@@ -7,7 +7,9 @@ import { createReadStream, existsSync, statSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
-import { enqueue, isDuplicate } from '../services/job-queue.js'
+import { enqueue, enqueueEpisodeRecoveryOnce, isDuplicate, loadAuthoritativeJob, subtitleFinalizerJobId } from '../services/job-queue.js'
+import { withLock } from '../lib/atomic-store.js'
+import { subtitlePurchaseParams } from '../services/subtitle-recovery.js'
 import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } from '../generators/video.js'
 import { renderSubtitlePreflightFrames } from '../lib/subtitle-preflight-frames.js'
 import { canvasForShortEdge, displayAspectRatio, resolveRenderCanvas } from '../lib/render-canvas.js'
@@ -1150,6 +1152,23 @@ router.post('/projects/:slug/video-editor/subtitles/import/:episodeId', async (r
 
 /** Queue a transcription job. Returns the job id so the UI can
  *  poll /jobs/:id for progress. */
+router.post('/projects/:slug/video-editor/subtitles/buy-missing/:jobId', async (req, res) => {
+  const { slug, jobId } = req.params
+  try {
+    return await withLock(`subtitle-purchase:${slug}`, async () => {
+      const source = await loadAuthoritativeJob(slug, jobId)
+      if (!source || source.project_slug !== slug) return res.status(404).json({ detail: 'Subtitle job not found.' })
+      const params = subtitlePurchaseParams(source, req.body?.additional_credit_ceiling)
+      params.subtitle_finalizer_job_id = subtitleFinalizerJobId(source)
+      const job = await enqueueEpisodeRecoveryOnce(`subtitle-purchase-${jobId}`, { project_slug: slug, episode_id: source.episode_id,
+        type: 'subtitles_transcribe', title: `Buy missing subtitles (${source.episode_id})`, params })
+      return res.status(201).json(job)
+    })
+  } catch (error) {
+    return res.status(409).json({ detail: error instanceof Error ? error.message : 'Subtitle purchase is unavailable.' })
+  }
+})
+
 router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
 

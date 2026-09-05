@@ -124,8 +124,10 @@ describe('a paused run reports as paused, not as failed', () => {
 
 describe('the fleet-busy waits themselves end on pause', () => {
   test('subtitles no longer sleeps out its wait', async () => {
-    const body = await read('generators/subtitles.ts')
-    assert.match(body, /await waitUnlessStopped\(\s*\n?\s*delay,[\s\S]{0,160}?isPauseRequested/,
+    const body = await read('services/subtitle-recovery.ts')
+    assert.match(body, /const stopped = \(\) =>[\s\S]{0,180}?isPauseRequested\(job\.job_id\)/,
+      'the shared subtitle stop predicate must include Pause')
+    assert.match(body, /await waitUnlessStopped\(delay, \(\) => !!stopped\(\)\)/,
       'this was a bare setTimeout — up to five minutes with nothing watching')
     assert.doesNotMatch(body, /await new Promise\(resolve => setTimeout\(resolve, delay\)\)/,
       'the un-interruptible sleep must be gone, not merely wrapped')

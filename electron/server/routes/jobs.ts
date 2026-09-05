@@ -2,6 +2,7 @@ import { Router } from 'express'
 import * as jq from '../services/job-queue.js'
 import * as pm from '../services/project-manager.js'
 import { JOB_TYPES, type Job, type JobType } from '../models/types.js'
+import { episodeRecoveryStep, recoverEpisode } from '../services/episode-recovery.js'
 
 export const router = Router()
 
@@ -200,9 +201,12 @@ router.post('/jobs/all/resume-paused', async (req, res) => {
   res.status(202).json(await jq.resumePausedJobs({ projectSlugs, type: parsed.value.type }))
 })
 
-router.post('/jobs/all/:jobId/retry', (req, res) => {
+router.post('/jobs/all/:jobId/retry', async (req, res) => {
   const existing = jq.getJob(req.params.jobId)
   if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  if (episodeRecoveryStep(existing.type)) {
+    return res.status(202).json({ ok: true, plan: await recoverEpisode(existing.project_slug, existing.episode_id, true, [existing.job_id]) })
+  }
   const job = jq.retryTerminalJob(existing.project_slug, req.params.jobId)
   res.status(202).json({ ok: true, job })
 })
@@ -381,7 +385,23 @@ router.get('/projects/:slug/jobs/:jobId', (req, res) => {
 // Queue-level Retry fallback. Specialized generator pages may still use their
 // own healing endpoints, but every registered job type remains recoverable
 // even when a newer executor has not yet been added to a frontend map.
-router.post('/projects/:slug/jobs/:jobId/retry', (req, res) => {
+router.post('/projects/:slug/jobs/recover-episode/:episodeId', async (req, res) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)
+    || Object.keys(req.body).some(key => key !== 'source_job_ids')
+    || (req.body.source_job_ids !== undefined && (!Array.isArray(req.body.source_job_ids) || !req.body.source_job_ids.length
+      || req.body.source_job_ids.some((id: unknown) => typeof id !== 'string' || !id.trim())))) {
+    return res.status(400).json({ detail: 'Episode recovery accepts no overrides; saved job scope is authoritative.' })
+  }
+  try {
+    res.status(202).json({ plan: await recoverEpisode(req.params.slug, req.params.episodeId, true, req.body.source_job_ids) })
+  } catch (error) { res.status(409).json({ detail: error instanceof Error ? error.message : 'Episode recovery is unavailable.' }) }
+})
+
+router.post('/projects/:slug/jobs/:jobId/retry', async (req, res) => {
+  const existing = jq.getJob(req.params.jobId)
+  if (existing?.project_slug === req.params.slug && episodeRecoveryStep(existing.type)) {
+    return res.status(202).json({ ok: true, plan: await recoverEpisode(req.params.slug, existing.episode_id, true, [existing.job_id]) })
+  }
   const job = jq.retryTerminalJob(req.params.slug, req.params.jobId)
   res.status(202).json({ ok: true, job })
 })

@@ -734,7 +734,7 @@ test('static mutation tripwires keep queue-producer wiring intact', () => {
 test('static inventory supplements the runtime checkpoint seams', () => {
   for (const relativePath of [
     '../generators/audio.ts',
-    '../generators/subtitles.ts',
+    '../services/subtitle-recovery.ts',
     '../generators/images.ts',
     '../generators/continuity-render.ts',
     '../generators/image-pool-generate.ts',

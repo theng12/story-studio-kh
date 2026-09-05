@@ -7,6 +7,8 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import type { Job } from '../models/types.js'
+import express from 'express'
+import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 
 let tempDir: string
@@ -326,12 +328,14 @@ describe('pipeline chain handoff failures', () => {
   test('subtitle failure stays visible but still hands off to warning-capable finalizer', async () => {
     const proj = await pm.createProject({ name: 'JQ Subtitle Warning Handoff' })
     let finalizerRuns = 0
+    let paidChildRuns = 0
     jq.registerExecutor('subtitles_transcribe', async () => {
       throw new Error('Chapter 03 subtitle is incomplete')
     })
     jq.registerExecutor('metadata', async () => {
       finalizerRuns++
     })
+    jq.registerExecutor('thumb_images', async () => { paidChildRuns++ })
     const subtitle = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'subtitles_transcribe',
@@ -343,7 +347,7 @@ describe('pipeline chain handoff failures', () => {
           type: 'metadata',
           title: 'YouTube Finalizer',
           params: {},
-        }],
+        }, { type: 'thumb_images', params: { model: 'saved-thumbnail-model' } }],
       },
     })
 
@@ -358,6 +362,48 @@ describe('pipeline chain handoff failures', () => {
     assert.ok(
       failedSubtitle?.output_lines.some(line => /Finalizer was still queued with a warning/.test(line)),
     )
+    const finalizer = (await jq.getJobs(proj.slug)).find(job => job.type === 'metadata')!
+    await waitForJobStatus(finalizer.job_id, 'done')
+    const recovery = await import('../services/episode-recovery.js')
+    const plan = recovery.createEpisodeRecoveryPlan([failedSubtitle!])
+    assert.equal(plan.continuation_dispatched, true, 'the source retains the completed handoff even after tail history is pruned')
+    const verified = Object.fromEntries(recovery.EPISODE_RECOVERY_ORDER.map(step => [step, true])) as Record<import('../services/episode-recovery.js').EpisodeRecoveryStep, boolean>
+    await recovery.dispatchEpisodeRecoveryStep(plan, { verified, message: 'repaired' }, await jq.getJobs(proj.slug))
+    await recovery.dispatchEpisodeRecoveryStep(JSON.parse(JSON.stringify(plan)), { verified, message: 'restarted' }, await jq.getJobs(proj.slug))
+    await jq._waitForJobPersistenceForTesting()
+    const tails = (await jq.getJobs(proj.slug)).filter(job => job.type === 'metadata')
+    assert.equal(tails.length, 1, 'warning finalizer and recovery use one durable tail handoff')
+    assert.equal(finalizerRuns, 1)
+    const children = (await jq.getJobs(proj.slug)).filter(job => job.type === 'thumb_images')
+    assert.equal(children.length, 1)
+    await waitForJobStatus(children[0].job_id, 'done')
+    assert.equal(paidChildRuns, 1, 'the finalizer tail cannot repeat paid children')
+    assert.equal(jq.removeTerminalJob(proj.slug, finalizer.job_id), true)
+    assert.equal(jq.removeTerminalJob(proj.slug, children[0].job_id), true)
+    await jq.mutateAuthoritativeJob(proj.slug, subtitle.job_id, job => ({ ...job,
+      params: { ...job.params, sections: ['Chapter_03'], subtitle_recovery_plan_id: 'original-subtitle-budget' },
+      result: { missing_sections: ['Chapter_03'] } }))
+    const { router } = await import('../routes/video.js')
+    const app = express().use(express.json()).use(router)
+    const purchase = await request(app).post(`/projects/${proj.slug}/video-editor/subtitles/buy-missing/${subtitle.job_id}`).send({ additional_credit_ceiling: 3 })
+    assert.equal(purchase.status, 201, JSON.stringify(purchase.body))
+    await waitForJobStatus(purchase.body.job_id, 'error')
+    const purchaseJob = (await jq.loadAuthoritativeJob(proj.slug, purchase.body.job_id))!
+    assert.equal(purchaseJob.params.subtitle_finalizer_job_id, finalizer.job_id, 'derived purchase carries the original immutable handoff identity')
+    const restartedPlan = recovery.createEpisodeRecoveryPlan([JSON.parse(JSON.stringify(purchaseJob))])
+    assert.equal(restartedPlan.continuation_job_id, finalizer.job_id)
+    assert.equal(restartedPlan.continuation_dispatched, true)
+    await recovery.dispatchEpisodeRecoveryStep(restartedPlan, { verified, message: 'restart' }, await jq.getJobs(proj.slug))
+    await jq._waitForJobPersistenceForTesting()
+    assert.equal(finalizerRuns, 1, 'a failed derived purchase cannot repeat a pruned finalizer')
+    assert.equal(paidChildRuns, 1, 'nor repeat the paid child after restart')
+    assert.equal((await jq.getJobs(proj.slug)).filter(job => ['metadata', 'thumb_images'].includes(job.type)).length, 0)
+    jq.registerExecutor('subtitles_transcribe', async () => {})
+    const derivedSuccess = jq.enqueuePreparedForTest({ project_slug: proj.slug, episode_id: 'EP001', type: 'subtitles_transcribe',
+      title: 'recovered purchase', params: JSON.parse(JSON.stringify(purchaseJob.params)) })
+    await waitForJobStatus(derivedSuccess.job_id, 'done')
+    assert.equal(finalizerRuns, 1, 'successful derived jobs honor the same pruned handoff tombstone')
+    assert.equal(paidChildRuns, 1)
   })
 
   test('persists a failed child job instead of reporting a false-success batch', async () => {

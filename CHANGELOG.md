@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.102 — 2026-09-05
+
+- **Retry All now recovers each episode in prerequisite order.** Audio Assembly, exact missing subtitle sections, a verified fresh stitch, Scene Plan, required Contextual Cues, and Scene Review share one saved recovery plan. Failed downstream rows wait their turn; restart and repeated clicks retain each queued job's identity. Jobs shows free recovery/settlement progress and a bounded **Buy missing subtitles now** action when eligible.
+- **Subtitle recovery now fails honestly when stitching cannot complete.** Complete chapter files alone no longer let a subtitle job report success: Story Studio requires a fresh, verified stitched timeline before Scene Plan or Scene Review can proceed, while keeping successful section files for a targeted retry.
+- **Optional paid subtitle replacement has its own separate machine setting.** It starts Off and needs its own per-Story-job credit ceiling; enabling image replacement never authorizes subtitle spending. Jobs retry now keeps a subtitle job's exact missing-section allow-list.
+- **Subtitle recovery reconnects before it buys.** Both whole-track and chapter transcription recover accepted tasks for free, distinguish fully refunded retries from paid replacements, and checkpoint one replacement per eligible missing section against a shared subtitle ceiling before confirmation. Restart and repeated requests reuse the saved provider identity; a dedicated manual purchase action accepts only the failed job's exact missing sections.
+
 ## v1.4.101 — 2026-09-05
 
 - **Generation fan-out now follows each GenStudio API key's live capacity publication.** Image, Scene Review, and thumbnail Auto staging use the keyed burst advisory while exact image permits remain mandatory. TTS combines its model's provider hint with the keyed account burst, and subtitle/video staging uses their own keyed capacity instead of inheriting the image dial. Unknown capacity stays conservative and explicit, with the local CPU/IO and LLM lane limits unchanged.

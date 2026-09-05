@@ -14,29 +14,26 @@ import * as jq from '../services/job-queue.js'
 import { resolveSubfolderNames, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
+import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { scanEpisodeAssets } from './video.js'
 import {
-  buildGenStudioTranscriptionIdempotencyKey,
   GenStudioArtifactUnavailableError,
   GenStudioCatalogUnavailableError,
   GenStudioTerminalFailureError,
   GenStudioTranscriptionQuoteExpiredError,
   isGenStudioInsufficientCredits,
   listTranscriptionModels,
-  recoverTranscriptionWithGenStudio,
   refreshGenStudioAdmission,
-  transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
 import type { GenStudioTranscriptionModel } from '../lib/genstudio-client.js'
 import { normalizeSrtOrVtt } from '../lib/subtitle-builder.js'
 import { fileExistsWithContent } from '../lib/http-retry.js'
-import { hashInput, readManifest, recordTaskStrict } from '../services/task-manifest.js'
-import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
-import type { GenStudioTranscriptionRequest } from '../lib/genstudio-client.js'
-import { isFleetBusyFailure, FLEET_BUSY_RETRY_DELAYS_MS, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
+import { hashInput } from '../services/task-manifest.js'
+import { isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import type { Job } from '../models/types.js'
 import { requireAudioAssemblyReady } from '../services/audio-workflow-readiness.js'
+import { runSubtitleTranscription } from '../services/subtitle-recovery.js'
 
 /**
  * Ask GenStudio for per-word timings on every transcription Story Studio runs.
@@ -89,8 +86,20 @@ export interface TranscribeSubtitlesRequest {
    * Ignored outside `per_chapter` mode, where there is only one audio track.
    */
   sections?: string[]
+  /** Backend-only explicit owner purchase, scoped to the failed job's missing set. */
+  subtitle_purchase?: { additional_credit_ceiling: number }
   /** New work uses the current live transcription catalog. */
   engine?: 'genstudio' | 'openai' | 'voicestudio'
+}
+
+/**
+ * A completed chapter batch is not a completed subtitle job until the fresh
+ * stitched timeline exists. Keeping this boundary explicit prevents the queue
+ * from terminalizing an episode whose Scene Plan prerequisite is still absent.
+ */
+export function requireWrittenSubtitleStitch(outcome: { status: string; reason: string }): void {
+  if (outcome.status === 'stitched' || outcome.status === 'fresh') return
+  throw new Error(`Subtitle stitch did not complete: ${outcome.reason}. Retry the local subtitle stitch before Scene Plan.`)
 }
 
 /**
@@ -153,44 +162,6 @@ export function isFleetBusyTranscriptionFailure(error: unknown): boolean {
   return isFleetBusyFailure(error, 'transcription')
 }
 
-/**
- * Persist the terminal outcome of one transcription request.
- *
- * A settled SRT that GenStudio no longer serves is recorded as
- * `artifact_expired` rather than `failed` so the manifest keeps the real
- * reason; both classify as terminal, so either way the next Retry mints a
- * fresh identity instead of replaying a dead key.
- */
-async function markTerminalTranscriptionRequest(input: {
-  job: Job
-  outDir: string
-  manifestKey: string
-  inputHash: string
-  idempotencyKey: string
-  submittedAt: string
-  taskId?: string
-  error?: unknown
-}): Promise<void> {
-  const lastState = input.error instanceof GenStudioArtifactUnavailableError
-    ? 'artifact_expired'
-    : 'failed'
-  await recordTaskStrict(input.outDir, input.manifestKey, {
-    provider: 'genstudio',
-    task_id: input.taskId || '',
-    submitted_at: input.submittedAt,
-    input_hash: input.inputHash,
-    idempotency_key: input.idempotencyKey,
-    operation: 'transcription',
-    word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-    last_state: lastState,
-  })
-  await checkpointGenStudioAsset(input.job, input.manifestKey, {
-    operation: 'transcription',
-    idempotency_key: input.idempotencyKey,
-    ...(input.taskId ? { job_id: input.taskId } : {}),
-    state: 'failed',
-  })
-}
 
 async function hashTranscriptionAudio(audioPath: string): Promise<string> {
   const audio = await fs.readFile(audioPath)
@@ -336,7 +307,6 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   // `const` so TS keeps the string narrowing inside the async closures below.
   const sourceAudio: string = audioPath
   job.output_lines.push(`Source: ${path.basename(sourceAudio)}`)
-  const manifest = await readManifest(outDir)
   const manifestKey = path.basename(outPath)
 
   // Cancellation aborts upload, durable polling, or private SRT download.
@@ -346,183 +316,22 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   }, 500)
 
   try {
-    const savedTask = manifest.tasks[manifestKey]
     const currentAudioHash = await hashTranscriptionAudio(sourceAudio)
-    const currentInputHash = hashInput(JSON.stringify({
-      requestIdentity: `${project_slug}:${code}:transcription:${manifestKey}`,
-      audioHash: currentAudioHash,
-      modelId: genstudio.modelId,
-      language: genstudio.language,
-      wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-    }))
-    // v1.2.2 — see the matching note in `transcribePerChapter`: an explicit
-    // re-run of an existing transcript must re-ask GenStudio, not reconnect to
-    // the stored task and re-download the same artifact.
-    const rerunRequested = req.force === true && !!savedTask
-    const reusableTask = !rerunRequested
-      && savedTask?.provider === 'genstudio'
-      && (savedTask.input_hash === currentInputHash
-        || (!!savedTask.task_id && savedTask.input_hash === currentAudioHash))
-      ? savedTask
-      : null
     const requestIdentity = `${project_slug}:${code}:transcription:${manifestKey}`
-    const terminalFailure = isTerminalGenStudioTranscriptionTaskFailure(reusableTask)
-    const recoveryTask = terminalFailure ? null : reusableTask
-    const freshIdentity = terminalFailure || rerunRequested
-    let idempotencyKey = recoveryTask?.idempotency_key
-      || buildGenStudioTranscriptionIdempotencyKey({
-        // A manual Retry needs a new GenStudio identity only after the old
-        // provider task reached a terminal state, or when the user explicitly
-        // asked for a re-run. Accepted unfinished work keeps its original key
-        // so recovery cannot duplicate paid work.
-        requestIdentity: freshIdentity ? `${requestIdentity}:manual-retry:${job.job_id}` : requestIdentity,
-        fileSha256: currentAudioHash.slice('sha256:'.length),
-        modelId: genstudio.modelId,
-        language: genstudio.language,
-        // Must match the request below — see TRANSCRIPTION_WORD_TIMESTAMPS.
-        wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-      })
-    let submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
-    if (terminalFailure) {
-      job.output_lines.push('Previous GenStudio transcription task failed terminally; submitting one fresh recovery task.')
-    } else if (rerunRequested) {
-      job.output_lines.push('Re-run requested — submitting a fresh transcription instead of reusing the stored result.')
-    }
-    await recordTaskStrict(outDir, manifestKey, {
-      provider: 'genstudio',
-      task_id: recoveryTask?.task_id || '',
-      submitted_at: submittedAt,
-      input_hash: currentInputHash,
-      idempotency_key: idempotencyKey,
-      operation: 'transcription',
-      word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-      last_state: recoveryTask?.last_state || 'prepared',
+    const currentInputHash = hashInput(JSON.stringify({
+      requestIdentity, audioHash: currentAudioHash, modelId: genstudio.modelId,
+      language: genstudio.language, wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
+    }))
+    const result = await runSubtitleTranscription({
+      job, outDir, section: 'merged', manifestKey, inputHash: currentInputHash,
+      audioHash: currentAudioHash, apiKey: genstudio.apiKey, force: req.force === true,
+      manualCreditCeiling: req.subtitle_purchase?.additional_credit_ceiling,
+      request: {
+        audioPath: sourceAudio, modelId: genstudio.modelId, requestIdentity,
+        language: genstudio.language, wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
+        signal: controller.signal, isCancelled: () => jq.isCancelled(job.job_id),
+      },
     })
-    await checkpointGenStudioAsset(job, manifestKey, {
-      operation: 'transcription',
-      idempotency_key: idempotencyKey,
-      ...(recoveryTask?.task_id ? { job_id: recoveryTask.task_id } : {}),
-      state: (recoveryTask?.last_state || 'prepared') as GenStudioRecoveryState,
-    })
-    job.output_lines.push(`GenStudio request: merged -> ${idempotencyKey}`)
-    const transcriptionRequest: GenStudioTranscriptionRequest = {
-      audioPath: sourceAudio,
-      modelId: genstudio.modelId,
-      requestIdentity,
-      idempotencyKey,
-      language: genstudio.language,
-      wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-      signal: controller.signal,
-      isCancelled: () => jq.isCancelled(job.job_id),
-      onState: async (state, providerJobId) => {
-        const progressByState: Record<string, number> = {
-          accepted: 10,
-          reserved: 15,
-          dispatched: 25,
-          running: 55,
-          reconciling: 55,
-          validating: 85,
-          succeeded: 95,
-        }
-        job.progress = Math.max(job.progress ?? 0, progressByState[state] || 10)
-        await recordTaskStrict(outDir, manifestKey, {
-          provider: 'genstudio',
-          task_id: providerJobId,
-          submitted_at: submittedAt,
-          input_hash: currentInputHash,
-          idempotency_key: idempotencyKey,
-          operation: 'transcription',
-          word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-          last_state: state,
-        })
-        await checkpointGenStudioAsset(job, manifestKey, {
-          operation: 'transcription',
-          idempotency_key: idempotencyKey,
-          job_id: providerJobId,
-          state: state as GenStudioRecoveryState,
-        })
-      },
-      onJobAccepted: async (providerJobId: string, idempotencyKey: string, fileSha256: string) => {
-        await recordTaskStrict(outDir, manifestKey, {
-          provider: 'genstudio',
-          task_id: providerJobId,
-          submitted_at: submittedAt,
-          input_hash: currentInputHash,
-          idempotency_key: idempotencyKey,
-          operation: 'transcription',
-          word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-          last_state: 'accepted',
-        })
-        await checkpointGenStudioAsset(job, manifestKey, {
-          operation: 'transcription',
-          idempotency_key: idempotencyKey,
-          job_id: providerJobId,
-          state: 'accepted',
-        })
-        job.output_lines.push(`GenStudio task: merged -> ${providerJobId}`)
-      },
-      onReconnect: (providerJobId) => {
-        job.output_lines.push(`Connection interrupted; reconnecting accepted GenStudio task ${providerJobId}.`)
-      },
-    }
-    let result: Awaited<ReturnType<typeof transcribeWithGenStudio>>
-    try {
-      result = recoveryTask?.task_id
-        ? await recoverTranscriptionWithGenStudio(genstudio.apiKey, recoveryTask.task_id, transcriptionRequest)
-        : await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
-    } catch (error) {
-      // Quote expiry can occur before GenStudio hands us a task id. Mark the
-      // durable key terminal either way, so the next manual Retry makes one
-      // fresh request rather than replaying an expired quote forever.
-      if (isTerminalGenStudioTranscriptionProviderError(error)) {
-        await markTerminalTranscriptionRequest({
-          job, outDir, manifestKey, inputHash: currentInputHash,
-          idempotencyKey, submittedAt, taskId: recoveryTask?.task_id,
-          error,
-        })
-        if (!recoveryTask) {
-          job.output_lines.push('GenStudio marked this transcription request terminal; the next manual Retry will submit one fresh replacement.')
-          throw error
-        }
-        // Older releases saved an accepted task even when its quote had later
-        // expired. The failed recovery above is proof that request is dead, so
-        // replace it immediately in this manual Retry rather than asking for a
-        // second click.
-        idempotencyKey = buildGenStudioTranscriptionIdempotencyKey({
-          requestIdentity: `${requestIdentity}:manual-retry:${job.job_id}`,
-          fileSha256: currentAudioHash.slice('sha256:'.length),
-          modelId: genstudio.modelId,
-          language: genstudio.language,
-          // Must match the request below — see TRANSCRIPTION_WORD_TIMESTAMPS.
-          wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-        })
-        submittedAt = new Date().toISOString()
-        transcriptionRequest.idempotencyKey = idempotencyKey
-        await recordTaskStrict(outDir, manifestKey, {
-          provider: 'genstudio', task_id: '', submitted_at: submittedAt,
-          input_hash: currentInputHash, idempotency_key: idempotencyKey,
-          word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-          operation: 'transcription', last_state: 'prepared',
-        })
-        await checkpointGenStudioAsset(job, manifestKey, {
-          operation: 'transcription', idempotency_key: idempotencyKey, state: 'prepared',
-        })
-        job.output_lines.push('The saved GenStudio transcription request had expired; submitting one fresh replacement now.')
-        try {
-          result = await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
-        } catch (replacementError) {
-          if (isTerminalGenStudioTranscriptionProviderError(replacementError)) {
-            await markTerminalTranscriptionRequest({
-              job, outDir, manifestKey, inputHash: currentInputHash, idempotencyKey, submittedAt,
-              error: replacementError,
-            })
-          }
-          throw replacementError
-        }
-        return await finalizeTranscript(job, project_slug, episode_id, result.srt)
-      }
-      throw error
-    }
     // Run the rest of the pipeline under the same try so `finally` always
     // clears the watcher interval — otherwise a parse failure would leak
     // a 500 ms timer per cancelled-during-parse job.
@@ -635,7 +444,6 @@ async function transcribePerChapter(
 
   const outDir = await resolveSubtitlesDir(projectSlug, code)
   await fs.mkdir(outDir, { recursive: true })
-  const transcriptionManifest = await readManifest(outDir)
 
   const { runFfmpeg, formatConcatFileLine } = await import('../lib/ffmpeg-utils.js')
   const os = await import('os')
@@ -714,241 +522,22 @@ async function transcribePerChapter(
     job.output_lines.push(`Transcribing ${sec.slug} (${sec.files.length} part${sec.files.length === 1 ? '' : 's'})…`)
     try {
       const manifestKey = path.basename(outPath)
-      const savedTask = transcriptionManifest.tasks[manifestKey]
       const currentAudioHash = await hashTranscriptionAudio(audioPath)
-      const currentInputHash = hashInput(JSON.stringify({
-        requestIdentity: `${projectSlug}:${code}:transcription:${manifestKey}`,
-        audioHash: currentAudioHash,
-        modelId: genstudio.modelId,
-        language: genstudio.language,
-        wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-      }))
-      /**
-       * v1.2.2 — an explicit re-run must produce a FRESH transcription.
-       *
-       * `force` used to bypass only the local "this SRT already exists" skip.
-       * Everything after that still matched the saved manifest task — same
-       * audio, same model, same language — so the run reconnected to the
-       * completed GenStudio task and re-downloaded the identical artifact.
-       * The checkbox promised a re-run and delivered a cache hit.
-       *
-       * That is harmless when nothing was wrong, and useless in the one case
-       * that matters: a chapter being re-transcribed because Whisper
-       * hallucinated into it. Replaying the same result is the single outcome
-       * that cannot help. Since re-transcription is the only real repair for a
-       * corrupt transcript, the repair has to actually re-ask.
-       *
-       * Only an explicit re-run of an existing transcript takes this path, so
-       * ordinary Retry after a crash still reconnects to accepted work rather
-       * than paying twice.
-       */
-      const rerunRequested = req.force === true && !!savedTask
-      const reusableTask = !rerunRequested
-        && savedTask?.provider === 'genstudio'
-        && (savedTask.input_hash === currentInputHash
-          || (!!savedTask.task_id && savedTask.input_hash === currentAudioHash))
-        ? savedTask
-        : null
       const requestIdentity = `${projectSlug}:${code}:transcription:${manifestKey}`
-      const terminalFailure = isTerminalGenStudioTranscriptionTaskFailure(reusableTask)
-      // `let`, because a fleet-busy retry abandons the recovered identity: that
-      // request is settled-failed and replaying it would return the same
-      // failure forever. See the retry loop below.
-      let recoveryTask = terminalFailure ? null : reusableTask
-      // A terminal provider task and an explicit re-run both need an identity
-      // GenStudio has not seen, or its own server-side dedupe hands back the
-      // very artifact we are trying to replace.
-      const freshIdentity = terminalFailure || rerunRequested
-      let idempotencyKey = recoveryTask?.idempotency_key
-        || buildGenStudioTranscriptionIdempotencyKey({
-          // Only a terminal provider task or an explicit re-run receives a
-          // fresh identity. This prevents a quote-expired chapter from being
-          // replayed forever, while accepted unfinished work remains safe to
-          // reconnect.
-          requestIdentity: freshIdentity ? `${requestIdentity}:manual-retry:${job.job_id}` : requestIdentity,
-          fileSha256: currentAudioHash.slice('sha256:'.length),
-          modelId: genstudio.modelId,
-          language: genstudio.language,
-          // Must match the request below — see TRANSCRIPTION_WORD_TIMESTAMPS.
-          wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-        })
-      let submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
-      if (terminalFailure) {
-        job.output_lines.push(`  ${sec.slug}: previous GenStudio transcription task failed terminally; submitting one fresh recovery task.`)
-      } else if (rerunRequested) {
-        job.output_lines.push(`  ${sec.slug}: re-run requested — submitting a fresh transcription instead of reusing the stored result.`)
-      }
-
-      await recordTaskStrict(outDir, manifestKey, {
-        provider: 'genstudio',
-        task_id: recoveryTask?.task_id || '',
-        submitted_at: submittedAt,
-        input_hash: currentInputHash,
-        idempotency_key: idempotencyKey,
-        operation: 'transcription',
-        word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-        last_state: recoveryTask?.last_state || 'prepared',
+      const currentInputHash = hashInput(JSON.stringify({
+        requestIdentity, audioHash: currentAudioHash, modelId: genstudio.modelId,
+        language: genstudio.language, wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
+      }))
+      const result = await runSubtitleTranscription({
+        job, outDir, section: sec.slug, manifestKey, inputHash: currentInputHash,
+        audioHash: currentAudioHash, apiKey: genstudio.apiKey, force: req.force === true,
+        manualCreditCeiling: req.subtitle_purchase?.additional_credit_ceiling,
+        request: {
+          audioPath: audioPath, modelId: genstudio.modelId, requestIdentity,
+          language: genstudio.language, wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
+          signal: controller.signal, isCancelled: () => jq.isCancelled(job.job_id),
+        },
       })
-      await checkpointGenStudioAsset(job, manifestKey, {
-        operation: 'transcription',
-        idempotency_key: idempotencyKey,
-        ...(recoveryTask?.task_id ? { job_id: recoveryTask.task_id } : {}),
-        state: (recoveryTask?.last_state || 'prepared') as GenStudioRecoveryState,
-      })
-      job.output_lines.push(`  GenStudio request: ${sec.slug} -> ${idempotencyKey}`)
-
-      const transcriptionRequest: GenStudioTranscriptionRequest = {
-        audioPath,
-        modelId: genstudio.modelId,
-        requestIdentity,
-        idempotencyKey,
-        language: genstudio.language,
-        wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-        signal: controller.signal,
-        isCancelled: () => jq.isCancelled(job.job_id),
-        onState: async (state, providerJobId) => {
-          await recordTaskStrict(outDir, manifestKey, {
-            provider: 'genstudio',
-            task_id: providerJobId,
-            submitted_at: submittedAt,
-            input_hash: currentInputHash,
-            idempotency_key: idempotencyKey,
-            operation: 'transcription',
-            word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-            last_state: state,
-          })
-          await checkpointGenStudioAsset(job, manifestKey, {
-            operation: 'transcription',
-            idempotency_key: idempotencyKey,
-            job_id: providerJobId,
-            state: state as GenStudioRecoveryState,
-          })
-        },
-        onJobAccepted: async (providerJobId: string, idempotencyKey: string, fileSha256: string) => {
-          await recordTaskStrict(outDir, manifestKey, {
-            provider: 'genstudio',
-            task_id: providerJobId,
-            submitted_at: submittedAt,
-            input_hash: currentInputHash,
-            idempotency_key: idempotencyKey,
-            operation: 'transcription',
-            word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-            last_state: 'accepted',
-          })
-          await checkpointGenStudioAsset(job, manifestKey, {
-            operation: 'transcription',
-            idempotency_key: idempotencyKey,
-            job_id: providerJobId,
-            state: 'accepted',
-          })
-          job.output_lines.push(`  GenStudio task: ${sec.slug} -> ${providerJobId}`)
-        },
-        onReconnect: (providerJobId) => {
-          job.output_lines.push(`  ${sec.slug}: reconnecting accepted GenStudio task ${providerJobId}.`)
-        },
-      }
-      let result: Awaited<ReturnType<typeof transcribeWithGenStudio>>
-      try {
-        // v1.4.24 — a chapter refused for want of a free machine waits and asks
-        // again instead of being dropped. Safe because GenStudio releases the
-        // reservation whole on this failure and no worker ever saw the job; see
-        // `isFleetBusyTranscriptionFailure`. Every attempt carries a FRESH
-        // idempotency key, because the previous identity is settled-failed and
-        // replaying it would return the same failure forever.
-        let fleetBusyAttempt = 0
-        for (;;) {
-          try {
-            result = recoveryTask?.task_id
-              ? await recoverTranscriptionWithGenStudio(genstudio.apiKey, recoveryTask.task_id, transcriptionRequest)
-              : await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
-            break
-          } catch (attemptError) {
-            const delay = FLEET_BUSY_RETRY_DELAYS_MS[fleetBusyAttempt]
-            if (delay === undefined || !isFleetBusyTranscriptionFailure(attemptError)) throw attemptError
-            if (jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id)) throw attemptError
-            fleetBusyAttempt++
-            job.output_lines.push(
-              `  ${sec.slug}: high demand right now, so no charge was made. `
-              + `Waiting ${Math.round(delay / 1000)}s and trying again `
-              + `(attempt ${fleetBusyAttempt} of ${FLEET_BUSY_RETRY_DELAYS_MS.length}).`,
-            )
-            // v1.4.35 — sliced, so a Cancel or Pause pressed four minutes into
-            // a five-minute wait is honoured within seconds. This was a bare
-            // setTimeout: the gate above ran BEFORE the sleep and nothing ran
-            // during it, so a Pause arriving mid-wait slept out the remaining
-            // time and then submitted anyway.
-            await waitUnlessStopped(
-              delay,
-              () => jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id),
-            )
-            if (jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id)) throw attemptError
-            if (jq.isCancelled(job.job_id)) throw attemptError
-            jq.throwIfPauseRequested(job.job_id)
-            // A settled-failed identity cannot be replayed, so mint a new one.
-            idempotencyKey = buildGenStudioTranscriptionIdempotencyKey({
-              requestIdentity: `${requestIdentity}:fleet-busy-retry-${fleetBusyAttempt}:${job.job_id}`,
-              fileSha256: currentAudioHash.slice('sha256:'.length),
-              modelId: genstudio.modelId,
-              language: genstudio.language,
-              wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-            })
-            submittedAt = new Date().toISOString()
-            transcriptionRequest.idempotencyKey = idempotencyKey
-            recoveryTask = null
-            await recordTaskStrict(outDir, manifestKey, {
-              provider: 'genstudio', task_id: '', submitted_at: submittedAt,
-              input_hash: currentInputHash, idempotency_key: idempotencyKey,
-              word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-              operation: 'transcription', last_state: 'prepared',
-            })
-          }
-        }
-      } catch (error) {
-        if (isTerminalGenStudioTranscriptionProviderError(error)) {
-          await markTerminalTranscriptionRequest({
-            job, outDir, manifestKey, inputHash: currentInputHash,
-            idempotencyKey, submittedAt, taskId: recoveryTask?.task_id,
-            error,
-          })
-          if (!recoveryTask) {
-            job.output_lines.push(`  ${sec.slug}: GenStudio marked this transcription request terminal; the next manual Retry will submit one fresh replacement.`)
-            throw error
-          }
-          idempotencyKey = buildGenStudioTranscriptionIdempotencyKey({
-            requestIdentity: `${requestIdentity}:manual-retry:${job.job_id}`,
-            fileSha256: currentAudioHash.slice('sha256:'.length),
-            modelId: genstudio.modelId,
-            language: genstudio.language,
-            // Must match the request below — see TRANSCRIPTION_WORD_TIMESTAMPS.
-            wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-          })
-          submittedAt = new Date().toISOString()
-          transcriptionRequest.idempotencyKey = idempotencyKey
-          await recordTaskStrict(outDir, manifestKey, {
-            provider: 'genstudio', task_id: '', submitted_at: submittedAt,
-            input_hash: currentInputHash, idempotency_key: idempotencyKey,
-            word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
-            operation: 'transcription', last_state: 'prepared',
-          })
-          await checkpointGenStudioAsset(job, manifestKey, {
-            operation: 'transcription', idempotency_key: idempotencyKey, state: 'prepared',
-          })
-          job.output_lines.push(`  ${sec.slug}: saved GenStudio request had expired; submitting one fresh replacement now.`)
-          try {
-            result = await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
-          } catch (replacementError) {
-            if (isTerminalGenStudioTranscriptionProviderError(replacementError)) {
-              await markTerminalTranscriptionRequest({
-                job, outDir, manifestKey, inputHash: currentInputHash, idempotencyKey, submittedAt,
-                error: replacementError,
-              })
-            }
-            throw replacementError
-          }
-        } else {
-          throw error
-        }
-      }
       const { srt, cues, warnings } = normalizeSrtOrVtt(result.srt)
       for (const w of warnings) job.output_lines.push(`  Warning (${sec.slug}): ${w}`)
       if (cues === 0) {
@@ -1031,6 +620,7 @@ async function transcribePerChapter(
     generated_sections: generatedSections,
     new_cues: totalCues,
     missing_sections: failedSlugs,
+    recovery_state: 'needs_attention',
   }
 
   if (!coverage.complete || failures.length) {
@@ -1079,20 +669,26 @@ async function transcribePerChapter(
       mergedAudioDir: epaths.merged_audio_dir,
       episodeCode: code,
     })
-    if (outcome.status !== 'stitched') {
-      job.output_lines.push(`ℹ Auto-stitch skipped — ${outcome.reason}.`)
-    } else {
-      const r = outcome.result
-      job.output_lines.push(
-        `✓ Auto-stitched ${r.total_cues} cue(s) (${r.total_duration_sec.toFixed(1)}s)` +
-        ` → ${path.basename(r.output_path)}. Re-run Scene Plan to pick up the new timeline.`,
-      )
-      job.output_lines.push(`${outcome.lead_in.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(outcome.lead_in)}`)
+    if (outcome.status !== 'stitched' && outcome.status !== 'fresh') {
+      requireWrittenSubtitleStitch(outcome)
+      throw new Error('Unreachable subtitle stitch state')
     }
+    const timeline = await readSubtitleTimelineIntegrity(outDir, code)
+    if (!timeline.complete) {
+      throw new Error(`Subtitle stitch did not verify: ${timeline.missing_sections.join(', ')}. Retry the local subtitle stitch before Scene Plan.`)
+    }
+    job.result = { ...job.result, complete: true, stitch_complete: true, recovery_state: 'repaired' }
+    job.output_lines.push(outcome.status === 'stitched'
+      ? `✓ Auto-stitched ${outcome.result.total_cues} cue(s) (${outcome.result.total_duration_sec.toFixed(1)}s)` +
+        ` → ${path.basename(outcome.result.output_path)}. Re-run Scene Plan to pick up the new timeline.`
+      : `✓ Stitched transcript is already current → ${path.basename(outcome.path)}.`)
+    job.output_lines.push(`${outcome.lead_in.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(outcome.lead_in)}`)
   } catch (e: any) {
     const msg = (e as Error)?.message || String(e)
     const hint = msg.includes('audio_chapters.json not found') ? 'run Audio Assembly first' : msg
-    job.output_lines.push(`ℹ Auto-stitch skipped (${hint}). You can stitch manually in the Subtitles workspace.`)
+    job.result = { ...job.result, complete: false, stitch_complete: false, stitch_error: hint }
+    job.output_lines.push(`✗ STITCH INCOMPLETE — ${hint}`)
+    throw new Error(`Subtitle transcription is incomplete because its stitched timeline is not ready: ${hint}`)
   }
 }
 
@@ -1127,7 +723,7 @@ async function finalizeTranscript(
   job.output_lines.push(`Wrote ${cues} cues → ${outPath}`)
   job.output_dir = outDir
   job.progress = 100
-  ;(job as any).result = { srt_path: outPath, cues, complete: true }
+  job.result = { srt_path: outPath, cues, complete: true, recovery_state: 'repaired' }
 }
 
 /**

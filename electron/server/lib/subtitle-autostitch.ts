@@ -48,6 +48,7 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { readStitchPlan, stitchSubtitles, type StitchResult } from '../services/subtitle-stitcher.js'
+import { verifyWrittenSubtitleTimeline } from '../services/scene-timeline-integrity.js'
 import { resolveEpisodeIntroLeadIn, type EpisodeIntroLeadIn } from './intro-lead-in.js'
 
 /** Millisecond precision, so float noise never reads as a changed input. */
@@ -224,12 +225,19 @@ export async function ensureStitchedSubtitle(
   }
 
   const recorded = await readRecordedSignature(stitchedPath)
-  const decision = opts.force
+  let decision = opts.force
     ? { restitch: true, reason: 'a re-stitch was asked for', changed: [] as string[] }
     : decideRestitch(recorded, current, stitchedExists)
 
   if (!decision.restitch) {
-    return { status: 'fresh', reason: decision.reason, path: stitchedPath, lead_in: leadIn }
+    if (await verifyWrittenSubtitleTimeline(subtitlesDir, code)) {
+      return { status: 'fresh', reason: decision.reason, path: stitchedPath, lead_in: leadIn }
+    }
+    decision = {
+      restitch: true,
+      reason: 'the existing stitched subtitle output no longer matches its verification record',
+      changed: [],
+    }
   }
 
   try {

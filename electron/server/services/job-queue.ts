@@ -2857,6 +2857,16 @@ async function recordChainHandoffFailure(
  * directly-following metadata step: its own finalizer records the incomplete
  * subtitle warning while still using authoritative Audio Assembly timing.
  */
+export function subtitleFinalizerJobId(source: string | Pick<Job, 'job_id' | 'params'>): string {
+  if (typeof source === 'string') return `subtitle-finalizer-${source}`
+  const saved = source.params?.subtitle_finalizer_job_id
+  if (saved === undefined) return `subtitle-finalizer-${source.job_id}`
+  if (typeof saved !== 'string' || !saved.startsWith('subtitle-finalizer-') || saved.length <= 'subtitle-finalizer-'.length) {
+    throw new Error('Invalid saved subtitle finalizer handoff identity.')
+  }
+  return saved
+}
+
 async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
   if (job.type !== 'subtitles_transcribe') return
   const chain = job.params?.pipeline_chain
@@ -2865,8 +2875,12 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
   if (nextStep?.type !== 'metadata') return
 
   try {
+    const handoffId = subtitleFinalizerJobId(job)
+    job.params.subtitle_finalizer_job_id = handoffId
+    if (job.params.subtitle_finalizer_dispatched === true) return
+    await persistJob(job) // Derived jobs inherit the owner before any handoff side effect.
     const batchId = job.params?.pipeline_batch_id
-    await enqueue({
+    await enqueueEpisodeRecoveryOnce(handoffId, {
       project_slug: job.project_slug,
       type: 'metadata',
       episode_id: job.episode_id,
@@ -2879,6 +2893,7 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
         subtitle_verification_warning: job.error || 'Subtitle generation did not complete.',
       },
     })
+    job.params.subtitle_finalizer_dispatched = true
     job.output_lines.push(
       '→ Subtitle verification remains failed and repairable; YouTube Finalizer was still queued with a warning.',
     )
@@ -2897,7 +2912,7 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
   const trackType = typeMap[job.type]
   if (trackType) trackGeneration(job.project_slug, trackType).catch(() => {})
 
-  const chain = job.params?.pipeline_chain
+  const chain = job.params?.episode_recovery_id ? undefined : job.params?.pipeline_chain
   if (!Array.isArray(chain) || chain.length === 0) {
     job.status = 'done'
     return
@@ -2921,7 +2936,17 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
     if (joined?.conflict) throw new Error(`An existing scene render already owns a different Pipeline continuation for ${job.episode_id}`)
     if (joined) job.output_lines.push(`→ Joined existing scene render ${joined.job.job_id}; duplicate Hub work was not queued.`)
     else {
-      await enqueue({ project_slug: job.project_slug, type: nextStep.type as JobType, episode_id: job.episode_id, title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`, params: nextParams })
+      const options = { project_slug: job.project_slug, type: nextStep.type as JobType, episode_id: job.episode_id, title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`, params: nextParams }
+      if (job.type === 'subtitles_transcribe' && nextStep.type === 'metadata') {
+        const handoffId = subtitleFinalizerJobId(job)
+        job.params.subtitle_finalizer_job_id = handoffId
+        if (job.params.subtitle_finalizer_dispatched !== true) {
+          await persistJob(job)
+          await enqueueEpisodeRecoveryOnce(handoffId, options)
+          job.params.subtitle_finalizer_dispatched = true
+        }
+      }
+      else await enqueue(options)
       job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
     }
   } catch (error) {
@@ -4015,6 +4040,8 @@ export interface EnqueueOptions {
   episode_id: string
   title?: string
   params?: Record<string, any>
+  /** Server-only durable identity for one episode recovery edge. Never accepted from a request body. */
+  episode_recovery_job_id?: string
   /** Server-only replacement scope for a terminal GenStudio chat retry. */
   genstudio_chat_retry_scope?: string
   /** Server-only exact replay marker for unresolved GenStudio chat evidence. */
@@ -4071,7 +4098,7 @@ function enqueuePrepared(
     throw new DuplicateJobError(opts.type, opts.episode_id)
   }
 
-  const jobId = randomUUID().slice(0, 8)
+  const jobId = opts.episode_recovery_job_id || randomUUID().slice(0, 8)
   const job: Job = {
     job_id: jobId,
     project_slug: opts.project_slug,
@@ -4096,6 +4123,9 @@ function enqueuePrepared(
   }
 
   jobs.set(jobId, job)
+  // Recovery edges must reach disk before admission. Their saved identity
+  // closes the crash window between writing the episode plan and queueing it.
+  if (opts.episode_recovery_job_id) return serializeJob(job)
   queues[opts.type].pending.push(job)
   persistJob(job).catch(e => console.error('[job-queue] Failed to persist:', e))
   // Emit synchronously so SSE subscribers see the new queued job before the
@@ -4159,6 +4189,48 @@ export async function enqueue(
     ...(params ? { params: withoutPaidImageReplacementParam(params) } : {}),
     ...(paid_image_replacement ? { paid_image_replacement } : {}),
   }, provenance)
+}
+
+export async function enqueueEpisodeRecoveryOnce(jobId: string, opts: EnqueueOptions): Promise<Job> {
+  return withLock(`episode-recovery-job:${jobId}`, async () => {
+    await loadPersistedJobs(opts.project_slug)
+    const existing = jobs.get(jobId)
+    if (existing) {
+      if (existing.project_slug !== opts.project_slug || existing.episode_id !== opts.episode_id || existing.type !== opts.type) {
+        throw new Error('Episode recovery job identity does not match its saved scope.')
+      }
+      return serializeJob(existing)
+    }
+    const result = await enqueue({ ...opts, episode_recovery_job_id: jobId })
+    const job = jobs.get(result.job_id)!
+    try { await persistJob(job) }
+    catch (error) { jobs.delete(job.job_id); throw error }
+    queues[job.type].pending.push(job)
+    emitUpdate(job)
+    pump(job.type)
+    return serializeJob(job)
+  })
+}
+
+/** Explicit retries and free subtitle observations retain the same durable identities. */
+export async function resumeEpisodeRecoveryJob(jobId: string, explicit = false): Promise<void> {
+  await withLock(`episode-recovery-job:${jobId}`, async () => {
+    const job = jobs.get(jobId)
+    if (!job || job.status !== 'error'
+      || !job.params?.episode_recovery_id || (!explicit && job.params.force) || job.force_abandoned || hasCancellationContext(job)) return
+    const states = Object.values(job.params?.subtitle_recovery?.sections || {}) as Array<{ state?: string }>
+    if (!explicit && (job.type !== 'subtitles_transcribe'
+      || !states.some(state => state.state === 'waiting_settlement' || state.state === 'free_recovery'))) return
+    const previous = { status: job.status, error: job.error, finished_at: job.finished_at }
+    job.status = 'queued'
+    job.error = null
+    job.finished_at = null
+    try { await persistJob(job) }
+    catch (error) { Object.assign(job, previous); throw error }
+    if (!queues[job.type].pending.some(queued => queued.job_id === jobId)) queues[job.type].pending.push(job)
+    emitUpdate(job)
+    pump(job.type)
+  })
 }
 
 export async function getJobs(projectSlug: string): Promise<Job[]> {

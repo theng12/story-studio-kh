@@ -153,6 +153,10 @@ export type GenStudioQueueState =
   | 'cancelled'
 
 interface GenStudioOperationContext {
+  /** Called after admission/waits and immediately before each physical POST. */
+  beforePost?: () => void | Promise<void>
+  /** Optional per-attempt gate around the physical submission, not its retry wait. */
+  withPost?: (post: () => Promise<Response>) => Promise<Response>
   signal?: AbortSignal
   isCancelled?: () => boolean
   onQueueState?: (state: GenStudioQueueState, jobId?: string) => void | Promise<void>
@@ -274,6 +278,7 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
     ...(optionalBoolean('cancellation_requested') !== undefined ? { cancellation_requested: optionalBoolean('cancellation_requested') } : {}),
     ...(optionalText('cancellation_note') !== undefined ? { cancellation_note: optionalText('cancellation_note') } : {}),
     ...(optionalText('failure_code') !== undefined ? { failure_code: optionalText('failure_code') } : {}),
+    ...(optionalText('failure_class') !== undefined ? { failure_class: optionalText('failure_class') } : {}),
     ...(optionalSettlement('reserved_credits') !== undefined ? { reserved_credits: optionalSettlement('reserved_credits') } : {}),
     ...(optionalSettlement('settled_credits') !== undefined ? { settled_credits: optionalSettlement('settled_credits') } : {}),
     ...(optionalSettlement('released_credits') !== undefined ? { released_credits: optionalSettlement('released_credits') } : {}),
@@ -1200,8 +1205,19 @@ export interface GenStudioTranscriptionRequest extends GenStudioOperationContext
   idempotencyKey?: string
   language?: string
   wordTimestamps?: boolean
+  /** Persist and authorize the exact live quote before its charged confirmation. */
+  beforeConfirm?: (quote: GenStudioTranscriptionQuote) => void | Promise<void>
+  /** Serialize authorization and the physical confirmation with policy mutations. */
+  withConfirm?: (confirm: () => Promise<Response>) => Promise<Response>
   onState?: (state: GenStudioTranscriptionJob['state'], jobId: string) => void | Promise<void>
   onJobAccepted?: (jobId: string, idempotencyKey: string, fileSha256: string) => void | Promise<void>
+}
+
+export interface GenStudioTranscriptionQuote {
+  id: string
+  quoted_credit_cost?: number
+  price_version?: string
+  expires_at?: string
 }
 
 export interface GenStudioSubmission {
@@ -3359,14 +3375,17 @@ async function requestJsonWithRetry(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let retryAfterMs: number | null = null
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+    if (init.method === 'POST') await request.beforePost?.()
+    let physicalPostStarted = false
     try {
       let response: Response
       let raw: string
       try {
-        response = await fetch(url, {
-          ...init,
-          signal: operationSignal(request.signal, deadline, operationTimeoutMs),
-        })
+        const send = () => {
+          physicalPostStarted = true
+          return fetch(url, { ...init, signal: operationSignal(request.signal, deadline, operationTimeoutMs) })
+        }
+        response = await (init.method === 'POST' && request.withPost ? request.withPost(send) : send())
         raw = await response.text()
       } catch (error) {
         if (error instanceof DOMException && error.name === 'TimeoutError') {
@@ -3451,6 +3470,8 @@ async function requestJsonWithRetry(
         return body
       }
     } catch (error) {
+      // A policy/checkpoint failure is not a transport failure to retry.
+      if (init.method === 'POST' && request.withPost && !physicalPostStarted) throw error
       if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
       lastError = error
       if (isGenStudioSubmissionUncertain(error)) throw error
@@ -7023,12 +7044,11 @@ function transcriptionMediaType(filename: string): string {
 }
 
 /**
- * Statuses that mean this quote can never be confirmed: it is gone, already
- * settled, or no longer valid for this account. 402/429/5xx are deliberately
- * excluded — those are retryable and must not retire a paid identity.
+ * Only explicit expiry retires a quote. A malformed request, missing endpoint,
+ * or already-settled conflict cannot prove that no transcription was charged.
  */
 function isTerminalQuoteStatus(status: number): boolean {
-  return status === 400 || status === 404 || status === 409 || status === 410 || status === 422
+  return status === 410
 }
 
 export function buildGenStudioTranscriptionIdempotencyKey(input: {
@@ -7252,7 +7272,7 @@ async function transcribeWithGenStudioAdmitted(
       throw new GenStudioTranscriptionQuoteExpiredError(error.status, error.detail)
     }
     throw error
-  }) as { id?: string }
+  }) as GenStudioTranscriptionQuote
   if (!quote.id) throw new Error('GenStudio KH transcription quote returned no quote id.')
   const confirmIdempotencyKey = `${idempotencyKey}-confirm`
   const submitted = await submitJsonWithAdmission(
@@ -7265,7 +7285,13 @@ async function transcribeWithGenStudioAdmitted(
         'Idempotency-Key': confirmIdempotencyKey,
       },
     },
-    request,
+    { ...request, withPost: post => {
+      const confirm = async () => {
+        await request.beforeConfirm?.(quote)
+        return post()
+      }
+      return request.withConfirm ? request.withConfirm(confirm) : confirm()
+    } },
     deadline,
     GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
     [],

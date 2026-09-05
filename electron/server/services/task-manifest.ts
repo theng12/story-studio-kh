@@ -66,6 +66,12 @@ export interface TaskManifestEntry {
   /** Stable Story-to-provider identity used to replay an ambiguous submit
    * without creating a second provider task. */
   idempotency_key?: string
+  /** Append-only originals, scoped by this output key; explicit reruns add a new key. */
+  subtitle_originals?: Record<string, {
+    task_id: string
+    idempotency_key: string
+    input_hash: string
+  }>
   operation?: 'tts' | 'transcription' | 'image' | 'video'
   /** Exact GenStudio operation selected for a video task. */
   variant_operation?: string
@@ -139,12 +145,20 @@ export async function readManifest(assetDir: string): Promise<Manifest> {
 }
 
 /** Paid commitment must never turn a corrupt sidecar into a new authority. */
-async function readManifestStrict(assetDir: string): Promise<Manifest> {
+export async function readManifestStrict(assetDir: string): Promise<Manifest> {
   const p = manifestPath(assetDir)
   const raw = await fs.readFile(p, 'utf-8')
   const parsed = JSON.parse(raw) as Partial<Manifest>
   if (parsed?.schema_version !== 1 || !parsed.tasks || typeof parsed.tasks !== 'object' || Array.isArray(parsed.tasks)) {
     throw new Error('task manifest is invalid')
+  }
+  for (const entry of Object.values(parsed.tasks)) {
+    const originals = entry?.subtitle_originals
+    if (originals === undefined) continue // Legacy tasks can still recover for free.
+    if (!originals || typeof originals !== 'object' || Array.isArray(originals)
+      || Object.entries(originals).some(([key, original]) => !original
+        || ![original.task_id, original.idempotency_key, original.input_hash].every(v => typeof v === 'string' && v.trim())
+        || key !== original.idempotency_key)) throw new Error('task manifest subtitle original identity is invalid')
   }
   return { schema_version: 1, tasks: parsed.tasks }
 }
@@ -192,8 +206,29 @@ async function writeTaskEntry(
   const previous = writeChains.get(key) ?? Promise.resolve()
   const operation = previous.then(async () => {
     await fs.mkdir(assetDir, { recursive: true })
-    const m = await readManifest(assetDir)
-    m.tasks[filename] = entry
+    const m = strict ? await readManifestStrict(assetDir).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { schema_version: 1 as const, tasks: {} } as Manifest
+      throw error
+    }) : await readManifest(assetDir)
+    const latest = m.tasks[filename]
+    const originals = latest?.subtitle_originals || {}
+    if (entry.subtitle_originals && (!latest || latest.idempotency_key !== entry.idempotency_key
+      || latest.input_hash !== entry.input_hash || (latest.task_id && latest.task_id !== entry.task_id))) {
+      throw new Error('task manifest current identity changed before subtitle original binding')
+    }
+    for (const [originalKey, original] of Object.entries(entry.subtitle_originals || {})) {
+      const saved = originals[originalKey]
+      if (saved ? saved.task_id !== original.task_id || saved.idempotency_key !== original.idempotency_key || saved.input_hash !== original.input_hash
+        : originalKey !== original.idempotency_key || !latest || latest.idempotency_key !== original.idempotency_key
+          || latest.input_hash !== original.input_hash || (latest.task_id && latest.task_id !== original.task_id)) {
+        throw new Error('task manifest subtitle original identity changed before paid commitment')
+      }
+    }
+    m.tasks[filename] = {
+      ...entry,
+      ...(latest?.subtitle_originals || entry.subtitle_originals
+        ? { subtitle_originals: { ...entry.subtitle_originals, ...originals } } : {}),
+    }
     await writeJsonAtomic(manifestPath(assetDir), m)
   })
   // Keep a non-rejecting tail in the chain so one failed write cannot block

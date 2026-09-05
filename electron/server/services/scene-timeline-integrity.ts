@@ -2,6 +2,8 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import { findIncompleteSubtitleSections } from './subtitle-stitcher.js'
 import { stitchedSrtPath } from './subtitle-correction.js'
+import { parseSrt } from '../lib/subtitle-builder.js'
+import { stampFromCues } from '../lib/scene-plan-timeline.js'
 
 export interface SubtitleTimelineIntegrity {
   complete: boolean
@@ -34,6 +36,28 @@ export async function readSubtitleTimelineIntegrity(
     return { complete: missing.length === 0, missing_sections: missing }
   } catch {
     return { complete: false, missing_sections: ['subtitle timeline verification'] }
+  }
+}
+
+/**
+ * Prove that the written stitch still matches the proof recorded beside it.
+ * Coverage alone cannot catch a truncated or altered SRT whose sidecar remains.
+ */
+export async function verifyWrittenSubtitleTimeline(
+  subtitlesDir: string,
+  episodeCode: string,
+): Promise<boolean> {
+  if (!(await readSubtitleTimelineIntegrity(subtitlesDir, episodeCode)).complete) return false
+  const stitchedPath = stitchedSrtPath(subtitlesDir, episodeCode)
+  try {
+    const meta = JSON.parse(await fs.readFile(`${stitchedPath}.json`, 'utf-8'))
+    const cues = parseSrt(await fs.readFile(stitchedPath, 'utf-8'))
+    return meta.complete === true
+      && cues.length > 0
+      && meta.total_cues === cues.length
+      && meta.timeline?.sha256 === stampFromCues(cues).sha256
+  } catch {
+    return false
   }
 }
 
