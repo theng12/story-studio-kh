@@ -154,6 +154,22 @@ describe('server-owned job controls', () => {
     assert.equal(control.enabled, true)
   })
 
+  test('offers Pause only for the explicit Scene Plan paid-repair path with per-request safe points', () => {
+    const ordinary = classifyJobControls(job({
+      type: 'scene_plan_run',
+      params: { stage: 'visual' },
+      genstudio_jobs: [evidence('chat.response', 'running', { dispatch_state: 'dispatched', cancellable: false })],
+    }), { remoteCancellationAudited: true })
+    assert.equal(ordinary.some(control => control.action === 'pause-submissions' && control.enabled), false)
+
+    const paidRepair = classifyJobControls(job({
+      type: 'scene_plan_run',
+      params: { stage: 'visual', auto_repair_missing_prompts: true },
+      genstudio_jobs: [evidence('chat.response', 'running', { dispatch_state: 'dispatched', cancellable: false })],
+    }), { remoteCancellationAudited: true })
+    assert.equal(paidRepair.some(control => control.action === 'pause-submissions' && control.enabled), true)
+  })
+
   test('cancels only pre-dispatch siblings and never promises a refund', () => {
     const control = classifyJobControl(job({
       genstudio_jobs: [

@@ -33,6 +33,11 @@ const PAUSABLE_SUBMISSION_TYPES = new Set<Job['type']>([
   // in-flight batch continue submitting work after promising otherwise.
   'audio', 'subtitles_transcribe', 'continuity_render', ])
 
+function canPauseNewSubmissions(job: Pick<Job, 'type' | 'params'>): boolean {
+  return PAUSABLE_SUBMISSION_TYPES.has(job.type)
+    || (job.type === 'scene_plan_run' && job.params?.auto_repair_missing_prompts === true)
+}
+
 function control(
   action: JobControl['action'],
   enabled: boolean,
@@ -252,7 +257,7 @@ function classifyProviderJobControl(
     if (isSafelyStoppableLocalJob(job)) {
       return control('stop-local', true, 'Stop local work', 'This local job has a proven cooperative or child-process stop path.', 'READY', 'local-only')
     }
-    return control('pause-submissions', PAUSABLE_SUBMISSION_TYPES.has(job.type), 'Pause new submissions', 'This running job has no proven safe local stop. Let its current work settle before starting more.', 'JOB_NOT_AT_SAFE_LOCAL_STOP', 'none')
+    return control('pause-submissions', canPauseNewSubmissions(job), 'Pause new submissions', 'This running job has no proven safe local stop. Let its current work settle before starting more.', 'JOB_NOT_AT_SAFE_LOCAL_STOP', 'none')
   }
 
   if (evidence.some(isSubmissionUncertain)) {
@@ -309,7 +314,7 @@ function classifyProviderJobControl(
 
   if (continuing.length) {
     const work = describeProviderWork(continuing.filter(entry => isRemoteOperation(entry.operation)).map(entry => entry.operation as JobRemoteOperation))
-    return control('pause-submissions', PAUSABLE_SUBMISSION_TYPES.has(job.type), 'Pause new submissions', `${capitalise(work.text)} already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.`, 'PROVIDER_WORK_ALREADY_STARTED', 'provider-work-may-settle')
+    return control('pause-submissions', canPauseNewSubmissions(job), 'Pause new submissions', `${capitalise(work.text)} already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.`, 'PROVIDER_WORK_ALREADY_STARTED', 'provider-work-may-settle')
   }
 
   return control('return-later', false, 'Return later', 'Story Studio is waiting for authoritative provider settlement.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
@@ -325,7 +330,7 @@ export function classifyJobControls(
   capabilities: JobControlCapabilities,
 ): JobControl[] {
   const provider = classifyProviderJobControl(job, capabilities)
-  const canPause = job.status === 'running' && PAUSABLE_SUBMISSION_TYPES.has(job.type)
+  const canPause = job.status === 'running' && canPauseNewSubmissions(job)
   const pause = canPause
     ? control(
       'pause-submissions',

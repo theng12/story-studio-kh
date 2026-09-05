@@ -12,7 +12,7 @@ import path from 'path'
 import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, repairPlanCoverage, removeNonRenderableScenes } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
-import { isCancelled } from '../services/job-queue.js'
+import { hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
@@ -30,6 +30,8 @@ import type { TextGenerationDiagnostics } from '../providers/types.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 import {
   listChatModels as listGenStudioChatModels,
+  GenStudioApiError,
+  GenStudioChatRecoveryUnresolvedError,
   isGenStudioInsufficientCredits,
   isGenStudioRequestInProgress,
   isGenStudioSubmissionUncertain,
@@ -167,6 +169,10 @@ interface ScenePlanRunParams {
    * durable GenStudio packs as normal visual generation. Time ranges and
    * transcripts are untouched. */
   regenerate_empty_prompts?: boolean
+  /** Explicit Jobs-page consent for paid, one-scene-at-a-time repair. */
+  auto_repair_missing_prompts?: boolean
+  /** Server-derived exact chat keys that must be reclaimed before new work. */
+  scene_prompt_recoveries?: Array<{ idempotency_key: string; scene_ids: string[] }>
   /** v1.0.291 — planning strategy. 'single-pass' (default) uses the
    *  historical windowed LLM planner; 'two-pass' splits cues deterministic-
    *  ally then generates prompts per-scene as plain prose. The two-pass
@@ -218,6 +224,32 @@ interface ScenePlanRunParams {
   /** Single-pass visual interpretation controls. Strategies are assigned
    * locally across the full episode before existing prompt packs are sent. */
   creative_direction?: Partial<SceneCreativeDirection>
+}
+
+function scenePromptRecoveries(value: unknown): Array<{ idempotency_key: string; scene_ids: string[] }> {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new Error('Saved Scene Plan prompt recovery evidence is invalid. No paid request was submitted.')
+  return value.map(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('Saved Scene Plan prompt recovery evidence is invalid. No paid request was submitted.')
+    }
+    const record = entry as Record<string, unknown>
+    if (Object.keys(record).some(key => key !== 'idempotency_key' && key !== 'scene_ids')
+      || typeof record.idempotency_key !== 'string' || !record.idempotency_key.trim()
+      || !Array.isArray(record.scene_ids) || !record.scene_ids.length
+      || record.scene_ids.some(id => typeof id !== 'string' || !id.trim())
+      || new Set(record.scene_ids).size !== record.scene_ids.length) {
+      throw new Error('Saved Scene Plan prompt recovery evidence is invalid. No paid request was submitted.')
+    }
+    return { idempotency_key: record.idempotency_key.trim(), scene_ids: [...record.scene_ids] as string[] }
+  })
+}
+
+export function scenePromptRequestIsUnresolved(job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>, error: unknown): boolean {
+  return isGenStudioRequestInProgress(error)
+    || isGenStudioSubmissionUncertain(error)
+    || error instanceof GenStudioChatRecoveryUnresolvedError
+    || hasUnsettledProviderEvidence(job)
 }
 
 interface ScenePromptPack {
@@ -290,6 +322,12 @@ export const MAX_SCENES_PER_SMALL_REPAIR_PACK = 7
  * otherwise the caller's normal batching. */
 export function scenePromptRepairPackSize(missingCount: number, packSize: number): number {
   return missingCount <= MAX_SCENES_PER_SMALL_REPAIR_PACK ? 1 : packSize
+}
+
+/** Keep existing pack replay identities byte-stable. Only the new explicit
+ * grouped mode opts into a scene suffix. */
+export function scenePromptRequestLabel(base: string, sceneIds: readonly string[], appendSceneIds: boolean): string {
+  return appendSceneIds ? `${base}:${sceneIds.join(',')}` : base
 }
 
 // Older planner helpers still accept this shaped argument, but callAi ignores
@@ -954,18 +992,26 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // Manual Retry is a repair too, and it lands on small sets far more often
     // than the first pass does. Same rule as the automatic path: a set of
     // `MAX_SCENES_PER_SMALL_REPAIR_PACK` or fewer goes one scene per request.
+    const explicitPaidRepair = !isMotion && params.auto_repair_missing_prompts === true
+    const savedPromptRecoveries = explicitPaidRepair
+      ? scenePromptRecoveries(params.scene_prompt_recoveries)
+      : []
     const effectivePackSize = isPackedRepair
       ? scenePromptRepairPackSize(targets.length, promptPackSize)
       : promptPackSize
-    const targetPacks = packScenePromptItems(targets, effectivePackSize)
+    // The explicit paid path audits progress across the whole missing tail.
+    // Keep it as one logical set; each request within a pass is still one scene.
+    const targetPacks = explicitPaidRepair
+      ? [targets]
+      : packScenePromptItems(targets, effectivePackSize)
     if (isPackedRepair) {
-      job.output_lines.push(
-        `Repairing ${targets.length} ${stage} prompt(s) in ${targetPacks.length} durable GenStudio pack(s) `
-        + (effectivePackSize === 1 && targets.length > 1
-          ? '(one scene per request — small packs fail far more often than single scenes). '
-          : `(up to ${effectivePackSize} scenes per request). `)
-        + 'Timeline boundaries and completed prompts stay unchanged.',
-      )
+      job.output_lines.push(explicitPaidRepair
+        ? `Paid auto-repair: ${targets.length} missing or duplicated visual prompt(s), one scene per GenStudio request. Verified prompts and timeline boundaries stay unchanged; another pass runs only while the durable missing count improves.`
+        : `Repairing ${targets.length} ${stage} prompt(s) in ${targetPacks.length} durable GenStudio pack(s) `
+          + (effectivePackSize === 1 && targets.length > 1
+            ? '(one scene per request — small packs fail far more often than single scenes). '
+            : `(up to ${effectivePackSize} scenes per request). `)
+          + 'Timeline boundaries and completed prompts stay unchanged.')
     }
 
     const effectiveStyle = await resolveEffectiveStyle(
@@ -1024,7 +1070,33 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // The image model that will RENDER these prompts publishes the ceiling, so
     // the writer is told to fit it up front. Empty when nothing is published.
     const promptCharCapInstruction = isMotion ? '' : buildPromptCharCapInstruction(promptCharCap)
+    const contextBack = Math.max(0, Math.min(10, params.neighbor_context_back ?? 2))
+    const contextForward = Math.max(0, Math.min(10, params.neighbor_context_forward ?? 1))
     const payloadBySceneId = new Map<string, ScenePromptPayload>()
+    for (const [index, scene] of plan.scenes.entries()) {
+      payloadBySceneId.set(scene.id, {
+        scene_id: scene.id,
+        start_sec: scene.start_sec,
+        end_sec: scene.end_sec,
+        narration: scene.transcript_segment,
+        visual_prompt: isMotion ? scene.visual_prompt : undefined,
+        motion_mode: isMotion && scene.motion_mode !== 'still' ? scene.motion_mode : undefined,
+        creative_strategy: !isMotion ? scene.creative_strategy : undefined,
+        introduction_remainder: !isMotion && storyStartSec > 0 && scene.start_sec < storyStartSec,
+        previous_visual_prompts: isPackedRepair && !isMotion
+          ? plan.scenes
+            .slice(Math.max(0, index - contextBack), index)
+            .map(item => item.visual_prompt?.trim() || '')
+            .filter(Boolean)
+          : undefined,
+        upcoming_narration: isPackedRepair && !isMotion
+          ? plan.scenes
+            .slice(index + 1, index + 1 + contextForward)
+            .map(item => item.transcript_segment?.trim() || '')
+            .filter(Boolean)
+          : undefined,
+      })
+    }
     const buildPackMessages = (
       scenePayloads: ScenePromptPayload[],
       recoveryIssues: readonly ScenePromptCompletionIssue[] = [],
@@ -1074,33 +1146,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         },
       ]
     }
-    const contextBack = Math.max(0, Math.min(10, params.neighbor_context_back ?? 2))
-    const contextForward = Math.max(0, Math.min(10, params.neighbor_context_forward ?? 1))
     const packs: ScenePromptPack[] = []
     for (const [packIndex, group] of targetPacks.entries()) {
-      const scenePayloads = group.map(({ scene, index }) => ({
-        scene_id: scene.id,
-        start_sec: scene.start_sec,
-        end_sec: scene.end_sec,
-        narration: scene.transcript_segment,
-        visual_prompt: isMotion ? scene.visual_prompt : undefined,
-        motion_mode: isMotion && scene.motion_mode !== 'still' ? scene.motion_mode : undefined,
-        creative_strategy: !isMotion ? scene.creative_strategy : undefined,
-        introduction_remainder: !isMotion && storyStartSec > 0 && scene.start_sec < storyStartSec,
-        previous_visual_prompts: isPackedRepair && !isMotion
-          ? plan.scenes
-            .slice(Math.max(0, index - contextBack), index)
-            .map(item => item.visual_prompt?.trim() || '')
-            .filter(Boolean)
-          : undefined,
-        upcoming_narration: isPackedRepair && !isMotion
-          ? plan.scenes
-            .slice(index + 1, index + 1 + contextForward)
-            .map(item => item.transcript_segment?.trim() || '')
-            .filter(Boolean)
-          : undefined,
-      } satisfies ScenePromptPayload))
-      for (const payload of scenePayloads) payloadBySceneId.set(payload.scene_id, payload)
       packs.push({
         pack_id: `${stage}-${String(packIndex + 1).padStart(4, '0')}`,
         scene_ids: group.map(({ scene }) => scene.id),
@@ -1108,7 +1155,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
         params: {
           temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),
-          max_tokens: isMotion ? activePromptOutputBudget : visualMaxTokens,
+          max_tokens: isMotion
+            ? activePromptOutputBudget
+            : explicitPaidRepair ? Math.min(visualMaxTokens, 2_048) : visualMaxTokens,
         },
       })
     }
@@ -1152,6 +1201,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       maxTokens: number
       recoveryIssues?: readonly ScenePromptCompletionIssue[]
       recoveryNote?: string
+      checkpointSceneIds?: readonly string[]
+      recoverByIdempotencyKey?: string
     }) => {
       const payloads = input.sceneIds.map(sceneId => payloadBySceneId.get(sceneId)).filter((payload): payload is ScenePromptPayload => !!payload)
       if (payloads.length !== input.sceneIds.length) {
@@ -1171,6 +1222,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // that died on the way out has no contents to make claims about.
       let responseReceived = false
       const startedAt = Date.now()
+      // Cooperative Pause means "finish the accepted request, then submit no
+      // more". This must be outside the provider-error catch below so a
+      // JobPausedError cannot be mistaken for a settled provider failure.
+      throwIfPauseRequested(job.job_id)
       try {
         const messages = buildPackMessages(payloads, input.recoveryIssues, input.recoveryNote)
         const raw = await callAi(
@@ -1182,7 +1237,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           {
             slug: job.project_slug,
             jobId: `${job.job_id}:${input.requestLabel}`,
-            requestIdentity: `${job.project_slug}:${episode_id}:scene-plan:${stage}:${input.requestLabel}`,
+            requestIdentity: explicitPaidRepair
+              ? `${job.project_slug}:${episode_id}:scene-plan:${stage}:paid-auto-repair:${job.job_id}:${input.requestLabel}`
+              : `${job.project_slug}:${episode_id}:scene-plan:${stage}:${input.requestLabel}`,
+            ...(input.recoverByIdempotencyKey ? {
+              recoverByIdempotencyKey: true,
+              idempotencyKey: input.recoverByIdempotencyKey,
+              allowedRecoveryKeys: [input.recoverByIdempotencyKey],
+            } : {}),
             maxTokens: input.maxTokens,
             outputContract: scenePromptPackOutputContract(input.sceneIds, isMotion ? 'motion' : 'visual'),
             disableReasoning: true,
@@ -1194,7 +1256,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         results = parseDirectPackResults(raw, input.sceneIds, isMotion ? 'motion' : 'visual')
         checkpointErrors = await checkpointPackPromptResults(
           results,
-          new Set(input.sceneIds),
+          new Set(input.checkpointSceneIds || input.sceneIds),
           input.saved,
           persistPrompt,
         )
@@ -1223,23 +1285,111 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       } catch (error: any) {
         if (isGenStudioInsufficientCredits(error)) throw error
         requestError = error?.message || String(error)
-        requestUnresolved = isGenStudioRequestInProgress(error) || isGenStudioSubmissionUncertain(error)
+        requestUnresolved = scenePromptRequestIsUnresolved(job, error)
+        if (explicitPaidRepair && error instanceof GenStudioApiError && !requestUnresolved) throw error
       }
       return { results, checkpointErrors, diagnostics, requestError, requestUnresolved, responseReceived }
     }
-    job.output_lines.push(`Processing ${packs.length} adaptive pack(s) through GenStudio KH (${model}).`)
+    const requestPromptGroups = async (input: {
+      groups: string[][]
+      saved: Set<string>
+      requestLabel: string
+      maxTokens: number
+      recoveryIssues?: readonly ScenePromptCompletionIssue[]
+      recoveryNote?: string
+      appendGroupLabel?: boolean
+    }) => {
+      const results = new Map<string, string>()
+      const checkpointErrors: string[] = []
+      const requestErrors: string[] = []
+      let diagnostics: TextGenerationDiagnostics | undefined
+      let requestUnresolved = false
+      let responseReceived = false
+      const answeredIds = new Set<string>()
+      for (const group of input.groups) {
+        if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
+        const groupIssues = input.recoveryIssues?.filter(issue => group.includes(issue.scene_id)) || []
+        const response = await requestPromptPack({
+          sceneIds: group,
+          saved: input.saved,
+          requestLabel: scenePromptRequestLabel(input.requestLabel, group, input.appendGroupLabel !== false),
+          maxTokens: input.maxTokens,
+          recoveryIssues: groupIssues,
+          recoveryNote: groupIssues.length ? undefined : input.recoveryNote,
+        })
+        diagnostics = response.diagnostics || diagnostics
+        responseReceived ||= response.responseReceived
+        if (response.responseReceived) for (const sceneId of group) answeredIds.add(sceneId)
+        for (const [sceneId, prompt] of response.results) results.set(sceneId, prompt)
+        checkpointErrors.push(...response.checkpointErrors)
+        if (explicitPaidRepair && response.checkpointErrors.length) {
+          throw new Error(`Story Studio could not save the returned prompt, so paid auto-repair stopped before another request: ${response.checkpointErrors.join('; ')}`)
+        }
+        if (response.requestError) requestErrors.push(response.requestError)
+        if (response.requestUnresolved) {
+          requestUnresolved = true
+          break
+        }
+      }
+      return {
+        results,
+        checkpointErrors,
+        diagnostics,
+        requestError: requestErrors.join('; '),
+        requestUnresolved,
+        responseReceived,
+        answeredIds,
+      }
+    }
+    job.output_lines.push(explicitPaidRepair
+      ? `Processing one missing-prompt repair set through GenStudio KH (${model}).`
+      : `Processing ${packs.length} adaptive pack(s) through GenStudio KH (${model}).`)
     const incompletePacks: string[] = []
     for (const pack of packs) {
       if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
       // A resumed run may already have made some rows durable. Never submit
       // or count those rows again.
       const saved = new Set(pack.scene_ids.filter(sceneId => durableTargetIds.has(sceneId)))
-      const missing = pack.scene_ids.filter(id => !saved.has(id))
-      const initial = await requestPromptPack({
-        sceneIds: missing,
+      let missing = pack.scene_ids.filter(id => !saved.has(id))
+      let recoveryUnresolved = false
+      const recoveryErrors: string[] = []
+      for (const [index, recovery] of savedPromptRecoveries.entries()) {
+        const checkpointIds = recovery.scene_ids.filter(id => missing.includes(id))
+        if (!checkpointIds.length) continue
+        job.output_lines.push(`↻ Recovering an already-completed GenStudio prompt request before starting new paid work (${checkpointIds.length} missing scene(s)).`)
+        const recovered = await requestPromptPack({
+          sceneIds: recovery.scene_ids,
+          checkpointSceneIds: checkpointIds,
+          saved: new Set(recovery.scene_ids.filter(id => !checkpointIds.includes(id))),
+          requestLabel: `${pack.pack_id}:recover-${index + 1}`,
+          maxTokens: Number(pack.params.max_tokens) || visualMaxTokens,
+          recoverByIdempotencyKey: recovery.idempotency_key,
+        })
+        if (recovered.checkpointErrors.length) {
+          throw new Error(`Story Studio recovered the earlier GenStudio output but could not save it, so no new paid request was started: ${recovered.checkpointErrors.join('; ')}`)
+        }
+        if (recovered.requestError) recoveryErrors.push(recovered.requestError)
+        recoveryUnresolved ||= recovered.requestUnresolved
+        const recoveredReceipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
+        syncMemoryPlan(recoveredReceipt.plan)
+        for (const sceneId of recoveredReceipt.completed_ids) durableTargetIds.add(sceneId)
+        missing = [...recoveredReceipt.missing_ids]
+        if (recoveryUnresolved) break
+      }
+      const initial = recoveryUnresolved ? {
+        results: new Map<string, string>(),
+        checkpointErrors: [] as string[],
+        diagnostics: undefined,
+        requestError: recoveryErrors.join('; '),
+        requestUnresolved: true,
+        responseReceived: false,
+        answeredIds: new Set<string>(),
+      } : await requestPromptGroups({
+        groups: explicitPaidRepair ? packScenePromptItems(missing, 1) : [missing],
         saved,
         requestLabel: pack.pack_id,
         maxTokens: Number(pack.params.max_tokens) || visualMaxTokens,
+        appendGroupLabel: explicitPaidRepair,
       })
       let receipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
       syncMemoryPlan(receipt.plan)
@@ -1247,7 +1397,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       let issues = diagnoseScenePromptCompletionIssues({
         plan: receipt.plan,
         requestedIds: pack.scene_ids,
-        missingIds: receipt.missing_ids,
+        missingIds: explicitPaidRepair
+          ? receipt.missing_ids.filter(sceneId => initial.answeredIds.has(sceneId))
+          : receipt.missing_ids,
         providerResults: initial.results,
         checkpointErrors: initial.checkpointErrors,
         responseReceived: initial.responseReceived,
@@ -1282,31 +1434,25 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // Blocking repair on any error at all is how a whole episode came back
       // 0/333 with the log explaining only that repair "was not started".
       let automaticRepairAttempts = 0
-      for (let attempt = 1; !initial.requestUnresolved && receipt.missing_ids.length && attempt <= MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS; attempt++) {
+      let priorMissingCount = receipt.missing_ids.length
+      let previousRequestUnresolved = initial.requestUnresolved
+      for (let attempt = 1; !previousRequestUnresolved && receipt.missing_ids.length && (explicitPaidRepair || attempt <= MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS); attempt++) {
         automaticRepairAttempts = attempt
         const outstanding = [...receipt.missing_ids]
         const repairGroups = packScenePromptItems(
           outstanding,
-          scenePromptRepairPackSize(outstanding.length, outstanding.length),
+          explicitPaidRepair ? 1 : scenePromptRepairPackSize(outstanding.length, outstanding.length),
         )
         job.output_lines.push(
-          `↻ GenStudio prompt repair ${attempt}/${MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS}: requesting ${outstanding.length} missing or invalid scene prompt(s) only`
-          + `${repairGroups.length > 1 ? `, one scene per request (${repairGroups.length} requests — small packs fail far more often than single scenes)` : ''}.`,
+          explicitPaidRepair
+            ? `↻ Paid repair pass ${attempt}: requesting ${outstanding.length} still-missing prompt(s), one scene per request.`
+            : `↻ GenStudio prompt repair ${attempt}/${MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS}: requesting ${outstanding.length} missing or invalid scene prompt(s) only`
+              + `${repairGroups.length > 1 ? `, one scene per request (${repairGroups.length} requests — small packs fail far more often than single scenes)` : ''}.`,
         )
-        const repairResults = new Map<string, string>()
-        const repairCheckpointErrors: string[] = []
-        const repairRequestErrors: string[] = []
-        // Scene IDs that belonged to a repair group whose request actually came
-        // back. Only these may be diagnosed afterwards; the rest have no
-        // response to be judged against.
-        const answeredIds = new Set<string>()
-        for (const group of repairGroups) {
-          if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
-          const groupIssues = issues.filter(issue => group.includes(issue.scene_id))
-          const repair = await requestPromptPack({
-            sceneIds: group,
-            saved,
-            requestLabel: `${pack.pack_id}:repair-${attempt}:${group.join(',')}`,
+        const repair = await requestPromptGroups({
+          groups: repairGroups,
+          saved,
+          requestLabel: `${pack.pack_id}:repair-${attempt}`,
             // WHY 768 HERE AND ~400 IN THE SIZER, DELIBERATELY.
             //
             // `scene-prompt-batching.ts` reserves 300 tokens per scene at a
@@ -1331,25 +1477,19 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             // Tightening it to the sizer's number would REDUCE headroom on the
             // recovery path to save nothing measurable, so it stays. The outer
             // `Math.min` still clamps it to what the model publishes.
-            maxTokens: Math.min(
-              isMotion ? activePromptOutputBudget : visualMaxTokens,
-              Math.max(2_048, group.length * 768),
-            ),
-            recoveryIssues: groupIssues,
+          maxTokens: Math.min(
+            isMotion ? activePromptOutputBudget : visualMaxTokens,
+            Math.max(2_048, Math.max(...repairGroups.map(group => group.length)) * 768),
+          ),
+          recoveryIssues: issues,
             // No findings to quote. Every outstanding scene ID gets an issue
             // whenever a response was seen, so an empty `groupIssues` on a
             // still-missing group means exactly one thing: the attempt before
             // this one produced no response to find fault with. Say that,
             // rather than inheriting — or inventing — an accusation.
-            recoveryNote: groupIssues.length
-              ? undefined
-              : 'The previous request for these scene IDs ended before any response was received, so no prompt exists for them yet.',
-          })
-          if (repair.responseReceived) for (const sceneId of group) answeredIds.add(sceneId)
-          for (const [sceneId, prompt] of repair.results) repairResults.set(sceneId, prompt)
-          repairCheckpointErrors.push(...repair.checkpointErrors)
-          if (repair.requestError) repairRequestErrors.push(repair.requestError)
-        }
+          recoveryNote: 'The previous request for these scene IDs ended before any response was received, so no prompt exists for them yet.',
+        })
+        previousRequestUnresolved = repair.requestUnresolved
         receipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
         syncMemoryPlan(receipt.plan)
         for (const sceneId of receipt.completed_ids) durableTargetIds.add(sceneId)
@@ -1358,27 +1498,39 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           requestedIds: pack.scene_ids,
           // A scene whose repair request never came back is still missing, and
           // is still reported as missing — it just is not accused of anything.
-          missingIds: receipt.missing_ids.filter(sceneId => answeredIds.has(sceneId)),
-          providerResults: repairResults,
-          checkpointErrors: repairCheckpointErrors,
-          responseReceived: answeredIds.size > 0,
+          missingIds: receipt.missing_ids.filter(sceneId => repair.answeredIds.has(sceneId)),
+          providerResults: repair.results,
+          checkpointErrors: repair.checkpointErrors,
+          responseReceived: repair.answeredIds.size > 0,
         })
         if (!receipt.missing_ids.length) {
           job.output_lines.push(`✓ GenStudio prompt repair verified ${pack.scene_ids.length}/${pack.scene_ids.length} prompts for ${pack.pack_id}.`)
           break
         }
         const repairDetails = [
-          ...repairRequestErrors,
+          repair.requestError,
           ...issues.map(issue => `${issue.scene_id}: ${issue.detail}`),
-        ]
+        ].filter(Boolean)
         lastError = repairDetails.join('; ') || lastError
+        if (previousRequestUnresolved) {
+          lastError = `${lastError}; the last GenStudio request is still unresolved, so no replacement request was submitted`
+          break
+        }
+        if (explicitPaidRepair) {
+          const improved = receipt.missing_ids.length < priorMissingCount
+          priorMissingCount = receipt.missing_ids.length
+          if (!improved) {
+            job.output_lines.push(`Paid auto-repair stopped after pass ${attempt}: the durable missing count did not improve. Click Auto repair prompts again after reviewing the provider/model result.`)
+            break
+          }
+        }
       }
       if (receipt.missing_ids.length) {
         incompletePacks.push(`${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length}; missing ${receipt.missing_ids.join(', ')} (${lastError})`)
         job.output_lines.push(
-          initial.requestUnresolved
-            ? `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk. Automatic repair was not started because the original GenStudio request is still unresolved (${initial.requestError}); Manual Retry reconnects to it and requests only the missing scene IDs.`
-            : `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk after ${automaticRepairAttempts} automatic repair attempt(s). Last reason: ${lastError}. Manual Retry requests only the missing scene IDs through GenStudio.`,
+          initial.requestUnresolved || previousRequestUnresolved
+            ? `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk. No further paid request was started because the last GenStudio request is still unresolved (${lastError}). ${explicitPaidRepair ? 'Auto repair will recover that exact request before any fresh work.' : 'Retry will reconcile that request before any fresh work.'}`
+            : `Partial checkpoint: ${pack.pack_id} saved ${receipt.completed_ids.length}/${pack.scene_ids.length} on disk after ${automaticRepairAttempts} automatic repair attempt(s). Last reason: ${lastError}. Auto repair requests only the missing scene IDs through GenStudio.`,
         )
       } else {
         job.output_lines.push(`Checkpointed ${pack.pack_id}: ${receipt.completed_ids.length}/${pack.scene_ids.length} prompts verified on disk.`)
@@ -1392,7 +1544,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       requireJobCompletion(job, {
         label: 'Visual prompt generation', expected: targets.length, completed: completion.completed_ids.length,
         missing: completion.missing_ids,
-        retry_hint: 'Automatic GenStudio repair is exhausted. Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
+        retry_hint: explicitPaidRepair
+          ? 'Paid auto-repair stopped with unresolved prompts. Review the named reason, then click Auto repair prompts again; verified prompts remain saved.'
+          : 'Automatic GenStudio repair is exhausted. Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
       })
     } else {
       requireJobCompletion(job, {
