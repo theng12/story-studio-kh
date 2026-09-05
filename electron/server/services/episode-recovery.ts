@@ -90,6 +90,16 @@ export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = 
   for (const job of sorted) add(job.type, job.title, job.params, job)
   // Explicit saved-source selection outranks a newer, unrelated history row.
   for (const job of sorted.filter(row => sourceJobIds.includes(row.job_id))) add(job.type, job.title, job.params, job)
+  if (sorted.some(job => job.status === 'cancelled' && sourceJobIds.includes(job.job_id))) {
+    // Cancellation retry is recovery, including child descriptors and the tail.
+    // Audio's no_overwrite creates a paid new version even when force is false.
+    for (const node of [...Object.values(plan.steps), ...(plan.continuation || [])]) {
+      const params = node.params ||= {}
+      params.force = false
+      if ('no_overwrite' in params) params.no_overwrite = false
+      if (params.generation_mode === 'regenerate' || params.generation_mode === 'new_version') params.generation_mode = 'skip'
+    }
+  }
   return plan
 }
 

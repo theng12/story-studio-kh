@@ -91,6 +91,48 @@ test('pipeline continuation is captured without creating a competing downstream 
   assert.equal(subtitleOnlyTail.continuation?.[0].type, 'metadata')
 })
 
+test('cancelled recovery clears forced generation from every pipeline child and tail before durable dispatch', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Cancelled pipeline force boundary' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const cancelled = { ...source('subtitles_transcribe', { force: true, sections: ['Chapter_02'], pipeline_chain: [
+      { type: 'scene_plan_run', params: { force: true, model: 'chosen-planner' } },
+      { type: 'continuity_render', params: { force: true, image_model: 'chosen-image', reference_strength: 0.7 } },
+      { type: 'metadata', params: { force: true, model: 'chosen-metadata' } },
+      { type: 'thumb_images', params: { force: true, mode: 'thumbs', selected_indices: [2] } },
+      { type: 'audio', params: { force: true, no_overwrite: true, generation_mode: 'new_version', sections: ['Chapter_02'], voice: 'chosen-voice' } },
+    ] }), project_slug: project.slug, status: 'cancelled' as const }
+    const before = structuredClone(cancelled)
+    const plan = createEpisodeRecoveryPlan([cancelled], [cancelled.job_id])
+    assert.equal(plan.steps.scene_plan_run?.params.force, false)
+    assert.deepEqual(plan.steps.continuity_render?.params, { force: false, image_model: 'chosen-image', reference_strength: 0.7 })
+    assert.deepEqual(plan.continuation?.map(node => node.params), [
+      { force: false, model: 'chosen-metadata' }, { force: false, mode: 'thumbs', selected_indices: [2] },
+      { force: false, no_overwrite: false, generation_mode: 'skip', sections: ['Chapter_02'], voice: 'chosen-voice' },
+    ])
+    assert.deepEqual(cancelled, before, 'source force/cancellation evidence remains untouched')
+    await dispatchEpisodeRecoveryStep(plan, { verified: { ...ready, continuity_render: false }, message: 'prerequisites ready' }, [])
+    const review = jq.getJob(plan.steps.continuity_render!.job_id)!
+    assert.equal(review.type, 'continuity_render')
+    assert.equal(review.params.force, false, 'the executor receives no force re-render intent')
+    assert.equal(review.params.image_model, 'chosen-image')
+    await jq.mutateAuthoritativeJob(project.slug, review.job_id, job => ({ ...job, status: 'done' }))
+    await dispatchEpisodeRecoveryStep(plan, { verified: ready, message: 'complete' }, await jq.getJobs(project.slug))
+    const tail = (await jq.getJobs(project.slug)).find(job => job.type === 'metadata')!
+    assert.equal(tail.params.force, false)
+    assert.deepEqual(tail.params.pipeline_chain, [
+      { type: 'thumb_images', params: { force: false, mode: 'thumbs', selected_indices: [2] } },
+      { type: 'audio', params: { force: false, no_overwrite: false, generation_mode: 'skip', sections: ['Chapter_02'], voice: 'chosen-voice' } },
+    ])
+    const disk = JSON.parse(await fs.readFile(path.join(pm.getProjectDir(project.slug)!, 'jobs.json'), 'utf8'))
+    assert.equal(disk.jobs.find((job: Job) => job.job_id === review.job_id).params.force, false)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
 test('repeated dispatch and process reload reuse the durable job, including terminal outcomes', async () => {
   const temp = await useTempDataDir()
   const jq = await import('../services/job-queue.js')
