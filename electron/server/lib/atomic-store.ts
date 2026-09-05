@@ -12,10 +12,24 @@
  * in-process; a promise chain does the job.
  */
 
+import { randomUUID } from 'node:crypto'
 import fs from 'fs/promises'
+import os from 'node:os'
 import path from 'path'
 
+import { assertWriteIsolatedInTests } from './test-isolation.js'
+
 const locks = new Map<string, Promise<unknown>>()
+const CROSS_PROCESS_LOCK_WAIT_MS = 10_000
+const CROSS_PROCESS_LOCK_RETRY_MS = 20
+const CROSS_PROCESS_STALE_LOCK_MS = 60_000
+
+interface CrossProcessLockOwner {
+  token: string
+  pid: number
+  hostname: string
+  created_at_ms: number
+}
 
 /**
  * Run `fn` while holding an exclusive lock on `key`. Subsequent callers with
@@ -34,6 +48,134 @@ export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
     if (locks.get(key) === tail) locks.delete(key)
   })
   return next
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds))
+}
+
+async function readLockOwner(lockPath: string): Promise<CrossProcessLockOwner | null> {
+  try {
+    const stat = await fs.lstat(lockPath)
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Persistence lock is unsafe; manual recovery is required')
+    const value = JSON.parse(await fs.readFile(lockPath, 'utf8')) as Partial<CrossProcessLockOwner>
+    if (typeof value.token !== 'string' || value.token.length < 1 || value.token.length > 128
+      || !Number.isInteger(value.pid) || (value.pid ?? 0) <= 0
+      || typeof value.hostname !== 'string' || value.hostname.length < 1 || value.hostname.length > 255
+      || !Number.isSafeInteger(value.created_at_ms) || (value.created_at_ms ?? 0) < 0) {
+      throw new Error('invalid lock fields')
+    }
+    return value as CrossProcessLockOwner
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    if (error instanceof SyntaxError || error instanceof TypeError || (error as Error).message === 'invalid lock fields') {
+      throw new Error('Persistence lock is corrupt; manual recovery is required', { cause: error })
+    }
+    throw error
+  }
+}
+
+async function publishLock(lockPath: string, owner: CrossProcessLockOwner): Promise<boolean> {
+  const existing = await readLockOwner(lockPath)
+  if (existing) return false
+  const temporary = path.join(path.dirname(lockPath), `.${path.basename(lockPath)}.${owner.token}.tmp`)
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined
+  let published = false
+  try {
+    try {
+      handle = await fs.open(temporary, 'wx', 0o600)
+      await handle.writeFile(`${JSON.stringify(owner)}\n`)
+      await handle.sync()
+    } finally {
+      await handle?.close().catch(() => {})
+    }
+    await fs.link(temporary, lockPath)
+    published = true
+    if (process.platform !== 'win32') {
+      const directory = await fs.open(path.dirname(lockPath), 'r')
+      try { await directory.sync() } finally { await directory.close() }
+    }
+    return true
+  } catch (error: unknown) {
+    if (!published && (error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    if (published) {
+      try { await releaseLock(lockPath, owner) } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'Persistence lock publication and cleanup failed')
+      }
+    }
+    throw error
+  } finally {
+    await fs.unlink(temporary).catch(() => {})
+  }
+}
+
+async function releaseLock(lockPath: string, owner: CrossProcessLockOwner): Promise<void> {
+  const current = await readLockOwner(lockPath)
+  if (!current || current.token !== owner.token || current.hostname !== owner.hostname || current.pid !== owner.pid) return
+  await fs.unlink(lockPath).catch(error => {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  })
+}
+
+function ownerIsProvenDead(owner: CrossProcessLockOwner): boolean {
+  if (owner.hostname !== os.hostname()) throw new Error('Persistence lock belongs to another host; manual recovery is required')
+  if (Date.now() - owner.created_at_ms < CROSS_PROCESS_STALE_LOCK_MS) return false
+  try {
+    process.kill(owner.pid, 0)
+    return false
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true
+    throw new Error('Unable to prove persistence lock owner is dead', { cause: error })
+  }
+}
+
+async function recoverLockIfProvenStale(lockPath: string): Promise<boolean> {
+  const observed = await readLockOwner(lockPath)
+  if (!observed) return true
+  if (!ownerIsProvenDead(observed)) return false
+  const recoveryPath = `${lockPath}.recovery`
+  const guard: CrossProcessLockOwner = {
+    token: randomUUID(), pid: process.pid, hostname: os.hostname(), created_at_ms: Date.now(),
+  }
+  if (!await publishLock(recoveryPath, guard)) return false
+  try {
+    const current = await readLockOwner(lockPath)
+    if (!current || current.token !== observed.token || current.hostname !== observed.hostname || current.pid !== observed.pid) return false
+    if (!ownerIsProvenDead(current)) return false
+    await fs.unlink(lockPath)
+    return true
+  } finally {
+    await releaseLock(recoveryPath, guard)
+  }
+}
+
+/** Serialize one read-modify-write across processes; reclaim only a proven-dead local owner. */
+export function withCrossProcessLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  return withLock(key, async () => {
+    const lockPath = `${key}.lock`
+    assertWriteIsolatedInTests(lockPath, 'cross-process-lock')
+    const directoryPath = path.dirname(lockPath)
+    await fs.mkdir(directoryPath, { recursive: true, mode: 0o700 })
+    const directory = await fs.lstat(directoryPath)
+    if (!directory.isDirectory() || directory.isSymbolicLink()) {
+      throw new Error('Persistence lock directory is unsafe; manual recovery is required')
+    }
+    const deadline = Date.now() + CROSS_PROCESS_LOCK_WAIT_MS
+    const owner: CrossProcessLockOwner = {
+      token: randomUUID(), pid: process.pid, hostname: os.hostname(), created_at_ms: Date.now(),
+    }
+    while (true) {
+      if (await publishLock(lockPath, owner)) break
+      if (await recoverLockIfProvenStale(lockPath)) continue
+      if (Date.now() >= deadline) throw new Error('Timed out waiting for persistence lock')
+      await sleep(CROSS_PROCESS_LOCK_RETRY_MS)
+    }
+    try {
+      return await fn()
+    } finally {
+      await releaseLock(lockPath, owner)
+    }
+  })
 }
 
 export interface WriteOpts {

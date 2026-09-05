@@ -398,6 +398,7 @@ export class MockGenStudioService {
     recalled_at?: string
   } | null = null
   tamperContentPurchaseReceipt = false
+  tamperContentRestoreReceipt = false
   private readonly queuedScenarios = new Map<MockGenStudioOperation, StoredScenario[]>()
   private readonly jobs = new Map<string, MockJob>()
   private readonly jobByIdempotency = new Map<string, string>()
@@ -466,6 +467,7 @@ export class MockGenStudioService {
     this.contentArchiveGetCount = 0
     this.contentDownloadRefusal = null
     this.tamperContentPurchaseReceipt = false
+    this.tamperContentRestoreReceipt = false
     this.contentArchives.clear()
     this.contentOwnedReleaseStates.clear()
     this.nextContentArchiveResponseBarrier?.release()
@@ -910,7 +912,13 @@ export class MockGenStudioService {
     return {
       account_id: accountId,
       content_account_id: accountId,
-      restore_receipt: { receipt: restore, receipt_signature: this.signContentPayload(restore), key_id: 'mock-content-key' },
+      restore_receipt: {
+        receipt: restore,
+        receipt_signature: this.tamperContentRestoreReceipt
+          ? Buffer.alloc(64, 7).toString('base64')
+          : this.signContentPayload(restore),
+        key_id: 'mock-content-key',
+      },
       purchase_receipts: purchaseReceipts,
       entitlements,
     }

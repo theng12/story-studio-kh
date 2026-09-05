@@ -21,6 +21,7 @@ import {
   getGenStudioCancellationStatus,
   getGenStudioJobByIdempotencyKey,
   getGenStudioAccountOverview,
+  GenStudioApiError,
   GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS,
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
@@ -34,7 +35,7 @@ import {
   listVideoModels,
   clearGenStudioCatalogCache,
   operationSignal,
-  isGenStudioReleaseGenerationUnavailable,
+  isGenStudioGenerationPaused,
   parseGenStudioRetryAfterMs,
   recoverImageWithGenStudio,
   recoverTranscriptionWithGenStudio,
@@ -105,25 +106,22 @@ test('TTS models carry only a positive published provider submit concurrency hin
   }
 })
 
-test('only the authoritative exact-release charging failure opens the global submission breaker', () => {
+test('only the authoritative operator pause code opens the global submission breaker', () => {
   assert.equal(
-    isGenStudioReleaseGenerationUnavailable(
-      503,
-      'generation is unavailable until charging is enabled for this exact release',
-    ),
+    isGenStudioGenerationPaused(503, 'GENERATION_PAUSED'),
     true,
   )
   assert.equal(
-    isGenStudioReleaseGenerationUnavailable(503, 'temporary provider capacity unavailable'),
+    isGenStudioGenerationPaused(503, 'temporary provider capacity unavailable'),
     false,
   )
   assert.equal(
-    isGenStudioReleaseGenerationUnavailable(
-      402,
-      'generation is unavailable until charging is enabled for this exact release',
-    ),
+    isGenStudioGenerationPaused(402, 'GENERATION_PAUSED'),
     false,
   )
+  assert.equal(isGenStudioGenerationPaused(503, 'generation paused'), false)
+  assert.match(new GenStudioApiError(503, 'GENERATION_PAUSED').message, /operator.*enable generation/i)
+  assert.doesNotMatch(new GenStudioApiError(503, 'GENERATION_PAUSED').message, /exact.release|charging/i)
 })
 
 // The boundary is whatever the SELECTED model publishes. These fixtures pin a

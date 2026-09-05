@@ -14,11 +14,14 @@
  *      orphan tmp wasn't somehow promoted in place of the real write.
  */
 
+import { spawn } from 'node:child_process'
 import { test, describe, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
+import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -159,4 +162,86 @@ describe('writeJsonAtomic — rename failure cleanup', () => {
     // And no tmp sibling lingers after the successful path either.
     assert.deepEqual(await siblingTmpFiles(target), [])
   })
+})
+
+test('withCrossProcessLock serializes one read-modify-write across processes', async t => {
+  const target = path.join(tempDir, 'crash', 'shared.json')
+  const ready = path.join(tempDir, 'crash', 'ready')
+  const release = path.join(tempDir, 'crash', 'release')
+  await store.writeJsonAtomic(target, { initial: true })
+  const worker = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'atomic-store-lock-worker.ts')
+  const child = spawn(process.execPath, ['--import', 'tsx', worker], {
+    env: { ...process.env, TARGET: target, READY: ready, RELEASE: release },
+    stdio: 'pipe',
+  })
+  let stderr = ''
+  child.stderr.on('data', chunk => { stderr += chunk })
+  const exited = new Promise<void>((resolve, reject) => {
+    child.once('exit', code => code === 0 ? resolve() : reject(new Error(`lock worker exited ${code}: ${stderr}`)))
+  })
+  let readyObserved = false
+  t.after(async () => {
+    await fs.writeFile(release, 'release').catch(() => {})
+    if (!readyObserved && child.exitCode === null) child.kill()
+    await Promise.allSettled([exited])
+  })
+  let earlyExit: unknown
+  void exited.catch(error => { earlyExit = error })
+  await waitFor(async () => {
+    if (earlyExit) throw earlyExit
+    return fs.stat(ready).then(() => true, () => false)
+  }, { label: 'lock worker to become ready', timeoutMs: 2_000, pollMs: 5 })
+  readyObserved = true
+
+  const mainWrite = store.withCrossProcessLock(target, async () => {
+    const current = JSON.parse(await fs.readFile(target, 'utf8'))
+    await store.writeJsonAtomic(target, { ...current, main: true })
+  })
+  assert.deepEqual(JSON.parse(await fs.readFile(target, 'utf8')), { initial: true })
+  await fs.writeFile(release, 'release')
+  await exited
+  await mainWrite
+
+  assert.deepEqual(JSON.parse(await fs.readFile(target, 'utf8')), { initial: true, worker: true, main: true })
+})
+
+test('withCrossProcessLock removes its private temporary file when lock publication fails', async () => {
+  const target = path.join(tempDir, 'crash', 'publication.json')
+  const originalLink = fs.link.bind(fs)
+  const failure = Object.assign(new Error('synthetic link failure'), { code: 'ENOSPC' })
+  ;(fs as any).link = async (from: string, to: string) => {
+    if (to === `${target}.lock`) throw failure
+    return originalLink(from, to)
+  }
+  try {
+    await assert.rejects(store.withCrossProcessLock(target, async () => {}), (error: unknown) => error === failure)
+  } finally {
+    ;(fs as any).link = originalLink
+  }
+  assert.deepEqual((await fs.readdir(path.dirname(target))).filter(name => name.includes('publication.json.lock')), [])
+})
+
+test('withCrossProcessLock removes its own published lock when directory sync fails', async () => {
+  const target = path.join(tempDir, 'crash', 'directory-sync.json')
+  const directoryPath = path.dirname(target)
+  const originalOpen = fs.open.bind(fs)
+  const failure = Object.assign(new Error('synthetic directory sync failure'), { code: 'EIO' })
+  let workCalls = 0
+  let injected = false
+  ;(fs as any).open = async (file: string, flags: string, ...rest: unknown[]) => {
+    if (!injected && file === directoryPath && flags === 'r') {
+      injected = true
+      throw failure
+    }
+    return (originalOpen as any)(file, flags, ...rest)
+  }
+  try {
+    await assert.rejects(store.withCrossProcessLock(target, async () => { workCalls += 1 }), (error: unknown) => error === failure)
+  } finally {
+    ;(fs as any).open = originalOpen
+  }
+  assert.equal(workCalls, 0)
+  await assert.rejects(fs.stat(`${target}.lock`), /ENOENT/)
+  await store.withCrossProcessLock(target, async () => { workCalls += 1 })
+  assert.equal(workCalls, 1)
 })

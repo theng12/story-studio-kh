@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
-import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import { withCrossProcessLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import {
@@ -16,7 +16,7 @@ import {
   type GenStudioContentQuote,
 } from '../lib/genstudio-content-store.js'
 import { verifyContentStoreRestoreReceipt } from '../lib/genstudio-content-store-trust.js'
-import { readContentStoreKeyAnchor, recordContentStoreKeyAnchor } from '../services/app-secrets-store.js'
+import { getApiKeySnapshot, readContentStoreKeyAnchor, recordContentStoreKeyAnchor } from '../services/app-secrets-store.js'
 import {
   CachedContentQuoteSchema,
   CachedContentRefusalSchema,
@@ -35,17 +35,7 @@ const MAX_STATE_BYTES = 16 * 1024 * 1024
 const MAX_RECORDS = 200
 const MAX_VERIFIED_RESTORES = 200
 const MAX_RESTORE_KEY_HISTORY = 100
-const LOCK_WAIT_MS = 10_000
-const LOCK_RETRY_MS = 20
-const STALE_LOCK_MS = 60_000
 const execFile = promisify(execFileCallback)
-
-interface CommerceLockOwner {
-  token: string
-  pid: number
-  hostname: string
-  created_at_ms: number
-}
 
 function runtimePaths() {
   const paths = getContentPackRuntimePaths()
@@ -69,115 +59,6 @@ async function assertSafeRoot(root: string): Promise<void> {
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Content Store runtime root is unsafe: ${root}`)
 }
 
-async function assertSafeOptionalFile(filePath: string, label: string): Promise<void> {
-  try {
-    const stat = await fs.lstat(filePath)
-    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Content Store ${label} is unsafe: ${filePath}`)
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
-}
-
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, milliseconds))
-}
-
-function parseLockOwner(raw: string): CommerceLockOwner {
-  try {
-    const value = JSON.parse(raw) as Partial<CommerceLockOwner>
-    if (typeof value.token !== 'string' || value.token.length < 1 || value.token.length > 128
-      || !Number.isInteger(value.pid) || (value.pid ?? 0) <= 0
-      || typeof value.hostname !== 'string' || value.hostname.length < 1 || value.hostname.length > 255
-      || !Number.isSafeInteger(value.created_at_ms) || (value.created_at_ms ?? 0) < 0) {
-      throw new Error('invalid lock fields')
-    }
-    return value as CommerceLockOwner
-  } catch (error) {
-    throw new Error('Content Store commerce lock is corrupt; manual recovery is required', { cause: error })
-  }
-}
-
-async function readLockOwner(lockPath: string): Promise<CommerceLockOwner | null> {
-  await assertSafeOptionalFile(lockPath, 'lock')
-  try {
-    return parseLockOwner(await fs.readFile(lockPath, 'utf8'))
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-    throw error
-  }
-}
-
-async function publishLock(lockPath: string, owner: CommerceLockOwner): Promise<boolean> {
-  await assertSafeOptionalFile(lockPath, 'lock')
-  const temporary = path.join(path.dirname(lockPath), `.${path.basename(lockPath)}.${owner.token}.tmp`)
-  let handle: Awaited<ReturnType<typeof fs.open>> | undefined
-  try {
-    handle = await fs.open(temporary, 'wx', STATE_MODE)
-    await handle.writeFile(`${JSON.stringify(owner)}\n`)
-    await handle.sync()
-  } finally {
-    await handle?.close().catch(() => {})
-  }
-  try {
-    await fs.link(temporary, lockPath)
-    if (process.platform !== 'win32') {
-      const directory = await fs.open(path.dirname(lockPath), 'r')
-      try { await directory.sync() } finally { await directory.close() }
-    }
-    return true
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
-    throw error
-  } finally {
-    await fs.unlink(temporary).catch(() => {})
-  }
-}
-
-async function releaseLock(lockPath: string, owner: CommerceLockOwner): Promise<void> {
-  const current = await readLockOwner(lockPath)
-  if (!current || current.token !== owner.token || current.hostname !== owner.hostname || current.pid !== owner.pid) return
-  await fs.unlink(lockPath).catch(error => {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  })
-}
-
-function ownerIsProvenDead(owner: CommerceLockOwner): boolean {
-  if (owner.hostname !== os.hostname()) {
-    throw new Error(`Content Store commerce lock belongs to foreign host ${owner.hostname}; manual recovery is required`)
-  }
-  if (Date.now() - owner.created_at_ms < STALE_LOCK_MS) return false
-  try {
-    process.kill(owner.pid, 0)
-    return false
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true
-    throw new Error(`Unable to prove Content Store commerce lock PID ${owner.pid} is dead`, { cause: error })
-  }
-}
-
-async function recoverLockIfProvenStale(lockPath: string): Promise<boolean> {
-  const observed = await readLockOwner(lockPath)
-  if (!observed) return true
-  if (!ownerIsProvenDead(observed)) return false
-  const recoveryPath = `${lockPath}.recovery`
-  if (path.resolve(path.dirname(recoveryPath)) !== path.resolve(path.dirname(lockPath))) {
-    throw new Error('Content Store commerce recovery lock must live beside its canonical lock')
-  }
-  const guard: CommerceLockOwner = {
-    token: randomUUID(), pid: process.pid, hostname: os.hostname(), created_at_ms: Date.now(),
-  }
-  if (!await publishLock(recoveryPath, guard)) return false
-  try {
-    const current = await readLockOwner(lockPath)
-    if (!current || current.token !== observed.token || current.hostname !== observed.hostname || current.pid !== observed.pid) return false
-    if (!ownerIsProvenDead(current)) return false
-    await fs.unlink(lockPath)
-    return true
-  } finally {
-    await releaseLock(recoveryPath, guard)
-  }
-}
-
 /**
  * The ordinary promise lock protects same-process callers. The exclusive file
  * is the process boundary. A stale lock is reclaimed only when it is old, from
@@ -185,26 +66,9 @@ async function recoverLockIfProvenStale(lockPath: string): Promise<boolean> {
  * guard is held. Age by itself never authorises a second purchase submitter.
  */
 async function withCommerceLock<T>(work: () => Promise<T>): Promise<T> {
-  const { paths, statePath, lockPath } = runtimePaths()
-  return withLock(statePath, async () => {
-    await assertSafeRoot(paths.root)
-    assertWriteIsolatedInTests(lockPath, 'content-store-commerce-state')
-    const deadline = Date.now() + LOCK_WAIT_MS
-    const owner: CommerceLockOwner = {
-      token: randomUUID(), pid: process.pid, hostname: os.hostname(), created_at_ms: Date.now(),
-    }
-    while (true) {
-      if (await publishLock(lockPath, owner)) break
-      if (await recoverLockIfProvenStale(lockPath)) continue
-      if (Date.now() >= deadline) throw new Error('timed out waiting for Content Store commerce state lock')
-      await sleep(LOCK_RETRY_MS)
-    }
-    try {
-      return await work()
-    } finally {
-      await releaseLock(lockPath, owner)
-    }
-  })
+  const { paths, statePath } = runtimePaths()
+  await assertSafeRoot(paths.root)
+  return withCrossProcessLock(statePath, work)
 }
 
 type StateRead =
@@ -330,8 +194,18 @@ export async function readContentStoreCommerceState(): Promise<ContentStoreComme
 /** Cache only already-verified public ownership evidence. Raw API keys and download grants never enter this journal. */
 export async function recordVerifiedContentRestore(
   restore: CachedVerifiedContentRestore,
+  expected?: { credentialGeneration: string },
 ): Promise<CachedVerifiedContentRestore> {
   return mutateState(async state => {
+    if (expected) {
+      const current = await getApiKeySnapshot('genstudio')
+      if (!current.apiKey || current.generation !== expected.credentialGeneration) {
+        throw new ContentStoreRevalidationRequiredError({
+          accountId: restore.account_id,
+          origin: restore.genstudio_origin,
+        })
+      }
+    }
     const retained = state.verified_restores ?? (state.verified_restore ? [state.verified_restore] : [])
     const sameOwner = (candidate: CachedVerifiedContentRestore) => candidate.account_id === restore.account_id
       && candidate.content_account_id === restore.content_account_id
@@ -380,6 +254,20 @@ export async function readVerifiedContentStoreRestore(input: {
   return restore ? structuredClone(restore) : null
 }
 
+export class ContentStoreRevalidationRequiredError extends Error {
+  readonly code = 'content-store-revalidation-required' as const
+  readonly statusCode = 409
+  readonly expose = true
+  constructor(readonly scope: { accountId: string; origin: string }) {
+    super('Content Store trust must be verified again. Open Content Store and choose Restore purchases.')
+    this.name = 'ContentStoreRevalidationRequiredError'
+  }
+}
+
+export function isContentStoreRevalidationRequired(error: unknown): error is ContentStoreRevalidationRequiredError {
+  return error instanceof ContentStoreRevalidationRequiredError
+}
+
 /**
  * Resolve a delivery receipt key from separately persisted, account/origin
  * bound restore evidence. Installed-pack evidence never carries key material,
@@ -399,7 +287,7 @@ export async function resolveVerifiedContentStoreSigningKey(input: {
   const anchor = await readContentStoreKeyAnchor({
     origin: input.origin, account_id: input.accountId, content_account_id: cached.content_account_id,
   })
-  if (!anchor) throw new Error('No OS-backed GenStudio key anchor exists; online revalidation is required')
+  if (!anchor) throw new ContentStoreRevalidationRequiredError({ accountId: input.accountId, origin: input.origin })
   for (const key of history) {
     const pinned = anchor.keys.find(candidate => candidate.key_id === key.key_id)
     if (!pinned || pinned.public_key_base64 !== key.public_key_base64) {

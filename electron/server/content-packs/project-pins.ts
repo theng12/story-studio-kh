@@ -18,6 +18,7 @@ import { isBundleOnlyCoordinationManifest } from './schemas.js'
 import { readContentPackState, withContentPackCoordinationLock } from './state.js'
 import type { ContentPackItemKind } from './types.js'
 import { currentJobContentPackProvenance } from './job-provenance-context.js'
+import { isContentStoreRevalidationRequired } from '../content-store/commerce-state.js'
 
 export { ContentPackMissingError } from './missing-error.js'
 export type { ContentPackMissingRequirement } from './missing-error.js'
@@ -1014,7 +1015,17 @@ export async function snapshotProjectContentPackProvenance(
     const provenance: ContentPackProvenance[] = []
     const missing: ContentPackMissingRequirement[] = []
     for (const [packId, version] of Object.entries(project.content_pack_versions ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
-      const pack = await resolveCatalogPackVersion(packId, version, options)
+      let pack: CatalogPackVersion | null
+      try {
+        pack = await resolveCatalogPackVersion(packId, version, options)
+      } catch (error) {
+        if (!isContentStoreRevalidationRequired(error)) throw error
+        const { revalidateContentStoreTrustForGeneration } = await import('../services/content-store-delivery.js')
+        await revalidateContentStoreTrustForGeneration(error.scope)
+        // Retry local immutable-pack verification exactly once. The restore
+        // above creates no generation, quote, purchase, or download work.
+        pack = await resolveCatalogPackVersion(packId, version, options)
+      }
       const requirement = missingRequirement(project, packId, version)
       if (!pack) {
         if (requirementAffects(requirement, jobType)) missing.push(requirement)

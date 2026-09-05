@@ -157,7 +157,7 @@ describe('app-secrets write guard', () => {
   test('refuses Content Store anchor writes without a claimed test data dir', async () => {
     await withDisposableHome(async (home) => {
       const secrets = await import('../services/app-secrets-store.js')
-      const target = secrets.appSecretsPath()
+      const target = secrets.contentStoreAnchorsPath()
       assert.equal(path.relative(home, target).startsWith('..'), false)
       await assert.rejects(
         () => secrets.recordContentStoreKeyAnchor({
@@ -166,7 +166,7 @@ describe('app-secrets write guard', () => {
           content_account_id: 'content-account-test',
           keys: [{ key_id: 'key-test', public_key_base64: 'public-key-test' }],
         }),
-        /app-secrets isolation violation/i,
+        /content-store-key-anchors isolation violation/i,
       )
       assert.equal(existsSync(target), false)
     })
