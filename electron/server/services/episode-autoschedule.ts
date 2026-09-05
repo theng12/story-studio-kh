@@ -31,6 +31,7 @@ import * as im from './idea-manager.js'
 import * as plans from './upload-plans.js'
 import { readSidecarRaw } from './upload-sidecar.js'
 import type { UploadPlatform } from './upload-store.js'
+import { resolveYouTubeAccountId } from './youtube-credential.js'
 
 export interface AutoScheduleResult {
   scheduled: boolean
@@ -72,7 +73,9 @@ export async function scheduleEpisodeWithActivePlan(
   if (!code) return { scheduled: false, episode_code: code, reason: 'No episode code was given.' }
 
   const store = await import('./upload-store.js')
-  const account_id = await store.getDefaultAccountId(slug, platform)
+  const account_id = platform === 'youtube'
+    ? await resolveYouTubeAccountId(slug)
+    : await store.getDefaultAccountId(slug, platform)
   if (!account_id) {
     return {
       scheduled: false, episode_code: code,

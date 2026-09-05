@@ -20,15 +20,17 @@ import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 const realFetch = globalThis.fetch
 
 let tempDir: string
 let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
-let store: typeof import('../services/upload-store.js')
+let connections: typeof import('../services/youtube-connection-store.js')
 let client: typeof import('../lib/youtube-client.js')
 
-const ACCOUNT_ID = 'acc_test_lvs'
+const CHANNEL_ID = 'UC_test_lvs'
+const ACCOUNT_ID = `registry:${CHANNEL_ID}`
 const ACCESS_TOKEN = 'fresh-access-token'
 const REFRESH_TOKEN = 'refresh-token'
 
@@ -37,7 +39,7 @@ before(async () => {
   tempDir = t.dir
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')
-  store = await import('../services/upload-store.js')
+  connections = await import('../services/youtube-connection-store.js')
   client = await import('../lib/youtube-client.js')
 })
 
@@ -50,6 +52,8 @@ beforeEach(async () => {
   const projectsDir = path.join(tempDir, 'projects')
   await fs.rm(projectsDir, { recursive: true, force: true })
   await fs.mkdir(projectsDir, { recursive: true })
+  await fs.rm(path.join(tempDir, 'youtube'), { recursive: true, force: true })
+  await fs.rm(path.join(tempDir, 'app-secrets.json'), { force: true })
 })
 
 function jsonResponse(status: number, body: any): Response {
@@ -61,21 +65,20 @@ function jsonResponse(status: number, body: any): Response {
 
 async function seedAccount(): Promise<string> {
   const project = await pm.createProject({ name: 'List Video Statuses Test' })
-  await store.writeOAuthClient(project.slug, 'youtube', {
+  await connections.configureYouTubeApplication({
     client_id: 'test-client-id',
     client_secret: 'test-client-secret',
   })
-  await store.writeTokens(project.slug, 'youtube', ACCOUNT_ID, {
-    access_token: ACCESS_TOKEN,
-    refresh_token: REFRESH_TOKEN,
-    expires_at: Date.now() + 60 * 60_000,
-    scope: 'https://www.googleapis.com/auth/youtube',
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: CHANNEL_ID, title: 'Test', granted_scopes: ['https://www.googleapis.com/auth/youtube'] },
+    tokens: {
+      access_token: ACCESS_TOKEN,
+      refresh_token: REFRESH_TOKEN,
+      expires_at: Date.now() + 60 * 60_000,
+      scope: 'https://www.googleapis.com/auth/youtube',
+    },
   })
-  // Set up the default account so quota records can attribute correctly.
-  await pm.updateConfig(project.slug, {
-    upload_default_account: { youtube: ACCOUNT_ID },
-    upload_accounts: { youtube: [{ id: ACCOUNT_ID, platform: 'youtube', label: 'Test', remote_id: 'UC_test', remote_title: 'Test', connected_at: new Date().toISOString() }] },
-  } as any)
+  await connections.assignProjectYouTubeChannel({ project_slug: project.slug, channel_id: CHANNEL_ID, expected_previous_channel_id: null })
   return project.slug
 }
 

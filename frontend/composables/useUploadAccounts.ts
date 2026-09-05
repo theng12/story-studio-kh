@@ -1,5 +1,5 @@
 /**
- * Upload Center — accounts + OAuth client management.
+ * Upload Center — assigned account visibility and publishing operations.
  *
  * Phase 1 scope: list connected accounts, configure OAuth client credentials,
  * start an OAuth flow, poll for completion, disconnect accounts, change the
@@ -78,29 +78,12 @@ const reconcilePreviewCache = new Map<string, ReconcilePreviewCacheEntry>()
 const reconcilePreviewState = ref<ReconcilePreviewCacheEntry | null>(null)
 function reconcileCacheKey(slug: string, accountId: string) { return `${slug}:${accountId}` }
 
-export interface OAuthClientStatus {
-  configured: boolean
-  client_id?: string
-  client_secret_masked?: string
-  /**
-   * Populated when the status check itself failed (network blip, backend
-   * 500, etc). Distinct from `configured: false`, which is an authoritative
-   * "yes we checked, nothing is set." When `check_error` is set, the UI
-   * should warn the operator that we don't know whether OAuth is
-   * configured — silently treating the failure as "not configured" used
-   * to make the operator think the credentials had been wiped on a
-   * transient blip.
-   */
-  check_error?: string
-}
-
 export function useUploadAccounts(slug: string) {
   const { get, post, put, del } = useApi()
 
   const platforms = ref<PlatformInfo[]>([])
   const accounts = ref<Partial<Record<UploadPlatform, UploadAccount[]>>>({})
   const defaults = ref<Record<string, string>>({})
-  const clientStatus = ref<Partial<Record<UploadPlatform, OAuthClientStatus>>>({})
   const loading = ref(false)
 
   async function loadPlatforms() {
@@ -114,29 +97,12 @@ export function useUploadAccounts(slug: string) {
     defaults.value = r.defaults || {}
   }
 
-  async function loadClientStatus(platform: UploadPlatform) {
-    try {
-      const r = await get<OAuthClientStatus>(`/projects/${slug}/upload/oauth-client?platform=${platform}`)
-      clientStatus.value[platform] = r
-    } catch (e: any) {
-      // Preserve the failure rather than collapsing to "not configured" —
-      // a transient backend blip used to make the operator think their
-      // saved client_id had vanished, prompting them to paste it again.
-      // The UI reads `check_error` and warns "couldn't verify" instead.
-      clientStatus.value[platform] = {
-        configured: false,
-        check_error: e?.data?.detail || e?.message || 'Could not verify OAuth client status',
-      }
-    }
-  }
-
   async function refreshAll() {
     loading.value = true
     try {
       await Promise.all([
         loadPlatforms(),
         loadAccounts(),
-        loadClientStatus('youtube'),
       ])
       // Eagerly load playlists once accounts exist so the Queue tab's
       // default-playlist banner has the right data on first paint instead
@@ -148,57 +114,6 @@ export function useUploadAccounts(slug: string) {
     } finally {
       loading.value = false
     }
-  }
-
-  async function saveOAuthClient(platform: UploadPlatform, client_id: string, client_secret: string) {
-    await put(`/projects/${slug}/upload/oauth-client`, { platform, client_id, client_secret })
-    await loadClientStatus(platform)
-  }
-
-  async function clearOAuthClient(platform: UploadPlatform) {
-    await del(`/projects/${slug}/upload/oauth-client?platform=${platform}`)
-    await loadClientStatus(platform)
-  }
-
-  /**
-   * Kick off the OAuth flow. Returns `{ flow_id, auth_url }` — caller is
-   * responsible for opening the URL in the system browser (Electron's
-   * shell.openExternal in packaged builds, window.open in dev).
-   */
-  async function startOAuthFlow(platform: UploadPlatform): Promise<{ flow_id: string; auth_url: string }> {
-    return post<{ flow_id: string; auth_url: string }>(`/projects/${slug}/upload/oauth/start`, { platform })
-  }
-
-  /**
-   * Poll the OAuth flow status. Resolves once terminal. Caller chooses the
-   * poll cadence; 1500ms is a reasonable default (Google consent + redirect
-   * typically takes 5-30s, longer when 2FA is involved).
-   */
-  async function waitForOAuthFlow(flow_id: string, opts: { intervalMs?: number; timeoutMs?: number } = {}): Promise<{ ok: boolean; error?: string }> {
-    const interval = opts.intervalMs ?? 1500
-    const timeout = opts.timeoutMs ?? 5 * 60 * 1000
-    const start = Date.now()
-    while (Date.now() - start < timeout) {
-      const s = await get<any>(`/projects/${slug}/upload/oauth/status?flow_id=${flow_id}`)
-      if (s.status === 'success') {
-        await loadAccounts()
-        return { ok: true }
-      }
-      if (s.status === 'error') return { ok: false, error: s.error || 'OAuth flow failed' }
-      if (s.status === 'unknown') return { ok: false, error: 'Flow expired' }
-      await new Promise(r => setTimeout(r, interval))
-    }
-    return { ok: false, error: 'Timeout waiting for OAuth flow to complete' }
-  }
-
-  async function removeAccount(account: UploadAccount) {
-    await del(`/projects/${slug}/upload/accounts/${account.id}?platform=${account.platform}`)
-    await loadAccounts()
-  }
-
-  async function setDefault(platform: UploadPlatform, account_id: string) {
-    await put(`/projects/${slug}/upload/accounts/${account_id}/default`, { platform })
-    await loadAccounts()
   }
 
   const youtubeAccounts = computed(() => accounts.value.youtube || [])
@@ -1004,7 +919,6 @@ export function useUploadAccounts(slug: string) {
     platforms,
     accounts,
     defaults,
-    clientStatus,
     loading,
     youtubeAccounts,
     queueItems,
@@ -1072,7 +986,6 @@ export function useUploadAccounts(slug: string) {
     setDefaultPlaylist,
     loadPlatforms,
     loadAccounts,
-    loadClientStatus,
     loadQueue,
     fetchQueueEpisodeCodes,
     loadPlans,
@@ -1082,12 +995,6 @@ export function useUploadAccounts(slug: string) {
     previewPlan,
     applyPlan,
     refreshAll,
-    saveOAuthClient,
-    clearOAuthClient,
-    startOAuthFlow,
-    waitForOAuthFlow,
-    removeAccount,
-    setDefault,
     triggerUpload,
     triggerMetadataUpdate,
     triggerPlaylistUpdate,

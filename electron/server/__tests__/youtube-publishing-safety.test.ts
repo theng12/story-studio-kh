@@ -5,15 +5,17 @@ import { after, before, beforeEach, describe, it } from 'node:test'
 
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 const realFetch = globalThis.fetch
-const ACCOUNT_ID = 'youtube-publishing-safety-account'
+const ACCOUNT_ID = 'registry:UC_test'
 
 let tempDir: string
 let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
-let store: typeof import('../services/upload-store.js')
+let connections: typeof import('../services/youtube-connection-store.js')
 let sidecars: typeof import('../services/upload-sidecar.js')
 let playlistSync: typeof import('../services/youtube-playlist-sync.js')
+let playlistUpdate: typeof import('../generators/youtube-playlist-update.js')
 let youtube: typeof import('../lib/youtube-client.js')
 let utils: typeof import('../services/utils.js')
 
@@ -22,9 +24,10 @@ before(async () => {
   tempDir = t.dir
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')
-  store = await import('../services/upload-store.js')
+  connections = await import('../services/youtube-connection-store.js')
   sidecars = await import('../services/upload-sidecar.js')
   playlistSync = await import('../services/youtube-playlist-sync.js')
+  playlistUpdate = await import('../generators/youtube-playlist-update.js')
   youtube = await import('../lib/youtube-client.js')
   utils = await import('../services/utils.js')
 })
@@ -38,33 +41,26 @@ beforeEach(async () => {
   globalThis.fetch = realFetch
   await fs.rm(path.join(tempDir, 'projects'), { recursive: true, force: true })
   await fs.mkdir(path.join(tempDir, 'projects'), { recursive: true })
+  await fs.rm(path.join(tempDir, 'youtube'), { recursive: true, force: true })
+  await fs.rm(path.join(tempDir, 'app-secrets.json'), { force: true })
 })
 
 async function seedProject(): Promise<string> {
   const project = await pm.createProject({ name: 'YouTube Publishing Safety' })
-  await store.writeOAuthClient(project.slug, 'youtube', {
+  await connections.configureYouTubeApplication({
     client_id: 'test-client-id',
     client_secret: 'test-client-secret',
   })
-  await store.writeTokens(project.slug, 'youtube', ACCOUNT_ID, {
-    access_token: 'fresh-access-token',
-    refresh_token: 'refresh-token',
-    expires_at: Date.now() + 60 * 60_000,
-    scope: 'https://www.googleapis.com/auth/youtube',
-  })
-  await pm.updateConfig(project.slug, {
-    upload_default_account: { youtube: ACCOUNT_ID },
-    upload_accounts: {
-      youtube: [{
-        id: ACCOUNT_ID,
-        platform: 'youtube',
-        label: 'Test',
-        remote_id: 'UC_test',
-        remote_title: 'Test',
-        connected_at: new Date().toISOString(),
-      }],
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: 'UC_test', title: 'Test', granted_scopes: ['https://www.googleapis.com/auth/youtube'] },
+    tokens: {
+      access_token: 'fresh-access-token',
+      refresh_token: 'refresh-token',
+      expires_at: Date.now() + 60 * 60_000,
+      scope: 'https://www.googleapis.com/auth/youtube',
     },
-  } as any)
+  })
+  await connections.assignProjectYouTubeChannel({ project_slug: project.slug, channel_id: 'UC_test', expected_previous_channel_id: null })
   return project.slug
 }
 
@@ -83,6 +79,30 @@ function completeSidecar(overrides: Partial<import('../services/upload-sidecar.j
     tags: ['story'],
     thumbnail_set: true,
     ...overrides,
+  }
+}
+
+async function seedPlaylistEpisode(slug: string, sidecar: ReturnType<typeof completeSidecar>): Promise<string> {
+  await fs.writeFile(path.join(tempDir, 'projects', slug, 'ideas.json'), JSON.stringify({
+    ideas: [{
+      id: 'idea-playlist', title: 'Episode', logline: '', themes: [], suggested_chapters: 1,
+      suggested_length: '10', mood: '', status: 'accepted', episode_code: 'EP0001',
+      generated_at: '2026-09-05T00:00:00.000Z', accepted_at: '2026-09-05T00:00:00.000Z',
+      batch_id: 'batch-playlist', model_used: 'test',
+    }],
+    next_episode_number: 2,
+  }))
+  await sidecars.writeSidecar(slug, 'EP0001', 'Episode', sidecar)
+  const paths = await utils.resolveEpisodePaths(slug, 'EP0001', 'Episode')
+  return path.join(paths.episode_dir, 'youtube_upload.json')
+}
+
+function playlistJob(slug: string): import('../models/types.js').Job {
+  return {
+    job_id: 'job-playlist', project_slug: slug, type: 'youtube_playlist_update', episode_id: 'EP0001',
+    title: 'Playlist update', status: 'running', created_at: '2026-09-05T00:00:00.000Z',
+    started_at: '2026-09-05T00:00:00.000Z', finished_at: null, error: null, output_lines: [],
+    params: { episode_id: 'EP0001', playlist_id: 'playlist-1' },
   }
 }
 
@@ -174,6 +194,51 @@ describe('YouTube playlist quota safety', () => {
 })
 
 describe('YouTube publishing checkpoints', () => {
+  it('uses a same-channel historical upload and upgrades its local credential identity after remote proof', async () => {
+    const slug = await seedProject()
+    await seedPlaylistEpisode(slug, completeSidecar({ account_id: 'legacy-random-account-id' }))
+    let providerCalls = 0
+
+    await playlistUpdate.generateYoutubePlaylistUpdate(playlistJob(slug), {
+      ensureMembership: async params => {
+        providerCalls++
+        assert.equal(params.accountId, ACCOUNT_ID)
+        assert.equal(params.videoId, 'video-1')
+        return { inserted: false, verified: true }
+      },
+    })
+
+    assert.equal(providerCalls, 1)
+    const saved = await sidecars.readSidecar(slug, 'EP0001', 'Episode', 'youtube')
+    assert.equal(saved?.account_id, ACCOUNT_ID)
+    assert.equal(saved?.channel_id, 'UC_test')
+    assert.deepEqual(sidecars.inspectPlaylistSyncCheckpoint(saved, {
+      playlist_id: 'playlist-1', video_id: 'video-1', account_id: ACCOUNT_ID,
+    }), [])
+  })
+
+  it('rejects a historical upload from another channel before provider work and preserves it', async () => {
+    const slug = await seedProject()
+    const sidecarPath = await seedPlaylistEpisode(slug, completeSidecar({
+      account_id: 'legacy-other-account-id', channel_id: 'UC_other',
+    }))
+    const before = await fs.readFile(sidecarPath)
+    let providerCalls = 0
+
+    await assert.rejects(
+      playlistUpdate.generateYoutubePlaylistUpdate(playlistJob(slug), {
+        ensureMembership: async () => {
+          providerCalls++
+          return { inserted: false, verified: true }
+        },
+      }),
+      /uploaded to channel.*UC_other.*connected to channel.*UC_test/i,
+    )
+
+    assert.equal(providerCalls, 0)
+    assert.deepEqual(await fs.readFile(sidecarPath), before)
+  })
+
   it('rejects incomplete or mismatched upload identities', () => {
     assert.deepEqual(sidecars.inspectUploadSidecarIdentity(completeSidecar(), {
       platform: 'youtube', video_id: 'video-1', account_id: ACCOUNT_ID, channel_id: 'UC_test',

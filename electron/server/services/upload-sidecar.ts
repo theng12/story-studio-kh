@@ -200,7 +200,7 @@ export async function checkpointPlaylistSync(
   slug: string,
   episode_code: string,
   fallback_title: string,
-  expected: { playlist_id: string; video_id: string; account_id: string },
+  expected: { playlist_id: string; video_id: string; account_id: string; channel_id?: string },
 ): Promise<UploadSidecar> {
   const paths = await resolveEpisodePaths(slug, episode_code, fallback_title || '')
   const p = sidecarPath(paths.episode_dir, 'youtube')
@@ -210,11 +210,17 @@ export async function checkpointPlaylistSync(
     if (current.video_id !== expected.video_id) {
       throw new Error(`Upload record changed from ${expected.video_id} to ${current.video_id}; playlist checkpoint was not written.`)
     }
-    if (current.account_id !== expected.account_id) {
+    if (expected.channel_id && current.channel_id !== expected.channel_id) {
+      throw new Error(`Upload channel changed from ${expected.channel_id} to ${current.channel_id}; playlist checkpoint was not written.`)
+    }
+    if (!expected.channel_id && current.account_id !== expected.account_id) {
       throw new Error(`Upload account changed from ${expected.account_id} to ${current.account_id}; playlist checkpoint was not written.`)
     }
     const next: UploadSidecar = {
       ...current,
+      // A verified remote action on the same immutable channel is the safe
+      // point to replace a pre-registry local account id with current identity.
+      ...(expected.channel_id ? { account_id: expected.account_id } : {}),
       playlist_sync: {
         ...(current.playlist_sync || {}),
         [expected.playlist_id]: {
@@ -255,7 +261,7 @@ export function inspectThumbnailCheckpoint(
  */
 export async function checkpointThumbnailStateAtPath(
   filePath: string,
-  expected: { video_id: string; account_id: string },
+  expected: { video_id: string; account_id: string; channel_id?: string },
   state: { set: boolean; error?: string; remotely_verified: boolean },
 ): Promise<UploadSidecar> {
   let lastError: unknown
@@ -267,11 +273,15 @@ export async function checkpointThumbnailStateAtPath(
         if (current.video_id !== expected.video_id) {
           throw new Error(`Upload record changed from ${expected.video_id} to ${current.video_id}; thumbnail checkpoint was not written.`)
         }
-        if (current.account_id !== expected.account_id) {
+        if (expected.channel_id && current.channel_id !== expected.channel_id) {
+          throw new Error(`Upload channel changed from ${expected.channel_id} to ${current.channel_id}; thumbnail checkpoint was not written.`)
+        }
+        if (!expected.channel_id && current.account_id !== expected.account_id) {
           throw new Error(`Upload account changed from ${expected.account_id} to ${current.account_id}; thumbnail checkpoint was not written.`)
         }
         const next: UploadSidecar = {
           ...current,
+          ...(expected.channel_id && state.remotely_verified ? { account_id: expected.account_id } : {}),
           thumbnail_set: state.set,
           last_error: state.error || undefined,
           last_sync_at: new Date().toISOString(),
@@ -291,7 +301,7 @@ export async function checkpointThumbnailStateAtPath(
     } catch (error) {
       lastError = error
       const detail = error instanceof Error ? error.message : String(error)
-      if (/Upload record changed|Upload account changed|without a valid upload sidecar/i.test(detail)) throw error
+      if (/Upload record changed|Upload account changed|Upload channel changed|without a valid upload sidecar/i.test(detail)) throw error
       if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 150 * attempt))
     }
   }

@@ -19,7 +19,6 @@ import fs from 'fs'
 import fsp from 'fs/promises'
 import type { OAuthTokenBundle } from './youtube-oauth.js'
 import { refreshAccessToken } from './youtube-oauth.js'
-import * as store from '../services/upload-store.js'
 import { checkQuota, recordQuotaUsage, friendlyQuotaErrorMessage, type QuotaKey } from '../services/upload-quota.js'
 import { logLine } from '../services/logger.js'
 import { prepareThumbnail } from './thumbnail-prepare.js'
@@ -143,27 +142,68 @@ export interface UploadedVideo {
 // refresh_token itself, we surface a distinct "reconnect required" error
 // so callers can tell the user to re-run Connect.
 
+export const REGISTRY_CREDENTIAL_PREFIX = 'registry:'
+
+export function registryCredentialFor(channelId: string): string {
+  return `${REGISTRY_CREDENTIAL_PREFIX}${channelId}`
+}
+
+function registryChannelOf(accountId: string): string | null {
+  if (!accountId.startsWith(REGISTRY_CREDENTIAL_PREFIX)) return null
+  return accountId.slice(REGISTRY_CREDENTIAL_PREFIX.length) || null
+}
+
+function reconnectRequired(message: string): Error {
+  return Object.assign(new Error(message), { code: 'YOUTUBE_RECONNECT_REQUIRED' })
+}
+
 async function refreshAndPersist(slug: string, accountId: string): Promise<string> {
-  const tokens = await store.readTokens(slug, 'youtube', accountId)
-  if (!tokens) throw new Error('No tokens for this account — reconnect YouTube.')
-  const client = await store.readOAuthClient(slug, 'youtube')
-  if (!client) throw new Error('OAuth client missing — re-enter client_id/client_secret in Settings.')
+  const channelId = registryChannelOf(accountId)
+  if (!channelId) {
+    throw reconnectRequired('This project has no current YouTube connection. Reconnect it in Settings → YouTube.')
+  }
+  const connections = await import('../services/youtube-connection-store.js')
+  const assignment = await connections.getProjectYouTubeAssignment(slug)
+  if (assignment?.channel_id !== channelId) {
+    throw reconnectRequired('This project is not assigned to that YouTube channel. Select its channel in Settings → YouTube.')
+  }
+  const tokens = await connections.readYouTubeChannelTokensForServer(channelId)
+  if (!tokens) throw reconnectRequired('This YouTube channel needs to be reconnected in Settings → YouTube.')
+  const client = await connections.readYouTubeOAuthClientForServer()
+  if (!client) throw reconnectRequired('Configure the YouTube OAuth application in Settings → YouTube.')
   try {
     const fresh = await refreshAccessToken({
       client_id: client.client_id,
       client_secret: client.client_secret,
       refresh_token: tokens.refresh_token,
+      ...(tokens.scope ? { previous_scope: tokens.scope } : {}),
     })
-    await store.writeTokens(slug, 'youtube', accountId, fresh)
-    return fresh.access_token
+    const saved = await connections.saveYouTubeChannelTokens({
+      channel_id: channelId,
+      expected_access_token: tokens.access_token,
+      tokens: fresh,
+    })
+    if (saved) return fresh.access_token
+    const winner = await connections.readYouTubeChannelTokensForServer(channelId)
+    if (winner) return winner.access_token
+    throw new Error('The YouTube connection changed while its token was refreshing.')
   } catch (e: any) {
-    throw new Error(`Token refresh failed (${e.message || 'unknown'}). Disconnect and reconnect the YouTube account.`)
+    throw reconnectRequired(`Token refresh failed (${e?.message || 'unknown'}). Reconnect the channel in Settings → YouTube.`)
   }
 }
 
 export async function getValidAccessToken(slug: string, accountId: string): Promise<string> {
-  const tokens = await store.readTokens(slug, 'youtube', accountId)
-  if (!tokens) throw new Error('No tokens for this account — reconnect YouTube.')
+  const channelId = registryChannelOf(accountId)
+  if (!channelId) {
+    throw reconnectRequired('This project has no current YouTube connection. Reconnect it in Settings → YouTube.')
+  }
+  const { getProjectYouTubeAssignment, readYouTubeChannelTokensForServer } = await import('../services/youtube-connection-store.js')
+  const assignment = await getProjectYouTubeAssignment(slug)
+  if (assignment?.channel_id !== channelId) {
+    throw reconnectRequired('This project is not assigned to that YouTube channel. Select its channel in Settings → YouTube.')
+  }
+  const tokens = await readYouTubeChannelTokensForServer(channelId)
+  if (!tokens) throw reconnectRequired('This YouTube channel needs to be reconnected in Settings → YouTube.')
   const now = Date.now()
   // Refresh 60s before the real expiry so in-flight requests don't 401.
   if (tokens.expires_at - 60_000 > now) return tokens.access_token

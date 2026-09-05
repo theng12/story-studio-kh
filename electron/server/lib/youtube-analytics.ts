@@ -402,11 +402,13 @@ export async function getTopPerformersForSlug(
   limit: number = 5,
 ): Promise<TopPerformer[]> {
   try {
-    const store = await import('../services/upload-store.js')
+    const { resolveYouTubeCredential } = await import('../services/youtube-credential.js')
+    const { readYouTubeChannelTokensForServer } = await import('../services/youtube-connection-store.js')
     const { tokenHasAnalyticsScope } = await import('./youtube-oauth.js')
-    const accountId = await store.getDefaultAccountId(slug, 'youtube')
-    if (!accountId) return []
-    const tokens = await store.readTokens(slug, 'youtube', accountId)
+    const credential = await resolveYouTubeCredential(slug)
+    if (!credential) return []
+    const accountId = credential.accountId
+    const tokens = await readYouTubeChannelTokensForServer(credential.channelId)
     if (!tokens || !tokenHasAnalyticsScope(tokens.scope)) return []
     const result = await getEpisodeAnalyticsCached(slug, accountId, {
       maxResults: Math.max(limit * 2, 20),

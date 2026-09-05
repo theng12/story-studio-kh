@@ -13,11 +13,12 @@ import path from 'path'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 let tempDir = ''
 let cleanup: () => Promise<void>
 let app: any
 let pm: typeof import('../services/project-manager.js')
-let store: typeof import('../services/upload-store.js')
+let connections: typeof import('../services/youtube-connection-store.js')
 let sidecars: typeof import('../services/upload-sidecar.js')
 let utils: typeof import('../services/utils.js')
 
@@ -54,7 +55,7 @@ before(async () => {
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   app = (await import('../app.js')).app
   pm = await import('../services/project-manager.js')
-  store = await import('../services/upload-store.js')
+  connections = await import('../services/youtube-connection-store.js')
   sidecars = await import('../services/upload-sidecar.js')
   utils = await import('../services/utils.js')
 })
@@ -69,6 +70,8 @@ beforeEach(async () => {
   const projectsDir = path.join(tempDir, 'projects')
   await fs.rm(projectsDir, { recursive: true, force: true })
   await fs.mkdir(projectsDir, { recursive: true })
+  await fs.rm(path.join(tempDir, 'youtube'), { recursive: true, force: true })
+  await fs.rm(path.join(tempDir, 'app-secrets.json'), { force: true })
 
   globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
     const url = String(input)
@@ -91,24 +94,24 @@ beforeEach(async () => {
   }) as any
 })
 
-async function seedUploadedEpisode(description: string, title = TITLE): Promise<{
+async function seedUploadedEpisode(description: string, title = TITLE, sidecarChannel = 'UC_backfill_test'): Promise<{
   slug: string
   videoId: string
   sidecarPath: string
 }> {
   const project = await pm.createProject({ name: `Backfill ${Date.now()}` })
   const slug = project.slug
-  const account = await store.addAccount(slug, 'youtube', {
-    label: 'Test channel',
-    remote_id: 'UC_backfill_test',
-    remote_title: 'Test channel',
+  await connections.configureYouTubeApplication({ client_id: 'backfill-client', client_secret: 'backfill-secret' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: 'UC_backfill_test', title: 'Test channel', granted_scopes: ['https://www.googleapis.com/auth/youtube'] },
+    tokens: {
+      access_token: 'fresh-access-token',
+      refresh_token: 'refresh-token',
+      expires_at: Date.now() + 60 * 60_000,
+      scope: 'https://www.googleapis.com/auth/youtube',
+    },
   })
-  await store.writeTokens(slug, 'youtube', account.id, {
-    access_token: 'fresh-access-token',
-    refresh_token: 'refresh-token',
-    expires_at: Date.now() + 60 * 60_000,
-    scope: 'https://www.googleapis.com/auth/youtube',
-  })
+  await connections.assignProjectYouTubeChannel({ project_slug: slug, channel_id: 'UC_backfill_test', expected_previous_channel_id: null })
   await pm.updateConfig(slug, {
     category_id: 24,
     mark_as_ai_generated: true,
@@ -133,8 +136,8 @@ async function seedUploadedEpisode(description: string, title = TITLE): Promise<
   await sidecars.writeSidecar(slug, CODE, TITLE, {
     platform: 'youtube',
     video_id: videoId,
-    account_id: account.id,
-    channel_id: 'UC_backfill_test',
+    account_id: `registry:${sidecarChannel}`,
+    channel_id: sidecarChannel,
     uploaded_at: '2026-09-01T00:00:00.000Z',
     last_sync_at: '2026-09-01T00:00:00.000Z',
     scheduled_for: null,
@@ -154,6 +157,20 @@ async function seedUploadedEpisode(description: string, title = TITLE): Promise<
 }
 
 describe('YouTube settings backfill description safety', () => {
+  test('preserves uploads from another historical channel without provider I/O', async () => {
+    const seeded = await seedUploadedEpisode('Historical description', TITLE, 'UC_previous_channel')
+    const sidecarBefore = await fs.readFile(seeded.sidecarPath)
+
+    const response = await request(app)
+      .post(`/api/projects/${seeded.slug}/upload/youtube-backfill`)
+      .send({})
+
+    assert.equal(response.status, 200, JSON.stringify(response.body))
+    assert.equal(response.body.eligible, 0)
+    assert.equal(fetchCalls.length, 0)
+    assert.deepEqual(await fs.readFile(seeded.sidecarPath), sidecarBefore)
+  })
+
   test('removes private markers from the outbound update without changing the saved sidecar', async () => {
     const description = [
       'Opening paragraph.',

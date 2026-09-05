@@ -21,8 +21,10 @@ import { test, describe, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 let mod: typeof import('../lib/youtube-analytics.js')
 let pm: typeof import('../services/project-manager.js')
+let connections: typeof import('../services/youtube-connection-store.js')
 let tmp: { dir: string; cleanup: () => Promise<void> }
 
 // Stub a chain of fetch responses. Each call to fetch() returns the next
@@ -54,16 +56,23 @@ describe('youtube-analytics', () => {
     // without hitting the OAuth refresh endpoint. We seed every account id
     // referenced by individual cases so tests don't fail with a "no tokens"
     // error before they get a chance to assert on cache behaviour.
-    const { writeTokens } = await import('../services/upload-store.js')
+    connections = await import('../services/youtube-connection-store.js')
+    await connections.configureYouTubeApplication({ client_id: 'analytics-client', client_secret: 'analytics-secret' })
     const tokenBundle = {
       access_token: 'fake-access-token',
       refresh_token: 'fake-refresh-token',
       expires_at: Date.now() + 60 * 60 * 1000,
       scope: 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/yt-analytics.readonly',
     }
-    for (const accountId of ['acct-1', 'acct-disk', 'acct-shared']) {
-      await writeTokens('analytics-test', 'youtube', accountId, tokenBundle)
+    for (const channelId of ['acct-1', 'acct-disk', 'acct-shared']) {
+      await saveYouTubeChannelGrantForTest({
+        channel: { channel_id: channelId, title: channelId, granted_scopes: tokenBundle.scope.split(' ') },
+        tokens: tokenBundle,
+      })
     }
+    await connections.assignProjectYouTubeChannel({
+      project_slug: 'analytics-test', channel_id: 'acct-1', expected_previous_channel_id: null,
+    })
     globalThis.fetch = mockFetch()
   })
 
@@ -76,7 +85,16 @@ describe('youtube-analytics', () => {
     mod._clearAnalyticsCache()
     await mod._clearDiskAnalyticsCache()
     fetchQueue.length = 0
+    await assignChannel('acct-1')
   })
+
+  async function assignChannel(channelId: string): Promise<void> {
+    const current = await connections.getProjectYouTubeAssignment('analytics-test')
+    await connections.assignProjectYouTubeChannel({
+      project_slug: 'analytics-test', channel_id: channelId,
+      expected_previous_channel_id: current?.channel_id ?? null,
+    })
+  }
 
   test('parses video rows + enriches with title/publishedAt', async () => {
     // 1. Per-video report
@@ -121,7 +139,7 @@ describe('youtube-analytics', () => {
       },
     })
 
-    const result = await mod.getEpisodeAnalytics('analytics-test', 'acct-1')
+    const result = await mod.getEpisodeAnalytics('analytics-test', 'registry:acct-1')
     assert.equal(result.rows.length, 2)
     assert.equal(result.rows[0]!.video_id, 'vid-A')
     assert.equal(result.rows[0]!.title, 'Hit Episode')
@@ -153,7 +171,7 @@ describe('youtube-analytics', () => {
     fetchQueue.push({ status: 200, body: { items: [] } })  // videos.list returns nothing
     fetchQueue.push({ status: 500, body: 'fail' })  // totals call fails — non-fatal
 
-    const result = await mod.getEpisodeAnalytics('analytics-test', 'acct-1')
+    const result = await mod.getEpisodeAnalytics('analytics-test', 'registry:acct-1')
     assert.equal(result.rows[0]!.video_id, 'reordered-vid')
     assert.equal(result.rows[0]!.views, 42)
     assert.equal(result.totals, undefined, 'totals fail is non-fatal')
@@ -175,7 +193,7 @@ describe('youtube-analytics', () => {
     fetchQueue.push({ status: 200, body: { items: [] } })
     fetchQueue.push({ status: 200, body: { columnHeaders: [{ name: 'views' }], rows: [[100]] } })
 
-    const result = await mod.getEpisodeAnalytics('analytics-test', 'acct-1')
+    const result = await mod.getEpisodeAnalytics('analytics-test', 'registry:acct-1')
     assert.equal(result.rows[0]!.ctr_percentage, undefined)
     assert.equal(result.rows[0]!.impressions, undefined)
     assert.equal(result.rows[0]!.views, 100)
@@ -185,7 +203,7 @@ describe('youtube-analytics', () => {
     fetchQueue.push({ status: 403, body: { error: { message: 'Insufficient Permission' } } })
 
     await assert.rejects(
-      () => mod.getEpisodeAnalytics('analytics-test', 'acct-1'),
+      () => mod.getEpisodeAnalytics('analytics-test', 'registry:acct-1'),
       (err: any) => {
         assert.equal(err.statusCode, 403)
         assert.match(err.message, /YouTube Analytics API error \(403\)/)
@@ -210,8 +228,8 @@ describe('youtube-analytics', () => {
     fetchQueue.push({ status: 200, body: { items: [] } })
     fetchQueue.push({ status: 200, body: { columnHeaders: [{ name: 'views' }], rows: [[50]] } })
 
-    const first = await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-1', { startDate: '2026-04-01', endDate: '2026-05-01' })
-    const second = await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-1', { startDate: '2026-04-01', endDate: '2026-05-01' })
+    const first = await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-1', { startDate: '2026-04-01', endDate: '2026-05-01' })
+    const second = await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-1', { startDate: '2026-04-01', endDate: '2026-05-01' })
     assert.equal(first.rows[0]!.video_id, 'vid-cached')
     assert.equal(second.rows[0]!.video_id, 'vid-cached')
     assert.equal(fetchQueue.length, 0, 'no extra fetches issued — cache hit')
@@ -232,7 +250,7 @@ describe('youtube-analytics', () => {
     })
     fetchQueue.push({ status: 200, body: { items: [] } })
     fetchQueue.push({ status: 200, body: { columnHeaders: [{ name: 'views' }], rows: [[10]] } })
-    await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-1', { startDate: '2026-04-01', endDate: '2026-05-01' })
+    await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-1', { startDate: '2026-04-01', endDate: '2026-05-01' })
 
     // Second (forced) call gets a different fixture set
     fetchQueue.push({
@@ -248,12 +266,13 @@ describe('youtube-analytics', () => {
     })
     fetchQueue.push({ status: 200, body: { items: [] } })
     fetchQueue.push({ status: 200, body: { columnHeaders: [{ name: 'views' }], rows: [[999]] } })
-    const refreshed = await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-1', { startDate: '2026-04-01', endDate: '2026-05-01', force: true })
+    const refreshed = await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-1', { startDate: '2026-04-01', endDate: '2026-05-01', force: true })
     assert.equal(refreshed.rows[0]!.video_id, 'vid-refreshed')
     assert.equal(fetchQueue.length, 0)
   })
 
   test('disk cache: fresh result is read after memory cache is wiped', async () => {
+    await assignChannel('acct-disk')
     fetchQueue.push({
       status: 200,
       body: {
@@ -268,19 +287,20 @@ describe('youtube-analytics', () => {
 
     // First call writes both memory + disk
     const opts = { startDate: '2026-04-01', endDate: '2026-04-15' }
-    const first = await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-disk', opts)
+    const first = await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-disk', opts)
     assert.equal(first.rows[0]!.video_id, 'vid-disk')
 
     // Wipe the in-memory cache only, simulating an Electron restart.
     mod._clearAnalyticsCache()
 
     // Disk hit — no fresh fetches issued.
-    const second = await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-disk', opts)
+    const second = await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-disk', opts)
     assert.equal(second.rows[0]!.video_id, 'vid-disk', 'disk cache served the second call')
     assert.equal(fetchQueue.length, 0, 'no extra fetches — disk hit avoided the network')
   })
 
   test('disk cache: distinct date ranges share a file but key independently', async () => {
+    await assignChannel('acct-shared')
     // Two different ranges for the same (slug, accountId). Both should
     // land in the same JSON file under different keys.
     for (const date of ['2026-01-15', '2026-02-15']) {
@@ -296,13 +316,13 @@ describe('youtube-analytics', () => {
       fetchQueue.push({ status: 200, body: { items: [] } })
       fetchQueue.push({ status: 200, body: { columnHeaders: [{ name: 'views' }], rows: [[1]] } })
     }
-    await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-shared', { startDate: '2026-01-01', endDate: '2026-01-31' })
-    await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-shared', { startDate: '2026-02-01', endDate: '2026-02-28' })
+    await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-shared', { startDate: '2026-01-01', endDate: '2026-01-31' })
+    await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-shared', { startDate: '2026-02-01', endDate: '2026-02-28' })
 
     // Wipe memory and re-read both — both should hit disk.
     mod._clearAnalyticsCache()
-    const a = await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-shared', { startDate: '2026-01-01', endDate: '2026-01-31' })
-    const b = await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-shared', { startDate: '2026-02-01', endDate: '2026-02-28' })
+    const a = await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-shared', { startDate: '2026-01-01', endDate: '2026-01-31' })
+    const b = await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-shared', { startDate: '2026-02-01', endDate: '2026-02-28' })
     assert.equal(a.rows[0]!.video_id, 'vid-2026-01-15')
     assert.equal(b.rows[0]!.video_id, 'vid-2026-02-15')
     assert.equal(fetchQueue.length, 0, 'both reads served from disk')
@@ -335,8 +355,8 @@ describe('youtube-analytics', () => {
     fetchQueue.push({ status: 200, body: { items: [] } })
     fetchQueue.push({ status: 200, body: { columnHeaders: [{ name: 'views' }], rows: [[2]] } })
 
-    const a = await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-1', { startDate: '2026-01-01', endDate: '2026-02-01' })
-    const b = await mod.getEpisodeAnalyticsCached('analytics-test', 'acct-1', { startDate: '2026-03-01', endDate: '2026-04-01' })
+    const a = await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-1', { startDate: '2026-01-01', endDate: '2026-02-01' })
+    const b = await mod.getEpisodeAnalyticsCached('analytics-test', 'registry:acct-1', { startDate: '2026-03-01', endDate: '2026-04-01' })
     assert.equal(a.rows[0]!.video_id, 'vid-A-range')
     assert.equal(b.rows[0]!.video_id, 'vid-B-range')
     assert.equal(fetchQueue.length, 0)

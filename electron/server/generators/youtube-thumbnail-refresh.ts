@@ -22,6 +22,7 @@ import { promises as fsp } from 'fs'
 import type { Job } from '../models/types.js'
 import * as im from '../services/idea-manager.js'
 import * as store from '../services/upload-store.js'
+import { resolveYouTubeCredential } from '../services/youtube-credential.js'
 import { isCancelled } from '../services/job-queue.js'
 import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { resolveUploadMetadata } from '../lib/upload-metadata.js'
@@ -42,6 +43,7 @@ export interface RefreshRow {
   sidecar_path: string
   video_id: string
   account_id: string
+  channel_id: string
   thumbnail_set: boolean
   deleted_at: string | null
 }
@@ -53,12 +55,13 @@ export interface RefreshRow {
  */
 export function selectEpisodesNeedingThumbnail(
   rows: RefreshRow[],
-  opts: { mode: 'missing' | 'all'; accountId: string },
+  opts: { mode: 'missing' | 'all'; channelId: string },
 ): RefreshRow[] {
   return rows.filter(r =>
     !!r.video_id
     && !r.deleted_at
-    && r.account_id === opts.accountId
+    && !!opts.channelId
+    && r.channel_id === opts.channelId
     && (opts.mode === 'all' ? true : !r.thumbnail_set),
   )
 }
@@ -87,6 +90,7 @@ export async function enumerateUploadRows(slug: string, platform: UploadPlatform
       sidecar_path: sidecarFile,
       video_id: sc.video_id,
       account_id: sc.account_id || '',
+      channel_id: sc.channel_id || '',
       thumbnail_set: !!sc.thumbnail_set,
       deleted_at: sc.deleted_at || null,
     })
@@ -111,9 +115,13 @@ export async function previewThumbnailRefresh(
   opts: { mode: 'missing' | 'all'; accountId?: string; platform?: UploadPlatform },
 ): Promise<RefreshPreview> {
   const platform = opts.platform || 'youtube'
-  const accountId = (opts.accountId || '').trim() || await store.getDefaultAccountId(slug, platform)
+  const credential = platform === 'youtube' ? await resolveYouTubeCredential(slug) : null
+  const requestedAccountId = (opts.accountId || '').trim()
+  const accountId = platform === 'youtube'
+    ? (!requestedAccountId || requestedAccountId === credential?.accountId ? credential?.accountId ?? '' : '')
+    : requestedAccountId || await store.getDefaultAccountId(slug, platform)
   const all = await enumerateUploadRows(slug, platform)
-  const targets = selectEpisodesNeedingThumbnail(all, { mode: opts.mode, accountId })
+  const targets = selectEpisodesNeedingThumbnail(all, { mode: opts.mode, channelId: credential?.channelId ?? '' })
   let willFix = 0, noImage = 0
   await Promise.all(targets.map(async (row) => {
     const meta = await resolveUploadMetadata({ slug, episode_code: row.episode_code, fallback_title: row.title, platform }).catch(() => null)
@@ -128,11 +136,13 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
   const params = (job.params ?? {}) as { account_id?: string; mode?: 'missing' | 'all' }
   const platform: UploadPlatform = 'youtube'
   const mode: 'missing' | 'all' = params.mode === 'all' ? 'all' : 'missing'
-  const accountId = (params.account_id || '').trim() || await store.getDefaultAccountId(slug, platform)
+  const credential = await resolveYouTubeCredential(slug)
+  const requestedAccountId = (params.account_id || '').trim()
+  const accountId = !requestedAccountId || requestedAccountId === credential?.accountId ? credential?.accountId ?? '' : ''
   if (!accountId) throw new Error('No active YouTube account for this project — connect one in the Upload Center.')
 
   const all = await enumerateUploadRows(slug, platform)
-  const targets = selectEpisodesNeedingThumbnail(all, { mode, accountId })
+  const targets = selectEpisodesNeedingThumbnail(all, { mode, channelId: credential!.channelId })
   const runStartedAt = new Date().toISOString()
   job.output_lines.push(`Thumbnail backfill: ${targets.length} of ${all.length} uploaded episode(s) to process (mode=${mode}).`)
 
@@ -162,7 +172,7 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
       remoteAccepted = true
       const saved = await checkpointThumbnailStateAtPath(
         row.sidecar_path,
-        { video_id: row.video_id, account_id: accountId },
+        { video_id: row.video_id, account_id: accountId, channel_id: credential!.channelId },
         { set: true, remotely_verified: true },
       )
       const checkpointErrors = (await auditThumbnailCheckpointAtPath(row.sidecar_path, {
@@ -180,7 +190,7 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
       if (!remoteAccepted) {
         await checkpointThumbnailStateAtPath(
           row.sidecar_path,
-          { video_id: row.video_id, account_id: accountId },
+          { video_id: row.video_id, account_id: accountId, channel_id: credential!.channelId },
           { set: false, error: msg, remotely_verified: false },
         ).catch(checkpointError => {
           job.output_lines.push(`⚠ ${row.episode_code}: could not save failure checkpoint — ${checkpointError?.message || checkpointError}`)

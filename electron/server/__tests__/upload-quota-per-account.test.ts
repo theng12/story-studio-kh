@@ -19,13 +19,17 @@ import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 let tempDir: string
 let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
 let quotaMod: typeof import('../services/upload-quota.js')
+let connections: typeof import('../services/youtube-connection-store.js')
 
-const ACCT_A = 'acct-aaaa-1111'
-const ACCT_B = 'acct-bbbb-2222'
+const CHANNEL_A = 'UC-quota-aaaa-1111'
+const CHANNEL_B = 'UC-quota-bbbb-2222'
+const ACCT_A = `registry:${CHANNEL_A}`
+const ACCT_B = `registry:${CHANNEL_B}`
 
 before(async () => {
   const t = await useTempDataDir()
@@ -33,6 +37,7 @@ before(async () => {
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')
   quotaMod = await import('../services/upload-quota.js')
+  connections = await import('../services/youtube-connection-store.js')
 })
 
 after(async () => { await cleanup() })
@@ -42,6 +47,8 @@ beforeEach(async () => {
   const quotaDir = path.join(tempDir, 'youtube-quota')
   await fs.rm(projectsDir, { recursive: true, force: true })
   await fs.rm(quotaDir, { recursive: true, force: true })
+  await fs.rm(path.join(tempDir, 'youtube'), { recursive: true, force: true })
+  await fs.rm(path.join(tempDir, 'app-secrets.json'), { force: true })
   await fs.mkdir(projectsDir, { recursive: true })
   quotaMod.__resetQuotaCache()
 })
@@ -49,19 +56,23 @@ beforeEach(async () => {
 async function makeProject(name: string, accountId: string | null): Promise<string> {
   const p = await pm.createProject({ name })
   if (accountId) {
-    await pm.updateConfig(p.slug, {
-      upload_default_account: { youtube: accountId },
-    } as any)
+    const channelId = accountId.slice('registry:'.length)
+    await connections.configureYouTubeApplication({ client_id: 'quota-client', client_secret: 'quota-secret' })
+    await saveYouTubeChannelGrantForTest({
+      channel: { channel_id: channelId, title: channelId, granted_scopes: ['youtube.upload'] },
+      tokens: { access_token: `access-${channelId}`, refresh_token: `refresh-${channelId}`, expires_at: 1_900_000_000_000 },
+    })
+    await connections.assignProjectYouTubeChannel({ project_slug: p.slug, channel_id: channelId, expected_previous_channel_id: null })
   }
   return p.slug
 }
 
 function ledgerPath(accountId: string): string {
-  return path.join(tempDir, 'youtube-quota', `${accountId}.jsonl`)
+  return path.join(tempDir, 'youtube-quota', `${encodeURIComponent(accountId)}.jsonl`)
 }
 
 function metaPath(accountId: string): string {
-  return path.join(tempDir, 'youtube-quota', `${accountId}.meta.json`)
+  return path.join(tempDir, 'youtube-quota', `${encodeURIComponent(accountId)}.meta.json`)
 }
 
 describe('per-account ledger creation', () => {
@@ -176,6 +187,15 @@ describe('opportunistic 30-day trim', () => {
 })
 
 describe('no-active-account behavior', () => {
+  test('corrupt connection state is not flattened into a zero quota snapshot', async () => {
+    const slug = await makeProject('CorruptRegistry', null)
+    const registryPath = connections.youtubeConnectionsPath()
+    await fs.mkdir(path.dirname(registryPath), { recursive: true })
+    await fs.writeFile(registryPath, '{not-json')
+
+    await assert.rejects(() => quotaMod.readQuota(slug), /corrupt|malformed|invalid/i)
+  })
+
   test('readQuota returns a zeroed snapshot when no YouTube account is connected', async () => {
     const slug = await makeProject('NoAccount', null)
     const snap = await quotaMod.readQuota(slug)
@@ -234,10 +254,15 @@ describe('account switching', () => {
     let snap = await quotaMod.readQuota(slug)
     assert.equal(snap.used, 1600, 'reading via ACCT_A')
 
-    // Swap default to a fresh account.
-    await pm.updateConfig(slug, {
-      upload_default_account: { youtube: ACCT_B },
-    } as any)
+    await saveYouTubeChannelGrantForTest({
+      channel: { channel_id: CHANNEL_B, title: CHANNEL_B, granted_scopes: ['youtube.upload'] },
+      tokens: { access_token: 'access-b', refresh_token: 'refresh-b', expires_at: 1_900_000_000_000 },
+    })
+    await connections.assignProjectYouTubeChannel({
+      project_slug: slug,
+      channel_id: CHANNEL_B,
+      expected_previous_channel_id: CHANNEL_A,
+    })
     quotaMod.__resetQuotaCache()
 
     snap = await quotaMod.readQuota(slug)

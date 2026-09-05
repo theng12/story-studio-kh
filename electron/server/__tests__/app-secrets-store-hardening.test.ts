@@ -12,10 +12,13 @@ import {
   clearApiKey,
   contentStoreAnchorsPath,
   getApiKey,
+  getApiKeySnapshot,
   readContentStoreKeyAnchor,
   recordContentStoreKeyAnchor,
+  readAppSecrets,
   setApiKey,
 } from '../services/app-secrets-store.js'
+import { readYouTubeConnectionRegistry } from '../services/youtube-connection-store.js'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
@@ -46,6 +49,102 @@ const anchor = {
 }
 
 describe('app-secret mutation input classification', () => {
+  test('never promotes plaintext YouTube credentials into the active store', async () => {
+    await isolate()
+    const original = Buffer.from(JSON.stringify({
+      schema_version: 3,
+      providers: { genstudio: { apiKey: 'gsk_plaintext_provider', userSet: true } },
+      youtube: {
+        oauth_client: { application_id: 'legacy-app', client_secret: 'plaintext-client-secret' },
+        channel_tokens: {
+          UC_plaintext: {
+            application_id: 'legacy-app',
+            access_token: 'plaintext-access-token',
+            refresh_token: 'plaintext-refresh-token',
+            expires_at: Date.now() + 60_000,
+          },
+        },
+      },
+    }))
+    await fs.writeFile(appSecretsPath(), original)
+
+    const secrets = await readAppSecrets()
+    assert.equal(secrets.providers.genstudio?.apiKey, 'gsk_plaintext_provider')
+    assert.equal(secrets.youtube, undefined)
+    await assert.rejects(
+      setApiKey('genstudio', 'gsk_replacement_must_not_erase_plaintext_youtube'),
+      /plaintext YouTube secrets/i,
+    )
+    assert.deepEqual(await fs.readFile(appSecretsPath()), original)
+  })
+
+  const validToken = {
+    application_id: 'app-valid',
+    access_token: 'access-valid',
+    refresh_token: 'refresh-valid',
+    expires_at: 1_800_000_000_000,
+  }
+  const malformedYouTubeBuckets: Array<[string, unknown]> = [
+    ['null bucket', null],
+    ['array bucket', []],
+    ['unknown bucket field', { future_secret: 'keep-me' }],
+    ['partial OAuth client', { oauth_client: { application_id: 'app-valid' } }],
+    ['unknown OAuth client field', {
+      oauth_client: { application_id: 'app-valid', client_secret: 'client-valid', future: 'keep-me' },
+    }],
+    ['array channel map', { channel_tokens: [] }],
+    ['empty channel ID', { channel_tokens: { '': validToken } }],
+    ['reserved channel ID', { channel_tokens: { constructor: validToken } }],
+    ['partial channel token', {
+      channel_tokens: { UC_valid: { ...validToken, refresh_token: undefined } },
+    }],
+    ['invalid channel scope', {
+      channel_tokens: { UC_valid: { ...validToken, scope: 7 } },
+    }],
+    ['unknown channel token field', {
+      channel_tokens: { UC_valid: { ...validToken, future: 'keep-me' } },
+    }],
+    ['partial pending registry', {
+      pending_registry: { transaction_id: 'tx-valid' },
+    }],
+    ['array pending registry snapshot', {
+      pending_registry: { transaction_id: 'tx-valid', registry: [] },
+    }],
+    ['unknown pending registry field', {
+      pending_registry: { transaction_id: 'tx-valid', registry: {}, future: 'keep-me' },
+    }],
+  ]
+
+  for (const [label, youtube] of malformedYouTubeBuckets) {
+    test(`malformed encrypted YouTube state (${label}) aborts provider save byte-for-byte`, async () => {
+      await isolate()
+      const original = Buffer.from(JSON.stringify(envelope({
+        schema_version: 3,
+        providers: { genstudio: { apiKey: 'gsk_existing', userSet: true } },
+        youtube,
+      })))
+      await fs.writeFile(appSecretsPath(), original)
+
+      await assert.rejects(setApiKey('genstudio', 'gsk_replacement'), /payload is invalid/i)
+      assert.deepEqual(await fs.readFile(appSecretsPath()), original)
+    })
+  }
+
+  for (const [label, providers] of [
+    ['unknown provider', { future_provider: { apiKey: 'future-key' } }],
+    ['extra provider field', { genstudio: { apiKey: 'gsk_existing', future: 'keep-me' } }],
+    ['invalid userSet', { genstudio: { apiKey: 'gsk_existing', userSet: 'yes' } }],
+    ['invalid generation', { genstudio: { apiKey: 'gsk_existing', generation: '' } }],
+  ] as Array<[string, unknown]>) {
+    test(`invalid provider state (${label}) aborts mutation byte-for-byte`, async () => {
+      await isolate()
+      const original = Buffer.from(JSON.stringify(envelope({ schema_version: 3, providers })))
+      await fs.writeFile(appSecretsPath(), original)
+      await assert.rejects(setApiKey('google', 'google-replacement'), /payload is invalid/i)
+      assert.deepEqual(await fs.readFile(appSecretsPath()), original)
+    })
+  }
+
   test('malformed JSON aborts a provider save without replacing the original bytes', async () => {
     await isolate()
     const original = Buffer.from('{not-json')
@@ -225,6 +324,46 @@ describe('dedicated Content Store anchor persistence', () => {
     assert.deepEqual(await readContentStoreKeyAnchor({
       origin: anchor.origin, account_id: anchor.account_id, content_account_id: anchor.content_account_id,
     }), anchor)
+  })
+
+  test('concurrent provider and YouTube saves preserve provider generation and anchor bytes', async t => {
+    const dataDir = await isolate()
+    await setApiKey('genstudio', 'gsk_before_concurrent')
+    const originalGeneration = (await getApiKeySnapshot('genstudio')).generation
+    await recordContentStoreKeyAnchor(anchor)
+    const anchorBytes = await fs.readFile(contentStoreAnchorsPath())
+    const worker = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'app-secrets-worker.ts')
+    const release = path.join(dataDir, 'release-provider-youtube')
+    const children = ['provider', 'youtube'].map(action => {
+      const ready = path.join(dataDir, `ready-provider-youtube-${action}`)
+      const child = spawn(process.execPath, ['--import', 'tsx', worker], {
+        env: { ...process.env, STORY_STUDIO_DATA_DIR: dataDir, ACTION: action, READY: ready, RELEASE: release },
+        stdio: 'pipe',
+      })
+      let stderr = ''
+      child.stderr.on('data', chunk => { stderr += chunk })
+      const exited = new Promise<void>((resolve, reject) => {
+        child.once('exit', code => code === 0 ? resolve() : reject(new Error(`secret worker exited ${code}: ${stderr}`)))
+      })
+      return { child, ready, exited }
+    })
+    t.after(async () => {
+      await fs.writeFile(release, 'release').catch(() => {})
+      for (const entry of children) if (entry.child.exitCode === null) entry.child.kill()
+      await Promise.allSettled(children.map(({ exited }) => exited))
+    })
+    await Promise.all(children.map(entry => waitFor(
+      () => fs.stat(entry.ready).then(() => true, () => false),
+      { label: `secret worker ${path.basename(entry.ready)} to become ready`, timeoutMs: 2_000, pollMs: 5 },
+    )))
+    await fs.writeFile(release, 'release')
+    await Promise.all(children.map(({ exited }) => exited))
+
+    const provider = await getApiKeySnapshot('genstudio')
+    assert.equal(provider.apiKey, 'gsk_child_provider')
+    assert.notEqual(provider.generation, originalGeneration)
+    assert.ok((await readYouTubeConnectionRegistry()).application)
+    assert.deepEqual(await fs.readFile(contentStoreAnchorsPath()), anchorBytes)
   })
 
   test('mutation provenance records only bounded nonsecret fields', async () => {

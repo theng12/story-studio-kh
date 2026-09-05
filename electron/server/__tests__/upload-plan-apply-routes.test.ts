@@ -34,11 +34,12 @@ import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 let tempDir: string
 let cleanup: () => Promise<void>
 let app: any
 let pm: typeof import('../services/project-manager.js')
-let store: typeof import('../services/upload-store.js')
+let connections: typeof import('../services/youtube-connection-store.js')
 let plans: typeof import('../services/upload-plans.js')
 let sidecar: typeof import('../services/upload-sidecar.js')
 
@@ -106,16 +107,19 @@ before(async () => {
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   app = (await import('../app.js')).app
   pm = await import('../services/project-manager.js')
-  store = await import('../services/upload-store.js')
+  connections = await import('../services/youtube-connection-store.js')
   plans = await import('../services/upload-plans.js')
   sidecar = await import('../services/upload-sidecar.js')
 
   const project = await pm.createProject({ name: 'Plan Apply Routes' })
   slug = project.slug
-  const account = await store.addAccount(slug, 'youtube', {
-    label: 'test-channel', remote_id: 'UC_test', remote_title: 'test-channel',
-  } as any)
-  accountId = account.id
+  await connections.configureYouTubeApplication({ client_id: 'plan-client', client_secret: 'plan-secret' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: 'UC_test', title: 'test-channel', granted_scopes: ['youtube.upload'] },
+    tokens: { access_token: 'plan-access', refresh_token: 'plan-refresh', expires_at: Date.now() + 3_600_000 },
+  })
+  await connections.assignProjectYouTubeChannel({ project_slug: slug, channel_id: 'UC_test', expected_previous_channel_id: null })
+  accountId = 'registry:UC_test'
   const plan = await plans.upsertPlan(slug, {
     name: 'Test cadence', platform: 'youtube', account_id: accountId,
     schedule: SCHEDULE as any,

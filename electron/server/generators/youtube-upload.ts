@@ -41,6 +41,7 @@ import {
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { ensureYoutubePlaylistMembership } from '../services/youtube-playlist-sync.js'
+import { describeYouTubeCredential, resolveYouTubeAccountId } from '../services/youtube-credential.js'
 
 interface YouTubeUploadParams {
   episode_id: string
@@ -82,12 +83,10 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
 
   job.output_lines.push(`YouTube upload — ${episodeId}`)
 
-  // Resolve account — default if not specified.
-  const accountId = params.account_id || (await store.getDefaultAccountId(slug, 'youtube'))
-  if (!accountId) throw new Error('No YouTube account connected. Open Upload Center and connect a channel first.')
-  const accounts = await store.listAccounts(slug, 'youtube')
-  const account = accounts.find(a => a.id === accountId)
-  if (!account) throw new Error(`YouTube account ${accountId} not found — reconnect in Upload Center.`)
+  const accountId = await resolveYouTubeAccountId(slug, params.account_id)
+  if (!accountId) throw new Error('No YouTube channel is assigned. Reconnect it in Settings → YouTube.')
+  const account = await describeYouTubeCredential(slug, accountId)
+  if (!account) throw new Error('This upload names an old YouTube connection. Reconnect it in Settings → YouTube.')
   job.output_lines.push(`Using channel: ${account.remote_title} (${account.remote_id})`)
 
   // Lookup episode + paths.

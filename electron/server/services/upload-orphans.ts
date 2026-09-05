@@ -39,7 +39,7 @@ import { resolveEpisodePaths, formatEpisodeCode, episodeNumber } from './utils.j
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { listRecentUploads } from '../lib/youtube-client.js'
 import { writeSidecar, readSidecar } from './upload-sidecar.js'
-import * as store from './upload-store.js'
+import { describeYouTubeCredential } from './youtube-credential.js'
 import { writeUndoSidecar, type RenumberUndoSidecar } from './upload-renumber-undo.js'
 
 export interface OrphanVideo {
@@ -212,7 +212,7 @@ export async function adoptSingle(
     throw new Error(`Episode code ${episode_code} is already in use`)
   }
 
-  const account = (await store.listAccounts(slug, 'youtube')).find(a => a.id === accountId)
+  const account = await describeYouTubeCredential(slug, accountId)
   if (!account) throw new Error(`YouTube account ${accountId} not found`)
 
   // adoptOne now goes through im.promoteToAccepted which itself bumps
@@ -234,7 +234,7 @@ export async function adoptBulkContinuation(
 ): Promise<{ adopted: AdoptedOne[]; errors: Array<{ video_id: string; error: string }> }> {
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
-  const account = (await store.listAccounts(slug, 'youtube')).find(a => a.id === accountId)
+  const account = await describeYouTubeCredential(slug, accountId)
   if (!account) throw new Error(`YouTube account ${accountId} not found`)
 
   const adopted: AdoptedOne[] = []
@@ -282,7 +282,7 @@ export async function adoptBulkRenumber(
 }> {
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
-  const account = (await store.listAccounts(slug, 'youtube')).find(a => a.id === accountId)
+  const account = await describeYouTubeCredential(slug, accountId)
   if (!account) throw new Error(`YouTube account ${accountId} not found`)
 
   const renamed: Array<{ old_code: string; new_code: string; old_dir: string; new_dir: string }> = []

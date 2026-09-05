@@ -67,6 +67,10 @@
       <GenStudioCatalogSettings />
     </div>
 
+    <div v-if="activeTab === 'youtube'" class="card settings-panel settings-panel-embedded mt-2">
+      <YouTubeConnectionSettings :slug="slug" />
+    </div>
+
     <!-- Historical editor retained in source for project evidence migration; never customer-visible. -->
     <div v-if="false" class="card settings-panel mt-2">
       <div class="settings-section-head">
@@ -3588,6 +3592,7 @@ const tabZones = [
         // v1.0.185 (S2) — API Keys / Appearance / Server Mode merged in from
         // the old standalone App-Settings modal. One "Settings" surface now.
         { id: 'app', label: 'App & Connections', icon: '◇', description: 'Manage appearance, remote access, and the GenStudio account connection and live catalogs shared by every project on this Mac.' },
+        { id: 'youtube', label: 'YouTube', icon: '▶', description: 'Configure the OAuth application, connect YouTube channels, and choose the channel this project publishes to.' },
       ] },
       { title: 'Local & system', tabs: [
         { id: 'ffmpeg', label: 'FFmpeg', icon: '▶', description: 'Install and verify the media engine used for audio mixing, subtitles, effects, and final video exports.' },

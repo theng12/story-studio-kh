@@ -24,11 +24,11 @@ import {
   inspectPlaylistSyncCheckpoint,
   readSidecar,
 } from '../services/upload-sidecar.js'
-import * as store from '../services/upload-store.js'
 import * as playlistsSvc from '../services/upload-playlists.js'
 import { isCancelled } from '../services/job-queue.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { ensureYoutubePlaylistMembership } from '../services/youtube-playlist-sync.js'
+import { describeYouTubeCredential, resolveYouTubeAccountId } from '../services/youtube-credential.js'
 
 interface YoutubePlaylistUpdateParams {
   episode_id: string
@@ -42,7 +42,12 @@ interface YoutubePlaylistUpdateParams {
   playlist_id?: string | null
 }
 
-export async function generateYoutubePlaylistUpdate(job: Job): Promise<void> {
+export async function generateYoutubePlaylistUpdate(
+  job: Job,
+  deps: { ensureMembership: typeof ensureYoutubePlaylistMembership } = {
+    ensureMembership: ensureYoutubePlaylistMembership,
+  },
+): Promise<void> {
   const slug = job.project_slug
   const params = (job.params || {}) as YoutubePlaylistUpdateParams
   const episodeId = params.episode_id || job.episode_id
@@ -51,11 +56,10 @@ export async function generateYoutubePlaylistUpdate(job: Job): Promise<void> {
   job.output_lines.push(`YouTube playlist update — ${episodeId}`)
 
   // Resolve account.
-  const accountId = params.account_id || (await store.getDefaultAccountId(slug, 'youtube'))
-  if (!accountId) throw new Error('No YouTube account connected. Open Upload Center and connect a channel first.')
-  const accounts = await store.listAccounts(slug, 'youtube')
-  const account = accounts.find(a => a.id === accountId)
-  if (!account) throw new Error(`YouTube account ${accountId} not found — reconnect in Upload Center.`)
+  const accountId = await resolveYouTubeAccountId(slug, params.account_id)
+  if (!accountId) throw new Error('Reconnect the assigned channel in Settings → YouTube before updating playlists.')
+  const account = await describeYouTubeCredential(slug, accountId)
+  if (!account) throw new Error('Reconnect the assigned channel in Settings → YouTube before updating playlists.')
   job.output_lines.push(`Using channel: ${account.remote_title} (${account.remote_id})`)
 
   // The sidecar is the source of truth for video_id. No upload sidecar →
@@ -99,7 +103,7 @@ export async function generateYoutubePlaylistUpdate(job: Job): Promise<void> {
     )
   }
 
-  const membership = await ensureYoutubePlaylistMembership({
+  const membership = await deps.ensureMembership({
     slug,
     accountId,
     playlistId,
@@ -110,6 +114,7 @@ export async function generateYoutubePlaylistUpdate(job: Job): Promise<void> {
     playlist_id: playlistId,
     video_id: sidecar.video_id,
     account_id: accountId,
+    channel_id: account.remote_id,
   })
   const saved = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
   const checkpointErrors = inspectPlaylistSyncCheckpoint(saved, {

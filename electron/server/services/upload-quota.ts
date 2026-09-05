@@ -33,9 +33,9 @@
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from './project-manager.js'
-import * as store from './upload-store.js'
 import { logLine } from './logger.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { resolveYouTubeAccountId } from './youtube-credential.js'
 
 export const YOUTUBE_DEFAULT_QUOTA = 10_000
 
@@ -161,12 +161,22 @@ function getQuotaDir(): string {
   return path.join(pm.getUserDataDir(), 'youtube-quota')
 }
 
+function quotaFilePath(accountId: string, suffix: '.jsonl' | '.meta.json'): string {
+  if (!accountId || accountId.includes('/') || accountId.includes('\\') || accountId.includes('\0')) {
+    throw new Error('YouTube quota account id is not a safe path segment')
+  }
+  const quotaDir = path.resolve(getQuotaDir())
+  const filePath = path.resolve(quotaDir, `${encodeURIComponent(accountId)}${suffix}`)
+  if (path.dirname(filePath) !== quotaDir) throw new Error('YouTube quota path escaped its storage directory')
+  return filePath
+}
+
 function ledgerPath(accountId: string): string {
-  return path.join(getQuotaDir(), `${accountId}.jsonl`)
+  return quotaFilePath(accountId, '.jsonl')
 }
 
 function metaPath(accountId: string): string {
-  return path.join(getQuotaDir(), `${accountId}.meta.json`)
+  return quotaFilePath(accountId, '.meta.json')
 }
 
 async function readLedger(accountId: string): Promise<LedgerEntry[]> {
@@ -247,12 +257,8 @@ async function maybeTrim(accountId: string, entries: LedgerEntry[]): Promise<Led
 // ── Account resolution ────────────────────────────────────────────────────
 
 async function resolveAccountId(slug: string): Promise<string | null> {
-  try {
-    const id = await store.getDefaultAccountId(slug, 'youtube')
-    return id ? id : null
-  } catch {
-    return null
-  }
+  const id = await resolveYouTubeAccountId(slug)
+  return id || null
 }
 
 // ── In-memory cache (5s TTL per account) ──────────────────────────────────

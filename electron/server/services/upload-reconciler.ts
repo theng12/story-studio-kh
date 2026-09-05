@@ -18,7 +18,7 @@
 import * as im from './idea-manager.js'
 import { listRecentUploads } from '../lib/youtube-client.js'
 import { readSidecar, writeSidecar } from './upload-sidecar.js'
-import * as store from './upload-store.js'
+import { describeYouTubeCredential } from './youtube-credential.js'
 import type { UploadSidecar } from './upload-sidecar.js'
 
 export interface RemoteVideo {
@@ -179,7 +179,7 @@ export interface ConfirmResult {
  */
 export async function confirmReconcile(slug: string, accountId: string, links: ConfirmLink[]): Promise<ConfirmResult> {
   const result: ConfirmResult = { written: [], errors: [], titles_synced: [] }
-  const account = (await store.listAccounts(slug, 'youtube')).find(a => a.id === accountId)
+  const account = await describeYouTubeCredential(slug, accountId)
   if (!account) throw new Error(`YouTube account ${accountId} not found`)
 
   const ideas = await im.getIdeas(slug, 'accepted')

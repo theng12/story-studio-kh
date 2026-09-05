@@ -18,11 +18,13 @@ import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 let tempDir: string
 let cleanup: () => Promise<void>
 let app: any
-let store: typeof import('../services/upload-store.js')
 let pm: typeof import('../services/project-manager.js')
+let connections: typeof import('../services/youtube-connection-store.js')
+let appSecrets: typeof import('../services/app-secrets-store.js')
 
 const fetchQueue: Array<{ status: number; body: any }> = []
 const originalFetch = globalThis.fetch
@@ -35,8 +37,9 @@ before(async () => {
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   const mod = await import('../app.js')
   app = mod.app
-  store = await import('../services/upload-store.js')
   pm = await import('../services/project-manager.js')
+  connections = await import('../services/youtube-connection-store.js')
+  appSecrets = await import('../services/app-secrets-store.js')
 
   // Stub global fetch — only the happy-path test uses it.
   globalThis.fetch = (async (input: any) => {
@@ -60,9 +63,21 @@ describe('Upload Analytics route', () => {
     const root = pm.projectsRoot()
     try { await fs.rm(root, { recursive: true, force: true }) } catch {}
     await fs.mkdir(root, { recursive: true })
+    await fs.rm(path.join(tempDir, 'youtube'), { recursive: true, force: true })
+    await fs.rm(path.join(tempDir, 'app-secrets.json'), { force: true })
     const { _clearAnalyticsCache } = await import('../lib/youtube-analytics.js')
     _clearAnalyticsCache()
   })
+
+  async function connect(slug: string, channelId: string, scope: string, keepTokens = true): Promise<void> {
+    await connections.configureYouTubeApplication({ client_id: 'analytics-route-client', client_secret: 'analytics-route-secret' })
+    await saveYouTubeChannelGrantForTest({
+      channel: { channel_id: channelId, title: channelId, granted_scopes: scope.split(' ') },
+      tokens: { access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 3600_000, scope },
+    })
+    await connections.assignProjectYouTubeChannel({ project_slug: slug, channel_id: channelId, expected_previous_channel_id: null })
+    if (!keepTokens) await appSecrets.writeAppSecrets(state => { delete state.youtube?.channel_tokens?.[channelId] })
+  }
 
   test('404 when project does not exist', async () => {
     const res = await request(app).get('/api/projects/no-such-slug/upload/analytics')
@@ -74,14 +89,13 @@ describe('Upload Analytics route', () => {
     const slug = created.body.slug
     const res = await request(app).get(`/api/projects/${slug}/upload/analytics`)
     assert.equal(res.status, 400)
-    assert.match(res.body.detail, /No YouTube account connected/)
+    assert.match(res.body.detail, /No YouTube channel is assigned/)
   })
 
   test('404 when account exists but tokens are missing', async () => {
     const created = await request(app).post('/api/projects').send({ name: 'A2' })
     const slug = created.body.slug
-    // Set a default account id without writing any tokens
-    await store.setDefaultAccountId(slug, 'youtube', 'phantom-account')
+    await connect(slug, 'phantom-account', 'https://www.googleapis.com/auth/youtube.upload', false)
     const res = await request(app).get(`/api/projects/${slug}/upload/analytics`)
     assert.equal(res.status, 404)
     assert.match(res.body.detail, /No tokens for this account/)
@@ -90,11 +104,7 @@ describe('Upload Analytics route', () => {
   test('403 with reauth_required when tokens lack analytics scope', async () => {
     const created = await request(app).post('/api/projects').send({ name: 'A3' })
     const slug = created.body.slug
-    await store.setDefaultAccountId(slug, 'youtube', 'legacy-account')
-    await store.writeTokens(slug, 'youtube', 'legacy-account', {
-      access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 3600_000,
-      scope: 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube',
-    })
+    await connect(slug, 'no-analytics-scope', 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube')
     const res = await request(app).get(`/api/projects/${slug}/upload/analytics`)
     assert.equal(res.status, 403)
     assert.equal(res.body.reauth_required, true)
@@ -103,11 +113,7 @@ describe('Upload Analytics route', () => {
   test('200 happy path with analytics scope + stubbed fetch', async () => {
     const created = await request(app).post('/api/projects').send({ name: 'A4' })
     const slug = created.body.slug
-    await store.setDefaultAccountId(slug, 'youtube', 'good-account')
-    await store.writeTokens(slug, 'youtube', 'good-account', {
-      access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 3600_000,
-      scope: 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/yt-analytics.readonly',
-    })
+    await connect(slug, 'good-account', 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/yt-analytics.readonly')
 
     // Queue: per-video report, videos.list metadata, channel totals
     fetchQueue.push({
@@ -141,11 +147,7 @@ describe('Upload Analytics route', () => {
   test('subsequent call hits cache (no extra fetches)', async () => {
     const created = await request(app).post('/api/projects').send({ name: 'A5' })
     const slug = created.body.slug
-    await store.setDefaultAccountId(slug, 'youtube', 'good-account')
-    await store.writeTokens(slug, 'youtube', 'good-account', {
-      access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 3600_000,
-      scope: 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/yt-analytics.readonly',
-    })
+    await connect(slug, 'good-account', 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/yt-analytics.readonly')
     fetchQueue.push({
       status: 200,
       body: {

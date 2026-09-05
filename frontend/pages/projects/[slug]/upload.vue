@@ -33,7 +33,7 @@
         <button
           class="btn btn-sm btn-ghost"
           :disabled="loading"
-          title="Reload accounts, OAuth status, and playlists across all tabs. Use after connecting/disconnecting a YouTube account or if a tab looks stale. Doesn't refresh the upload queue rows — use the Refresh queue button inside the queue for that."
+          title="Reload assigned accounts and playlists across all tabs. Use after changing the YouTube connection in Settings or if a tab looks stale. Doesn't refresh the upload queue rows — use the Refresh queue button inside the queue for that."
           @click="refreshAll"
         >
           <LoadingSpinner v-if="loading" size="sm" />
@@ -106,9 +106,8 @@
     <div v-if="activeTab === 'accounts'" class="card workspace-section upload-tab-panel">
       <h3 style="margin: 0">Platforms & Connected Accounts</h3>
       <p class="text-muted" style="font-size: 12px; margin: 4px 0 12px;">
-        Story Studio uses the <strong>installed-app loopback flow</strong>: clicking Connect
-        opens your system browser, you consent, and our local app catches the redirect.
-        Tokens live in this project's <code>secrets.json</code> (mode 0600) and never leave your machine.
+        YouTube connections and this project's channel assignment are managed in Settings.
+        OAuth credentials are encrypted on this Mac; published-video records remain with each episode.
       </p>
 
       <!-- YouTube -->
@@ -120,72 +119,15 @@
             <span v-else class="state-pill state-empty">Not connected</span>
           </div>
           <p class="text-muted" style="font-size: 12px;">
-            One project = one YouTube channel. Connecting a different Google account replaces the existing connection
-            (tokens are revoked + wiped) so uploads can't accidentally land on the wrong channel.
+            One project publishes to one assigned YouTube channel. Settings shows every connected channel,
+            connection health, and the explicit replacement controls.
           </p>
         </div>
 
-        <!-- OAuth client credentials form -->
-        <details class="oauth-client-details" :open="!clientStatus.youtube?.configured">
-          <summary>
-            <strong>Google Cloud OAuth app</strong>
-            <span v-if="clientStatus.youtube?.check_error" class="state-pill state-warn" :title="clientStatus.youtube.check_error">
-              ⚠ Couldn't verify
-            </span>
-            <span v-else-if="clientStatus.youtube?.configured" class="state-pill state-set">Configured</span>
-            <span v-else class="state-pill state-empty">Not configured</span>
-          </summary>
-          <p v-if="clientStatus.youtube?.check_error" class="text-muted" style="font-size: 12px; color: #fbbf24;">
-            We couldn't reach the OAuth status endpoint to confirm whether credentials are saved
-            (<code>{{ clientStatus.youtube.check_error }}</code>). Don't re-paste your client_id/secret on this signal alone —
-            it might already be configured. Try again once the backend is reachable.
-          </p>
-          <p class="text-muted" style="font-size: 12px;">
-            You need a Google Cloud OAuth <em>Desktop app</em> client (console.cloud.google.com → APIs & Services → Credentials).
-            Paste the <code>client_id</code> + <code>client_secret</code> here. They're stored in this project's secrets file,
-            not shared across projects or with anyone else. Redirect URIs do <strong>not</strong> need to be configured — the loopback redirect uses a random port.
-          </p>
-          <div class="oauth-client-row">
-            <div class="form-group">
-              <label>client_id</label>
-              <input v-model="ytClientIdInput" class="input input-sm" :placeholder="clientStatus.youtube?.client_id || 'xxxxxxxx.apps.googleusercontent.com'" />
-            </div>
-            <div class="form-group">
-              <label>client_secret</label>
-              <input
-                v-model="ytClientSecretInput"
-                class="input input-sm"
-                type="password"
-                :placeholder="clientStatus.youtube?.client_secret_masked || 'GOCSPX-...'"
-              />
-            </div>
-            <button
-              class="btn btn-sm btn-primary"
-              :disabled="!canSaveClient"
-              @click="saveYoutubeClient"
-            >Save</button>
-            <button
-              v-if="clientStatus.youtube?.configured"
-              class="btn btn-sm btn-danger"
-              @click="clearYoutubeClient"
-            >Clear</button>
-          </div>
-        </details>
-
-        <!-- Connect button + status -->
         <div class="connect-row">
-          <button
-            class="btn btn-primary"
-            :disabled="!clientStatus.youtube?.configured || connecting"
-            :title="clientStatus.youtube?.configured
-              ? 'Opens Google\'s consent page in your system browser. After approval, the redirect lands on our loopback server and a new account row appears here.'
-              : 'Save a client_id + client_secret first.'"
-            @click="connectYoutube"
-          >
-            <LoadingSpinner v-if="connecting" size="sm" />
-            {{ connecting ? (connectPhase || 'Connecting…') : '🔌 Connect YouTube' }}
-          </button>
-          <span v-if="connectError" class="text-danger" style="font-size: 12px;">{{ connectError }}</span>
+          <NuxtLink :to="`/projects/${slug}/settings#youtube`" class="btn btn-primary">
+            Manage YouTube connection
+          </NuxtLink>
         </div>
 
         <!-- Schedule mode — private-first vs apply-plan -->
@@ -237,11 +179,11 @@
               Connected {{ formatDate(youtubeAccounts[0].connected_at) }}
             </div>
           </div>
-          <button
-            class="btn btn-sm btn-danger"
-            :title="`Disconnect \u201C${youtubeAccounts[0].remote_title}\u201D. Tokens are revoked on Google's side and wiped locally. Videos already uploaded stay on YouTube. You can reconnect a different channel afterward.`"
-            @click="disconnect(youtubeAccounts[0])"
-          >Disconnect</button>
+          <NuxtLink
+            :to="`/projects/${slug}/settings#youtube`"
+            class="btn btn-sm btn-secondary"
+            title="Manage this local connection and project assignment in Settings. Videos already published stay on YouTube."
+          >Manage</NuxtLink>
         </div>
       </section>
 
@@ -2792,7 +2734,6 @@ const {
   platforms,
   accounts,
   defaults,
-  clientStatus,
   loading,
   youtubeAccounts,
   queueItems,
@@ -2864,12 +2805,6 @@ const {
   createPlaylistFor,
   setDefaultPlaylist,
   refreshAll,
-  saveOAuthClient,
-  clearOAuthClient,
-  startOAuthFlow,
-  waitForOAuthFlow,
-  removeAccount,
-  setDefault,
   triggerUpload,
   triggerMetadataUpdate,
   triggerPlaylistUpdate,
@@ -5893,83 +5828,6 @@ function playlistChipFor(item: any): { label: string; title: string } | null {
   }
 }
 
-// OAuth client form state — bound to inputs, flushed on Save.
-const ytClientIdInput = ref('')
-const ytClientSecretInput = ref('')
-const canSaveClient = computed(() => !!ytClientIdInput.value.trim() && !!ytClientSecretInput.value.trim())
-
-async function saveYoutubeClient() {
-  try {
-    await saveOAuthClient('youtube', ytClientIdInput.value.trim(), ytClientSecretInput.value.trim())
-    ytClientIdInput.value = ''
-    ytClientSecretInput.value = ''
-    success('YouTube OAuth client saved — you can now connect an account.')
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to save OAuth client')
-  }
-}
-
-async function clearYoutubeClient() {
-  const ok = await ask({
-    title: 'Clear YouTube OAuth client?',
-    message: 'This removes the Google Cloud client_id + client_secret from this project. Connected accounts remain (their tokens still work) but you won\'t be able to connect new ones until you re-add a client.',
-    confirmLabel: 'Clear',
-    danger: true,
-  })
-  if (!ok) return
-  try {
-    await clearOAuthClient('youtube')
-    success('OAuth client cleared.')
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to clear OAuth client')
-  }
-}
-
-// Connect-flow state — owns its own loading spinner + error message.
-const connecting = ref(false)
-const connectPhase = ref('')
-const connectError = ref('')
-
-async function connectYoutube() {
-  connecting.value = true
-  connectError.value = ''
-  connectPhase.value = 'Preparing…'
-  try {
-    const { flow_id, auth_url } = await startOAuthFlow('youtube')
-    connectPhase.value = 'Opened browser — waiting for consent…'
-    // Open the system browser. In Electron this lands via the main-process
-    // navigation handler; in dev (plain Nuxt) it opens a new tab.
-    window.open(auth_url, '_blank', 'noopener,noreferrer')
-    const r = await waitForOAuthFlow(flow_id)
-    if (!r.ok) {
-      connectError.value = r.error || 'OAuth flow failed'
-      return
-    }
-    success('YouTube connected — account added below.')
-  } catch (e: any) {
-    connectError.value = e?.data?.detail || e?.message || 'Failed to connect'
-  } finally {
-    connecting.value = false
-    connectPhase.value = ''
-  }
-}
-
-async function disconnect(acc: any) {
-  const ok = await ask({
-    title: `Disconnect "${acc.remote_title}"?`,
-    message: 'Removes the stored tokens and the account row. Videos already uploaded stay on YouTube unchanged.',
-    confirmLabel: 'Disconnect',
-    danger: true,
-  })
-  if (!ok) return
-  try {
-    await removeAccount(acc)
-    success(`Disconnected ${acc.remote_title}`)
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to disconnect')
-  }
-}
-
 function formatDate(iso: string): string {
   if (!iso) return ''
   try { return new Date(iso).toLocaleString() } catch { return iso }
@@ -6966,31 +6824,6 @@ onBeforeUnmount(() => {
 .state-pill.state-coming {
   background: var(--bg-tertiary); color: var(--text-secondary);
   border: 1px dashed var(--border);
-}
-
-.oauth-client-details {
-  margin: 6px 0 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
-}
-.oauth-client-details summary {
-  cursor: pointer;
-  display: flex; align-items: center; gap: 10px;
-  font-size: 13px;
-}
-.oauth-client-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto auto;
-  gap: 8px;
-  align-items: end;
-  margin-top: 10px;
-}
-.oauth-client-row .form-group { margin: 0; }
-.oauth-client-row label {
-  display: block; font-size: var(--font-xs); color: var(--text-muted);
-  margin-bottom: 2px;
 }
 
 .connect-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
