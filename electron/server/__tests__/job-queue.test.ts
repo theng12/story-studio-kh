@@ -7,6 +7,8 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import type { Job } from '../models/types.js'
+import express from 'express'
+import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 
 let tempDir: string
@@ -376,6 +378,32 @@ describe('pipeline chain handoff failures', () => {
     assert.equal(children.length, 1)
     await waitForJobStatus(children[0].job_id, 'done')
     assert.equal(paidChildRuns, 1, 'the finalizer tail cannot repeat paid children')
+    assert.equal(jq.removeTerminalJob(proj.slug, finalizer.job_id), true)
+    assert.equal(jq.removeTerminalJob(proj.slug, children[0].job_id), true)
+    await jq.mutateAuthoritativeJob(proj.slug, subtitle.job_id, job => ({ ...job,
+      params: { ...job.params, sections: ['Chapter_03'], subtitle_recovery_plan_id: 'original-subtitle-budget' },
+      result: { missing_sections: ['Chapter_03'] } }))
+    const { router } = await import('../routes/video.js')
+    const app = express().use(express.json()).use(router)
+    const purchase = await request(app).post(`/projects/${proj.slug}/video-editor/subtitles/buy-missing/${subtitle.job_id}`).send({ additional_credit_ceiling: 3 })
+    assert.equal(purchase.status, 201, JSON.stringify(purchase.body))
+    await waitForJobStatus(purchase.body.job_id, 'error')
+    const purchaseJob = (await jq.loadAuthoritativeJob(proj.slug, purchase.body.job_id))!
+    assert.equal(purchaseJob.params.subtitle_finalizer_job_id, finalizer.job_id, 'derived purchase carries the original immutable handoff identity')
+    const restartedPlan = recovery.createEpisodeRecoveryPlan([JSON.parse(JSON.stringify(purchaseJob))])
+    assert.equal(restartedPlan.continuation_job_id, finalizer.job_id)
+    assert.equal(restartedPlan.continuation_dispatched, true)
+    await recovery.dispatchEpisodeRecoveryStep(restartedPlan, { verified, message: 'restart' }, await jq.getJobs(proj.slug))
+    await jq._waitForJobPersistenceForTesting()
+    assert.equal(finalizerRuns, 1, 'a failed derived purchase cannot repeat a pruned finalizer')
+    assert.equal(paidChildRuns, 1, 'nor repeat the paid child after restart')
+    assert.equal((await jq.getJobs(proj.slug)).filter(job => ['metadata', 'thumb_images'].includes(job.type)).length, 0)
+    jq.registerExecutor('subtitles_transcribe', async () => {})
+    const derivedSuccess = jq.enqueuePreparedForTest({ project_slug: proj.slug, episode_id: 'EP001', type: 'subtitles_transcribe',
+      title: 'recovered purchase', params: JSON.parse(JSON.stringify(purchaseJob.params)) })
+    await waitForJobStatus(derivedSuccess.job_id, 'done')
+    assert.equal(finalizerRuns, 1, 'successful derived jobs honor the same pruned handoff tombstone')
+    assert.equal(paidChildRuns, 1)
   })
 
   test('persists a failed child job instead of reporting a false-success batch', async () => {

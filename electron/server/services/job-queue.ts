@@ -2857,7 +2857,15 @@ async function recordChainHandoffFailure(
  * directly-following metadata step: its own finalizer records the incomplete
  * subtitle warning while still using authoritative Audio Assembly timing.
  */
-export function subtitleFinalizerJobId(sourceJobId: string): string { return `subtitle-finalizer-${sourceJobId}` }
+export function subtitleFinalizerJobId(source: string | Pick<Job, 'job_id' | 'params'>): string {
+  if (typeof source === 'string') return `subtitle-finalizer-${source}`
+  const saved = source.params?.subtitle_finalizer_job_id
+  if (saved === undefined) return `subtitle-finalizer-${source.job_id}`
+  if (typeof saved !== 'string' || !saved.startsWith('subtitle-finalizer-') || saved.length <= 'subtitle-finalizer-'.length) {
+    throw new Error('Invalid saved subtitle finalizer handoff identity.')
+  }
+  return saved
+}
 
 async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
   if (job.type !== 'subtitles_transcribe') return
@@ -2867,8 +2875,12 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
   if (nextStep?.type !== 'metadata') return
 
   try {
+    const handoffId = subtitleFinalizerJobId(job)
+    job.params.subtitle_finalizer_job_id = handoffId
+    if (job.params.subtitle_finalizer_dispatched === true) return
+    await persistJob(job) // Derived jobs inherit the owner before any handoff side effect.
     const batchId = job.params?.pipeline_batch_id
-    await enqueueEpisodeRecoveryOnce(subtitleFinalizerJobId(job.job_id), {
+    await enqueueEpisodeRecoveryOnce(handoffId, {
       project_slug: job.project_slug,
       type: 'metadata',
       episode_id: job.episode_id,
@@ -2926,8 +2938,13 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
     else {
       const options = { project_slug: job.project_slug, type: nextStep.type as JobType, episode_id: job.episode_id, title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`, params: nextParams }
       if (job.type === 'subtitles_transcribe' && nextStep.type === 'metadata') {
-        await enqueueEpisodeRecoveryOnce(subtitleFinalizerJobId(job.job_id), options)
-        job.params.subtitle_finalizer_dispatched = true
+        const handoffId = subtitleFinalizerJobId(job)
+        job.params.subtitle_finalizer_job_id = handoffId
+        if (job.params.subtitle_finalizer_dispatched !== true) {
+          await persistJob(job)
+          await enqueueEpisodeRecoveryOnce(handoffId, options)
+          job.params.subtitle_finalizer_dispatched = true
+        }
       }
       else await enqueue(options)
       job.output_lines.push(`→ Chained next step: ${nextStep.type}`)

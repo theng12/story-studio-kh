@@ -63,6 +63,7 @@ export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = 
     delete params.subtitle_purchase
     if (source?.status === 'cancelled') params.force = false
     if (step === 'subtitle_sections') {
+      if (source) params.subtitle_finalizer_job_id = jq.subtitleFinalizerJobId(source)
       assertSectionScope(params)
       params.force = false
       const missing = source?.result?.missing_sections
@@ -84,7 +85,7 @@ export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = 
     if (chain.length > lastRecovery + 1) {
       plan.continuation = structuredClone(chain.slice(lastRecovery + 1))
       plan.continuation_job_id = lastRecovery === -1 && job.type === 'subtitles_transcribe' && chain[0]?.type === 'metadata'
-        ? jq.subtitleFinalizerJobId(job.job_id) : undefined
+        ? jq.subtitleFinalizerJobId(job) : undefined
       plan.continuation_dispatched = !!plan.continuation_job_id && job.params.subtitle_finalizer_dispatched === true
       plan.pipeline_batch_id = job.params.pipeline_batch_id
     }
@@ -232,7 +233,7 @@ export async function dispatchEpisodeRecoveryStep(
   const step = nextEpisodeRecoveryStep(plan, verified)
   plan.message = step ? `${facts.message}. Waiting for ${labels[step]}.` : 'Episode recovery complete.'
   if (!step) {
-    if (plan.continuation_job_id && jobs.some(job => jq.subtitleFinalizerJobId(job.job_id) === plan.continuation_job_id
+    if (plan.continuation_job_id && jobs.some(job => jq.subtitleFinalizerJobId(job) === plan.continuation_job_id
       && job.params.subtitle_finalizer_dispatched === true)) plan.continuation_dispatched = true
     if (plan.continuation?.length && !plan.continuation_dispatched) {
       const [next, ...rest] = plan.continuation
