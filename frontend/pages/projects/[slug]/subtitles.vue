@@ -77,6 +77,9 @@
                 <template v-if="coverage.total && coverage.done === coverage.total"> — ready for Scene Plan ✓</template>
               </span>
             </div>
+            <p v-if="sections.length" class="text-muted text-xs mt-2">
+              Generate or regenerate one chapter at a time. Each action starts a new GenStudio request for only that chapter; its current quote may be charged.
+            </p>
             <ul v-if="sections.length" class="sub-chapter-list mt-2">
               <li v-for="s in sections" :key="s.slug" class="sub-chapter-row">
                 <span class="sub-chapter-mark" :class="{ ok: chapterHasSrt(s.slug) }" aria-hidden="true">
@@ -90,6 +93,16 @@
                 <span v-if="chapterIsGarbled(s.slug)" class="garbled-tag" title="Some cues look like transcription errors — see Subtitle files below.">
                   ⚠ garbled text
                 </span>
+                <div class="sub-chapter-action">
+                  <button
+                    :class="['btn', 'btn-xs', chapterHasSrt(s.slug) ? 'btn-secondary' : 'btn-primary']"
+                    type="button"
+                    :disabled="!canTranscribe || transcribing"
+                    :aria-label="`${chapterHasSrt(s.slug) ? 'Regenerate' : 'Generate'} ${s.label} subtitles`"
+                    :title="canTranscribe ? `Starts a fresh GenStudio request for ${s.label} only.` : transcribeDisabledReason"
+                    @click="retranscribeChapter(s.slug)"
+                  >{{ chapterHasSrt(s.slug) ? 'Regenerate this chapter' : 'Generate this chapter' }}</button>
+                </div>
               </li>
             </ul>
           </div>
@@ -213,19 +226,10 @@
             </li>
             <!-- v1.2.2 — the offending cues shown in place, so the file above can
                  be judged without opening it. Advisory only: nothing is disabled
-                 and the file is never rewritten. Re-transcription is the only
-                 real repair, so that is the action offered — never a rewrite. -->
+                 and the file is never rewritten. The chapter-level re-generation
+                 action lives in the coverage list above. -->
             <li v-if="hasQualityFindings(srt.quality)" class="sub-file-quality">
-              <SubtitleQualityWarning :quality="srt.quality" :subject="srt.filename">
-                <template v-if="sectionSlugForFile(srt.filename)" #actions>
-                  <button
-                    class="btn btn-sm"
-                    :disabled="transcribing || !canTranscribe"
-                    title="Transcribe this one chapter again from its audio. Only this chapter is charged."
-                    @click="retranscribeChapter(sectionSlugForFile(srt.filename)!)"
-                  >Re-transcribe this chapter</button>
-                </template>
-              </SubtitleQualityWarning>
+              <SubtitleQualityWarning :quality="srt.quality" :subject="srt.filename" />
             </li>
           </template>
         </ul>
@@ -505,24 +509,6 @@ function chapterHasSrt(secSlug: string): boolean {
   }
   return srtNames.value.has(`${codeUpper.value}_${secSlug}.srt`.toLowerCase())
 }
-/**
- * v1.2.2 — map a subtitle filename back to the chapter it came from.
- *
- * Per-chapter transcripts are written as `{CODE}_{slug}.srt`, so the slug is
- * recoverable, and that is what makes a one-chapter re-transcribe possible. It
- * returns null for `_stitched`, `_whisper` and imported files: those are not a
- * single chapter's audio, so there is nothing narrow to re-run — the fix for a
- * bad stitched file is to fix the chapter it came from and re-stitch.
- */
-function sectionSlugForFile(filename: string): string | null {
-  const base = filename.replace(/\.(srt|vtt|ass)$/i, '')
-  const prefix = `${codeUpper.value}_`
-  if (!base.toLowerCase().startsWith(prefix.toLowerCase())) return null
-  const slug = base.slice(prefix.length)
-  if (!slug) return null
-  return sections.value.some(s => s.slug.toLowerCase() === slug.toLowerCase()) ? slug : null
-}
-
 /** Quality report for a chapter's own transcript, if one is on disk. */
 function chapterQuality(secSlug: string): SubtitleQualityReport | null {
   const wanted = `${codeUpper.value}_${secSlug}.srt`.toLowerCase()
@@ -702,7 +688,7 @@ async function retranscribeChapter(sectionSlug: string): Promise<void> {
       force: true,
       sections: [sectionSlug],
     })
-    showInfo(`Re-transcribing ${sectionSlug} — progress shows in Jobs / the bell.`)
+    showInfo(`Fresh transcription for ${sectionSlug} queued — progress shows in Jobs / the bell.`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Could not start re-transcription')
   } finally {
@@ -831,6 +817,12 @@ onMounted(async () => {
 .sub-chapter-mark { width: 16px; text-align: center; color: var(--text-muted); }
 .sub-chapter-mark.ok { color: rgb(34, 197, 94); }
 .sub-chapter-name { flex: 1; color: var(--text-primary); }
+.sub-chapter-action { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--font-xs); }
+
+@media (max-width: 640px) {
+  .sub-chapter-row { flex-wrap: wrap; }
+  .sub-chapter-action { flex: 1 0 100%; justify-content: flex-start; padding-left: 26px; }
+}
 
 .sub-method { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 10px 0; border-top: 1px solid var(--border); }
 .sub-method:first-of-type { border-top: none; }

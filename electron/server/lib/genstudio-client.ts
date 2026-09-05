@@ -712,6 +712,23 @@ export class GenStudioTranscriptionQuoteExpiredError extends Error {
   }
 }
 
+/** A saved transcription task id not visible to the current GenStudio account. */
+export class GenStudioTranscriptionTaskUnavailableError extends Error {
+  readonly modality: GenStudioModality = 'transcription'
+  readonly jobId: string
+  readonly status: number
+
+  constructor(jobId: string, status: number) {
+    super(
+      `Saved transcription task ${jobId} was not found with the current GenStudio connection/account (HTTP ${status}). `
+      + 'It cannot be retrieved here; a fresh request requires an explicit section re-run and may be charged.',
+    )
+    this.name = 'GenStudioTranscriptionTaskUnavailableError'
+    this.jobId = jobId
+    this.status = status
+  }
+}
+
 /**
  * The job succeeded but GenStudio no longer serves its private artifact
  * (expired asset, or a completion with no download URL). Replaying the same
@@ -7050,6 +7067,13 @@ function isTerminalQuoteStatus(status: number): boolean {
   return status === 410
 }
 
+function isTerminalTranscriptionQuoteConfirmError(error: GenStudioApiError): boolean {
+  return isTerminalQuoteStatus(error.status)
+    // GenStudio's current confirm route maps this exact service outcome to
+    // 422. Other 422s can mean malformed input and remain non-retryable.
+    || (error.status === 422 && error.detail === 'transcription quote has expired')
+}
+
 export function buildGenStudioTranscriptionIdempotencyKey(input: {
   requestIdentity: string
   fileSha256: string
@@ -7171,12 +7195,20 @@ async function recoverTranscriptionWithGenStudioAdmitted(
 ): Promise<{ srt: string; jobId: string; modelId: string }> {
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
-  const initial = await requestJsonWithRetry(
-    `${apiBase(baseUrl)}/v1/transcriptions/${encodeURIComponent(jobId)}`,
-    { headers: authorization(apiKey) },
-    request,
-    deadline,
-  ) as GenStudioTranscriptionJob
+  let initial: GenStudioTranscriptionJob
+  try {
+    initial = await requestJsonWithRetry(
+      `${apiBase(baseUrl)}/v1/transcriptions/${encodeURIComponent(jobId)}`,
+      { headers: authorization(apiKey) },
+      request,
+      deadline,
+    ) as GenStudioTranscriptionJob
+  } catch (error) {
+    if (error instanceof GenStudioApiError && error.status === 404) {
+      throw new GenStudioTranscriptionTaskUnavailableError(jobId, error.status)
+    }
+    throw error
+  }
   // Classify BEFORE polling. A job that already failed (or was cancelled)
   // cannot become a transcript, and a poll loop would only re-read the same
   // terminal record — the "reopen a six-day-old failure forever" bug.
@@ -7296,7 +7328,7 @@ async function transcribeWithGenStudioAdmitted(
     [],
     { operation: 'audio.transcription', preview: requestPreview },
   ).catch((error: unknown) => {
-    if (error instanceof GenStudioApiError && isTerminalQuoteStatus(error.status)) {
+    if (error instanceof GenStudioApiError && isTerminalTranscriptionQuoteConfirmError(error)) {
       throw new GenStudioTranscriptionQuoteExpiredError(error.status, error.detail)
     }
     throw error

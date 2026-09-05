@@ -80,7 +80,7 @@ describe('the warning is advisory, never a gate', () => {
 
 describe('the app never edits anyone\'s subtitles', () => {
   test('the only remedy offered is re-transcription, never a rewrite', () => {
-    assert.match(subtitlesPage, /Re-transcribe this chapter/)
+    assert.match(subtitlesPage, /Regenerate this chapter/)
     for (const page of [subtitlesPage, scenePlanPage, videoAssemblyPage, component]) {
       assert.doesNotMatch(page, /\b(clean up|auto-?fix|strip|sanitiz|repair) (the )?(subtitle|cue|transcript)/i)
     }
@@ -92,11 +92,17 @@ describe('the app never edits anyone\'s subtitles', () => {
     assert.match(subtitlesPage, /force: true,\s*\n\s*sections: \[sectionSlug\]/)
   })
 
-  test('files that are not a single chapter offer no chapter-level re-run', () => {
-    // _stitched and imported files are not one chapter's audio, so there is
-    // nothing narrow to re-run; the fix is upstream.
-    assert.match(subtitlesPage, /function sectionSlugForFile/)
-    assert.match(subtitlesPage, /v-if="sectionSlugForFile\(srt\.filename\)" #actions/)
+  test('every chapter exposes the scoped fresh-generation action with honest price language', () => {
+    assert.match(subtitlesPage, /@click="retranscribeChapter\(s\.slug\)"/)
+    assert.match(subtitlesPage, /chapterHasSrt\(s\.slug\) \? 'Regenerate this chapter' : 'Generate this chapter'/)
+    assert.match(subtitlesPage, /:aria-label="`\$\{chapterHasSrt\(s\.slug\) \? 'Regenerate' : 'Generate'\} \$\{s\.label\} subtitles`"/)
+    assert.match(subtitlesPage, /Starts a fresh GenStudio request for \$\{s\.label\} only/)
+    assert.match(subtitlesPage, /current quote[^<]*may be charged/i)
+  })
+
+  test('stitched and imported files do not invent a chapter-level action', () => {
+    const files = subtitlesPage.slice(subtitlesPage.indexOf('<!-- Existing files -->'), subtitlesPage.indexOf('<!-- Stitch into the timeline'))
+    assert.doesNotMatch(files, /retranscribeChapter/)
   })
 })
 

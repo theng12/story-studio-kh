@@ -6,7 +6,8 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import {
   buildGenStudioTranscriptionIdempotencyKey, GenStudioApiError,
   GenStudioTerminalFailureError, GenStudioArtifactUnavailableError,
-  GenStudioTranscriptionQuoteExpiredError, getGenStudioJobByIdempotencyKey,
+  GenStudioTranscriptionQuoteExpiredError, GenStudioTranscriptionTaskUnavailableError,
+  getGenStudioJobByIdempotencyKey,
   recoverTranscriptionWithGenStudio, transcribeWithGenStudio,
   type GenStudioTranscriptionRequest, type GenStudioTranscriptionQuote,
 } from '../lib/genstudio-client.js'
@@ -394,6 +395,12 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           }
           // Fully balanced zero settlement remains free, even after a paid quote.
           if (current.replacement) current.freeRetryFromKey = current.idempotencyKey
+        } else if (error instanceof GenStudioTranscriptionTaskUnavailableError) {
+          return block(
+            'The saved subtitle task was not found with the current GenStudio connection/account, so it cannot be retrieved here. Its task/key evidence is retained. Explicitly generate this section to create a fresh request at the current quote; the new request may be charged.',
+            'rerun_subtitle_section',
+            'needs_attention',
+          )
         } else if (error instanceof GenStudioArtifactUnavailableError) {
           return block('The successful subtitle artifact expired; it may already have been charged. Review it before explicitly re-running this section.', 'rerun_subtitle_section', 'needs_attention')
         } else {

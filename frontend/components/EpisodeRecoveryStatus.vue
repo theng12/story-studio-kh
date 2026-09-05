@@ -9,6 +9,10 @@
       </label>
       <button class="btn btn-xs btn-primary" type="submit" :disabled="busy">{{ busy ? 'Queueing recovery…' : 'Buy missing subtitles now' }}</button>
     </form>
+    <div v-if="rerunSections.length && rerunHref" class="subtitle-rerun">
+      <p>Recovery cannot finish the saved result. A fresh GenStudio request is limited to the chapter you choose; GenStudio confirms the current quote before submission and the new request may be charged.</p>
+      <a class="btn btn-xs btn-secondary" :href="rerunHref">Open missing chapter controls</a>
+    </div>
     <p v-if="sent">Recovery queued. Existing task identities and completed sections are preserved.</p>
     <p v-if="error" role="alert">{{ error }}</p>
   </div>
@@ -18,7 +22,7 @@
 import { computed, ref } from 'vue'
 
 const props = defineProps<{ job: {
-  job_id: string; project_slug: string; type: string; status: string
+  job_id: string; project_slug: string; episode_id?: string; type: string; status: string
   params?: Record<string, any>; result?: Record<string, any>
 } }>()
 const { post } = useApi()
@@ -33,6 +37,11 @@ const message = computed(() => props.job.params?.episode_recovery?.message || ''
 const canBuy = computed(() => props.job.type === 'subtitles_transcribe' && props.job.status === 'error'
   && !props.job.params?.episode_recovery?.deferred && missing.value.length > 0
   && states.value.some(state => missing.value.includes(state.section) && state.manual_action === 'buy_missing_subtitles'))
+const rerunSections = computed(() => states.value.filter(state => missing.value.includes(state.section)
+  && state.manual_action === 'rerun_subtitle_section').map(state => state.section))
+const rerunHref = computed(() => props.job.episode_id
+  ? `/projects/${encodeURIComponent(props.job.project_slug)}/subtitles?episode_id=${encodeURIComponent(props.job.episode_id)}`
+  : '')
 async function buy() {
   if (busy.value || sent.value || !canBuy.value) return
   const value = Number(ceiling.value)
@@ -53,4 +62,5 @@ async function buy() {
 .subtitle-purchase { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; margin: .5rem 0; }
 .subtitle-purchase label { display: flex; flex-direction: column; gap: .25rem; max-width: 100%; }
 .subtitle-purchase input { width: 10rem; max-width: 100%; min-height: 2rem; }
+.subtitle-rerun { margin: .5rem 0; }
 </style>
