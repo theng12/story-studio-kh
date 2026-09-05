@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.110 — 2026-09-06
+
+- **The YouTube Upload Center now opens for projects created before newer media folders were added.** Existing folder names remain unchanged, missing optional folder names use their established defaults, and unknown or unsafe folder paths remain blocked.
+
 ## v1.4.109 — 2026-09-06
 
 - **The YouTube Upload Center now loads after YouTube setup.** Overview, Publish, Library, Reconcile, Comments, and Analytics open for the channel assigned to the project.
