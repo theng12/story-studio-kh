@@ -18,7 +18,27 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
-import { recordTask, recordTaskStrict, readManifest } from '../services/task-manifest.js'
+import { recordTask, recordTaskStrict, readManifest, readManifestStrict } from '../services/task-manifest.js'
+
+test('subtitle originals survive current-task updates and cannot be overwritten or rebound from a stale current entry', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'subtitle-original-manifest-'))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const entry = { provider: 'genstudio', task_id: 'original-task', submitted_at: 'ts',
+    idempotency_key: 'original-key', input_hash: 'sha256:input' }
+  const original = { task_id: 'original-task', idempotency_key: 'original-key', input_hash: 'sha256:input' }
+  await recordTaskStrict(dir, 'Chapter_01.srt', entry)
+  await recordTaskStrict(dir, 'Chapter_01.srt', { ...entry, subtitle_originals: { 'original-key': original } })
+  await assert.rejects(recordTaskStrict(dir, 'Chapter_01.srt', { ...entry,
+    subtitle_originals: { 'original-key': { ...original, task_id: 'other-real-task' } },
+  }), /identity/)
+  await recordTaskStrict(dir, 'Chapter_01.srt', { ...entry, task_id: 'replacement-task', idempotency_key: 'replacement-key' })
+  const saved = (await readManifestStrict(dir)).tasks['Chapter_01.srt']!
+  assert.deepEqual(saved.subtitle_originals, { 'original-key': original })
+  await assert.rejects(recordTaskStrict(dir, 'Chapter_01.srt', { ...entry,
+    subtitle_originals: { 'original-key': original },
+  }), /identity/, 'a stale rebind must not overwrite the newer current task')
+  assert.deepEqual((await readManifestStrict(dir)).tasks['Chapter_01.srt'], saved)
+})
 
 test('recordTask: 50 concurrent writes against the same dir all persist', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'task-manifest-race-'))
