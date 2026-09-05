@@ -213,7 +213,8 @@ if (fs.existsSync(dmgPath) && process.platform === 'darwin') {
 // v1.4.69 — the launch itself. Structure, signature and mounting all passed
 // on a v1.4.68 that could not start; only running it catches that class. The
 // backend is embedded in the Electron main process, so an answer on
-// /api/health proves the main process resolved its imports and finished boot.
+// /api/health proves the main process resolved its imports and finished boot;
+// the isolated Upload Center read proves the production route bootstrap too.
 // It runs in a throwaway user-data dir, so it neither touches real projects
 // nor collides with a copy of the app the developer already has open.
 const skipLaunch = process.argv.includes('--skip-launch')
@@ -239,7 +240,7 @@ console.log(`  DMG mounted read-only: ${dmgMounted ? 'yes' : 'no'}`)
 console.log(`  runtime dependency closure inside app.asar: ${packagedDependencyCount} packages`)
 console.log(
   launchResult
-    ? `  launch smoke test: booted and served /api/health on port ${launchResult.port} in ${launchResult.ms}ms`
+    ? `  launch smoke test: booted and served /api/health + Upload Center overview on port ${launchResult.port} in ${launchResult.ms}ms`
     : `  launch smoke test: SKIPPED${skipLaunch ? ' (--skip-launch)' : ''}`,
 )
 console.log(`  bytes: ${size}`)

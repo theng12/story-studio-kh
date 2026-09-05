@@ -350,6 +350,10 @@ describe('Upload Center navigation', () => {
 })
 
 describe('Upload Center shell', () => {
+  test('uses the project dashboard layout so the channel sidebar remains visible', () => {
+    assert.match(shellSource, /definePageMeta\(\{\s*layout: 'dashboard'\s*\}\)/)
+  })
+
   test('the Upload Center IS /projects/:slug/upload — the page the old one served', () => {
     // The cutover renamed the directory rather than adding a redirect: two URLs
     // for one screen, and a name nobody types, is what a redirect buys. The
