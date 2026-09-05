@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.105 — 2026-09-05
+
+- **Once verified, Content Store trust now survives ordinary API-key changes in its own OS-protected file.** Provider saves refuse malformed or unreadable secret state, preserve an undecryptable file before a deliberate replacement, and serialize updates across processes. A missing trust anchor performs one authenticated Restore-purchases verification before any generation job exists; signature, account, origin, key-history, and tamper failures remain blocked without generating or spending credits.
+- **A GenStudio operator pause now stops Story submissions using the stable `GENERATION_PAUSED` response code.** Story Studio preserves accepted jobs and completed checkpoints, directs the operator to enable generation in GenStudio Admin, and no longer depends on obsolete exact-release charging text.
+
 ## v1.4.104 — 2026-09-05
 
 - **Backend tests now refuse to write API keys or Content Store signing-key anchors outside their claimed temporary data directory.** Both secret-store mutation paths use Story Studio's shared test isolation guard, preventing an incorrectly invoked test from changing this Mac's saved credentials or trust anchors.

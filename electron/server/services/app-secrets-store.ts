@@ -25,16 +25,20 @@
  * future need ever justifies it, add an `accounts` array; readers and
  * writers are small enough to migrate.)
  */
+import { randomUUID } from 'node:crypto'
 import fs from 'fs/promises'
 import path from 'path'
-import { writeJsonAtomic, withLock, readJsonOr } from '../lib/atomic-store.js'
+import { writeJsonAtomic, withCrossProcessLock } from '../lib/atomic-store.js'
 import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
 import { registerSecretForRedaction } from '../lib/redact-secrets.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
+import { resolveStoryStudioVersion } from '../lib/app-version.js'
+import { logLine } from './logger.js'
 import { getUserDataDir } from './project-manager.js'
 
 export const APP_SECRETS_SCHEMA_VERSION = 3 as const
 const MAX_CONTENT_STORE_ANCHOR_KEYS = 100
+const MAX_CONTENT_STORE_ANCHORS = 20
 
 export const SECRET_PROVIDERS = [
   // GenStudio KH is the single generation credential.
@@ -51,9 +55,7 @@ export interface AppSecretsV3 {
   // NEVER rewritten by the legacy-default migration — see getApiKey. This
   // is what makes the per-machine local-modal URLs (voicestudio/imagestudio)
   // fully user-controlled: whatever you Save is what the app uses.
-  providers: Partial<Record<ProviderId, { apiKey: string; userSet?: boolean }>>
-  /** OS-protected, append-only public-key anchors for offline Store receipts. */
-  contentStoreKeyAnchors?: ContentStoreKeyAnchor[]
+  providers: Partial<Record<ProviderId, { apiKey: string; userSet?: boolean; generation?: string }>>
 }
 
 export interface ContentStoreKeyAnchor {
@@ -69,9 +71,32 @@ interface EncryptedEnvelope {
   ciphertext: string
 }
 
+interface ContentStoreAnchorState {
+  schema_version: 1
+  anchors: ContentStoreKeyAnchor[]
+}
+
+type SecretRead =
+  | { kind: 'missing' }
+  | { kind: 'plaintext'; value: unknown }
+  | { kind: 'encrypted'; value: unknown }
+  | { kind: 'undecryptable' }
+  | { kind: 'invalid' }
+  | { kind: 'io-error'; error: unknown }
+
+async function logSecretMutation(meta: Record<string, unknown>): Promise<void> {
+  let appVersion = 'unavailable'
+  try { appVersion = await resolveStoryStudioVersion() } catch { /* package metadata may itself be unavailable */ }
+  try {
+    logLine(meta.result === 'written' ? 'info' : 'warn', 'secret-store mutation', {
+      ...meta, app_version: appVersion, pid: process.pid,
+    })
+  } catch { /* preserve the mutation result even if diagnostics cannot be written */ }
+}
+
 function isEnvelope(raw: any): raw is EncryptedEnvelope {
   return !!raw && typeof raw === 'object' && raw.__encrypted === true
-    && typeof raw.ciphertext === 'string'
+    && raw.version === 1 && typeof raw.ciphertext === 'string'
 }
 
 function emptyV3(): AppSecretsV3 {
@@ -90,74 +115,50 @@ export function appSecretsPath(): string {
   return path.join(getUserDataDir(), 'app-secrets.json')
 }
 
-async function readFileRaw(filePath: string): Promise<any> {
-  return readJsonOr<any>(filePath, null)
+export function contentStoreAnchorsPath(): string {
+  return path.join(getUserDataDir(), 'content-store-key-anchors.json')
 }
 
-interface UnwrapResult {
-  v3: AppSecretsV3
-  /** True iff the on-disk payload was an unprotected legacy plaintext object. */
-  hadPlaintextPayload: boolean
-  /**
-   * True iff the on-disk file was an encrypted envelope we couldn't
-   * decrypt on this machine. Callers that mutate (writeAppSecrets) use
-   * this to sidecar-rename the unreadable blob before overwriting, so
-   * the keys aren't silently lost if keychain access is later restored.
-   */
-  hadUndecryptableEnvelope: boolean
-}
-
-function unwrapPayload(raw: any): UnwrapResult {
-  if (raw == null) return { v3: emptyV3(), hadPlaintextPayload: false, hadUndecryptableEnvelope: false }
-  if (isEnvelope(raw)) {
-    try {
-      const plain = decryptFromBase64(raw.ciphertext)
-      const parsed = JSON.parse(plain)
-      return { v3: normaliseV3(parsed), hadPlaintextPayload: false, hadUndecryptableEnvelope: false }
-    } catch {
-      // Cannot decrypt on this machine. Treat as empty rather than
-      // throwing — the user can re-enter keys via the app-level
-      // Settings page. We surface `hadUndecryptableEnvelope: true` so
-      // the writer can preserve the original blob (sidecar rename)
-      // before overwriting; otherwise a single PUT after a keychain
-      // change would silently destroy the user's still-recoverable
-      // keys.
-      return { v3: emptyV3(), hadPlaintextPayload: false, hadUndecryptableEnvelope: true }
-    }
+async function readSecretFile(filePath: string): Promise<SecretRead> {
+  let text: string
+  try {
+    text = await fs.readFile(filePath, 'utf8')
+  } catch (error: unknown) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? { kind: 'missing' } : { kind: 'io-error', error }
   }
-  return { v3: normaliseV3(raw), hadPlaintextPayload: true, hadUndecryptableEnvelope: false }
+  let raw: unknown
+  try { raw = JSON.parse(text) } catch { return { kind: 'invalid' } }
+  if (raw && typeof raw === 'object' && '__encrypted' in raw) {
+    if (!isEnvelope(raw)) return { kind: 'invalid' }
+    let plain: string
+    try { plain = decryptFromBase64(raw.ciphertext) } catch { return { kind: 'undecryptable' } }
+    try { return { kind: 'encrypted', value: JSON.parse(plain) } } catch { return { kind: 'invalid' } }
+  }
+  return { kind: 'plaintext', value: raw }
 }
 
-function normaliseV3(raw: any): AppSecretsV3 {
+function parseV3(raw: unknown): AppSecretsV3 | null {
   const out = emptyV3()
-  if (!raw || typeof raw !== 'object') return out
-  const providers = raw.providers
-  if (providers && typeof providers === 'object') {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const record = raw as Record<string, unknown>
+  if (record.schema_version !== APP_SECRETS_SCHEMA_VERSION || !record.providers
+    || typeof record.providers !== 'object' || Array.isArray(record.providers)) return null
+  const providers = record.providers as Record<string, unknown>
+  if (providers) {
     for (const [k, v] of Object.entries(providers)) {
       if (!isKnownProvider(k)) continue
-      const apiKey = typeof (v as any)?.apiKey === 'string' ? (v as any).apiKey : ''
+      if (!v || typeof v !== 'object' || Array.isArray(v) || typeof (v as any).apiKey !== 'string') return null
+      const apiKey = (v as any).apiKey
       // Preserve the `userSet` marker (an explicit Save) so getApiKey's
       // "explicit value wins" rule survives the read/normalise round-trip.
       const userSet = (v as any)?.userSet === true
+      const generation = typeof (v as any)?.generation === 'string' && (v as any).generation.length <= 128
+        ? (v as any).generation : undefined
       if (apiKey) {
         registerSecretForRedaction(apiKey)
-        out.providers[k] = userSet ? { apiKey, userSet: true } : { apiKey }
+        out.providers[k] = { apiKey, ...(userSet ? { userSet: true } : {}), ...(generation ? { generation } : {}) }
       }
     }
-  }
-  if (Array.isArray(raw.contentStoreKeyAnchors)) {
-    const anchors: ContentStoreKeyAnchor[] = []
-    for (const value of raw.contentStoreKeyAnchors.slice(0, 20)) {
-      if (!value || typeof value !== 'object') continue
-      const row = value as Record<string, unknown>
-      if (typeof row.origin !== 'string' || typeof row.account_id !== 'string' || typeof row.content_account_id !== 'string'
-        || !Array.isArray(row.keys) || row.keys.length === 0 || row.keys.length > 100) continue
-      const keys = row.keys.filter((key): key is { key_id: string; public_key_base64: string } => !!key && typeof key === 'object'
-        && typeof (key as Record<string, unknown>).key_id === 'string' && typeof (key as Record<string, unknown>).public_key_base64 === 'string')
-      if (keys.length !== row.keys.length || new Set(keys.map(key => key.key_id)).size !== keys.length) continue
-      anchors.push({ origin: row.origin, account_id: row.account_id, content_account_id: row.content_account_id, keys })
-    }
-    if (anchors.length) out.contentStoreKeyAnchors = anchors
   }
   return out
 }
@@ -176,11 +177,103 @@ async function writeRaw(filePath: string, value: AppSecretsV3): Promise<void> {
   await writeJsonAtomic(filePath, value, { mode: 0o600 })
 }
 
-/** Read the app-level secrets. Returns an empty v3 store if missing/unreadable. */
+function parseAnchorState(raw: unknown): ContentStoreAnchorState | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const value = raw as Record<string, unknown>
+  if (value.schema_version !== 1 || !Array.isArray(value.anchors) || value.anchors.length > MAX_CONTENT_STORE_ANCHORS) return null
+  const anchors: ContentStoreKeyAnchor[] = []
+  const scopes = new Set<string>()
+  for (const candidate of value.anchors) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+    const row = candidate as Record<string, unknown>
+    if (typeof row.origin !== 'string' || !row.origin || typeof row.account_id !== 'string' || !row.account_id
+      || typeof row.content_account_id !== 'string' || !row.content_account_id
+      || !Array.isArray(row.keys) || row.keys.length === 0 || row.keys.length > MAX_CONTENT_STORE_ANCHOR_KEYS) return null
+    const scope = `${row.origin}\u0000${row.account_id}\u0000${row.content_account_id}`
+    if (scopes.has(scope)) return null
+    scopes.add(scope)
+    const keys: ContentStoreKeyAnchor['keys'] = []
+    const keyIds = new Set<string>()
+    for (const candidateKey of row.keys) {
+      if (!candidateKey || typeof candidateKey !== 'object' || Array.isArray(candidateKey)) return null
+      const key = candidateKey as Record<string, unknown>
+      if (typeof key.key_id !== 'string' || !key.key_id || typeof key.public_key_base64 !== 'string' || !key.public_key_base64
+        || keyIds.has(key.key_id)) return null
+      keyIds.add(key.key_id)
+      keys.push({ key_id: key.key_id, public_key_base64: key.public_key_base64 })
+    }
+    anchors.push({ origin: row.origin, account_id: row.account_id, content_account_id: row.content_account_id, keys })
+  }
+  return { schema_version: 1, anchors }
+}
+
+function decodeAnchorState(read: SecretRead): ContentStoreAnchorState {
+  if (read.kind === 'missing') return { schema_version: 1, anchors: [] }
+  if (read.kind === 'io-error') throw read.error
+  if (read.kind === 'plaintext') throw new Error('Content Store key anchor is not protected by a safeStorage envelope')
+  if (read.kind === 'invalid' || read.kind === 'undecryptable') {
+    throw new Error('Content Store key anchor safeStorage envelope is undecryptable, malformed, or tampered')
+  }
+  const parsed = parseAnchorState(read.value)
+  if (!parsed) throw new Error('Content Store key anchor payload is malformed or tampered')
+  return parsed
+}
+
+async function readAnchorState(): Promise<ContentStoreAnchorState> {
+  return decodeAnchorState(await readSecretFile(contentStoreAnchorsPath()))
+}
+
+async function writeAnchorState(filePath: string, state: ContentStoreAnchorState): Promise<void> {
+  if (!isEncryptionAvailable()) throw new Error('Content Store key anchor requires available OS safeStorage')
+  const envelope: EncryptedEnvelope = {
+    __encrypted: true, version: 1, ciphertext: encryptToBase64(JSON.stringify(state)),
+  }
+  await writeJsonAtomic(filePath, envelope, { mode: 0o600 })
+}
+
+async function mutateContentStoreAnchorState(
+  mutate: (state: ContentStoreAnchorState) => void | Promise<void>,
+): Promise<void> {
+  const filePath = contentStoreAnchorsPath()
+  assertWriteIsolatedInTests(filePath, 'content-store-key-anchors')
+  const operationId = randomUUID()
+  let inputState: SecretRead['kind'] | 'not-read' = 'not-read'
+  let before: number | 'unavailable' = 'unavailable'
+  let after: number | 'unavailable' = 'unavailable'
+  try {
+    await withCrossProcessLock(filePath, async () => {
+      const read = await readSecretFile(filePath)
+      inputState = read.kind
+      const state = decodeAnchorState(read)
+      before = state.anchors.reduce((count, anchor) => count + anchor.keys.length, 0)
+      await mutate(state)
+      after = state.anchors.reduce((count, anchor) => count + anchor.keys.length, 0)
+      await writeAnchorState(filePath, state)
+    })
+  } catch (error) {
+    await logSecretMutation({
+      operation: 'anchor-update', input_state: inputState, result: 'refused',
+      safe_storage_available: isEncryptionAvailable(), anchor_key_count_before: before, anchor_key_count_after: before,
+      backup_outcome: 'not-needed', operation_id: operationId,
+    })
+    throw error
+  }
+  await logSecretMutation({
+    operation: 'anchor-update', input_state: inputState, result: 'written',
+    safe_storage_available: true, anchor_key_count_before: before, anchor_key_count_after: after,
+    backup_outcome: 'not-needed', operation_id: operationId,
+  })
+}
+
+/** Read app-level provider secrets. Only a missing or undecryptable store reads as empty. */
 export async function readAppSecrets(): Promise<AppSecretsV3> {
-  const filePath = appSecretsPath()
-  const raw = await readFileRaw(filePath)
-  return unwrapPayload(raw).v3
+  const read = await readSecretFile(appSecretsPath())
+  if (read.kind === 'missing' || read.kind === 'undecryptable') return emptyV3()
+  if (read.kind === 'io-error') throw read.error
+  if (read.kind === 'invalid') throw new Error('App secrets file is invalid')
+  const parsed = parseV3(read.value)
+  if (!parsed) throw new Error('App secrets payload is invalid')
+  return parsed
 }
 
 /** Atomically mutate the app-level secrets store. */
@@ -190,76 +283,59 @@ export async function writeAppSecrets(
   const filePath = appSecretsPath()
   assertWriteIsolatedInTests(filePath, 'app-secrets')
   let result = emptyV3()
-  await withLock(filePath, async () => {
-    const raw = await readFileRaw(filePath)
-    const { v3, hadPlaintextPayload, hadUndecryptableEnvelope } = unwrapPayload(raw)
-    await mutate(v3)
-    // Legacy plaintext provider secrets remain supported, but plaintext Store
-    // anchors have no OS-backed provenance. A generic provider/settings save
-    // must never carry those bytes into a new safeStorage envelope and thereby
-    // bless an attacker-controlled anchor.
-    if (hadPlaintextPayload) delete v3.contentStoreKeyAnchors
-    // Drop providers with empty keys.
-    for (const pid of SECRET_PROVIDERS) {
-      const bucket = v3.providers[pid]
-      if (bucket && !bucket.apiKey) delete v3.providers[pid]
-    }
-    try { await fs.mkdir(path.dirname(filePath), { recursive: true }) } catch { /* race-safe */ }
+  const operationId = randomUUID()
+  let inputState: SecretRead['kind'] = 'missing'
+  let backupOutcome = 'not-needed'
+  const encryptionAvailable = isEncryptionAvailable()
+  try {
+    await withCrossProcessLock(filePath, async () => {
+      const read = await readSecretFile(filePath)
+      inputState = read.kind
+      if (read.kind === 'io-error') throw read.error
+      if (read.kind === 'invalid') throw new Error('App secrets file or encrypted envelope is invalid')
+      const v3 = read.kind === 'missing' || read.kind === 'undecryptable' ? emptyV3() : parseV3(read.value)
+      if (!v3) throw new Error('App secrets payload is invalid')
+      await mutate(v3)
+      // Drop providers with empty keys.
+      for (const pid of SECRET_PROVIDERS) {
+        const bucket = v3.providers[pid]
+        if (bucket && !bucket.apiKey) delete v3.providers[pid]
+      }
+      try { await fs.mkdir(path.dirname(filePath), { recursive: true }) } catch { /* race-safe */ }
     // If we're about to overwrite an envelope we couldn't decrypt on
     // this machine, sidecar-rename it first. The keychain identity
     // might become available again later (eg the user signs back into
     // the macOS account that wrote the original file), at which point
     // the backup is the only path back to those keys.
-    if (hadUndecryptableEnvelope) {
-      try {
-        const backup = `${filePath}.bak.${Date.now()}`
+      if (read.kind === 'undecryptable') {
+        const backup = `${filePath}.bak.${Date.now()}.${operationId}`
         await fs.rename(filePath, backup)
-        if (process.env.NODE_ENV !== 'test') {
-          console.warn(`[app-secrets] preserved undecryptable envelope at ${backup} before overwrite`)
+        const handle = await fs.open(backup, 'r')
+        try { await handle.sync() } finally { await handle.close() }
+        if (process.platform !== 'win32') {
+          const directory = await fs.open(path.dirname(filePath), 'r')
+          try { await directory.sync() } finally { await directory.close() }
         }
-      } catch { /* best-effort */ }
-      // Keep only the most recent N sidecar backups so they don't
-      // accumulate forever if someone toggles keychain mode repeatedly.
-      await pruneOldBackups(filePath).catch(() => {})
-    }
-    await writeRaw(filePath, v3)
-    result = v3
+        backupOutcome = 'preserved'
+        await pruneOldBackups(filePath, backup).catch(() => {})
+      }
+      await writeRaw(filePath, v3)
+      result = v3
+    })
+  } catch (error) {
+    await logSecretMutation({
+      operation: 'provider-update', input_state: inputState, result: 'refused',
+      safe_storage_available: encryptionAvailable, anchor_key_count_before: 'not-read', anchor_key_count_after: 'not-read',
+      backup_outcome: backupOutcome, operation_id: operationId,
+    })
+    throw error
+  }
+  await logSecretMutation({
+    operation: 'provider-update', input_state: inputState, result: 'written',
+    safe_storage_available: encryptionAvailable, anchor_key_count_before: 'not-read', anchor_key_count_after: 'not-read',
+    backup_outcome: backupOutcome, operation_id: operationId,
   })
   return result
-}
-
-function decodeContentStoreAnchorState(raw: unknown, allowPlaintextMigration: boolean): AppSecretsV3 {
-  if (raw == null) return emptyV3()
-  if (isEnvelope(raw)) {
-    try { return normaliseV3(JSON.parse(decryptFromBase64(raw.ciphertext))) } catch {
-      throw new Error('Content Store key anchor safeStorage envelope is undecryptable or tampered')
-    }
-  }
-  if (allowPlaintextMigration) {
-    const migrated = normaliseV3(raw)
-    // A plaintext anchor never has provenance. Preserve unrelated legacy
-    // secrets solely so a successful online revalidation can migrate them.
-    delete migrated.contentStoreKeyAnchors
-    return migrated
-  }
-  throw new Error('Content Store key anchor is not protected by a safeStorage envelope')
-}
-
-async function mutateContentStoreAnchorState(
-  mutate: (state: AppSecretsV3) => void | Promise<void>,
-): Promise<void> {
-  const filePath = appSecretsPath()
-  assertWriteIsolatedInTests(filePath, 'app-secrets')
-  await withLock(filePath, async () => {
-    const raw = await readFileRaw(filePath)
-    const state = decodeContentStoreAnchorState(raw, true)
-    await mutate(state)
-    try { await fs.mkdir(path.dirname(filePath), { recursive: true }) } catch { /* race-safe */ }
-    if (!isEncryptionAvailable()) {
-      throw new Error('Content Store key anchor requires available OS safeStorage')
-    }
-    await writeRaw(filePath, state)
-  })
 }
 
 /** Insert-only OS-protected key mapping; a named GenStudio key can never repoint. */
@@ -268,13 +344,12 @@ export async function recordContentStoreKeyAnchor(anchor: ContentStoreKeyAnchor)
     throw new Error('GenStudio Content Store key anchor is invalid')
   }
   await mutateContentStoreAnchorState(state => {
-    const anchors = state.contentStoreKeyAnchors ?? []
+    const anchors = state.anchors
     const existing = anchors.find(candidate => candidate.origin === anchor.origin
       && candidate.account_id === anchor.account_id && candidate.content_account_id === anchor.content_account_id)
     if (!existing) {
       if (anchors.length >= 20) throw new Error('GenStudio Content Store key-anchor capacity reached')
       anchors.push({ ...anchor, keys: anchor.keys.map(key => ({ ...key })) })
-      state.contentStoreKeyAnchors = anchors
       return
     }
     const additions = new Map<string, { key_id: string; public_key_base64: string }>()
@@ -302,9 +377,7 @@ export async function readContentStoreKeyAnchor(input: {
   account_id: string
   content_account_id: string
 }): Promise<ContentStoreKeyAnchor | null> {
-  const raw = await readFileRaw(appSecretsPath())
-  if (raw == null) return null
-  const anchors = decodeContentStoreAnchorState(raw, false).contentStoreKeyAnchors ?? []
+  const anchors = (await readAnchorState()).anchors
   const found = anchors.find(anchor => anchor.origin === input.origin
     && anchor.account_id === input.account_id && anchor.content_account_id === input.content_account_id)
   return found ? { ...found, keys: found.keys.map(key => ({ ...key })) } : null
@@ -313,7 +386,7 @@ export async function readContentStoreKeyAnchor(input: {
 /** Maximum sidecar backups (`app-secrets.json.bak.<ts>`) to retain. */
 const MAX_BACKUPS = 3
 
-async function pruneOldBackups(filePath: string): Promise<void> {
+async function pruneOldBackups(filePath: string, protectedPath?: string): Promise<void> {
   const dir = path.dirname(filePath)
   const base = path.basename(filePath)
   const prefix = `${base}.bak.`
@@ -329,9 +402,9 @@ async function pruneOldBackups(filePath: string): Promise<void> {
       const p = path.join(dir, name)
       try {
         const st = await fs.stat(p)
-        return { p, mtimeMs: st.mtimeMs }
+        return { p, mtimeMs: p === protectedPath ? Number.POSITIVE_INFINITY : st.mtimeMs }
       } catch {
-        return { p, mtimeMs: 0 }
+        return { p, mtimeMs: p === protectedPath ? Number.POSITIVE_INFINITY : 0 }
       }
     }),
   )
@@ -377,9 +450,16 @@ export async function setApiKey(providerId: string, apiKey: string): Promise<voi
     if (!trimmed) {
       delete v3.providers[providerId]
     } else {
-      v3.providers[providerId] = { apiKey: trimmed, userSet: true }
+      v3.providers[providerId] = { apiKey: trimmed, userSet: true, generation: randomUUID() }
     }
   })
+}
+
+/** In-memory revalidation scope; generation changes on every explicit key save. */
+export async function getApiKeySnapshot(providerId: string): Promise<{ apiKey: string; generation: string }> {
+  if (!isKnownProvider(providerId)) return { apiKey: '', generation: '' }
+  const bucket = (await readAppSecrets()).providers[providerId]
+  return { apiKey: bucket?.apiKey ?? '', generation: bucket?.generation ?? 'legacy' }
 }
 
 export async function clearApiKey(providerId: string): Promise<void> {

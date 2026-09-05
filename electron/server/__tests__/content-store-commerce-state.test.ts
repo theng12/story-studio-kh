@@ -26,6 +26,7 @@ import { canonicalizeContentStoreObject, parseContentStorePurchase, parseContent
 import { useTempDataDir } from './_helpers.js'
 import {
   appSecretsPath,
+  contentStoreAnchorsPath,
   readContentStoreKeyAnchor,
   recordContentStoreKeyAnchor,
   setApiKey,
@@ -224,7 +225,7 @@ describe('Content Store commerce state', () => {
       verified_at: new Date().toISOString(), key_history: keyHistory,
     })
     const journalBefore = await fs.readFile(getContentStoreStatePath())
-    const anchorBefore = await fs.readFile(appSecretsPath())
+    const anchorBefore = await fs.readFile(contentStoreAnchorsPath())
     assert.equal(await resolveVerifiedContentStoreSigningKey({ accountId, origin, keyId: trustedKeyId }), publicBase64(trusted.publicKey))
 
     const nextKeyId = 'content-key-100'
@@ -242,7 +243,7 @@ describe('Content Store commerce state', () => {
     }), /key history.*100|at most 100/i)
 
     assert.deepEqual(await fs.readFile(getContentStoreStatePath()), journalBefore)
-    assert.deepEqual(await fs.readFile(appSecretsPath()), anchorBefore)
+    assert.deepEqual(await fs.readFile(contentStoreAnchorsPath()), anchorBefore)
     assert.equal((await readContentStoreCommerceState()).verified_restores?.[0]?.key_history?.length, 100)
     assert.equal(await resolveVerifiedContentStoreSigningKey({ accountId, origin, keyId: trustedKeyId }), publicBase64(trusted.publicKey))
   })
@@ -256,12 +257,12 @@ describe('Content Store commerce state', () => {
       })),
     }
     await recordContentStoreKeyAnchor(anchor)
-    const before = await fs.readFile(appSecretsPath())
+    const before = await fs.readFile(contentStoreAnchorsPath())
     await assert.rejects(recordContentStoreKeyAnchor({
       ...anchor,
       keys: [{ key_id: 'content-key-100', public_key_base64: Buffer.alloc(32, 100).toString('base64') }],
     }), /anchor exceeds.*100/i)
-    assert.deepEqual(await fs.readFile(appSecretsPath()), before)
+    assert.deepEqual(await fs.readFile(contentStoreAnchorsPath()), before)
     assert.deepEqual(await readContentStoreKeyAnchor({
       origin: anchor.origin, account_id: anchor.account_id, content_account_id: anchor.content_account_id,
     }), anchor)
@@ -284,10 +285,10 @@ describe('Content Store commerce state', () => {
       receipt_signature: sign(null, Buffer.from(canonical), trusted.privateKey).toString('base64'), verified_at: new Date().toISOString(),
       key_history: [{ key_id: keyId, public_key_base64: publicBase64(trusted.publicKey) }],
     })
-    await fs.rm(appSecretsPath())
+    await fs.rm(contentStoreAnchorsPath())
     await assert.rejects(resolveVerifiedContentStoreSigningKey({
       accountId: 'acct_a', origin: 'https://api.genstudio.example', keyId,
-    }), /OS-backed.*anchor|online revalidation/i)
+    }), /Restore purchases|revalidation/i)
     await recordVerifiedContentRestore({
       account_id: 'acct_a', content_account_id: 'acct_a', genstudio_origin: 'https://api.genstudio.example', key_id: keyId,
       public_key_base64: publicBase64(trusted.publicKey), receipt_canonical_json: canonical,
@@ -325,10 +326,9 @@ describe('Content Store commerce state', () => {
       key_history: [{ key_id: keyId, public_key_base64: publicBase64(trusted.publicKey) }],
     })
 
-    await fs.writeFile(appSecretsPath(), JSON.stringify({
-      schema_version: 3,
-      providers: {},
-      contentStoreKeyAnchors: [{
+    await fs.writeFile(contentStoreAnchorsPath(), JSON.stringify({
+      schema_version: 1,
+      anchors: [{
         origin: 'https://api.genstudio.example', account_id: 'acct_a', content_account_id: 'acct_a',
         keys: [{ key_id: keyId, public_key_base64: publicBase64(rogue.publicKey) }],
       }],
@@ -374,12 +374,12 @@ describe('Content Store commerce state', () => {
     process.env.STORY_STUDIO_FORCE_KEYCHAIN = '1'
     setTestSafeStorageAvailable(false)
     try {
-      await fs.writeFile(appSecretsPath(), JSON.stringify({ schema_version: 3, providers: {}, contentStoreKeyAnchors: [anchor] }))
+      await fs.writeFile(contentStoreAnchorsPath(), JSON.stringify({ schema_version: 1, anchors: [anchor] }))
       await assert.rejects(readContentStoreKeyAnchor({
         origin: anchor.origin, account_id: anchor.account_id, content_account_id: anchor.content_account_id,
       }), /safeStorage envelope/i)
-      await assert.rejects(recordContentStoreKeyAnchor(anchor), /requires available OS safeStorage/i)
-      await fs.writeFile(appSecretsPath(), JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'tampered-not-a-real-envelope' }))
+      await assert.rejects(recordContentStoreKeyAnchor(anchor), /requires available OS safeStorage|not protected by a safeStorage envelope/i)
+      await fs.writeFile(contentStoreAnchorsPath(), JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'tampered-not-a-real-envelope' }))
       await assert.rejects(readContentStoreKeyAnchor({
         origin: anchor.origin, account_id: anchor.account_id, content_account_id: anchor.content_account_id,
       }), /undecryptable|tampered/i)

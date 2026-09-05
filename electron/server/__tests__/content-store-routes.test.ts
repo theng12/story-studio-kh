@@ -10,6 +10,8 @@ import request from 'supertest'
 
 import { getContentStoreStatePath, readContentStoreCommerceState } from '../content-store/commerce-state.js'
 import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
+import { setProjectContentPin } from '../content-packs/project-pins.js'
+import { forgetVerifiedContentPackVersions } from '../content-packs/installer.js'
 import { verifyContentPackRuntimeAtBoot } from '../content-packs/recovery.js'
 import {
   getGenStudioContentReceipts,
@@ -17,8 +19,11 @@ import {
   quoteGenStudioContentProduct,
 } from '../lib/genstudio-content-store.js'
 import { router as contentStoreRouter } from '../routes/content-store.js'
-import { setApiKey } from '../services/app-secrets-store.js'
+import { contentStoreAnchorsPath, setApiKey } from '../services/app-secrets-store.js'
+import { withCrossProcessLock } from '../lib/atomic-store.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
+import * as jobQueue from '../services/job-queue.js'
+import * as projectManager from '../services/project-manager.js'
 import { useTempDataDir } from './_helpers.js'
 import {
   startMockGenStudioService,
@@ -95,6 +100,37 @@ async function setup(options: { products?: Array<Record<string, unknown>>; key?:
   return { app: app(), tempDir: temp.dir }
 }
 
+async function setupPinnedOwnedPack() {
+  const bytes = await asStoreDeliveryArchive(await fs.readFile(new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url)))
+  const ownedRelease = {
+    ...archiveRelease(bytes), pack_id: 'com.storystudio.pack.free-recovery-test', version: '1.0.0', archive_available: true,
+  }
+  const setupResult = await setup({ products: [product({
+    owned: true, entitlement_family: 'com.storystudio.family.free-recovery-test', current_release: ownedRelease,
+  })] })
+  mock.setContentArchive('crel_a', bytes)
+  await request(setupResult.app).post('/api/content-store/restore').send({}).expect(200)
+  await request(setupResult.app).post('/api/content-store/releases/crel_a/install').send({}).expect(200)
+  const installed = (await readContentPackState()).packs['com.storystudio.pack.free-recovery-test'].versions['1.0.0']
+  const project = await projectManager.createProject({ name: 'Trust Revalidation Project' })
+  await setProjectContentPin(project.slug, {
+    pack_id: 'com.storystudio.pack.free-recovery-test', version: '1.0.0', archive_sha256: installed.archive_sha256,
+  })
+  return { ...setupResult, project }
+}
+
+async function waitForJobs(jobIds: string[]): Promise<void> {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    if (jobIds.every(jobId => ['done', 'error', 'cancelled'].includes(jobQueue.getJob(jobId)?.status ?? ''))) {
+      await jobQueue._waitForJobPersistenceForTesting()
+      return
+    }
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.fail('queued trust-revalidation jobs did not finish')
+}
+
 function quote(localApp: express.Express) {
   return request(localApp).post('/api/content-store/quotes').send({ product_id: 'cprod_a', release_id: null })
 }
@@ -106,6 +142,200 @@ afterEach(async () => {
 })
 
 describe('Content Store commerce routes', () => {
+  test('shared pre-enqueue verification restores one exact missing anchor before creating ordinary jobs', async () => {
+    const { project } = await setupPinnedOwnedPack()
+    await fs.rm(contentStoreAnchorsPath())
+    forgetVerifiedContentPackVersions()
+    jobQueue.registerExecutor('script-only', async () => {})
+    const restoreRequestsBefore = mock.requests.filter(row => row.path === '/v1/content/receipts').length
+
+    const jobs = await Promise.all(['EP001', 'EP002'].map(episode_id => jobQueue.enqueue({
+      project_slug: project.slug, type: 'script-only', episode_id, params: {},
+    })))
+
+    assert.equal(jobs.length, 2)
+    assert.equal(mock.requests.filter(row => row.path === '/v1/content/receipts').length, restoreRequestsBefore + 1)
+    assert.equal((await jobQueue.getJobs(project.slug)).filter(job => jobs.some(created => created.job_id === job.job_id)).length, 2)
+    await waitForJobs(jobs.map(job => job.job_id))
+  })
+
+  test('failed missing-anchor revalidation returns an actionable 409 and creates no job', async () => {
+    const { project } = await setupPinnedOwnedPack()
+    await fs.rm(contentStoreAnchorsPath())
+    forgetVerifiedContentPackVersions()
+    await mock.close()
+    const before = await jobQueue.getJobs(project.slug)
+
+    await assert.rejects(jobQueue.enqueue({
+      project_slug: project.slug, type: 'script-only', episode_id: 'EP003', params: {},
+    }), (error: any) => {
+      assert.equal(error.statusCode, 409)
+      assert.equal(error.code, 'content-store-revalidation-required')
+      assert.match(error.message, /Restore purchases/i)
+      return true
+    })
+    assert.deepEqual(await jobQueue.getJobs(project.slug), before)
+  })
+
+  test('missing-anchor revalidation preserves a distinct origin mismatch and creates no job', async () => {
+    const { project } = await setupPinnedOwnedPack()
+    await fs.rm(contentStoreAnchorsPath())
+    forgetVerifiedContentPackVersions()
+    const requestsBefore = mock.requests.length
+    const jobsBefore = await jobQueue.getJobs(project.slug)
+    await setGenStudioUrl('http://127.0.0.1:9')
+
+    await assert.rejects(jobQueue.enqueue({
+      project_slug: project.slug, type: 'script-only', episode_id: 'EP004', params: {},
+    }), (error: any) => {
+      assert.equal(error.status, 409)
+      assert.equal(error.code, 'CONTENT_STORE_ORIGIN_MISMATCH')
+      return true
+    })
+    assert.equal(mock.requests.length, requestsBefore)
+    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
+  })
+
+  test('missing-anchor revalidation preserves a distinct account mismatch and creates no paid or download work', async () => {
+    const { project } = await setupPinnedOwnedPack()
+    await fs.rm(contentStoreAnchorsPath())
+    forgetVerifiedContentPackVersions()
+    await setApiKey('genstudio', KEY_B)
+    const jobsBefore = await jobQueue.getJobs(project.slug)
+    const purchasesBefore = mock.contentPurchasePostCount
+    const downloadsBefore = mock.contentDownloadPostCount
+
+    await assert.rejects(jobQueue.enqueue({
+      project_slug: project.slug, type: 'script-only', episode_id: 'EP005', params: {},
+    }), (error: any) => {
+      assert.equal(error.status, 409)
+      assert.equal(error.code, 'CONTENT_STORE_ACCOUNT_MISMATCH')
+      return true
+    })
+    assert.equal(mock.contentPurchasePostCount, purchasesBefore)
+    assert.equal(mock.contentDownloadPostCount, downloadsBefore)
+    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
+  })
+
+  test('tampered dedicated anchor fails closed without online restore or job creation', async () => {
+    const { project } = await setupPinnedOwnedPack()
+    await fs.writeFile(contentStoreAnchorsPath(), JSON.stringify({
+      __encrypted: true, version: 1, ciphertext: 'tampered',
+    }))
+    forgetVerifiedContentPackVersions()
+    const requestsBefore = mock.requests.length
+    const jobsBefore = await jobQueue.getJobs(project.slug)
+
+    await assert.rejects(jobQueue.enqueue({
+      project_slug: project.slug, type: 'script-only', episode_id: 'EP006', params: {},
+    }), /undecryptable|malformed|tampered/i)
+    assert.equal(mock.requests.length, requestsBefore)
+    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
+  })
+
+  test('a failed online restore signature stays distinct and is attempted only once before any job', async () => {
+    const { project } = await setupPinnedOwnedPack()
+    await fs.rm(contentStoreAnchorsPath())
+    forgetVerifiedContentPackVersions()
+    mock.tamperContentRestoreReceipt = true
+    const receiptsBefore = mock.requests.filter(row => row.path === '/v1/content/receipts').length
+    const jobsBefore = await jobQueue.getJobs(project.slug)
+    const purchasesBefore = mock.contentPurchasePostCount
+
+    await assert.rejects(jobQueue.enqueue({
+      project_slug: project.slug, type: 'script-only', episode_id: 'EP007', params: {},
+    }), (error: any) => {
+      assert.notEqual(error.code, 'content-store-revalidation-required')
+      assert.match(error.message, /signature/i)
+      return true
+    })
+    assert.equal(mock.requests.filter(row => row.path === '/v1/content/receipts').length, receiptsBefore + 1)
+    assert.equal(mock.contentPurchasePostCount, purchasesBefore)
+    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
+  })
+
+  test('a credential change during revalidation cannot record trust or create a job', async () => {
+    const { project } = await setupPinnedOwnedPack()
+    await fs.rm(contentStoreAnchorsPath())
+    forgetVerifiedContentPackVersions()
+    const originalFetch = globalThis.fetch
+    let releaseReceipts!: () => void
+    let sawReceipts!: () => void
+    const receiptsStarted = new Promise<void>(resolve => { sawReceipts = resolve })
+    const receiptsRelease = new Promise<void>(resolve => { releaseReceipts = resolve })
+    globalThis.fetch = async (input, init) => {
+      if (new URL(String(input)).pathname === '/v1/content/receipts') {
+        sawReceipts()
+        await receiptsRelease
+      }
+      return originalFetch(input, init)
+    }
+    const jobsBefore = await jobQueue.getJobs(project.slug)
+    try {
+      const pending = jobQueue.enqueue({
+        project_slug: project.slug, type: 'script-only', episode_id: 'EP008', params: {},
+      })
+      await receiptsStarted
+      await setApiKey('genstudio', KEY_A_ROTATED)
+      releaseReceipts()
+      await assert.rejects(pending, (error: any) => {
+        assert.equal(error.statusCode, 409)
+        assert.equal(error.code, 'content-store-revalidation-required')
+        return true
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+      releaseReceipts()
+    }
+    assert.equal(await fs.stat(contentStoreAnchorsPath()).then(() => true, () => false), false)
+    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
+  })
+
+  test('a credential change while the verified restore waits for the commerce lock is rechecked before recording trust', async () => {
+    const { project } = await setupPinnedOwnedPack()
+    await fs.rm(contentStoreAnchorsPath())
+    forgetVerifiedContentPackVersions()
+    let releaseCommerce!: () => void
+    let markCommerceLocked!: () => void
+    const commerceLocked = new Promise<void>(resolve => { markCommerceLocked = resolve })
+    const commerceRelease = new Promise<void>(resolve => { releaseCommerce = resolve })
+    const blocker = withCrossProcessLock(getContentStoreStatePath(), async () => {
+      markCommerceLocked()
+      await commerceRelease
+    })
+    await commerceLocked
+    const originalFetch = globalThis.fetch
+    let markReceiptsReturned!: () => void
+    const receiptsReturned = new Promise<void>(resolve => { markReceiptsReturned = resolve })
+    globalThis.fetch = async (input, init) => {
+      const response = await originalFetch(input, init)
+      const url = input instanceof Request ? input.url : String(input)
+      if (new URL(url).pathname === '/v1/content/receipts') markReceiptsReturned()
+      return response
+    }
+    const jobsBefore = await jobQueue.getJobs(project.slug)
+    try {
+      const pending = jobQueue.enqueue({
+        project_slug: project.slug, type: 'script-only', episode_id: 'EP009', params: {},
+      })
+      await receiptsReturned
+      await new Promise(resolve => setTimeout(resolve, 20))
+      await setApiKey('genstudio', KEY_A_ROTATED)
+      releaseCommerce()
+      await assert.rejects(pending, (error: any) => {
+        assert.equal(error.statusCode, 409)
+        assert.equal(error.code, 'content-store-revalidation-required')
+        return true
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+      releaseCommerce()
+      await blocker
+    }
+    assert.equal(await fs.stat(contentStoreAnchorsPath()).then(() => true, () => false), false)
+    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
+  })
+
   test('projects authoritative hero and complete license fields without raw upstream proof bytes', async () => {
     const { app: localApp } = await setup({ products: [product({
       cover: { url: 'https://cdn.example.test/cover.webp', alt: 'Published cover' },

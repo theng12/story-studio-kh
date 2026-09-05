@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import express from 'express'
 import request from 'supertest'
 import { ContentPackMissingError } from '../content-packs/project-pins.js'
+import { ContentStoreRevalidationRequiredError } from '../content-store/commerce-state.js'
 import { errorBoundary } from '../lib/error-boundary.js'
 import { useTempDataDir } from './_helpers.js'
 
@@ -92,6 +93,22 @@ describe('errorBoundary', () => {
       item_ids: ['com.storystudio.history.formula'],
       item_kinds: ['series-formula'],
     }])
+  })
+
+  test('missing Content Store trust is an actionable structured 409 without exposing its scope', async () => {
+    const app = appWith(async () => {
+      throw new ContentStoreRevalidationRequiredError({
+        accountId: 'acct_private', origin: 'https://private-origin.example',
+      })
+    })
+    const res = await request(app).get('/boom')
+    assert.equal(res.status, 409)
+    assert.deepEqual(res.body, {
+      code: 'content-store-revalidation-required',
+      detail: 'Content Store trust must be verified again. Open Content Store and choose Restore purchases.',
+    })
+    assert.ok(!JSON.stringify(res.body).includes('acct_private'))
+    assert.ok(!JSON.stringify(res.body).includes('private-origin'))
   })
 
   test('does not double-respond once headers are sent', async () => {

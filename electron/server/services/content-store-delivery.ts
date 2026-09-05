@@ -12,12 +12,17 @@ import {
   type GenStudioContentReceipts,
   type GenStudioContentRelease,
   type GenStudioContentRestoreEntitlement,
+  GenStudioContentStoreApiError,
+  GenStudioContentStoreTransportError,
 } from '../lib/genstudio-content-store.js'
 import {
   verifyContentStoreDownloadGrant,
   verifyContentStoreRestore,
 } from '../lib/genstudio-content-store-trust.js'
-import { recordVerifiedContentRestore } from '../content-store/commerce-state.js'
+import {
+  ContentStoreRevalidationRequiredError,
+  recordVerifiedContentRestore,
+} from '../content-store/commerce-state.js'
 import { verifyDeliveryAttestedContentPackArchive } from '../content-packs/archive.js'
 import type { ContentPackDeliveryAttestation } from '../content-packs/runtime-types.js'
 import {
@@ -30,13 +35,14 @@ import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/key
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { mutateContentPackState, readContentPackState, withContentPackCoordinationLock } from '../content-packs/state.js'
 import type { ContentPackInstallResult } from '../content-packs/runtime-types.js'
-import { getApiKey } from './app-secrets-store.js'
+import { getApiKey, getApiKeySnapshot } from './app-secrets-store.js'
 import { getGenStudioUrl } from './app-settings.js'
 import { ContentStoreLocalError, loadContentStoreOverview, type ContentStoreOverview } from './content-store.js'
 import { reconcileContentStoreRecalledVersions } from './content-store-install-state.js'
 import { compareVersionStrings } from '../content-packs/version-order.js'
 
 const STORY_CONTENT_PACK_MAX_BYTES = 50 * 1024 * 1024
+const trustRevalidations = new Map<string, Promise<void>>()
 
 export interface ContentStoreInstallResponse {
   install: ContentPackInstallResult
@@ -59,7 +65,11 @@ async function currentGenStudioOrigin(): Promise<string> {
   return new URL(await getGenStudioUrl()).origin
 }
 
-async function fetchVerifiedOwnership(): Promise<{
+async function fetchVerifiedOwnership(expected?: {
+  accountId: string
+  origin: string
+  credentialGeneration: string
+}): Promise<{
   apiKey: string
   account: GenStudioContentAccount
   publicKey: GenStudioContentPublicKey
@@ -68,6 +78,9 @@ async function fetchVerifiedOwnership(): Promise<{
 }> {
   const apiKey = await activeKey()
   const account = await getGenStudioContentAccount(apiKey)
+  if (expected && account.accountId !== expected.accountId) {
+    throw new ContentStoreLocalError(409, 'CONTENT_STORE_ACCOUNT_MISMATCH', 'The active GenStudio account does not own this installed Content Pack.')
+  }
   const [publicKey, receipts] = await Promise.all([
     getGenStudioContentPublicKey(apiKey),
     getGenStudioContentReceipts(apiKey),
@@ -81,6 +94,15 @@ async function fetchVerifiedOwnership(): Promise<{
     throw new ContentStoreLocalError(409, 'CONTENT_STORE_SIGNING_KEY_MISSING', 'GenStudio did not publish the restore receipt signing key.')
   }
   const origin = await currentGenStudioOrigin()
+  if (expected && origin !== expected.origin) {
+    throw new ContentStoreLocalError(409, 'CONTENT_STORE_ORIGIN_MISMATCH', 'This installed Content Pack belongs to a different GenStudio origin.')
+  }
+  if (expected) {
+    const current = await getApiKeySnapshot('genstudio')
+    if (current.apiKey !== apiKey || current.generation !== expected.credentialGeneration) {
+      throw new ContentStoreRevalidationRequiredError({ accountId: expected.accountId, origin: expected.origin })
+    }
+  }
   await recordVerifiedContentRestore({
     account_id: receipts.accountId,
     content_account_id: receipts.contentAccountId,
@@ -91,8 +113,44 @@ async function fetchVerifiedOwnership(): Promise<{
     receipt_signature: receipts.restoreReceipt.receiptSignature,
     verified_at: new Date().toISOString(),
     key_history: publicKey.keys.map(key => ({ key_id: key.keyId, public_key_base64: key.publicKeyBase64 })),
-  })
+  }, expected ? { credentialGeneration: expected.credentialGeneration } : undefined)
   return { apiKey, account, publicKey, receipts, origin }
+}
+
+/** Restore only verified signing trust for an installed Store pack; never purchases, downloads, or queues work. */
+export async function revalidateContentStoreTrustForGeneration(scope: {
+  accountId: string
+  origin: string
+}): Promise<void> {
+  const currentOrigin = await currentGenStudioOrigin()
+  const credential = await getApiKeySnapshot('genstudio')
+  if (!credential.apiKey) throw new ContentStoreRevalidationRequiredError(scope)
+  if (currentOrigin !== scope.origin) {
+    throw new ContentStoreLocalError(
+      409,
+      'CONTENT_STORE_ORIGIN_MISMATCH',
+      'This installed Content Pack belongs to a different GenStudio origin.',
+    )
+  }
+  const key = `${scope.origin}\u0000${scope.accountId}\u0000${credential.generation}`
+  const existing = trustRevalidations.get(key)
+  if (existing) return existing
+  const leader = (async () => {
+    try {
+      await fetchVerifiedOwnership({
+        ...scope, credentialGeneration: credential.generation,
+      })
+    } catch (error) {
+      if (error instanceof GenStudioContentStoreApiError || error instanceof GenStudioContentStoreTransportError) {
+        throw new ContentStoreRevalidationRequiredError(scope)
+      }
+      throw error
+    }
+  })()
+  trustRevalidations.set(key, leader)
+  try { await leader } finally {
+    if (trustRevalidations.get(key) === leader) trustRevalidations.delete(key)
+  }
 }
 
 export async function restoreContentStoreOwnership(): Promise<ContentStoreOverview> {

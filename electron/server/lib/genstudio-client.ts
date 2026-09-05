@@ -3170,10 +3170,10 @@ export class GenStudioApiError extends Error {
               ? `GenStudio KH is busy or rate-limited: ${detail}. Story Studio will honor its Retry-After guidance.`
               : status === 502
                 ? `The provider behind this GenStudio KH product failed: ${detail}. No fallback route was attempted.`
-                : isGenStudioReleaseGenerationUnavailable(status, detail)
-                  ? 'GenStudio generation is disabled for the deployed release. Story Studio stopped all remaining ' +
-                    'new submissions; accepted jobs and completed checkpoints are preserved. Enable exact-release ' +
-                    'charging in GenStudio, then Retry to repair only unfinished work.'
+                : isGenStudioGenerationPaused(status, detail)
+                  ? 'GenStudio generation is paused by its operator. Story Studio stopped all remaining new ' +
+                    'submissions; accepted jobs and completed checkpoints are preserved. Enable generation in ' +
+                    'GenStudio Admin, then Retry only unfinished work.'
                   : `GenStudio KH request failed: ${detail}`
     super(message)
     this.name = 'GenStudioApiError'
@@ -3198,12 +3198,11 @@ export function isGenStudioInsufficientCredits(error: unknown): error is GenStud
   return error instanceof GenStudioApiError && error.status === 402
 }
 
-export function isGenStudioReleaseGenerationUnavailable(
+export function isGenStudioGenerationPaused(
   status: number,
   detail: string,
 ): boolean {
-  return status === 503
-    && /generation is unavailable until charging is enabled for this exact release/i.test(detail)
+  return status === 503 && detail === 'GENERATION_PAUSED'
 }
 
 export function operationSignal(
@@ -3426,7 +3425,7 @@ async function requestJsonWithRetry(
           await request.onQueueState?.('waiting_account_capacity')
           throw error
         }
-        if (isGenStudioReleaseGenerationUnavailable(response.status, detail)) {
+        if (isGenStudioGenerationPaused(response.status, detail)) {
           const retryAfterMs = parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
           genStudioAdmission.noteGlobalFailure(error, retryAfterMs ?? undefined)
           await request.onQueueState?.('failed')
@@ -3485,7 +3484,7 @@ async function requestJsonWithRetry(
         && (
           noRetryStatuses.includes(error.status)
           || noRetryApiErrors
-          || isGenStudioReleaseGenerationUnavailable(error.status, error.detail)
+          || isGenStudioGenerationPaused(error.status, error.detail)
           || !retryableStatus(error.status)
         )
       ) {
