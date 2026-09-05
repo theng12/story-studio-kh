@@ -113,3 +113,36 @@ The added RED test failed on the pipeline child retaining true rather than false
 - `npm run typecheck:electron`: exit **0**.
 - `git diff --check`: exit **0**.
 - No frontend code changed in this correction; no additional UI test/typecheck run was necessary. No paid-engine source, dependency, provider, deployment, push, merge, or live-data changes.
+
+## Final whole-branch review correction: terminal retries, finalizer handoff, whole-track mode
+
+Base was `6c923e67`, which already integrated the reviewed paid engine. Implementation: `44c65cadd8c5c6d45b7c62aee2819c4d70ea8134` (`fix: resume recovery edges and preserve subtitle mode and handoff`).
+
+### Three reproduced causes
+
+1. Existing failed recovery edges were returned unchanged unless they exposed the narrow automatic free/waiting states. Explicit Retry therefore could not repair ordinary transport/download or Scene Plan failures.
+2. The queue's warning-only subtitle failure handler already queued a directly-following metadata/finalizer chain, but the episode plan copied and later dispatched it under a different ID. That could duplicate the finalizer and its paid children.
+3. The coordinator assumed chapter coverage for `per_chapter: false`, despite the generator using the single public section `merged` and writing `CODE_whisper.srt`. Intersecting that with chapter gaps blocked reclaim; requiring chapter stitching also blocked subtitle-only completion.
+
+### Behavior now
+
+- Explicit saved-source Retry can requeue the failed first unresolved edge **as the same durable job**, under its existing lock, after persistence and before pumping. No new job/plan/provider identity, budget ledger, generation epoch, or settings snapshot is minted. Cancellation and abandonment still block re-entry. Automatic observation retains its narrow public free/waiting eligibility and never loops ordinary terminal failures. Duplicate explicit intents for an already queued/running managed edge reuse the plan instead of failing source validation or duplicating queue admission.
+- A previous forced but **failed** operation can be explicitly re-entered as that same job with unchanged prior params and provider IDs; this is not a new forced operation. Automatic recovery still rejects force. The separately fixed cancelled-source retry still creates normalized `force: false` descriptors, and cancelled rows are never resumed.
+- The failure handler, successful subtitle-to-metadata handler, and coordinator now share `subtitle-finalizer-<source-job-id>` as a durable handoff ID. A persisted source handoff tombstone is copied/adopted into the plan, so terminal tail history pruning cannot grant another tail. The intentional warning-only YouTube Finalizer behavior is preserved; the original subtitle remains failed/repairable while the same finalizer continues once.
+- Whole-track mode uses its authoritative single `merged` scope. An old chapter selector is ignored exactly as the whole-track generator ignores it; no chapter jobs are invented. Valid parsed `CODE_whisper.srt` cues complete a subtitle-only recovery without manufacturing a chapter stitch. The existing section-mode source/hash/metadata verification remains unchanged.
+- **Owner-approved product boundary:** if downstream Scene Plan is requested, it still requires a genuine verified per-section stitch. A recovered whole track without one remains held with: “Whole-track transcription is complete. Scene Plan requires a verified per-section subtitle stitch; no chapter transcription was started.” An existing valid chapter stitch is used/preserved. No whole-track-to-chapter conversion or invented metadata was added.
+- No edits to `subtitle-recovery.ts`, payment/settlement implementation, or the separately owned `subtitles.ts` fresh-status correction. The paid-engine test file only gained a consumer regression invoking its existing public API with mocked HTTP.
+
+### Focused proof
+
+Initial RED run: **3 failures / 63 tests**: explicit Retry remained error; whole-track expected/missing scope was empty; warning finalizer count was 2 instead of 1. Additional RED assertions caught ignored whole-track selectors, absent persisted handoff tombstones, and explicit prior-force re-entry remaining held. The queue-position test was corrected to compare its original position, since the global test lane also contained other fixture jobs; it never assumed an empty process-wide lane after that correction.
+
+- `node scripts/testing/run-backend-tests.mjs --only episode-recovery --only job-queue.test.ts --only subtitle-recovery-engine`: exit **0**, **113 passed / 0 failed**, 13 suites; completion `suite coverage: 3/3 file(s) completed, 113 test(s) + 13 suite(s) = 126 marks`. **3 selected / 382 skipped; PARTIAL RUN, not release gate**. Configured projects root byte-identical **true**. This preceded only the last ignored-selector/handoff-tombstone/prior-force refinements.
+- Final queue/coordinator regression after those refinements: `node scripts/testing/run-backend-tests.mjs --only episode-recovery --only job-queue.test.ts --only job-queue-genstudio-resume --only job-queue-auto-retry`: exit **0**, **90 passed / 0 failed**, 17 suites; completion `suite coverage: 4/4 file(s) completed, 90 test(s) + 17 suite(s) = 107 marks`. **4 selected / 381 skipped; PARTIAL RUN, not release gate**. Configured projects root byte-identical **true**.
+- The new queue regression runs the actual subtitle failure handler with stubbed executors, then coordinator recovery and serialized restart. It asserts one finalizer, one paid-child executor run, one persisted handoff identity/tombstone, and no duplicate tail.
+- Coordinator tests cover explicit download/transport/Scene Plan failures, unchanged saved request/budget IDs, repeated concurrent retry, restart serialization, unchanged queue position/no duplicate admission, whole-track failure/retry/success, canonical merged scope, precise downstream stitch hold, and preserved existing chapter sources/stitch.
+- Public Task 1b regression recovers an accepted `merged` task after mocked transport and SRT download outages, serializes/reloads job state between calls, obtains the same SRT, and records **zero fresh POSTs and zero confirmations**. No live/provider calls occurred.
+- Final `npm run typecheck:electron`: exit **0**. Final `git diff --check`: exit **0**. No frontend implementation changed, so the requested conditional frontend rerun was not needed.
+- The existing auto-retry fixture emitted its known asynchronous ENOENT temporary-project cleanup warning during the final batch; the suite finished successfully. This is not a warning-free or full-release-gate claim.
+
+The earlier real-app scheduler, screenshot geometry, and real-provider qualification limitations remain. No push, merge, deploy, full suite, or live-data writes were performed in this correction.
