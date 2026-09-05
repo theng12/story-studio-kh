@@ -142,6 +142,10 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
   const file = path.resolve(outDir, '.subtitle-recovery.json')
   // ponytail: one in-process owner per output; the desktop backend is single-instance.
   return withLock(`${file}:${manifestKey}`, async () => {
+    const manifestAtStart = await readManifestStrict(outDir).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { tasks: {} } as Awaited<ReturnType<typeof readManifestStrict>>
+      throw error
+    })
     const change = <T>(fn: (ledger: Ledger) => T): Promise<T> => withLock(file, async () => {
       const ledger = await readLedger(file)
       const result = fn(ledger)
@@ -159,14 +163,12 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         && (!input.force || saved.ownerJobId === job.job_id)) return saved
       return null
     })
+    let freshCurrent = false
     if (!current) {
-      const manifest = await readManifestStrict(outDir).catch((error: unknown) => {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { tasks: {} } as Awaited<ReturnType<typeof readManifestStrict>>
-        throw error
-      })
-      const saved = manifest.tasks[manifestKey]
+      const saved = manifestAtStart.tasks[manifestKey]
       const reuse = !input.force && saved?.provider === 'genstudio'
         && (saved.input_hash === input.inputHash || saved.input_hash === input.audioHash) ? saved : null
+      freshCurrent = !reuse
       const key = reuse?.idempotency_key || buildGenStudioTranscriptionIdempotencyKey({
         requestIdentity: input.force && (saved || prior) ? `${input.request.requestIdentity}:manual-rerun:${job.job_id}` : input.request.requestIdentity,
         fileSha256: input.audioHash.replace(/^sha256:/, ''), modelId: input.request.modelId,
@@ -186,6 +188,11 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         ledger.plans[current!.planId] ||= { attempts: [] }
       })
     }
+    const savedAtStart = manifestAtStart.tasks[manifestKey]
+    // Never let a persisted ledger rewrite the independent manifest binding.
+    let mayWriteManifest = freshCurrent || (savedAtStart?.provider === 'genstudio'
+      && savedAtStart.input_hash === input.inputHash && savedAtStart.idempotency_key === current.idempotencyKey
+      && (!savedAtStart.task_id || savedAtStart.task_id === current.taskId))
     const stopped = () => input.request.signal?.aborted || jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id)
     const state = async (code: string, message: string, manual: ManualAction = false) => {
       job.params.subtitle_recovery_plan_id = current!.planId
@@ -211,10 +218,12 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           else if (current!.taskId) attempt.state = 'submitted'
         }
       })
-      await recordTaskStrict(outDir, manifestKey, {
+      if (mayWriteManifest) await recordTaskStrict(outDir, manifestKey, {
         provider: 'genstudio', task_id: current!.taskId, submitted_at: current!.submittedAt,
         input_hash: input.inputHash, idempotency_key: current!.idempotencyKey,
         operation: 'transcription', word_timestamps: input.request.wordTimestamps, last_state: providerState,
+        replacement_of_task_id: current!.replacement?.originalTaskId
+          || (savedAtStart?.idempotency_key === current!.idempotencyKey ? savedAtStart.replacement_of_task_id : undefined),
       })
       await checkpointGenStudioAsset(job, manifestKey, {
         operation: 'transcription', idempotency_key: current!.idempotencyKey,
@@ -232,25 +241,49 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
     }
     // Deliberately invocation-local: a saved ledger flag is never spending authority.
     let originalAuthorityVerified = false
-    const rebindOriginalAuthority = async () => {
+    const rebindOriginalAuthority = async (initial = false) => {
       try {
-        const provenance = current!.replacement!
+        const manifest = await readManifestStrict(outDir)
+        const entry = manifest.tasks[manifestKey]
+        if (entry?.provider !== 'genstudio' || current!.section !== section
+          || current!.outputPath !== path.join(outDir, manifestKey)) throw new Error('Section identity mismatch')
+        const provenance = initial
+          ? { originalTaskId: current!.taskId, originalIdempotencyKey: current!.idempotencyKey }
+          : current!.replacement!
+        if (initial) {
+          if (entry.replacement_of_task_id || entry.input_hash !== input.inputHash || entry.idempotency_key !== current!.idempotencyKey
+            || (entry.task_id && entry.task_id !== current!.taskId)) throw new Error('Current manifest identity mismatch')
+        } else {
+          const original = entry.subtitle_originals?.[provenance.originalIdempotencyKey]
+          if (!original || original.task_id !== provenance.originalTaskId
+            || original.idempotency_key !== provenance.originalIdempotencyKey
+            || original.input_hash !== input.inputHash) throw new Error('Immutable original manifest identity mismatch')
+        }
         const original = await getGenStudioJobByIdempotencyKey('audio.transcription', await getGenStudioUrl(), input.apiKey,
           `${provenance.originalIdempotencyKey}-confirm`, input.request, Date.now() + 30_000)
         if (original.id !== provenance.originalTaskId || original.state !== 'failed') throw new Error('Original task mismatch')
         const failure = subtitleFailure(new GenStudioTerminalFailureError('transcription', original, 'Original transcription failed'))
         if (classifySubtitleFailure(failure) !== 'paid') throw new Error('Original settlement is not eligible')
-        provenance.failure = failure // Replace self-asserted ledger settlement with GenStudio truth.
+        if (initial) {
+          // Strict writer appends only while the independently read current binding
+          // still matches; later task/current-key writes preserve this original.
+          await recordTaskStrict(outDir, manifestKey, { ...entry, task_id: original.id,
+            subtitle_originals: { [provenance.originalIdempotencyKey]: {
+              task_id: original.id, idempotency_key: provenance.originalIdempotencyKey, input_hash: input.inputHash,
+            } },
+          })
+        } else current!.replacement!.failure = failure
+        mayWriteManifest = true
         originalAuthorityVerified = true
       } catch {
-        return block('The original transcription authority could not be verified; no replacement was bought. Recover the original task or explicitly re-run this section.',
+        return block('The original transcription identity and authority could not be verified; no replacement was bought. Recover the original task or explicitly re-run this section.',
           'rerun_subtitle_section')
       }
     }
     const beforeConfirm = async (quote: GenStudioTranscriptionQuote) => {
       if (stopped()) throw new Error('Subtitle submission stopped by owner')
       if (current!.replacement) {
-        if (!originalAuthorityVerified) return block('The original transcription authority could not be verified; no replacement was bought.', 'rerun_subtitle_section')
+        await rebindOriginalAuthority()
         const authority = await policy()
         const reason = await change(ledger => {
           const attempts = ledger.plans[current!.planId]!.attempts
@@ -350,8 +383,8 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           }
           if (classification === 'paid') {
             if (current.replacement) return block('The one paid replacement failed; needs attention. Review the failure before explicitly re-running this section.', 'rerun_subtitle_section', 'needs_attention')
-            if (!current.identityVerified) return block('The original transcription identity is incomplete; recover it before buying a replacement.')
             if (!(await policy()).enabled) return block('automatic paid subtitle replacement is Off', 'buy_missing_subtitles')
+            await rebindOriginalAuthority(true)
             current.replacement = { originalTaskId: error.jobId, originalIdempotencyKey: current.idempotencyKey, failure }
             current.idempotencyKey = `story-stt-${createHash('sha256').update(`${current.idempotencyKey}:subtitle-replacement:1`).digest('hex')}`
             current.taskId = ''; current.confirmStarted = false; current.submittedAt = new Date().toISOString()

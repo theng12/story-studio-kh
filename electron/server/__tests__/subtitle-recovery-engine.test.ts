@@ -160,6 +160,22 @@ test('paid replacement failure never purchases another replacement across restar
   assert.equal(f.confirmations.length, 1)
 })
 
+test('removing the ledger replacement flag cannot promote a failed replacement to a new original', async t => {
+  const f = await fixture(t)
+  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+  f.replacement(id => failed(id))
+  await assert.rejects(f.run(), /one paid replacement failed/)
+  const file = path.join(f.outDir, '.subtitle-recovery.json')
+  const ledger = JSON.parse(await fs.readFile(file, 'utf8'))
+  delete ledger.sections['Chapter_01.srt'].replacement
+  Object.values(ledger.plans).forEach((p: any) => { p.attempts = [] })
+  await fs.writeFile(file, JSON.stringify(ledger))
+  f.calls.length = 0
+  await assert.rejects(f.run(), /identity|authority/i)
+  assert.equal(f.calls.some(c => c.startsWith('POST')), false)
+  assert.equal(f.confirmations.length, 1)
+})
+
 test('crash after confirm but before accepted task checkpoint recovers read-only by committed key while Off', async t => {
   const f = await fixture(t)
   await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
@@ -216,6 +232,53 @@ test('coherently forged replacement authority must reconcile outside the ledger 
   assert.equal(f.calls.some(c => c.startsWith('POST')), false)
   assert.equal(f.confirmations.length, 0)
   assert.equal(f.job.result?.recovery_state, 'needs_attention')
+})
+
+for (const replacement of [false, true]) test(`another real failed task cannot supply this section's ${replacement ? 'replacement' : 'initial'} authority`, async t => {
+  const f = await fixture(t, ['Chapter_01', 'Chapter_02'])
+  if (replacement) {
+    await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+    f.beforeConfirm(async () => { throw new Error('restart with pending replacement') })
+    await assert.rejects(f.run(), /restart with/)
+    f.beforeConfirm(async () => {})
+  } else await assert.rejects(f.run(), /Off/)
+  const file = path.join(f.outDir, '.subtitle-recovery.json')
+  const ledger = JSON.parse(await fs.readFile(file, 'utf8'))
+  const section = ledger.sections['Chapter_01.srt']
+  section.identityVerified = true
+  if (replacement) {
+    section.replacement.originalTaskId = 'old-Chapter_02'
+    section.replacement.originalIdempotencyKey = 'original-Chapter_02'
+    section.idempotencyKey = `story-stt-${createHash('sha256').update('original-Chapter_02:subtitle-replacement:1').digest('hex')}`
+  } else {
+    section.taskId = 'old-Chapter_02'
+    section.idempotencyKey = 'original-Chapter_02'
+  }
+  await fs.writeFile(file, JSON.stringify(ledger))
+  const manifestFile = path.join(f.outDir, '.task-manifest.json')
+  const manifestBefore = await fs.readFile(manifestFile, 'utf8')
+  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  f.calls.length = 0
+  await assert.rejects(f.run(), /identity|authority|manifest/i)
+  assert.equal(f.calls.some(c => c.startsWith('POST')), false)
+  assert.equal(f.confirmations.length, 0)
+  assert.equal(await fs.readFile(manifestFile, 'utf8'), manifestBefore, 'the ledger must not rewrite the independent binding before validation')
+})
+
+test('a pending legacy replacement without immutable original manifest fields cannot auto-buy', async t => {
+  const f = await fixture(t)
+  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  f.beforeConfirm(async () => { throw new Error('restart before quote') })
+  await assert.rejects(f.run(), /restart before/)
+  f.beforeConfirm(async () => {})
+  const file = path.join(f.outDir, '.task-manifest.json')
+  const manifest = JSON.parse(await fs.readFile(file, 'utf8'))
+  delete manifest.tasks['Chapter_01.srt'].subtitle_originals
+  await fs.writeFile(file, JSON.stringify(manifest))
+  f.calls.length = 0
+  await assert.rejects(f.run(), /identity|authority|manifest/i)
+  assert.equal(f.calls.some(c => c.startsWith('POST')), false)
+  assert.equal(f.confirmations.length, 0)
 })
 
 test('legitimate pending replacement rebinds original provider authority after restart and resumes once', async t => {
