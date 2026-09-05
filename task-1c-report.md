@@ -146,3 +146,17 @@ Initial RED run: **3 failures / 63 tests**: explicit Retry remained error; whole
 - The existing auto-retry fixture emitted its known asynchronous ENOENT temporary-project cleanup warning during the final batch; the suite finished successfully. This is not a warning-free or full-release-gate claim.
 
 The earlier real-app scheduler, screenshot geometry, and real-provider qualification limitations remain. No push, merge, deploy, full suite, or live-data writes were performed in this correction.
+
+## Final tail-ownership correction: derived manual purchase
+
+Implementation: `a34dc65a64d0347b7d174a87ba115588a62b378f` (`fix: preserve original finalizer ownership through subtitle purchases`).
+
+The re-review identified that a manual-purchase job inherited the original `pipeline_chain` and completed handoff tombstone but received a new Story job ID. The failure handler ignored the tombstone and derived another finalizer ID from the purchase job, allowing a duplicate finalizer/paid tail after the original rows were pruned.
+
+The queue now persists the original `subtitle_finalizer_job_id` before a handoff side effect. The manual-purchase route adds that same resolved ID to its derived params; recovery descriptors and coordinator continuation lookup resolve that original owner rather than deriving ownership from a new job ID. Both failure and success handlers honor the inherited completed-handoff tombstone before queueing. Invalid saved handoff identity fails closed instead of manufacturing another identity. The warning-only finalizer policy is unchanged. Only additive handoff metadata was introduced at the purchase route; no Task 1b payment or settlement implementation changed.
+
+Regression proof uses the actual queue failure handler and actual manual purchase HTTP route, with local stubbed executors: original subtitle fails → finalizer and thumbnail child each execute once → both terminal rows are pruned through the queue API → a derived manual purchase fails → its authoritative persisted state is reloaded and the coordinator restarts → no finalizer or paid child is recreated. A subsequent successful derived subtitle job also honors the same pruned tombstone. The initial fixture's removal helper name was corrected to the real `removeTerminalJob`; the meaningful RED then showed the derived purchase's original handoff ID was missing. Final assertions pin one finalizer execution, one child execution, zero recreated tail rows, and the same original persisted identity.
+
+- Final `node scripts/testing/run-backend-tests.mjs --only job-queue.test.ts --only episode-recovery --only jobs-route-order`: exit **0**, **67 passed / 0 failed**, 14 suites; completion `suite coverage: 3/3 file(s) completed, 67 test(s) + 14 suite(s) = 81 marks`. **3 selected / 382 skipped; PARTIAL RUN, not release gate**. Configured projects root byte-identical **true**.
+- Final `npm run typecheck:electron`: exit **0**. Final `git diff --check`: exit **0**.
+- No frontend implementation, paid engine, separately owned stitch fix, dependency, live provider/data, full suite, push, merge, or deployment changes. Only disposable fixture history was pruned for the regression.
