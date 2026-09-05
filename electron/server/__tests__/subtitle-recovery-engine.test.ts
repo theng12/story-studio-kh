@@ -33,12 +33,15 @@ async function fixture(t: any, sections = ['Chapter_01']) {
   const originalFetch = globalThis.fetch
   t.after(() => { globalThis.fetch = originalFetch })
   const confirmations: string[] = []
+  const acceptedConfirmations = new Set<string>()
   const calls: string[] = []
   let original = (id: string) => failed(id)
   let quoteFields: Record<string, unknown> = { quoted_credit_cost: 3, price_version: 'price-v1' }
   let beforeConfirm = async () => {}
   let confirm = async (_key: string): Promise<Response | void> => {}
   let quoteFailure: number | null = null
+  let quoteFailureDetail = 'quote expired'
+  let originalMissing = false
   let replacement = (id: string) => ({ id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }) as any
   globalThis.fetch = async (input, init) => {
     const url = String(input)
@@ -48,7 +51,7 @@ async function fixture(t: any, sections = ['Chapter_01']) {
       paid_queued_jobs: 0, max_queued_jobs: 100, generation_submissions_per_minute: 1000,
     })
     if (url.endsWith('/quotes')) {
-      if (quoteFailure) { const status = quoteFailure; quoteFailure = null; return Response.json({ detail: 'quote expired' }, { status }) }
+      if (quoteFailure) { const status = quoteFailure; quoteFailure = null; return Response.json({ detail: quoteFailureDetail }, { status }) }
       const key = (init!.headers as Record<string, string>)['Idempotency-Key']!
       await beforeConfirm()
       return Response.json({ id: key, ...quoteFields }, { status: 201 })
@@ -57,8 +60,14 @@ async function fixture(t: any, sections = ['Chapter_01']) {
       const key = (init!.headers as Record<string, string>)['Idempotency-Key']!
       // Physical attempts can replay; the provider creates only one billed task per key.
       if (!confirmations.includes(key)) confirmations.push(key)
-      const response = await confirm(key)
-      if (response) return response
+      let response: Response | void
+      try { response = await confirm(key) }
+      catch (error) { acceptedConfirmations.add(key); throw error }
+      if (response) {
+        if (response.ok) acceptedConfirmations.add(key)
+        return response
+      }
+      acceptedConfirmations.add(key)
       return Response.json(replacement(`new-${key}`), { status: 202 })
     }
     if (url.endsWith('/srt')) return new Response(srt)
@@ -66,9 +75,10 @@ async function fixture(t: any, sections = ['Chapter_01']) {
     if (url.includes('/by-idempotency-key/')) {
       const section = sections.find(s => id === `original-${s}-confirm`)
       if (section) return Response.json(original(`old-${section}`))
-      return confirmations.includes(id)
+      return acceptedConfirmations.has(id)
         ? Response.json(replacement(`new-${id}`)) : Response.json({ detail: 'not found' }, { status: 404 })
     }
+    if (id.startsWith('old-') && originalMissing) return Response.json({ detail: 'transcription not found' }, { status: 404 })
     return Response.json(id.startsWith('old-') ? original(id) : replacement(id))
   }
   const job = { job_id: path.basename(outDir), project_slug: '_app_', episode_id: 'EP0001',
@@ -87,7 +97,9 @@ async function fixture(t: any, sections = ['Chapter_01']) {
     quote: (value: typeof quoteFields) => { quoteFields = value },
     beforeConfirm: (fn: typeof beforeConfirm) => { beforeConfirm = fn },
     confirm: (fn: typeof confirm) => { confirm = fn },
-    expireQuote: (status = 410) => { quoteFailure = status },
+    acceptConfirmation: (key: string) => { acceptedConfirmations.add(key) },
+    expireQuote: (status = 410, detail = 'quote expired') => { quoteFailure = status; quoteFailureDetail = detail },
+    originalMissing: () => { originalMissing = true },
     replacement: (fn: typeof replacement) => { replacement = fn },
   }
 }
@@ -436,7 +448,7 @@ test('manual purchase derives only exact missing sections from the failed job', 
   assert.throws(() => subtitlePurchaseParams(job, 0), /ceiling/)
 })
 
-test('quote expiry retries for free while Off, with a persisted renewed key', async t => {
+test('quote expiry HTTP 410 retries for free while Off, with a persisted renewed key', async t => {
   const f = await fixture(t)
   await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
   f.expireQuote()
@@ -444,6 +456,49 @@ test('quote expiry retries for free while Off, with a persisted renewed key', as
   const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
   assert.equal(state.sections['Chapter_01.srt'].freeRetries, 1)
   assert.equal(Object.values(state.plans).flatMap((p: any) => p.attempts).length, 0)
+})
+
+test('the exact GenStudio HTTP 422 confirm expiry renews only the uncreated request', async t => {
+  const f = await fixture(t)
+  await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
+  let expired = false
+  f.confirm(async () => {
+    if (!expired) {
+      expired = true
+      return Response.json({ detail: 'transcription quote has expired' }, { status: 422 })
+    }
+  })
+  assert.equal((await f.run()).srt, srt)
+  assert.equal(f.confirmations.length, 2, 'one expired confirm and one renewed-key confirm')
+  assert.equal(f.calls.filter(call => call.endsWith('/quotes')).length, 2, 'only one fresh quote is created')
+  const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  assert.equal(state.sections['Chapter_01.srt'].freeRetries, 1)
+})
+
+test('the same HTTP 422 expiry detail at quote creation stays fail-closed', async t => {
+  const f = await fixture(t)
+  await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
+  f.expireQuote(422, 'transcription quote has expired')
+  await assert.rejects(f.run())
+  assert.equal(f.calls.filter(call => call.endsWith('/quotes')).length, 1)
+  assert.equal(f.confirmations.length, 0)
+})
+
+test('a non-exact HTTP 422 expiry detail at confirm does not mint a fresh request', async t => {
+  const f = await fixture(t)
+  await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
+  f.confirm(async () => Response.json({ detail: ' Transcription quote has expired ' }, { status: 422 }))
+  await assert.rejects(f.run())
+  assert.equal(f.calls.filter(call => call.endsWith('/quotes')).length, 1)
+  assert.equal(f.confirmations.length, 1)
+})
+
+test('a saved transcription task missing from GenStudio offers an explicit fresh section rerun without submitting', async t => {
+  const f = await fixture(t)
+  f.originalMissing()
+  await assert.rejects(f.run(), /not found with the current GenStudio connection\/account/i)
+  assert.equal(f.calls.some(call => call.startsWith('POST ')), false)
+  assert.equal((f.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'rerun_subtitle_section')
 })
 
 test('artifact expiry after success never authorizes automatic spending', async t => {
@@ -604,8 +659,12 @@ test('expiry after a confirm was attempted reconciles its key before retiring an
   const f = await fixture(t)
   await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
   let first = true
-  f.confirm(async () => {
-    if (first) { first = false; return Response.json({ detail: 'quote expired' }, { status: 410 }) }
+  f.confirm(async key => {
+    if (first) {
+      first = false
+      f.acceptConfirmation(key)
+      return Response.json({ detail: 'quote expired' }, { status: 410 })
+    }
   })
   assert.equal((await f.run()).srt, srt)
   assert.equal(f.confirmations.length, 1, 'the key lookup must discover the already-created task')

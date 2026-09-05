@@ -1828,6 +1828,7 @@ export class MockGenStudioService {
       json(response, 200, [{
         id: 'mock-whisper-v1', display_name: 'Mock Whisper', provider: 'GenStudio mock',
         language: 'multilingual', available: true, available_workers: 1, qualification_only: false,
+        supported_languages: ['en'], supports_language_auto_detect: true,
         // Transcription is priced per SECOND with a floor, as GenStudio
         // publishes it. The fixture carries the real field names so a rename
         // on this side shows up here rather than silently parsing to 0.

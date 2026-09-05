@@ -22,7 +22,12 @@
 
 import assert from 'node:assert/strict'
 import { test, describe } from 'node:test'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { selectRequestedSections } from '../generators/subtitles.js'
+import { useTempDataDir } from './_helpers.js'
+import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import type { Job } from '../models/types.js'
 
 
 describe('re-transcribing one chapter does not re-charge the episode', () => {
@@ -66,4 +71,64 @@ describe('re-transcribing one chapter does not re-charge the episode', () => {
   test('empty and blank entries are ignored rather than matching nothing', () => {
     assert.deepEqual(selectRequestedSections(sections, ['', '   ']), sections)
   })
+})
+
+test('a real 16-section generator run writes only Chapter_12 and preserves the other 15 byte-for-byte', async t => {
+  const isolated = await useTempDataDir()
+  const mock = await startMockGenStudioService()
+  t.after(async () => { await mock.close(); await isolated.cleanup() })
+
+  const settings = await import('../services/app-settings.js')
+  const secrets = await import('../services/app-secrets-store.js')
+  const client = await import('../lib/genstudio-client.js')
+  const pm = await import('../services/project-manager.js')
+  const ideas = await import('../services/idea-manager.js')
+  const utils = await import('../services/utils.js')
+  const { generateSubtitlesTranscribe } = await import('../generators/subtitles.js')
+
+  await settings.setGenStudioUrl(mock.baseUrl)
+  await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+  client.clearGenStudioCatalogCache()
+  const project = await pm.createProject({ name: 'One subtitle section fixture', episode_prefix: 'EP', episode_digits: 4 })
+  const [idea] = await ideas.addIdeas(project.slug, [{
+    title: 'Sixteen chapters',
+    logline: 'A fixture.',
+    themes: [],
+    suggested_chapters: 16,
+    suggested_length: '16 minutes',
+    mood: 'measured',
+  }], 'mock-chat-v1')
+  const accepted = await ideas.acceptIdea(project.slug, idea!.id, false)
+  const code = accepted.episode_code
+  const paths = await utils.resolveEpisodePathsByCode(project.slug, code)
+  const sections = Array.from({ length: 16 }, (_, index) => `Chapter_${String(index + 1).padStart(2, '0')}`)
+
+  await Promise.all([paths.script_dir, paths.audio_dir, paths.merged_audio_dir, paths.subtitles_dir].map(dir => fs.mkdir(dir, { recursive: true })))
+  await fs.writeFile(paths.narration_docx, sections.map((section, index) => `## Chapter ${String(index + 1).padStart(2, '0')}: Fixture\n\nNarration for ${section}.`).join('\n\n'))
+  await Promise.all(sections.map(section => fs.writeFile(path.join(paths.audio_dir, `${code}_${section}.mp3`), `audio-${section}`)))
+  await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({ gap_duration_s: 1, sections: sections.map(slug => ({ slug, duration_s: 1 })) }))
+  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.mp3`), 'merged-audio')
+  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`), JSON.stringify({ output_filename: `${code}_merged_audio.mp3`, opening: { lead_in_sec: 0, music_lead_in_sec: 0 } }))
+
+  const preserved = new Map<string, Buffer>()
+  for (const section of sections.filter(section => section !== 'Chapter_12')) {
+    const file = path.join(paths.subtitles_dir, `${code}_${section}.srt`)
+    const bytes = Buffer.from(`1\n00:00:00,000 --> 00:00:01,000\nExisting ${section}.\n`)
+    preserved.set(file, bytes)
+    await fs.writeFile(file, bytes)
+  }
+
+  const job = {
+    job_id: 'one-section-subtitle', project_slug: project.slug, episode_id: code,
+    type: 'subtitles_transcribe', status: 'running', progress: 0, output_lines: [],
+    params: { per_chapter: true, engine: 'genstudio', model: 'mock-whisper-v1', language: 'en', force: true, sections: ['Chapter_12'] },
+  } as unknown as Job
+  await generateSubtitlesTranscribe(job)
+
+  assert.equal(mock.providerSubmissionCount('transcription'), 1)
+  assert.equal((job.result as any).generated_sections, 1)
+  assert.equal((job.result as any).ready_sections, 16)
+  assert.deepEqual((job.result as any).missing_sections, [])
+  assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_12.srt`), 'utf8'), /Hello from mock GenStudio/)
+  for (const [file, bytes] of preserved) assert.deepEqual(await fs.readFile(file), bytes, path.basename(file))
 })

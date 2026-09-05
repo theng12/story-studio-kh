@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.106 — 2026-09-05
+
+- **You can now generate or regenerate exactly one chapter's subtitles from the Subtitles page.** Every chapter has its own action, missing chapters stand out, and the page says that the selected chapter starts a new GenStudio request under the current quote. The other chapter files stay untouched.
+- **An expired transcription quote can recover without turning into a generic interruption.** Story Studio recognises GenStudio's exact expiry reply at confirmation, checks the saved request before renewing it, and keeps every other 422 reply fail-closed. When a saved task cannot be found with the current connection or account, its evidence is retained and the app offers a clearly separate fresh chapter request instead of silently resubmitting it.
+
 ## v1.4.105 — 2026-09-05
 
 - **Once verified, Content Store trust now survives ordinary API-key changes in its own OS-protected file.** Provider saves refuse malformed or unreadable secret state, preserve an undecryptable file before a deliberate replacement, and serialize updates across processes. A missing trust anchor performs one authenticated Restore-purchases verification before any generation job exists; signature, account, origin, key-history, and tamper failures remain blocked without generating or spending credits.

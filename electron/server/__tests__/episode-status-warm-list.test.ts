@@ -220,6 +220,11 @@ describe('episode-status warm list', () => {
     if (watcherMod.watcherTrustedSince(SLUG) === null) return
     await settleWatcher()
 
+    // This test drives the cache invalidator directly below. Isolate that
+    // measurement from any leading/trailing native events left by setup;
+    // beforeEach restores the real watcher wiring for the watcher tests.
+    watcherMod.bindInvalidator(() => {})
+
     const stamps = () => new Map(
       cacheMod.episodeStatusCache._dumpProject(SLUG).map(e => [e.episode_code, e.computedAt]),
     )

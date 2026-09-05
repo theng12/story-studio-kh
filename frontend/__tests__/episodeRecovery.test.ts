@@ -84,3 +84,20 @@ test('settlement uncertainty has no purchase control', async () => {
   try { assert.match(host.textContent!, /Waiting for credit settlement/); assert.equal(host.querySelector('button'), null) }
   finally { app.unmount(); host.remove() }
 })
+
+test('unavailable saved subtitle work points to a scoped fresh request and states the charge boundary', async () => {
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(await component(), { job: { job_id: 'missing-task', project_slug: 'p & q', episode_id: 'EP0001',
+    type: 'subtitles_transcribe', status: 'error', params: { subtitle_recovery: { sections: {
+      Chapter_12: { state: 'needs_attention', message: 'Saved task unavailable.', manual_action: 'rerun_subtitle_section' },
+    } } }, result: { expected_sections: 16, missing_sections: ['Chapter_12'] } } })
+  app.mount(host)
+  try {
+    assert.match(host.textContent!, /15\/16 sections ready/)
+    assert.match(host.textContent!, /fresh GenStudio request/i)
+    assert.match(host.textContent!, /current quote/i)
+    assert.match(host.textContent!, /may be charged/i)
+    assert.equal(host.querySelector('button'), null)
+    assert.equal(host.querySelector('a')?.getAttribute('href'), '/projects/p%20%26%20q/subtitles?episode_id=EP0001')
+  } finally { app.unmount(); host.remove() }
+})

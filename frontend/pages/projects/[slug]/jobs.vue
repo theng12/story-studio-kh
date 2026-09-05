@@ -2395,6 +2395,9 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
     }
     return 'SMART RETRY — Regenerates ONLY missing scene/thumbnail prompts and merges them into the existing files, keeping prompts that already succeeded. Local models: free. Cloud models: charges only for the missing prompts.'
   }
+  if (jobType === 'subtitles_transcribe') {
+    return 'CHARGES MAY APPLY — Repair first retrieves saved GenStudio work for free. Retry keeps completed SRT files and submits only missing chapters, confirming a fresh quote for each new request.'
+  }
   if (jobCanBeRepaired(job)) {
     return 'CHARGES MAY APPLY — Re-submits this job as a fresh request. Click Repair FIRST (free — recovers in-flight provider work). The generator skips assets already on disk, so after Repair, Retry only re-submits genuinely-missing items.'
   }
