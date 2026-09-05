@@ -11,9 +11,9 @@ import { resolveEpisodePathsByCode, resolveScenePlanPath } from './utils.js'
 import { inspectAudioAssemblyReadiness } from './audio-workflow-readiness.js'
 import { readStitchPlan } from './subtitle-stitcher.js'
 import { ensureStitchedSubtitle, type EnsureStitchedOptions } from '../lib/subtitle-autostitch.js'
-import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
+import { verifyWrittenSubtitleTimeline } from './scene-timeline-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
-import { inspectPlanTimelineDrift, stampFromCues } from '../lib/scene-plan-timeline.js'
+import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
 
 export const EPISODE_RECOVERY_ORDER = ['audio_merge', 'subtitle_sections', 'subtitle_stitch', 'scene_plan_run', 'contextual_cues', 'continuity_render'] as const
 export type EpisodeRecoveryStep = typeof EPISODE_RECOVERY_ORDER[number]
@@ -146,20 +146,11 @@ export async function inspectRecoverySubtitles(episodeDir: string, subtitlesDir:
 /** Safe local repair, followed by proof of the actual written timeline. */
 export async function ensureRecoveryStitch(options: EnsureStitchedOptions): Promise<boolean> {
   if (!(await inspectRecoverySubtitles(options.episodeDir, options.subtitlesDir, options.episodeCode)).complete) return false
-  const valid = async (file: string): Promise<boolean> => {
-    try {
-      const meta = JSON.parse(await fs.readFile(`${file}.json`, 'utf8'))
-      const cues = parseSrt(await fs.readFile(file, 'utf8'))
-      return meta.complete === true && cues.length > 0 && meta.total_cues === cues.length
-        && meta.timeline?.sha256 === stampFromCues(cues).sha256
-        && (await readSubtitleTimelineIntegrity(options.subtitlesDir, options.episodeCode)).complete
-    } catch { return false }
-  }
   let outcome = await ensureStitchedSubtitle(options)
   if (!['fresh', 'stitched'].includes(outcome.status) || !outcome.path) return false
-  if (await valid(outcome.path)) return true
+  if (await verifyWrittenSubtitleTimeline(options.subtitlesDir, options.episodeCode)) return true
   outcome = await ensureStitchedSubtitle({ ...options, force: true })
-  return outcome.status === 'stitched' && await valid(outcome.path)
+  return outcome.status === 'stitched' && await verifyWrittenSubtitleTimeline(options.subtitlesDir, options.episodeCode)
 }
 
 export async function inspectRecoverySubtitlePrerequisites(plan: EpisodeRecoveryPlan, paths: EnsureStitchedOptions, jobs: Job[]) {

@@ -98,7 +98,7 @@ export interface TranscribeSubtitlesRequest {
  * from terminalizing an episode whose Scene Plan prerequisite is still absent.
  */
 export function requireWrittenSubtitleStitch(outcome: { status: string; reason: string }): void {
-  if (outcome.status === 'stitched') return
+  if (outcome.status === 'stitched' || outcome.status === 'fresh') return
   throw new Error(`Subtitle stitch did not complete: ${outcome.reason}. Retry the local subtitle stitch before Scene Plan.`)
 }
 
@@ -669,7 +669,7 @@ async function transcribePerChapter(
       mergedAudioDir: epaths.merged_audio_dir,
       episodeCode: code,
     })
-    if (outcome.status !== 'stitched') {
+    if (outcome.status !== 'stitched' && outcome.status !== 'fresh') {
       requireWrittenSubtitleStitch(outcome)
       throw new Error('Unreachable subtitle stitch state')
     }
@@ -677,12 +677,11 @@ async function transcribePerChapter(
     if (!timeline.complete) {
       throw new Error(`Subtitle stitch did not verify: ${timeline.missing_sections.join(', ')}. Retry the local subtitle stitch before Scene Plan.`)
     }
-    const r = outcome.result
     job.result = { ...job.result, complete: true, stitch_complete: true, recovery_state: 'repaired' }
-    job.output_lines.push(
-      `✓ Auto-stitched ${r.total_cues} cue(s) (${r.total_duration_sec.toFixed(1)}s)` +
-      ` → ${path.basename(r.output_path)}. Re-run Scene Plan to pick up the new timeline.`,
-    )
+    job.output_lines.push(outcome.status === 'stitched'
+      ? `✓ Auto-stitched ${outcome.result.total_cues} cue(s) (${outcome.result.total_duration_sec.toFixed(1)}s)` +
+        ` → ${path.basename(outcome.result.output_path)}. Re-run Scene Plan to pick up the new timeline.`
+      : `✓ Stitched transcript is already current → ${path.basename(outcome.path)}.`)
     job.output_lines.push(`${outcome.lead_in.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(outcome.lead_in)}`)
   } catch (e: any) {
     const msg = (e as Error)?.message || String(e)
