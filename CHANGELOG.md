@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.104 — 2026-09-05
+
+- **Backend tests now refuse to write API keys or Content Store signing-key anchors outside their claimed temporary data directory.** Both secret-store mutation paths use Story Studio's shared test isolation guard, preventing an incorrectly invoked test from changing this Mac's saved credentials or trust anchors.
+
 ## v1.4.103 — 2026-09-05
 
 - **Targeted Scene Plan and Scene Review runs now stop before creating a job when their saved prerequisites are incomplete.** Pipeline names the missing Subtitles or Scene Plan artifact immediately, while valid targeted regeneration and every other single-step workflow keep their existing behavior.

@@ -30,6 +30,7 @@ import path from 'path'
 import { writeJsonAtomic, withLock, readJsonOr } from '../lib/atomic-store.js'
 import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
 import { registerSecretForRedaction } from '../lib/redact-secrets.js'
+import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { getUserDataDir } from './project-manager.js'
 
 export const APP_SECRETS_SCHEMA_VERSION = 3 as const
@@ -187,6 +188,7 @@ export async function writeAppSecrets(
   mutate: (v3: AppSecretsV3) => void | Promise<void>,
 ): Promise<AppSecretsV3> {
   const filePath = appSecretsPath()
+  assertWriteIsolatedInTests(filePath, 'app-secrets')
   let result = emptyV3()
   await withLock(filePath, async () => {
     const raw = await readFileRaw(filePath)
@@ -247,6 +249,7 @@ async function mutateContentStoreAnchorState(
   mutate: (state: AppSecretsV3) => void | Promise<void>,
 ): Promise<void> {
   const filePath = appSecretsPath()
+  assertWriteIsolatedInTests(filePath, 'app-secrets')
   await withLock(filePath, async () => {
     const raw = await readFileRaw(filePath)
     const state = decodeContentStoreAnchorState(raw, true)
