@@ -21,6 +21,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -163,7 +164,7 @@ describe('writeJsonAtomic — rename failure cleanup', () => {
   })
 })
 
-test('withCrossProcessLock serializes one read-modify-write across processes', async () => {
+test('withCrossProcessLock serializes one read-modify-write across processes', async t => {
   const target = path.join(tempDir, 'crash', 'shared.json')
   const ready = path.join(tempDir, 'crash', 'ready')
   const release = path.join(tempDir, 'crash', 'release')
@@ -178,21 +179,24 @@ test('withCrossProcessLock serializes one read-modify-write across processes', a
   const exited = new Promise<void>((resolve, reject) => {
     child.once('exit', code => code === 0 ? resolve() : reject(new Error(`lock worker exited ${code}: ${stderr}`)))
   })
-  await Promise.race([
-    (async () => {
-      while (true) {
-        try { await fs.stat(ready); return } catch { await new Promise(resolve => setTimeout(resolve, 5)) }
-      }
-    })(),
-    exited.then(() => { throw new Error('lock worker exited before release') }),
-    new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('lock worker did not become ready')), 2_000)),
-  ])
+  let readyObserved = false
+  t.after(async () => {
+    await fs.writeFile(release, 'release').catch(() => {})
+    if (!readyObserved && child.exitCode === null) child.kill()
+    await Promise.allSettled([exited])
+  })
+  let earlyExit: unknown
+  void exited.catch(error => { earlyExit = error })
+  await waitFor(async () => {
+    if (earlyExit) throw earlyExit
+    return fs.stat(ready).then(() => true, () => false)
+  }, { label: 'lock worker to become ready', timeoutMs: 2_000, pollMs: 5 })
+  readyObserved = true
 
   const mainWrite = store.withCrossProcessLock(target, async () => {
     const current = JSON.parse(await fs.readFile(target, 'utf8'))
     await store.writeJsonAtomic(target, { ...current, main: true })
   })
-  await new Promise(resolve => setTimeout(resolve, 30))
   assert.deepEqual(JSON.parse(await fs.readFile(target, 'utf8')), { initial: true })
   await fs.writeFile(release, 'release')
   await exited

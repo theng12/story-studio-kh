@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 
 import express from 'express'
@@ -20,11 +22,11 @@ import {
 } from '../lib/genstudio-content-store.js'
 import { router as contentStoreRouter } from '../routes/content-store.js'
 import { contentStoreAnchorsPath, setApiKey } from '../services/app-secrets-store.js'
-import { withCrossProcessLock } from '../lib/atomic-store.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
 import * as jobQueue from '../services/job-queue.js'
 import * as projectManager from '../services/project-manager.js'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import {
   startMockGenStudioService,
   type MockGenStudioService,
@@ -120,15 +122,13 @@ async function setupPinnedOwnedPack() {
 }
 
 async function waitForJobs(jobIds: string[]): Promise<void> {
-  const deadline = Date.now() + 2_000
-  while (Date.now() < deadline) {
+  await waitFor(async () => {
     if (jobIds.every(jobId => ['done', 'error', 'cancelled'].includes(jobQueue.getJob(jobId)?.status ?? ''))) {
       await jobQueue._waitForJobPersistenceForTesting()
-      return
+      return true
     }
-    await new Promise(resolve => setTimeout(resolve, 10))
-  }
-  assert.fail('queued trust-revalidation jobs did not finish')
+    return false
+  }, { label: 'queued trust-revalidation jobs to finish', timeoutMs: 2_000, pollMs: 10 })
 }
 
 function quote(localApp: express.Express) {
@@ -291,20 +291,46 @@ describe('Content Store commerce routes', () => {
     assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
   })
 
-  test('a credential change while the verified restore waits for the commerce lock is rechecked before recording trust', async () => {
+  test('a credential change while the verified restore waits for the commerce lock is rechecked before recording trust', async t => {
     const { project } = await setupPinnedOwnedPack()
     await fs.rm(contentStoreAnchorsPath())
     forgetVerifiedContentPackVersions()
-    let releaseCommerce!: () => void
-    let markCommerceLocked!: () => void
-    const commerceLocked = new Promise<void>(resolve => { markCommerceLocked = resolve })
-    const commerceRelease = new Promise<void>(resolve => { releaseCommerce = resolve })
-    const blocker = withCrossProcessLock(getContentStoreStatePath(), async () => {
-      markCommerceLocked()
-      await commerceRelease
+    const commerceStatePath = getContentStoreStatePath()
+    const worker = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'atomic-store-lock-worker.ts')
+    const ready = `${commerceStatePath}.worker-ready`
+    const release = `${commerceStatePath}.worker-release`
+    const child = spawn(process.execPath, ['--import', 'tsx', worker], {
+      env: {
+        ...process.env, TARGET: commerceStatePath, READY: ready, RELEASE: release, NO_WRITE: '1',
+      },
+      stdio: 'pipe',
     })
-    await commerceLocked
+    let childStderr = ''
+    child.stderr.on('data', chunk => { childStderr += chunk })
+    let childFailure: unknown
+    const childExited = new Promise<void>((resolve, reject) => {
+      child.once('exit', code => code === 0 ? resolve() : reject(new Error(`commerce lock worker exited ${code}: ${childStderr}`)))
+    })
+    let readyObserved = false
+    t.after(async () => {
+      await fs.writeFile(release, 'release').catch(() => {})
+      if (!readyObserved && child.exitCode === null) child.kill()
+      await Promise.allSettled([childExited])
+    })
+    void childExited.catch(error => { childFailure = error })
+    await waitFor(async () => {
+      if (childFailure) throw childFailure
+      return fs.stat(ready).then(() => true, () => false)
+    }, { label: 'commerce lock worker to become ready', timeoutMs: 2_000, pollMs: 5 })
+    readyObserved = true
     const originalFetch = globalThis.fetch
+    const originalReadFile = fs.readFile.bind(fs)
+    const commerceLockPath = `${commerceStatePath}.lock`
+    let commerceLockReads = 0
+    ;(fs as any).readFile = async (...args: any[]) => {
+      if (String(args[0]) === commerceLockPath) commerceLockReads += 1
+      return (originalReadFile as any)(...args)
+    }
     let markReceiptsReturned!: () => void
     const receiptsReturned = new Promise<void>(resolve => { markReceiptsReturned = resolve })
     globalThis.fetch = async (input, init) => {
@@ -319,9 +345,11 @@ describe('Content Store commerce routes', () => {
         project_slug: project.slug, type: 'script-only', episode_id: 'EP009', params: {},
       })
       await receiptsReturned
-      await new Promise(resolve => setTimeout(resolve, 20))
+      await waitFor(() => commerceLockReads > 0, {
+        label: 'verified restore to wait on the held commerce lock', timeoutMs: 2_000, pollMs: 5,
+      })
       await setApiKey('genstudio', KEY_A_ROTATED)
-      releaseCommerce()
+      await fs.writeFile(release, 'release')
       await assert.rejects(pending, (error: any) => {
         assert.equal(error.statusCode, 409)
         assert.equal(error.code, 'content-store-revalidation-required')
@@ -329,8 +357,9 @@ describe('Content Store commerce routes', () => {
       })
     } finally {
       globalThis.fetch = originalFetch
-      releaseCommerce()
-      await blocker
+      ;(fs as any).readFile = originalReadFile
+      await fs.writeFile(release, 'release').catch(() => {})
+      await childExited
     }
     assert.equal(await fs.stat(contentStoreAnchorsPath()).then(() => true, () => false), false)
     assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
