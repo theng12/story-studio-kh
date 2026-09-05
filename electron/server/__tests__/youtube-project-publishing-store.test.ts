@@ -42,6 +42,13 @@ function statePath(slug: string) {
   return path.join(tempDir, 'projects', slug, 'youtube', 'project-state.json')
 }
 
+async function editProjectMetadata(slug: string, edit: (metadata: Record<string, any>) => void) {
+  const file = path.join(tempDir, 'projects', slug, 'project.json')
+  const metadata = JSON.parse(await fs.readFile(file, 'utf8')) as Record<string, any>
+  edit(metadata)
+  await fs.writeFile(file, JSON.stringify(metadata, null, 2))
+}
+
 describe('YouTube project publishing state', () => {
   test('starts with only the shipped publishing authorities', async () => {
     const created = await project()
@@ -53,6 +60,45 @@ describe('YouTube project publishing state', () => {
       reconciliation_history: [],
     })
     await assert.rejects(() => fs.access(statePath(created.slug)))
+  })
+
+  test('accepts stored projects from before optional subfolder keys were introduced', async () => {
+    const created = await project()
+    await editProjectMetadata(created.slug, metadata => {
+      delete metadata.subfolder_names.video_assets
+      delete metadata.subfolder_names.subtitles
+    })
+
+    assert.deepEqual(await store.readYouTubeProjectPublishingState(created.slug), {
+      schema_version: 1,
+      revision: 0,
+      project_slug: created.slug,
+      episode_video_links: {},
+      reconciliation_history: [],
+    })
+  })
+
+  test('still refuses unknown and unsafe stored subfolder names', async () => {
+    const created = await project()
+    await editProjectMetadata(created.slug, metadata => {
+      metadata.subfolder_names.future = '{code} - Future'
+    })
+    await assert.rejects(() => store.readYouTubeProjectPublishingState(created.slug),
+      (error: unknown) => (error as { code?: string }).code === 'JSON_CORRUPT')
+
+    await editProjectMetadata(created.slug, metadata => {
+      delete metadata.subfolder_names.future
+      metadata.subfolder_names.video_assets = '../outside'
+    })
+    await assert.rejects(() => store.readYouTubeProjectPublishingState(created.slug),
+      (error: unknown) => (error as { code?: string }).code === 'JSON_CORRUPT')
+
+    await editProjectMetadata(created.slug, metadata => {
+      metadata.subfolder_names.video_assets = '{code} - 11 Video Assets'
+      delete metadata.subfolder_names.video
+    })
+    await assert.rejects(() => store.readYouTubeProjectPublishingState(created.slug),
+      (error: unknown) => (error as { code?: string }).code === 'JSON_CORRUPT')
   })
 
   test('keeps an uploaded identity immutable and records explicit reconciliation history', async () => {

@@ -216,7 +216,9 @@ const REMOTE_SYNC_OUTCOMES = ['ok', 'partial', 'failed'] as const
 const REMOTE_SYNC_ERROR_CODES = ['offline', 'provider_error', 'quota_exhausted'] as const
 const PRIVACY_STATUSES = ['private', 'unlisted', 'public'] as const
 const VIDEO_LINK_SOURCES = ['upload', 'reconcile'] as const
-const REQUIRED_SUBFOLDER_NAMES = Object.keys(DEFAULT_SUBFOLDER_NAMES)
+const KNOWN_SUBFOLDER_NAMES = Object.keys(DEFAULT_SUBFOLDER_NAMES)
+const OPTIONAL_STORED_SUBFOLDER_NAMES = new Set(['subtitles', 'video_assets'])
+const REQUIRED_SUBFOLDER_NAMES = KNOWN_SUBFOLDER_NAMES.filter(key => !OPTIONAL_STORED_SUBFOLDER_NAMES.has(key))
 const RESERVED_PATH_SEGMENTS = new Set([
   '__proto__', 'constructor', 'prototype',
   'con', 'prn', 'aux', 'nul',
@@ -802,12 +804,11 @@ function assertProjectMetadata(value: unknown, projectSlug: string): void {
   if (!isRecord(value.subfolder_names)) throw projectMetadataCorrupt(projectSlug, 'subfolder_names is invalid')
   const names = value.subfolder_names
   const actualKeys = Object.keys(names)
-  if (actualKeys.length !== REQUIRED_SUBFOLDER_NAMES.length
-    || REQUIRED_SUBFOLDER_NAMES.some(key => !hasOwn(names, key))
-    || actualKeys.some(key => !REQUIRED_SUBFOLDER_NAMES.includes(key))) {
-    throw projectMetadataCorrupt(projectSlug, 'subfolder_names is incomplete or contains unknown keys')
+  if (REQUIRED_SUBFOLDER_NAMES.some(key => !hasOwn(names, key))
+    || actualKeys.some(key => !KNOWN_SUBFOLDER_NAMES.includes(key))) {
+    throw projectMetadataCorrupt(projectSlug, 'subfolder_names is missing required keys or contains unknown keys')
   }
-  for (const key of REQUIRED_SUBFOLDER_NAMES) metadataPathSegment(names[key], projectSlug, `subfolder_names.${key}`)
+  for (const key of actualKeys) metadataPathSegment(names[key], projectSlug, `subfolder_names.${key}`)
 }
 
 async function readStrictProjectMetadata(projectDir: string, projectSlug: string): Promise<void> {

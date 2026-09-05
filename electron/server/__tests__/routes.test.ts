@@ -93,11 +93,19 @@ describe('Project routes', () => {
   })
 
   test('GET /api/projects/:slug/youtube/overview is mounted by the production route bootstrap', async () => {
+    const projectPath = path.join(tempDir, 'projects', projectSlug, 'project.json')
+    const legacy = JSON.parse(await fs.readFile(projectPath, 'utf8'))
+    delete legacy.subfolder_names.video_assets
+    await fs.writeFile(projectPath, JSON.stringify(legacy, null, 2))
+
     const res = await request(app).get(`/api/projects/${projectSlug}/youtube/overview`)
     assert.equal(res.status, 200)
     assert.match(res.headers['content-type'] || '', /application\/json/)
     assert.equal(res.body.assigned_channel, null)
     assert.equal(res.body.unavailable_reason, 'no_oauth_application')
+    const after = JSON.parse(await fs.readFile(projectPath, 'utf8'))
+    assert.equal(Object.hasOwn(after.subfolder_names, 'video_assets'), false,
+      'reading a valid legacy project must not rewrite its metadata')
   })
 
   test('GET /api/projects/:slug/youtube/overview keeps the shared unknown-project boundary', async () => {
