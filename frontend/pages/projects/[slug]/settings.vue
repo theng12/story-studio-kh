@@ -985,7 +985,7 @@
               <span class="overview-card-icon">🧹</span>
               <strong>Space recovery</strong>
               <span class="overview-badge info">
-                {{ storage ? `${storage.episodes.filter(e => e.uploaded_to_youtube && e.bytes_final_video > 0).length} eligible` : 'unscanned' }}
+                {{ storage ? `${storage.episodes.filter(e => e.cleanup_eligible && (e.bytes_final_video > 0 || e.bytes_external_final_video > 0)).length} eligible` : 'unscanned' }}
               </span>
             </div>
             <p class="overview-card-desc">
@@ -1349,8 +1349,15 @@
             <span class="col-clips">{{ formatBytes(row.bytes_per_scene_clips) }}</span>
             <span class="col-other">{{ formatBytes(row.bytes_audio + row.bytes_images + row.bytes_other) }}</span>
             <span class="col-status">
-              <span v-if="row.uploaded_to_youtube" class="upload-badge ok" :title="`YouTube video ${row.youtube_video_id}`">
-                ✓ uploaded
+              <span v-if="row.cleanup_eligible" class="upload-badge ok" :title="`Usable YouTube video ${row.youtube_video_id}`">
+                ✓ remote proof
+              </span>
+              <span
+                v-else-if="row.uploaded_to_youtube"
+                class="upload-badge warn"
+                :title="`${row.cleanup_reason || 'This accepted YouTube identity is not usable cleanup proof'} — video ${row.youtube_video_id}`"
+              >
+                ⚠ recorded, not cleanup-safe
               </span>
               <span v-else class="upload-badge none">—</span>
             </span>
@@ -1359,9 +1366,9 @@
                 v-if="row.bytes_final_video > 0 || row.bytes_external_final_video > 0"
                 class="btn btn-ghost btn-sm"
                 :disabled="rowCleanupRunning === row.episode_code"
-                :title="row.uploaded_to_youtube
+                :title="row.cleanup_eligible
                   ? `Delete the local final video file (frees ${formatBytes(row.bytes_final_video + row.bytes_external_final_video)})`
-                  : 'Not uploaded yet — click anyway to delete (will prompt for confirmation)'"
+                  : `${row.cleanup_reason || 'This exact local render is not confirmed usable on YouTube'} — click anyway to delete (will prompt for confirmation)`"
                 @click="cleanupRow(row)"
               >
                 {{ rowCleanupRunning === row.episode_code ? 'Cleaning…' : 'Free up final' }}
@@ -2806,6 +2813,8 @@ interface StorageEntry {
   bytes_external_final_video: number
   uploaded_to_youtube: boolean
   youtube_video_id: string
+  cleanup_eligible: boolean
+  cleanup_reason?: string
 }
 interface StorageAudit {
   project_bytes_total: number
@@ -2903,15 +2912,16 @@ const sortedStorageRows = computed<StorageEntry[]>(() => {
   return [...storage.value.episodes].sort((a, b) => b.bytes_total - a.bytes_total)
 })
 
-// Bulk-cleanup target: only count uploaded episodes that still have a
-// local final video. The button disables when this is 0.
+// Bulk cleanup only offers finals whose exact local bytes have usable remote
+// proof. An accepted-but-failed video identity remains visible but is not safe.
 const uploadedFinals = computed<StorageEntry[]>(() => {
   if (!storage.value) return []
-  return storage.value.episodes.filter(e => e.uploaded_to_youtube && e.bytes_final_video > 0)
+  return storage.value.episodes.filter(e => e.cleanup_eligible
+    && (e.bytes_final_video > 0 || e.bytes_external_final_video > 0))
 })
 const uploadedFinalsCount = computed(() => uploadedFinals.value.length)
 const uploadedFinalsTotalBytes = computed(() =>
-  uploadedFinals.value.reduce((s, e) => s + e.bytes_final_video, 0),
+  uploadedFinals.value.reduce((s, e) => s + e.bytes_final_video + e.bytes_external_final_video, 0),
 )
 
 function formatBytes(n: number): string {
@@ -3019,8 +3029,8 @@ async function runBulkCleanup() {
   if (!storage.value || uploadedFinalsCount.value === 0) return
   const ok = await ask({
     title: 'Delete uploaded final videos?',
-    message: `Delete ${uploadedFinalsCount.value} uploaded final video file(s) (${formatBytes(uploadedFinalsTotalBytes.value)})?\n\n` +
-    `This is safe — the YouTube sidecar keeps the pipeline view marking these as done. ` +
+    message: `Delete ${uploadedFinalsCount.value} remotely proven final video file(s) (${formatBytes(uploadedFinalsTotalBytes.value)})?\n\n` +
+    `Each selected local render has durable usable YouTube evidence. ` +
     `You can re-render any time from images + merged audio.`,
     confirmLabel: `Delete ${uploadedFinalsCount.value} files`, danger: true,
   })
@@ -3041,12 +3051,13 @@ async function runBulkCleanup() {
 }
 
 async function cleanupRow(row: StorageEntry) {
-  if (!row.uploaded_to_youtube) {
+  if (!row.cleanup_eligible) {
     const ok = await ask({
-      title: 'Delete unconfirmed final video?',
-      message: `${row.episode_code} is NOT confirmed uploaded to YouTube. ` +
+      title: 'Delete final without usable remote proof?',
+      message: `${row.episode_code} is not confirmed as the exact render usable on YouTube. ` +
+      `${row.cleanup_reason || ''}\n\n` +
       `Delete the local final video anyway?\n\n` +
-      `If you delete this and the upload sidecar isn't present, the pipeline view will go back to showing "video assembly missing".`,
+      `The pipeline may return to showing "video assembly missing".`,
       confirmLabel: 'Delete anyway', danger: true,
     })
     if (!ok) return
@@ -3055,7 +3066,7 @@ async function cleanupRow(row: StorageEntry) {
   try {
     await post<CleanupResult>(
       `/projects/${slug.value}/storage/cleanup-final/${row.episode_code}`,
-      { force: !row.uploaded_to_youtube },
+      { force: !row.cleanup_eligible },
     )
     await loadStorageAudit()
   } catch (e: any) {
@@ -5902,6 +5913,7 @@ async function deleteProject() {
   border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
 }
 .upload-badge.ok { background: rgba(75, 200, 100, 0.18); color: var(--success, #5fc070); }
+.upload-badge.warn { background: rgba(224, 167, 44, 0.18); color: var(--warning, #d9a62e); }
 .upload-badge.none { color: var(--text-muted); }
 
 .storage-result {

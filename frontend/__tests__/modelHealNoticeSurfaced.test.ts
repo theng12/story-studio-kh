@@ -36,12 +36,6 @@ const SURFACES = [
     binding: 'data',
   },
   {
-    what: 'generating a playlist description',
-    surface: 'pages/projects/[slug]/upload.vue',
-    route: 'playlists/generate-description',
-    binding: 'r',
-  },
-  {
     what: 'tagging one narration section',
     surface: 'components/FishExpressionPanel.vue',
     route: 'expression/generate',
@@ -122,7 +116,7 @@ describe('no route returns a notice nobody reads', () => {
       // instead — it is surfaced, just not through a response body.
       .filter(f => f !== 'services/audio-expression.ts')
 
-    assert.ok(producing.length >= 3, 'expected the three synchronous routes to return the notice')
+    assert.ok(producing.length >= 2, 'expected the synchronous routes to return the notice')
 
     const consumed = walk(FRONTEND_ROOT).some(f => readFileSync(f, 'utf8').includes('model_notice'))
     assert.ok(consumed, 'a route returns model_notice but no frontend file mentions it')

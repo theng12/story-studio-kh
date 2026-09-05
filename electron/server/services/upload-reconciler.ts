@@ -60,10 +60,11 @@ export interface ReconcilePreview {
  * local candidate. No writes — just returns the computed match table.
  */
 export async function buildReconcilePreview(slug: string, accountId: string): Promise<ReconcilePreview> {
-  const [remoteList, ideas] = await Promise.all([
+  const [remoteResult, ideas] = await Promise.all([
     listRecentUploads(slug, accountId, { maxPages: 8 }),  // up to 400 videos
     im.getIdeas(slug, 'accepted'),
   ])
+  const remoteList = remoteResult.videos
   const episodes: LocalEpisode[] = ideas
     .filter(i => i.episode_code)
     .map(i => ({ episode_code: i.episode_code!, title: i.title || '' }))

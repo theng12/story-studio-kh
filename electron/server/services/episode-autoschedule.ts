@@ -27,11 +27,10 @@
  * it. The drift alarm that guarded the duplicate is gone with the duplicate.
  */
 
-import * as im from './idea-manager.js'
 import * as plans from './upload-plans.js'
 import { readSidecarRaw } from './upload-sidecar.js'
 import type { UploadPlatform } from './upload-store.js'
-import { resolveYouTubeAccountId } from './youtube-credential.js'
+import { resolveYouTubeCredential } from './youtube-credential.js'
 
 export interface AutoScheduleResult {
   scheduled: boolean
@@ -57,10 +56,7 @@ async function latestFutureClaim(
   platform: UploadPlatform,
   excludeCode: string,
 ): Promise<Date | undefined> {
-  const ms = await plans.latestFutureClaimMs(
-    slug, platform, [excludeCode],
-    { getAcceptedIdeas: s => im.getIdeas(s, 'accepted'), readSidecar: readSidecarRaw },
-  )
+  const ms = await plans.latestFutureProjectClaimMs(slug, platform, [excludeCode])
   return ms ? new Date(ms) : undefined
 }
 
@@ -73,8 +69,9 @@ export async function scheduleEpisodeWithActivePlan(
   if (!code) return { scheduled: false, episode_code: code, reason: 'No episode code was given.' }
 
   const store = await import('./upload-store.js')
+  const credential = platform === 'youtube' ? await resolveYouTubeCredential(slug) : null
   const account_id = platform === 'youtube'
-    ? await resolveYouTubeAccountId(slug)
+    ? credential?.accountId || ''
     : await store.getDefaultAccountId(slug, platform)
   if (!account_id) {
     return {
@@ -97,16 +94,23 @@ export async function scheduleEpisodeWithActivePlan(
   // apply route has enforced since v1.0.46, restated here because this path
   // runs unattended and a desync between the local schedule and a public
   // video is exactly what nobody would notice.
-  const sidecar = await readSidecarRaw(slug, code, '', platform)
-  if (sidecar?.privacy_status === 'public') {
+  const sidecar = platform === 'youtube' ? null : await readSidecarRaw(slug, code, '', platform)
+  let privacyStatus: string | undefined = sidecar?.privacy_status
+  let scheduledFor = sidecar?.scheduled_for || null
+  if (platform === 'youtube') {
+    const states = await plans.readItemPublicationStates(slug)
+    privacyStatus = states[code]?.privacy_status
+    scheduledFor = states[code]?.scheduled_for || null
+  }
+  if (privacyStatus === 'public') {
     return {
       scheduled: false, episode_code: code,
       reason: 'This episode is already public on YouTube, so its publish time was left alone.',
     }
   }
-  if (sidecar?.scheduled_for) {
+  if (scheduledFor) {
     return {
-      scheduled: false, episode_code: code, publish_at: sidecar.scheduled_for,
+      scheduled: false, episode_code: code, publish_at: scheduledFor,
       plan_id: plan.id, plan_name: plan.name,
       reason: 'This episode already has a publish time; it was left as it is.',
     }

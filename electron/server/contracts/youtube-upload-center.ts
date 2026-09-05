@@ -39,6 +39,13 @@ export function isValidYouTubeChannelId(value: unknown): value is string {
     && /^[A-Za-z0-9_-]{1,128}$/.test(value)
 }
 
+export const YOUTUBE_VIDEO_LIFECYCLES = [
+  'preparing', 'uploading', 'accepted', 'processing', 'ready',
+  'failed', 'rejected', 'status_unavailable',
+] as const
+
+export type YouTubeVideoLifecycle = typeof YOUTUBE_VIDEO_LIFECYCLES[number]
+
 export const YOUTUBE_FOUNDATION_ERROR_CODES = [
   'YOUTUBE_APPLICATION_NOT_CONFIGURED',
   'YOUTUBE_APPLICATION_CHANGED',
@@ -47,6 +54,13 @@ export const YOUTUBE_FOUNDATION_ERROR_CODES = [
   'YOUTUBE_CHANNEL_ALREADY_ASSIGNED',
   'YOUTUBE_ASSIGNMENT_CHANGED',
   'YOUTUBE_CHANNEL_MISMATCH',
+  'YOUTUBE_VIDEO_ID_CONFLICT',
+  'YOUTUBE_RECORD_REVISION_CONFLICT',
+  'YOUTUBE_QUOTA_EXHAUSTED',
+  'YOUTUBE_LEDGER_UNREADABLE',
+  'YOUTUBE_ALREADY_PUBLISHED',
+  'YOUTUBE_OPERATION_NOT_FOUND',
+  'YOUTUBE_OPERATION_RECORD_CORRUPT',
   'YOUTUBE_SECRET_STORAGE_UNAVAILABLE',
   'YOUTUBE_SECRET_RECOVERY_REQUIRED',
   'YOUTUBE_OAUTH_PROVIDER_REJECTED',

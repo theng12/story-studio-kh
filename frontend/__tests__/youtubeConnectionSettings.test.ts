@@ -9,7 +9,6 @@ import { transform } from 'esbuild'
 const componentPath = fileURLToPath(new URL('../components/YouTubeConnectionSettings.vue', import.meta.url))
 const source = readFileSync(componentPath, 'utf8')
 const uploadPage = readFileSync(new URL('../pages/projects/[slug]/upload.vue', import.meta.url), 'utf8')
-const uploadAccounts = readFileSync(new URL('../composables/useUploadAccounts.ts', import.meta.url), 'utf8')
 
 async function loadComponent(): Promise<Component> {
   const { descriptor } = parse(source, { filename: componentPath })
@@ -432,7 +431,7 @@ describe('Settings → YouTube boundaries', () => {
   test('is the only active frontend connection workflow', () => {
     assert.match(uploadPage, /settings#youtube/)
     assert.match(uploadPage, /Manage YouTube connection/)
-    assert.doesNotMatch(uploadPage + uploadAccounts, /upload\/oauth\/(?:start|status)|upload\/oauth-client/)
+    assert.doesNotMatch(uploadPage + source, /upload\/oauth\/(?:start|status)|upload\/oauth-client/)
     assert.doesNotMatch(uploadPage, /revoked on Google|tokens are revoked/i)
   })
 

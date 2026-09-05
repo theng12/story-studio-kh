@@ -22,6 +22,8 @@ import {
   readYouTubeOAuthClientForServer,
   saveYouTubeChannelGrant,
 } from './youtube-connection-store.js'
+import { logLine } from './logger.js'
+import { recordYouTubeQuotaAttempt } from './youtube-quota-ledger.js'
 
 export interface YouTubeConnectChannel {
   channel_id: string
@@ -102,6 +104,22 @@ export async function startYouTubeChannelConnect(input: {
 
   const save = flow.promise.then(
     async (result): Promise<SaveOutcome> => {
+      // The OAuth flow's channel discovery is a real channels.list request,
+      // but its channel is unknowable before the response. Record it after the
+      // provider identifies the channel; there is deliberately no guessed
+      // pre-admission channel.
+      await recordYouTubeQuotaAttempt({
+        application_id: client.application_id,
+        channel_id: result.channel.channel_id,
+        bucket: 'other_endpoints',
+        operation: 'channels_list',
+        amount: 1,
+      }).catch((error: unknown) => {
+        logLine('warn', `[youtube-connect] channel discovery quota record failed: ${(error as Error)?.message || 'unknown'}`, {
+          application_id: client.application_id,
+          channel_id: result.channel.channel_id,
+        })
+      })
       // A reconnect must land on the channel the owner asked to reconnect. A
       // different channel is a new grant the owner did not ask for, so it is
       // refused before anything is written.

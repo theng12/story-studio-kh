@@ -124,6 +124,10 @@ describe('youtube channel connect', () => {
     assert.equal(registry.channels['channel-connect-saved']?.status, 'connected')
     assert.equal(typeof registry.channels['channel-connect-saved']?.last_refresh_at, 'string')
     assert.notEqual(await readYouTubeChannelTokensForServer('channel-connect-saved'), null)
+    const { readYouTubeQuota } = await import('../services/youtube-quota-ledger.js')
+    const quota = await readYouTubeQuota(registry.application!.application_id)
+    assert.equal(quota.buckets.other_endpoints.by_channel['channel-connect-saved'], 1,
+      'the post-consent channels.list discovery is recorded after the channel identity is known')
 
     const serialized = JSON.stringify(status)
     for (const secret of [ACCESS_TOKEN, REFRESH_TOKEN, CLIENT_SECRET, 'authorization-code']) {

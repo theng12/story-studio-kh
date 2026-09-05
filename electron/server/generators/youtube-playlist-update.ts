@@ -29,6 +29,12 @@ import { isCancelled } from '../services/job-queue.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { ensureYoutubePlaylistMembership } from '../services/youtube-playlist-sync.js'
 import { describeYouTubeCredential, resolveYouTubeAccountId } from '../services/youtube-credential.js'
+import { remoteVideoFor } from '../services/youtube-remote-video.js'
+import {
+  listYouTubeOperations,
+  updatePinnedYouTubeOperation,
+  updateYouTubeOperation,
+} from '../services/youtube-operation-store.js'
 
 interface YoutubePlaylistUpdateParams {
   episode_id: string
@@ -62,16 +68,19 @@ export async function generateYoutubePlaylistUpdate(
   if (!account) throw new Error('Reconnect the assigned channel in Settings → YouTube before updating playlists.')
   job.output_lines.push(`Using channel: ${account.remote_title} (${account.remote_id})`)
 
-  // The sidecar is the source of truth for video_id. No upload sidecar →
-  // we never uploaded this video → there's nothing to add to a playlist.
-  // Surface a friendly error rather than a 404 from YouTube.
   const ideas = await im.getIdeas(slug, 'accepted')
   const idea = ideas.find(i => (i.episode_code || '') === episodeId)
   if (!idea) throw new Error(`Accepted idea not found for ${episodeId}`)
-  const sidecar = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
-  if (!sidecar?.video_id) {
+  const operations = await listYouTubeOperations(slug)
+  const remote = await remoteVideoFor(slug, episodeId, idea.title || '', account.remote_id, operations)
+  if (!remote?.video_id) {
     throw new Error(`No upload found for ${episodeId}. Upload the episode first; playlists can only be applied to videos already on YouTube.`)
   }
+  const operation = remote.source === 'operation_record'
+    ? operations.find(record => record.episode_code === episodeId
+      && record.channel_id === account.remote_id
+      && record.video_id === remote.video_id)
+    : undefined
 
   // Resolve effective playlist: explicit override > project default.
   // Explicit `_none_` is treated as a no-op (bulk callers should filter
@@ -93,35 +102,92 @@ export async function generateYoutubePlaylistUpdate(
   }
   job.output_lines.push(`Target playlist: ${playlistId}`)
 
-  // Channel-mismatch guard — same intent as the upload generator.
-  // Adding to a playlist that lives on a different channel would 404
-  // confusingly, so surface the channel-rebind path explicitly.
-  if (sidecar.channel_id && sidecar.channel_id !== account.remote_id) {
+  if (remote.channel_id && remote.channel_id !== account.remote_id) {
     throw new Error(
-      `This episode was uploaded to channel "${sidecar.channel_id}" but your project is now connected to channel "${account.remote_id}" (${account.remote_title}). ` +
-      `Click ♻ Reset on this row to clear the old upload record before applying playlists.`,
+      `This episode was uploaded to channel "${remote.channel_id}" but the project is connected to channel "${account.remote_id}" (${account.remote_title}). Reassign the original channel before applying playlists.`,
     )
   }
 
-  const membership = await deps.ensureMembership({
-    slug,
-    accountId,
-    playlistId,
-    videoId: sidecar.video_id,
-    isCancelled: () => isCancelled(job.job_id),
-  })
-  await checkpointPlaylistSync(slug, episodeId, idea.title || '', {
-    playlist_id: playlistId,
-    video_id: sidecar.video_id,
-    account_id: accountId,
-    channel_id: account.remote_id,
-  })
-  const saved = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
-  const checkpointErrors = inspectPlaylistSyncCheckpoint(saved, {
-    playlist_id: playlistId,
-    video_id: sidecar.video_id,
-    account_id: accountId,
-  })
+  let pendingRevision: number | undefined
+  if (operation) {
+    const pending = await updateYouTubeOperation({
+      project_slug: slug,
+      operation_id: operation.operation_id,
+      expected_revision: operation.revision,
+      mutate(current) {
+        current.playlists[playlistId] = {
+          operation_id: operation.operation_id,
+          state: 'pending',
+          updated_at: new Date().toISOString(),
+        }
+      },
+    })
+    pendingRevision = pending.revision
+  }
+
+  let membership
+  try {
+    membership = await deps.ensureMembership({
+      slug,
+      accountId,
+      playlistId,
+      videoId: remote.video_id,
+      isCancelled: () => isCancelled(job.job_id),
+    })
+  } catch (error) {
+    if (operation && pendingRevision !== undefined) {
+      await updatePinnedYouTubeOperation({
+        project_slug: slug,
+        operation_id: operation.operation_id,
+        expected_revision: pendingRevision,
+        expected_channel_id: operation.channel_id,
+        mutate(current) {
+          current.playlists[playlistId] = {
+            operation_id: operation.operation_id,
+            state: 'failed',
+            updated_at: new Date().toISOString(),
+            error_code: (error as { code?: string }).code ?? 'provider_error',
+          }
+        },
+      }).catch(() => {})
+    }
+    throw error
+  }
+
+  let checkpointErrors: string[] = []
+  if (operation && pendingRevision !== undefined) {
+    const recorded = await updatePinnedYouTubeOperation({
+      project_slug: slug,
+      operation_id: operation.operation_id,
+      expected_revision: pendingRevision,
+      expected_channel_id: operation.channel_id,
+      mutate(current) {
+        current.playlists[playlistId] = {
+          operation_id: operation.operation_id,
+          state: 'present',
+          updated_at: new Date().toISOString(),
+        }
+      },
+    }).then(() => true).catch(() => false)
+    if (!recorded) {
+      throw new Error('YouTube confirmed the playlist membership, but Story Studio could not record it. Retry only after checking the video in YouTube Studio; the retry verifies membership before inserting.')
+    }
+  } else if (remote.source === 'legacy_sidecar') {
+    // Historical uploads keep their historical receipt authority. New
+    // operation-backed videos never write this compatibility sidecar.
+    await checkpointPlaylistSync(slug, episodeId, idea.title || '', {
+      playlist_id: playlistId,
+      video_id: remote.video_id,
+      account_id: accountId,
+      channel_id: account.remote_id,
+    })
+    const saved = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
+    checkpointErrors = inspectPlaylistSyncCheckpoint(saved, {
+      playlist_id: playlistId,
+      video_id: remote.video_id,
+      account_id: accountId,
+    })
+  }
   requireJobCompletion(job, {
     label: 'YouTube playlist membership',
     expected: 1,
@@ -131,8 +197,8 @@ export async function generateYoutubePlaylistUpdate(
   })
   job.output_lines.push(
     membership.inserted
-      ? `Added video ${sidecar.video_id} to playlist ${playlistId} and verified it ✓`
-      : `Video ${sidecar.video_id} was already in playlist ${playlistId}; no insert quota was spent ✓`,
+      ? `Added video ${remote.video_id} to playlist ${playlistId} and verified it ✓`
+      : `Video ${remote.video_id} was already in playlist ${playlistId}; no insert quota was spent ✓`,
   )
   job.progress = 100
 }

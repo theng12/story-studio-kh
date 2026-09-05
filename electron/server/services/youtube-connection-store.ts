@@ -721,6 +721,45 @@ export async function readYouTubeChannelTokensForServer(channel_id: string): Pro
   })
 }
 
+/** One locked snapshot for a provider request: assignment, OAuth application,
+ * client secret, and channel token all describe the same registry generation. */
+export async function readYouTubeRequestCredentialForServer(
+  project_slug: string,
+  channel_id: string,
+): Promise<{
+  application_id: string
+  channel_id: string
+  client_id: string
+  client_secret: string
+  tokens: OAuthTokenBundle
+} | null> {
+  const channelId = requireCredential(channel_id, 'channel_id')
+  if (!isValidYouTubeChannelId(channelId)) return null
+  const filePath = youtubeConnectionsPath()
+  return withCrossProcessLock(filePath, async () => {
+    await recoverPendingRegistryTransaction(filePath)
+    const registry = await readRegistryUnlocked(filePath)
+    const application = registry.application
+    const assignment = registry.assignments[project_slug]
+    const channel = registry.channels[channelId]
+    if (!application || assignment?.channel_id !== channelId || !channel
+      || channel.status !== 'connected' || channel.application_id !== application.application_id) return null
+    const youtube = (await readAppSecrets()).youtube
+    const client = youtube?.oauth_client
+    const token = youtube?.channel_tokens?.[channelId]
+    if (!client || client.application_id !== application.application_id
+      || !token || token.application_id !== application.application_id) return null
+    registerSecretForRedaction(client.client_secret)
+    return {
+      application_id: application.application_id,
+      channel_id: channelId,
+      client_id: application.client_id,
+      client_secret: client.client_secret,
+      tokens: cloneTokenBundle(token),
+    }
+  })
+}
+
 export async function markYouTubeChannelStatus(
   channel_id: string,
   status: YouTubeChannelRecord['status'],

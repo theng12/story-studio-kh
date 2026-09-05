@@ -134,7 +134,6 @@ describe('no caller discards a heal', () => {
     'generators/image-prompts.ts',
     'generators/metadata.ts',
     'routes/audio.ts',
-    'routes/upload.ts',
     'routes/image-prompts-edit.ts',
     'services/audio-expression.ts',
   ]

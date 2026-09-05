@@ -149,19 +149,3 @@ describe('POST /upload/comments/reply', () => {
     assert.equal(res.body.reply.text, 'Thanks Alice!')
   })
 })
-
-describe('POST /upload/comments/draft', () => {
-  test('400 when comment_text missing', async () => {
-    const slug = await seedProjectWithAccount('CR6')
-    const res = await request(app).post(`/api/projects/${slug}/upload/comments/draft`).send({ model: 'claude-sonnet-4-6' })
-    assert.equal(res.status, 400)
-    assert.match(res.body.detail, /comment_text/)
-  })
-
-  test('400 when model missing', async () => {
-    const slug = await seedProjectWithAccount('CR7')
-    const res = await request(app).post(`/api/projects/${slug}/upload/comments/draft`).send({ comment_text: 'lovely!' })
-    assert.equal(res.status, 400)
-    assert.match(res.body.detail, /model/)
-  })
-})

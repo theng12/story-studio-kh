@@ -106,6 +106,9 @@ describe('fetchWithAuthRetry — reactive 401 handling', () => {
 
   test('retries once on 401 with a freshly refreshed token, then succeeds', async () => {
     const slug = await seedAccount()
+    const quota = await import('../services/youtube-quota-ledger.js')
+    const applicationId = (await connections.readYouTubeConnectionRegistry()).application!.application_id
+    const quotaBefore = (await quota.readYouTubeQuota(applicationId)).buckets.other_endpoints.used
 
     let playlistCalls = 0
     let refreshCalls = 0
@@ -142,6 +145,11 @@ describe('fetchWithAuthRetry — reactive 401 handling', () => {
     assert.equal(refreshCalls, 1, 'token endpoint must be hit exactly once')
     assert.equal(tokensSeen[0], `Bearer ${STALE_TOKEN}`, 'first attempt uses the stale token')
     assert.equal(tokensSeen[1], `Bearer ${FRESH_TOKEN}`, 'retry uses the freshly refreshed token')
+    assert.equal(
+      (await quota.readYouTubeQuota(applicationId)).buckets.other_endpoints.used,
+      quotaBefore + 2,
+      'both real playlist attempts are charged',
+    )
 
     // And: the refreshed bundle was persisted, so subsequent calls within
     // this session would not need to re-refresh.

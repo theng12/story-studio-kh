@@ -1,8 +1,8 @@
 /**
  * Daily digest builder (v1.0.62+).
  *
- * Computes a per-project rollup of scheduling status from the existing
- * sidecar data (no Analytics API needed): which episodes go live today,
+ * Computes a per-project rollup from canonical operation/reconcile evidence,
+ * with historical sidecars as a legacy fallback (no Analytics API needed):
  * how many are scheduled / ready / etc, plus the next + last scheduled
  * dates so the user can see how much buffer they have.
  *
@@ -16,7 +16,8 @@
 
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
-import { readSidecarRaw } from './upload-sidecar.js'
+import { readItemSchedule } from './upload-plans.js'
+import { readYouTubeRetentionStores, youtubeRetentionEvidenceFor } from './youtube-remote-video.js'
 
 export interface DigestEpisode {
   episode_code: string
@@ -35,11 +36,11 @@ export interface ProjectDigest {
   /** Total accepted episodes already scheduled in the past — typically
    *  already-uploaded videos with their original publish time. */
   total_scheduled_past: number
-  /** Accepted episodes NOT in `linked_videos` and lacking a sidecar
-   *  with `video_id` — never uploaded. May or may not have a final
-   *  video on disk; this is "still to upload" not "still to render". */
+  /** Accepted episodes with no durable provider-accepted identity. May or may
+   *  not have a final video on disk; this is "still to upload", not readiness. */
   total_not_uploaded: number
-  /** Accepted episodes that have been uploaded (sidecar.video_id set). */
+  /** Accepted episodes with a durable provider-accepted identity. Processing
+   *  and unavailable status remain here so this never implies a safe retry. */
   total_uploaded: number
   /** Earliest future scheduled episode — the next thing going live. */
   next_scheduled?: DigestEpisode
@@ -101,27 +102,35 @@ export async function buildDigest(): Promise<DigestData> {
     let next: DigestEpisode | undefined
     let last: DigestEpisode | undefined
 
-    // Per-episode sidecar reads in parallel (capped at 16 to avoid
-    // eating fd budget on big projects). Returns `[code, sidecar]`
-    // tuples we then aggregate sequentially.
+    const [schedule, stores] = await Promise.all([
+      readItemSchedule(proj.slug),
+      readYouTubeRetentionStores(proj.slug),
+    ])
+    // Per-episode historical receipt reads remain bounded. Canonical records
+    // and links were loaded once above.
     const concurrency = 16
     let cursor = 0
-    const results: Array<{ code: string; sidecar: any | null }> = []
+    const results: Array<{ code: string; scheduled_for: string | null; uploaded: boolean }> = []
     async function worker() {
       while (cursor < ideas.length) {
         const i = cursor++
         const idea = ideas[i]!
         if (!idea.episode_code) continue
-        const sc = await readSidecarRaw(proj.slug, idea.episode_code, idea.title || '', 'youtube')
-          .catch(() => null)
-        results.push({ code: idea.episode_code, sidecar: sc })
+        const evidence = await youtubeRetentionEvidenceFor(
+          proj.slug, idea.episode_code, idea.title || '', stores.records, stores.state,
+        )
+        results.push({
+          code: idea.episode_code,
+          scheduled_for: schedule[idea.episode_code] || null,
+          uploaded: evidence.accepted_operations.length > 0
+            || !!evidence.reconcile_link
+            || !!evidence.legacy_sidecar,
+        })
       }
     }
     await Promise.all(Array.from({ length: concurrency }, worker))
 
-    for (const { code, sidecar } of results) {
-      const sched = sidecar?.scheduled_for
-      const uploaded = !!sidecar?.video_id
+    for (const { code, scheduled_for: sched, uploaded } of results) {
       if (uploaded) totalUploaded++
       else totalNotUploaded++
 

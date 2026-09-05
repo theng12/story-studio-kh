@@ -19,6 +19,7 @@
 import path from 'path'
 import { existsSync } from 'fs'
 import { promises as fsp } from 'fs'
+import { randomUUID } from 'crypto'
 import type { Job } from '../models/types.js'
 import * as im from '../services/idea-manager.js'
 import * as store from '../services/upload-store.js'
@@ -27,7 +28,6 @@ import { isCancelled } from '../services/job-queue.js'
 import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { resolveUploadMetadata } from '../lib/upload-metadata.js'
 import { setThumbnail } from '../lib/youtube-client.js'
-import { readQuota, QUOTA_COST } from '../services/upload-quota.js'
 import {
   auditThumbnailCheckpointAtPath,
   checkpointThumbnailStateAtPath,
@@ -35,6 +35,12 @@ import {
 } from '../services/upload-sidecar.js'
 import type { UploadPlatform } from '../services/upload-store.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import {
+  assertYouTubeOperationAuthorized,
+  readYouTubeOperation,
+  updatePinnedYouTubeOperation,
+  updateYouTubeOperation,
+} from '../services/youtube-operation-store.js'
 
 export interface RefreshRow {
   episode_code: string
@@ -133,7 +139,104 @@ export async function previewThumbnailRefresh(
 
 export async function generateThumbnailRefresh(job: Job): Promise<void> {
   const slug = job.project_slug
-  const params = (job.params ?? {}) as { account_id?: string; mode?: 'missing' | 'all' }
+  const params = (job.params ?? {}) as {
+    account_id?: string
+    mode?: 'missing' | 'all'
+    operation_id?: string
+    thumbnail_filename?: string
+  }
+  if (params.operation_id) {
+    const record = await assertYouTubeOperationAuthorized(slug, params.operation_id)
+    if (!record.video_id) throw new Error('That operation has no accepted YouTube video to update.')
+    const uncertain = [...record.actions].reverse()
+      .find(action => action.action === 'thumbnail_update')
+    if (uncertain?.state === 'started' || uncertain?.state === 'uncertain') {
+      throw new Error('The previous thumbnail update may have reached YouTube but was not recorded. Check the video in YouTube Studio before trying again.')
+    }
+    const credential = await resolveYouTubeCredential(slug)
+    if (!credential || credential.channelId !== record.channel_id) {
+      throw new Error('Reconnect the assigned channel in Settings → YouTube before updating the thumbnail.')
+    }
+    const idea = (await im.getIdeas(slug, 'accepted'))
+      .find(item => item.episode_code === record.episode_code)
+    if (!idea) throw new Error(`Accepted idea not found for ${record.episode_code}.`)
+    const meta = await resolveUploadMetadata({
+      slug,
+      episode_code: record.episode_code,
+      fallback_title: idea.title || record.episode_code,
+      platform: 'youtube',
+      ...(params.thumbnail_filename ? { thumbnail_filename: params.thumbnail_filename } : {}),
+    })
+    if (!meta.thumbnailPath || !existsSync(meta.thumbnailPath)) {
+      throw new Error(`No local thumbnail is available for ${record.episode_code}. Make or pin one first.`)
+    }
+
+    const startedAt = new Date().toISOString()
+    const started = await updateYouTubeOperation({
+      project_slug: slug,
+      operation_id: record.operation_id,
+      expected_revision: record.revision,
+      mutate(current) {
+        current.actions.push({
+          action_id: `action_${randomUUID()}`,
+          action: 'thumbnail_update',
+          classification: 'independent_post_accept',
+          state: 'started',
+          occurred_at: startedAt,
+        })
+      },
+    })
+    let remoteAccepted = false
+    try {
+      await setThumbnail({
+        slug,
+        accountId: credential.accountId,
+        videoId: record.video_id,
+        filePath: meta.thumbnailPath,
+      })
+      remoteAccepted = true
+      await updatePinnedYouTubeOperation({
+        project_slug: slug,
+        operation_id: record.operation_id,
+        expected_revision: started.revision,
+        expected_channel_id: record.channel_id,
+        mutate(current) {
+          current.actions.push({
+            action_id: `action_${randomUUID()}`,
+            action: 'thumbnail_update',
+            classification: 'independent_post_accept',
+            state: 'succeeded',
+            occurred_at: new Date().toISOString(),
+          })
+        },
+      })
+    } catch (error) {
+      if (remoteAccepted) {
+        throw new Error('YouTube accepted the thumbnail, but Story Studio could not record the result. Check YouTube Studio before trying again.')
+      }
+      await updatePinnedYouTubeOperation({
+        project_slug: slug,
+        operation_id: record.operation_id,
+        expected_revision: started.revision,
+        expected_channel_id: record.channel_id,
+        mutate(current) {
+          current.actions.push({
+            action_id: `action_${randomUUID()}`,
+            action: 'thumbnail_update',
+            classification: 'independent_post_accept',
+            state: 'failed',
+            occurred_at: new Date().toISOString(),
+            error_code: (error as { code?: string }).code ?? 'provider_error',
+          })
+        },
+      }).catch(() => {})
+      throw error
+    }
+    requireJobCompletion(job, { label: 'YouTube thumbnail update', expected: 1, completed: 1 })
+    job.output_lines.push(`Updated ${record.episode_code}'s thumbnail on YouTube ✓`)
+    job.progress = 100
+    return
+  }
   const platform: UploadPlatform = 'youtube'
   const mode: 'missing' | 'all' = params.mode === 'all' ? 'all' : 'missing'
   const credential = await resolveYouTubeCredential(slug)
@@ -146,7 +249,6 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
   const runStartedAt = new Date().toISOString()
   job.output_lines.push(`Thumbnail backfill: ${targets.length} of ${all.length} uploaded episode(s) to process (mode=${mode}).`)
 
-  const cost = QUOTA_COST.thumbnails_set
   let done = 0, failed = 0, noImage = 0, remaining = 0
   const unresolved: string[] = []
   let stopped: '' | 'cancelled' | 'quota' = ''
@@ -154,9 +256,6 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
   for (let i = 0; i < targets.length; i++) {
     if (isCancelled(job.job_id)) { stopped = 'cancelled'; remaining = targets.length - i; break }
     const row = targets[i]!
-    // Quota pre-check — stop BEFORE the call so we never half-spend.
-    const snap = await readQuota(slug).catch(() => null)
-    if (snap && snap.used + cost > snap.block_at) { stopped = 'quota'; remaining = targets.length - i; break }
     job.progress = Math.round((i / Math.max(1, targets.length)) * 100)
 
     const meta = await resolveUploadMetadata({ slug, episode_code: row.episode_code, fallback_title: row.title, platform }).catch(() => null)

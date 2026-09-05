@@ -26,6 +26,7 @@ let mod: typeof import('../lib/youtube-analytics.js')
 let pm: typeof import('../services/project-manager.js')
 let connections: typeof import('../services/youtube-connection-store.js')
 let tmp: { dir: string; cleanup: () => Promise<void> }
+let applicationId = ''
 
 // Stub a chain of fetch responses. Each call to fetch() returns the next
 // queued payload. Test asserts that the queue is fully consumed.
@@ -57,7 +58,7 @@ describe('youtube-analytics', () => {
     // referenced by individual cases so tests don't fail with a "no tokens"
     // error before they get a chance to assert on cache behaviour.
     connections = await import('../services/youtube-connection-store.js')
-    await connections.configureYouTubeApplication({ client_id: 'analytics-client', client_secret: 'analytics-secret' })
+    applicationId = (await connections.configureYouTubeApplication({ client_id: 'analytics-client', client_secret: 'analytics-secret' })).application_id
     const tokenBundle = {
       access_token: 'fake-access-token',
       refresh_token: 'fake-refresh-token',
@@ -97,6 +98,8 @@ describe('youtube-analytics', () => {
   }
 
   test('parses video rows + enriches with title/publishedAt', async () => {
+    const quota = await import('../services/youtube-quota-ledger.js')
+    const before = await quota.readYouTubeQuota(applicationId)
     // 1. Per-video report
     fetchQueue.push({
       status: 200,
@@ -151,6 +154,9 @@ describe('youtube-analytics', () => {
     assert.equal(result.rows[0]!.impressions, 200)
     assert.equal(result.totals?.views, 1800)
     assert.equal(fetchQueue.length, 0, 'all queued fetches consumed')
+    const after = await quota.readYouTubeQuota(applicationId)
+    assert.equal(after.buckets.analytics.used - before.buckets.analytics.used, 2, 'each reports.query is recorded')
+    assert.equal(after.buckets.other_endpoints.used - before.buckets.other_endpoints.used, 1, 'the Data API enrichment batch is recorded')
   })
 
   test('column-order independence: columns reordered → values still mapped correctly', async () => {

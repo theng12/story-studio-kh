@@ -49,9 +49,14 @@ import fs from 'fs/promises'
 import path from 'path'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
-import { readSidecar } from './upload-sidecar.js'
 import { resolveEpisodePaths } from './utils.js'
 import { writeAtomic } from '../lib/sync-safe.js'
+import {
+  youtubeRetentionEvidenceFor,
+  youtubeRetentionProofForFile,
+  readYouTubeRetentionStores,
+  type YouTubeRetentionEvidence,
+} from './youtube-remote-video.js'
 
 const VIDEO_EXT = /\.(mp4|mov|mkv|webm|m4v)$/i
 /**
@@ -150,7 +155,7 @@ function provenKey(slug: string, code: string): string {
 
 interface UploadedIndex {
   /** `(slug, code)` → the proof. NEVER keyed by code alone. */
-  proven: Map<string, { slug: string; title: string; videoId: string }>
+  proven: Map<string, { slug: string; title: string; evidence: YouTubeRetentionEvidence }>
   /**
    * Folder name (lowercased) → the channel it identifies, or `null` when two
    * channels answer to the same name and it therefore identifies nothing.
@@ -166,7 +171,7 @@ interface UploadedIndex {
  * episodes would otherwise re-read every sidecar hundreds of times.
  */
 async function buildUploadedIndex(): Promise<UploadedIndex> {
-  const proven = new Map<string, { slug: string; title: string; videoId: string }>()
+  const proven = new Map<string, { slug: string; title: string; evidence: YouTubeRetentionEvidence }>()
   const aliases = new Map<string, string | null>()
   const projects = await pm.listProjects().catch(() => [])
 
@@ -189,15 +194,16 @@ async function buildUploadedIndex(): Promise<UploadedIndex> {
     // channel's display name instead, so both identify the channel.
     addAlias((project as any).name || '', slug)
     const ideas = await im.getIdeas(slug, 'accepted').catch(() => [])
+    const { records: operations, state: publishingState } = await readYouTubeRetentionStores(slug)
     for (const idea of ideas) {
       const code = (idea.episode_code || '').toUpperCase()
       if (!code) continue
-      try {
-        const sc = await readSidecar(slug, code, idea.title || '', 'youtube')
-        if (sc?.video_id) {
-          proven.set(provenKey(slug, code), { slug, title: idea.title || '', videoId: sc.video_id })
-        }
-      } catch { /* unreadable sidecar → not proven, leave out */ }
+      const evidence = await youtubeRetentionEvidenceFor(
+        slug, code, idea.title || '', operations, publishingState,
+      )
+      // Keep even unusable/uncertain evidence in the index. Candidate-level
+      // source checks below turn it into a safe skip with an honest reason.
+      proven.set(provenKey(slug, code), { slug, title: idea.title || '', evidence })
     }
   }
   return { proven, aliases }
@@ -330,12 +336,22 @@ export async function previewArchiveSweep(
         })
         continue
       }
+      const proof = await youtubeRetentionProofForFile(hit.evidence, full)
+      if (!proof.usable || !proof.video_id) {
+        candidates.push({
+          ...base,
+          slug: channel.slug,
+          reason_code: 'not_uploaded',
+          reason: `${code} is not the exact render confirmed usable on YouTube on ${channel.slug}`,
+        })
+        continue
+      }
       candidates.push({
         ...base,
         status: 'ready',
         slug: hit.slug,
         title: hit.title,
-        youtube_video_id: hit.videoId,
+        youtube_video_id: proof.video_id,
       })
     }
   }

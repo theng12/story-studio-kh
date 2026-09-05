@@ -21,6 +21,8 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 import { setAppSetting } from '../services/app-settings.js'
+import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 
 let pm: typeof import('../services/project-manager.js')
 let im: typeof import('../services/idea-manager.js')
@@ -29,6 +31,9 @@ let storageAudit: typeof import('../services/storage-audit.js')
 let externalStore: typeof import('../services/external-video-store.js')
 let sidecar: typeof import('../services/upload-sidecar.js')
 let cacheMod: typeof import('../services/episode-status-cache.js')
+let connections: typeof import('../services/youtube-connection-store.js')
+let operations: typeof import('../services/youtube-operation-store.js')
+let sourceVideo: typeof import('../services/youtube-source-video.js')
 let tmp: { dir: string; cleanup: () => Promise<void> }
 
 const SLUG = 'storage-test'
@@ -43,7 +48,7 @@ async function makeProject(): Promise<void> {
     episode_prefix: 'TN', episode_digits: 4,
     season_size: 20, season_prefix: 'Season',
     folder_template: '{season_prefix} {season_num}/{code} - {title}/',
-    subfolder_names: {}, 
+    subfolder_names: DEFAULT_SUBFOLDER_NAMES,
     created_at: new Date().toISOString(),
   }))
   await fs.writeFile(path.join(projDir, 'config.json'), JSON.stringify({}))
@@ -69,13 +74,14 @@ async function seedAcceptedEpisode(code: string, finalSizeBytes = 1024): Promise
   return { code, idea_id: created.id, episode_dir: r.episode_dir, final_path: finalPath }
 }
 
-async function writeUploadedSidecar(code: string): Promise<void> {
+async function writeUploadedSidecar(code: string, videoId = `vid-${code}`): Promise<string> {
+  const uploadedAt = new Date().toISOString()
   await sidecar.writeSidecar(SLUG, code, TITLE, {
     platform: 'youtube',
-    video_id: `vid-${code}`,
+    video_id: videoId,
     account_id: 'acct',
     channel_id: 'chan',
-    uploaded_at: new Date().toISOString(),
+    uploaded_at: uploadedAt,
     last_sync_at: new Date().toISOString(),
     scheduled_for: null,
     privacy_status: 'public',
@@ -84,6 +90,54 @@ async function writeUploadedSidecar(code: string): Promise<void> {
     tags: [],
     thumbnail_set: true,
   } as any)
+  return uploadedAt
+}
+
+const CHANNEL = 'channel-storage'
+const PAYLOAD = {
+  snippet_json: JSON.stringify({ title: TITLE, description: '', tags: [], categoryId: '24' }),
+  status_json: JSON.stringify({ privacyStatus: 'public' }),
+  source_sha256: 'a'.repeat(64),
+}
+
+async function writeCanonicalOperation(
+  code: string,
+  finalPath: string,
+  lifecycle: 'ready' | 'failed' | 'rejected' = 'ready',
+): Promise<void> {
+  await connections.configureYouTubeApplication({ client_id: 'storage-client', client_secret: 'storage-secret' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: CHANNEL, title: 'Storage Channel', granted_scopes: ['youtube.upload'] },
+    tokens: { access_token: 'storage-access', refresh_token: 'storage-refresh', expires_at: Date.now() + 3_600_000 },
+  })
+  await connections.assignProjectYouTubeChannel({
+    project_slug: SLUG, channel_id: CHANNEL, expected_previous_channel_id: null,
+  })
+  const opened = await operations.createYouTubeOperation({
+    project_slug: SLUG,
+    episode_code: code,
+    channel_id: CHANNEL,
+    source_revision: await sourceVideo.resolveYouTubeSourceRevision(finalPath),
+    metadata_revision: PAYLOAD.source_sha256,
+    final_payload: PAYLOAD,
+    origin: 'manual',
+    final_action: 'manual_upload',
+  })
+  const accepted = await operations.acceptYouTubeOperation({
+    project_slug: SLUG,
+    operation_id: opened.operation_id,
+    expected_revision: opened.revision,
+    channel_id: CHANNEL,
+    video_id: `canonical-${code}`,
+    accepted_at: new Date().toISOString(),
+    final_payload: PAYLOAD,
+  })
+  await operations.updateYouTubeOperation({
+    project_slug: SLUG,
+    operation_id: accepted.operation_id,
+    expected_revision: accepted.revision,
+    mutate(record) { record.lifecycle = lifecycle },
+  })
 }
 
 describe('storage cleanup + sidecar detection + external root', () => {
@@ -96,6 +150,9 @@ describe('storage cleanup + sidecar detection + external root', () => {
     externalStore = await import('../services/external-video-store.js')
     sidecar = await import('../services/upload-sidecar.js')
     cacheMod = await import('../services/episode-status-cache.js')
+    connections = await import('../services/youtube-connection-store.js')
+    operations = await import('../services/youtube-operation-store.js')
+    sourceVideo = await import('../services/youtube-source-video.js')
     assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'))
   })
 
@@ -170,7 +227,9 @@ describe('storage cleanup + sidecar detection + external root', () => {
     assert.equal(ep4.bytes_final_video, 5_000_000)
     assert.equal(ep5.bytes_final_video, 1_000_000)
     assert.equal(ep4.uploaded_to_youtube, true, 'TN0004 has sidecar')
+    assert.equal(ep4.cleanup_eligible, true, 'the sidecar was written after this exact final')
     assert.equal(ep5.uploaded_to_youtube, false, 'TN0005 has no sidecar')
+    assert.equal(ep5.cleanup_eligible, false)
     assert.equal(ep4.youtube_video_id, 'vid-TN0004')
     assert.equal(r.project_bytes_final_video, 6_000_000)
   })
@@ -197,7 +256,7 @@ describe('storage cleanup + sidecar detection + external root', () => {
     } catch (e) { caught = e }
     assert.ok(caught, 'should throw when not uploaded')
     assert.equal((caught as any).statusCode, 412, 'distinguishable status')
-    assert.match((caught as Error).message, /not confirmed uploaded/)
+    assert.match((caught as Error).message, /not confirmed as the uploaded render/)
   })
 
   test('cleanup deletes when uploaded', async () => {
@@ -214,6 +273,78 @@ describe('storage cleanup + sidecar detection + external root', () => {
     const r = await storageAudit.cleanupFinalVideoForEpisode(SLUG, 'TN0009', { force: true })
     assert.equal(r.deleted_count, 1)
     assert.equal(existsSync(seed.final_path), false)
+  })
+
+  test('cleanup accepts a ready canonical operation only for the exact uploaded render', async () => {
+    const seed = await seedAcceptedEpisode('TN0016', 2048)
+    await writeCanonicalOperation(seed.code, seed.final_path)
+    const result = await storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code)
+    assert.equal(result.deleted_count, 1)
+    assert.equal(existsSync(seed.final_path), false)
+    cacheMod.episodeStatusCache.clear()
+    assert.equal((await assetStatus.computeEpisodeStatus(SLUG, seed.code)).video_assembly, true)
+  })
+
+  test('cleanup preserves a newer render even when an older canonical operation is ready', async () => {
+    const seed = await seedAcceptedEpisode('TN0017', 2048)
+    await writeCanonicalOperation(seed.code, seed.final_path)
+    await fs.writeFile(seed.final_path, Buffer.alloc(4096))
+    await assert.rejects(
+      storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code),
+      (error: any) => error?.statusCode === 412 && /newer|uploaded render/.test(error.message),
+    )
+    assert.equal((await fs.stat(seed.final_path)).size, 4096)
+  })
+
+  test('a ready same-video operation may use its later timestamped receipt fallback', async () => {
+    const seed = await seedAcceptedEpisode('TN0021', 2048)
+    await writeCanonicalOperation(seed.code, seed.final_path)
+    await fs.writeFile(seed.final_path, Buffer.alloc(4096))
+    await writeUploadedSidecar(seed.code, `canonical-${seed.code}`)
+
+    const result = await storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code)
+    assert.equal(result.deleted_count, 1)
+  })
+
+  test('a failed accepted operation never authorizes ordinary cleanup', async () => {
+    const seed = await seedAcceptedEpisode('TN0018', 2048)
+    await writeCanonicalOperation(seed.code, seed.final_path, 'failed')
+    await writeUploadedSidecar(seed.code, `canonical-${seed.code}`)
+    await assert.rejects(
+      storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code),
+      (error: any) => error?.statusCode === 412,
+    )
+    assert.equal(existsSync(seed.final_path), true)
+    const audit = await storageAudit.auditProjectStorage(SLUG)
+    assert.equal(audit.episodes[0]?.uploaded_to_youtube, true, 'accepted identity remains visible operationally')
+    assert.equal(audit.episodes[0]?.cleanup_eligible, false, 'failed identity never bypasses destructive confirmation')
+    await fs.rm(seed.final_path)
+    cacheMod.episodeStatusCache.clear()
+    assert.equal((await assetStatus.computeEpisodeStatus(SLUG, seed.code)).video_assembly, false)
+  })
+
+  test('an unrelated failed retry does not invalidate a different historical remote copy', async () => {
+    const seed = await seedAcceptedEpisode('TN0020', 2048)
+    await writeUploadedSidecar(seed.code, `historical-${seed.code}`)
+    await writeCanonicalOperation(seed.code, seed.final_path, 'failed')
+
+    const result = await storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code)
+    assert.equal(result.deleted_count, 1)
+    cacheMod.episodeStatusCache.clear()
+    assert.equal((await assetStatus.computeEpisodeStatus(SLUG, seed.code)).video_assembly, true)
+  })
+
+  test('a legacy sidecar cannot authorize deleting a final rendered after its upload', async () => {
+    const seed = await seedAcceptedEpisode('TN0019', 2048)
+    const uploadedAt = await writeUploadedSidecar(seed.code)
+    await fs.writeFile(seed.final_path, Buffer.alloc(4096))
+    const newer = new Date(Date.parse(uploadedAt) + 1_000)
+    await fs.utimes(seed.final_path, newer, newer)
+    await assert.rejects(
+      storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code),
+      (error: any) => error?.statusCode === 412,
+    )
+    assert.equal((await fs.stat(seed.final_path)).size, 4096)
   })
 
   test('cleanup leaves per-scene clips intact (only final-video targeted)', async () => {

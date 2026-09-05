@@ -3,8 +3,8 @@
  *
  * Surfaces per-episode local size broken down by category so the user
  * can see where the disk goes and free space safely. Cleanup actions
- * have a sidecar safety guard — they refuse to delete a final video
- * that hasn't been confirmed-uploaded to YouTube unless the caller
+ * have a remote-proof safety guard — they refuse to delete a final video
+ * whose exact render hasn't been confirmed usable on YouTube unless the caller
  * explicitly opts in via `force: true`.
  *
  * Categories surfaced:
@@ -17,8 +17,8 @@
  *                          stuff the user wouldn't want to delete from
  *                          this UI; surfaced as a single number)
  *
- * Reads the YouTube sidecar to mark each episode as "uploaded" or not
- * — drives the safety guard + the bulk-cleanup filter.
+ * Accepted provider IDs drive the uploaded badge. Exact ready-operation source
+ * identity, reconciliation evidence, or a historical sidecar drives cleanup.
  */
 
 import fs from 'fs/promises'
@@ -27,7 +27,11 @@ import path from 'path'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { resolveEpisodePaths } from './utils.js'
-import { readSidecar } from './upload-sidecar.js'
+import {
+  youtubeRetentionEvidenceFor,
+  youtubeRetentionProofForFile,
+  readYouTubeRetentionStores,
+} from './youtube-remote-video.js'
 import {
   getExternalFinalVideoRoot,
   resolveExternalFinalVideoDir,
@@ -56,10 +60,14 @@ export interface StorageEntry {
   bytes_external_final_video: number
   /** The actual final-video filenames found (for the per-row display). */
   final_video_filenames: string[]
-  /** True when the YouTube sidecar shows `video_id` set. */
+  /** True when canonical or historical evidence carries an accepted video id. */
   uploaded_to_youtube: boolean
   /** Empty when no upload, otherwise the YouTube video id. */
   youtube_video_id: string
+  /** True only when every present final candidate is the render proven usable remotely. */
+  cleanup_eligible: boolean
+  /** Why ordinary cleanup is blocked when a final exists. */
+  cleanup_reason?: string
 }
 
 export interface StorageAuditResult {
@@ -165,6 +173,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
 
   const ideas = await im.getIdeas(slug, 'accepted')
   const externalRoot = await getExternalFinalVideoRoot()
+  const { records: operations, state: publishingState } = await readYouTubeRetentionStores(slug)
 
   const CONCURRENCY = 8
   const results: StorageEntry[] = new Array(ideas.length)
@@ -186,7 +195,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
         bytes_audio: 0, bytes_images: 0, bytes_other: 0,
         bytes_total: 0, bytes_external_final_video: 0,
         final_video_filenames: [],
-        uploaded_to_youtube: false, youtube_video_id: '',
+        uploaded_to_youtube: false, youtube_video_id: '', cleanup_eligible: false,
       }
     }
 
@@ -215,6 +224,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
     // External root presence check + size for THIS episode's external dir.
     let externalEpisodeDir = ''
     let bytesExternalFinal = 0
+    const externalFinalPaths: string[] = []
     if (externalRoot) {
       try {
         const extDir = await resolveExternalFinalVideoDir(slug, code, idea.title || '')
@@ -228,22 +238,40 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
           try { entries = await fs.readdir(extDir) } catch { /* ignore */ }
           for (const name of entries) {
             if (!isFinalVideoName(code, name)) continue
-            try { bytesExternalFinal += (await fs.stat(path.join(extDir, name))).size } catch { /* skip */ }
+            const candidate = path.join(extDir, name)
+            try {
+              bytesExternalFinal += (await fs.stat(candidate)).size
+              externalFinalPaths.push(candidate)
+            } catch { /* skip */ }
           }
         }
       } catch { /* unresolvable; leave 0 */ }
     }
 
-    // Sidecar — the upload-confirmation signal.
+    // Canonical operation/reconcile evidence plus the historical sidecar.
     let uploaded = false
     let videoId = ''
-    try {
-      const sc = await readSidecar(slug, code, idea.title || '', 'youtube')
-      if (sc?.video_id) {
-        uploaded = true
-        videoId = sc.video_id
-      }
-    } catch { /* missing or unreadable → not uploaded */ }
+    const evidence = await youtubeRetentionEvidenceFor(
+      slug, code, idea.title || '', operations, publishingState,
+    )
+    const remote = evidence.accepted_operations[0]
+      ?? evidence.reconcile_link
+      ?? evidence.legacy_sidecar
+    if (remote?.video_id) {
+      uploaded = true
+      videoId = remote.video_id
+    }
+    const finalCandidates = [
+      ...v.final_video_filenames.map(name => path.join(paths.video_dir, name)),
+      ...externalFinalPaths,
+    ]
+    let cleanupEligible = false
+    let cleanupReason: string | undefined
+    if (finalCandidates.length > 0) {
+      const proofs = await Promise.all(finalCandidates.map(file => youtubeRetentionProofForFile(evidence, file)))
+      cleanupEligible = proofs.every(proof => proof.usable)
+      cleanupReason = proofs.find(proof => !proof.usable)?.reason
+    }
 
     const audioTotal = audioBytes + mergedBytes
     const imageTotal = sceneBytes + thumbBytes
@@ -266,6 +294,8 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
       final_video_filenames: v.final_video_filenames,
       uploaded_to_youtube: uploaded,
       youtube_video_id: videoId,
+      cleanup_eligible: cleanupEligible,
+      ...(cleanupReason ? { cleanup_reason: cleanupReason } : {}),
     }
   }
 
@@ -321,7 +351,7 @@ export interface CleanupResult {
 export interface CleanupOptions {
   /**
    * When false (default), the cleanup refuses to delete a final video
-   * unless the YouTube sidecar shows it's uploaded. Lets users bulk-
+   * unless durable evidence proves that exact render is usable remotely. Lets users bulk-
    * cleanup safely without accidentally deleting an unpublished render.
    * Set true to override (manual per-row cleanup with explicit confirm).
    */
@@ -352,20 +382,6 @@ export async function cleanupFinalVideoForEpisode(
 
   const code = idea.episode_code!
 
-  // Safety: refuse unless uploaded OR force=true. The route maps
-  // !force + !uploaded → 412 Precondition Failed so the UI can show a
-  // distinct "this isn't uploaded yet" warning rather than a generic 500.
-  if (!opts.force) {
-    const sc = await readSidecar(slug, code, idea.title || '', 'youtube')
-    if (!sc?.video_id) {
-      const err: any = new Error(
-        `Final video for ${code} is not confirmed uploaded to YouTube. Pass force:true to delete anyway.`,
-      )
-      err.statusCode = 412
-      throw err
-    }
-  }
-
   const items: CleanupItem[] = []
   const paths = await resolveEpisodePaths(slug, code, idea.title || '')
 
@@ -392,6 +408,21 @@ export async function cleanupFinalVideoForEpisode(
 
   if (candidates.length === 0) {
     return { items, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
+  }
+
+  // Ordinary cleanup requires remote proof for THESE exact local candidates.
+  // A later render must not inherit an older upload receipt for the same code.
+  if (!opts.force) {
+    const evidence = await youtubeRetentionEvidenceFor(slug, code, idea.title || '')
+    const proofs = await Promise.all(candidates.map(file => youtubeRetentionProofForFile(evidence, file)))
+    const refused = proofs.find(proof => !proof.usable)
+    if (refused) {
+      const err: any = new Error(
+        `Final video for ${code} is not confirmed as the uploaded render (${refused.reason}). Pass force:true to delete anyway.`,
+      )
+      err.statusCode = 412
+      throw err
+    }
   }
 
   let bytesFreed = 0
@@ -436,7 +467,7 @@ export async function cleanupFinalVideoForEpisode(
  * delete; non-uploaded ones get skipped UNLESS force=true is set).
  *
  * `episode_codes` lists the codes to clean. When empty + `all_uploaded`
- * is true, every accepted episode whose sidecar shows uploaded gets
+ * is true, every accepted episode with usable remote evidence gets
  * cleaned — the typical "free up space everywhere it's safe to do so"
  * one-click.
  */
@@ -459,12 +490,14 @@ export async function bulkCleanupFinalVideos(
       .filter(i => set.has((i.episode_code || '').toUpperCase()))
       .map(i => i.episode_code!)
   } else if (opts.all_uploaded) {
-    // Resolve via sidecar reads in parallel.
+    const { records: operations, state: publishingState } = await readYouTubeRetentionStores(slug)
     const checks = await Promise.all(ideas.map(async (i) => {
-      try {
-        const sc = await readSidecar(slug, i.episode_code!, i.title || '', 'youtube')
-        return sc?.video_id ? i.episode_code! : null
-      } catch { return null }
+      const evidence = await youtubeRetentionEvidenceFor(
+        slug, i.episode_code!, i.title || '', operations, publishingState,
+      )
+      return evidence.ready_operations.length || evidence.reconcile_link || evidence.legacy_sidecar
+        ? i.episode_code!
+        : null
     }))
     targets = checks.filter((c): c is string => !!c)
   }

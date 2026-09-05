@@ -21,6 +21,7 @@ let pm: typeof import('../services/project-manager.js')
 let connections: typeof import('../services/youtube-connection-store.js')
 let sidecars: typeof import('../services/upload-sidecar.js')
 let utils: typeof import('../services/utils.js')
+let operations: typeof import('../services/youtube-operation-store.js')
 
 const originalFetch = globalThis.fetch
 const CODE = 'EP0001'
@@ -30,18 +31,29 @@ interface FetchCall {
   url: string
   method: string
   body: any
+  headers: Headers
 }
 
 let fetchCalls: FetchCall[] = []
+let putStatus = 200
+let liveTitle = 'Live owner title'
 
 function youtubeListResponse(videoId: string): Response {
   return new Response(JSON.stringify({
     items: [{
       id: videoId,
-      snippet: { categoryId: '22' },
+      etag: 'etag-live-1',
+      snippet: {
+        title: liveTitle, description: 'Live owner description', tags: ['live-tag'],
+        categoryId: '22', defaultLanguage: 'en', defaultAudioLanguage: 'en-US',
+      },
       status: {
         privacyStatus: 'private',
         containsSyntheticMedia: false,
+        selfDeclaredMadeForKids: false,
+        embeddable: false,
+        license: 'creativeCommon',
+        publicStatsViewable: false,
       },
     }],
   }), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -58,6 +70,7 @@ before(async () => {
   connections = await import('../services/youtube-connection-store.js')
   sidecars = await import('../services/upload-sidecar.js')
   utils = await import('../services/utils.js')
+  operations = await import('../services/youtube-operation-store.js')
 })
 
 after(async () => {
@@ -67,6 +80,8 @@ after(async () => {
 
 beforeEach(async () => {
   fetchCalls = []
+  putStatus = 200
+  liveTitle = 'Live owner title'
   const projectsDir = path.join(tempDir, 'projects')
   await fs.rm(projectsDir, { recursive: true, force: true })
   await fs.mkdir(projectsDir, { recursive: true })
@@ -77,7 +92,7 @@ beforeEach(async () => {
     const url = String(input)
     const method = init?.method || 'GET'
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body
-    fetchCalls.push({ url, method, body })
+    fetchCalls.push({ url, method, body, headers: new Headers(init?.headers) })
 
     if (method === 'GET' && url.includes('/youtube/v3/videos?')) {
       const videoId = new URL(url).searchParams.get('id') || ''
@@ -88,7 +103,7 @@ beforeEach(async () => {
         id: body?.id,
         snippet: body?.snippet,
         status: body?.status,
-      }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }), { status: putStatus, headers: { 'content-type': 'application/json' } })
     }
     return new Response(JSON.stringify({ error: 'unmocked request' }), { status: 500 })
   }) as any
@@ -157,6 +172,43 @@ async function seedUploadedEpisode(description: string, title = TITLE, sidecarCh
 }
 
 describe('YouTube settings backfill description safety', () => {
+  test('the retired unconfirmed upload route is absent', async () => {
+    const project = await pm.createProject({ name: `Retired upload ${Date.now()}` })
+    const response = await request(app)
+      .post(`/api/projects/${project.slug}/upload/upload`)
+      .send({ episode_id: CODE })
+    assert.equal(response.status, 404)
+    assert.equal(fetchCalls.length, 0)
+  })
+
+  test('a canonical current-channel operation is eligible without a legacy sidecar', async () => {
+    const seeded = await seedUploadedEpisode('Canonical description')
+    await fs.rm(seeded.sidecarPath)
+    const payload = {
+      snippet_json: JSON.stringify({ title: TITLE, description: '', tags: [], categoryId: '24' }),
+      status_json: JSON.stringify({ privacyStatus: 'private' }),
+      source_sha256: 'c'.repeat(64),
+    }
+    const opened = await operations.createYouTubeOperation({
+      project_slug: seeded.slug, episode_code: CODE, channel_id: 'UC_backfill_test',
+      source_revision: 'canonical-source', metadata_revision: payload.source_sha256,
+      final_payload: payload, origin: 'manual', final_action: 'manual_upload',
+    })
+    await operations.acceptYouTubeOperation({
+      project_slug: seeded.slug, operation_id: opened.operation_id, expected_revision: opened.revision,
+      channel_id: 'UC_backfill_test', video_id: seeded.videoId,
+      accepted_at: new Date().toISOString(), final_payload: payload,
+    })
+
+    const response = await request(app)
+      .post(`/api/projects/${seeded.slug}/upload/youtube-backfill`)
+      .send({ dry_run: true })
+    assert.equal(response.status, 200, JSON.stringify(response.body))
+    assert.equal(response.body.eligible, 1)
+    assert.equal(fetchCalls.filter(call => call.method === 'GET').length, 1)
+    assert.equal(fetchCalls.filter(call => call.method === 'PUT').length, 0)
+  })
+
   test('preserves uploads from another historical channel without provider I/O', async () => {
     const seeded = await seedUploadedEpisode('Historical description', TITLE, 'UC_previous_channel')
     const sidecarBefore = await fs.readFile(seeded.sidecarPath)
@@ -171,7 +223,7 @@ describe('YouTube settings backfill description safety', () => {
     assert.deepEqual(await fs.readFile(seeded.sidecarPath), sidecarBefore)
   })
 
-  test('removes private markers from the outbound update without changing the saved sidecar', async () => {
+  test('changes only requested settings while preserving fresh writable fields and the saved sidecar', async () => {
     const description = [
       'Opening paragraph.',
       '',
@@ -199,18 +251,16 @@ describe('YouTube settings backfill description safety', () => {
 
     const update = fetchCalls.find(call => call.method === 'PUT')
     assert.ok(update, 'the backfill must send one metadata update')
-    assert.equal(update.body.snippet.description, [
-      'Opening paragraph.',
-      '',
-      'CHAPTERS',
-      '0:00 Leaving Port',
-      '2:15 Across the Open Sea',
-      '',
-      'SOURCES & FURTHER READING',
-      '• Maritime archive — https://example.test/source',
-    ].join('\n'))
-    assert.equal(update.body.snippet.description.includes('<'), false)
-    assert.equal(update.body.snippet.description.includes('>'), false)
+    assert.deepEqual(update.body.snippet, {
+      title: 'Live owner title', description: 'Live owner description', tags: ['live-tag'],
+      categoryId: '24', defaultLanguage: 'en', defaultAudioLanguage: 'en-US',
+    })
+    assert.deepEqual(update.body.status, {
+      privacyStatus: 'private', selfDeclaredMadeForKids: false,
+      containsSyntheticMedia: true, embeddable: false,
+      license: 'creativeCommon', publicStatsViewable: false,
+    })
+    assert.equal(update.headers.get('if-match'), 'etag-live-1')
 
     const sidecarAfter = await fs.readFile(seeded.sidecarPath)
     assert.deepEqual(sidecarAfter, sidecarBefore, 'publishing cleanup must not rewrite stored metadata evidence')
@@ -224,6 +274,7 @@ describe('YouTube settings backfill description safety', () => {
       '<!-- youtube:chapters:end -->',
     ].join('\n'), '')
 
+    liveTitle = ''
     const response = await request(app)
       .post(`/api/projects/${seeded.slug}/upload/youtube-backfill`)
       .send({})
@@ -234,5 +285,20 @@ describe('YouTube settings backfill description safety', () => {
     assert.match(response.body.details[0].error, /title is empty/i)
     assert.equal(fetchCalls.filter(call => call.method === 'PUT').length, 0,
       'invalid metadata must be rejected before any YouTube update')
+  })
+
+  test('an ETag conflict is reported and never retried', async () => {
+    const seeded = await seedUploadedEpisode('Stored description')
+    putStatus = 412
+
+    const response = await request(app)
+      .post(`/api/projects/${seeded.slug}/upload/youtube-backfill`)
+      .send({})
+
+    assert.equal(response.status, 200)
+    assert.equal(response.body.updated, 0)
+    assert.equal(response.body.failed, 1)
+    assert.match(response.body.details[0].error, /changed after it was read/i)
+    assert.equal(fetchCalls.filter(call => call.method === 'PUT').length, 1)
   })
 })

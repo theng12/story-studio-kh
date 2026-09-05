@@ -27,7 +27,6 @@ const lightbox = read('../components/ImagePreviewLightbox.vue')
 const row = read('../components/ImageGeneratorRow.vue')
 const panel = read('../components/ImageGeneratorPanel.vue')
 const images = read('../pages/projects/[slug]/images.vue')
-const upload = read('../pages/projects/[slug]/upload.vue')
 const videoAssembly = read('../pages/projects/[slug]/video-assembly.vue')
 const imagePrompts = read('../pages/projects/[slug]/image-prompts.vue')
 
@@ -36,7 +35,6 @@ const CONSUMERS: Array<[name: string, source: string]> = [
   ['ImagePreviewLightbox.vue', lightbox],
   ['ImageGeneratorRow.vue', row],
   ['images.vue', images],
-  ['upload.vue', upload],
   ['video-assembly.vue', videoAssembly],
   ['image-prompts.vue', imagePrompts],
 ]
@@ -99,8 +97,7 @@ describe('preview-image cache busting', () => {
 
   test('pages that cannot rewrite images while mounted still bust per visit', () => {
     for (const [name, source] of [
-      ['upload.vue', upload],
-      ['video-assembly.vue', videoAssembly],
+          ['video-assembly.vue', videoAssembly],
       ['image-prompts.vue', imagePrompts],
     ] as const) {
       assert.match(

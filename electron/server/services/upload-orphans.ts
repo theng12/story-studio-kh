@@ -81,7 +81,7 @@ export async function listOrphans(slug: string, accountId: string): Promise<Orph
     }
   }
 
-  const orphans = remote.filter(v => !linkedVideoIds.has(v.videoId))
+  const orphans = remote.videos.filter(v => !linkedVideoIds.has(v.videoId))
   const next = await im.getNextEpisodeNumber(slug)
 
   // Sort orphans by publishedAt ascending so "continuation" and "renumber"
@@ -93,7 +93,7 @@ export async function listOrphans(slug: string, accountId: string): Promise<Orph
     orphans,
     already_linked: linkedCodes,
     next_episode_number: next,
-    remote_total: remote.length,
+    remote_total: remote.videos.length,
   }
 }
 
