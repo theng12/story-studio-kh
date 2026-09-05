@@ -441,6 +441,7 @@
           </div>
         </div>
 
+        <EpisodeRecoveryStatus :job="job" />
         <!-- Row 2: Meta (model, duration, timestamps) -->
         <div class="job-meta">
           <span
@@ -776,6 +777,7 @@
               </button>
             </div>
           </div>
+          <EpisodeRecoveryStatus :job="job" />
           <p
             v-if="primaryJobControl(job)"
             class="job-control-reason"
@@ -993,6 +995,7 @@ import {
   secondaryControls,
 } from '~/utils/job-presentation'
 import { formatCredits } from '~/utils/genstudio-credit-cost'
+import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType } from '~/utils/episode-recovery'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -1609,6 +1612,7 @@ const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
 const retryAllTooltip = computed(() => describeRetryAllTriage(retryAllTriage.value as any))
 
 async function retryAllFailed() {
+  if (retryingAllFailed.value) return
   const triage = retryAllTriage.value
   if (triage.retry.length === 0) {
     // Never silently do nothing. If everything is held back, say so and point
@@ -1622,10 +1626,16 @@ async function retryAllFailed() {
     }
     return
   }
-  const snapshot = [...triage.retry] as RJob[]
+  const grouped = groupEpisodeRecoveryRetries(triage.retry as RJob[])
+  const snapshot = grouped.other
   retryingAllFailed.value = true
   info(describeRetryAllTriage(triage as any))
   try {
+    // Dependent rows share one server-owned plan. No per-row POST or delete
+    // may race its prerequisite, even when a downstream row already failed.
+    for (const episode of grouped.episodes) {
+      await post(`/projects/${episode.project_slug}/jobs/recover-episode/${episode.episode_id}`, {})
+    }
     // Bounded the same way Repair-all is. Posting is not running — each retry
     // enqueues a job and the queue paces execution (the episode lane is bounded
     // at 2 since 1.4.27, the writing lane at 8), which is what stops a repeat of
@@ -1655,7 +1665,9 @@ async function retryAllFailed() {
     if (failures > 0) showError(`${failures} of ${snapshot.length} retries could not be sent. The rest went to the queue.`)
     // retryJob surfaces its own per-job errors, so this says what was SENT
     // rather than claiming everything was accepted.
-    else success(`Sent ${snapshot.length} job(s) to the queue. It runs them at its own pace; any that still need attention will say so on their card.`)
+    else success(`Advanced ${grouped.episodes.length} episode recovery plan(s); sent ${snapshot.length} other job(s) to the queue.`)
+  } catch (cause: any) {
+    showError(cause?.data?.detail || cause?.message || 'Episode recovery could not be advanced.')
   } finally {
     retryingAllFailed.value = false
   }
@@ -2532,6 +2544,13 @@ async function retryJob(job: RJob) {
   // license a later Retry all.
   setRepairState(job.job_id, null)
   const projectSlug = jobProjectSlug(job)
+  if (isEpisodeRecoveryType(job.type) && job.status !== 'cancelled') {
+    try {
+      const response = await post<{ plan: { message: string } }>(`/projects/${projectSlug}/jobs/recover-episode/${job.episode_id}`, {})
+      info(response.plan.message)
+    } catch (cause: any) { showError(cause?.data?.detail || cause?.message || 'Episode recovery could not be advanced.') }
+    return
+  }
   // These queue-owned jobs must preserve their exact durable request params.
   // Motion jobs without a saved pair are historical jobs: the executor alone
   // may select today's cheapest published option. Reposting through a fresh

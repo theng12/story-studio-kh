@@ -21,6 +21,7 @@ import { generateAiVideo } from '../generators/ai-video.js'
 import { generateAudioMerge } from '../generators/audio-merge.js'
 import { generateMetadata } from '../generators/metadata.js'
 import { generateSubtitlesTranscribe } from '../generators/subtitles.js'
+import { startEpisodeRecovery } from '../services/episode-recovery.js'
 import { generateYoutubeUpload } from '../generators/youtube-upload.js'
 import { generateYoutubePlaylistUpdate } from '../generators/youtube-playlist-update.js'
 import { generateThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
@@ -268,6 +269,7 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   if (options.loadSettings !== false) {
     void initializeQueuePauseState()
       .then(() => resumeInterruptedJobsAtBoot())
+      .then(() => startEpisodeRecovery())
       .catch(e => console.warn('[boot] failed to initialize durable queue state:', e?.message))
     // The durable recovery scan is chained after queue-hold restoration above,
     // so a user-paused queue cannot race and start work during app boot.
