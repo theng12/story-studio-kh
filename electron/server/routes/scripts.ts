@@ -7,7 +7,7 @@ import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { callAi, callAiWithRetry, hasAnyTextProviderKey } from '../lib/ai-client.js'
-import { resolveEpisodePaths, resolveEpisodePathsForRead } from '../services/utils.js'
+import { resolveEpisodePaths, resolveEpisodePathsForRead, resolveEpisodeTitleByCode } from '../services/utils.js'
 import { resolveReadPath, readArtifactRawText, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
@@ -631,6 +631,74 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
 })
 
 // ── Get script content for preview ──
+
+router.put('/projects/:slug/episodes/:episodeId/introduction-content', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = req.body
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).length !== 1 || typeof body.text !== 'string' || !body.text.trim()) {
+    return res.status(400).json({ detail: 'Provide the introduction as non-empty `text`.' })
+  }
+
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+
+    const activeWriter = ['introduction-only', 'script-only', 'chapter-only', 'expand_chapters']
+      .find(type => jq.isDuplicate(slug, episodeId, type))
+    if (activeWriter) {
+      return res.status(409).json({
+        detail: 'A queued, running, or paused narration job owns this episode. '
+          + 'Wait for it to finish, or resume/cancel it if paused, then save again.',
+      })
+    }
+
+    const title = await resolveEpisodeTitleByCode(slug, episodeId)
+    if (!title) return res.status(404).json({ detail: 'Episode not found' })
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, title)
+    if (!existsSync(paths.script_dir) || !existsSync(resolveReadPath(paths.narration_docx))) {
+      return res.status(404).json({ detail: 'No saved narration exists for this episode.' })
+    }
+    const {
+      assembleUnifiedNarration,
+      ensureChapterFilesMigrated,
+      writeChapterFiles,
+    } = await import('../lib/narration-assembly.js')
+
+    const result = await withLock(paths.narration_docx, async () => {
+      await ensureChapterFilesMigrated(paths.script_dir, episodeId, title || episodeId)
+      await writeChapterFiles(
+        paths.script_dir,
+        episodeId,
+        title || episodeId,
+        { chapters: [], intro: { text: body.text } },
+        { normalizeSpokenProse: false },
+      )
+      await assembleUnifiedNarration(paths.script_dir, episodeId, title || episodeId)
+
+      const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+      const narrationPath = resolveReadPath(paths.narration_docx)
+      const sections = await parseNarrationDocx(narrationPath)
+      const introduction = sections.find(section => section.slug === 'Introduction')
+      if (!introduction) throw new Error('The saved introduction could not be read back.')
+      const stat = await fs.stat(narrationPath)
+
+      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+      episodeStatusCache.invalidate(slug, episodeId)
+      return {
+        ok: true,
+        introduction: {
+          content: introduction.text,
+          modifiedAt: stat.mtime.toISOString(),
+          wordCount: introduction.text.split(/\s+/).filter(Boolean).length,
+        },
+      }
+    })
+    res.json(result)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not save the introduction'))
+  }
+})
 
 router.get('/projects/:slug/episodes/:episodeId/script-content', async (req, res) => {
   const { slug, episodeId } = req.params

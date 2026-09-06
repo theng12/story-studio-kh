@@ -59,7 +59,7 @@
         generate-label="Write this episode's opening"
         loading-label="Writing…"
         :generate-loading="generating"
-        :generate-disabled="!segment.enabled || !episodeId || generating"
+        :generate-disabled="!segment.enabled || !episodeId || generating || previewSaving"
         :generate-status="actionStatus"
         @generate="generateForEpisode"
       />
@@ -302,6 +302,7 @@
       :project-slug="slug"
       :episode-id="episodeId"
       :refresh-key="previewRefreshKey"
+      @saving-change="previewSaving = $event"
     />
   </div>
 </template>
@@ -354,6 +355,7 @@ const { success, error: showError } = useToast()
 const episodeId = ref('')
 const saving = ref(false)
 const generating = ref(false)
+const previewSaving = ref(false)
 const dirty = ref(false)
 const loading = ref(true)
 const newBeatLabel = ref('')
@@ -571,7 +573,7 @@ async function save(): Promise<void> {
  * the same instructions. That was the whole defect — two paths, two shapes.
  */
 async function generateForEpisode(): Promise<void> {
-  if (!episodeId.value) return
+  if (!episodeId.value || previewSaving.value) return
   generating.value = true
   try {
     await post(`/projects/${slug.value}/generate/introduction-only`, { episode_id: episodeId.value })

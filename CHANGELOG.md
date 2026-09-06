@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.114 — 2026-09-06
+
+- **Generated introductions now begin with the words the narrator should speak.** Story Studio asks the model for narration without a heading, preface, or divider and removes a recognized introduction preface only when it is immediately followed by the model's divider; similar spoken prose without that divider stays unchanged.
+- **The Introduction preview can now be edited in place.** Edit, Save, and Cancel preserve the episode's chapters, keep manual narration exactly as written, retain unsaved text after a failed save, and block saving while Introduction generation is already active.
+
 ## v1.4.113 — 2026-09-06
 
 - **Image Pool generation now keeps the selected output resolution.** The published resolution chosen beside the aspect ratio reaches the queued generation job, while omitted or non-string resolution values remain absent.

@@ -1017,6 +1017,13 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
 }
 
 // Generate introduction only (requires script to exist)
+function cleanGeneratedIntroduction(text: string): string {
+  return text.trim().replace(
+    /^(?:Here is|Here['’]s)[ \t]+(?:the|your)[ \t]+introduction(?:[ \t]+section)?(?:[ \t]+for[ \t]+(?:the|your|this)[ \t]+episode)?[.:]?[ \t]*\r?\n(?:[ \t]*\r?\n)*---[ \t]*(?:\r?\n|$)/i,
+    '',
+  ).trim()
+}
+
 export async function generateIntroductionOnly(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as any
@@ -1115,7 +1122,9 @@ ${formatExampleBlock}
 ${introStandardsText ? `\nFollow this intro format reference:\n${introStandardsText}\n` : ''}
 
 Target word count: ~${introSettings.word_target} words
-Output ONLY the introduction text. No meta-commentary. No story chapters.`
+Output ONLY the introduction text. No meta-commentary. No story chapters.
+Begin immediately with the first sentence the narrator should speak.
+Do not add a heading, preface, explanation, divider, or separator.`
 
   // Per-chapter refactor: intro is now its own source file, written
   // alongside the per-chapter docx files. The unified narration is then
@@ -1169,7 +1178,7 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
     const introText = await callAiWithRetry(req.model, sysPrompt, introPrompt, apiKeys, true,
       // Long: a full introduction section of narration.
       { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'long' })
-    const cleanedIntro = introText.trim()
+    const cleanedIntro = cleanGeneratedIntroduction(introText)
     if (!cleanedIntro) throw new Error('Introduction generation returned no usable text.')
     const wordCount = cleanedIntro.split(/\s+/).length
     job.output_lines.push(`Introduction: ${wordCount.toLocaleString()} words`)
