@@ -186,6 +186,7 @@ const router = useRouter()
 let didAutoSelect = false
 function tryAutoSelectFromQuery() {
   if (didAutoSelect) return
+  if (String(route.params.slug || '') !== props.projectSlug) return
   const q = String(route.query.episode_id || '').trim()
   if (!q) return
   const match = episodes.value.find(e => e.episode_code === q)
@@ -199,7 +200,14 @@ function tryAutoSelectFromQuery() {
 }
 watch(episodes, tryAutoSelectFromQuery)
 watch(() => route.query.episode_id, (episode) => {
-  if (String(episode || '').trim() === props.modelValue) return
+  if (String(route.params.slug || '') !== props.projectSlug) return
+  const queryEpisode = String(episode || '').trim()
+  if (!queryEpisode) {
+    didAutoSelect = false
+    if (props.modelValue) emit('update:modelValue', '')
+    return
+  }
+  if (queryEpisode === props.modelValue) return
   didAutoSelect = false
   tryAutoSelectFromQuery()
 })

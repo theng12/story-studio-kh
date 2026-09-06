@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
-import { createApp, defineComponent, h, nextTick, ref, type Component } from 'vue'
+import { createApp, defineComponent, h, nextTick, reactive, ref, type Component } from 'vue'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 
@@ -103,11 +103,11 @@ describe('episode-aware workflow continuity', () => {
       { episode_code: 'EP0001', title: 'Imported opening', status: { introduction: true } },
       { episode_code: 'EP0002', title: 'New draft', status: { introduction: false } },
     ])
-    const route = {
+    const route = reactive({
       params: { slug: 'ux-review-sandbox' },
       path: '/projects/ux-review-sandbox/introduction',
       query: { episode_id: 'EP0001', tab: 'script' },
-    }
+    })
     const replaces: any[] = []
     ;(globalThis as any).__workflowSelectorRoute = route
     ;(globalThis as any).__workflowSelectorRouter = { replace: (location: any) => { replaces.push(location); return Promise.resolve() } }
@@ -144,6 +144,19 @@ describe('episode-aware workflow continuity', () => {
     assert.equal(selected.value, 'EP0002')
     assert.deepEqual(replaces, [{ query: { episode_id: 'EP0002', tab: 'script' } }],
       'a user selection replaces only episode_id and preserves the active tab')
+
+    route.query.episode_id = 'EP0002'
+    await flush()
+    delete route.query.episode_id
+    await flush()
+    assert.equal(selected.value, '',
+      'removing episode_id through browser navigation clears the picker instead of leaving a stale episode visible')
+
+    route.params.slug = 'another-project'
+    route.query.episode_id = 'EP0001'
+    await flush()
+    assert.equal(selected.value, '',
+      'a mismatched project route cannot auto-select an episode from this selector\'s cached list')
 
     app.unmount()
     host.remove()
