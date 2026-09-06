@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.113 — 2026-09-06
+
+- **Image Pool generation now keeps the selected output resolution.** The published resolution chosen beside the aspect ratio reaches the queued generation job, while omitted or non-string resolution values remain absent.
+
 ## v1.4.112 — 2026-09-06
 
 - **Interrupted Video Assembly jobs now resume from validated scene clips.** Story Studio reuses only clips owned by the same durable job whose complete render inputs still match, rebuilds missing or damaged clips and every later composition stage, and never promotes an interrupted partial final.
