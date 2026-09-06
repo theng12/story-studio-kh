@@ -15,7 +15,7 @@ import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
-import { trackChild } from '../services/job-queue.js'
+import { checkpointJobState, trackChild } from '../services/job-queue.js'
 import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 // v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
 // folder-resolver (this file used to carry private copies; the ✅-prefix
@@ -35,6 +35,17 @@ import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
+import { resolveStoryStudioVersion } from '../lib/app-version.js'
+import {
+  buildVideoAssemblyRenderFingerprint,
+  createVideoAssemblyCheckpoint,
+  findReusableVideoAssemblySceneClips,
+  getValidVideoAssemblyCheckpoint,
+  setVideoAssemblyCheckpoint,
+  validateVideoAssemblySceneClip,
+  type VideoAssemblyCheckpoint,
+  type VideoAssemblyCompletedSceneClip,
+} from '../lib/video-assembly-checkpoint.js'
 import { resolveSceneImagesDir } from './scene-image.js'
 import { resolveVideoAssetsDir } from './scene-clip.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
@@ -93,6 +104,7 @@ import type {
 
 const TIMESTAMP_SCENE_IMAGES_SUBFOLDER = 'scene_images'
 const SCENE_PLAN_FILENAME = 'scene_plan.json'
+type SceneMotionLibrary = Awaited<ReturnType<typeof listSceneEffectLibrary>>['scene_motions']
 
 async function selfHealFinalPromotion(
   currentPath: string,
@@ -1238,7 +1250,7 @@ export async function prepareUnifiedVideoAssemblyInputs(
 
 export async function generateVideo(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
-  const req = params as GenerateVideoRequest
+  const req = createVideoAssemblyExecutionRequest(params)
   const code = episode_id.toUpperCase()
 
   // Intro skip is a PLANNER-time economy switch, not a render-time one.
@@ -1316,6 +1328,10 @@ export async function generateVideo(job: Job): Promise<void> {
   // to absolute paths on this machine BEFORE downstream code touches them.
   // Keeps legacy absolute paths unchanged.
   resolveAssetPathsInPlace(req, outputRoot, job)
+  // Keep the resolved authoritative inputs before Sound Design replaces the
+  // narration path with a freshly mixed derivative. The source narration,
+  // cue identities, and settings are what make scene clips reusable.
+  const renderFingerprintRequest = structuredClone(req)
 
   const names = await resolveSubfolderNames(project_slug, code)
   // Prefer the titled folder when the user has leftover renamed siblings.
@@ -1332,18 +1348,10 @@ export async function generateVideo(job: Job): Promise<void> {
   // Sound Design is preflighted before final assembly. Once enabled, approved
   // local assets are a required part of this render: fail loudly rather than
   // silently claiming a video includes sound effects when it does not.
+  let resolvedSoundDesignCues: Awaited<ReturnType<typeof approvedSoundDesignMixCues>> = []
   if (req.sound_design?.cues.length) {
     if (!req.merged_audio_path || !existsSync(req.merged_audio_path)) throw new Error('Sound Design mix is blocked: merged audio is missing.')
-    const mixCues = await approvedSoundDesignMixCues(req.sound_design.cues as SoundDesignCue[])
-    job.output_lines.push(`Sound Design: mixing ${mixCues.length} approved cue(s) into narration…`)
-    const outPath = path.join(path.dirname(req.merged_audio_path), `${code}_sound_design_mixed.mp3`)
-    req.merged_audio_path = await mixSoundDesignIntoAudio({
-      basePath: req.merged_audio_path,
-      cues: mixCues,
-      outPath,
-      ducking_profile: req.sound_design.ducking_profile,
-    })
-    job.output_lines.push(`Sound Design: mixed ${mixCues.length} approved cue(s) → ${path.basename(req.merged_audio_path)}`)
+    resolvedSoundDesignCues = await approvedSoundDesignMixCues(req.sound_design.cues as SoundDesignCue[])
   }
 
   const videoDir = await resolveEpisodeSubfolderDir(project_slug, code, 'video', episodeDir, names.video)
@@ -1457,13 +1465,52 @@ export async function generateVideo(job: Job): Promise<void> {
       : `Video length follows narration: ${targetDuration.toFixed(1)}s`,
   )
 
-  // 3. Create temp directory — under os.tmpdir() (never iCloud-synced)
+  // 3. Create or recover the temp directory under os.tmpdir() (never
+  // iCloud-synced). Compilation mode has no reusable scene-clip stage and
+  // keeps the historical fresh-directory behavior.
   // so the multi-GB intermediate clips/concat-list/premixed-audio don't
   // trigger an iCloud upload while ffmpeg is mid-encode. The final
   // rename to `videoDir` or the external root happens after success
   // (see the EXDEV-aware copy fallback near the end of this function).
-  const tempDir = await getWorkTempDir(project_slug, code)
-
+  const sceneEffectLibrary = req.video_layout === 'compilation' ? null : await listSceneEffectLibrary()
+  const resolvedSceneAnimation = sceneEffectLibrary
+    ? resolveVideoAssemblySceneAnimation(req, req.scenes.length)
+    : null
+  const renderFingerprint = sceneEffectLibrary
+    ? await buildVideoAssemblyRenderFingerprint({
+        request: renderFingerprintRequest,
+        authoritative_scene_plan: authoritativeAssets.scene_plan_timing,
+        canvas: { w, h },
+        quality,
+        narration_duration_sec: narrationDuration,
+        target_duration_sec: targetDuration,
+        can_drawtext: canDrawtext,
+        ffmpeg_version: ffmpegCheck.version,
+        app_version: await resolveStoryStudioVersion(),
+        resolved_sound_design_cues: resolvedSoundDesignCues,
+        resolved_scene_effect_library: sceneEffectLibrary,
+        resolved_scene_animation: resolvedSceneAnimation,
+        content_pack_provenance: job.content_pack_provenance || [],
+      })
+    : null
+  const savedCheckpoint = renderFingerprint
+    ? await getValidVideoAssemblyCheckpoint(job, ['running'])
+    : null
+  const matchingCheckpoint = savedCheckpoint?.render_fingerprint === renderFingerprint ? savedCheckpoint : null
+  const tempDir = matchingCheckpoint?.work_dir || await getWorkTempDir(project_slug, code)
+  const videoAssemblyCheckpoint = renderFingerprint
+    ? createVideoAssemblyCheckpoint(
+        job,
+        tempDir,
+        renderFingerprint,
+        matchingCheckpoint?.completed_scene_clips || [],
+      )
+    : null
+  if (videoAssemblyCheckpoint) {
+    setVideoAssemblyCheckpoint(job, videoAssemblyCheckpoint)
+    await checkpointJobState(job)
+    if (matchingCheckpoint) job.output_lines.push(`Recovery: validating ${matchingCheckpoint.completed_scene_clips.length} saved scene clip(s).`)
+  }
   // Debug mode: when STORY_STUDIO_VIDEO_DEBUG is truthy, preserve the
   // temp dir on every run (success OR failure) so the user can replay a
   // single FFmpeg stage manually. Without it, the temp dir is preserved
@@ -1476,6 +1523,18 @@ export async function generateVideo(job: Job): Promise<void> {
   let succeeded = false
 
   try {
+    if (resolvedSoundDesignCues.length) {
+      job.output_lines.push(`Sound Design: mixing ${resolvedSoundDesignCues.length} approved cue(s) into narration…`)
+      const basePath = req.merged_audio_path!
+      req.merged_audio_path = await mixSoundDesignIntoAudio({
+        basePath,
+        cues: resolvedSoundDesignCues,
+        outPath: path.join(path.dirname(basePath), `${code}_sound_design_mixed.mp3`),
+        ducking_profile: req.sound_design!.ducking_profile,
+      })
+      job.output_lines.push(`Sound Design: mixed ${resolvedSoundDesignCues.length} approved cue(s) → ${path.basename(req.merged_audio_path)}`)
+    }
+
     const { w: resW, h: resH } = { w, h }
 
     job.output_lines.push(`Resolution: ${resW}x${resH} @ ${quality.fps}fps`)
@@ -1681,14 +1740,6 @@ export async function generateVideo(job: Job): Promise<void> {
       return  // skip the standard scene-clip pipeline below
     }
 
-    // 5. Resolve scene animation — defaults to 'none' when the request
-    // omits it. The breathe/parallax knobs are only consulted by the
-    // animation pipeline when type !== 'none', so the values below are
-    // a sensible no-op default rather than meaningful settings.
-    const sceneAnimation: VideoSceneAnimation = req.scene_animation ?? {
-      type: 'none', zoom_start: 100, zoom_end: 108, parallax_direction: 'right', parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103,
-    }
-
     // 6. Prepare scene clips.
     // v1.0.81+: when the project's format opts into sentence alignment
     // AND audio_sentences.json exists, compute per-scene durations from
@@ -1827,14 +1878,19 @@ export async function generateVideo(job: Job): Promise<void> {
     }
 
     const sceneClips = await prepareSceneClips(
-      req.scenes, sceneAnimation, req.chapter_titles, resW, resH, quality, tempDir, canDrawtext, req.scene_recycling, job,
+      req.scenes, resolvedSceneAnimation!.settings, req.chapter_titles, resW, resH, quality, tempDir, canDrawtext, req.scene_recycling, job,
       {
-        pool: (req as any).animation_pool || [],
-        randomizeMode: ((req as any).animation_randomize || 'off') as 'off' | 'single' | 'per-scene',
-        seed: (req as any).animation_seed,
+        pool: resolvedSceneAnimation!.pool,
+        randomizeMode: resolvedSceneAnimation!.randomize_mode,
+        seed: resolvedSceneAnimation!.seed,
+        picks: resolvedSceneAnimation!.picks,
       },
       sceneClipDurations,
       planTransitionTail,
+      sceneEffectLibrary!.scene_motions,
+      videoAssemblyCheckpoint && renderFingerprint
+        ? { checkpoint: videoAssemblyCheckpoint, renderFingerprint }
+        : undefined,
     )
 
     const storyStartSec = planOpeningReservedSec
@@ -2451,6 +2507,7 @@ export async function generateVideo(job: Job): Promise<void> {
     //                   intermediate / xfade chunk that caused the failure
     //   - success     → remove tempDir (default historical behaviour)
     const keep = debugMode || !succeeded
+    if (succeeded) setVideoAssemblyCheckpoint(job, null)
     if (keep) {
       job.output_lines.push(
         debugMode
@@ -2662,6 +2719,46 @@ function buildCompilationOverlays(
 
 // ── Prepare Scene Clips ───────────────────────────────────────────────────
 
+/** Keep generator-only normalization off the durable request persisted by the queue. */
+export function createVideoAssemblyExecutionRequest(params: Job['params']): GenerateVideoRequest {
+  return structuredClone(params) as GenerateVideoRequest
+}
+
+export interface ResolvedVideoAssemblySceneAnimation {
+  settings: VideoSceneAnimation
+  pool: string[]
+  randomize_mode: 'off' | 'single' | 'per-scene'
+  seed: number
+  picks: string[]
+}
+
+/** Resolve the exact animation choices once so retry fingerprints and encodes agree. */
+export function resolveVideoAssemblySceneAnimation(
+  req: GenerateVideoRequest,
+  sceneCount: number,
+): ResolvedVideoAssemblySceneAnimation {
+  const settings: VideoSceneAnimation = req.scene_animation ?? {
+    type: 'none', zoom_start: 100, zoom_end: 108, parallax_direction: 'right', parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103,
+  }
+  const pool = Array.isArray((req as any).animation_pool) ? [...(req as any).animation_pool] : []
+  const requestedMode = (req as any).animation_randomize
+  const randomizeMode = requestedMode === 'single'
+    ? 'single'
+    : requestedMode && requestedMode !== 'off'
+      ? 'per-scene'
+      : 'off'
+  const rawSeed = (req as any).animation_seed
+  const requestedSeed = rawSeed == null ? 7 : Number(rawSeed)
+  const seed = Number.isFinite(requestedSeed) ? requestedSeed : 7
+  return {
+    settings,
+    pool,
+    randomize_mode: randomizeMode,
+    seed,
+    picks: pickAnimationsPerScene(sceneCount, settings.type || 'none', pool, randomizeMode, seed),
+  }
+}
+
 /** Deterministic per-scene animation pick — same seed → same sequence. */
 function pickAnimationsPerScene(
   count: number,
@@ -2699,7 +2796,16 @@ function mulberry32(seed: number) {
   }
 }
 
-async function prepareSceneClips(
+export interface VideoAssemblySceneClipRecovery {
+  checkpoint: VideoAssemblyCheckpoint
+  renderFingerprint: string
+  /** Test seam: production always uses the real FFmpeg runner. */
+  encodeSceneClip?: (args: string[], options: { timeoutMs: number }) => Promise<unknown>
+  /** Test seam: production always persists through the durable job queue. */
+  persistCheckpoint?: (job: Job) => Promise<void>
+}
+
+export async function prepareSceneClips(
   scenes: GenerateVideoRequest['scenes'],
   sceneAnimation: VideoSceneAnimation,
   chapterTitles: GenerateVideoRequest['chapter_titles'],
@@ -2715,6 +2821,7 @@ async function prepareSceneClips(
     pool: string[]
     randomizeMode: 'off' | 'single' | 'per-scene'
     seed?: number
+    picks?: string[]
   },
   /** v1.0.81+: sentence-aligned per-scene durations. Index-aligned with
    *  `scenes`. When provided, scene i renders for perSceneDurations[i]
@@ -2728,25 +2835,63 @@ async function prepareSceneClips(
    *  timeline math elsewhere keeps using the plain window duration; only the
    *  physical clip is longer (the xfade chunk caps its output at ΣD). */
   extraTailSec?: number,
+  motionLibrary: SceneMotionLibrary = [],
+  recovery?: VideoAssemblySceneClipRecovery,
 ): Promise<string[]> {
   // v1.0.515 — filled by index (scenes render in a parallel pool; order must hold).
   const clipPaths: string[] = new Array(scenes.length)
   const defaultDuration = recycling.seconds_per_scene || 10
 
-  // v1.2.1 — resolved ONCE for the whole render, not per scene. A camera move
-  // may now come from an installed Content Pack, and reading the pack state
-  // inside the parallel clip pool would re-read it for every scene.
-  const motionLibrary = (await listSceneEffectLibrary()).scene_motions
-
   // Pre-pick an animation type for each scene. 'off' = use the primary type;
   // 'single' = one random type for all scenes; 'per-scene' = different each time.
-  const picks = pickAnimationsPerScene(
+  const picks = animationOpts?.picks || pickAnimationsPerScene(
     scenes.length,
     sceneAnimation.type || 'none',
     animationOpts?.pool || [],
     animationOpts?.randomizeMode || 'off',
     animationOpts?.seed,
   )
+
+  const durationFor = (i: number): { duration: number; renderDuration: number } => {
+    const scene = scenes[i]
+    const hasScenePlanDuration = !!(scene as any).__scene_plan_duration
+    const sceneOverride = perSceneDurations?.[i]
+    const explicitSceneDuration = scene?.duration
+    const durationCandidate = hasScenePlanDuration && typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0
+      ? explicitSceneDuration
+      : (typeof sceneOverride === 'number' && Number.isFinite(sceneOverride) && sceneOverride > 0)
+      ? sceneOverride
+      : (typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0)
+          ? explicitSceneDuration
+          : defaultDuration
+    const duration = Math.max(0.5, durationCandidate)
+    return { duration, renderDuration: duration + Math.max(0, extraTailSec || 0) }
+  }
+  const expectedRecoveryClips: VideoAssemblyCompletedSceneClip[] = scenes.map((_, i) => ({
+    scene_index: i,
+    clip_path: path.join(tempDir, `scene_${String(i).padStart(4, '0')}.mp4`),
+    render_duration_sec: durationFor(i).renderDuration,
+  }))
+  const reusable = recovery
+    ? await findReusableVideoAssemblySceneClips(
+        recovery.checkpoint,
+        recovery.renderFingerprint,
+        expectedRecoveryClips,
+      )
+    : new Map<number, string>()
+  let checkpointWrite = Promise.resolve()
+  const persistRecovery = (): Promise<void> => {
+    if (!recovery) return Promise.resolve()
+    setVideoAssemblyCheckpoint(job, recovery.checkpoint)
+    checkpointWrite = checkpointWrite.then(() => (
+      recovery.persistCheckpoint ? recovery.persistCheckpoint(job) : checkpointJobState(job)
+    ))
+    return checkpointWrite
+  }
+  if (recovery) {
+    recovery.checkpoint.completed_scene_clips = expectedRecoveryClips.filter(clip => reusable.has(clip.scene_index))
+    await persistRecovery()
+  }
 
   // Validate every still before starting any expensive clip encoding. A
   // truncated provider download can have a valid PNG header and non-zero size
@@ -2782,25 +2927,20 @@ async function prepareSceneClips(
     const scene = scenes[i]
     const clipPath = path.join(tempDir, `scene_${String(i).padStart(4, '0')}.mp4`)
 
+    if (reusable.has(i)) {
+      clipPaths[i] = clipPath
+      preparedCount++
+      job.output_lines.push(`Scene clips: ${preparedCount}/${scenes.length} done [reused checkpoint clip]`)
+      return
+    }
+
     // Pick per-scene duration: an exact Scene Plan duration wins first;
     // then sentence-aligned override; then an explicit scene.duration from the
     // caller; then the uniform recycling default. Floor at 0.5s so tiny windows
     // don't produce sub-frame clips.
-    const hasScenePlanDuration = !!(scene as any).__scene_plan_duration
-    const sceneOverride = perSceneDurations?.[i]
-    const explicitSceneDuration = scene?.duration
-    const durationCandidate = hasScenePlanDuration && typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0
-      ? explicitSceneDuration
-      : (typeof sceneOverride === 'number' && Number.isFinite(sceneOverride) && sceneOverride > 0)
-      ? sceneOverride
-      : (typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0)
-          ? explicitSceneDuration
-          : defaultDuration
-    const duration = Math.max(0.5, durationCandidate)
+    const { duration, renderDuration } = durationFor(i)
     // v1.0.521 — plan-strict xfade tail: the physical clip renders longer than
     // its planned window; the window itself stays `duration` everywhere else.
-    const renderDuration = duration + Math.max(0, extraTailSec || 0)
-
     // v1.0.414 — a scene whose source is a video (materialized B-Roll clip)
     // is normalised to the canvas by crop-fill and plays for the same uniform
     // per-scene `duration` as a still; it does NOT get Ken Burns (it already
@@ -2941,8 +3081,19 @@ async function prepareSceneClips(
     // Hard per-clip ceiling: a healthy clip renders in seconds; only a genuine
     // wedge (bad input, dead disk) trips this — fail THAT scene loudly instead
     // of hanging the whole job silently.
-    await runFfmpeg(args, { timeoutMs: 10 * 60_000 })
+    await (recovery?.encodeSceneClip || runFfmpeg)(args, { timeoutMs: 10 * 60_000 })
+    const completed = expectedRecoveryClips[i]!
+    if (!(await validateVideoAssemblySceneClip(completed))) {
+      throw new Error(`prepared clip failed media or duration validation: ${clipPath}`)
+    }
     clipPaths[i] = clipPath
+    if (recovery) {
+      recovery.checkpoint.completed_scene_clips = [
+        ...recovery.checkpoint.completed_scene_clips.filter(clip => clip.scene_index !== i),
+        completed,
+      ].sort((a, b) => a.scene_index - b.scene_index)
+      await persistRecovery()
+    }
     preparedCount++
     job.output_lines.push(`Scene clips: ${preparedCount}/${scenes.length} done${tagLog}`)
   }

@@ -42,6 +42,7 @@ import { runWithJobContentPackProvenance } from '../content-packs/job-provenance
 import { readManifest, recordPaidImageReplacementStrict, type TaskManifestEntry } from './task-manifest.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
+import { getValidVideoAssemblyCheckpoint } from '../lib/video-assembly-checkpoint.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -2586,16 +2587,22 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               && !!queues[j.type as JobType]?.executor
               && hasStableImageOutputIdentity(j)
               && hasReclaimableImageEvidence(j)
-            if ((recoverableGenStudio || recoverableImageEpisode) && !hasCancellationContext(j)) {
+            const recoverableVideoAssembly = j.type === 'video_assembly'
+              && !!queues.video_assembly.executor
+              && !!(await getValidVideoAssemblyCheckpoint(j, ['running']))
+            if ((recoverableGenStudio || recoverableImageEpisode || recoverableVideoAssembly) && !hasCancellationContext(j)) {
               j.status = 'queued'
               // Keep the original admission timestamp so the fair image pump
               // recognises this as recovery work ahead of fresh FIFO.
+              if (recoverableVideoAssembly) j.started_at = null
               j.finished_at = null
               j.error = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push(recoverableImageEpisode
-                ? '↻ Story Studio restarted — resuming this render. Every image GenStudio already finished will be reclaimed from its saved task id at no extra credits, and only genuinely missing scenes will be submitted.'
-                : '↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.')
+              j.output_lines.push(recoverableVideoAssembly
+                ? '↻ Story Studio restarted — resuming local Video Assembly from its validated scene-clip checkpoint. Missing or invalid clips and every later stage will be rebuilt.'
+                : recoverableImageEpisode
+                  ? '↻ Story Studio restarted — resuming this render. Every image GenStudio already finished will be reclaimed from its saved task id at no extra credits, and only genuinely missing scenes will be submitted.'
+                  : '↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else {
@@ -3026,7 +3033,14 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         if (attempt > 1) {
           // Files on disk are the durable partial result. Clear stale transient
           // completion/progress so this attempt must perform its own audit.
-          job.result = undefined
+          // Video Assembly's validated checkpoint is the index for those files,
+          // so keep only that entry through the existing free local retry.
+          const videoAssemblyCheckpoint = job.type === 'video_assembly'
+            ? job.result?.video_assembly_checkpoint
+            : undefined
+          job.result = videoAssemblyCheckpoint
+            ? { video_assembly_checkpoint: videoAssemblyCheckpoint }
+            : undefined
           job.progress = 0
           job.output_lines.push(`↻ Local auto-retry attempt ${attempt}/${retryPolicy.max_attempts} — checking disk and repairing only missing work.`)
           await persistJob(job)

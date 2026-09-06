@@ -24,8 +24,8 @@
  * ------
  * `<os.tmpdir()>/story-studio-kh/<slug>/<episode_code>/.tmp_<ts>/`
  *
- * Per-slug and per-episode subdirs make orphan cleanup trivial — wipe
- * the whole thing on app start to recover from kill-mid-encode crashes.
+ * Per-slug and per-episode subdirs let boot expire unowned runs while a
+ * validated nonterminal Video Assembly checkpoint protects its exact path.
  */
 
 import fs from 'fs/promises'
@@ -46,8 +46,8 @@ export function getWorkTempRoot(): string {
 export async function getWorkTempDir(slug: string, episodeCode: string): Promise<string> {
   const dir = path.join(
     getWorkTempRoot(),
-    sanitize(slug),
-    sanitize(episodeCode),
+    sanitizeWorkTempSegment(slug),
+    sanitizeWorkTempSegment(episodeCode),
     `.tmp_${Date.now()}`,
   )
   await fs.mkdir(dir, { recursive: true })
@@ -62,12 +62,13 @@ export async function getWorkTempDir(slug: string, episodeCode: string): Promise
  *
  * Best-effort. Permission errors, missing dir, race conditions all get
  * swallowed — this never blocks boot.
+ * `protectedDirs` must already have passed durable job ownership validation.
  */
-export async function cleanOrphanWorkTempDirs(maxAgeMs = 24 * 60 * 60 * 1000): Promise<{
-  scanned: number
-  removed: number
-}> {
-  const root = getWorkTempRoot()
+export async function cleanOrphanWorkTempDirs(
+  maxAgeMs = 24 * 60 * 60 * 1000,
+  protectedDirs: ReadonlySet<string> = new Set(),
+  root = getWorkTempRoot(),
+): Promise<{ scanned: number; removed: number }> {
   const summary = { scanned: 0, removed: 0 }
   let slugDirs: string[]
   try {
@@ -92,6 +93,7 @@ export async function cleanOrphanWorkTempDirs(maxAgeMs = 24 * 60 * 60 * 1000): P
         if (!run.startsWith('.tmp_')) continue
         summary.scanned++
         const runPath = path.join(codePath, run)
+        if (protectedDirs.has(runPath)) continue
         try {
           const st = await fs.stat(runPath)
           if (st.mtimeMs < cutoff) {
@@ -108,8 +110,9 @@ export async function cleanOrphanWorkTempDirs(maxAgeMs = 24 * 60 * 60 * 1000): P
   return summary
 }
 
-function sanitize(name: string): string {
-  return name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'unknown'
+export function sanitizeWorkTempSegment(name: string): string {
+  const sanitized = name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80)
+  return !sanitized || sanitized === '.' || sanitized === '..' ? 'unknown' : sanitized
 }
 
 /**
