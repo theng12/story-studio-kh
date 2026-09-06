@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.119 — 2026-09-07
+
+- **Formula and Topic Pack choices now open in one searchable library.** Channel Identity and Ideas keep the current selection compact, then let you review and explicitly apply exact Formula and Topic Pack IDs in the shared picker.
+- **Same-name built-in and installed choices now explain their source.** The library labels entries as Installed, Included, Built in, or Custom and shows the listed Library version for signed packs; an existing legacy choice remains visible until you choose and apply a different one.
+
 ## v1.4.118 — 2026-09-06
 
 - **Formula-only Idea Campaigns now choose fresh subjects instead of cycling through the Formula's examples.** When no Topic Pack is active or explicitly selected, campaigns use the existing freeform Ideas generator with Formula guidance and saved Formula-wide history; Topic Pack campaigns retain their structured assignment flow.

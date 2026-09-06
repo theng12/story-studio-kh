@@ -40,11 +40,18 @@ function packOptionsFor(req: Request) {
   return req.app.locals.contentPackOptions || {}
 }
 
+function catalogMetadata(entry: { source: string; pack?: { pack_id: string; version: string } }) {
+  return {
+    source: entry.source,
+    ...(entry.pack ? { pack_id: entry.pack.pack_id, version: entry.pack.version } : {}),
+  }
+}
+
 // ── List ────────────────────────────────────────────────────────────────────
 
 router.get('/niches', async (req, res) => {
   try {
-    const niches = await nl.listNiches(packOptionsFor(req))
+    const niches = await nl.listNicheCatalogEntries(packOptionsFor(req))
     // For each niche, count how many projects reference it — used by the
     // niche browser to show "in use by N projects" badges and to gate
     // delete confirmation.
@@ -57,7 +64,11 @@ router.get('/niches', async (req, res) => {
       } catch { /* skip unreadable */ }
     }
     res.json({
-      niches: niches.map(n => ({ ...n, project_count: refCount[n.id] || 0 })),
+      niches: niches.map(entry => ({
+        ...entry.value,
+        project_count: refCount[entry.value.id] || 0,
+        catalog: catalogMetadata(entry),
+      })),
     })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to list niches')
@@ -67,11 +78,12 @@ router.get('/niches', async (req, res) => {
 router.get('/topic-packs', async (req, res) => {
   try {
     const nicheId = typeof req.query.niche_id === 'string' ? req.query.niche_id : ''
-    const packs = await tpl.listTopicPacks(packOptionsFor(req))
+    const packs = await tpl.listTopicPackCatalogEntries(packOptionsFor(req))
     res.json({
       topic_packs: nicheId
-        ? packs.filter(pack => tpl.isCompatible(pack, nicheId))
-        : packs,
+        ? packs.filter(entry => tpl.isCompatible(entry.value, nicheId))
+          .map(entry => ({ ...entry.value, catalog: catalogMetadata(entry) }))
+        : packs.map(entry => ({ ...entry.value, catalog: catalogMetadata(entry) })),
     })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to list Topic Packs')

@@ -150,6 +150,13 @@ export interface Niche {
   /** Server-attached count of projects referencing this niche. Present on
    *  list responses, absent on single-niche reads. */
   project_count?: number
+  catalog?: ContentCatalogMetadata
+}
+
+export interface ContentCatalogMetadata {
+  source: 'signed-installed' | 'signed-recovery' | 'legacy-builtin' | 'legacy-user-fork'
+  pack_id?: string
+  version?: string
 }
 
 export interface TopicPack {
@@ -164,6 +171,14 @@ export interface TopicPack {
   ideaAxes?: IdeaAxis[]
   vocabulary?: NicheVocabulary
   tags?: string[]
+  maxSiblingsPerSubject?: number
+  coverageProfiles?: Array<{
+    id?: string
+    label?: string
+    description?: string
+    tuples: unknown[]
+  }>
+  catalog?: ContentCatalogMetadata
 }
 
 // ── Module-level shared cache ───────────────────────────────────────────────

@@ -42,6 +42,7 @@ import {
   listUserForkCatalogEntries,
   resolveCatalogItem,
   resolveUserForkCatalogItem,
+  type CatalogEntry,
   type ContentPackRegistryOptions,
 } from '../content-packs/registry.js'
 import { contentPackDocumentToNiche } from '../content-packs/legacy-adapters.js'
@@ -268,16 +269,18 @@ export async function loadLegacyNiche(id: string): Promise<{ document: Niche; so
  * Malformed JSONs are skipped with a console warning rather than failing
  * the list — the user can fix the bad file without losing the others.
  */
-export async function listNiches(registryOptions: ContentPackRegistryOptions = {}): Promise<Niche[]> {
-  const seen = new Map<string, Niche>()
+export async function listNicheCatalogEntries(registryOptions: ContentPackRegistryOptions = {}): Promise<Array<CatalogEntry<Niche>>> {
+  const seen = new Map<string, CatalogEntry<Niche>>()
 
   for (const entry of await listCatalogEntries('series-formula', registryOptions)) {
-    if (entry.value.kind === 'series-formula') seen.set(entry.value.id, contentPackDocumentToNiche(entry.value))
+    if (entry.value.kind === 'series-formula') {
+      seen.set(entry.value.id, { ...entry, value: contentPackDocumentToNiche(entry.value) })
+    }
   }
 
   for (const entry of await listUserForkCatalogEntries('series-formula', registryOptions)) {
     const niche = entry.value as Niche
-    if (!seen.has(niche.id)) seen.set(niche.id, niche)
+    if (!seen.has(niche.id)) seen.set(niche.id, { ...entry, value: niche })
   }
 
   const userDir = userNichesDir()
@@ -288,7 +291,7 @@ export async function listNiches(registryOptions: ContentPackRegistryOptions = {
       if (!name.endsWith('.json')) continue
       try {
         const n = await loadNicheFile(path.join(userDir, name))
-        if (!seen.has(n.id)) seen.set(n.id, n)
+        if (!seen.has(n.id)) seen.set(n.id, { value: n, source: 'legacy-user-fork' })
       } catch (e: any) {
         console.warn(`[niche-loader] skipping malformed user niche ${name}: ${e.message}`)
       }
@@ -302,14 +305,18 @@ export async function listNiches(registryOptions: ContentPackRegistryOptions = {
       if (!name.endsWith('.json')) continue
       try {
         const n = await loadNicheFile(path.join(BUILTIN_NICHES_DIR, name))
-        if (!seen.has(n.id)) seen.set(n.id, n)
+        if (!seen.has(n.id)) seen.set(n.id, { value: n, source: 'legacy-builtin' })
       } catch (e: any) {
         console.warn(`[niche-loader] skipping malformed built-in niche ${name}: ${e.message}`)
       }
     }
   }
 
-  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+  return [...seen.values()].sort((a, b) => a.value.name.localeCompare(b.value.name))
+}
+
+export async function listNiches(registryOptions: ContentPackRegistryOptions = {}): Promise<Niche[]> {
+  return (await listNicheCatalogEntries(registryOptions)).map(entry => entry.value)
 }
 
 /**

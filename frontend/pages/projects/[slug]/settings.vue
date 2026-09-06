@@ -343,19 +343,25 @@
         <button
           :class="['sub-tab', { active: nicheSubTab === 'library' }]"
           @click="nicheSubTab = 'library'"
-        >Formula library <span class="sub-tab-count">· {{ nicheLibraryCount }}</span></button>
+        >Custom formulas <span class="sub-tab-count">· {{ nicheLibraryCount }}</span></button>
       </div>
 
       <!-- ── Sub-tab 1: Project niche picker ───────────────────────── -->
       <div v-if="nicheSubTab === 'project'" class="sub-tab-body">
         <h4 class="sub-tab-section-title">Choose the formula and subject lanes this channel uses</h4>
-        <NichePicker v-model="nicheId" @change="onNicheChanged" />
-        <TopicPackPicker
-          v-model="topicPackIds"
-          class="mt-3"
-          :series-formula-id="nicheId"
-          :disabled="nicheSaving"
-        />
+        <section class="channel-identity-summary">
+          <div class="channel-identity-summary-copy">
+            <span>Series Formula</span>
+            <strong>{{ selectedFormulaLabel }}</strong>
+            <small>{{ selectedNicheProfile?.description || (nicheId ? 'This saved Formula is currently unavailable from the library.' : 'General generation without a repeatable Formula.') }}</small>
+          </div>
+          <div class="channel-identity-summary-copy">
+            <span>Topic Packs</span>
+            <strong>{{ selectedTopicPackLabel }}</strong>
+            <small>{{ topicPackIds.length ? 'Reusable subject inventories selected for this channel.' : 'No Topic Packs selected.' }}</small>
+          </div>
+          <button type="button" class="btn btn-primary" @click="identityPickerOpen = true">Choose Formula &amp; Topics</button>
+        </section>
 
         <!-- v1.4.20 — how often this channel publishes. Channel-level, because
              an upload plan cannot exist before a YouTube account is connected. -->
@@ -643,13 +649,7 @@
           </div>
         </section>
 
-        <div class="mt-3 button-row">
-          <button class="btn btn-primary" :disabled="nicheSaving || !nicheDirty" @click="saveNicheSettings">
-            {{ nicheSaving ? 'Saving…' : 'Save Channel Identity' }}
-          </button>
-          <SaveIndicator v-bind="savedHintProps('niche')" />
-          <span v-if="nicheSaveError" class="text-error">{{ nicheSaveError }}</span>
-        </div>
+        <div class="mt-3 button-row"><SaveIndicator v-bind="savedHintProps('niche')" /></div>
 
         <p class="text-muted text-xs mt-3">
           <strong>Channel default:</strong> this Formula and Pack selection automatically drives
@@ -657,14 +657,14 @@
           than asking you to select it again.
         </p>
         <p class="text-muted text-xs mt-1">
-          Need to add a new formula? Switch to the <strong>Formula library</strong> sub-tab above.
+          Need to author a local formula? Switch to <strong>Custom formulas</strong> above.
         </p>
       </div>
 
       <!-- ── Sub-tab 2: Niche library (browse + create + delete) ─────── -->
       <div v-if="nicheSubTab === 'library'" class="sub-tab-body">
         <div class="niche-library-header">
-          <h4 class="sub-tab-section-title">Formula library</h4>
+          <h4 class="sub-tab-section-title">Custom formulas</h4>
           <button
             class="btn btn-primary btn-sm"
             :disabled="nicheCreateBusy"
@@ -672,22 +672,19 @@
           >+ Create custom niche</button>
         </div>
         <p class="text-muted text-sm">
-          Every Formula on this machine, built-in and custom. A built-in Formula is
-          never overwritten: changing a channel's episode shape on the Project formula
-          tab makes that channel its own copy and leaves the original alone. Custom
-          Formulas can be deleted once no project still uses them.
+          Create and maintain formulas authored on this Mac. Browse Installed, Included,
+          Built in, and Custom choices together from Choose Formula &amp; Topics.
         </p>
 
         <div v-if="nicheLibLoading" class="muted mt-3">Loading niches…</div>
         <div v-else-if="nicheLibError" class="error-box mt-3">{{ nicheLibError }}</div>
-        <div v-else-if="!nicheLibList.length" class="empty-box mt-3">
-          No niches found. Create your first custom niche, or restore the built-ins
-          by reinstalling the app.
+        <div v-else-if="!customNicheLibList.length" class="empty-box mt-3">
+          No custom formulas yet. Create one here, then select it from the Channel Identity library.
         </div>
 
         <div v-else class="niche-lib-grid mt-3">
           <article
-            v-for="n in nicheLibList"
+            v-for="n in customNicheLibList"
             :key="n.id"
             class="niche-lib-tile"
             :class="{ 'tile-builtin': n.builtin, 'tile-custom': !n.builtin, 'tile-active': n.id === nicheId }"
@@ -695,8 +692,8 @@
             <div class="tile-header">
               <h5>{{ n.name }}</h5>
               <span v-if="n.id === nicheId" class="badge badge-active">project niche</span>
-              <span v-if="!n.builtin" class="badge badge-custom">custom</span>
-              <span v-else class="badge badge-builtin">built-in</span>
+              <span class="badge badge-custom">custom</span>
+              <span v-if="n.catalog?.version" class="badge">v{{ n.catalog.version }}</span>
             </div>
             <p v-if="n.tagline" class="tile-tagline">{{ n.tagline }}</p>
             <p class="tile-description">{{ n.description }}</p>
@@ -733,12 +730,6 @@
             </details>
             <div class="tile-actions">
               <button
-                v-if="n.id !== nicheId"
-                class="btn btn-ghost btn-sm"
-                :title="'Use this niche on the current project (still requires Save below).'"
-                @click="useNicheOnProject(n.id)"
-              >Use on this project</button>
-              <button
                 v-if="!n.builtin"
                 class="btn btn-ghost btn-sm danger"
                 :title="n.project_count ? `Can't delete — ${n.project_count} project(s) still reference this niche.` : 'Delete this custom niche.'"
@@ -750,6 +741,16 @@
         </div>
       </div>
     </div>
+
+    <ChannelIdentityPickerModal
+      :visible="identityPickerOpen"
+      :project-slug="slug"
+      :selected-formula-id="nicheId"
+      :selected-topic-pack-ids="topicPackIds"
+      :project-content-pack-versions="projectContentPackVersions"
+      @close="identityPickerOpen = false"
+      @saved="onIdentitySaved"
+    />
 
     <!-- v1.0.96+ Create-custom-niche modal. Lives under the Niche tab now
          (the standalone /niches sidebar page is gone). Same form fields as
@@ -2384,7 +2385,6 @@ async function saveFormatSettings() {
 // v1.0.96+ — Niche tab also absorbs the standalone /niches sidebar page
 // (browse / create custom / delete custom). One source for niche stuff.
 const {
-  setProjectNiche,
   find: findNicheProfile,
   niches: nicheLibList,
   isLoading: nicheLibLoading,
@@ -2393,22 +2393,23 @@ const {
   deleteNiche: deleteNicheApi,
   refresh: refreshNiches,
 } = useNiches()
+const { topicPacks: topicPackLibList } = useTopicPacks()
 const nicheId = ref<string>('')
 const topicPackIds = ref<string[]>([])
-const nicheSaving = ref(false)
-const nicheSaveError = ref('')
-const nicheIdBaseline = ref<string>('')
-const topicPackIdsBaseline = ref<string[]>([])
-const normalizePackIds = (values: string[]) => [...new Set(values)].sort()
-const nicheDirty = computed(() =>
-  nicheId.value !== nicheIdBaseline.value
-  || JSON.stringify(normalizePackIds(topicPackIds.value))
-    !== JSON.stringify(normalizePackIds(topicPackIdsBaseline.value)))
+const identityPickerOpen = ref(false)
 // Sub-tab state for the merged Niche tab. Default to 'project' (the
 // picker) since that's the common case; 'library' is for browse/create.
 const nicheSubTab = ref<'project' | 'library'>('project')
-const nicheLibraryCount = computed(() => nicheLibList.value?.length || 0)
+const customNicheLibList = computed(() => nicheLibList.value.filter(niche => !niche.builtin))
+const nicheLibraryCount = computed(() => customNicheLibList.value.length)
 const selectedNicheProfile = computed(() => findNicheProfile(nicheId.value))
+const selectedFormulaLabel = computed(() => selectedNicheProfile.value?.catalogName || selectedNicheProfile.value?.name || nicheId.value || 'No Formula')
+const selectedTopicPackLabel = computed(() => {
+  if (!topicPackIds.value.length) return 'No Topic Packs'
+  const names = topicPackIds.value.map(id => topicPackLibList.value.find(pack => pack.id === id)?.name || id)
+  return names.length > 2 ? `${names.slice(0, 2).join(', ')} +${names.length - 2}` : names.join(', ')
+})
+const projectContentPackVersions = computed<Record<string, string>>(() => (project.value as any)?.content_pack_versions || {})
 const selectedProductionKit = computed(() => selectedNicheProfile.value?.productionKit || null)
 const humanizeCatalogId = (value?: string) => (value || 'Not specified')
   .replace(/^com\.storystudio\.(?:style|thumbnail|formula|topic)\./, '')
@@ -2653,8 +2654,6 @@ function syncNicheFromProject() {
   topicPackIds.value = Array.isArray(m.topic_pack_ids)
     ? [...m.topic_pack_ids]
     : [...(findNicheProfile(nicheId.value)?.defaultTopicPackIds || [])]
-  nicheIdBaseline.value = nicheId.value
-  topicPackIdsBaseline.value = [...topicPackIds.value]
 }
 
 watch(project, syncNicheFromProject, { immediate: true })
@@ -2663,39 +2662,21 @@ watch(nicheLibList, () => {
   if (!meta?.niche_id || Array.isArray(meta.topic_pack_ids)) return
   const defaults = findNicheProfile(meta.niche_id)?.defaultTopicPackIds || []
   topicPackIds.value = [...defaults]
-  topicPackIdsBaseline.value = [...defaults]
 }, { immediate: true })
 
-function onNicheChanged(n: any) {
-  topicPackIds.value = [...(n?.defaultTopicPackIds || [])]
-}
-
-async function saveNicheSettings() {
-  nicheSaving.value = true
-  nicheSaveError.value = ''
-  try {
-    // A Formula saves a Formula. It does not touch the project's art style —
-    // that stays the customer's own selection, changed only from the picker.
-    await setProjectNiche(slug.value, nicheId.value || null, topicPackIds.value)
-    nicheIdBaseline.value = nicheId.value
-    topicPackIdsBaseline.value = [...topicPackIds.value]
-    stampSaved('niche')
-    success(nicheId.value ? 'Series Formula and Topic Packs saved' : 'Series Formula cleared')
-    await loadProject(slug.value)
-  } catch (e: any) {
-    nicheSaveError.value = e?.data?.detail || e?.message || 'Failed to save niche settings'
-    showError(nicheSaveError.value)
-  } finally {
-    nicheSaving.value = false
-  }
+async function onIdentitySaved(value: { formulaId: string; topicPackIds: string[] }): Promise<void> {
+  nicheId.value = value.formulaId
+  topicPackIds.value = [...value.topicPackIds]
+  stampSaved('niche')
+  success(value.formulaId ? 'Series Formula and Topic Packs saved' : 'Series Formula cleared')
+  await loadProject(slug.value)
 }
 
 // ── v1.0.96+ Niche library: create / delete / use-on-project ──────────
 //
 // Merged in from the standalone /niches sidebar page (now retired).
-// All three actions operate on the SAME `useNiches()` cache that the
-// NichePicker above reads from, so the picker auto-updates when the user
-// creates or deletes a custom niche without a separate refresh.
+// Custom-formula actions share the catalogue cache with the Channel Identity
+// library, so a newly created local Formula appears the next time it opens.
 
 const nicheCreateOpen = ref(false)
 const nicheCreateBusy = ref(false)
@@ -2778,15 +2759,6 @@ async function confirmDeleteNiche(n: { id: string; name: string; project_count?:
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to delete niche')
   }
-}
-
-/** Set the picker to this niche (still requires Save in the Project-niche
- *  sub-tab to persist). Hops back to the Project sub-tab so the user can
- *  immediately see the picker reflect their pick and click Save. */
-function useNicheOnProject(id: string): void {
-  nicheId.value = id
-  nicheSubTab.value = 'project'
-  success(`Selected "${id}" — click Save to apply to this project.`)
 }
 
 // (Removed: connectivity precheck state. It used to live alongside the
@@ -6557,6 +6529,25 @@ async function deleteProject() {
 @media (max-width: 680px) {
   .production-kit-head { flex-direction: column; }
   .production-kit-grid { grid-template-columns: 1fr; }
+}
+
+.channel-identity-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-secondary));
+}
+.channel-identity-summary-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.channel-identity-summary-copy > span { color: var(--text-muted); font-size: var(--font-xs); font-weight: 700; }
+.channel-identity-summary-copy > strong { overflow: hidden; color: var(--text-primary); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.channel-identity-summary-copy > small { color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.4; }
+@media (max-width: 820px) {
+  .channel-identity-summary { grid-template-columns: 1fr; align-items: stretch; }
+  .channel-identity-summary .btn { justify-self: start; }
 }
 
 /* v1.0.391 — local server pool status card */
