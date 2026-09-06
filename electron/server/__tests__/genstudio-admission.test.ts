@@ -190,6 +190,26 @@ test('capacity snapshots stay isolated when API keys publish different bursts', 
   assert.equal(pool.snapshot('key-b').paid_concurrency_limit, 5)
 })
 
+test('the live dispatch width uses available standard lanes capped by the published burst', async () => {
+  let overview = capacity({
+    paid_concurrency_limit: 5,
+    paid_active_jobs: 2,
+    burst_concurrency_ceiling: 2,
+  })
+  const pool = new GenStudioAdmissionPool(async () => overview)
+
+  await pool.refreshNow('permit-width-key')
+  assert.equal(await pool.currentDispatchLimit('permit-width-key'), 2)
+
+  overview = capacity({
+    paid_concurrency_limit: 5,
+    paid_active_jobs: 4,
+    burst_concurrency_ceiling: 8,
+  })
+  await pool.refreshNow('permit-width-key')
+  assert.equal(await pool.currentDispatchLimit('permit-width-key'), 1)
+})
+
 test('account queue backpressure pauses new submissions until overview refreshes', async () => {
   let reads = 0
   const pool = new GenStudioAdmissionPool(async () => {
