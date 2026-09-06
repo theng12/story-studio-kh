@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.old-master-still-life",
+  "name": "Old Master Still Life",
+  "description": "Object-led old-master oil still life — one hero object on a worn wooden table under a single cool window light, dark umber ground, glazed and varnished museum surface.",
+  "category": "Illustration",
+  "tags": [
+    "still life",
+    "old master",
+    "oil painting",
+    "chiaroscuro",
+    "museum",
+    "tabletop",
+    "objects",
+    "food history"
+  ],
+  "style_bible": "Old-master oil still life in the seventeenth-century northern European manner. Compose around one hero object or a small grouping of related objects placed on a worn wooden tabletop, with period props (pewter, earthenware, coarse linen, a horn-handled knife, a clay jar) arranged sparingly beside it. Ground the scene in a deep umber-to-black background with no visible wall detail. Light everything with one cool window light from the upper left, falling off quickly into shadow; keep highlights small and specular on glazes, metal, and moist surfaces. Render in thick layered oil glazes with soft painterly edges, visible impasto only on the brightest highlights, fine craquelure, and a subtle varnish sheen, as if photographed under museum lighting. Palette: warm earth browns, ochre, muted crimson, olive, bone white, with cool grey-blue only in the light source. Framing is close and quiet, tabletop at or just below eye level, ample dark negative space above the objects. When a person is required, show an anonymous period-dressed figure at bust or half length in the same light, face calm and turned slightly away, never a recognisable individual. Keep the style content-independent: no fixed object, character, era, or composition.",
+  "negative_prompt": "flat vector, cartoon, anime, pixel art, watercolor, pastel, gouache, photorealistic photograph, 3D render, CGI, neon, saturated modern colours, bright even studio lighting, white background, lens flare, bokeh, readable text, lettering, captions, logos, watermarks, signatures, frames, borders, UI elements, copied reference composition",
+  "preview_assets": [
+    "assets/old-master-still-life.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained",
+    "com.storystudio.formula.sleep-story"
+  ]
+}

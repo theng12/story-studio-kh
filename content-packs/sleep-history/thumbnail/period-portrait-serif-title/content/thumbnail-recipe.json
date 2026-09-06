@@ -1,0 +1,63 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.period-portrait-serif-title",
+  "name": "Period Portrait Serif Title",
+  "description": "An anonymous period-dressed figure presents the episode's subject on one third of the canvas while a large two-line serif title fills the other two thirds over a dark painted ground.",
+  "layout": "hero",
+  "category": "History",
+  "tags": [
+    "portrait",
+    "serif title",
+    "history of",
+    "painted",
+    "old master",
+    "two-line title",
+    "calm"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Divide the 16:9 canvas into one third and two thirds. On the one-third side, place a single anonymous period-dressed figure at bust, half, or three-quarter length, holding or presenting the episode's subject (a loaf, a tea caddy, a fork, a bundle of spice) with a warm rim light on the shoulder and a deep umber background. On the two-thirds side, render the complete episode title directly in the image as a two-line serif arrangement: a small first line in cream capitals and a very large second line in cream serif letters with a soft gold edge, vertically centred with generous dark space around it. The figure may sit on either side; the title always takes the wider side. The active Visual Style remains the final authority for medium, palette, texture, and lighting; this recipe controls only the split, the figure's role, and the title band.",
+  "composition_rules": [
+    "One anonymous period figure on the narrower third, presenting the subject; never a recognisable person.",
+    "The complete episode title on the wider two thirds as two serif lines: small lead-in line, very large subject line.",
+    "Deep dark ground behind the title with no props, patterns, or secondary objects in the title area.",
+    "Warm rim light on the figure; title letters cream with a soft gold edge for card-size legibility.",
+    "Vary figure side, distance, era, and setting between episodes; keep the split and hierarchy fixed."
+  ],
+  "required_elements": [
+    "One anonymous period-dressed figure presenting the episode subject",
+    "The model-rendered complete episode title as two serif lines on the wider side",
+    "A deep, uncluttered painted ground behind the title"
+  ],
+  "avoid_elements": [
+    "Recognisable or named people, portraits of real individuals",
+    "More than one figure, crowds, or busy backgrounds behind the title",
+    "Extra captions, numerals, badges, arrows, or emoji",
+    "Copied trade dress, logos, watermarks, or post-render typography compositing",
+    "Bright modern colours, hard digital edges, or photographic realism"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Render the complete intended episode title directly on the wider side as exactly two serif lines: the lead-in words small in cream capitals on the first line and the subject words very large on the second line. Use a third line only when the subject itself is long. Fail closed on misspelling, clipping, or any text beyond the episode title.",
+  "default_text_style": "cream serif with soft gold edge",
+  "default_font_style": "classic serif, small-caps lead-in over large subject line",
+  "default_text_position": "center",
+  "headline_formats": [
+    "History of {SUBJECT}",
+    "The Slow History of {SUBJECT}",
+    "A Quiet History of {SUBJECT}",
+    "{SUBJECT}, Slowly"
+  ],
+  "visual_style_guidance": "A painted, old-master atmosphere suits this recipe: dark umber ground, single warm rim light on the figure, subdued earth palette. The recipe governs the one-third/two-thirds split, the figure's presenting role, and the two-line serif title; the active Visual Style remains authoritative for every rendering choice.",
+  "preview_assets": [
+    "assets/period-portrait-serif-title-1.webp",
+    "assets/period-portrait-serif-title-2.webp",
+    "assets/period-portrait-serif-title-3.webp",
+    "assets/period-portrait-serif-title-4.webp",
+    "assets/period-portrait-serif-title-5.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained"
+  ]
+}

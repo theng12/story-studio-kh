@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.topic.drinks-and-spices-histories",
+  "item_id": "com.storystudio.topic.drinks-and-spices-histories",
+  "version": "1.0.0",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "topic-pack",
+  "source_path": "content-packs/sleep-history/topic/drinks-and-spices-histories",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.topic.drinks-and-spices-histories",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.topic.drinks-and-spices-histories",
+      "status": "proposed"
+    }
+  }
+}

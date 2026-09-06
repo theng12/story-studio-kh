@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.thumbnail.period-portrait-serif-title",
+  "item_id": "com.storystudio.thumbnail.period-portrait-serif-title",
+  "version": "1.0.0",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "thumbnail-recipe",
+  "source_path": "content-packs/sleep-history/thumbnail/period-portrait-serif-title",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.thumbnail.period-portrait-serif-title",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.thumbnail.period-portrait-serif-title",
+      "status": "proposed"
+    }
+  }
+}
