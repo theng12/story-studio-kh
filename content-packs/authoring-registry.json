@@ -1,5 +1,5 @@
 {
-  "revision": 149,
+  "revision": 152,
   "batches": [
     {
       "revision": 2,
@@ -3428,6 +3428,64 @@
           }
         ]
       }
+    },
+    {
+      "revision": 150,
+      "receipt_ref": "authoring:c37805aedfe11f5fff33bb0ab82dc8f9bc745d92331ff8e7db1bbe480f36d389",
+      "request": {
+        "expected_revision": 149,
+        "coordinator": {
+          "task": "topic-scope-repair-2026-09-06",
+          "branch": "codex/topic-scope-repair"
+        },
+        "proposal_ref": "proposal:successor:sleep-history-topic-scope-repair-2026-09-06",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.drinks-and-spices-histories",
+            "item_id": "com.storystudio.topic.drinks-and-spices-histories",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/sleep-history/topic/drinks-and-spices-histories-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.drinks-and-spices-histories",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.drinks-and-spices-histories",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.everyday-object-histories",
+            "item_id": "com.storystudio.topic.everyday-object-histories",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/sleep-history/topic/everyday-object-histories-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.everyday-object-histories",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.everyday-object-histories",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -5500,6 +5558,40 @@
         "receipt_ref": "authoring:6a7d2a107dacc5f4f3ba37f76913e0dcc7861459094d7eb7af7ebf0fcbb9a473",
         "pack_id": "com.storystudio.pack.thumbnail.period-portrait-serif-title",
         "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 151,
+      "transition_ref": "lifecycle:98f5446b1f7554b891ca63b21daa09819b17b4f9099585460182d7b5c7ed5c31",
+      "request": {
+        "expected_revision": 150,
+        "coordinator": {
+          "task": "topic-scope-repair-2026-09-06",
+          "branch": "codex/topic-scope-repair"
+        },
+        "receipt_ref": "authoring:c37805aedfe11f5fff33bb0ab82dc8f9bc745d92331ff8e7db1bbe480f36d389",
+        "pack_id": "com.storystudio.pack.topic.drinks-and-spices-histories",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 152,
+      "transition_ref": "lifecycle:835b2c7293c5e05f5c8ecb51ce9177c6c2929e40f969bb549d3059b68953b269",
+      "request": {
+        "expected_revision": 151,
+        "coordinator": {
+          "task": "topic-scope-repair-2026-09-06",
+          "branch": "codex/topic-scope-repair"
+        },
+        "receipt_ref": "authoring:c37805aedfe11f5fff33bb0ab82dc8f9bc745d92331ff8e7db1bbe480f36d389",
+        "pack_id": "com.storystudio.pack.topic.everyday-object-histories",
+        "version": "1.0.1",
         "changes": {
           "status": "authored"
         }
@@ -10210,6 +10302,52 @@
         },
         "sku": {
           "id": "com.storystudio.sku.thumbnail.period-portrait-serif-title",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c37805aedfe11f5fff33bb0ab82dc8f9bc745d92331ff8e7db1bbe480f36d389",
+      "pack_id": "com.storystudio.pack.topic.drinks-and-spices-histories",
+      "item_id": "com.storystudio.topic.drinks-and-spices-histories",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/sleep-history/topic/drinks-and-spices-histories-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.drinks-and-spices-histories",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.drinks-and-spices-histories",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c37805aedfe11f5fff33bb0ab82dc8f9bc745d92331ff8e7db1bbe480f36d389",
+      "pack_id": "com.storystudio.pack.topic.everyday-object-histories",
+      "item_id": "com.storystudio.topic.everyday-object-histories",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/sleep-history/topic/everyday-object-histories-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.everyday-object-histories",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.everyday-object-histories",
           "status": "proposed"
         }
       }

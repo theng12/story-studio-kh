@@ -1,0 +1,13 @@
+{
+  "expected_revision": 151,
+  "coordinator": {
+    "task": "topic-scope-repair-2026-09-06",
+    "branch": "codex/topic-scope-repair"
+  },
+  "receipt_ref": "authoring:c37805aedfe11f5fff33bb0ab82dc8f9bc745d92331ff8e7db1bbe480f36d389",
+  "pack_id": "com.storystudio.pack.topic.everyday-object-histories",
+  "version": "1.0.1",
+  "changes": {
+    "status": "authored"
+  }
+}

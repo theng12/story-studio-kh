@@ -20,9 +20,9 @@ const REGISTRY_PATH = path.join(ROOT, 'content-packs', 'authoring-registry.json'
 //                     A generator reuses one; an author writes twenty.
 //   affixShare      - the largest share of one axis that opens or closes with the same four
 //                     words. A template shows up here immediately.
-//   subjectEchoShare- how often the subject's own name is glued into an episode object or
-//                     mechanism. Prose that mentions the subject is fine; a fixed tag whose
-//                     only job is to defeat a uniqueness check is not.
+//   subjectEchoShare- the largest repeated opening or closing frame that carries a normalized
+//                     whole-subject marker in an episode object or mechanism. Ordinary factual
+//                     nouns are fine; a repeated subject tag used to defeat uniqueness is not.
 //
 // Only Topic Packs pinned by the NEWEST version of a Channel Kit are measured: those are the
 // ones being sold. A superseded pack drops out of scope on its own when the kit is re-pinned.
@@ -82,8 +82,38 @@ function words(value: string): string[] {
   return value.toLowerCase().match(/[a-z0-9']+/g) || []
 }
 
+async function loadTopicAt(sourcePath: string): Promise<TopicDocument> {
+  const document = parseContentPackDocument(
+    'topic-pack',
+    JSON.parse(await readFile(path.join(ROOT, sourcePath, 'content', 'topic-pack.json'), 'utf8')),
+  )
+  assert.equal(document.kind, 'topic-pack')
+  return document as TopicDocument
+}
+
+test('subject echo frames catch the historical glued tag without rejecting factual subject nouns', async () => {
+  const [padded, clean, drinks, everyday] = await Promise.all([
+    loadTopicAt('content-packs/free-starters/topic/habits-momentum-v1.0.1'),
+    loadTopicAt('content-packs/free-starters/topic/habits-momentum-v1.0.2'),
+    loadTopicAt('content-packs/sleep-history/topic/drinks-and-spices-histories'),
+    loadTopicAt('content-packs/sleep-history/topic/everyday-object-histories'),
+  ])
+
+  assert.equal(subjectEchoFrameShare(padded.coverage_profiles!, 'mechanism').share, 0.1)
+  assert.ok(subjectEchoFrameShare(clean.coverage_profiles!, 'mechanism').share <= 0.05)
+  assert.ok(subjectEchoFrameShare(drinks.coverage_profiles!, 'episode_object').share <= 0.05)
+  assert.ok(subjectEchoFrameShare(drinks.coverage_profiles!, 'mechanism').share <= 0.05)
+  assert.ok(subjectEchoFrameShare(everyday.coverage_profiles!, 'episode_object').share <= 0.05)
+  assert.ok(subjectEchoFrameShare(everyday.coverage_profiles!, 'mechanism').share <= 0.05)
+  assert.equal(markWholeSubject('a barrel of wines', 'wine'), 'a barrel of wines')
+  assert.equal(markWholeSubject('salted meat for a voyage', 'salt'), 'salted meat for a voyage')
+})
+
 /** The largest share of `values` that opens, or closes, with the same four words. */
-function affixShare(values: string[]): { share: number, phrase: string } {
+function affixShare(
+  values: string[],
+  accepts: (phrase: string) => boolean = () => true,
+): { share: number, phrase: string } {
   let best = { share: 0, phrase: '' }
   for (const side of ['head', 'tail'] as const) {
     const counts = new Map<string, number>()
@@ -94,11 +124,42 @@ function affixShare(values: string[]): { share: number, phrase: string } {
       counts.set(key, (counts.get(key) || 0) + 1)
     }
     for (const [phrase, count] of counts) {
+      if (!accepts(phrase)) continue
       const share = count / values.length
       if (share > best.share) best = { share, phrase: `${side}: ${phrase}` }
     }
   }
   return best
+}
+
+const SUBJECT_MARKER = 'subjectmarker'
+
+function markWholeSubject(value: string, subject: string): string {
+  const subjectWords = words(subject)
+  if (!subjectWords.length) return value
+  const valueWords = words(value)
+  const marked: string[] = []
+  for (let index = 0; index < valueWords.length;) {
+    const matches = subjectWords.every((word, offset) => valueWords[index + offset] === word)
+    if (matches) {
+      marked.push(SUBJECT_MARKER)
+      index += subjectWords.length
+    } else {
+      marked.push(valueWords[index]!)
+      index += 1
+    }
+  }
+  return marked.join(' ')
+}
+
+function subjectEchoFrameShare(
+  profiles: NonNullable<TopicDocument['coverage_profiles']>,
+  axis: 'episode_object' | 'mechanism',
+): { share: number, phrase: string } {
+  const values = profiles.flatMap(profile => profile.tuples.map(tuple => markWholeSubject(tuple[axis], profile.subject)))
+  // This is deliberately a template guard, not semantic inference: it catches repeated edge
+  // frames such as “This setup is for <subject>”, but not a mid-field tag or a paraphrase.
+  return affixShare(values, phrase => phrase.split(' ').includes(SUBJECT_MARKER))
 }
 
 test('every Topic Pack we sell reaches its idea count by authorship, not by template', async () => {
@@ -157,16 +218,11 @@ test('every Topic Pack we sell reaches its idea count by authorship, not by temp
 
     let worstScopes = Number.POSITIVE_INFINITY
     let worstSubject = ''
-    let echoes = 0
-    let tuples = 0
     const axes = { episode_object: [] as string[], time_place_scope: [] as string[], mechanism: [] as string[], evidence_lens: [] as string[] }
     for (const profile of profiles) {
       const scopes = new Set(profile.tuples.map(tuple => tuple.time_place_scope)).size
       if (scopes < worstScopes) { worstScopes = scopes; worstSubject = profile.subject }
-      const needle = profile.subject.toLowerCase()
       for (const tuple of profile.tuples) {
-        tuples += 1
-        if (tuple.episode_object.toLowerCase().includes(needle) || tuple.mechanism.toLowerCase().includes(needle)) echoes += 1
         for (const key of ['episode_object', 'time_place_scope', 'mechanism', 'evidence_lens'] as const) axes[key].push(tuple[key])
       }
     }
@@ -184,11 +240,13 @@ test('every Topic Pack we sell reaches its idea count by authorship, not by temp
       )
     }
 
-    const echoShare = echoes / tuples
-    assert.ok(
-      echoShare <= bar.maxSubjectEchoShare,
-      `${identity}: ${(echoShare * 100).toFixed(1)}% of tuples glue the subject name into an episode object or mechanism, against a declared ceiling of ${(bar.maxSubjectEchoShare * 100).toFixed(0)}%${bar.note ? ` (${bar.note})` : ''}`,
-    )
+    for (const axis of ['episode_object', 'mechanism'] as const) {
+      const { share, phrase } = subjectEchoFrameShare(profiles, axis)
+      assert.ok(
+        share <= bar.maxSubjectEchoShare,
+        `${identity}: ${(share * 100).toFixed(1)}% of ${axis} values share the subject-tag frame "${phrase}" — a template, against a declared ceiling of ${(bar.maxSubjectEchoShare * 100).toFixed(0)}%${bar.note ? ` (${bar.note})` : ''}`,
+      )
+    }
 
     measured.push(identity)
   }
