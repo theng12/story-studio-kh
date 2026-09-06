@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.117 — 2026-09-06
+
+- **A Scene image batch no longer stays Paused after every image is verified.** A late automatic stall hold yields to the completed output audit, while manual and queue pauses still remain paused.
+- **Existing affected rows repair themselves without generating again.** On project load, Story Studio finalizes a stall-paused batch only when its saved task ownership, current Scene Plan, and exact image files all pass a fresh audit.
+
 ## v1.4.116 — 2026-09-06
 
 - **Character Sheet now offers four slower scene rhythms through 45–60 seconds.** Each choice applies to the selected episode through the existing pacing control, while new episodes keep the 1–3 second default.

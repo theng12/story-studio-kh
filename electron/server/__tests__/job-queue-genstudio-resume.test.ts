@@ -12,6 +12,10 @@ let tempDir: string
 let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
 let jq: typeof import('../services/job-queue.js')
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+)
 
 before(async () => {
   const temp = await useTempDataDir()
@@ -480,7 +484,8 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
     const episodeId = accepted.episode_code
     const paths = await resolveEpisodePathsByCode(project.slug, episodeId)
     await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
-    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+    const planPath = path.join(paths.scene_prompts_dir, 'scene_plan.json')
+    await fs.writeFile(planPath, JSON.stringify({
       scenes: [{ id: sceneId, scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' }],
     }))
     await fs.mkdir(paths.subtitles_dir, { recursive: true })
@@ -509,6 +514,7 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
       project,
       episodeId,
       params: { ...params, scene_ids: [sceneId] },
+      planPath,
       outputDir,
       outputPath,
       entry,
@@ -550,6 +556,155 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
       await service.close()
     }
   })
+
+  test('project load finalizes a verified complete stall row without invoking the generator', async () => {
+    const service = await startMockGenStudioService()
+    let executorStarts = 0
+    try {
+      const seeded = await seedProductionContinuityRender(service, 'Completed stall load repair')
+      await fs.writeFile(seeded.outputPath, ONE_PIXEL_PNG)
+      const params = structuredClone(seeded.params)
+      delete (params as any).scene_ids
+      const job = stalledRender('stall-complete-on-load', seeded.project.slug, seeded.entry.task_id, {
+        episode_id: seeded.episodeId,
+        params,
+        output_dir: seeded.outputDir,
+        result: {
+          complete: true,
+          completion: {
+            label: 'Scene image generation', expected: 1, completed: 1,
+            missing: [], invalid: [], issues: [], complete: true,
+          },
+        },
+        // Older durable entries did not always copy the manifest key into the
+        // provider evidence. Exact manifest + checkpoint ownership still does.
+        genstudio_jobs: [providerEvidence(seeded.entry.task_id, 'succeeded')],
+      })
+      const jobsFile = path.join(tempDir, 'projects', seeded.project.slug, 'jobs.json')
+      await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+      jq.registerExecutor('continuity_render', async () => { executorStarts++ })
+      const submissionsBeforeLoad = service.providerSubmissionCount('image')
+      service.requests.length = 0
+
+      await jq.getJobs(seeded.project.slug)
+
+      const completed = jq.getJob(job.job_id)!
+      assert.equal(completed.status, 'done')
+      assert.equal(completed.pause_origin, undefined)
+      assert.ok(completed.finished_at)
+      assert.equal(executorStarts, 0)
+      assert.equal(service.providerSubmissionCount('image'), submissionsBeforeLoad)
+      assert.equal(service.requests.length, 0)
+      assert.match(completed.output_lines.join('\n'), /verified this render was complete while paused/i)
+    } finally {
+      await service.close()
+    }
+  })
+
+  test('a queue hold that arrives during the completion audit keeps the persisted row paused', async t => {
+    const service = await startMockGenStudioService()
+    let releaseAudit!: () => void
+    const auditBlocked = new Promise<void>(resolve => { releaseAudit = resolve })
+    let auditStarted!: () => void
+    const started = new Promise<void>(resolve => { auditStarted = resolve })
+    let executorStarts = 0
+    try {
+      const seeded = await seedProductionContinuityRender(service, 'Completed stall audit race')
+      await fs.writeFile(seeded.outputPath, ONE_PIXEL_PNG)
+      const params = structuredClone(seeded.params)
+      delete (params as any).scene_ids
+      const job = stalledRender('stall-complete-audit-race', seeded.project.slug, seeded.entry.task_id, {
+        episode_id: seeded.episodeId,
+        params,
+        output_dir: seeded.outputDir,
+        result: {
+          complete: true,
+          completion: {
+            label: 'Scene image generation', expected: 1, completed: 1,
+            missing: [], invalid: [], issues: [], complete: true,
+          },
+        },
+        genstudio_jobs: [providerEvidence(seeded.entry.task_id, 'succeeded')],
+      })
+      const jobsFile = path.join(tempDir, 'projects', seeded.project.slug, 'jobs.json')
+      await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+      jq.registerExecutor('continuity_render', async () => { executorStarts++ })
+      const originalReadFile = fs.readFile.bind(fs)
+      let blocked = false
+      t.mock.method(fs, 'readFile', async (...args: Parameters<typeof fs.readFile>) => {
+        if (!blocked && path.resolve(String(args[0])) === path.resolve(seeded.planPath)) {
+          blocked = true
+          auditStarted()
+          await auditBlocked
+        }
+        return originalReadFile(...args as [any, any])
+      })
+
+      const loading = jq.getJobs(seeded.project.slug)
+      await started
+      await jq.setQueuePaused(true)
+      releaseAudit()
+      await loading
+
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+      assert.equal(jq.getJob(job.job_id)?.pause_origin, 'stall')
+      assert.equal(executorStarts, 0)
+    } finally {
+      releaseAudit()
+      if (jq.isQueuePaused()) await jq.setQueuePaused(false)
+      await service.close()
+    }
+  })
+
+  for (const invalidation of ['missing-plan-row', 'corrupt-output', 'foreign-manifest-owner'] as const) {
+    test(`project load keeps a stale complete declaration paused after ${invalidation}`, async () => {
+      const service = await startMockGenStudioService()
+      let executorStarts = 0
+      try {
+        const seeded = await seedProductionContinuityRender(service, `Rejected completed stall ${invalidation}`)
+        await fs.writeFile(seeded.outputPath, ONE_PIXEL_PNG)
+        if (invalidation === 'missing-plan-row') {
+          await fs.writeFile(seeded.planPath, JSON.stringify({ scenes: [] }))
+        } else if (invalidation === 'corrupt-output') {
+          await fs.writeFile(seeded.outputPath, Buffer.from('not an image'))
+        } else {
+          await recordTaskStrict(seeded.outputDir, `${sceneId}.png`, {
+            ...seeded.entry,
+            task_id: 'foreign-provider-task',
+          })
+        }
+        const params = structuredClone(seeded.params)
+        delete (params as any).scene_ids
+        const job = stalledRender(`stall-complete-${invalidation}`, seeded.project.slug, seeded.entry.task_id, {
+          episode_id: seeded.episodeId,
+          params,
+          output_dir: seeded.outputDir,
+          result: {
+            complete: true,
+            completion: {
+              label: 'Scene image generation', expected: 1, completed: 1,
+              missing: [], invalid: [], issues: [], complete: true,
+            },
+          },
+          genstudio_jobs: [providerEvidence(seeded.entry.task_id, 'succeeded')],
+        })
+        const jobsFile = path.join(tempDir, 'projects', seeded.project.slug, 'jobs.json')
+        await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+        jq.registerExecutor('continuity_render', async () => { executorStarts++ })
+        const submissionsBeforeLoad = service.providerSubmissionCount('image')
+        service.requests.length = 0
+
+        await jq.getJobs(seeded.project.slug)
+
+        assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+        assert.equal(executorStarts, 0)
+        assert.equal(service.providerSubmissionCount('image'), submissionsBeforeLoad)
+        assert.equal(service.requests.length, 0)
+      } finally {
+        await service.close()
+      }
+    })
+  }
 
   for (const damagedManifest of ['missing', 'corrupt', 'wrong-file', 'wrong-task', 'wrong-request', 'missing-request', 'wrong-output-path'] as const) {
     test(`automatic production recovery fails closed for a ${damagedManifest} Continuity manifest`, async () => {

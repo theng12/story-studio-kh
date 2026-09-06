@@ -41,6 +41,7 @@ import {
 import { runWithJobContentPackProvenance } from '../content-packs/job-provenance-context.js'
 import { readManifest, recordPaidImageReplacementStrict, type TaskManifestEntry } from './task-manifest.js'
 import { isDecodableImage } from '../lib/image-validation.js'
+import { auditSceneImageCompletion } from './scene-media-checkpoint.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
 import { getValidVideoAssemblyCheckpoint } from '../lib/video-assembly-checkpoint.js'
 
@@ -3079,8 +3080,22 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             return
           }
           job.local_execution_complete = true
-          throwIfPauseRequested(job.job_id)
           assertJobDidNotDeclareIncomplete(job)
+          const completedBeforeAutomaticHold = job.type === 'continuity_render'
+            && job.pause_origin === 'stall'
+            && pauseRequested.has(job.job_id)
+            && hasAuthoritativeCompletionDeclaration(job)
+            && !hasUnsettledProviderWork(job)
+            && !hasCancellationContext(job)
+            && !cancelled.has(job.job_id)
+          if (completedBeforeAutomaticHold) {
+            pauseRequested.delete(job.job_id)
+            job.pause_requested = false
+            job.pause_origin = undefined
+            job.output_lines.push('Automatic submission hold arrived after all outputs were already verified; completing this job without another run.')
+          } else {
+            throwIfPauseRequested(job.job_id)
+          }
           completed = true
           break
         } catch (error) {
@@ -3566,20 +3581,27 @@ function hasSafeTerminalStallEvidence(job: Job): boolean {
   })
 }
 
-async function hasDurableContinuityStallManifestOwnership(job: Job): Promise<boolean> {
+async function hasDurableContinuityStallManifestOwnership(
+  job: Job,
+  requireOwnedExistingOutputs = false,
+): Promise<boolean> {
   const episodeId = job.params?.episode_id
   if (
     typeof job.output_dir !== 'string'
     || typeof episodeId !== 'string'
     || !episodeId
-    || !Array.isArray(job.params?.scene_ids)
-    || !job.params.scene_ids.length
   ) return false
-  const sceneIds = [...new Set(job.params.scene_ids)]
-  if (!sceneIds.every(sceneId => typeof sceneId === 'string' && sceneId && path.basename(sceneId) === sceneId)) return false
 
   const checkpoint = job.params.genstudio_recovery
   if (checkpoint?.version !== 1 || checkpoint.route !== 'genstudio' || !checkpoint.assets) return false
+  const filenames = Array.isArray(job.params?.scene_ids) && job.params.scene_ids.length
+    ? [...new Set(job.params.scene_ids)].map(sceneId => `${sceneId}.png`)
+    : Object.keys(checkpoint.assets)
+  if (!filenames.length || !filenames.every(filename => (
+    typeof filename === 'string'
+    && filename.endsWith('.png')
+    && path.basename(filename) === filename
+  ))) return false
   let outputDir: string
   try {
     const { resolveContinuityRenderOutputDir } = await import('../generators/continuity-render.js')
@@ -3589,13 +3611,30 @@ async function hasDurableContinuityStallManifestOwnership(job: Job): Promise<boo
   }
   if (path.resolve(job.output_dir) !== path.resolve(outputDir)) return false
 
+  if (requireOwnedExistingOutputs) {
+    try {
+      const { resolveEpisodePathsByCode, resolveScenePlanPath } = await import('./utils.js')
+      const paths = await resolveEpisodePathsByCode(job.project_slug, episodeId)
+      const planPath = await resolveScenePlanPath(job.project_slug, episodeId, paths.episode_dir)
+      const audit = await auditSceneImageCompletion(
+        planPath,
+        filenames.map(filename => filename.slice(0, -'.png'.length)),
+        [outputDir],
+      )
+      if (audit.expected !== filenames.length || audit.completed !== audit.expected
+        || audit.missing.length || audit.invalid.length || audit.issues.length) return false
+    } catch {
+      return false
+    }
+  }
+
   const manifest = await readManifest(outputDir)
-  for (const sceneId of sceneIds) {
-    const filename = `${sceneId}.png`
+  for (const filename of filenames) {
     const outputPath = path.join(outputDir, filename)
-    if (await isDecodableImage(outputPath)) continue
     const manifestEntry = manifest.tasks[filename]
     const checkpointEntry = checkpoint.assets[filename]
+    const decodable = await isDecodableImage(outputPath)
+    if (decodable && !requireOwnedExistingOutputs) continue
     if (
       manifestEntry?.operation !== 'image'
       || !manifestEntry.task_id
@@ -3612,9 +3651,31 @@ async function hasDurableContinuityStallManifestOwnership(job: Job): Promise<boo
       entry.operation === 'image.generation' && entry.id === manifestEntry.task_id
     ))
     if (matchingEvidence.length !== 1) return false
-    if (matchingEvidence[0]!.request?.idempotency_key !== manifestEntry.idempotency_key) return false
+    const evidenceKey = matchingEvidence[0]!.request?.idempotency_key
+    if ((!decodable || !requireOwnedExistingOutputs) && evidenceKey !== manifestEntry.idempotency_key) return false
+    if (evidenceKey !== undefined && evidenceKey !== manifestEntry.idempotency_key) return false
+    if (!decodable && requireOwnedExistingOutputs) return false
   }
   return true
+}
+
+function hasAuthoritativeCompletionDeclaration(job: Job): boolean {
+  const completion = job.result?.completion
+  return job.result?.complete === true
+    && completion?.complete === true
+    && Number.isSafeInteger(completion.expected)
+    && completion.expected >= 0
+    && completion.completed === completion.expected
+    && !(completion.missing?.length)
+    && !(completion.invalid?.length)
+    && !(completion.issues?.length)
+}
+
+function hasVerifiedCompleteStallDeclaration(job: Job): boolean {
+  return hasAuthoritativeCompletionDeclaration(job)
+    && job.result?.completion?.expected === Object.keys(job.params.genstudio_recovery?.assets || {}).length
+    && !((job.params.pipeline_chain as unknown[] | undefined)?.length)
+    && (job.genstudio_jobs || []).every(entry => entry.state === 'succeeded')
 }
 
 /** Rejoin only evidence-proven stall holds through the ordinary durable lane. */
@@ -3626,7 +3687,21 @@ async function recoverSafelySettledStallJobs(
   if (queuePaused) return new Set()
   const eligible: Job[] = []
   for (const job of selected.filter(hasSafeTerminalStallEvidence)) {
-    if (await hasDurableContinuityStallManifestOwnership(job)) eligible.push(job)
+    if (hasVerifiedCompleteStallDeclaration(job)) {
+      if (!await hasDurableContinuityStallManifestOwnership(job, true)) continue
+      if (queuePaused || jobs.get(job.job_id) !== job
+        || !hasSafeTerminalStallEvidence(job) || !hasVerifiedCompleteStallDeclaration(job)) continue
+      job.status = 'done'
+      job.pause_requested = false
+      job.pause_origin = undefined
+      job.error = null
+      job.finished_at = new Date().toISOString()
+      job.output_lines.push('Story Studio verified this render was complete while paused and finalized it without running generation again.')
+      await persistJob(job)
+      emitUpdate(job)
+    } else if (await hasDurableContinuityStallManifestOwnership(job)) {
+      eligible.push(job)
+    }
   }
   if (afterEligibilityForTesting && eligible.length) {
     await afterEligibilityForTesting(eligible.map(job => job.job_id))
