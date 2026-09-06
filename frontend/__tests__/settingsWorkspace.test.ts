@@ -58,6 +58,22 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(destinationWatch, /t === 'project'/)
   })
 
+  test('focused sections name their actions and keep secondary writing tools behind the current style', () => {
+    const templateSource = settingsSource.slice(0, settingsSource.indexOf('<script setup'))
+    assert.match(templateSource, /Save project name/)
+    assert.match(templateSource, /Save publishing defaults/)
+    assert.match(templateSource, /Save file settings/)
+    assert.doesNotMatch(templateSource, /metadata PATCH|status\.containsSyntheticMedia/)
+    assert.match(templateSource, /href="#identity">Channel identity<\/a> owns the/)
+
+    const currentStyle = templateSource.indexOf('<label>Art Style')
+    const customStyles = templateSource.indexOf('<strong>Browse or create custom styles</strong>')
+    const writingInstructions = templateSource.indexOf('<strong>Writing instructions</strong>')
+    assert.ok(currentStyle >= 0 && currentStyle < customStyles)
+    assert.ok(customStyles < writingInstructions)
+    assert.equal(templateSource.match(/<ProjectStyleLibrary/g)?.length, 1)
+  })
+
   test('each project section saves only the fields it owns and preserves hidden drafts', () => {
     const draft = {
       name: 'Pending identity',
@@ -92,7 +108,12 @@ describe('Settings workspace navigation', () => {
     assert.match(saveBlock, /Object\.keys\(plan\.project\)/)
     assert.match(saveBlock, /Object\.entries\(plan\.config\)/)
     assert.match(saveBlock, /const targetSlug = slug\.value/)
-    assert.equal(saveBlock.match(/if \(slug\.value !== targetSlug\) return/g)?.length, 2)
+    assert.equal(saveBlock.match(/if \(slug\.value !== targetSlug\) return/g)?.length, 1)
+    const configPut = saveBlock.indexOf('/projects/${targetSlug}/settings/config')
+    const routeGuard = saveBlock.indexOf('if (slug.value !== targetSlug) return')
+    const sharedProjectUpdate = saveBlock.indexOf('Object.keys(plan.project)')
+    assert.ok(configPut >= 0 && configPut < routeGuard)
+    assert.ok(routeGuard < sharedProjectUpdate)
     assert.doesNotMatch(saveBlock, /`\/projects\/\$\{slug\.value\}/)
     assert.match(settingsSource, /saveProject\('publishing'\)/)
   })

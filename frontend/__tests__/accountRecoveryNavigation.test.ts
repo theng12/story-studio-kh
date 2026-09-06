@@ -35,6 +35,9 @@ test('dashboard and channel identity offer honest first actions', () => {
   assert.match(dashboard, /overview\.value\?\.ideas\?\.accepted === 0 && episodeCount\.value === 0/)
   assert.match(banner, /settings#channel/)
   assert.match(banner, /Series Formula/)
+  assert.match(banner, /@media \(max-width: 560px\)/)
+  assert.match(banner, /grid-template-columns: 24px minmax\(0, 1fr\) auto/)
+  assert.match(banner, /grid-column: 1 \/ -1/)
 })
 
 test('sidebar keeps Store and Settings in its fixed utility footer', () => {

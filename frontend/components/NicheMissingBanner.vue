@@ -86,4 +86,23 @@ const show = computed(() => !!props.slug && !props.nicheId && !dismissed.value)
   flex-shrink: 0;
 }
 .nmb-dismiss:hover { color: var(--text-primary); }
+
+@media (max-width: 560px) {
+  .niche-missing-banner {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px 10px;
+  }
+
+  .nmb-icon { grid-column: 1; grid-row: 1; margin-top: 2px; }
+  .nmb-body { grid-column: 2; grid-row: 1; }
+  .nmb-dismiss { grid-column: 3; grid-row: 1; }
+  .nmb-action {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    text-align: center;
+  }
+}
 </style>

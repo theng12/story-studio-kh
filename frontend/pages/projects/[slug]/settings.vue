@@ -40,14 +40,6 @@
       <ThisMacSettings section="appearance" />
     </div>
 
-    <div v-if="activeTab === 'writing'" class="card settings-panel mt-2">
-      <ProjectStyleLibrary
-        :project-slug="slug"
-        title="Project style library"
-        :show-catalog-starters="true"
-      />
-    </div>
-
     <!-- Channel Identity — production path -->
     <div v-if="activeTab === 'production'" class="card settings-panel mt-2">
       <div class="format-tab-header">
@@ -55,8 +47,8 @@
           <h3>Continuity Engine</h3>
           <p class="text-muted mt-1 mb-2">
             This is the one production engine for every channel. Choose how it handles
-            scene references; the <strong>Series Formula</strong> below
-            owns titles, perspective, voice, and script structure.
+            scene references. <a href="#identity">Channel identity</a> owns the
+            Series Formula for titles, perspective, voice, and script structure.
           </p>
         </div>
       </div>
@@ -626,78 +618,6 @@
         </button>
       </div>
     </Modal>
-
-    <!-- Optional project instructions — retained for channel-specific facts
-         and constraints, but Formula rules stay authoritative. -->
-    <details v-if="activeTab === 'writing'" class="card settings-panel settings-disclosure mt-2">
-      <summary><span><strong>Writing instructions</strong><small>Project guidance, intro rules, and reusable presets</small></span></summary>
-      <div class="sub-tabs">
-        <button v-for="st in standardsSubTabs" :key="st.id" :class="['sub-tab', { active: standardsSubTab === st.id }]" @click="standardsSubTab = st.id">
-          {{ st.label }}
-        </button>
-      </div>
-
-      <div class="sub-tab-body">
-        <h3>{{ currentStandardDoc.title }}</h3>
-        <p class="text-muted mt-1 mb-2">{{ currentStandardDoc.description }}</p>
-
-        <!-- Starter templates + preset dropdown -->
-        <div class="standards-toolbar">
-          <div class="toolbar-group">
-            <label class="toolbar-label">Start from</label>
-            <select v-model="selectedTemplateId" class="select input-sm">
-              <option value="">— pick a template —</option>
-              <option v-for="t in currentTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
-            </select>
-            <button class="btn btn-secondary btn-sm" :disabled="!selectedTemplateId" @click="loadStarterTemplate">Load</button>
-          </div>
-
-          <div class="toolbar-group" v-if="currentPresets.length">
-            <label class="toolbar-label">Saved presets</label>
-            <select v-model="selectedPresetId" class="select input-sm">
-              <option value="">— none —</option>
-              <option v-for="p in currentPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
-            <button class="btn btn-secondary btn-sm" :disabled="!selectedPresetId" @click="loadPreset">Load</button>
-            <button class="btn btn-secondary btn-sm" :disabled="!selectedPresetId" @click="deletePreset" title="Delete preset">✕</button>
-          </div>
-
-          <button class="btn btn-secondary btn-sm" @click="copyAsAiPrompt" title="Copy a chatbot-ready prompt to your clipboard">📋 Copy as AI refine prompt</button>
-          <button class="btn btn-secondary btn-sm" @click="showSavePreset = true">💾 Save as preset</button>
-        </div>
-
-        <textarea
-          v-model="currentStandardText"
-          class="textarea"
-          style="min-height: 400px; font-family: monospace; font-size: 13px;"
-          :placeholder="currentStandardDoc.placeholder"
-        />
-
-        <div class="flex gap-2 mt-2" style="align-items: center;">
-          <button class="btn btn-primary" @click="saveStandardsCurrent">Save</button>
-          <SaveIndicator v-bind="savedHintProps('standards')" />
-        </div>
-      </div>
-
-      <!-- Save preset modal -->
-      <div v-if="showSavePreset" class="modal-overlay" @click.self="showSavePreset = false">
-        <div class="modal-small">
-          <h3>Save {{ standardsSubTab === 'intro' ? 'intro' : 'project instructions' }} preset</h3>
-          <p class="text-muted mt-1 mb-2" style="font-size:12px">Give this preset a name so you can reuse it across projects of the same style.</p>
-          <input
-            v-model="newPresetName"
-            class="input"
-            placeholder="e.g. Sleep Stories v2, Horror Narration"
-            @keyup.enter.stop.prevent="savePreset"
-            @keydown.escape="showSavePreset = false"
-          />
-          <div class="flex gap-2 mt-2" style="justify-content:flex-end">
-            <button class="btn btn-secondary" @click="showSavePreset = false">Cancel</button>
-            <button class="btn btn-primary" :disabled="!newPresetName.trim()" @click="savePreset">Save preset</button>
-          </div>
-        </div>
-      </div>
-    </details>
 
     <!-- Folders -->
     <details v-if="activeTab === 'files'" class="card settings-panel settings-disclosure mt-2">
@@ -1743,7 +1663,7 @@
       <div v-if="activeTab === 'publishing'" class="form-group">
         <label>
           YouTube Category
-          <span class="text-muted" style="font-weight:normal">(applied to every upload + metadata PATCH)</span>
+          <span class="text-muted" style="font-weight:normal">(used for new uploads and updates to existing videos)</span>
         </label>
         <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
           <select
@@ -1789,7 +1709,7 @@
       <div v-if="activeTab === 'publishing'" class="form-group">
         <label>
           AI / Altered or Synthetic Content disclosure
-          <span class="text-muted" style="font-weight:normal">(YouTube `status.containsSyntheticMedia`)</span>
+          <span class="text-muted" style="font-weight:normal">(shown in YouTube’s altered-content disclosure)</span>
         </label>
         <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
           <select
@@ -1822,8 +1742,8 @@
         </div>
         <span class="text-muted" style="font-size: var(--font-xs);">
           Required by YouTube when your video contains realistic AI-generated narration, images, or footage.
-          Fresh uploads pick this up automatically. The backfill action above PATCHes existing uploads
-          (preserves privacy + schedule). Live YouTube quota: 1 unit per 50 videos read + 50 units per video updated.
+          Fresh uploads use this automatically. The backfill action applies the selected disclosure and category
+          to existing uploads while preserving privacy and schedule. Live YouTube quota: 1 unit per 50 videos read + 50 units per video updated.
         </span>
         <div v-if="ytBackfillResult" class="card mt-2" style="font-size: 12px;">
           <div class="flex gap-3" style="flex-wrap: wrap;">
@@ -1919,7 +1839,9 @@
       </div>
 
       <div v-if="activeTab !== 'writing'" class="flex gap-2 mt-3" style="align-items:center">
-        <button class="btn btn-primary" @click="saveProject()">Save project settings</button>
+        <button class="btn btn-primary" @click="saveProject()">
+          {{ activeTab === 'identity' ? 'Save project name' : activeTab === 'publishing' ? 'Save publishing defaults' : 'Save file settings' }}
+        </button>
         <SaveIndicator v-bind="savedHintProps(`project_${activeTab}`)" />
       </div>
 
@@ -1938,6 +1860,87 @@
         <button class="btn btn-danger mt-2" @click="deleteProject">Hide project (keep files)</button>
       </div>
     </div>
+
+    <details v-if="activeTab === 'writing'" class="card settings-panel settings-disclosure mt-2">
+      <summary><span><strong>Browse or create custom styles</strong><small>Open the project style library and custom style editor</small></span></summary>
+      <ProjectStyleLibrary
+        :project-slug="slug"
+        title="Project style library"
+        :show-catalog-starters="true"
+      />
+    </details>
+
+    <!-- Optional project instructions — retained for channel-specific facts
+         and constraints, but Formula rules stay authoritative. -->
+    <details v-if="activeTab === 'writing'" class="card settings-panel settings-disclosure mt-2">
+      <summary><span><strong>Writing instructions</strong><small>Project guidance, intro rules, and reusable presets</small></span></summary>
+      <div class="sub-tabs">
+        <button v-for="st in standardsSubTabs" :key="st.id" :class="['sub-tab', { active: standardsSubTab === st.id }]" @click="standardsSubTab = st.id">
+          {{ st.label }}
+        </button>
+      </div>
+
+      <div class="sub-tab-body">
+        <h3>{{ currentStandardDoc.title }}</h3>
+        <p class="text-muted mt-1 mb-2">{{ currentStandardDoc.description }}</p>
+
+        <!-- Starter templates + preset dropdown -->
+        <div class="standards-toolbar">
+          <div class="toolbar-group">
+            <label class="toolbar-label">Start from</label>
+            <select v-model="selectedTemplateId" class="select input-sm">
+              <option value="">— pick a template —</option>
+              <option v-for="t in currentTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" :disabled="!selectedTemplateId" @click="loadStarterTemplate">Load</button>
+          </div>
+
+          <div class="toolbar-group" v-if="currentPresets.length">
+            <label class="toolbar-label">Saved presets</label>
+            <select v-model="selectedPresetId" class="select input-sm">
+              <option value="">— none —</option>
+              <option v-for="p in currentPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" :disabled="!selectedPresetId" @click="loadPreset">Load</button>
+            <button class="btn btn-secondary btn-sm" :disabled="!selectedPresetId" @click="deletePreset" title="Delete preset">✕</button>
+          </div>
+
+          <button class="btn btn-secondary btn-sm" @click="copyAsAiPrompt" title="Copy a chatbot-ready prompt to your clipboard">📋 Copy as AI refine prompt</button>
+          <button class="btn btn-secondary btn-sm" @click="showSavePreset = true">💾 Save as preset</button>
+        </div>
+
+        <textarea
+          v-model="currentStandardText"
+          class="textarea"
+          style="min-height: 400px; font-family: monospace; font-size: 13px;"
+          :placeholder="currentStandardDoc.placeholder"
+        />
+
+        <div class="flex gap-2 mt-2" style="align-items: center;">
+          <button class="btn btn-primary" @click="saveStandardsCurrent">Save</button>
+          <SaveIndicator v-bind="savedHintProps('standards')" />
+        </div>
+      </div>
+
+      <!-- Save preset modal -->
+      <div v-if="showSavePreset" class="modal-overlay" @click.self="showSavePreset = false">
+        <div class="modal-small">
+          <h3>Save {{ standardsSubTab === 'intro' ? 'intro' : 'project instructions' }} preset</h3>
+          <p class="text-muted mt-1 mb-2" style="font-size:12px">Give this preset a name so you can reuse it across projects of the same style.</p>
+          <input
+            v-model="newPresetName"
+            class="input"
+            placeholder="e.g. Sleep Stories v2, Horror Narration"
+            @keyup.enter.stop.prevent="savePreset"
+            @keydown.escape="showSavePreset = false"
+          />
+          <div class="flex gap-2 mt-2" style="justify-content:flex-end">
+            <button class="btn btn-secondary" @click="showSavePreset = false">Cancel</button>
+            <button class="btn btn-primary" :disabled="!newPresetName.trim()" @click="savePreset">Save preset</button>
+          </div>
+        </div>
+      </div>
+    </details>
 
     <!-- About — version + build info, copyable for bug reports.
          Read at frontend build time from the root package.json (see
@@ -4472,6 +4475,9 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection) {
     }
 
     const savedProject = await put<any>(`/projects/${targetSlug}`, plan.project)
+    if (plan.config) {
+      await put(`/projects/${targetSlug}/settings/config`, plan.config)
+    }
     if (slug.value !== targetSlug) return
     if (project.value) {
       for (const key of Object.keys(plan.project)) {
@@ -4479,8 +4485,6 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection) {
       }
     }
     if (plan.config) {
-      await put(`/projects/${targetSlug}/settings/config`, plan.config)
-      if (slug.value !== targetSlug) return
       if (config.value) {
         for (const [key, value] of Object.entries(plan.config)) {
           if (value !== undefined) (config.value as any)[key] = value
