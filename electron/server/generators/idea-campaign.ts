@@ -25,6 +25,7 @@ import {
 } from '../services/formula-production-kit.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { applyEmojiPolicy, NO_EMOJI_DIRECTIVE } from '../lib/emoji-policy.js'
+import { generateFreeformIdeaBatch, rewriteLeadingCount, type AvoidItem } from '../services/freeform-idea-generation.js'
 
 interface IdeaCampaignParams extends GenerateIdeasRequest {
   campaign_id: string
@@ -148,7 +149,7 @@ async function collectFormulaHistory(
       }
     }
   }
-  return found
+  return found.sort((a, b) => (b.generated_at || '').localeCompare(a.generated_at || ''))
 }
 
 function fallbackNiche(format: Format, request: IdeaCampaignParams): Niche {
@@ -228,6 +229,35 @@ function normalizeIdea(
   }
 }
 
+function normalizeFreeformIdea(
+  item: any,
+  request: IdeaCampaignParams,
+  formulaId: string,
+): StoryIdea & { campaign_id: string } {
+  const rawTitle = String(item?.title || '').trim()
+  const pinnedChapters = request.items_per_listicle && request.items_per_listicle > 0
+    ? Math.round(request.items_per_listicle)
+    : null
+  const chapters = pinnedChapters ?? Math.max(1, Math.round(Number(item?.suggested_chapters) || 10))
+  const countAdjustedTitle = pinnedChapters === null
+    ? rawTitle
+    : rewriteLeadingCount(rawTitle, pinnedChapters)
+  const title = (request.title_prefix || '') + countAdjustedTitle + (request.title_suffix || '')
+  return {
+    title: title.trim(),
+    logline: String(item?.logline || '').trim(),
+    themes: Array.isArray(item?.themes)
+      ? item.themes.map((value: unknown) => String(value).trim()).filter(Boolean).slice(0, 4)
+      : [],
+    suggested_chapters: chapters,
+    suggested_length: String(item?.suggested_length || '30 min'),
+    mood: String(item?.mood || '').trim(),
+    series_formula_id: formulaId,
+    topic_pack_ids: [],
+    campaign_id: request.campaign_id,
+  }
+}
+
 export async function generateIdeaCampaign(job: Job): Promise<void> {
   const request = job.params as IdeaCampaignParams
   const wanted = Math.max(1, Math.min(100, Math.round(Number(request.count) || 0)))
@@ -265,26 +295,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   }
 
   const history = await collectFormulaHistory(job.project_slug, formulaId || plannerNiche.id)
-  const usedFingerprints = history
-    .map(idea => idea.idea_fingerprint)
-    .filter((value): value is string => !!value)
   const remaining = wanted - alreadyCompleted.length
-  const assignmentPool = planIdeaAssignments({
-    niche: plannerNiche,
-    count: remaining,
-    usedFingerprints,
-    seed: request.campaign_id,
-  })
-  if (assignmentPool.length < remaining) {
-    requireJobCompletion(job, {
-      label: 'Idea Campaign coverage plan',
-      expected: wanted,
-      completed: alreadyCompleted.length,
-      missing: Array.from({ length: remaining }, (_, index) => `coverage-slot-${index + 1}`),
-      retry_hint: 'Add another compatible Topic Pack or more subjects/axis values, then Retry.',
-    })
-    return
-  }
 
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error(`Project '${job.project_slug}' config not found`)
@@ -301,83 +312,110 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     themes: idea.themes,
     mood: idea.mood,
   }))
+  // An explicit pack selection keeps the established structural path even if a
+  // legacy job can no longer resolve its pack. Only an actually pack-free
+  // formula changes the provider/prompt branch below.
+  const isFormulaFreeform = !activePackIds.length && !(topicPackIds?.length)
+  let assignmentPool: IdeaAssignment[] = []
+  if (!isFormulaFreeform) {
+    const usedFingerprints = history
+      .map(idea => idea.idea_fingerprint)
+      .filter((value): value is string => !!value)
+    assignmentPool = planIdeaAssignments({
+      niche: plannerNiche, count: remaining, usedFingerprints, seed: request.campaign_id,
+    })
+    if (assignmentPool.length < remaining) {
+      requireJobCompletion(job, {
+        label: 'Idea Campaign coverage plan', expected: wanted, completed: alreadyCompleted.length,
+        missing: Array.from({ length: remaining }, (_, index) => 'coverage-slot-' + (index + 1)),
+        retry_hint: 'Add another compatible Topic Pack or more subjects/axis values, then Retry.',
+      })
+      return
+    }
+  }
+
   const created: im.StoredIdea[] = []
   const batchSize = 10
   const maxCalls = Math.max(4, Math.ceil(remaining / batchSize) * 4)
   let calls = 0
   job.progress = Math.round((alreadyCompleted.length / wanted) * 100)
-  job.output_lines.push(
-    `Idea Campaign ${request.campaign_id}: ${wanted} required, ${alreadyCompleted.length} already complete, ${assignmentPool.length} unused coverage assignments available.`,
-  )
+  job.output_lines.push(isFormulaFreeform
+    ? 'Idea Campaign ' + request.campaign_id + ': Formula-only freeform generation; ' + wanted + ' required, ' + alreadyCompleted.length + ' already complete.'
+    : 'Idea Campaign ' + request.campaign_id + ': ' + wanted + ' required, ' + alreadyCompleted.length + ' already complete, ' + assignmentPool.length + ' unused coverage assignments available.')
 
-  while (alreadyCompleted.length + created.length < wanted && assignmentPool.length && calls < maxCalls) {
+  while (alreadyCompleted.length + created.length < wanted && (isFormulaFreeform || assignmentPool.length) && calls < maxCalls) {
     if (jq.isCancelled(job.job_id)) throw new Error('Idea Campaign cancelled')
     const needed = wanted - alreadyCompleted.length - created.length
-    const assignments = assignmentPool.splice(0, Math.min(batchSize, needed))
+    const count = Math.min(batchSize, needed)
     calls++
-    job.output_lines.push(`Generating coverage batch ${calls}: ${assignments.length} reserved idea(s)…`)
-    const prompt = campaignPrompt({
-      request,
-      format,
-      niche: plannerNiche,
-      assignments,
-      avoid: similarityPool,
-      standards,
-    })
     const controller = new AbortController()
     const watcher = setInterval(() => {
       if (jq.isCancelled(job.job_id)) controller.abort()
     }, 500)
-    let raw: string
+    let candidates: Array<StoryIdea & { campaign_id: string }>
     try {
-      raw = await callAiWithRetry(request.model, '', prompt, apiKeys, false, {
-        slug: job.project_slug,
-        jobId: job.job_id,
-        signal: controller.signal,
-        outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(assignments.length) },
-        // `parseArray` throws on anything that is not JSON. The reserved
-        // idea_keys are named in the contract because results are matched back
-        // by key — an invented key silently loses the slot it was meant to fill.
-        outputContract: ideaCampaignOutputContract(assignments.map(item => item.idea_key)),
-      })
+      if (isFormulaFreeform) {
+        job.output_lines.push('Generating freeform batch ' + calls + ': ' + count + ' idea(s)…')
+        let prompt = ''
+        const avoid: AvoidItem[] = similarityPool.map(item => ({
+          title: item.title, mood: item.mood, themes: item.themes,
+        }))
+        const responseItems = await generateFreeformIdeaBatch({
+          request: { ...request, count }, format, standards, avoid, apiKeys,
+          slug: job.project_slug, jobId: job.job_id, signal: controller.signal,
+          titleTemplate: request.title_template,
+          onPrompt: value => { prompt = value },
+        })
+        candidates = await Promise.all(responseItems
+          .filter(item => String(item?.title || '').trim() && String(item?.logline || '').trim())
+          .map(async item => normalizeFreeformIdea({
+            ...item,
+            title: await applyEmojiPolicy(String(item.title || ''), [prompt]),
+            logline: await applyEmojiPolicy(String(item.logline || ''), [prompt]),
+          }, request, formulaId || plannerNiche.id)))
+      } else {
+        const assignments = assignmentPool.splice(0, count)
+        job.output_lines.push('Generating coverage batch ' + calls + ': ' + assignments.length + ' reserved idea(s)…')
+        const prompt = campaignPrompt({
+          request, format, niche: plannerNiche, assignments, avoid: similarityPool, standards,
+        })
+        const raw = await callAiWithRetry(request.model, '', prompt, apiKeys, false, {
+          slug: job.project_slug,
+          jobId: job.job_id,
+          signal: controller.signal,
+          outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(assignments.length) },
+          outputContract: ideaCampaignOutputContract(assignments.map(item => item.idea_key)),
+        })
+        const responseItems = parseArray(raw)
+        const byKey = new Map(
+          responseItems
+            .filter(item => typeof item?.idea_key === 'string')
+            .map(item => [item.idea_key, item]),
+        )
+        candidates = []
+        for (let index = 0; index < assignments.length; index++) {
+          const assignment = assignments[index]!
+          const item = byKey.get(assignment.idea_key) || responseItems[index]
+          if (!item || !String(item.title || '').trim() || !String(item.logline || '').trim()) {
+            job.output_lines.push('  ↻ ' + assignment.idea_key + ': provider omitted usable title/logline; replacing slot.')
+            continue
+          }
+          if (!mentionsSubject(item, assignment)) {
+            job.output_lines.push('  ↻ ' + assignment.idea_key + ': output drifted from assigned subject; replacing slot.')
+            continue
+          }
+          candidates.push(normalizeIdea(
+            {
+              ...item,
+              title: await applyEmojiPolicy(String(item.title || ''), [prompt]),
+              logline: await applyEmojiPolicy(String(item.logline || ''), [prompt]),
+            },
+            assignment, request, plannerNiche, formulaId || plannerNiche.id, activePackIds,
+          ))
+        }
+      }
     } finally {
       clearInterval(watcher)
-    }
-    const responseItems = parseArray(raw)
-    const byKey = new Map(
-      responseItems
-        .filter(item => typeof item?.idea_key === 'string')
-        .map(item => [item.idea_key, item]),
-    )
-    const candidates: Array<StoryIdea & { campaign_id: string }> = []
-    for (let index = 0; index < assignments.length; index++) {
-      const assignment = assignments[index]!
-      const item = byKey.get(assignment.idea_key) || responseItems[index]
-      if (!item || !String(item.title || '').trim() || !String(item.logline || '').trim()) {
-        job.output_lines.push(`  ↻ ${assignment.idea_key}: provider omitted usable title/logline; replacing slot.`)
-        continue
-      }
-      if (!mentionsSubject(item, assignment)) {
-        job.output_lines.push(`  ↻ ${assignment.idea_key}: output drifted from assigned subject; replacing slot.`)
-        continue
-      }
-      // The idea's title becomes the episode's YouTube title under the
-      // default `use_idea_title` mode, so it is cleaned here where it is
-      // written rather than later where his edits would be indistinguishable.
-      // The prompt is the source: his Series Formula, standards and
-      // refinements are all inside it.
-      candidates.push(normalizeIdea(
-        {
-          ...item,
-          title: await applyEmojiPolicy(String(item.title || ''), [prompt]),
-          logline: await applyEmojiPolicy(String(item.logline || ''), [prompt]),
-        },
-        assignment,
-        request,
-        plannerNiche,
-        formulaId || plannerNiche.id,
-        activePackIds,
-      ))
     }
 
     const filtered = request.avoid_repeated_ideas === false
@@ -386,20 +424,23 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     for (const rejection of filtered.rejected) {
       job.output_lines.push(`  ↻ Rejected near-duplicate: "${rejection.candidate.title}"`)
     }
-    if (filtered.kept.length) {
+    const kept = isFormulaFreeform ? filtered.kept.slice(0, needed) : filtered.kept
+    if (kept.length) {
       const stored = await im.addIdeas(
         job.project_slug,
-        filtered.kept,
+        kept,
         request.model,
         request.campaign_id,
       )
       created.push(...stored)
-      similarityPool.push(...stored.map(idea => ({
+      const savedCandidates = stored.map(idea => ({
         title: idea.title,
         logline: idea.logline,
         themes: idea.themes,
         mood: idea.mood,
-      })))
+      }))
+      if (isFormulaFreeform) similarityPool.unshift(...savedCandidates)
+      else similarityPool.push(...savedCandidates)
       job.output_lines.push(`  ✓ Saved ${stored.length}; campaign now ${alreadyCompleted.length + created.length}/${wanted}.`)
     }
     job.progress = Math.min(99, Math.round(((alreadyCompleted.length + created.length) / wanted) * 100))
@@ -421,10 +462,14 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     missing: completed < wanted
       ? Array.from({ length: wanted - completed }, (_, index) => `idea-slot-${completed + index + 1}`)
       : [],
-    retry_hint: 'Completed ideas were saved. Retry this job to fill only the missing slots with unused fingerprints.',
+    retry_hint: isFormulaFreeform
+      ? 'Completed ideas were saved. Retry this job to fill only the missing ideas.'
+      : 'Completed ideas were saved. Retry this job to fill only the missing slots with unused fingerprints.',
   })
   job.progress = 100
-  job.output_lines.push(`✓ Idea Campaign complete — ${completed}/${wanted} unique ideas verified.`)
+  job.output_lines.push(isFormulaFreeform
+    ? '✓ Idea Campaign complete — ' + completed + '/' + wanted + ' ideas saved; ' + (request.avoid_repeated_ideas === false ? 'duplicate checks disabled by request.' : 'duplicate checks passed.')
+    : `✓ Idea Campaign complete — ${completed}/${wanted} unique ideas verified.`)
 }
 
 /**

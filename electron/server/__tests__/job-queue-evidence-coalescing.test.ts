@@ -62,6 +62,129 @@ async function createQueuedJobs(projectSlug: string, count: number): Promise<Job
 }
 
 describe('project-owned durable job evidence', () => {
+  test('an exact current image checkpoint coalesces its succeeded task with a pruned pending receipt', async () => {
+    const project = await pm.createProject({ name: 'Exact Pending Receipt Coalescing' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const job = makeJob(project.slug, 30_001, 'done')
+    job.params.genstudio_recovery = {
+      version: 1,
+      route: 'genstudio',
+      assets: {
+        'scene-0132.png': {
+          operation: 'image',
+          idempotency_key: 'story-exact-key',
+          job_id: 'exact-task',
+          state: 'succeeded',
+          updated_at: '2026-09-06T12:00:00.000Z',
+        },
+      },
+    }
+    // The pending entry intentionally follows the real task. Coalescing must
+    // happen after the whole incoming set is merged, including on first write.
+    job.genstudio_jobs = [
+      {
+        id: 'exact-task', operation: 'image.generation', state: 'succeeded',
+        updated_at: '2026-09-06T12:00:01.000Z',
+      },
+      {
+        id: 'pending:story-exact-key', operation: 'image.generation', state: 'submitting',
+        updated_at: '2026-09-06T11:59:59.000Z',
+      },
+      {
+        id: 'pending:story-other-key', operation: 'image.generation', state: 'submitting',
+        updated_at: '2026-09-06T11:59:59.000Z',
+      },
+    ]
+
+    await jq.checkpointJobState(job)
+
+    const persisted = (await readJobs(jobsFile)).find(candidate => candidate.job_id === job.job_id)
+    assert.ok(persisted)
+    assert.equal(persisted.genstudio_jobs?.filter(entry => entry.id === 'exact-task').length, 1)
+    assert.equal(persisted.genstudio_jobs?.some(entry => (
+      entry.operation === 'image.generation' && entry.id === 'pending:story-exact-key'
+    )), false)
+    assert.equal(persisted.genstudio_jobs?.some(entry => entry.id === 'pending:story-other-key'), true)
+  })
+
+  test('exact checkpoint matching never retires another operation or a contradictory task key', async () => {
+    const project = await pm.createProject({ name: 'Cross Operation Pending Evidence' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const job = makeJob(project.slug, 30_003, 'done')
+    job.params.genstudio_recovery = {
+      version: 1,
+      route: 'genstudio',
+      assets: {
+        'scene-0132.png': {
+          operation: 'image', idempotency_key: 'story-exact-key', job_id: 'exact-task',
+          state: 'succeeded', updated_at: '2026-09-06T12:00:00.000Z',
+        },
+        'scene-0133.png': {
+          operation: 'image', idempotency_key: 'story-cross-operation-key', job_id: 'cross-operation-task',
+          state: 'succeeded', updated_at: '2026-09-06T12:00:00.000Z',
+        },
+      },
+    }
+    job.genstudio_jobs = [
+      {
+        id: 'exact-task', operation: 'image.generation', state: 'succeeded',
+        request: {
+          method: 'POST', path: '/v1/images/generations', idempotency_key: 'story-contradictory-key',
+          captured_at: '2026-09-06T12:00:00.000Z',
+        },
+        updated_at: '2026-09-06T12:00:01.000Z',
+      },
+      { id: 'pending:story-exact-key', operation: 'image.generation', state: 'submitting', updated_at: '2026-09-06T11:59:59.000Z' },
+      { id: 'cross-operation-task', operation: 'image.generation', state: 'succeeded', updated_at: '2026-09-06T12:00:01.000Z' },
+      { id: 'pending:story-cross-operation-key', operation: 'chat.response', state: 'submitting', updated_at: '2026-09-06T11:59:59.000Z' },
+    ]
+
+    await jq.checkpointJobState(job)
+
+    const persisted = (await readJobs(jobsFile)).find(candidate => candidate.job_id === job.job_id)
+    assert.ok(persisted)
+    assert.equal(persisted.genstudio_jobs?.some(entry => entry.id === 'pending:story-exact-key'), true)
+    assert.equal(persisted.genstudio_jobs?.some(entry => entry.id === 'pending:story-cross-operation-key'), true)
+  })
+
+  test('a changed current image checkpoint cannot coalesce evidence owned by its previous task', async () => {
+    const project = await pm.createProject({ name: 'Current Checkpoint Owns Coalescing' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const previous = makeJob(project.slug, 30_002, 'done')
+    previous.params.genstudio_recovery = {
+      version: 1,
+      route: 'genstudio',
+      assets: {
+        'scene-0132.png': {
+          operation: 'image', idempotency_key: 'story-old-key', job_id: 'old-task',
+          state: 'succeeded', updated_at: '2026-09-06T12:00:00.000Z',
+        },
+      },
+    }
+    previous.genstudio_jobs = [
+      { id: 'old-task', operation: 'image.generation', state: 'succeeded', updated_at: '2026-09-06T12:00:01.000Z' },
+      { id: 'pending:story-old-key', operation: 'image.generation', state: 'submitting', updated_at: '2026-09-06T11:59:59.000Z' },
+    ]
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [previous] }))
+    const incoming = structuredClone(previous)
+    incoming.params.genstudio_recovery.assets['scene-0132.png'] = {
+      operation: 'image', idempotency_key: 'story-new-key', job_id: 'new-task',
+      state: 'succeeded', updated_at: '2026-09-06T12:01:00.000Z',
+    }
+    incoming.genstudio_jobs = [
+      { id: 'new-task', operation: 'image.generation', state: 'succeeded', updated_at: '2026-09-06T12:01:01.000Z' },
+      { id: 'pending:story-new-key', operation: 'image.generation', state: 'submitting', updated_at: '2026-09-06T12:00:59.000Z' },
+    ]
+
+    await jq.checkpointJobState(incoming)
+
+    const persisted = (await readJobs(jobsFile)).find(candidate => candidate.job_id === previous.job_id)
+    assert.ok(persisted)
+    assert.equal(persisted.genstudio_jobs?.some(entry => entry.id === 'pending:story-new-key'), false)
+    assert.equal(persisted.genstudio_jobs?.some(entry => entry.id === 'pending:story-old-key'), true,
+      'only the task and key in the current checkpoint can retire a pending receipt')
+  })
+
   test('one upsert preserves 180 lazily-unloaded jobs and only an explicit clear deletes history', async () => {
     const project = await pm.createProject({ name: 'Lazy Durable Baseline' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')

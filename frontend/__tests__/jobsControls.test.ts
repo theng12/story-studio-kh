@@ -109,9 +109,13 @@ test('Jobs reports whole-batch completed, settling, cancelled, failed, and not-s
   assert.match(jobs, /item_progress\.cancelled/)
   assert.match(jobs, /item_progress\.not_submitted/)
   assert.match(jobs, /cancelled by customer/i)
-  for (const field of ['total', 'inFlight', 'finished', 'remaining', 'queued', 'settling']) {
+  for (const field of ['total', 'inFlight', 'finished', 'remaining', 'queued', 'settling', 'failed']) {
     assert.match(jobs, new RegExp(`jobCounts\\(job\\)\\.${field}`))
   }
+  assert.ok((jobs.match(/needs another try/g) || []).length >= 2, 'active and history cards show failures')
+  assert.ok((jobs.match(/left in this run/g) || []).length >= 2, 'remaining is the scheduling remainder')
+  assert.doesNotMatch(jobs, /<span class="job-stat-label">remaining<\/span>/)
+  assert.match(jobs, /\.job-stat\.is-failed strong \{ color: var\(--error\); \}/)
   assert.match(jobs, /summariseJobItems\(job\.item_progress\)/)
 })
 

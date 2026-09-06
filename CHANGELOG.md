@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.118 — 2026-09-06
+
+- **Formula-only Idea Campaigns now choose fresh subjects instead of cycling through the Formula's examples.** When no Topic Pack is active or explicitly selected, campaigns use the existing freeform Ideas generator with Formula guidance and saved Formula-wide history; Topic Pack campaigns retain their structured assignment flow.
+- **Campaign retries keep the same freshness checks and requested output.** Resume fills only the remaining count, and when duplicate checks are enabled it carries the newest saved ideas into the bounded prompt and checks every saved Formula idea locally for repetition; it also preserves the selected model, emoji option, and durable campaign identity.
+- **Finished image jobs no longer return to “Checking provider status” because of a duplicate pre-submit receipt.** Story Studio removes that receipt only when the current recovery checkpoint proves its exact image task and idempotency key; unmatched or contradictory provider evidence remains protected.
+- **Missing-image status now explains both the failed item and its queued owner.** Jobs shows failed items separately from the number left in the current run, while Scene Review identifies the exact scenes queued for repair, distinguishes other blocked scenes, and links back to Jobs without starting another request.
+
 ## v1.4.117 — 2026-09-06
 
 - **A Scene image batch no longer stays Paused after every image is verified.** A late automatic stall hold yields to the completed output audit, while manual and queue pauses still remain paused.

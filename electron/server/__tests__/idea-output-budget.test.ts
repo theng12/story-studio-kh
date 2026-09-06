@@ -21,9 +21,13 @@ describe('idea output token budget', () => {
     assert.equal(ideaOutputTokenBudget(10_000), 16_384)
   })
 
-  test('wires the bounded budget into regular, retry, and campaign calls', () => {
+  test('wires the bounded budget into the shared freeform helper and campaign calls', () => {
     const ideasRoute = readFileSync(
       fileURLToPath(new URL('../routes/ideas.ts', import.meta.url)),
+      'utf8',
+    )
+    const freeformHelper = readFileSync(
+      fileURLToPath(new URL('../services/freeform-idea-generation.ts', import.meta.url)),
       'utf8',
     )
     const campaign = readFileSync(
@@ -33,8 +37,9 @@ describe('idea output token budget', () => {
 
     // The count-scaled number is now a FLOOR inside a product-derived budget,
     // so it can never exceed the selected product's published output limit.
-    assert.match(ideasRoute, /outputBudget: \{ tier: 'long', minimumTokens: ideaOutputTokenBudget\(overshoot\.count\) \}/)
-    assert.match(ideasRoute, /outputBudget: \{ tier: 'long', minimumTokens: ideaOutputTokenBudget\(retryReq\.count\) \}/)
+    assert.match(freeformHelper, /outputBudget: \{ tier: 'long', minimumTokens: ideaOutputTokenBudget\(input\.request\.count\) \}/)
+    assert.match(ideasRoute, /const firstBatch = normalizeIdeas\(await generateFreeformIdeaBatch\(\{/)
+    assert.match(ideasRoute, /const retryBatch = normalizeIdeas\(await generateFreeformIdeaBatch\(\{/)
     assert.match(campaign, /outputBudget: \{ tier: 'long', minimumTokens: ideaOutputTokenBudget\(assignments\.length\) \}/)
   })
 })
