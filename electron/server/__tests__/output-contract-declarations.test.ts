@@ -100,15 +100,9 @@ describe('the JSON call sites declare their contract', () => {
       declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
     },
     {
-      what: '4a · idea generation, first pass',
-      file: 'routes/ideas.ts',
-      anchor: 'const firstRaw = await callAiWithRetry(',
-      declares: 'outputContract: ideaBatchOutputContract()',
-    },
-    {
-      what: '4b · idea generation, retry pass',
-      file: 'routes/ideas.ts',
-      anchor: 'const retryRaw = await callAiWithRetry(',
+      what: '4 · shared freeform idea generation',
+      file: 'services/freeform-idea-generation.ts',
+      anchor: 'const raw = await callAiWithRetry(input.request.model,',
       declares: 'outputContract: ideaBatchOutputContract()',
     },
     {
@@ -153,12 +147,10 @@ describe('the JSON call sites declare their contract', () => {
     })
   }
 
-  test('the retry pass asks for the same shape as the first pass', () => {
-    const first = callRegion('routes/ideas.ts', 'const firstRaw = await callAiWithRetry(')
-    const retry = callRegion('routes/ideas.ts', 'const retryRaw = await callAiWithRetry(')
-    const contractOf = (region: string) => /outputContract: (.+),/.exec(region)?.[1]
-    assert.ok(contractOf(first))
-    assert.equal(contractOf(retry), contractOf(first))
+  test('both regular route passes delegate to the shared freeform contract', () => {
+    const ideasRoute = source('routes/ideas.ts')
+    assert.match(ideasRoute, /const firstBatch = normalizeIdeas\(await generateFreeformIdeaBatch\(\{/, 'first pass bypassed the shared contract')
+    assert.match(ideasRoute, /const retryBatch = normalizeIdeas\(await generateFreeformIdeaBatch\(\{/, 'retry pass bypassed the shared contract')
   })
 
   test('the deprecated jsonObject flag is gone from the vision call', () => {

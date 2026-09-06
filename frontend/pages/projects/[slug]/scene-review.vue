@@ -305,10 +305,15 @@
       <!-- v1.0.231 — live render banner. Shows while a render job for this
            episode is active, with overall progress + the current scene. -->
       <div v-if="activeRenderJob" class="review-render-banner mt-2">
-        <span v-if="!isRenderPaused" class="review-spinner" aria-hidden="true" />
+        <span v-if="!isRenderPaused && !isQueuedRender" class="review-spinner" aria-hidden="true" />
         <span v-if="isRenderPaused">
           Paused — awaiting explicit Resume.
           <span class="text-muted">{{ hasSettlingProviderWork ? ' Accepted provider work is still settling; no new submissions will start.' : ' No new submissions will start until you resume.' }}</span>
+        </span>
+        <span v-else-if="isQueuedRender">
+          <strong>{{ isQueuedRecoveryRender ? 'Queued for repair' : 'Queued for rendering' }}</strong>
+          <span class="text-muted"> — This existing job owns the next attempt, so another image request is disabled.</span>&nbsp;
+          <NuxtLink :to="`/projects/${slug}/jobs`" class="text-accent">Open Jobs</NuxtLink>
         </span>
         <span v-else>
           Rendering with GenStudio
@@ -416,11 +421,16 @@
               :class="['review-thumb-empty', { 'is-disabled': reviewJobActive }]"
               :style="{ aspectRatio: thumbAspect }"
               :aria-disabled="reviewJobActive"
-              :title="reviewJobActive ? 'Resume or finish the current scene render before generating another image.' : 'Generate image'"
+              :title="reviewJobActive ? sceneRenderBlockReason(scene) : 'Generate image'"
               @click="!reviewJobActive && generateOne(scene)"
             >
               <span>No image yet</span>
-              <small>(click to generate)</small>
+              <small v-if="isSceneQueuedForRepair(scene)">Queued for repair</small>
+              <small v-else-if="isQueuedRecoveryRender">Another repair is queued</small>
+              <small v-else-if="isQueuedRender">Image job queued</small>
+              <small v-else-if="isRenderPaused">Image job paused</small>
+              <small v-else-if="isRendering">Image job running</small>
+              <small v-else>(click to generate)</small>
             </div>
           </div>
 
@@ -463,7 +473,7 @@
               class="btn btn-sm btn-secondary"
               :disabled="!form.model || regeneratingId === scene.id || reviewJobActive"
               @click="generateOne(scene)"
-              :title="!form.model ? 'Pick a model in the Render settings first' : 'Generate or regenerate this scene image with GenStudio'"
+              :title="!form.model ? 'Pick a model in the Render settings first' : reviewJobActive ? sceneRenderBlockReason(scene) : 'Generate or regenerate this scene image with GenStudio'"
             >
               {{ regeneratingId === scene.id ? '⏳' : (scene.image_filename ? '↻' : '✦') }}
               {{ scene.image_filename ? 'Regenerate image' : 'Generate image' }}
@@ -553,7 +563,7 @@
               class="btn btn-sm btn-secondary"
               :disabled="!form.model || regeneratingId === previewScene.id || reviewJobActive"
               @click.stop="regenerateFromPreview(previewScene)"
-              :title="!form.model ? 'Pick a model in the Greenlight panel first' : 'Re-render this image (saves your prompt edit first)'"
+              :title="!form.model ? 'Pick a model in the Greenlight panel first' : reviewJobActive ? sceneRenderBlockReason(previewScene) : 'Re-render this image (saves your prompt edit first)'"
             >{{ regeneratingId === previewScene.id ? '⏳ Rendering…' : '🔄 Regenerate' }}</button>
             <!-- Tick this scene for the selected-scene batch without leaving the preview. -->
             <button
@@ -1427,7 +1437,23 @@ const replaceableUncertainJob = computed(() => {
 const activeRenderJob = computed(() => resolveActiveSceneRenderJob(episodeId.value, activeRenderJobFromReview.value, jobs.value))
 const activeContinuityRenderJob = computed(() => resolveActiveSceneRenderJob(episodeId.value, activeRenderJobFromReview.value, jobs.value, ['continuity_render', 'scene_images_batch']))
 const isRenderPaused = computed(() => activeRenderJob.value?.status === 'paused')
+const isQueuedRender = computed(() => activeRenderJob.value?.status === 'queued')
+const isQueuedRecoveryRender = computed(() => isQueuedRender.value && !!(activeRenderJob.value?.params as any)?.episode_recovery_id)
 const isRendering = computed(() => !!activeRenderJob.value && !isRenderPaused.value)
+const queuedRecoverySceneIds = computed(() => new Set(
+  Array.isArray((activeRenderJob.value?.params as any)?.scene_ids)
+    ? (activeRenderJob.value?.params as any).scene_ids.filter((id: unknown): id is string => typeof id === 'string')
+    : [],
+))
+function isSceneQueuedForRepair(scene: Pick<ReviewScene, 'id'>): boolean {
+  return isQueuedRecoveryRender.value && queuedRecoverySceneIds.value.has(scene.id)
+}
+function sceneRenderBlockReason(scene: Pick<ReviewScene, 'id'>): string {
+  if (isSceneQueuedForRepair(scene)) return 'Queued for repair. The existing recovery job owns this scene; open Jobs to check its place in the queue.'
+  if (isQueuedRecoveryRender.value) return 'Another repair is queued for this episode. Finish waits for that existing job; open Jobs to check its place in the queue.'
+  if (isQueuedRender.value) return 'Queued for rendering. The existing job owns this attempt; open Jobs to check its place in the queue.'
+  return 'Resume or finish the current scene render before generating another image.'
+}
 const renderProgress = computed<number | null>(() => {
   const p = (activeRenderJob.value as any)?.progress
   return typeof p === 'number' ? p : null

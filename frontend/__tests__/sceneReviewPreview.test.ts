@@ -88,12 +88,24 @@ describe('Scene Review image preview', () => {
   test('a paused render is visibly paused, not loading, spinning, or regenerable', () => {
     assert.match(sceneReviewSource, /:generate-loading="\(bulkQueuing && !isRenderPaused\) \|\| isRendering"/)
     assert.doesNotMatch(sceneReviewSource, /:generate-loading="[^"\n]*reviewJobActive/)
-    assert.match(sceneReviewSource, /<span v-if="!isRenderPaused" class="review-spinner"/)
+    assert.match(sceneReviewSource, /<span v-if="!isRenderPaused && !isQueuedRender" class="review-spinner"/)
     assert.match(sceneReviewSource, /function isSceneGenerating\(scene: ReviewScene\): boolean \{\s*if \(isRenderPaused\.value\) return false/)
     assert.match(sceneReviewSource, /v-else[\s\S]*:class="\['review-thumb-empty', \{ 'is-disabled': reviewJobActive \}\]"[\s\S]*:aria-disabled="reviewJobActive"[\s\S]*@click="!reviewJobActive && generateOne\(scene\)"/)
     assert.match(sceneReviewSource, /:disabled="!form\.model \|\| regeneratingId === previewScene\.id \|\| reviewJobActive"/)
     assert.match(sceneReviewSource, /\.review-thumb-empty\.is-disabled[\s\S]*cursor:\s*not-allowed/)
     assert.match(sceneReviewSource, /Resume explicitly\. Story Studio audits saved files/)
+  })
+
+  test('a queued episode repair names its hold and links to Jobs', () => {
+    assert.match(sceneReviewSource, /Queued for repair/)
+    assert.match(sceneReviewSource, /const isQueuedRender = computed\(\(\) => activeRenderJob\.value\?\.status === 'queued'\)/)
+    assert.match(sceneReviewSource, /:to="`\/projects\/\$\{slug\}\/jobs`"/)
+    assert.match(sceneReviewSource, /<\/span>&nbsp;\s*<NuxtLink/)
+    assert.match(sceneReviewSource, />Open Jobs<\/NuxtLink>/)
+    assert.match(sceneReviewSource, /<small v-if="isSceneQueuedForRepair\(scene\)">Queued for repair<\/small>/)
+    assert.match(sceneReviewSource, /<small v-else-if="isQueuedRecoveryRender">Another repair is queued<\/small>/)
+    assert.match(sceneReviewSource, /<small v-else-if="isQueuedRender">Image job queued<\/small>[\s\S]*<small v-else-if="isRenderPaused">Image job paused<\/small>[\s\S]*<small v-else-if="isRendering">Image job running<\/small>[\s\S]*<small v-else>\(click to generate\)<\/small>/)
+    assert.match(sceneReviewSource, /reviewJobActive \? sceneRenderBlockReason\(scene\)/)
   })
 
   test('live SSE state supersedes a matching paused review snapshot', () => {

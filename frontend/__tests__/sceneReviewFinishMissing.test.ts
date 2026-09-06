@@ -42,7 +42,8 @@ async function loadSceneReview(): Promise<Component> {
       isJobActiveFor: (episodeId, types) => globalThis.__sceneReviewJobs.value.some(job =>
         job.episode_id === episodeId && ['queued', 'running', 'paused'].includes(job.status) && (!types || types.includes(job.type))),
     })
-    const resolveActiveSceneRenderJob = () => null
+    const resolveActiveSceneRenderJob = (episodeId, cached, jobs) => jobs.find(job =>
+      job.episode_id === episodeId && ['queued', 'running', 'paused'].includes(job.status)) || null
     const findOutputOption = () => null
     const publishedOutputOptions = () => []
     const describeImageUnitCost = () => ({ basis: 'unpublished', text: 'Not published', title: '' })
@@ -62,6 +63,12 @@ async function loadSceneReview(): Promise<Component> {
           : null,
         unref(state.replaceableUncertainJob)
           ? h('button', { id: 'replace-anyway', onClick: state.replaceUncertainImages }, 'Replace anyway')
+          : null,
+        unref(state.isQueuedRecoveryRender)
+          ? h('div', { id: 'queued-repair-scope' }, [
+              h('span', { id: 'queued-target' }, state.isSceneQueuedForRepair({ id: 'scene-target' }) ? 'Queued for repair' : 'Another repair is queued'),
+              h('span', { id: 'queued-other' }, state.isSceneQueuedForRepair({ id: 'scene-other' }) ? 'Queued for repair' : 'Another repair is queued'),
+            ])
           : null,
       ])
     }
@@ -166,5 +173,16 @@ test('mounted Scene Review abandons a replacement confirmation after its episode
   mounted.acceptConfirmation()
   await pending
   assert.equal(mounted.calls.length, 0, 'a confirmation for EP0001 must not post into EP0002')
+  mounted.unmount()
+})
+
+test('mounted Scene Review names only the exact recovery target as queued for repair', async () => {
+  const mounted = await mount([{
+    job_id: 'queued-recovery', type: 'continuity_render', episode_id: 'EP0001', status: 'queued',
+    created_at: '2026-09-06T10:00:00.000Z',
+    params: { episode_recovery_id: 'recovery-plan', scene_ids: ['scene-target'] },
+  }])
+  assert.equal(mounted.host.querySelector('#queued-target')?.textContent, 'Queued for repair')
+  assert.equal(mounted.host.querySelector('#queued-other')?.textContent, 'Another repair is queued')
   mounted.unmount()
 })

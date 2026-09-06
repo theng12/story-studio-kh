@@ -545,7 +545,11 @@
           </span>
           <span class="job-stat">
             <strong>{{ jobCounts(job).remaining.toLocaleString() }}</strong>
-            <span class="job-stat-label">remaining</span>
+            <span class="job-stat-label">left in this run</span>
+          </span>
+          <span v-if="jobCounts(job).failed" class="job-stat is-failed">
+            <strong>{{ jobCounts(job).failed.toLocaleString() }}</strong>
+            <span class="job-stat-label">needs another try</span>
           </span>
           <span v-if="jobCounts(job).queued" class="job-stat is-muted">
             <strong>{{ jobCounts(job).queued.toLocaleString() }}</strong>
@@ -887,7 +891,11 @@
             </span>
             <span class="job-stat">
               <strong>{{ jobCounts(job).remaining.toLocaleString() }}</strong>
-              <span class="job-stat-label">remaining</span>
+              <span class="job-stat-label">left in this run</span>
+            </span>
+            <span v-if="jobCounts(job).failed" class="job-stat is-failed">
+              <strong>{{ jobCounts(job).failed.toLocaleString() }}</strong>
+              <span class="job-stat-label">needs another try</span>
             </span>
             <span v-if="jobCounts(job).queued" class="job-stat is-muted">
               <strong>{{ jobCounts(job).queued.toLocaleString() }}</strong>
@@ -3478,6 +3486,7 @@ async function clearFinished() {
 .job-stat-label { color: var(--text-muted); }
 .job-stat.is-inflight strong { color: var(--accent); }
 .job-stat.is-finished strong { color: var(--success, #3fb950); }
+.job-stat.is-failed strong { color: var(--error); }
 .job-stat.is-muted strong { color: var(--text-muted); font-weight: 600; }
 .job-stat-telemetry {
   display: inline-flex;

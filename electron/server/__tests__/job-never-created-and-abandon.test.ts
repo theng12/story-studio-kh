@@ -159,6 +159,68 @@ test('restarting after a mid-batch quit settles every item — a provider 404 is
   }
 })
 
+test('a finished image job coalesces a pruned pending receipt into its exact succeeded task', async () => {
+  const job = interruptedBatch('history-exact-coalesce', 'placeholder')
+  job.status = 'error'
+  job.local_execution_complete = true
+  job.finished_at = new Date().toISOString()
+  job.params.genstudio_recovery = {
+    version: 1,
+    route: 'genstudio',
+    assets: {
+      'ep0058-scene-0132.png': {
+        operation: 'image',
+        idempotency_key: 'story-history-exact-key',
+        job_id: 'history-real-task',
+        state: 'succeeded',
+        updated_at: '2026-09-06T12:00:00.000Z',
+      },
+    },
+  }
+  job.genstudio_jobs = [
+    {
+      id: 'pending:story-history-exact-key', operation: 'image.generation', state: 'submitting',
+      updated_at: '2026-09-06T11:59:59.000Z',
+    },
+    {
+      id: 'history-real-task', operation: 'image.generation', state: 'succeeded',
+      settled_credits: 9, updated_at: '2026-09-06T12:00:01.000Z',
+    },
+  ]
+  const slug = await persist('Finished exact evidence coalesces', job)
+  const jobsFile = path.join(tempDir, 'projects', slug, 'jobs.json')
+
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async (input, init) => {
+    assert.equal((init?.method || 'GET').toUpperCase(), 'GET', 'history reconciliation is read-only')
+    requests.push(String(input))
+    return Response.json({
+      id: 'history-real-task', state: 'succeeded', dispatch_state: 'dispatched',
+      cancellable: false, settled_credits: 9,
+    })
+  }
+  try {
+    await jq.getJobs(slug)
+    await waitFor(
+      () => jq.getPublicJob(job.job_id)?.control?.action === 'clear-history',
+      'the loaded finished row to coalesce exact evidence and become clearable',
+    )
+    const refreshed = await jq.recheckJobProviderStatus(slug, job.job_id)
+    assert.ok(requests.length >= 1)
+    assert.equal(refreshed.control?.action, 'clear-history')
+    assert.equal(refreshed.control?.enabled, true)
+    const live = jq.getJob(job.job_id)
+    assert.equal(live?.genstudio_jobs?.filter(entry => entry.id === 'history-real-task').length, 1)
+    assert.equal(live?.genstudio_jobs?.some(entry => entry.id === 'pending:story-history-exact-key'), false)
+    const durable = (JSON.parse(await fs.readFile(jobsFile, 'utf8')) as { jobs: Job[] }).jobs[0]
+    assert.equal(durable?.genstudio_jobs?.filter(entry => entry.id === 'history-real-task').length, 1)
+    assert.equal(durable?.genstudio_jobs?.some(entry => entry.id === 'pending:story-history-exact-key'), false)
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
 test('an unreachable GenStudio keeps the hold — a network outage is never read as "never created"', async () => {
   const job = interruptedBatch('restart-unreachable', 'placeholder')
   const slug = await persist('Restart unreachable holds', job)

@@ -581,7 +581,7 @@ function mergeGenStudioReconciliationEvidence(
     ...(typeof provider.released_credits === 'number' && Number.isFinite(provider.released_credits) ? { released_credits: provider.released_credits } : {}),
     updated_at: new Date().toISOString(),
   }
-  job.genstudio_jobs = entries
+  job.genstudio_jobs = coalesceExactImageProviderEvidence(job, entries)
 }
 
 /**
@@ -1715,12 +1715,61 @@ export async function drainJobPersistenceForShutdown(timeoutMs: number): Promise
   return result
 }
 
+type GenStudioEvidence = NonNullable<Job['genstudio_jobs']>[number]
+
+/**
+ * Remove a pre-submit receipt only when the current image checkpoint names
+ * both its exact idempotency key and the real task that superseded it.
+ * Request previews are intentionally bounded, so the durable checkpoint is
+ * the ownership proof after an old preview has been pruned.
+ */
+function coalesceExactImageProviderEvidence(job: Pick<Job, 'params'>, input: GenStudioEvidence[]): GenStudioEvidence[] {
+  const byIdentity = new Map<string, GenStudioEvidence>()
+  for (const entry of input) {
+    const identity = entry.id
+    const existing = byIdentity.get(identity)
+    if (!existing) {
+      byIdentity.set(identity, entry)
+      continue
+    }
+    const newer = entry.updated_at >= existing.updated_at ? entry : existing
+    const older = newer === entry ? existing : entry
+    const request = newer.request ?? older.request
+    byIdentity.set(identity, { ...older, ...newer, ...(request ? { request } : {}) })
+  }
+
+  const recovery = job.params?.genstudio_recovery
+  if (recovery?.version !== 1 || recovery.route !== 'genstudio'
+    || !recovery.assets || typeof recovery.assets !== 'object') return [...byIdentity.values()]
+  for (const asset of Object.values(recovery.assets) as Array<Record<string, unknown>>) {
+    const taskId = asset?.job_id
+    const idempotencyKey = asset?.idempotency_key
+    if (asset?.operation !== 'image'
+      || typeof taskId !== 'string' || !taskId.trim() || taskId.startsWith('pending:')
+      || typeof idempotencyKey !== 'string' || !idempotencyKey.startsWith('story-')) continue
+    const real = byIdentity.get(taskId)
+    const pendingIdentity = pendingGenStudioEntryId(idempotencyKey)
+    const pending = byIdentity.get(pendingIdentity)
+    if (!real || !pending || real.operation !== 'image.generation' || pending.operation !== 'image.generation'
+      || (real.request?.idempotency_key !== undefined && real.request.idempotency_key !== idempotencyKey)
+      || (pending.request?.idempotency_key !== undefined && pending.request.idempotency_key !== idempotencyKey)) continue
+    byIdentity.delete(pendingIdentity)
+  }
+  return [...byIdentity.values()]
+}
+
 function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
-  if (!previous) return incoming
+  if (!previous) return {
+    ...incoming,
+    ...(incoming.genstudio_jobs
+      ? { genstudio_jobs: coalesceExactImageProviderEvidence(incoming, incoming.genstudio_jobs) }
+      : {}),
+  }
   const providerById = new Map((previous.genstudio_jobs || []).map(entry => [entry.id, entry]))
   for (const entry of incoming.genstudio_jobs || []) {
     if (entry.request?.idempotency_key && !entry.id.startsWith('pending:')) {
-      providerById.delete(pendingGenStudioEntryId(entry.request.idempotency_key))
+      const pendingId = pendingGenStudioEntryId(entry.request.idempotency_key)
+      if (providerById.get(pendingId)?.operation === entry.operation) providerById.delete(pendingId)
     }
     const existing = providerById.get(entry.id)
     if (!existing || entry.updated_at >= existing.updated_at) providerById.set(entry.id, entry)
@@ -1734,11 +1783,15 @@ function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
     previous.paid_image_replacement_attempts,
     incoming.paid_image_replacement_attempts,
   )
-  return {
+  const merged = {
     ...incoming,
-    ...(providerById.size > 0 ? { genstudio_jobs: [...providerById.values()] } : {}),
     ...(Object.keys(remoteCancellations).length > 0 ? { remote_cancellations: remoteCancellations } : {}),
     ...(attempts ? { paid_image_replacement_attempts: attempts } : {}),
+  }
+  const providerJobs = coalesceExactImageProviderEvidence(merged, [...providerById.values()])
+  return {
+    ...merged,
+    ...(providerJobs.length > 0 ? { genstudio_jobs: providerJobs } : {}),
   }
 }
 

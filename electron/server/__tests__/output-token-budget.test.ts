@@ -345,7 +345,7 @@ test('every long-form workflow declares a product-derived budget', () => {
     ['format extraction', '../routes/projects.ts', /outputBudget: 'long'/],
     ['metadata description', '../generators/metadata.ts', /outputBudget: 'standard'/],
     ['idea campaign', '../generators/idea-campaign.ts', /outputBudget: \{ tier: 'long'/],
-    ['ideas route', '../routes/ideas.ts', /outputBudget: \{ tier: 'long'/],
+    ['shared freeform ideas', '../services/freeform-idea-generation.ts', /outputBudget: \{ tier: 'long'/],
   ]
   for (const [label, file, pattern] of expectations) {
     assert.match(source(file), pattern, `${label} lost its output budget`)
