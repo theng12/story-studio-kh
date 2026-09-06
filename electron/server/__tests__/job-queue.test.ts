@@ -10,6 +10,7 @@ import type { Job } from '../models/types.js'
 import express from 'express'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -476,10 +477,9 @@ describe('retryTerminalJob()', () => {
       params: { model: 'cloud-model', pending_ids: ['item-2'] },
     })
 
-    const deadline = Date.now() + 2_000
-    while (Date.now() < deadline && jq.getJob(original.job_id)?.status !== 'error') {
-      await new Promise(resolve => setTimeout(resolve, 20))
-    }
+    await waitFor(() => jq.getJob(original.job_id)?.status === 'error', {
+      label: 'manual image Finish job to fail before generic retry',
+    })
     assert.equal(jq.getJob(original.job_id)?.status, 'error')
 
     let received: Record<string, any> | undefined
@@ -520,6 +520,31 @@ describe('retryTerminalJob()', () => {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.deepEqual(received, { model: 'genstudio-video:live-video', duration_seconds: 8, resolution: '1080p' })
+  })
+
+  test('does not copy a manual image Finish authority into a generic retry', async () => {
+    const proj = await pm.createProject({ name: 'JQ Manual Finish Retry Scope' })
+    jq.registerExecutor('continuity_render', async () => { throw new Error('first attempt failed') })
+    const original = jq.enqueuePreparedForTest({
+      project_slug: proj.slug,
+      type: 'continuity_render',
+      episode_id: 'EP001',
+      title: 'Finish missing images',
+      params: {
+        model: 'genstudio-image:current-model',
+        manual_image_finish: { action_id: 'manual-action', replace_uncertain: true },
+      },
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(original.job_id)?.status !== 'error') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(jq.getJob(original.job_id)?.status, 'error')
+
+    jq.registerExecutor('continuity_render', async () => {})
+    const retried = jq.retryTerminalJob(proj.slug, original.job_id)
+    assert.equal(retried.params.model, 'genstudio-image:current-model')
+    assert.equal(retried.params.manual_image_finish, undefined)
   })
 
   test('refuses to replace a non-terminal job', async () => {

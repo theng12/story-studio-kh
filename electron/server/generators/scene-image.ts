@@ -24,7 +24,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { registry } from '../providers/registry.js'
-import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { stageGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
@@ -37,7 +37,13 @@ import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { buildGenStudioImageIdempotencyKey } from '../lib/genstudio-client.js'
-import { recordTaskStrict, hashInput } from '../services/task-manifest.js'
+import {
+  compareAndRecordImageTaskStrict,
+  hashInput,
+  promoteCurrentImageTaskArtifactStrict,
+  readManifestStrict,
+  type TaskManifestEntry,
+} from '../services/task-manifest.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import * as jq from '../services/job-queue.js'
 
@@ -189,7 +195,26 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     seed,
     requestIdentity,
   })
-  await recordTaskStrict(outDir, `${scene_id}.png`, {
+  const filename = `${scene_id}.png`
+  const previousOwner = (await readManifestStrict(outDir).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { schema_version: 1 as const, tasks: {} as Record<string, TaskManifestEntry> }
+    }
+    throw error
+  })).tasks[filename] || null
+  const superseded = previousOwner && (previousOwner.task_id || previousOwner.idempotency_key) ? {
+    superseded_image_requests: [{
+      provider: previousOwner.provider,
+      task_id: previousOwner.task_id,
+      submitted_at: previousOwner.submitted_at,
+      input_hash: previousOwner.input_hash,
+      idempotency_key: previousOwner.idempotency_key,
+      operation: previousOwner.operation === 'image' ? 'image' as const : undefined,
+      last_state: previousOwner.last_state,
+      request_scope: previousOwner.request_scope,
+    }],
+  } : {}
+  const preparedOwner: TaskManifestEntry = {
     provider: imageProvider.meta.providerId || imageProvider.meta.id,
     task_id: '',
     submitted_at: submittedAt,
@@ -197,7 +222,10 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     idempotency_key: idempotencyKey,
     operation: 'image',
     last_state: 'prepared',
-  })
+    ...superseded,
+  }
+  await compareAndRecordImageTaskStrict(outDir, filename, previousOwner, preparedOwner)
+  let currentOwner = preparedOwner
   const result = await imageProvider.generateImage({
     prompt: scene.visual_prompt,
     apiKey,
@@ -229,7 +257,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     },
     isCancelled: () => jq.isCancelled(job.job_id),
     onJobAccepted: async (taskId, acceptedIdempotencyKey) => {
-      await recordTaskStrict(outDir, `${scene_id}.png`, {
+      const acceptedOwner: TaskManifestEntry = {
         provider: imageProvider.meta.providerId || imageProvider.meta.id,
         task_id: taskId,
         submitted_at: submittedAt,
@@ -237,7 +265,10 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
         idempotency_key: acceptedIdempotencyKey,
         operation: 'image',
         last_state: 'accepted',
-      })
+        ...superseded,
+      }
+      await compareAndRecordImageTaskStrict(outDir, filename, currentOwner, acceptedOwner)
+      currentOwner = acceptedOwner
     },
   })
 
@@ -252,12 +283,30 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   // v1.0.457 — write into the unified named "NN Scene Images" folder (not the
   // legacy flat scene_images/), so there's one scene-image location per episode
   // and it migrates to the external media root with everything else.
-    await saveGenStudioImage(url, outPath)
+  if (result.taskId) {
+    const succeededOwner: TaskManifestEntry = {
+      ...currentOwner,
+      task_id: result.taskId,
+      last_state: 'succeeded',
+    }
+    await compareAndRecordImageTaskStrict(outDir, filename, currentOwner, succeededOwner)
+    currentOwner = succeededOwner
+  }
+  const stagingPath = await stageGenStudioImage(url, outPath)
+  const promoted = await promoteCurrentImageTaskArtifactStrict(
+    outDir,
+    filename,
+    currentOwner,
+    stagingPath,
+    outPath,
+    async () => {
+      await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt, params.auto_approve_generated === true)
+    },
+  )
+  if (!promoted) throw new Error('A newer image request owns this scene; the late result was not applied.')
   const outputStat = await fs.stat(outPath)
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded image is empty for scene ${scene_id}`)
   job.progress = 90
-
-  await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt, params.auto_approve_generated === true)
 
   job.output_dir = outDir
   job.progress = 100

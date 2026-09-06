@@ -8,6 +8,23 @@ export async function saveGenStudioImage(
   savePath: string,
   onProgress?: (bytesReceived: number, totalBytes?: number) => void,
 ): Promise<void> {
+  const temporaryPath = await stageGenStudioImage(artifact, savePath)
+  try {
+    await fs.rename(temporaryPath, savePath)
+    clearImageValidationCache(savePath)
+    const bytes = await fs.stat(savePath).then(stat => stat.size)
+    onProgress?.(bytes, bytes)
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => {})
+    throw error
+  }
+}
+
+/** Write and validate an image without making it visible at the final path. */
+export async function stageGenStudioImage(
+  artifact: string,
+  savePath: string,
+): Promise<string> {
   if (!artifact.startsWith('data:image/png;base64,')) {
     throw new Error('GenStudio returned an unsupported image artifact.')
   }
@@ -19,9 +36,7 @@ export async function saveGenStudioImage(
   try {
     await fs.writeFile(temporaryPath, bytes, { flag: 'wx' })
     await assertDecodableImage(temporaryPath, 'GenStudio image')
-    await fs.rename(temporaryPath, savePath)
-    clearImageValidationCache(savePath)
-    onProgress?.(bytes.length, bytes.length)
+    return temporaryPath
   } catch (error) {
     await fs.rm(temporaryPath, { force: true }).catch(() => {})
     throw error

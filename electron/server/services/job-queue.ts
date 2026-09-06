@@ -1472,6 +1472,10 @@ export function recordPaidImageReplacementPublicReason(
 function serializeJob(job: Job): RendererJob {
   jobPersistenceCounters.public_serializations++
   const copy = safeJob(job)
+  if (copy.params?.manual_image_finish) {
+    delete copy.params.manual_image_finish.uncertain_identity_hashes
+    delete copy.params.manual_image_finish.expected_uncertain_identity_hashes
+  }
   const latestPaidImageAttempt = copy.paid_image_replacement_attempts?.at(-1)
   const privateReasons = (copy.paid_image_replacement_attempts || [])
     .map(attempt => attempt.reason?.trim())
@@ -4467,12 +4471,17 @@ export function retryTerminalJob(
     )
   }
 
+  const retryParams = structuredClone(replacementParams || original.params || {})
+  // A manual Finish/Replace nonce authorizes only its original action. Generic
+  // retry machinery may retain ordinary continuity behavior, but cannot copy
+  // that explicit paid intent into a new queue identity.
+  if (original.type === 'continuity_render') delete retryParams.manual_image_finish
   const retried = enqueuePrepared({
     project_slug: original.project_slug,
     type: original.type,
     episode_id: original.episode_id,
     title: original.title,
-    params: structuredClone(replacementParams || original.params || {}),
+    params: retryParams,
     ...(genstudio_chat_retry_scope ? { genstudio_chat_retry_scope } : {}),
     ...(chapterRetryMode === 'exact-replay' ? { genstudio_chat_recovery: true as const } : {}),
     ...(recovery ? {

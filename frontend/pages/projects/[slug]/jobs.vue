@@ -303,6 +303,24 @@
       </button>
     </div>
 
+    <WorkspaceNotice
+      v-if="manualFinishRetryWithheld.length"
+      tone="info"
+      title="Finish missing images stays in Scene Review"
+    >
+      Retry all leaves out {{ manualFinishRetryWithheld.length }} manual Finish missing images request{{ manualFinishRetryWithheld.length === 1 ? '' : 's' }}. Open Scene Review to continue with that episode’s current settings.
+      <template #actions>
+        <NuxtLink
+          v-for="job in manualFinishRetryWithheld"
+          :key="job.job_id"
+          :to="`/projects/${jobProjectSlug(job)}/scene-review?episode_id=${encodeURIComponent(job.episode_id)}`"
+          class="btn btn-sm btn-secondary"
+        >
+          Open {{ isUniversal ? `${jobProjectSlug(job)} · ` : '' }}{{ job.episode_id }} in Scene Review
+        </NuxtLink>
+      </template>
+    </WorkspaceNotice>
+
     <!-- Sort Bar -->
     <div class="sort-bar">
       <label v-if="isUniversal" class="project-filter">
@@ -438,8 +456,16 @@
               title="PAID AUTO REPAIR — Keeps every verified prompt and submits each missing or duplicated scene alone. Continues only while verified progress improves. Pause stops new requests after any accepted request settles. GenStudio credits may be charged."
               @click="autoRepairScenePrompts(job)"
             >{{ controlBusy.has(job.job_id) ? 'Starting…' : 'Auto repair prompts · credits' }}</button>
+            <NuxtLink
+              v-if="isTerminalContinuityRender(job)"
+              :to="`/projects/${jobProjectSlug(job)}/scene-review?episode_id=${encodeURIComponent(job.episode_id)}`"
+              class="btn btn-xs btn-primary"
+              title="Open this episode's current Scene Review settings and safely finish only images still missing."
+            >
+              Finish missing images
+            </NuxtLink>
             <button
-              v-if="(job.status === 'error' || job.status === 'cancelled') && job.params?.auto_repair_missing_prompts !== true"
+              v-if="(job.status === 'error' || job.status === 'cancelled') && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
               class="btn btn-xs btn-secondary"
               :disabled="controlBusy.has(job.job_id)"
               @click="retryJob(job)"
@@ -790,8 +816,16 @@
                 title="PAID AUTO REPAIR — Keeps every verified prompt and submits each missing or duplicated scene alone. Continues only while verified progress improves. Pause stops new requests after any accepted request settles. GenStudio credits may be charged."
                 @click="autoRepairScenePrompts(job)"
               >{{ controlBusy.has(job.job_id) ? 'Starting…' : 'Auto repair prompts · credits' }}</button>
+              <NuxtLink
+                v-if="isTerminalContinuityRender(job)"
+                :to="`/projects/${jobProjectSlug(job)}/scene-review?episode_id=${encodeURIComponent(job.episode_id)}`"
+                class="btn btn-xs btn-primary"
+                title="Open this episode's current Scene Review settings and safely finish only images still missing."
+              >
+                Finish missing images
+              </NuxtLink>
               <button
-                v-if="(job.status === 'error' || job.status === 'cancelled') && job.params?.auto_repair_missing_prompts !== true"
+                v-if="(job.status === 'error' || job.status === 'cancelled') && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
                 class="btn btn-xs btn-secondary"
                 :disabled="controlBusy.has(job.job_id)"
                 @click="retryJob(job)"
@@ -1631,10 +1665,25 @@ async function repairAllFailed() {
 // grey-out until a repair has run (wrong for the 32 job types that have no
 // repair path at all, subtitles among them).
 const retryingAllFailed = ref(false)
+function isManualFinishContinuityRender(job: RJob): boolean {
+  return isTerminalContinuityRender(job)
+    && !!job.params?.manual_image_finish
+}
+function isTerminalContinuityRender(job: RJob): boolean {
+  return job.type === 'continuity_render'
+    && !!job.episode_id
+    && !['queued', 'running', 'paused'].includes(job.status)
+}
+const manualFinishRetryWithheld = computed(() =>
+  jobs.value.filter((job: RJob) =>
+    (job.status === 'error' || job.status === 'cancelled')
+    && isManualFinishContinuityRender(job)),
+)
 const failedJobsForRetryAll = computed(() =>
   jobs.value.filter((j: RJob) =>
     (j.status === 'error' || j.status === 'cancelled')
-    && j.params?.auto_repair_missing_prompts !== true)
+    && j.params?.auto_repair_missing_prompts !== true
+    && !isManualFinishContinuityRender(j))
 )
 const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
   failedJobsForRetryAll.value as RJob[],

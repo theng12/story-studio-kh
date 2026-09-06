@@ -23,7 +23,8 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { createHash } from 'crypto'
-import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { withCrossProcessLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import { clearImageValidationCache, isDecodableImage } from '../lib/image-validation.js'
 
 const FILENAME = '.task-manifest.json'
 
@@ -110,6 +111,8 @@ export interface TaskManifestEntry {
   replacement_quoted_credits?: number
   replacement_price_version?: string
   replacement_committed_at?: string
+  /** Full identities displaced only by an explicit customer replacement. */
+  superseded_image_requests?: ImageRequestIdentityEvidence[]
   /**
    * Whether this transcription was REQUESTED with per-word timestamps.
    *
@@ -120,6 +123,17 @@ export interface TaskManifestEntry {
    * being an unexplained quality gap between two episodes in one project.
    */
   word_timestamps?: boolean
+}
+
+export interface ImageRequestIdentityEvidence {
+  provider: string
+  task_id: string
+  submitted_at: string
+  input_hash?: string
+  idempotency_key?: string
+  operation?: 'image'
+  last_state?: string
+  request_scope?: string
 }
 
 export interface Manifest {
@@ -174,6 +188,32 @@ function samePaidImageOriginal(left: TaskManifestEntry, right: TaskManifestEntry
     && JSON.stringify(left.original_reference_inputs) === JSON.stringify(right.original_reference_inputs)
 }
 
+function sameImageAttempt(
+  left: TaskManifestEntry | undefined,
+  right: TaskManifestEntry | null,
+): boolean {
+  if (!right) return !left
+  return Boolean(left)
+    && left!.provider === right.provider
+    && left!.input_hash === right.input_hash
+    && left!.idempotency_key === right.idempotency_key
+    && left!.request_scope === right.request_scope
+    && (Boolean(right.idempotency_key) || left!.task_id === right.task_id)
+}
+
+function mergeSupersededImageRequests(
+  previous: ImageRequestIdentityEvidence[] | undefined,
+  next: ImageRequestIdentityEvidence[] | undefined,
+): ImageRequestIdentityEvidence[] | undefined {
+  const merged = [...(previous || []), ...(next || [])]
+  if (!merged.length) return undefined
+  return merged.filter((entry, index) => merged.findIndex(candidate =>
+    candidate.task_id === entry.task_id
+    && candidate.idempotency_key === entry.idempotency_key
+    && candidate.request_scope === entry.request_scope,
+  ) === index)
+}
+
 /**
  * Per-assetDir write chain. Parallel workers (audio chunks, image variants,
  * video clips) all call recordTask concurrently for *different* filenames
@@ -224,10 +264,15 @@ async function writeTaskEntry(
         throw new Error('task manifest subtitle original identity changed before paid commitment')
       }
     }
+    const superseded = mergeSupersededImageRequests(
+      latest?.superseded_image_requests,
+      entry.superseded_image_requests,
+    )
     m.tasks[filename] = {
       ...entry,
       ...(latest?.subtitle_originals || entry.subtitle_originals
         ? { subtitle_originals: { ...entry.subtitle_originals, ...originals } } : {}),
+      ...(superseded ? { superseded_image_requests: superseded } : {}),
     }
     await writeJsonAtomic(manifestPath(assetDir), m)
   })
@@ -277,6 +322,69 @@ export async function recordTaskStrict(
   await writeTaskEntry(assetDir, filename, entry, true)
 }
 
+/** Claim one scene image identity under the same durable lock used to promote it. */
+export async function compareAndRecordImageTaskStrict(
+  assetDir: string,
+  filename: string,
+  expected: TaskManifestEntry | null,
+  next: TaskManifestEntry,
+): Promise<void> {
+  await withCrossProcessLock(manifestPath(assetDir), async () => {
+    const manifest = await readManifestStrict(assetDir).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { schema_version: 1 as const, tasks: {} } as Manifest
+      throw error
+    })
+    if (!sameImageAttempt(manifest.tasks[filename], expected)) {
+      throw new Error('Scene image ownership changed before the request could be recorded.')
+    }
+    await recordTaskStrict(assetDir, filename, next)
+  })
+}
+
+/** Claim a manual missing-image request only if no completed output won first. */
+export async function claimMissingImageTaskStrict(
+  assetDir: string,
+  filename: string,
+  outputPath: string,
+  expected: TaskManifestEntry | null,
+  next: TaskManifestEntry,
+): Promise<boolean> {
+  return withCrossProcessLock(manifestPath(assetDir), async () => {
+    const manifest = await readManifestStrict(assetDir).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { schema_version: 1 as const, tasks: {} } as Manifest
+      throw error
+    })
+    if (!sameImageAttempt(manifest.tasks[filename], expected)) {
+      throw new Error('Scene image ownership changed before the request could be recorded.')
+    }
+    if (await isDecodableImage(outputPath)) return false
+    await recordTaskStrict(assetDir, filename, next)
+    return true
+  })
+}
+
+/** Promote and checkpoint only while this exact request still owns the manifest row. */
+export async function promoteCurrentImageTaskArtifactStrict(
+  assetDir: string,
+  filename: string,
+  expected: TaskManifestEntry,
+  stagingPath: string,
+  outputPath: string,
+  checkpoint: () => Promise<void>,
+): Promise<boolean> {
+  return withCrossProcessLock(manifestPath(assetDir), async () => {
+    const current = (await readManifestStrict(assetDir)).tasks[filename]
+    if (!sameImageAttempt(current, expected)) {
+      await fs.rm(stagingPath, { force: true }).catch(() => {})
+      return false
+    }
+    await fs.rename(stagingPath, outputPath)
+    clearImageValidationCache(outputPath)
+    await checkpoint()
+    return true
+  })
+}
+
 /**
  * Merge only paid commitment fields into the latest strict sidecar entry.
  * The persisted original identity must still equal the entry the decision
@@ -287,30 +395,32 @@ export async function recordPaidImageReplacementStrict(
   filename: string,
   expected: TaskManifestEntry,
 ): Promise<void> {
-  const key = path.resolve(assetDir)
-  const previous = writeChains.get(key) ?? Promise.resolve()
-  const operation = previous.then(async () => {
-    const manifest = await readManifestStrict(assetDir)
-    const latest = manifest.tasks[filename]
-    if (!latest || !samePaidImageOriginal(latest, expected)) {
-      throw new Error('task manifest original identity changed before paid commitment')
-    }
-    manifest.tasks[filename] = {
-      ...latest,
-      replacement_of_task_id: expected.replacement_of_task_id,
-      replacement_scope: expected.replacement_scope,
-      replacement_quoted_credits: expected.replacement_quoted_credits,
-      replacement_price_version: expected.replacement_price_version,
-      replacement_committed_at: expected.replacement_committed_at,
-    }
-    await writeJsonAtomic(manifestPath(assetDir), manifest)
+  await withCrossProcessLock(manifestPath(assetDir), async () => {
+    const key = path.resolve(assetDir)
+    const previous = writeChains.get(key) ?? Promise.resolve()
+    const operation = previous.then(async () => {
+      const manifest = await readManifestStrict(assetDir)
+      const latest = manifest.tasks[filename]
+      if (!latest || !samePaidImageOriginal(latest, expected)) {
+        throw new Error('task manifest original identity changed before paid commitment')
+      }
+      manifest.tasks[filename] = {
+        ...latest,
+        replacement_of_task_id: expected.replacement_of_task_id,
+        replacement_scope: expected.replacement_scope,
+        replacement_quoted_credits: expected.replacement_quoted_credits,
+        replacement_price_version: expected.replacement_price_version,
+        replacement_committed_at: expected.replacement_committed_at,
+      }
+      await writeJsonAtomic(manifestPath(assetDir), manifest)
+    })
+    const tail = operation.catch(() => {})
+    writeChains.set(key, tail)
+    void tail.finally(() => {
+      if (writeChains.get(key) === tail) writeChains.delete(key)
+    })
+    await operation
   })
-  const tail = operation.catch(() => {})
-  writeChains.set(key, tail)
-  void tail.finally(() => {
-    if (writeChains.get(key) === tail) writeChains.delete(key)
-  })
-  await operation
 }
 
 export function getTaskEntry(manifest: Manifest, filename: string): TaskManifestEntry | null {

@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.115 — 2026-09-06
+
+- **Scene Review can now finish only the images still missing.** One explicit action checks saved GenStudio results first, preserves every complete image, and uses the current validated model settings for genuinely fresh work when no result exists or the earlier job is known to have failed.
+- **Uncertain earlier requests stay fail-closed.** Story Studio identifies accepted work that is still generating and makes no duplicate request; when the outcome cannot be confirmed, a separate **Replace anyway** confirmation explains that another image and charge are possible, retains the old request evidence, and prevents a late old result from replacing the chosen output.
+- **Failed Scene image batches return to the same safe workflow.** Jobs links the episode back to Scene Review instead of retrying with a historical selector, and repeated Finish or Replace requests reuse their durable action identity.
+
 ## v1.4.114 — 2026-09-06
 
 - **Generated introductions now begin with the words the narrator should speak.** Story Studio asks the model for narration without a heading, preface, or divider and removes a recognized introduction preface only when it is immediately followed by the model's divider; similar spoken prose without that divider stays unchanged.

@@ -77,6 +77,144 @@ test('explicit cancelled source selection owns settings even beside a newer unre
   assert.equal(plan.steps.subtitle_sections?.params.force, false)
 })
 
+test('episode recovery directs a manual image Finish back to current Scene Review settings', async () => {
+  const temp = await useTempDataDir()
+  try {
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Manual image Finish recovery boundary' })
+    const manual = { ...source('continuity_render', {
+      model: 'historical-model',
+      manual_image_finish: { action_id: 'manual-action', replace_uncertain: false },
+    }), project_slug: project.slug }
+    const plan = createEpisodeRecoveryPlan([manual])
+    manual.job_id = plan.steps.continuity_render!.job_id
+    await dispatchEpisodeRecoveryStep(plan, {
+      verified: { ...ready, continuity_render: false }, message: 'Images are incomplete',
+    }, [manual], [manual.job_id])
+    assert.equal(manual.status, 'error')
+    assert.match(plan.message, /Open Scene Review.*current model settings/i)
+  } finally {
+    await temp.cleanup()
+  }
+})
+
+test('a terminal manual image Finish source cannot mint a recovery queue identity', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const { router } = await import('../routes/jobs.js')
+    const project = await pm.createProject({ name: 'Manual image Finish retry boundary' })
+    await jq.setQueuePaused(true)
+    const manual = { ...source('continuity_render', {
+      model: 'historical-model',
+      manual_image_finish: { action_id: 'manual-action', replace_uncertain: false },
+    }), job_id: 'terminal-manual-finish', project_slug: project.slug }
+    await jq.writeAuthoritativeJob(manual)
+    await jq.getJobs(project.slug)
+    const app = express().use(express.json()).use(router)
+
+    const response = await request(app)
+      .post(`/projects/${project.slug}/jobs/${manual.job_id}/retry`)
+      .send({})
+
+    assert.equal(response.status, 202, JSON.stringify(response.body))
+    assert.match(response.body.plan.message, /Open Scene Review.*current model settings/i)
+    assert.equal(response.body.plan.steps.continuity_render.manual_image_finish_withheld, true)
+    assert.equal(response.body.plan.steps.continuity_render.params.manual_image_finish, undefined)
+    assert.deepEqual((await jq.getJobs(project.slug)).map(job => job.job_id), [manual.job_id])
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('a restored recovery plan with copied manual authority is fenced before dispatch or resume', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Restored manual image recovery boundary' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, recoverEpisode } = await subject()
+    const manual = { ...source('continuity_render', {
+      manual_image_finish: { action_id: 'original-manual-action', replace_uncertain: false },
+    }), job_id: 'restored-manual-source', project_slug: project.slug }
+    await jq.writeAuthoritativeJob(manual)
+    await jq.getJobs(project.slug)
+    const plan = JSON.parse(JSON.stringify(createEpisodeRecoveryPlan([
+      manual,
+    ])))
+    delete plan.steps.continuity_render.manual_image_finish_withheld
+    plan.steps.continuity_render.params.manual_image_finish = {
+      action_id: 'copied-by-old-plan', replace_uncertain: false,
+    }
+    await fs.writeFile(path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json'), JSON.stringify({
+      version: 1, plans: { EP0001: plan },
+    }))
+
+    const restored = (await recoverEpisode(project.slug, 'EP0001', true, [manual.job_id]))!
+
+    assert.match(restored.message, /Open Scene Review.*current model settings/i)
+    assert.equal(restored.steps.continuity_render?.manual_image_finish_withheld, true)
+    assert.equal(restored.steps.continuity_render?.params.manual_image_finish, undefined)
+    const saved = JSON.parse(await fs.readFile(path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json'), 'utf8'))
+    assert.equal(saved.plans.EP0001.steps.continuity_render.manual_image_finish_withheld, true)
+    assert.equal(saved.plans.EP0001.steps.continuity_render.params.manual_image_finish, undefined)
+    assert.deepEqual((await jq.getJobs(project.slug)).map(job => job.job_id), [manual.job_id])
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('a restored continuation cannot dispatch copied manual image authority', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Restored manual continuation boundary' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const plan = createEpisodeRecoveryPlan([{ ...source('scene_plan_run'), project_slug: project.slug }])
+    plan.continuation = [
+      { type: 'metadata', params: { model: 'saved-metadata-model' } },
+      { type: 'continuity_render', params: {
+        manual_image_finish: { action_id: 'copied-continuation', replace_uncertain: true },
+      } },
+    ]
+
+    await dispatchEpisodeRecoveryStep(plan, { verified: ready, message: 'Complete' }, [])
+
+    assert.match(plan.message, /Open Scene Review.*current model settings/i)
+    assert.equal(plan.continuation[1].manual_image_finish_withheld, true)
+    assert.equal(plan.continuation[1].params?.manual_image_finish, undefined)
+    assert.deepEqual(await jq.getJobs(project.slug), [])
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('mixed episode recovery advances ordinary prerequisites but stops at manual image Finish', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Mixed manual image recovery boundary' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const plan = createEpisodeRecoveryPlan([
+      { ...source('scene_plan_run'), project_slug: project.slug },
+      { ...source('continuity_render', {
+        manual_image_finish: { action_id: 'withheld-after-plan', replace_uncertain: false },
+      }), project_slug: project.slug },
+    ])
+    const facts = { verified: { ...ready, scene_plan_run: false, continuity_render: false }, message: 'Incomplete' }
+
+    await dispatchEpisodeRecoveryStep(plan, facts, [])
+    assert.deepEqual((await jq.getJobs(project.slug)).map(job => job.type), ['scene_plan_run'])
+    await jq.mutateAuthoritativeJob(project.slug, plan.steps.scene_plan_run!.job_id, job => ({ ...job, status: 'done' }))
+    facts.verified.scene_plan_run = true
+    await dispatchEpisodeRecoveryStep(plan, facts, await jq.getJobs(project.slug))
+
+    assert.match(plan.message, /Open Scene Review.*current model settings/i)
+    assert.equal((await jq.getJobs(project.slug)).some(job => job.type === 'continuity_render'), false)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
 test('pipeline continuation is captured without creating a competing downstream chain', async () => {
   const { createEpisodeRecoveryPlan } = await subject()
   const plan = createEpisodeRecoveryPlan([source('subtitles_transcribe', {

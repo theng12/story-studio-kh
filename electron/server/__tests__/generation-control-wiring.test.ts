@@ -13,6 +13,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import request from 'supertest'
+import sharp from 'sharp'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
@@ -62,6 +63,19 @@ async function writeScenePrerequisites(paths: { scene_prompts_dir: string; subti
   await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
     scenes: [{ id: 'scene-001', scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' }],
   }))
+  await fs.mkdir(paths.subtitles_dir, { recursive: true })
+  const stitched = path.join(paths.subtitles_dir, `${episodeId}_stitched.srt`)
+  await fs.writeFile(stitched, '1\n00:00:00,000 --> 00:00:01,000\nTest\n')
+  await fs.writeFile(`${stitched}.json`, JSON.stringify({ complete: true, sections: [] }))
+}
+
+async function writeFinishScenePrerequisites(
+  paths: { scene_prompts_dir: string; subtitles_dir: string },
+  episodeId: string,
+  scenes: Array<{ id: string; scene_index: number; visual_prompt: string }>,
+): Promise<void> {
+  await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({ scenes }))
   await fs.mkdir(paths.subtitles_dir, { recursive: true })
   const stitched = path.join(paths.subtitles_dir, `${episodeId}_stitched.srt`)
   await fs.writeFile(stitched, '1\n00:00:00,000 --> 00:00:01,000\nTest\n')
@@ -257,6 +271,154 @@ test('the scene clip route persists the selected published variant on the queued
   } finally {
     restoreVideoCatalog?.()
     await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('Finish missing derives the exact decodable target set and replays one action identity', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  let queuedJobId = ''
+  try {
+    await jq.setQueuePaused(true)
+    const app = (await import('../app.js')).app
+    const { project, episodeId, paths } = await createEpisode('Finish exact missing targets')
+    await writeFinishScenePrerequisites(paths, episodeId, [
+      { id: 'scene-valid', scene_index: 1, visual_prompt: '' },
+      { id: 'scene-corrupt', scene_index: 2, visual_prompt: 'Repair the corrupt saved image.' },
+      { id: 'scene-missing', scene_index: 3, visual_prompt: 'Generate the missing saved image.' },
+    ])
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const imageDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(imageDir, { recursive: true })
+    await sharp({ create: { width: 2, height: 2, channels: 3, background: '#ffffff' } })
+      .png()
+      .toFile(path.join(imageDir, 'scene-valid.png'))
+    await fs.writeFile(path.join(imageDir, 'scene-corrupt.png'), 'not an image')
+
+    const readiness = await request(app)
+      .get(`/api/projects/${project.slug}/scene-review/${episodeId}`)
+      .expect(200)
+    assert.equal(readiness.body.stats.with_image, 1)
+    assert.equal(readiness.body.scenes.find((scene: any) => scene.id === 'scene-corrupt').image_filename, null)
+
+    const url = `/api/projects/${project.slug}/scene-review/${episodeId}/finish-missing`
+    const actionId = '11111111-1111-4111-8111-111111111111'
+    const body = {
+      action_id: actionId,
+      model: 'mock-image-v1',
+      aspect_ratio: '16:9',
+      resolution: '1K',
+      scene_ids: ['scene-valid', 'client-invented-scene'],
+    }
+    const first = await request(app).post(url).send(body).expect(200)
+    queuedJobId = first.body.job_id
+    assert.deepEqual(first.body.queued_scene_ids, ['scene-corrupt', 'scene-missing'])
+    assert.equal(first.body.queued, 2)
+    assert.ok(queuedJobId)
+
+    const internal = jq.getJob(queuedJobId)!
+    assert.deepEqual(internal.params.scene_ids, ['scene-corrupt', 'scene-missing'])
+    assert.equal(internal.params.missing_only, true)
+    assert.equal(internal.params.manual_image_finish.action_id, actionId)
+
+    const replay = await request(app).post(url).send(body).expect(200)
+    assert.equal(replay.body.reused, true)
+    assert.equal(replay.body.job_id, queuedJobId)
+    assert.equal((await jq.getJobs(project.slug)).filter(job =>
+      job.params?.manual_image_finish?.action_id === actionId).length, 1)
+
+    await request(app).post(url).send({ ...body, model: 'another-model' }).expect(409)
+  } finally {
+    if (queuedJobId) await jq.requestJobCancellation(jq.getJob(queuedJobId)!.project_slug, queuedJobId).catch(() => {})
+    await jq.setQueuePaused(false)
+    await temp.cleanup()
+  }
+})
+
+test('Replace uncertain hydrates the private durable identity receipt after a cold project load', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  let queuedJobId = ''
+  try {
+    await jq.setQueuePaused(true)
+    const app = (await import('../app.js')).app
+    const { project, episodeId, paths } = await createEpisode('Replace cold durable receipt')
+    await writeFinishScenePrerequisites(paths, episodeId, [
+      { id: 'scene-uncertain', scene_index: 1, visual_prompt: 'Replace only after exact confirmation.' },
+    ])
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { imageManifestIdentityHash } = await import('../lib/manifest-recovery.js')
+    const imageDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(imageDir, { recursive: true })
+    const uncertainEntry = {
+      provider: 'genstudio-image',
+      task_id: '',
+      submitted_at: '2026-09-06T00:00:00.000Z',
+      input_hash: 'old-input',
+      idempotency_key: 'story-image-old-uncertain',
+      operation: 'image' as const,
+      last_state: 'prepared',
+      request_scope: 'old-scope',
+    }
+    await fs.writeFile(path.join(imageDir, '.task-manifest.json'), JSON.stringify({
+      schema_version: 1,
+      tasks: { 'scene-uncertain.png': uncertainEntry },
+    }))
+    const sourceJobId = 'cold-finish-source'
+    const jobsPath = path.join(temp.dir, 'projects', project.slug, 'jobs.json')
+    await fs.writeFile(jobsPath, JSON.stringify({ jobs: [{
+      job_id: sourceJobId,
+      project_slug: project.slug,
+      type: 'continuity_render',
+      episode_id: episodeId,
+      title: 'Finish missing images',
+      status: 'error',
+      created_at: '2026-09-06T00:00:00.000Z',
+      started_at: '2026-09-06T00:00:00.000Z',
+      finished_at: '2026-09-06T00:01:00.000Z',
+      error: 'Earlier outcome uncertain',
+      output_lines: [],
+      params: {
+        episode_id: episodeId,
+        model: 'mock-image-v1',
+        scene_ids: ['scene-uncertain'],
+        manual_image_finish: {
+          action_id: '22222222-2222-4222-8222-222222222222',
+          replace_uncertain: false,
+          uncertain_scene_ids: ['scene-uncertain'],
+          uncertain_identity_hashes: { 'scene-uncertain': imageManifestIdentityHash(uncertainEntry) },
+        },
+      },
+    }] }))
+
+    const response = await request(app)
+      .post(`/api/projects/${project.slug}/scene-review/${episodeId}/replace-uncertain`)
+      .send({
+        action_id: '33333333-3333-4333-8333-333333333333',
+        source_job_id: sourceJobId,
+        model: 'mock-image-v1',
+        aspect_ratio: '16:9',
+        resolution: '1K',
+      })
+      .expect(200)
+    queuedJobId = response.body.job_id
+    const internal = jq.getJob(queuedJobId)!
+    assert.equal(internal.params.manual_image_finish.source_job_id, sourceJobId)
+    assert.equal(
+      internal.params.manual_image_finish.expected_uncertain_identity_hashes['scene-uncertain'],
+      imageManifestIdentityHash(uncertainEntry),
+    )
+    assert.equal(jq.getPublicJob(sourceJobId)?.params.manual_image_finish.uncertain_identity_hashes, undefined)
+    const persisted = JSON.parse(await fs.readFile(jobsPath, 'utf8'))
+    assert.equal(
+      persisted.jobs.find((job: any) => job.job_id === sourceJobId)
+        .params.manual_image_finish.uncertain_identity_hashes['scene-uncertain'],
+      imageManifestIdentityHash(uncertainEntry),
+    )
+  } finally {
+    if (queuedJobId) await jq.requestJobCancellation(jq.getJob(queuedJobId)!.project_slug, queuedJobId).catch(() => {})
+    await jq.setQueuePaused(false)
     await temp.cleanup()
   }
 })
@@ -714,7 +876,8 @@ test('static mutation tripwires keep queue-producer wiring intact', () => {
 
   assert.match(sceneImage, /isCancelled:\s*\(\)\s*=>\s*jq\.isCancelled\(job\.job_id\)/)
   assert.match(sceneImage, /onJobAccepted:\s*async\s*\(taskId,\s*\w+IdempotencyKey\)/)
-  assert.match(sceneImage, /recordTaskStrict\(outDir,\s*`\$\{scene_id\}\.png`/)
+  assert.match(sceneImage, /compareAndRecordImageTaskStrict\(outDir,\s*filename,\s*previousOwner,\s*preparedOwner\)/)
+  assert.match(sceneImage, /promoteCurrentImageTaskArtifactStrict\(/)
   assert.match(sceneImage, /operation:\s*'image'/)
   assert.match(sceneImage, /last_state:\s*'accepted'/)
 

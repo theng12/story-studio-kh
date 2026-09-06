@@ -12,12 +12,19 @@ import { createHash } from 'crypto'
 import path from 'path'
 import { FITTED_REFERENCE_DIRNAME, fitReferenceImage } from '../lib/reference-image-fit.js'
 import { registry } from '../providers/registry.js'
-import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { stageGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { recordTask, recordTaskStrict, hashInput, readManifest, type TaskManifestEntry } from '../services/task-manifest.js'
+import {
+  compareAndRecordImageTaskStrict,
+  claimMissingImageTaskStrict,
+  hashInput,
+  promoteCurrentImageTaskArtifactStrict,
+  readManifest,
+  type TaskManifestEntry,
+} from '../services/task-manifest.js'
 import { getCharacter } from '../services/character-manager.js'
 import { resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ScenePlan, ScenePlanEntry } from '../models/types.js'
@@ -30,7 +37,9 @@ import { selectSceneImageBatch } from '../services/scene-image-batch-selection.j
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import {
+  imageManifestIdentityHash,
   isTerminalGenStudioImageTaskFailure,
+  resolveManualImageReplacement,
   resolveImageRetryScope,
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
@@ -77,6 +86,16 @@ interface ContinuityRenderParams {
   height?: number
   /** Optional reproducible seed. */
   seed?: number
+  /** Server-stamped authority for one explicit recovery-first customer action. */
+  manual_image_finish?: {
+    action_id: string
+    replace_uncertain: boolean
+    source_job_id?: string
+    uncertain_scene_ids?: string[]
+    uncertain_identity_hashes?: Record<string, string>
+    expected_uncertain_identity_hashes?: Record<string, string>
+    still_generating_scene_ids?: string[]
+  }
 }
 
 export function shouldPauseContinuityForStall(state: {
@@ -261,6 +280,7 @@ export async function resolveContinuityRenderOutputDir(
 
 export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorResult> {
   const params = job.params as ContinuityRenderParams
+  const manualFinish = params.manual_image_finish
   const { episode_id, model } = params
   if (!episode_id) throw new Error('episode_id is required')
   if (!model) throw new Error('model is required')
@@ -738,11 +758,14 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
             let attemptPaidSelector: PaidImageOutputSelector | null = null
             let attemptBaseScope = ''
             let attemptPaidOwningRoot = ''
+            let attemptOwner: TaskManifestEntry | null = savedEntry
             try {
               // The base scope names the deliberate user action. A force re-render
               // owns a fresh one; an ordinary resume/repair deliberately reuses
               // 'missing' so a still-usable saved job is reclaimed for free.
-              const baseScope = force
+              const baseScope = manualFinish
+                ? `manual-finish:${manualFinish.action_id}`
+                : force
                 ? (params.render_attempt_id || job.job_id)
                 : 'missing'
               attemptBaseScope = baseScope
@@ -760,8 +783,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 && (!durablePermission || !submittedRecoveryCandidate.idempotency_key)
                 ? submittedRecoveryCandidate
                 : null
-              const useFrozenOriginal = !!durablePermission || !!submittedRecoveryEntry || !!(manifestEntry?.original_output_selector
+              const useFrozenOriginal = !manualFinish && (!!durablePermission || !!submittedRecoveryEntry || !!(manifestEntry?.original_output_selector
                 && isTerminalGenStudioImageTaskFailure(manifestEntry))
+              )
               const originalSelector = (useFrozenOriginal ? manifestEntry?.original_output_selector : null) || (paidSelector ? {
                 ...paidSelector,
                 reference_mode: sref.referenceImagePaths.length ? 'reference-guided' as const : 'normal' as const,
@@ -776,7 +800,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   )
                 : null
               let replacementScope = durablePermission?.replacement_scope || ''
-              if (!replacementScope && !submittedRecoveryEntry && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
+              if (!manualFinish && !replacementScope && !submittedRecoveryEntry && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
                 && manifestEntry.original_output_selector) {
                 const decision = await decidePaidImageReplacement({
                   job,
@@ -819,29 +843,77 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 : null
               let requestScope = replacementScope || (submittedRecoveryEntry ? manifestEntry!.replacement_scope! : '') || identity?.requestScope || logicalScope
               const expectedInputHash = identity?.inputHash || hashRequest(requestScope)
+              let manualSupersession = manualFinish && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
+                ? resolveManualImageReplacement(manifestEntry, manualFinish.action_id)
+                : null
               // Reconnect ONLY to a saved job that belongs to this exact request
               // AND has not already settled. Hash equality alone once let a
               // six-day-old failed job satisfy every future Retry.
               const hashMatches = manifestEntry?.input_hash === expectedInputHash
+              const hasDurableSavedIdentity = Boolean(manifestEntry?.task_id || manifestEntry?.idempotency_key)
               const recoverable = submittedRecoveryEntry || (
-                !replacementScope && hashMatches && !isTerminalGenStudioImageTaskFailure(manifestEntry)
+                !replacementScope && !isTerminalGenStudioImageTaskFailure(manifestEntry)
+                  && (manualFinish ? hasDurableSavedIdentity : hashMatches)
                   ? manifestEntry
                   : null
               )
-              const recovery = await tryRecoverImageFromManifestEntry(
+              let recovery = await tryRecoverImageFromManifestEntry(
                 recoverable,
                 apiKey,
                 modelConfig,
                 () => jq.isCancelled(job.job_id),
+                { observeCurrentState: Boolean(manualFinish) },
               )
+              if (recovery.kind === 'still-generating') {
+                if (manualFinish) {
+                  manualFinish.still_generating_scene_ids = [...new Set([
+                    ...(manualFinish.still_generating_scene_ids || []), scene.id,
+                  ])]
+                  await jq.checkpointJobState(job)
+                }
+                job.output_lines.push(
+                  `Scene ${scene.scene_index}: earlier GenStudio task is still generating; rejoining it without a new request.`,
+                )
+                try {
+                  recovery = await tryRecoverImageFromManifestEntry(
+                    recoverable,
+                    apiKey,
+                    modelConfig,
+                    () => jq.isCancelled(job.job_id),
+                  )
+                } finally {
+                  if (manualFinish) {
+                    manualFinish.still_generating_scene_ids = (manualFinish.still_generating_scene_ids || [])
+                      .filter(sceneId => sceneId !== scene.id)
+                    await jq.checkpointJobState(job)
+                  }
+                }
+              }
               if (recovery.kind === 'uncertain') {
                 // Never turn "I could not confirm the outcome" into a second paid
                 // submission. Fail this scene; Retry reconnects to the same job.
                 if (submittedRecoveryEntry) throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
-                throw new Error(
-                  `Could not confirm GenStudio task ${recovery.taskId.slice(0, 12)}… (${recovery.reason}). ` +
-                  'No duplicate image was submitted; Retry reconnects to the same job.',
-                )
+                if (manualFinish?.replace_uncertain && manifestEntry) {
+                  if (manualFinish.expected_uncertain_identity_hashes?.[scene.id] !== imageManifestIdentityHash(manifestEntry)) {
+                    throw new Error('The uncertain image request changed after confirmation. Check saved results again.')
+                  }
+                  manualSupersession = resolveManualImageReplacement(manifestEntry, manualFinish.action_id)
+                } else {
+                  if (manualFinish) {
+                    manualFinish.uncertain_scene_ids = [...new Set([
+                      ...(manualFinish.uncertain_scene_ids || []), scene.id,
+                    ])]
+                    manualFinish.uncertain_identity_hashes = {
+                      ...(manualFinish.uncertain_identity_hashes || {}),
+                      [scene.id]: imageManifestIdentityHash(manifestEntry!),
+                    }
+                    await jq.checkpointJobState(job)
+                  }
+                  throw new Error(
+                    `Could not confirm the earlier GenStudio request (${recovery.reason}). ` +
+                    'No duplicate image was submitted; Scene Review can offer Replace anyway.',
+                  )
+                }
               }
               let carried: TaskManifestEntry | null = manifestEntry
               if (recovery.kind === 'terminal-failed' || recovery.kind === 'artifact-unavailable') {
@@ -861,8 +933,10 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 // outcome FIRST, then promote to a fresh identity from it, so the
                 // same retry scope is reproducible after a crash.
                 carried = terminalImageManifestEntry(manifestEntry!, recovery)
-                await recordTaskStrict(outDir, filename, carried)
-                if (originalSelector && carried.idempotency_key) {
+                await compareAndRecordImageTaskStrict(outDir, filename, manifestEntry, carried)
+                savedEntry = carried
+                attemptOwner = carried
+                if (!manualFinish && originalSelector && carried.idempotency_key) {
                   const decision = await decidePaidImageReplacement({
                     job,
                     asset: {
@@ -895,6 +969,16 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   `(${recovery.kind === 'artifact-unavailable' ? 'artifact expired' : 'failed'}); ` +
                   'submitting one fresh job under a new retry identity.',
                 )
+                if (manualFinish) {
+                  manualSupersession = resolveManualImageReplacement(carried, manualFinish.action_id)
+                }
+              }
+              if (manualSupersession) {
+                logicalScope = manualSupersession.scope
+                identity = originalSelector && capturedReferences
+                  ? buildPaidImageOriginalIdentity({ prompt: finalPrompt, selector: originalSelector, references: capturedReferences.inputs, baseScope: logicalScope })
+                  : null
+                requestScope = identity?.requestScope || logicalScope
               }
               const inputHash = replacementScope || submittedRecoveryEntry
                 ? manifestEntry!.input_hash!
@@ -934,28 +1018,29 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               } : {}
               attemptOriginalFields = originalFields
               isPaidReplacement = !!replacementScope || !!submittedRecoveryEntry
+              let currentOwner: TaskManifestEntry | null = carried
 
               let result: { urls: string[]; taskId?: string; settledCredits?: number }
               if (recovery.kind === 'recovered') {
                 result = { urls: recovery.urls, taskId: recovery.taskId }
                 if (!submittedRecoveryEntry) {
-                  await recordTask(outDir, filename, {
+                  const recoveredOwner: TaskManifestEntry = {
                     ...manifestEntry,
                     provider: providerId,
                     task_id: recovery.taskId,
-                    submitted_at: submittedAt,
-                    input_hash: inputHash,
-                    request_scope: requestScope,
                     operation: 'image',
                     last_state: 'succeeded',
-                  })
+                  }
+                  await compareAndRecordImageTaskStrict(outDir, filename, manifestEntry, recoveredOwner)
+                  currentOwner = recoveredOwner
+                  attemptOwner = recoveredOwner
                 }
               } else {
                 // Persist the request identity BEFORE the POST. If the response is
                 // lost, the next attempt reads this scope back, rebuilds the same
                 // idempotency key, and re-attaches instead of paying twice.
                 if (!replacementScope) {
-                  await recordTaskStrict(outDir, filename, {
+                  const preparedOwner: TaskManifestEntry = {
                     provider: providerId,
                     task_id: '',
                     submitted_at: submittedAt,
@@ -965,7 +1050,21 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     operation: 'image',
                     last_state: 'prepared',
                     ...originalFields,
-                  })
+                    ...(manualSupersession ? { superseded_image_requests: [manualSupersession.superseded] } : {}),
+                  }
+                  let claimed = true
+                  if (manualFinish) {
+                    claimed = await claimMissingImageTaskStrict(outDir, filename, outPath, carried, preparedOwner)
+                  } else {
+                    await compareAndRecordImageTaskStrict(outDir, filename, carried, preparedOwner)
+                  }
+                  if (!claimed) {
+                    successfulSceneIds.add(scene.id)
+                    usableRenderedIds.add(scene.id)
+                    break
+                  }
+                  currentOwner = preparedOwner
+                  attemptOwner = preparedOwner
                   await checkpointGenStudioAsset(job, filename, {
                     operation: 'image', idempotency_key: preparedKey,
                     output_path: outPath, input_hash: inputHash, state: 'prepared',
@@ -1012,7 +1111,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                         throw new Error('Paid image replacement replay returned a different provider task.')
                       }
                     } else {
-                      await recordTaskStrict(outDir, filename, {
+                      const acceptedOwner: TaskManifestEntry = {
                         provider: providerId,
                         task_id: taskId,
                         submitted_at: submittedAt,
@@ -1022,7 +1121,11 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                         operation: 'image',
                         last_state: 'accepted',
                         ...originalFields,
-                      })
+                        ...(manualSupersession ? { superseded_image_requests: [manualSupersession.superseded] } : {}),
+                      }
+                      await compareAndRecordImageTaskStrict(outDir, filename, currentOwner, acceptedOwner)
+                      currentOwner = acceptedOwner
+                      attemptOwner = acceptedOwner
                     }
                     await checkpointGenStudioAsset(job, filename, {
                       operation: 'image',
@@ -1040,7 +1143,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   },
                 })
                 if (result.taskId && !replacementScope) {
-                  await recordTask(outDir, filename, {
+                  const succeededOwner: TaskManifestEntry = {
                     provider: providerId,
                     task_id: result.taskId,
                     submitted_at: submittedAt,
@@ -1050,12 +1153,29 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     operation: 'image',
                     last_state: 'succeeded',
                     ...originalFields,
-                  })
+                    ...(manualSupersession ? { superseded_image_requests: [manualSupersession.superseded] } : {}),
+                  }
+                  await compareAndRecordImageTaskStrict(outDir, filename, currentOwner, succeededOwner)
+                  currentOwner = succeededOwner
+                  attemptOwner = succeededOwner
                 }
               }
               if (!result.urls.length) throw new Error('GenStudio KH returned no image')
-              await saveGenStudioImage(result.urls[0]!, outPath)
-              await persistImagePath(scene.id, outPath, scene.visual_prompt)
+              if (!currentOwner) throw new Error('Scene image request ownership was not recorded.')
+              const stagingPath = await stageGenStudioImage(result.urls[0]!, outPath)
+              const promoted = await promoteCurrentImageTaskArtifactStrict(
+                outDir,
+                filename,
+                currentOwner,
+                stagingPath,
+                outPath,
+                () => persistImagePath(
+                  scene.id,
+                  outPath,
+                  manualFinish && recovery.kind === 'recovered' && !hashMatches ? '' : scene.visual_prompt,
+                ),
+              )
+              if (!promoted) throw new Error('A newer image request owns this scene; the late result was not applied.')
               if (isPaidReplacement) {
                 const actualSettledCredits = authoritativePaidImageSettledCredits(result.settledCredits)
                 await jq.checkpointPaidImageReplacementAttempt(job, filename, {
@@ -1100,14 +1220,15 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     ...(actualSettledCredits !== undefined ? { actual_settled_credits: actualSettledCredits } : {}),
                   })
                 } else {
-                  await recordTaskStrict(outDir, filename, failedEntry)
+                  await compareAndRecordImageTaskStrict(outDir, filename, attemptOwner, failedEntry)
+                  attemptOwner = failedEntry
                   if (failedTaskId && acceptedIdempotencyKey) {
                     await checkpointGenStudioAsset(job, filename, {
                       operation: 'image', idempotency_key: acceptedIdempotencyKey,
                       job_id: failedTaskId, output_path: outPath, input_hash: attemptHash, state: 'failed',
                     })
                   }
-                  const decision = attemptPaidSelector
+                  const decision = !manualFinish && attemptPaidSelector
                     ? await decidePaidImageReplacement({
                         job,
                         asset: {
@@ -1139,7 +1260,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 // next identity is DERIVED from the dead job id: without one the
                 // scope cannot be promoted, and the retry would replay a
                 // settled-failed key, which returns the same failure forever.
-                const plan = continuityFleetBusyRetryPlan(e, attemptNum)
+                const plan = manualFinish ? null : continuityFleetBusyRetryPlan(e, attemptNum)
                 if (plan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
                   fleetWaiting.set(scene.scene_index, {
                     attempt: attemptNum,
