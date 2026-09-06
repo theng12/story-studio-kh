@@ -16,6 +16,9 @@ const continuityRoute = source('../../electron/server/routes/continuity.ts')
 const continuityConfig = source('../composables/useContinuityConfig.ts')
 const scenePlanGenerator = source('../../electron/server/generators/scene-plan.ts')
 const scenePlanPacing = source('../../electron/server/services/scene-plan-pacing.ts')
+const scenePlanRoute = source('../../electron/server/routes/scene-plan.ts')
+const assetStatus = source('../../electron/server/services/asset-status.ts')
+const videoRoute = source('../../electron/server/routes/video.ts')
 const scenePlanPage = source('../pages/projects/[slug]/scene-plan.vue')
 const pacingConstant = source('../../electron/server/contracts/pacing.ts')
 
@@ -142,6 +145,19 @@ describe('Continuity Engine default scene pacing — single source of truth', ()
     assert.match(scenePlanGenerator, /import \{ allowedSubtitleCueGapSec, resolveScenePlanPacing/)
     assert.match(scenePlanGenerator, /await resolveScenePlanPacing\(job\.project_slug, paths\.episode_dir\)/)
     assert.doesNotMatch(scenePlanGenerator, /pacing\s*=\s*\{\s*min_sec:\s*\d+,\s*max_sec:\s*\d+/)
+  })
+
+  test('all four planning and readiness surfaces share the fixed subtitle cue-gap guard', () => {
+    assert.match(scenePlanPacing, /export function allowedSubtitleCueGapSec\(\): number \{\s*return 30\s*\}/)
+    for (const [name, consumer] of [
+      ['Scene Plan generator', scenePlanGenerator],
+      ['Scene Plan status', scenePlanRoute],
+      ['episode asset status', assetStatus],
+      ['video preflight', videoRoute],
+    ] as const) {
+      assert.match(consumer, /max_cue_gap_sec: allowedSubtitleCueGapSec\(\)/, `${name} must use the fixed shared guard`)
+      assert.doesNotMatch(consumer, /allowedSubtitleCueGapSec\([^)]/, `${name} must not couple subtitle admission to visual pacing`)
+    }
   })
 
   test('useContinuityConfig.ts imports the shared default instead of hardcoding it', () => {

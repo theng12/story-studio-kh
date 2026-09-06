@@ -46,8 +46,7 @@ import { getAudioStatus } from './audio-reconciler.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
 import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
-import { allowedSubtitleCueGapSec, resolveScenePlanPacing } from './scene-plan-pacing.js'
-import { getEffectiveFormat } from './format-loader.js'
+import { allowedSubtitleCueGapSec } from './scene-plan-pacing.js'
 import { inspectSubtitleCompletion } from './subtitle-completion.js'
 import { inspectExistingTranscriptSource } from './subtitle-correction.js'
 import { inspectPromptCompletion } from './prompt-completion.js'
@@ -1120,13 +1119,9 @@ export async function computeEpisodeStatus(
       status.subtitles = completion.complete
       const stitched = path.join(subtitlePaths.subtitles_dir, `${code.toUpperCase()}_stitched.srt`)
       if (status.subtitles && existsSync(stitched)) {
-        const formatPromise = cache
-          ? (cache.scenePlanFormat ??= getEffectiveFormat(slug))
-          : getEffectiveFormat(slug)
-        const { pacing } = await resolveScenePlanPacing(slug, subtitlePaths.episode_dir, await formatPromise)
         const planningTranscript = await inspectExistingTranscriptSource(subtitlePaths.subtitles_dir, code)
         const integrity = await readSubtitleTimelineIntegrity(subtitlePaths.subtitles_dir, code, {
-          max_cue_gap_sec: allowedSubtitleCueGapSec(pacing),
+          max_cue_gap_sec: allowedSubtitleCueGapSec(),
           cue_source_path: planningTranscript.path,
         })
         // A missing/stale correction is not a transcription failure. Scene Plan

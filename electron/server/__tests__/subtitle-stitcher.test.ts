@@ -170,8 +170,9 @@ describe('subtitle stitcher', () => {
     await fs.writeFile(metaPath, JSON.stringify({ ...meta, total_cues: cues.length, timeline: stampFromCues(cues) }))
     const raw = await timelineIntegrity.readSubtitleTimelineIntegrity(inputs.subtitles_dir, inputs.episode_code)
     assert.equal(raw.complete, true, 'callers that do not choose a pacing threshold keep section-only semantics')
+    assert.equal(allowedSubtitleCueGapSec(), 30, 'subtitle admission is independent of visual hold duration')
     const paced = await timelineIntegrity.readSubtitleTimelineIntegrity(inputs.subtitles_dir, inputs.episode_code, {
-      max_cue_gap_sec: allowedSubtitleCueGapSec({ max_sec: 12 }),
+      max_cue_gap_sec: allowedSubtitleCueGapSec(),
     })
     assert.equal(paced.complete, false)
     assert.deepEqual(paced.blocking_cue_gaps, [{
@@ -182,10 +183,7 @@ describe('subtitle stitcher', () => {
       section_local_start_sec: 17.88,
       section_local_end_sec: 55.46,
     }])
-    const wider = await timelineIntegrity.readSubtitleTimelineIntegrity(inputs.subtitles_dir, inputs.episode_code, {
-      max_cue_gap_sec: allowedSubtitleCueGapSec({ max_sec: 20 }),
-    })
-    assert.equal(wider.complete, true, 'a custom 20s pacing band keeps the exact 60s admission threshold')
+    assert.equal(paced.max_cue_gap_sec, 30)
   })
 
   test('pacing readiness refuses a stitched file whose bytes no longer match its proof', async () => {

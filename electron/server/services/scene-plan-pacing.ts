@@ -72,6 +72,6 @@ export async function resolveScenePlanPacing(
   return { pacing, formula_motion_profile }
 }
 
-export function allowedSubtitleCueGapSec(pacing?: Pick<ScenePlanPacing, 'max_sec'>): number {
-  return Math.max(30, (pacing?.max_sec ?? 12) * 3)
+export function allowedSubtitleCueGapSec(): number {
+  return 30
 }

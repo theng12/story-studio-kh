@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.116 — 2026-09-06
+
+- **Character Sheet now offers four slower scene rhythms through 45–60 seconds.** Each choice applies to the selected episode through the existing pacing control, while new episodes keep the 1–3 second default.
+- **Subtitle coverage stays strict when visuals move slowly.** Scene Plan, episode readiness, and Video preflight use the same fixed 30-second cue-gap guard, so a long missing stretch of narration cannot be hidden by a longer image hold.
+- **Image Pool is reachable from every project sidebar.** The new link opens the existing Image Pool workflow beside Assets Library.
+
 ## v1.4.115 — 2026-09-06
 
 - **Scene Review can now finish only the images still missing.** One explicit action checks saved GenStudio results first, preserves every complete image, and uses the current validated model settings for genuinely fresh work when no result exists or the earlier job is known to have failed.

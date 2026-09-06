@@ -36,6 +36,18 @@ const durationsOf = (scenes: Array<{ start_sec: number; end_sec: number }>): num
   scenes.map(s => Number((s.end_sec - s.start_sec).toFixed(4)))
 
 describe('scene-length overshoot (v1.4.82)', () => {
+  test('45–60 near-still pacing yields a sane 150-minute plan and keeps the truthful final-tail exception', () => {
+    const cues = evenCues(3_750, 2.4)
+    const scenes = splitScenesDeterministically({ cues, min_sec: 45, max_sec: 60, target_sec: 52.5 })
+    const durations = durationsOf(scenes)
+
+    assert.equal(scenes.length, 171, '9,000 seconds at the 52.5-second target is about 171 images')
+    assert.deepEqual(durations.slice(0, -1), Array.from({ length: 170 }, () => 52.8))
+    assert.equal(durations.at(-1), 24, 'an indivisible final tail remains short when two in-band scenes cannot fit')
+    assert.deepEqual(durations.filter(duration => duration > 60.0001), [])
+    assert.equal(scenes.at(-1)!.end_sec, 9_000)
+  })
+
   test('DK0055 band 10–30: every scene lands inside the band, none past the cap', () => {
     // 2.4s cues is DK0055's measured cadence. The old walk closed at the first
     // boundary at or past target (21.6s); 19.2s is nearer to the 20s target, so

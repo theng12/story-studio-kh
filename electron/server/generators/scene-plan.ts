@@ -760,7 +760,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const minSec = pacing?.min_sec ?? 3
       const maxSec = pacing?.max_sec ?? 12
       const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episode_id, {
-        max_cue_gap_sec: allowedSubtitleCueGapSec(pacing),
+        max_cue_gap_sec: allowedSubtitleCueGapSec(),
         cue_source_path: stitchedSrt,
       })
       const suspiciousGap = subtitleIntegrity.blocking_cue_gaps?.[0]
