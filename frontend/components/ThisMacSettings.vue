@@ -1,14 +1,13 @@
 <template>
   <div class="this-mac-settings">
     <header>
-      <span class="eyebrow">This Mac</span>
-      <h3>App &amp; GenStudio connection</h3>
-      <p>Story Studio uses one GenStudio API URL and one API key for every AI catalog, job, and credit event. The key may be all-access or scoped.</p>
+      <h3>{{ sectionTitle }}</h3>
+      <p>{{ sectionDescription }}</p>
     </header>
 
     <!-- v1.4.28 — the two queues that can stampede. App-wide, not
          per-channel: they describe how much work this app takes on at once. -->
-    <section class="panel concurrency">
+    <section v-if="section === 'all' || section === 'performance'" class="panel concurrency">
       <div>
         <span class="eyebrow">Throughput</span>
         <h4>How much runs at once</h4>
@@ -55,7 +54,7 @@
       </div>
     </section>
 
-    <section class="panel paid-image-replacement">
+    <section v-if="section === 'all' || section === 'performance'" class="panel paid-image-replacement">
       <div>
         <h4>Automatically buy one replacement for a confirmed failed image</h4>
         <p>
@@ -96,7 +95,7 @@
       </div>
     </section>
 
-    <section class="panel paid-subtitle-replacement">
+    <section v-if="section === 'all' || section === 'performance'" class="panel paid-subtitle-replacement">
       <div>
         <h4>Automatically buy one replacement for a confirmed failed subtitle section</h4>
         <p>
@@ -136,7 +135,7 @@
       </div>
     </section>
 
-    <section class="panel appearance">
+    <section v-if="section === 'all' || section === 'appearance'" class="panel appearance">
       <div>
         <span class="eyebrow">Display</span>
         <h4>Appearance</h4>
@@ -148,13 +147,13 @@
       </div>
     </section>
 
-    <section class="panel"><ServerModeSettingsPanel /></section>
+    <section v-if="section === 'all' || section === 'appearance'" class="panel"><ServerModeSettingsPanel /></section>
 
     <!-- v1.4.12 — one switch for the whole app. "about the emojis. i think to
          make sure we don't generate emojis when we don't have to. it's
          unprofessional" — plus his standing rule that a choice like this is
          his to change later, not a constant in the code. -->
-    <section class="panel emoji-policy">
+    <section v-if="section === 'all' || section === 'appearance'" class="panel emoji-policy">
       <div>
         <span class="eyebrow">House style</span>
         <h4>Emoji in generated text</h4>
@@ -176,7 +175,7 @@
       <p v-if="emojiResult" :class="['result', emojiResult.kind]">{{ emojiResult.message }}</p>
     </section>
 
-    <section class="panel connection">
+    <section v-if="section === 'all' || section === 'connections'" class="panel connection">
       <div class="connection-copy">
         <span class="eyebrow">Sole AI boundary</span>
         <h4>GenStudio KH</h4>
@@ -222,12 +221,27 @@
       </div>
     </section>
 
-    <p class="security-note">The key remains masked after save and is stored only in this Mac’s restricted app-secrets file.</p>
+    <p v-if="section === 'all' || section === 'connections'" class="security-note">The key remains masked after save and is stored only in this Mac’s restricted app-secrets file.</p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
+type ThisMacSection = 'all' | 'connections' | 'performance' | 'appearance'
+const props = withDefaults(defineProps<{ section?: ThisMacSection }>(), { section: 'all' })
+const section = computed(() => props.section)
+const sectionTitle = computed(() => ({
+  all: 'App settings',
+  connections: 'GenStudio connection',
+  performance: 'Performance & recovery',
+  appearance: 'Appearance & app behavior',
+}[section.value]))
+const sectionDescription = computed(() => ({
+  all: 'Settings stored on this Mac and shared by every project.',
+  connections: 'One GenStudio URL and API key serve every AI catalog, job, and credit event on this Mac. The key may be all-access or scoped.',
+  performance: 'Control local staging and the explicit recovery choices used after confirmed failures.',
+  appearance: 'Choose how Story Studio looks, listens on the network, and writes generated text.',
+}[section.value]))
 type ThemeChoice = 'light' | 'dark' | 'system'
 interface ProviderRow { providerId: string; hasKey: boolean; keyMasked: string }
 interface ContentStoreProbe { read_scope: 'verified'; purchase_scope: 'required_unverified' }
@@ -487,8 +501,7 @@ const concurrencySaved = ref('')
  * a magic word you had to be told existed; a bare text box cannot teach it.
  *
  * The recommendations carry the reasoning that is otherwise only in a commit
- * message: which number caused the flood, which left capacity idle, which one
- * GenStudio itself accepts.
+ * message: which number caused the flood and which left local capacity idle.
  */
 interface ThroughputChoice { value: string | number; label: string }
 interface ThroughputField {
@@ -546,11 +559,11 @@ const throughputFields: ThroughputField[] = [
     key: 'llmJobs',
     label: 'Writing jobs at once',
     help: 'Ideas, research, outlines, chapters, metadata, image prompts and scene plans share this. '
-      + 'GenStudio itself accepts 12, so past that the queue just moves out of sight.',
+      + 'This is a local staging preference; GenStudio still admits each request from your live account limits.',
     choices: [
       { value: 4, label: '4 — cautious' },
       { value: 8, label: '8 — recommended' },
-      { value: 12, label: '12 — what GenStudio accepts' },
+      { value: 12, label: '12 — higher local preset' },
       { value: 20, label: '20' },
     ],
     input: { min: 1, max: 50, step: 1 },

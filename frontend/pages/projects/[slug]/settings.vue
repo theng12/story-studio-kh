@@ -2,9 +2,8 @@
   <div class="settings-workspace">
     <header class="settings-page-hero">
       <div class="settings-page-copy">
-        <span class="settings-page-eyebrow">Control room</span>
         <h1>Settings</h1>
-        <p>Configure this Mac and shape how <strong>{{ project?.name || 'this project' }}</strong> creates, stores, and finishes every episode.</p>
+        <p>Find one setting, see its scope, and change how <strong>{{ projectForm.name || project?.name || 'this project' }}</strong> works.</p>
       </div>
       <div class="settings-page-key" aria-label="Settings storage key">
         <span><i class="key-dot key-machine" />This Mac</span>
@@ -12,42 +11,13 @@
       </div>
     </header>
 
-    <!-- v1.0.184 (S1) — grouped + scope-zoned settings nav. Replaces the flat
-         15-tab row. Two scopes (This Mac vs This Project) make it obvious what
-         travels with the project vs. what stays on this machine; topic groups
-         within each make 15 entries scannable. `tabs` (flat) is still derived
-         below for back-compat (deep links, saved tab state). -->
-    <nav class="settings-nav mt-3">
-      <div v-for="zone in tabZones" :key="zone.id" class="settings-zone">
-        <div class="settings-zone-head">
-          <span class="settings-zone-title">{{ zone.title }}</span>
-          <span class="settings-zone-scope">{{ zone.scope }}</span>
-        </div>
-        <div v-for="group in zone.groups" :key="group.title" class="settings-group">
-          <span class="settings-group-label">{{ group.title }}</span>
-          <div class="settings-group-tabs">
-            <button
-              v-for="tab in group.tabs"
-              :key="tab.id"
-              :class="['tab', { active: activeTab === tab.id }]"
-              :aria-current="activeTab === tab.id ? 'page' : undefined"
-              @click="activeTab = tab.id"
-            >
-              <span class="settings-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
-              <span>{{ tab.label }}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </nav>
+    <SettingsSectionNav v-model="activeTab" :zones="tabZones" />
 
     <section
       v-if="activeZone && activeTabMeta"
       :class="['settings-active-intro', activeZone.id === 'machine' ? 'scope-machine' : 'scope-project']"
     >
-      <span class="settings-active-icon" aria-hidden="true">{{ activeTabMeta.icon }}</span>
       <div class="settings-active-copy">
-        <span class="settings-active-kicker">{{ activeZone.title }}</span>
         <h2>{{ activeTabMeta.label }}</h2>
         <p>{{ activeTabMeta.description }}</p>
       </div>
@@ -56,178 +26,21 @@
       </span>
     </section>
 
-    <!-- App (per-machine): API Keys + Appearance + Server Mode + the
-         account-scoped GenStudio catalog summary.
-         v1.0.185 (S2) — folded the standalone App-Settings modal into the
-         "This Mac" zone here. Same <ThisMacSettings> component the modal now
-         wraps, so there is one source of truth. It owns its own data
-         lifecycle (loads on mount / when this tab is shown). -->
-    <div v-if="activeTab === 'app'" class="card settings-panel settings-panel-embedded mt-2">
-      <ThisMacSettings />
+    <div v-if="activeTab === 'connections'" class="card settings-panel settings-panel-embedded mt-2">
+      <ThisMacSettings section="connections" />
       <GenStudioCatalogSettings />
+      <YouTubeConnectionSettings :slug="slug" scope="connections" />
     </div>
 
-    <div v-if="activeTab === 'youtube'" class="card settings-panel settings-panel-embedded mt-2">
-      <YouTubeConnectionSettings :slug="slug" />
+    <div v-if="activeTab === 'performance'" class="card settings-panel settings-panel-embedded mt-2">
+      <ThisMacSettings section="performance" />
     </div>
 
-    <!-- Historical editor retained in source for project evidence migration; never customer-visible. -->
-    <div v-if="false" class="card settings-panel mt-2">
-      <div class="settings-section-head">
-        <div>
-          <span class="settings-section-kicker">Generation catalog</span>
-          <h3>Model pricing &amp; limits</h3>
-          <p>Maintain only the operational values Story Studio needs for estimates and safe provider requests.</p>
-        </div>
-        <span class="settings-section-count">{{ Object.keys(editImageModels).length + Object.keys(editVideoModels).length }} models</span>
-      </div>
-
-      <nav class="settings-segmented-nav" aria-label="Model pricing categories">
-        <button
-          v-for="view in modelPricingViews"
-          :key="view.id"
-          type="button"
-          :class="['settings-segmented-button', { active: modelPricingView === view.id }]"
-          :aria-current="modelPricingView === view.id ? 'page' : undefined"
-          @click="modelPricingView = view.id"
-        >
-          <span aria-hidden="true">{{ view.icon }}</span>
-          <span><strong>{{ view.label }}</strong><small>{{ view.description }}</small></span>
-        </button>
-      </nav>
-
-      <section v-if="modelPricingView === 'image'" class="settings-subpanel">
-      <div class="card-header">
-        <h3>Image Model Pricing</h3>
-        <span class="text-muted" style="font-size:12px" v-if="config?.image_pricing_last_updated">
-          Updated: {{ config.image_pricing_last_updated }}
-        </span>
-      </div>
-      <table class="edit-table mt-1">
-        <thead>
-          <tr><th>Model</th><th>Credits/Image</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="(model, key) in editImageModels" :key="key">
-            <td>{{ model.label }}</td>
-            <td>
-              <input v-model.number="model.credits_per_image" type="number" step="0.5" min="0" class="input input-sm" />
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="flex gap-2 mt-2" style="align-items: center;">
-        <button class="btn btn-primary" @click="saveImagePricing">Save Image Pricing</button>
-        <SaveIndicator v-bind="savedHintProps('image_pricing')" />
-      </div>
-      </section>
-
-      <section v-if="modelPricingView === 'video'" class="settings-subpanel">
-      <div class="card-header">
-        <h3>Video Studio catalog</h3>
-        <span class="text-muted" style="font-size:12px">Live via {{ videoModelSourceLabel }}</span>
-      </div>
-      <p class="text-muted mt-1 mb-2" style="font-size: 12px; line-height: 1.5;">
-        Image-to-video only. Video Studio owns provider setup, availability, pricing, and model retirement;
-        Story Studio reads the live catalog and falls back to the local Video Studio connection.
-      </p>
-      <table class="edit-table mt-1">
-        <thead>
-          <tr><th>Model</th><th>Lane</th><th>Max clip</th><th>Provider price</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="(model, key) in editVideoModels" :key="key">
-            <td>{{ model.label }}</td>
-            <td>{{ model.provider_params?.is_cloud ? 'Cloud' : 'Local' }}</td>
-            <td>{{ model.max_duration ? `${model.max_duration}s` : 'Provider default' }}</td>
-            <td>{{ formatVideoStudioPrice(model) }}</td>
-          </tr>
-          <tr v-if="!Object.keys(editVideoModels).length">
-            <td colspan="4" class="text-muted">No ready image-to-video models are currently available.</td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="flex gap-2 mt-2" style="align-items: center;">
-        <button class="btn btn-secondary" :disabled="refreshingVideoModels" @click="refreshVideoCatalog">
-          {{ refreshingVideoModels ? 'Refreshing…' : 'Refresh live catalog' }}
-        </button>
-      </div>
-      </section>
+    <div v-if="activeTab === 'appearance'" class="card settings-panel settings-panel-embedded mt-2">
+      <ThisMacSettings section="appearance" />
     </div>
 
-    <!-- Saved cloud voices -->
-    <div v-if="false" class="card settings-panel mt-2">
-      <div class="voice-library-heading">
-        <div>
-          <h3>Voice library</h3>
-          <p class="text-muted mt-1">
-            Save voice or clone IDs once, then label every provider that can use them. Audio Generator only shows compatible voices.
-          </p>
-        </div>
-        <span class="voice-count">{{ editVoices.length }} saved</span>
-      </div>
-
-      <div class="voice-library-toolbar">
-        <div class="voice-provider-filters" aria-label="Filter voices by provider">
-          <button
-            type="button"
-            class="voice-filter"
-            :class="{ active: voiceProviderFilter === 'all' }"
-            @click="voiceProviderFilter = 'all'"
-          >All <span>{{ editVoices.length }}</span></button>
-          <button
-            v-for="provider in VOICE_PROVIDER_OPTIONS"
-            :key="provider.id"
-            type="button"
-            class="voice-filter"
-            :class="{ active: voiceProviderFilter === provider.id }"
-            @click="voiceProviderFilter = provider.id"
-          >{{ provider.label }} <span>{{ voiceProviderCounts[provider.id] || 0 }}</span></button>
-        </div>
-        <select v-model="voiceSort" class="select select-sm voice-sort" aria-label="Sort voices">
-          <option value="provider">Provider, then name</option>
-          <option value="name-asc">Name A-Z</option>
-          <option value="name-desc">Name Z-A</option>
-        </select>
-      </div>
-
-      <div v-if="filteredVoiceRows.length" class="voice-list">
-        <article v-for="row in filteredVoiceRows" :key="row.voice.voice_id || row.index" class="voice-row-edit">
-          <div class="voice-fields">
-            <input v-model="row.voice.name" class="input input-sm voice-name-input" placeholder="Voice name" />
-            <input v-model="row.voice.voice_id" class="input input-sm voice-id-input" placeholder="Voice or reference ID" spellcheck="false" />
-          </div>
-          <div class="voice-provider-labels">
-            <span class="voice-provider-prompt">Works with</span>
-            <label
-              v-for="provider in VOICE_PROVIDER_OPTIONS"
-              :key="provider.id"
-              class="voice-provider-toggle"
-              :class="{ active: row.voice.providers.includes(provider.id) }"
-            >
-              <input
-                type="checkbox"
-                :checked="row.voice.providers.includes(provider.id)"
-                @change="toggleVoiceProvider(row.voice, provider.id)"
-              />
-              {{ provider.label }}
-            </label>
-          </div>
-          <button class="btn-icon danger voice-remove" type="button" title="Remove voice" @click="editVoices.splice(row.index, 1)">&#10005;</button>
-        </article>
-      </div>
-      <div v-else class="voice-empty">
-        No voices match this provider. Add one below or choose another filter.
-      </div>
-
-      <div class="flex gap-2 mt-3 items-center flex-wrap">
-        <button class="btn btn-secondary btn-sm" type="button" @click="addVoice">+ Add Voice</button>
-        <button class="btn btn-primary btn-sm" type="button" @click="saveVoices">Save Voices</button>
-        <SaveIndicator v-bind="savedHintProps('voices')" />
-      </div>
-    </div>
-
-    <div v-if="activeTab === 'styles'" class="card settings-panel mt-2">
+    <div v-if="activeTab === 'writing'" class="card settings-panel mt-2">
       <ProjectStyleLibrary
         :project-slug="slug"
         title="Project style library"
@@ -236,7 +49,7 @@
     </div>
 
     <!-- Channel Identity — production path -->
-    <div v-if="activeTab === 'channel'" class="card settings-panel mt-2">
+    <div v-if="activeTab === 'production'" class="card settings-panel mt-2">
       <div class="format-tab-header">
         <div>
           <h3>Continuity Engine</h3>
@@ -310,7 +123,7 @@
 
     </div>
 
-    <div v-if="isChannelTab" class="card publishing-profile-card mt-2">
+    <div v-if="activeTab === 'publishing'" class="card publishing-profile-card settings-panel mt-2">
       <div class="settings-section-head">
         <div>
           <span class="settings-section-kicker">YouTube publishing</span>
@@ -321,9 +134,17 @@
       </div>
     </div>
 
+    <div v-if="activeTab === 'publishing'" class="card settings-panel settings-panel-embedded mt-2">
+      <YouTubeConnectionSettings :slug="slug" scope="assignment" />
+      <p class="settings-cross-link">
+        YouTube accounts are shared by this Mac.
+        <a href="#connections" @click="activeTab = 'connections'">Manage connected accounts</a>
+      </p>
+    </div>
+
     <!-- Channel Identity — formula + subject lane layer. -->
-    <div v-if="activeTab === 'channel'" class="card settings-panel mt-2">
-      <div class="format-tab-header">
+    <div v-if="['identity', 'production', 'publishing'].includes(activeTab)" class="card settings-panel mt-2">
+      <div v-if="activeTab === 'identity'" class="format-tab-header">
         <div>
           <h3>Series Formula + Topic Packs</h3>
           <p class="text-muted mt-1 mb-2">
@@ -335,7 +156,7 @@
         </div>
       </div>
 
-      <div class="sub-tabs mt-3">
+      <div v-if="activeTab === 'identity'" class="sub-tabs mt-3">
         <button
           :class="['sub-tab', { active: nicheSubTab === 'project' }]"
           @click="nicheSubTab = 'project'"
@@ -347,9 +168,9 @@
       </div>
 
       <!-- ── Sub-tab 1: Project niche picker ───────────────────────── -->
-      <div v-if="nicheSubTab === 'project'" class="sub-tab-body">
-        <h4 class="sub-tab-section-title">Choose the formula and subject lanes this channel uses</h4>
-        <section class="channel-identity-summary">
+      <div v-if="activeTab !== 'identity' || nicheSubTab === 'project'" class="sub-tab-body">
+        <h4 v-if="activeTab === 'identity'" class="sub-tab-section-title">Choose the formula and subject lanes this channel uses</h4>
+        <section v-if="activeTab === 'identity'" class="channel-identity-summary">
           <div class="channel-identity-summary-copy">
             <span>Series Formula</span>
             <strong>{{ selectedFormulaLabel }}</strong>
@@ -365,7 +186,7 @@
 
         <!-- v1.4.20 — how often this channel publishes. Channel-level, because
              an upload plan cannot exist before a YouTube account is connected. -->
-        <section class="episode-shape-card mt-3">
+        <section v-if="activeTab === 'publishing'" class="episode-shape-card">
           <div class="episode-shape-head">
             <div>
               <span class="settings-section-kicker">Publishing cadence</span>
@@ -448,7 +269,7 @@
         <!-- v1.4.18 — the episode shape, editable. Sits with the Formula it
              belongs to rather than in the library, because it is a decision
              about THIS channel's episodes. -->
-        <section v-if="nicheId" class="episode-shape-card mt-3">
+        <section v-if="activeTab === 'production' && nicheId" class="episode-shape-card">
           <div class="episode-shape-head">
             <div>
               <span class="settings-section-kicker">Episode shape</span>
@@ -574,7 +395,7 @@
           </form>
         </section>
 
-        <section v-if="selectedProductionKit" class="production-kit-card mt-3">
+        <section v-if="activeTab === 'production' && selectedProductionKit" class="production-kit-card mt-3">
           <div class="production-kit-head">
             <div>
               <span class="settings-section-kicker">Formula production kit</span>
@@ -649,20 +470,20 @@
           </div>
         </section>
 
-        <div class="mt-3 button-row"><SaveIndicator v-bind="savedHintProps('niche')" /></div>
+        <div v-if="activeTab === 'identity'" class="mt-3 button-row"><SaveIndicator v-bind="savedHintProps('niche')" /></div>
 
-        <p class="text-muted text-xs mt-3">
+        <p v-if="activeTab === 'identity'" class="text-muted text-xs mt-3">
           <strong>Channel default:</strong> this Formula and Pack selection automatically drives
           Ideas, Script, Metadata, and visual direction. Idea campaigns show it as status rather
           than asking you to select it again.
         </p>
-        <p class="text-muted text-xs mt-1">
+        <p v-if="activeTab === 'identity'" class="text-muted text-xs mt-1">
           Need to author a local formula? Switch to <strong>Custom formulas</strong> above.
         </p>
       </div>
 
       <!-- ── Sub-tab 2: Niche library (browse + create + delete) ─────── -->
-      <div v-if="nicheSubTab === 'library'" class="sub-tab-body">
+      <div v-if="activeTab === 'identity' && nicheSubTab === 'library'" class="sub-tab-body">
         <div class="niche-library-header">
           <h4 class="sub-tab-section-title">Custom formulas</h4>
           <button
@@ -808,7 +629,8 @@
 
     <!-- Optional project instructions — retained for channel-specific facts
          and constraints, but Formula rules stay authoritative. -->
-    <div v-if="activeTab === 'standards'" class="card settings-panel mt-2">
+    <details v-if="activeTab === 'writing'" class="card settings-panel settings-disclosure mt-2">
+      <summary><span><strong>Writing instructions</strong><small>Project guidance, intro rules, and reusable presets</small></span></summary>
       <div class="sub-tabs">
         <button v-for="st in standardsSubTabs" :key="st.id" :class="['sub-tab', { active: standardsSubTab === st.id }]" @click="standardsSubTab = st.id">
           {{ st.label }}
@@ -875,10 +697,11 @@
           </div>
         </div>
       </div>
-    </div>
+    </details>
 
     <!-- Folders -->
-    <div v-if="activeTab === 'folders'" class="card settings-panel mt-2">
+    <details v-if="activeTab === 'files'" class="card settings-panel settings-disclosure mt-2">
+      <summary><span><strong>Episode folder names</strong><small>Templates used when Story Studio creates and syncs folders</small></span></summary>
       <h3>Folder Structure</h3>
       <p class="text-muted mt-1 mb-2">
         Customize how episode subfolders are named. Each template must include <code>{'{code}'}</code> which is replaced with the episode code (e.g. TN0024).
@@ -906,9 +729,9 @@
       </div>
 
       <p class="text-muted mt-2" style="font-size:12px">
-        💡 After saving, use <strong>Sync Folders</strong> in the Project tab to rename existing episode folders to match the new names.
+        💡 After saving, use <strong>Sync Folders</strong> in Files &amp; Behavior to rename existing episode folders to match the new names.
       </p>
-    </div>
+    </details>
 
     <!-- (The Assets audit/repair UI once lived in this Settings tab, then in a
          standalone /assets page. v1.0.481 retired both: the audit matrix is
@@ -921,14 +744,15 @@
          video files that bog down iCloud sync. Once a video is on
          YouTube (sidecar shows video_id), the local copy is
          operationally redundant and can be deleted to reclaim disk. -->
-    <div v-if="activeTab === 'storage'" class="card settings-panel storage-panel mt-2">
+    <details v-if="activeTab === 'maintenance' || activeTab === 'files'" :open="activeTab === 'maintenance'" class="card settings-panel settings-disclosure storage-panel mt-2">
+      <summary v-if="activeTab === 'files'"><span><strong>Storage &amp; cleanup</strong><small>Episode usage, recovery data, and optional media split</small></span></summary>
       <header class="settings-section-head">
         <div>
-          <span class="settings-section-kicker">Files &amp; capacity</span>
-          <h3>Storage control center</h3>
-          <p>Keep projects together, place large final videos deliberately, and reclaim space without touching source assets.</p>
+          <h3>{{ activeTab === 'maintenance' ? 'Library & exports' : 'Project storage' }}</h3>
+          <p v-if="activeTab === 'maintenance'">Choose the shared Library, see where exports land, and archive uploaded videos.</p>
+          <p v-else>Keep this project portable, inspect episode usage, and manage recovery data.</p>
         </div>
-        <span class="settings-section-count">{{ storage ? formatBytes(storage.project_bytes_total) : 'Not scanned' }}</span>
+        <span v-if="activeTab === 'files'" class="settings-section-count">{{ storage ? formatBytes(storage.project_bytes_total) : 'Not scanned' }}</span>
       </header>
 
       <!-- ── Cloud Sync Overview (top-of-tab indicator) ────────────────
@@ -938,7 +762,7 @@
            "Cloud sync is paused" dashboard banner: that banner pointed
            at a feature that no longer exists; this card points at the
            feature that DID replace it. -->
-      <div class="cloud-sync-overview storage-map">
+      <div v-if="activeTab === 'maintenance'" class="cloud-sync-overview storage-map">
         <div class="overview-head">
           <span class="overview-icon" aria-hidden="true">◫</span>
           <div>
@@ -995,20 +819,18 @@
             </p>
           </a>
 
-          <a class="overview-card overview-card--advanced" href="#media-root-section" @click.prevent="scrollTo('media-root-section')">
+          <a class="overview-card overview-card--advanced" href="#files" @click="activeTab = 'files'">
             <div class="overview-card-head">
               <span class="overview-card-icon">⌁</span>
-              <strong>Heavy media split</strong>
+              <strong>Project storage</strong>
               <span :class="['overview-badge', mediaRootSavedValue ? 'on' : 'off']">
-                {{ mediaRootSavedValue ? 'ACTIVE' : 'ADVANCED' }}
+                {{ mediaRootSavedValue ? 'SPLIT ACTIVE' : 'PROJECT' }}
               </span>
             </div>
             <p class="overview-card-desc">
-              {{ mediaRootSavedValue
-                ? 'This project currently stores heavy media separately. Keep its mapped drive available.'
-                : 'Optional only. Leave off when you want every project and its assets kept together.' }}
+              Episode usage, cleanup, recovery sidecars, and the optional heavy-media split live with this project's file settings.
             </p>
-            <code v-if="mediaRootSavedValue" class="overview-card-path">{{ mediaRootSavedValue }}</code>
+            <span class="overview-card-path">Open Files &amp; Behavior →</span>
           </a>
         </div>
 
@@ -1047,7 +869,7 @@
            per-Mac register of outside folders, the named-roots map and the
            free-floating export root. Changing it copies every channel across,
            which is why it is a deliberate action and not an inline edit. -->
-      <div id="projects-root-section" class="storage-section storage-surface">
+      <div v-if="activeTab === 'maintenance'" id="projects-root-section" class="storage-section storage-surface">
         <h4><span class="storage-section-icon" aria-hidden="true">📁</span>Your Library</h4>
         <p class="text-muted hint">
           Everything Story Studio makes lives here: one folder per channel, a
@@ -1086,7 +908,7 @@
       <!-- v1.4.4 — Archive uploaded videos. Library-wide, unlike everything
            else on this tab: he wants one button that clears finished films out
            of the way across every channel at once. -->
-      <div id="archive-section" class="storage-section storage-surface">
+      <div v-if="activeTab === 'maintenance'" id="archive-section" class="storage-section storage-surface">
         <h4><span class="storage-section-icon" aria-hidden="true">📦</span>Archive uploaded videos</h4>
         <p class="text-muted hint">
           Moves finished videos that are <strong>confirmed uploaded to YouTube</strong> into a folder
@@ -1178,7 +1000,7 @@
            and removed the setter route — so its buttons had been posting to a
            404 ever since. It states where finished videos go, and the Archive
            panel above is how you move them somewhere else. -->
-      <div id="external-video-section" class="storage-section storage-surface">
+      <div v-if="activeTab === 'maintenance'" id="external-video-section" class="storage-section storage-surface">
         <h4>
           <span class="storage-section-icon" aria-hidden="true">🎬</span>
           Where finished videos go
@@ -1197,11 +1019,11 @@
       </div>
 
       <!-- ── External media root (Level B, per-project, opt-in) ──── -->
-      <div class="storage-advanced-heading">
+      <div v-if="activeTab === 'files'" class="storage-advanced-heading">
         <span>Optional storage split</span>
         <p>Leave this off when you want the project and all of its assets to stay together.</p>
       </div>
-      <details id="media-root-section" class="storage-disclosure" :open="!!mediaRootSavedValue">
+      <details v-if="activeTab === 'files'" id="media-root-section" class="storage-disclosure" :open="!!mediaRootSavedValue">
         <summary class="storage-disclosure-summary">
           <span class="storage-section-icon" aria-hidden="true">⌁</span>
           <span><strong>Heavy media split</strong><small>Keep off to store every project and its assets together.</small></span>
@@ -1278,7 +1100,7 @@
       </details>
 
       <!-- ── Per-episode storage breakdown ───────────────────────── -->
-      <div id="per-episode-section" class="storage-section storage-surface">
+      <div v-if="activeTab === 'files'" id="per-episode-section" class="storage-section storage-surface">
         <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
           <div>
             <h4><span class="storage-section-icon" aria-hidden="true">📊</span>Per-episode breakdown</h4>
@@ -1382,14 +1204,14 @@
         </div>
       </div>
 
-      <div v-if="lastBulkCleanup" class="storage-result mt-2">
+      <div v-if="activeTab === 'files' && lastBulkCleanup" class="storage-result mt-2">
         <strong>Cleanup:</strong>
         {{ lastBulkCleanup.deleted_count }} file(s) deleted, freed {{ formatBytes(lastBulkCleanup.bytes_freed) }}.
         <span v-if="lastBulkCleanup.skipped_count">{{ lastBulkCleanup.skipped_count }} skipped (not uploaded).</span>
         <span v-if="lastBulkCleanup.failed_count" class="error-text">{{ lastBulkCleanup.failed_count }} failed.</span>
       </div>
 
-      <div class="storage-advanced-heading">
+      <div v-if="activeTab === 'files'" class="storage-advanced-heading">
         <span>Advanced maintenance</span>
         <p>Recovery checkpoints are current safety data. Clean them only after a script is fully assembled.</p>
       </div>
@@ -1403,7 +1225,7 @@
         delete (per user direction). This panel surfaces eligible
         sidecars and lets the user clean them up manually.
       -->
-      <details id="chunked-sidecars-section" class="storage-disclosure">
+      <details v-if="activeTab === 'files'" id="chunked-sidecars-section" class="storage-disclosure">
         <summary class="storage-disclosure-summary">
           <span class="storage-section-icon" aria-hidden="true">↻</span>
           <span><strong>Script recovery data</strong><small>Current resume checkpoints, not legacy assets.</small></span>
@@ -1492,10 +1314,11 @@
         </div>
       </details>
 
-    </div>
+    </details>
 
     <!-- Confirmations -->
-    <div v-if="activeTab === 'confirmations'" class="card settings-panel mt-2">
+    <details v-if="activeTab === 'files'" class="card settings-panel settings-disclosure mt-2">
+      <summary><span><strong>Confirmation prompts</strong><small>Choose which generation and file actions ask first</small></span></summary>
       <h3>Generation Confirmations</h3>
       <p class="text-muted mt-1 mb-2">
         Choose which generators ask for confirmation before starting. Disabled generators skip the prompt and start immediately.
@@ -1532,10 +1355,10 @@
         <button class="btn btn-primary" @click="saveConfirmPrefs">Save Confirmation Preferences</button>
         <SaveIndicator v-bind="savedHintProps('confirm_prefs')" />
       </div>
-    </div>
+    </details>
 
     <!-- FFmpeg -->
-    <div v-if="activeTab === 'ffmpeg'" id="ffmpeg-section" class="card settings-panel mt-2">
+    <div v-if="activeTab === 'maintenance'" id="ffmpeg-section" class="card settings-panel mt-2">
       <h3>FFmpeg</h3>
       <p class="text-muted mt-1" style="font-size: 12px;">
         FFmpeg is the engine behind Audio Assembly and Video Assembly — it concatenates
@@ -1684,7 +1507,7 @@
     </div>
 
     <!-- Notifications -->
-    <div v-if="activeTab === 'notifications'" class="card settings-panel notification-panel mt-2">
+    <div v-if="activeTab === 'appearance'" class="card settings-panel notification-panel mt-2">
       <header class="settings-section-head">
         <div>
           <span class="settings-section-kicker">Attention routing</span>
@@ -1864,14 +1687,15 @@
          it by hand. Shared files now live at <Library>/_Project Assets and are
          written as ${ASSET}/…, which needs no per-machine setup. -->
 
-    <!-- Project -->
-    <div v-if="activeTab === 'project'" class="card settings-panel mt-2">
-      <h3>Project Settings</h3>
-      <div class="grid-2 mt-2">
-        <div class="form-group">
+    <!-- Project settings are grouped by where the values are used. They still
+         save through the existing project + config endpoints. -->
+    <div v-if="['identity', 'publishing', 'writing', 'files'].includes(activeTab)" class="card settings-panel mt-2">
+      <h3>{{ activeTab === 'identity' ? 'Project identity' : activeTab === 'publishing' ? 'Publishing defaults' : activeTab === 'writing' ? 'Visual style' : 'Project files & behavior' }}</h3>
+      <div v-if="activeTab === 'identity'" class="form-group mt-2">
           <label>Project Name</label>
           <input v-model="projectForm.name" class="input" />
-        </div>
+      </div>
+      <div v-if="activeTab === 'files'" class="grid-2 mt-2">
         <div class="form-group">
           <label>Episode Prefix</label>
           <input v-model="projectForm.episode_prefix" class="input" />
@@ -1905,7 +1729,7 @@
           </span>
         </div>
       </div>
-      <div class="form-group">
+      <div v-if="activeTab === 'publishing'" class="form-group">
         <label>YouTube Channel URL (for video recommendations)</label>
         <input v-model="projectForm.youtube_channel_url" class="input" placeholder="https://youtube.com/@yourchannel" />
       </div>
@@ -1916,7 +1740,7 @@
            backend's 7-day cache of YouTube's category list; soft fallback
            lets the user type a number even if the cache is empty / API
            is down. -->
-      <div class="form-group">
+      <div v-if="activeTab === 'publishing'" class="form-group">
         <label>
           YouTube Category
           <span class="text-muted" style="font-weight:normal">(applied to every upload + metadata PATCH)</span>
@@ -1962,7 +1786,7 @@
       </div>
 
       <!-- v1.0.77 — AI / synthetic content disclosure toggle + backfill action -->
-      <div class="form-group">
+      <div v-if="activeTab === 'publishing'" class="form-group">
         <label>
           AI / Altered or Synthetic Content disclosure
           <span class="text-muted" style="font-weight:normal">(YouTube `status.containsSyntheticMedia`)</span>
@@ -2032,7 +1856,7 @@
         </div>
       </div>
 
-      <div class="form-group">
+      <div v-if="activeTab === 'writing'" class="form-group">
         <label>Art Style <span class="text-muted" style="font-weight:normal">(auto-applied to every image prompt for this project; the style's preview image also feeds img2img renders. Overridable per run on the Image Prompts page.)</span></label>
         <div class="art-style-picker">
           <select v-model="artStyleSelection" class="input">
@@ -2073,7 +1897,7 @@
            into every project folder as a project_id identity marker
            for cross-machine import. -->
 
-      <div class="form-group">
+      <div v-if="activeTab === 'files'" class="form-group">
         <label>Project Files Location</label>
         <div class="flex gap-2 items-center" style="flex-wrap:wrap">
           <code class="path-display">{{ projectLocation || '(no location set)' }}</code>
@@ -2094,7 +1918,12 @@
         </p>
       </div>
 
-      <div class="danger-zone mt-3">
+      <div v-if="activeTab !== 'writing'" class="flex gap-2 mt-3" style="align-items:center">
+        <button class="btn btn-primary" @click="saveProject()">Save project settings</button>
+        <SaveIndicator v-bind="savedHintProps(`project_${activeTab}`)" />
+      </div>
+
+      <div v-if="activeTab === 'files'" class="danger-zone mt-3">
         <h3>Hide / Remove Project</h3>
         <p class="text-muted mt-1">
           <strong>Non-destructive:</strong> the project is removed from this app's
@@ -2113,7 +1942,7 @@
     <!-- About — version + build info, copyable for bug reports.
          Read at frontend build time from the root package.json (see
          nuxt.config.ts → runtimeConfig.public.appVersion). -->
-    <div v-if="activeTab === 'about'" class="card settings-panel mt-2">
+    <div v-if="activeTab === 'maintenance'" class="card settings-panel mt-2">
       <h3>About Story Studio KH</h3>
       <p class="text-muted mt-1" style="font-size:13px">
         When reporting an issue or asking for help, copy the version string below — it tells us exactly which build you're on so we can match it to the change history.
@@ -2226,17 +2055,11 @@
 // FileBrowserModal (server mode / remote tailnet browser). Not auto-imported
 // — it's a bare named export, not a useX composable.
 import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
+import { resolveSettingsSectionHash } from '~/utils/settingsNavigation'
+import { projectSettingsSavePlan, type ProjectSettingsSaveSection } from '~/utils/projectSettingsSave'
 // Reactive installed Content Pack catalog used by the per-project selector.
 // Project-local saved styles remain independent compatibility data.
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
-import {
-  VOICE_PROVIDER_OPTIONS,
-  firstVoiceProviderIndex,
-  normalizeSavedVoices,
-  type SavedVoice,
-  type VoiceProviderId,
-} from '~/utils/voice-providers'
-
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Settings')
 const route = useRoute()
@@ -2257,7 +2080,7 @@ const { success, error: showError, info } = useToast()
 // folder. `projectLocation` below still shows where this channel sits; moving
 // it is a Finder drag inside the Library.
 
-const activeTab = ref('app')
+const activeTab = ref('connections')
 const syncing = ref(false)
 const syncResults = ref<string[]>([])
 
@@ -3422,13 +3245,13 @@ async function browseAndMoveLibrary() {
 
 watch(activeTab, (t) => {
   // Item J — lazy-load the YouTube category list when the user enters
-  // the Project tab so the dropdown is populated without a click. Cached
+  // Publishing so the dropdown is populated without a click. Cached
   // 7d on the backend, so the cost is one extra fetch per session at
   // most (and usually zero — fully cache-served).
-  if (t === 'project' && !ytCategoryList.value.length) {
+  if (t === 'publishing' && !ytCategoryList.value.length) {
     void loadYoutubeCategoryList()
   }
-  if (t === 'project' && !ytAppDefaults.value) {
+  if (t === 'publishing' && !ytAppDefaults.value) {
     void loadYoutubeAppDefaults()
   }
   // v1.0.107+ — load location status so the "Unlink from this Mac"
@@ -3526,7 +3349,7 @@ async function runYoutubeBackfill(dryRun: boolean) {
     // If the user changed the AI toggle in the UI but hasn't hit Save yet,
     // the backfill would use the LAST-SAVED value — confusing. Force a
     // save first so the in-flight selection is what gets backfilled.
-    await saveProject()
+    await saveProject('publishing')
     const r = await post<YtBackfillResp>(
       `/projects/${slug.value}/upload/youtube-backfill`,
       { dry_run: dryRun },
@@ -3549,85 +3372,42 @@ async function onYoutubeBackfillApply() {
   await runYoutubeBackfill(false)
 }
 
-// v1.0.184 (S1) — settings nav grouped into two SCOPE zones, then topic
-// groups within each. The scope split is the headline win: per-machine items
-// (FFmpeg / Notifications — save to /app-settings or the FFmpeg installer)
-// are visually separated from per-project items (everything that saves to
-// /projects/:slug/...), so it's obvious what travels with the project across
-// Macs vs. what stays on this machine.
-// (API Keys + Appearance + Server Mode still live in the App-Settings modal;
-// S2 folds them into the "This Mac" zone here.)
-//
-// Scope verified by save target, not assumption:
-//   per-project (PUT /projects/:slug/settings/config or project storage):
-//     Voices, Format, Niche, Standards, Folders, Storage, Named Roots,
-//     Confirmations, Project, About
-//   per-machine (PUT /app-settings/*, FFmpeg installer):
-//     App & Connections (including the read-only GenStudio account catalog),
-//     FFmpeg, Notifications
 const tabZones = [
   {
     id: 'machine',
     title: 'This Mac',
-    scope: 'stays on this machine · never synced',
-    groups: [
-      { title: 'App', tabs: [
-        // v1.0.185 (S2) — API Keys / Appearance / Server Mode merged in from
-        // the old standalone App-Settings modal. One "Settings" surface now.
-        { id: 'app', label: 'App & Connections', icon: '◇', description: 'Manage appearance, remote access, and the GenStudio account connection and live catalogs shared by every project on this Mac.' },
-        { id: 'youtube', label: 'YouTube', icon: '▶', description: 'Configure the OAuth application, connect YouTube channels, and choose the channel this project publishes to.' },
-      ] },
-      { title: 'Local & system', tabs: [
-        { id: 'ffmpeg', label: 'FFmpeg', icon: '▶', description: 'Install and verify the media engine used for audio mixing, subtitles, effects, and final video exports.' },
-        { id: 'notifications', label: 'Notifications', icon: '◉', description: 'Route important job outcomes to this Mac or Telegram and schedule a concise daily production brief.' },
-      ] },
+    scope: 'Stays on this Mac',
+    sections: [
+      { id: 'connections', label: 'Connections', description: 'GenStudio and YouTube accounts', keywords: 'api key oauth models catalog channel' },
+      { id: 'performance', label: 'Performance & recovery', description: 'Local workload and retry choices', keywords: 'throughput concurrency failed image subtitles timeout' },
+      { id: 'appearance', label: 'Appearance & notifications', description: 'Display, access, text and alerts', keywords: 'theme remote server emoji telegram digest' },
+      { id: 'maintenance', label: 'Files & maintenance', description: 'Shared Library, exports and diagnostics', keywords: 'ffmpeg about version archive storage' },
     ],
   },
   {
     id: 'project',
     title: 'This Project',
-    scope: 'travels with the project',
-    groups: [
-      { title: 'Content', tabs: [
-        { id: 'channel', label: 'Channel Identity', icon: '✦', description: 'Set the Series Formula, compatible Topic Packs, and Production Path that travel with this channel.' },
-        { id: 'standards', label: 'Instructions', icon: '✓', description: 'Add optional project-specific rules and episode intro guidance. Series Formula rules remain authoritative.' },
-      ] },
-      { title: 'Generation', tabs: [
-        { id: 'styles', label: 'Styles', icon: '✎', description: 'Curate the project visual language used by scene and thumbnail image generation.' },
-      ] },
-      { title: 'Files', tabs: [
-        { id: 'folders', label: 'Folders', icon: '▤', description: 'Control the portable episode folder structure used throughout the production pipeline.' },
-        { id: 'storage', label: 'Storage', icon: '◫', description: 'See where active project files live, reclaim uploaded finals safely, and manage optional split storage.' },
-      ] },
-      { title: 'Other', tabs: [
-        { id: 'confirmations', label: 'Confirmations', icon: '!', description: 'Choose where the app pauses for approval and where trusted actions may continue directly.' },
-        { id: 'project', label: 'Project', icon: '□', description: 'Edit identity, numbering, grouping, output paths, and lifecycle controls for this project.' },
-        { id: 'about', label: 'About', icon: 'i', description: 'Review app, build, project, and storage details useful for support and diagnostics.' },
-      ] },
+    scope: 'Travels with this project',
+    sections: [
+      { id: 'identity', label: 'Channel identity', description: 'Series Formula and Topic Packs', keywords: 'niche formula topics custom' },
+      { id: 'production', label: 'Production defaults', description: 'Continuity and episode shape', keywords: 'guide references chapters runtime motion' },
+      { id: 'writing', label: 'Writing & style', description: 'Instructions, intros and visual style', keywords: 'standards prompts art presets' },
+      { id: 'publishing', label: 'Publishing', description: 'Channel assignment, profile and cadence', keywords: 'youtube upload schedule metadata category' },
+      { id: 'files', label: 'Project files & behavior', description: 'Folders, storage, numbering and confirmations', keywords: 'episodes group archive cleanup paths' },
     ],
   },
 ]
 
-// Flat list derived from the zones — preserves the old `tabs` contract for any
-// code that iterates ids (deep-link validation, saved tab state, etc.).
-const tabs = tabZones.flatMap(z => z.groups.flatMap(g => g.tabs))
+const tabs = tabZones.flatMap(zone => zone.sections)
 
 // v1.0.186 (S3) — the zone (This Mac / This Project) that owns the active tab.
 // Drives the in-page scope banner so the user always sees whether the panel
 // they're editing is per-machine or per-project.
 const activeZone = computed(() =>
-  tabZones.find(z => z.groups.some(g => g.tabs.some(t => t.id === activeTab.value))) || null,
+  tabZones.find(zone => zone.sections.some(section => section.id === activeTab.value)) || null,
 )
 
 const activeTabMeta = computed(() => tabs.find(tab => tab.id === activeTab.value) || null)
-const isChannelTab = computed(() => activeTab.value === 'channel')
-
-type ModelPricingView = 'image' | 'video'
-const modelPricingView = ref<ModelPricingView>('image')
-const modelPricingViews: Array<{ id: ModelPricingView; label: string; icon: string; description: string }> = [
-  { id: 'image', label: 'Image', icon: '▧', description: 'Per render' },
-  { id: 'video', label: 'Video', icon: '▶', description: 'Image to video' },
-]
 
 // ── FFmpeg tab state ─────────────────────────────────────────────────────
 // The backend exposes a self-contained installer at POST /ffmpeg/install
@@ -3814,40 +3594,22 @@ function openExternal(url: string) {
   window.open(url, '_blank', 'noopener')
 }
 
-// Auto-switch to the FFmpeg tab when the route hash is `#ffmpeg`. This is
-// what the "Install FFmpeg" buttons on the Audio Assembly and Video
-// Assembly pages link to — clicking them lands the user directly here
-// instead of dropping them onto a generic Settings page.
 const _route = useRoute()
 function applyHash() {
-  const h = (_route.hash || '').toLowerCase()
-  // Models are owned by the connected GenStudio account, not a project.
-  // Preserve old links while relocating their destination to App & Connections.
-  if (h === '#models') {
-    activeTab.value = 'app'
-    return
-  }
-  if (h === '#ffmpeg') {
-    activeTab.value = 'ffmpeg'
+  const rawTarget = (_route.hash || '').toLowerCase().replace(/^#/, '')
+  const target = resolveSettingsSectionHash(rawTarget, tabs.map(tab => tab.id))
+  if (!target) return
+  activeTab.value = target
+  if (rawTarget === 'ffmpeg') {
     refreshFfmpegStatus()
     nextTick(() => {
       document.getElementById('ffmpeg-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
-    return
-  }
-  // Generic hash → tab map. The old #format and #niche deep links now open
-  // Channel Identity. Anything else that matches a tab id auto-switches
-  // (e.g. `#about` from
-  // "Copy version" links, etc.). Unrecognised hashes leave activeTab alone.
-  if (h.startsWith('#')) {
-    const rawTarget = h.slice(1)
-    const target = rawTarget === 'format' || rawTarget === 'niche' ? 'channel' : rawTarget
-    if (tabs.some(t => t.id === target)) activeTab.value = target
   }
 }
 onMounted(() => {
   applyHash()
-  if (activeTab.value === 'ffmpeg') refreshFfmpegStatus()
+  if (activeTab.value === 'maintenance') refreshFfmpegStatus()
 
   loadNotifSettings()
 })
@@ -4484,57 +4246,6 @@ const confirmGenerationRows = computed(() => confirmGenerators.filter(g => g.gro
 const confirmActionRows = computed(() => confirmGenerators.filter(g => g.group === 'action'))
 const confirmPrefs = reactive<Record<string, boolean>>({})
 
-// Editable copies of config data
-const editImageModels = ref<Record<string, any>>({})
-const editVideoModels = ref<Record<string, any>>({})
-const videoModelSource = ref<'hub' | 'direct' | 'compatibility'>('compatibility')
-const refreshingVideoModels = ref(false)
-const videoModelSourceLabel = computed(() => videoModelSource.value === 'hub'
-  ? 'the live catalog'
-  : videoModelSource.value === 'direct' ? 'Direct Video Studio URL' : 'saved compatibility data')
-const editVoices = ref<SavedVoice[]>([])
-const voiceProviderFilter = ref<'all' | VoiceProviderId>('all')
-const voiceSort = ref<'provider' | 'name-asc' | 'name-desc'>('provider')
-
-const voiceProviderCounts = computed<Record<VoiceProviderId, number>>(() => {
-  const counts = Object.fromEntries(VOICE_PROVIDER_OPTIONS.map(provider => [provider.id, 0])) as Record<VoiceProviderId, number>
-  for (const voice of editVoices.value) {
-    for (const provider of voice.providers) counts[provider]++
-  }
-  return counts
-})
-
-const filteredVoiceRows = computed(() => {
-  const rows = editVoices.value
-    .map((voice, index) => ({ voice, index }))
-    .filter(row => voiceProviderFilter.value === 'all' || row.voice.providers.includes(voiceProviderFilter.value))
-  return rows.sort((a, b) => {
-    const nameOrder = a.voice.name.localeCompare(b.voice.name, undefined, { sensitivity: 'base' })
-    if (voiceSort.value === 'name-asc') return nameOrder
-    if (voiceSort.value === 'name-desc') return -nameOrder
-    return firstVoiceProviderIndex(a.voice) - firstVoiceProviderIndex(b.voice) || nameOrder
-  })
-})
-
-function toggleVoiceProvider(voice: SavedVoice, provider: VoiceProviderId) {
-  if (voice.providers.includes(provider)) {
-    if (voice.providers.length === 1) {
-      info('Each voice needs at least one provider label.')
-      return
-    }
-    voice.providers = voice.providers.filter(item => item !== provider)
-  } else {
-    voice.providers = VOICE_PROVIDER_OPTIONS
-      .map(option => option.id)
-      .filter(item => item === provider || voice.providers.includes(item))
-  }
-}
-
-function addVoice() {
-  const provider: VoiceProviderId = voiceProviderFilter.value === 'all' ? 'genstudio' : voiceProviderFilter.value
-  editVoices.value.push({ name: '', voice_id: '', providers: [provider] })
-}
-
 // Folder config
 interface FolderEntry { key: string; label: string; generator: string; order: number; template: string }
 const folderConfig = ref<FolderEntry[]>([])
@@ -4546,7 +4257,7 @@ const folderDefaults = ref<Record<string, string>>({})
 
 // Load folder config when tab becomes active
 watch(activeTab, async (tab) => {
-  if (tab === 'folders' && !folderConfig.value.length) {
+  if (tab === 'files' && !folderConfig.value.length) {
     try {
       const data = await get<any>(`/projects/${slug.value}/settings/subfolder-config`)
       folderConfig.value = data.linkage
@@ -4588,10 +4299,6 @@ watch(config, (c) => {
       ? cAny.category_id : undefined
     projectForm.mark_as_ai_generated = typeof cAny?.mark_as_ai_generated === 'boolean'
       ? cAny.mark_as_ai_generated : undefined
-    editImageModels.value = JSON.parse(JSON.stringify(c.image_models || {}))
-    editVideoModels.value = JSON.parse(JSON.stringify((c as any).video_models || {}))
-    videoModelSource.value = (c as any).video_models_source || 'compatibility'
-    editVoices.value = normalizeSavedVoices(c.voice_presets || [])
     standardsPresets.value = JSON.parse(JSON.stringify((c as any).standards_presets || []))
     introPresets.value = JSON.parse(JSON.stringify((c as any).intro_presets || []))
     introStandards.value = (c as any).intro_standards || ''
@@ -4605,7 +4312,7 @@ watch(config, (c) => {
 
 // Load standards when tab becomes active
 watch(activeTab, async (tab) => {
-  if (tab === 'standards' && !standards.value) {
+  if (tab === 'writing' && !standards.value) {
     try {
       const data = await get<{ content: string }>(`/projects/${slug.value}/settings/standards`)
       standards.value = data.content
@@ -4728,63 +4435,6 @@ async function confirmReseason() {
   }
 }
 
-async function saveImagePricing() {
-  try {
-    await put(`/projects/${slug.value}/settings/config`, { image_models: editImageModels.value })
-    await refreshConfig(slug.value)
-    stampSaved('image_pricing')
-    success('Image pricing saved!')
-  } catch (e: any) {
-    showError(e.data?.detail || 'Failed to save')
-  }
-}
-
-function formatVideoStudioPrice(model: any): string {
-  const price = model?.provider_params?.price
-  if (!price || !Number.isFinite(Number(price.usd))) return model?.provider_params?.is_cloud ? 'See provider' : 'Local compute'
-  const unit = String(price.unit || 'generation').replace(/^per_/, '').replaceAll('_', ' ')
-  // model-drift-allow: the Video Studio catalogue's own published provider price,
-  // rendered verbatim under a "Provider price" column. Story Studio neither
-  // computes nor bills it — no GenStudio credit cost is ever shown in dollars.
-  return `$${Number(price.usd).toFixed(2)} / ${unit}`
-}
-
-async function refreshVideoCatalog() {
-  refreshingVideoModels.value = true
-  try {
-    const live = await get<any>(`/projects/${slug.value}/settings/config?refresh_video_models=1`)
-    editVideoModels.value = JSON.parse(JSON.stringify(live.video_models || {}))
-    videoModelSource.value = live.video_models_source || 'compatibility'
-    success(`Video catalog refreshed via ${videoModelSourceLabel.value}.`)
-  } catch (e: any) {
-    showError(e.data?.detail || 'Failed to refresh the Video Studio catalog')
-  } finally {
-    refreshingVideoModels.value = false
-  }
-}
-
-async function saveVoices() {
-  const unfinished = editVoices.value.find(voice => !voice.name.trim() || !voice.voice_id.trim())
-  if (unfinished) {
-    showError('Every voice needs both a name and a voice/reference ID. Remove unfinished rows or fill them in.')
-    return
-  }
-  const invalid = editVoices.value.find(voice => voice.providers.length === 0)
-  if (invalid) {
-    showError(`Choose at least one provider for "${invalid.name}".`)
-    return
-  }
-  const valid = normalizeSavedVoices(editVoices.value)
-  try {
-    await put(`/projects/${slug.value}/settings/config`, { voice_presets: valid })
-    await refreshConfig(slug.value)
-    stampSaved('voices')
-    success('Voices saved!')
-  } catch (e: any) {
-    showError(e.data?.detail || 'Failed to save')
-  }
-}
-
 async function saveConfirmPrefs() {
   try {
     await put(`/projects/${slug.value}/settings/config`, { confirmation_preferences: { ...confirmPrefs } })
@@ -4807,38 +4457,41 @@ async function saveStandards() {
   }
 }
 
-async function saveProject() {
+async function saveProject(requestedSection?: ProjectSettingsSaveSection) {
   try {
-    // Item J — split the form: project-meta fields go to /projects/:slug,
-    // ProjectConfig fields (currently only category_id) go to
-    // /projects/:slug/settings/config. Two PUTs because the backend
-    // routes are split — accepted as the simpler path vs. unifying the
-    // two endpoints, which would touch a much larger surface.
-    //
-    // v1.0.45 — strip `season_size` from the regular save path. A
-    // raw value-change wouldn't move on-disk folders, leaving every
-    // season-aware path resolution silently broken. The Rebalance
-    // button next to the field is the only path that commits a new
-    // season_size (via /episodes/reseason, which moves folders too).
-    const { category_id, mark_as_ai_generated, season_size: _droppedSize, ...projectMeta } = projectForm as any
-    if (seasonSizeChanged.value) {
-      // Reset the input to the server value so the Rebalance button's
-      // "differs from server" gate doesn't keep firing after save.
-      projectForm.season_size = serverSeasonSize.value
+    const targetSlug = slug.value
+    const section = requestedSection || (activeTab.value as ProjectSettingsSaveSection)
+    if (!['identity', 'publishing', 'files'].includes(section)) return
+    const draftBeforeSave = { ...projectForm }
+    const plan = projectSettingsSavePlan(section, draftBeforeSave, serverSeasonSize.value)
+
+    // The regular Files save deliberately excludes season_size. Only the
+    // Rebalance action can change it because that also moves existing folders.
+    if (plan.hasPendingSeasonSize) {
       info('Episodes per Group not saved — use the ↻ Rebalance button next to the field to apply size changes.')
     }
-    await put(`/projects/${slug.value}`, projectMeta)
-    // Two ProjectConfig fields wired through the same /settings/config PUT —
-    // category_id (Item J, v1.0.20) + mark_as_ai_generated (v1.0.77, YouTube
-    // synthetic-content disclosure). undefined means "inherit app default".
-    await put(`/projects/${slug.value}/settings/config`, {
-      category_id: typeof category_id === 'number' && category_id > 0 ? category_id : undefined,
-      mark_as_ai_generated: typeof mark_as_ai_generated === 'boolean' ? mark_as_ai_generated : undefined,
-    })
-    await loadProject(slug.value)
-    if (typeof refreshConfig === 'function') await refreshConfig(slug.value)
-    stampSaved('project')
-    success('Project settings saved!')
+
+    const savedProject = await put<any>(`/projects/${targetSlug}`, plan.project)
+    if (slug.value !== targetSlug) return
+    if (project.value) {
+      for (const key of Object.keys(plan.project)) {
+        (project.value as any)[key] = savedProject[key]
+      }
+    }
+    if (plan.config) {
+      await put(`/projects/${targetSlug}/settings/config`, plan.config)
+      if (slug.value !== targetSlug) return
+      if (config.value) {
+        for (const [key, value] of Object.entries(plan.config)) {
+          if (value !== undefined) (config.value as any)[key] = value
+        }
+      }
+    }
+
+    // Mutate only the acknowledged fields in place. Replacing the whole refs
+    // would hydrate every section and discard drafts hidden behind another link.
+    stampSaved(`project_${section}`)
+    success(`${section === 'identity' ? 'Project identity' : section === 'publishing' ? 'Publishing defaults' : 'Project files'} saved!`)
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to save')
   }
@@ -5083,14 +4736,6 @@ async function deleteProject() {
 .settings-page-copy { position: relative; z-index: 1; max-width: 720px; }
 .settings-page-copy h1 { margin: 3px 0 6px; font-size: clamp(28px, 3vw, 40px); letter-spacing: -0.035em; }
 .settings-page-copy p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
-.settings-page-eyebrow,
-.settings-active-kicker {
-  color: var(--settings-gold);
-  font-size: var(--font-xs);
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
 .settings-page-key {
   position: relative;
   z-index: 1;
@@ -5107,68 +4752,10 @@ async function deleteProject() {
 .key-machine { background: var(--settings-gold); }
 .key-project { background: var(--settings-green); }
 
-.settings-nav {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.72fr) minmax(540px, 1.28fr);
-  gap: 12px;
-}
-.settings-zone {
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 14px;
-  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
-  box-shadow: inset 0 1px rgba(255,255,255,0.025);
-}
-.settings-zone-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0 2px 10px;
-  border-bottom: 1px solid var(--border);
-}
-.settings-zone-title { font-size: 13px; font-weight: 750; letter-spacing: 0.01em; color: var(--text-primary); }
-.settings-zone-scope { font-size: var(--font-xs); color: var(--text-muted); }
-.settings-group { padding: 10px 0 0; }
-.settings-group + .settings-group { margin-top: 10px; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
-.settings-group-label {
-  display: block;
-  margin: 0 2px 6px;
-  color: var(--text-muted);
-  font-size: var(--font-xs);
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-.settings-group-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
-.settings-group-tabs .tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 34px;
-  padding: 7px 10px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  color: var(--text-secondary);
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-  font-size: var(--font-xs);
-  transition: border-color .16s, background .16s, color .16s, transform .16s;
-}
-.settings-group-tabs .tab:hover { color: var(--text-primary); border-color: var(--border); background: var(--bg-tertiary); transform: translateY(-1px); }
-.settings-group-tabs .tab.active {
-  color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--settings-green) 48%, var(--border));
-  background: linear-gradient(135deg, rgba(88, 198, 146, 0.14), rgba(227, 180, 90, 0.06));
-  box-shadow: 0 5px 18px rgba(0,0,0,0.12);
-}
-.settings-tab-icon { display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--settings-gold); font-size: 12px; }
 
 .settings-active-intro {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
   margin: 14px 0 0;
@@ -5179,17 +4766,6 @@ async function deleteProject() {
 }
 .settings-active-intro.scope-machine { border-left: 3px solid var(--settings-gold); }
 .settings-active-intro.scope-project { border-left: 3px solid var(--settings-green); }
-.settings-active-icon {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  color: var(--settings-gold);
-  background: linear-gradient(145deg, rgba(227,180,90,.16), rgba(88,198,146,.1));
-  border: 1px solid rgba(227,180,90,.18);
-  font-size: 20px;
-}
 .settings-active-copy h2 { margin: 1px 0 3px; font-size: 18px; letter-spacing: -0.015em; }
 .settings-active-copy p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
 .settings-scope-pill {
@@ -5212,6 +4788,19 @@ async function deleteProject() {
   box-shadow: 0 20px 45px rgba(0,0,0,.12), inset 0 1px rgba(255,255,255,.025);
 }
 .settings-panel-embedded { padding: 14px; }
+.settings-disclosure > summary {
+  margin: -4px;
+  padding: 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  list-style-position: outside;
+}
+.settings-disclosure > summary:hover { background: var(--bg-tertiary); }
+.settings-disclosure > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-disclosure > summary > span { display: inline-flex; flex-direction: column; gap: 2px; margin-left: 4px; vertical-align: middle; }
+.settings-disclosure > summary strong { color: var(--text-primary); font-size: 14px; }
+.settings-disclosure > summary small { color: var(--text-muted); font-size: var(--font-xs); font-weight: 400; }
+.settings-disclosure[open] > summary { margin-bottom: 14px; border-bottom: 1px solid var(--border); border-radius: 10px 10px 0 0; }
 .settings-panel > h3:first-child,
 .settings-panel > .card-header:first-child h3 { font-size: 18px; letter-spacing: -.015em; }
 .settings-section-head {
@@ -5242,96 +4831,15 @@ async function deleteProject() {
   letter-spacing: .06em;
   text-transform: uppercase;
 }
-.settings-segmented-nav {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
-  padding: 7px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-primary) 52%, transparent);
-}
-.settings-segmented-button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  min-height: 52px;
-  padding: 9px 12px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  color: var(--text-secondary);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-  transition: .16s ease;
-}
-.settings-segmented-button > span:first-child {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  color: var(--settings-gold);
-  background: rgba(227,180,90,.09);
-}
-.settings-segmented-button > span:last-child { display: flex; min-width: 0; flex-direction: column; }
-.settings-segmented-button strong { font-size: var(--font-xs); }
-.settings-segmented-button small { color: var(--text-muted); font-size: var(--font-xs); }
-.settings-segmented-button:hover { color: var(--text-primary); border-color: var(--border); background: var(--bg-tertiary); transform: translateY(-1px); }
-.settings-segmented-button.active {
-  color: var(--text-primary);
-  border-color: rgba(88,198,146,.4);
-  background: linear-gradient(145deg, rgba(88,198,146,.14), rgba(227,180,90,.06));
-  box-shadow: 0 8px 22px rgba(0,0,0,.12);
-}
-.settings-subpanel {
-  display: block;
-  margin-top: 12px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-tertiary) 58%, transparent);
-}
-.settings-panel .edit-table { border: 1px solid var(--border); border-radius: 12px; border-collapse: separate; border-spacing: 0; overflow: hidden; }
-.settings-panel .edit-table th { background: color-mix(in srgb, var(--bg-tertiary) 90%, var(--settings-green)); }
-.settings-panel .edit-table tbody tr:hover td { background: rgba(88,198,146,.035); }
 
-@media (max-width: 1100px) {
-  .settings-nav { grid-template-columns: 1fr; }
-}
 @media (max-width: 720px) {
   .settings-page-hero { align-items: flex-start; flex-direction: column; padding: 20px; }
   .settings-page-key { width: 100%; justify-content: space-around; }
-  .settings-group-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .settings-group-tabs .tab { width: 100%; }
-  .settings-active-intro { grid-template-columns: 40px 1fr; }
-  .settings-active-icon { width: 38px; height: 38px; }
+  .settings-active-intro { grid-template-columns: 1fr; }
   .settings-scope-pill { grid-column: 1 / -1; justify-self: start; }
   .settings-section-head { align-items: flex-start; flex-direction: column; }
-  .settings-segmented-button { justify-content: center; }
-  .settings-segmented-button small { display: none; }
 }
 
-.edit-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.edit-table th {
-  text-align: left;
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-.edit-table td {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  font-size: 14px;
-}
 
 .input-sm {
   padding: 6px 10px;
@@ -5357,107 +4865,6 @@ async function deleteProject() {
   background: rgba(248, 113, 113, 0.1);
 }
 
-.voice-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.voice-library-heading,
-.voice-library-toolbar,
-.voice-row-edit {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.voice-library-heading {
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 16px;
-}
-.voice-count {
-  color: var(--text-muted);
-  font-size: var(--font-xs);
-  padding: 4px 9px;
-  border-radius: 999px;
-  background: var(--bg-hover);
-  white-space: nowrap;
-}
-.voice-library-toolbar {
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 14px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-}
-.voice-provider-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.voice-filter {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-muted);
-  background: transparent;
-  padding: 5px 9px;
-  cursor: pointer;
-  font-size: 12px;
-}
-.voice-filter span { opacity: .7; margin-left: 3px; }
-.voice-filter:hover,
-.voice-filter.active {
-  color: var(--text-primary);
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
-}
-.voice-sort { width: 180px; flex: 0 0 auto; }
-.voice-row-edit {
-  position: relative;
-  align-items: stretch;
-  padding: 12px;
-  padding-right: 42px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  flex-direction: column;
-}
-.voice-fields { display: grid; grid-template-columns: minmax(180px, .75fr) minmax(260px, 1.25fr); gap: 8px; }
-.voice-name-input,
-.voice-id-input { width: 100%; }
-.voice-provider-labels { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.voice-provider-prompt { color: var(--text-muted); font-size: var(--font-xs); margin-right: 2px; }
-.voice-provider-toggle {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-muted);
-  padding: 4px 8px;
-  font-size: var(--font-xs);
-  cursor: pointer;
-  user-select: none;
-}
-.voice-provider-toggle input { position: absolute; opacity: 0; pointer-events: none; }
-.voice-provider-toggle.active {
-  color: var(--text-primary);
-  border-color: var(--success);
-  background: color-mix(in srgb, var(--success) 12%, transparent);
-}
-.voice-remove { position: absolute; top: 9px; right: 8px; }
-.voice-empty {
-  padding: 22px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-sm);
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-@media (max-width: 820px) {
-  .voice-library-toolbar { flex-direction: column; }
-  .voice-sort { width: 100%; }
-  .voice-fields { grid-template-columns: 1fr; }
-}
 
 .sync-zone {
   border-top: 1px solid var(--accent);

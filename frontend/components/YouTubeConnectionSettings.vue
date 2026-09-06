@@ -1,12 +1,12 @@
 <template>
   <div class="youtube-connection-settings">
     <header>
-      <span class="eyebrow">This Mac</span>
-      <h3>YouTube connection</h3>
-      <p>
+      <h3>{{ scope === 'assignment' ? `YouTube channel for ${slug}` : 'YouTube accounts on this Mac' }}</h3>
+      <p v-if="scope !== 'assignment'">
         One Google Cloud OAuth application connects every YouTube channel on this Mac. Each channel is
-        authorized separately, and each project publishes to exactly one channel.
+        authorized separately. Project assignment is managed in this project’s Publishing section.
       </p>
+      <p v-else>Choose which connected channel this project may publish to. The OAuth application and channel credentials stay on this Mac.</p>
     </header>
 
     <p v-if="loading" class="hint">Loading the YouTube connection…</p>
@@ -27,7 +27,7 @@
 
     <template v-else>
       <!-- ── The owner OAuth application ───────────────────────────────── -->
-      <section class="panel application">
+      <section v-if="scope !== 'assignment'" class="panel application">
         <div>
           <span class="eyebrow">Step 1</span>
           <h4>Google Cloud OAuth application</h4>
@@ -95,7 +95,7 @@
       </section>
 
       <!-- ── Connected channels ────────────────────────────────────────── -->
-      <section class="panel channels">
+      <section v-if="scope !== 'assignment'" class="panel channels">
         <div>
           <span class="eyebrow">Step 2</span>
           <h4>Connected channels</h4>
@@ -143,9 +143,9 @@
       </section>
 
       <!-- ── This project's channel ────────────────────────────────────── -->
-      <section class="panel assignment">
+      <section v-if="scope !== 'connections'" class="panel assignment">
         <div>
-          <span class="eyebrow">Step 3</span>
+          <span class="eyebrow">{{ scope === 'assignment' ? 'Project setting' : 'Step 3' }}</span>
           <h4>Channel for {{ slug }}</h4>
           <p class="hint">
             One project publishes to exactly one channel, and a channel belongs to one project. Choosing a
@@ -182,13 +182,17 @@
              two different sentences: no channel is connected at all, or every
              connected channel is already another project's. -->
         <p v-else-if="!assignment && connectedChannels.length" class="hint">
-          Every connected channel already belongs to another project. Connect another channel to publish from this one.
+          Every connected channel already belongs to another project. Connect another channel in This Mac → Connections to publish from this one.
         </p>
         <p v-else-if="!assignment && channels.length" class="hint">
-          Reconnect a channel in step 2 before assigning it to this project.
+          {{ scope === 'assignment'
+            ? 'Reconnect a channel in This Mac → Connections before assigning it to this project.'
+            : 'Reconnect a channel in step 2 before assigning it to this project.' }}
         </p>
         <p v-else-if="!assignment" class="hint">
-          Connect a YouTube channel in step 2 first, then choose it here.
+          {{ scope === 'assignment'
+            ? 'Connect a YouTube channel in This Mac → Connections first, then choose it here.'
+            : 'Connect a YouTube channel in step 2 first, then choose it here.' }}
         </p>
 
         <p v-if="assignmentResult" :class="['result', assignmentResult.kind]">{{ assignmentResult.message }}</p>
@@ -221,7 +225,11 @@ interface AssignmentView { project_slug: string; channel_id: string; assigned_at
 
 type Result = { kind: 'ok' | 'warn' | 'err'; message: string }
 
-const props = defineProps<{ slug: string }>()
+const props = withDefaults(defineProps<{
+  slug: string
+  scope?: 'all' | 'connections' | 'assignment'
+}>(), { scope: 'all' })
+const scope = computed(() => props.scope)
 
 const { get, put, post, del } = useApi()
 const { ask } = useConfirm()

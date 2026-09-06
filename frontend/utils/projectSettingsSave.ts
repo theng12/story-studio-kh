@@ -1,0 +1,28 @@
+export type ProjectSettingsSaveSection = 'identity' | 'publishing' | 'files'
+
+export function projectSettingsSavePlan(
+  section: ProjectSettingsSaveSection,
+  draft: Record<string, any>,
+  savedSeasonSize: number,
+) {
+  if (section === 'identity') {
+    return { project: { name: draft.name }, config: null, hasPendingSeasonSize: false }
+  }
+  if (section === 'publishing') {
+    return {
+      project: { youtube_channel_url: draft.youtube_channel_url },
+      config: {
+        category_id: typeof draft.category_id === 'number' && draft.category_id > 0 ? draft.category_id : undefined,
+        mark_as_ai_generated: typeof draft.mark_as_ai_generated === 'boolean' ? draft.mark_as_ai_generated : undefined,
+      },
+      hasPendingSeasonSize: false,
+    }
+  }
+  return {
+    project: { episode_prefix: draft.episode_prefix, season_prefix: draft.season_prefix },
+    config: null,
+    hasPendingSeasonSize: Number.isInteger(draft.season_size)
+      && draft.season_size >= 1
+      && draft.season_size !== savedSeasonSize,
+  }
+}

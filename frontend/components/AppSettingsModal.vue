@@ -13,7 +13,7 @@
     @close="modal.close()"
   >
     <header class="modal-header">
-      <h2 id="app-settings-title">Settings — This Mac</h2>
+      <h2 id="app-settings-title">{{ modalTitle }}</h2>
       <button
         type="button"
         class="modal-close"
@@ -26,7 +26,7 @@
     <!-- Re-mounted each open (:key) so the inner component re-fetches keys —
          reflects edits made elsewhere since last open. -->
     <div class="modal-body">
-      <ThisMacSettings v-if="modal.isOpen.value" :key="openCount" />
+      <ThisMacSettings v-if="modal.isOpen.value" :key="openCount" :section="modal.section.value" />
     </div>
 
     <footer class="modal-footer">
@@ -42,9 +42,15 @@
  * UI now lives in <ThisMacSettings> (reused by the project Settings page); this
  * wrapper is just the modal shell + a re-mount key so each open re-fetches.
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const modal = useAppSettingsModal()
+const modalTitle = computed(() => ({
+  all: 'Settings — This Mac',
+  connections: 'Settings — Connections',
+  performance: 'Settings — Performance & recovery',
+  appearance: 'Settings — Appearance & app behavior',
+}[modal.section.value]))
 
 // Bump on each open so the inner component remounts and reloads its data.
 const openCount = ref(0)
