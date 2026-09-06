@@ -15,8 +15,10 @@ let generateChapterOnly: typeof import('../generators/episode.js')['generateChap
 let writeChapterFiles: typeof import('../lib/narration-assembly.js')['writeChapterFiles']
 let resolveEpisodePaths: typeof import('../services/utils.js')['resolveEpisodePaths']
 let saveChannelSegment: typeof import('../services/channel-segments.js')['saveChannelSegment']
+let parseNarrationDocx: typeof import('../lib/docx-parser.js')['parseNarrationDocx']
 const prompts: string[] = []
 const requests: TextGenerationRequest[] = []
+let introductionResponse = 'A generated pastoral introduction with enough words for the fixture.'
 
 const MODEL = 'genstudio-chat-test-profiled-introduction-v1'
 const FORMULA = {
@@ -82,6 +84,7 @@ before(async () => {
   ;({ writeChapterFiles } = await import('../lib/narration-assembly.js'))
   ;({ resolveEpisodePaths } = await import('../services/utils.js'))
   ;({ saveChannelSegment } = await import('../services/channel-segments.js'))
+  ;({ parseNarrationDocx } = await import('../lib/docx-parser.js'))
   const { registry } = await import('../providers/registry.js')
   const provider: TextProvider = {
     meta: { id: 'genstudio', name: 'Fake GenStudio', apiKeyField: 'genstudio_api_key' },
@@ -92,7 +95,7 @@ before(async () => {
       if (req.outputContract) {
         return JSON.stringify([{ n: 1, title: 'Passage', synopsis: 'Explain the passage.', key_beats: ['Read it closely.'] }])
       }
-      return 'A generated pastoral introduction with enough words for the fixture.'
+      return introductionResponse
     },
   }
   registry.registerText(provider)
@@ -148,6 +151,25 @@ function job(slug: string, episodeCode: string, title: string): Job {
   }
 }
 
+async function episodeReadyForIntroduction(name: string, title: string) {
+  const project = await pm.createProject({ name, niche_id: FORMULA.id })
+  const [seeded] = await ideas.addIdeas(project.slug, [{
+    title,
+    logline: title,
+    themes: [],
+    suggested_chapters: 1,
+    suggested_length: '25 min',
+    mood: 'clear',
+    idea_dimensions: { 'episode-profile': 'daily reflection' },
+  }], MODEL)
+  const accepted = await ideas.acceptIdea(project.slug, seeded!.id)
+  const paths = await resolveEpisodePaths(project.slug, accepted.episode_code, accepted.idea.title)
+  await writeChapterFiles(paths.script_dir, accepted.episode_code, accepted.idea.title, {
+    chapters: [{ number: 1, title: 'Passage', text: 'A chapter already exists.' }],
+  })
+  return { project, accepted, paths }
+}
+
 test('Introduction generation uses each accepted pastoral profile and preserves a channel recipe override', async () => {
   const project = await pm.createProject({ name: 'Pastoral intros', niche_id: FORMULA.id })
   const seeded = await ideas.addIdeas(project.slug, [
@@ -173,6 +195,8 @@ test('Introduction generation uses each accepted pastoral profile and preserves 
 
   const introductionPrompts = prompts.filter(prompt => prompt.includes('Target introduction length:'))
   assert.match(introductionPrompts[0]!, /Target introduction length: 90 words/)
+  assert.match(introductionPrompts[0]!, /Begin immediately with the first sentence the narrator should speak\./)
+  assert.match(introductionPrompts[0]!, /Do not add a heading, preface, explanation, divider, or separator\./)
   assert.match(introductionPrompts[0]!, /read the passage aloud first, unhurried, before any greeting/)
   assert.doesNotMatch(introductionPrompts[0]!, /what it meant then/)
   assert.match(introductionPrompts[1]!, /Target introduction length: 110 words/)
@@ -237,4 +261,101 @@ test('chapter regeneration and Introduction resolve profile Auto while preservin
   assert.match(introductionPrompts[0]!, /Narrator style: teaching-a/)
   assert.doesNotMatch(introductionPrompts[0]!, /Narrator style: auto/)
   assert.match(introductionPrompts[1]!, /Narrator style: daily-a/)
+})
+
+test('Introduction generation removes the observed assistant wrapper before source and unified narration are written', async () => {
+  const { project, accepted, paths } = await episodeReadyForIntroduction(
+    'Wrapped pastoral intro',
+    'Wrapped intro episode',
+  )
+  introductionResponse = [
+    'Here is the introduction section for the episode.',
+    '',
+    '---',
+    '',
+    'Let’s get the worst part out of the way first. This is the real spoken opening.',
+  ].join('\n')
+  try {
+    await generateIntroductionOnly(job(project.slug, accepted.episode_code, accepted.idea.title))
+  } finally {
+    introductionResponse = 'A generated pastoral introduction with enough words for the fixture.'
+  }
+
+  const introductionPath = path.join(paths.script_dir, `${accepted.episode_code}_Introduction.md`)
+  const source = await fs.readFile(introductionPath, 'utf8')
+  assert.doesNotMatch(source, /Here is the introduction section for the episode/)
+  assert.doesNotMatch(source, /^---$/m)
+  assert.match(source, /Let’s get the worst part out of the way first\./)
+
+  const sections = await parseNarrationDocx(paths.narration_docx)
+  assert.equal(sections[0]?.slug, 'Introduction')
+  assert.equal(
+    sections[0]?.text,
+    'Let’s get the worst part out of the way first. This is the real spoken opening.',
+  )
+})
+
+test('Introduction generation removes an intro-specific wrapper variant with CRLF line endings', async () => {
+  const { project, accepted, paths } = await episodeReadyForIntroduction(
+    'Variant wrapped pastoral intro',
+    'Variant wrapped intro episode',
+  )
+  introductionResponse = [
+    'HERE’S YOUR INTRODUCTION FOR THIS EPISODE:',
+    '',
+    '---',
+    '',
+    'The real narration begins here and continues without production notes.',
+  ].join('\r\n')
+  try {
+    await generateIntroductionOnly(job(project.slug, accepted.episode_code, accepted.idea.title))
+  } finally {
+    introductionResponse = 'A generated pastoral introduction with enough words for the fixture.'
+  }
+
+  const sections = await parseNarrationDocx(paths.narration_docx)
+  assert.equal(
+    sections[0]?.text,
+    'The real narration begins here and continues without production notes.',
+  )
+})
+
+test('Introduction generation preserves a wrapper-like opening when the assistant divider is absent', async () => {
+  const { project, accepted, paths } = await episodeReadyForIntroduction(
+    'Legitimate pastoral intro',
+    'Legitimate intro episode',
+  )
+  const legitimateOpening = [
+    'Here is the introduction section for the episode.',
+    '',
+    'The narrator intentionally refers to the structure before the story begins.',
+  ].join('\n')
+  introductionResponse = legitimateOpening
+  try {
+    await generateIntroductionOnly(job(project.slug, accepted.episode_code, accepted.idea.title))
+  } finally {
+    introductionResponse = 'A generated pastoral introduction with enough words for the fixture.'
+  }
+
+  const sections = await parseNarrationDocx(paths.narration_docx)
+  assert.equal(sections[0]?.text, legitimateOpening)
+})
+
+test('Introduction generation rejects a wrapper with no spoken narration and leaves no intro source', async () => {
+  const { project, accepted, paths } = await episodeReadyForIntroduction(
+    'Empty wrapped pastoral intro',
+    'Empty wrapped intro episode',
+  )
+  introductionResponse = 'Here is the introduction section for the episode.\n\n---'
+  try {
+    await assert.rejects(
+      generateIntroductionOnly(job(project.slug, accepted.episode_code, accepted.idea.title)),
+      /Introduction generation returned no usable text/,
+    )
+  } finally {
+    introductionResponse = 'A generated pastoral introduction with enough words for the fixture.'
+  }
+
+  await assert.rejects(fs.access(path.join(paths.script_dir, `${accepted.episode_code}_Introduction.md`)))
+  await assert.rejects(fs.access(paths.narration_docx))
 })

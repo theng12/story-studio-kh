@@ -388,6 +388,9 @@ test('permit queues serialize one scope without holding an unrelated operation',
     try {
       await unrelatedEntered.promise
       assert.equal(textPermitCalls, 1, 'the second same-scope permit must remain queued')
+      await waitFor(() => secondStates[0] === 'waiting_account_capacity', {
+        label: 'same-scope follower to report its capacity wait',
+      })
       assert.equal(secondStates[0], 'waiting_account_capacity')
       assert.equal(shouldPauseContinuityForStall({
         stallPauseRequested: false,

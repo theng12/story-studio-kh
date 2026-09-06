@@ -130,6 +130,12 @@ describe('the page is wired to that decision', () => {
     assert.match(page, /introFailure/)
   })
 
+  test('the page cannot enqueue a generated replacement while a manual save is active', () => {
+    assert.match(page, /@saving-change="previewSaving = \$event"/)
+    assert.match(page, /:generate-disabled="[^"]*previewSaving[^"]*"/)
+    assert.match(page, /if \(!episodeId\.value \|\| previewSaving\.value\) return/)
+  })
+
   test('an idle page makes no requests of its own', () => {
     assert.doesNotMatch(page, /setInterval|setTimeout\s*\(\s*[^,]*,\s*\d{3,}/,
       'the completion signal is the job stream, not a timer that runs forever')
