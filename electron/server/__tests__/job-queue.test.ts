@@ -593,6 +593,115 @@ describe('requestJobCancellation()', () => {
   })
 })
 
+describe('late pause arbitration at the executor completion boundary', () => {
+  for (const origin of ['manual', 'queue'] as const) {
+    test(`preserves a late ${origin} pause after the executor declares complete output`, async () => {
+      const proj = await pm.createProject({ name: `JQ Late ${origin} Pause` })
+      jq.registerExecutor('continuity_render', async job => {
+        await jq.pauseJob(job.job_id, origin)
+        job.result = {
+          complete: true,
+          completion: { label: 'Scene image generation', expected: 1, completed: 1, complete: true },
+        }
+      })
+
+      const job = jq.enqueuePreparedForTest({
+        project_slug: proj.slug,
+        type: 'continuity_render',
+        episode_id: 'EP001',
+        title: 'late explicit pause',
+        params: {},
+      })
+      await waitForJobStatus(job.job_id, 'paused')
+
+      const paused = jq.getJob(job.job_id)!
+      assert.equal(paused.pause_origin, origin)
+      assert.equal(paused.finished_at, null)
+    })
+  }
+
+  test('finishes once when a late automatic stall hold follows a complete output audit', async () => {
+    const proj = await pm.createProject({ name: 'JQ Late Stall After Complete' })
+    let executions = 0
+    jq.registerExecutor('continuity_render', async job => {
+      executions++
+      await jq.pauseJobForStall(job.job_id, 'test hold after the final image checkpointed.')
+      job.result = {
+        complete: true,
+        completion: { label: 'Scene image generation', expected: 1, completed: 1, complete: true },
+      }
+    })
+
+    const job = jq.enqueuePreparedForTest({
+      project_slug: proj.slug,
+      type: 'continuity_render',
+      episode_id: 'EP002',
+      title: 'late automatic stall',
+      params: {},
+    })
+    await waitFor(() => jq.getJob(job.job_id)?.status === 'done', {
+      label: 'late automatic stall completion',
+      timeoutMs: 2_000,
+    })
+
+    const done = jq.getJob(job.job_id)!
+    assert.equal(executions, 1)
+    assert.equal(done.pause_requested, false)
+    assert.equal(done.pause_origin, undefined)
+    assert.ok(done.finished_at)
+    assert.match(done.output_lines.join('\n'), /all outputs were already verified/i)
+  })
+
+  test('keeps a contradictory completion declaration from becoming done after a stall hold', async () => {
+    const proj = await pm.createProject({ name: 'JQ Late Stall Contradictory Completion' })
+    jq.registerExecutor('continuity_render', async job => {
+      await jq.pauseJobForStall(job.job_id, 'test hold with contradictory evidence.')
+      job.result = {
+        complete: true,
+        completion: { label: 'Scene image generation', expected: 1, completed: 0, complete: false },
+      }
+    })
+
+    const job = jq.enqueuePreparedForTest({
+      project_slug: proj.slug,
+      type: 'continuity_render',
+      episode_id: 'EP003',
+      title: 'contradictory automatic stall',
+      params: {},
+    })
+    await waitForJobStatus(job.job_id, 'paused')
+
+    assert.equal(jq.getJob(job.job_id)?.pause_origin, 'stall')
+  })
+
+  test('keeps an incomplete output declaration from becoming done after a stall hold', async () => {
+    const proj = await pm.createProject({ name: 'JQ Late Stall Incomplete Completion' })
+    jq.registerExecutor('continuity_render', async job => {
+      await jq.pauseJobForStall(job.job_id, 'test hold with incomplete output.')
+      job.result = {
+        complete: false,
+        completion: {
+          label: 'Scene image generation', expected: 1, completed: 0,
+          missing: ['scene-001'], complete: false,
+          error: 'Scene image generation incomplete: 0/1 required item(s) verified.',
+        },
+      }
+    })
+
+    const job = jq.enqueuePreparedForTest({
+      project_slug: proj.slug,
+      type: 'continuity_render',
+      episode_id: 'EP004',
+      title: 'incomplete automatic stall',
+      params: {},
+    })
+    await waitForJobStatus(job.job_id, 'paused')
+
+    assert.equal(jq.getJob(job.job_id)?.pause_origin, 'stall')
+    assert.equal(jq.getJob(job.job_id)?.result?.complete, false)
+  })
+})
+
 describe('Persistence — interrupted jobs on restart', () => {
   test('running jobs are marked as error on fresh module load', async () => {
     const proj = await pm.createProject({ name: 'JQPersist' })
