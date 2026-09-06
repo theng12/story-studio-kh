@@ -22,3 +22,7 @@ export function resolveSettingsSectionHash(hash: string, sectionIds: readonly st
   const target = LEGACY_SETTINGS_HASHES[requested] || requested
   return sectionIds.includes(target) ? target : null
 }
+
+export function settingsAnchorTargetIds(sectionIds: readonly string[]): string[] {
+  return [...new Set([...sectionIds, ...Object.keys(LEGACY_SETTINGS_HASHES)])]
+}

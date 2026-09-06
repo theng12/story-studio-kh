@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
-import { LEGACY_SETTINGS_HASHES, resolveSettingsSectionHash } from '../utils/settingsNavigation.ts'
+import { LEGACY_SETTINGS_HASHES, resolveSettingsSectionHash, settingsAnchorTargetIds } from '../utils/settingsNavigation.ts'
 import { projectSettingsSavePlan } from '../utils/projectSettingsSave.ts'
 
 const settingsSource = readFileSync(
@@ -36,6 +36,7 @@ describe('Settings workspace navigation', () => {
 
   test('maps every retired Settings hash to its replacement destination', () => {
     const validSections = ['connections', 'performance', 'appearance', 'maintenance', 'identity', 'production', 'writing', 'publishing', 'files']
+    const targetIds = settingsAnchorTargetIds(validSections)
     for (const [oldHash, destination] of [
       ['app', 'connections'], ['models', 'connections'], ['youtube', 'connections'],
       ['ffmpeg', 'maintenance'], ['notifications', 'appearance'], ['about', 'maintenance'],
@@ -45,10 +46,15 @@ describe('Settings workspace navigation', () => {
     ]) {
       assert.equal(LEGACY_SETTINGS_HASHES[oldHash], destination)
       assert.equal(resolveSettingsSectionHash(`#${oldHash}`, validSections), destination)
+      assert.ok(targetIds.includes(oldHash), `${oldHash} has a real compatibility target`)
     }
+    for (const section of validSections) assert.ok(targetIds.includes(section), `${section} has a real target`)
     assert.equal(resolveSettingsSectionHash('#publishing', validSections), 'publishing')
     assert.equal(resolveSettingsSectionHash('#does-not-exist', validSections), null)
     assert.match(settingsSource, /resolveSettingsSectionHash\(rawTarget/)
+    assert.match(settingsSource, /<h2 :id="activeTab">/)
+    assert.match(settingsSource, /v-for="targetId in inactiveSettingsHashTargets"/)
+    assert.match(settingsSource, /scrollToTop: to => !to\.hash/)
   })
 
   test('entering Publishing loads its live YouTube defaults and category choices', () => {

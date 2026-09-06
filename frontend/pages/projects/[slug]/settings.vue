@@ -18,7 +18,14 @@
       :class="['settings-active-intro', activeZone.id === 'machine' ? 'scope-machine' : 'scope-project']"
     >
       <div class="settings-active-copy">
-        <h2>{{ activeTabMeta.label }}</h2>
+        <h2 :id="activeTab">{{ activeTabMeta.label }}</h2>
+        <span
+          v-for="targetId in inactiveSettingsHashTargets"
+          :id="targetId"
+          :key="targetId"
+          class="settings-hash-target"
+          aria-hidden="true"
+        ></span>
         <p>{{ activeTabMeta.description }}</p>
       </div>
       <span class="settings-scope-pill">
@@ -2058,12 +2065,17 @@
 // FileBrowserModal (server mode / remote tailnet browser). Not auto-imported
 // — it's a bare named export, not a useX composable.
 import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
-import { resolveSettingsSectionHash } from '~/utils/settingsNavigation'
+import { resolveSettingsSectionHash, settingsAnchorTargetIds } from '~/utils/settingsNavigation'
 import { projectSettingsSavePlan, type ProjectSettingsSaveSection } from '~/utils/projectSettingsSave'
 // Reactive installed Content Pack catalog used by the per-project selector.
 // Project-local saved styles remain independent compatibility data.
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
-definePageMeta({ layout: 'dashboard' })
+// Every Settings destination replaces content beneath the same heading. On a
+// cross-page hash arrival there is nothing lower to scroll to, and Nuxt checks
+// the hash before this client-only page mounts. Let same-page hashes use the
+// concrete heading targets below, while an initial/cross-page arrival starts
+// at the normal page position without asking the router to find unmounted DOM.
+definePageMeta({ layout: 'dashboard', scrollToTop: to => !to.hash })
 useAppTitle('Settings')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -3402,6 +3414,8 @@ const tabZones = [
 ]
 
 const tabs = tabZones.flatMap(zone => zone.sections)
+const settingsHashTargetIds = settingsAnchorTargetIds(tabs.map(tab => tab.id))
+const inactiveSettingsHashTargets = computed(() => settingsHashTargetIds.filter(id => id !== activeTab.value))
 
 // v1.0.186 (S3) — the zone (This Mac / This Project) that owns the active tab.
 // Drives the in-page scope banner so the user always sees whether the panel
@@ -4770,7 +4784,9 @@ async function deleteProject() {
 }
 .settings-active-intro.scope-machine { border-left: 3px solid var(--settings-gold); }
 .settings-active-intro.scope-project { border-left: 3px solid var(--settings-green); }
+.settings-active-copy { position: relative; }
 .settings-active-copy h2 { margin: 1px 0 3px; font-size: 18px; letter-spacing: -0.015em; }
+.settings-hash-target { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 .settings-active-copy p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
 .settings-scope-pill {
   padding: 5px 9px;
