@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import {
   generateImageWithGenStudio,
   listImageModels,
+  refreshGenStudioAdmission,
 } from '../lib/genstudio-client.js'
 import { shouldPauseContinuityForStall } from '../generators/continuity-render.js'
 import { waitFor } from './_timing.js'
@@ -48,10 +49,38 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-async function withFetch<T>(fetcher: typeof fetch, run: () => Promise<T>): Promise<T> {
+async function withFetch<T>(
+  fetcher: typeof fetch,
+  run: () => Promise<T>,
+  accountCapacity: () => Record<string, unknown> = () => ({
+    credit_balance: 250,
+    paid_concurrency_limit: 1,
+    paid_active_jobs: 0,
+    paid_queued_jobs: 0,
+    max_queued_jobs: 25,
+    generation_submissions_per_minute: 30,
+  }),
+): Promise<T> {
   const original = globalThis.fetch
-  globalThis.fetch = fetcher
+  globalThis.fetch = (async (input: any, init?: any) => {
+    if (String(input).endsWith('/v1/account/overview')) {
+      return Response.json(accountCapacity())
+    }
+    return fetcher(input, init)
+  }) as typeof fetch
   try { return await run() } finally { globalThis.fetch = original }
+}
+
+function accountCapacity(width: number): Record<string, unknown> {
+  return {
+    credit_balance: 250,
+    paid_concurrency_limit: width,
+    paid_active_jobs: 0,
+    paid_queued_jobs: 0,
+    max_queued_jobs: 25,
+    generation_submissions_per_minute: 30,
+    burst_concurrency_ceiling: width,
+  }
 }
 
 test('image catalogue preserves the published admission-permit flag and leaves absence undefined', async () => {
@@ -105,6 +134,230 @@ test('permit operation maps references exactly and paid POST carries the opaque 
   })
   assert.deepEqual(permitBodies, [{ model_id: 'fleet-image-v1', operation: 'image-to-image' }])
   assert.equal(generationBodies[0]?.admission_permit_id, 'permit-1')
+})
+
+test('same-scope permit acquisition uses the live available width and preserves exact permit keys', async () => {
+  const gates = Array.from({ length: 3 }, () => deferred<Response>())
+  const generationGates = Array.from({ length: 3 }, () => deferred<Response>())
+  const permitKeys: string[] = []
+  let overviewReads = 0
+  let inFlight = 0
+  let maxInFlight = 0
+  let generationCalls = 0
+  await withFetch((async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      const index = permitKeys.length
+      permitKeys.push(new Headers(init?.headers).get('Idempotency-Key') || '')
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      return gates[index]!.promise.finally(() => { inFlight-- })
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      const index = generationCalls++
+      const body = JSON.parse(String(init?.body))
+      return generationGates[index]!.promise.then(() =>
+        Response.json(imageJob(body, `image-task-${index + 1}`), { status: 202 }))
+    }
+    if (/\/v1\/images\/image-task-\d+\/file$/.test(url)) return new Response(PNG)
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, async () => {
+    const jobs = ['fixed-generation-key', 'parallel-key-2', 'parallel-key-3'].map((idempotencyKey, index) =>
+      generateImageWithGenStudio('permit-parallel-key', request({ idempotencyKey, requestIdentity: `parallel-${index}` })))
+    try {
+      await waitFor(() => permitKeys.length === 3, { label: 'three same-scope permits to enter together' })
+      assert.equal(maxInFlight, 3)
+      assert.equal(permitKeys[0], 'story-image-permit-4ab4201451cc0b0e7101c00a06bdf69f77629bfb16e0529b840228d0a6dfe1e5')
+      gates.forEach((gate, index) => gate.resolve(Response.json({ id: `permit-${index + 1}` })))
+      await waitFor(() => generationCalls === 3, { label: 'three paid requests after permit acquisition' })
+      assert.equal(overviewReads, 1, 'one cached account read covers arrivals, refills, and empty cleanup')
+      generationGates.forEach(gate => gate.resolve(new Response()))
+      await Promise.all(jobs)
+    } finally {
+      gates.forEach((gate, index) => gate.resolve(Response.json({ id: `permit-${index + 1}` })))
+      generationGates.forEach(gate => gate.resolve(new Response()))
+      await Promise.allSettled(jobs)
+    }
+  }, () => {
+    overviewReads++
+    return accountCapacity(3)
+  })
+  assert.equal(generationCalls, 3)
+})
+
+test('one permit 429 retries alone while sibling and queued waiters continue', async () => {
+  const permitKeys: string[] = []
+  const events: string[] = []
+  let generationCalls = 0
+  await withFetch((async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      const key = new Headers(init?.headers).get('Idempotency-Key') || ''
+      permitKeys.push(key)
+      events.push(`permit-${permitKeys.length}`)
+      if (permitKeys.length === 1) {
+        return Response.json({ code: 'ADMISSION_UNAVAILABLE', detail: 'wait' }, {
+          status: 429,
+          headers: { 'Retry-After': '0.05' },
+        })
+      }
+      return Response.json({ id: `permit-${permitKeys.length}` })
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      generationCalls++
+      events.push(`generation-${generationCalls}`)
+      return Response.json(imageJob(JSON.parse(String(init?.body)), `image-task-${generationCalls}`), { status: 202 })
+    }
+    if (/\/v1\/images\/image-task-\d+\/file$/.test(url)) return new Response(PNG)
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, async () => {
+    await Promise.all(['retry-a', 'retry-b', 'retry-c'].map(idempotencyKey =>
+      generateImageWithGenStudio('permit-independent-429-key', request({ idempotencyKey, requestIdentity: idempotencyKey }))))
+  }, () => accountCapacity(2))
+
+  assert.equal(permitKeys.length, 4)
+  assert.deepEqual(permitKeys.slice(0, 3).map((key, index, keys) => keys.indexOf(key) === index), [true, true, true])
+  assert.equal(permitKeys[3], permitKeys[0], 'only the 429 waiter replays its original permit key')
+  assert.ok(events.indexOf('generation-2') < events.indexOf('permit-4'), 'two unaffected waiters submit before the retry')
+  assert.equal(generationCalls, 3)
+})
+
+test('same-scope waiters enter FIFO as permit slots become available', async () => {
+  const gates = Array.from({ length: 4 }, () => deferred<Response>())
+  const generationPermits = new Map<string, string>()
+  let permitCalls = 0
+  await withFetch((async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      const index = permitCalls++
+      return gates[index]!.promise
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      const body = JSON.parse(String(init?.body))
+      const key = new Headers(init?.headers).get('Idempotency-Key') || ''
+      generationPermits.set(key, String(body.admission_permit_id))
+      return Response.json(imageJob(body, `image-task-${generationPermits.size}`), { status: 202 })
+    }
+    if (/\/v1\/images\/image-task-\d+\/file$/.test(url)) return new Response(PNG)
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, async () => {
+    const jobs = ['fifo-1', 'fifo-2'].map(idempotencyKey =>
+      generateImageWithGenStudio('permit-fifo-key', request({ idempotencyKey, requestIdentity: idempotencyKey })))
+    try {
+      await waitFor(() => permitCalls === 2, { label: 'the initial two FIFO permits' })
+      const thirdWaiting = deferred<void>()
+      jobs.push(generateImageWithGenStudio('permit-fifo-key', request({
+        idempotencyKey: 'fifo-3',
+        requestIdentity: 'fifo-3',
+        onQueueState: (state: string) => { if (state === 'waiting_account_capacity') thirdWaiting.resolve() },
+      })))
+      await thirdWaiting.promise
+      jobs.push(generateImageWithGenStudio('permit-fifo-key', request({
+        idempotencyKey: 'fifo-4',
+        requestIdentity: 'fifo-4',
+      })))
+      gates[1]!.resolve(Response.json({ id: 'permit-2' }))
+      await waitFor(() => permitCalls === 3, { label: 'the third FIFO permit' })
+      gates[0]!.resolve(Response.json({ id: 'permit-1' }))
+      await waitFor(() => permitCalls === 4, { label: 'the fourth FIFO permit' })
+      gates[2]!.resolve(Response.json({ id: 'permit-3' }))
+      gates[3]!.resolve(Response.json({ id: 'permit-4' }))
+      await Promise.all(jobs)
+    } finally {
+      gates.forEach((gate, index) => gate.resolve(Response.json({ id: `permit-${index + 1}` })))
+      await Promise.allSettled(jobs)
+    }
+  }, () => accountCapacity(2))
+
+  assert.equal(generationPermits.get('fifo-3'), 'permit-3')
+  assert.equal(generationPermits.get('fifo-4'), 'permit-4')
+})
+
+test('permit width shrinks and grows from refreshed account capacity', async () => {
+  const gates = Array.from({ length: 5 }, () => deferred<Response>())
+  let width = 3
+  let permitCalls = 0
+  let generationCalls = 0
+  await withFetch((async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      const index = permitCalls++
+      return gates[index]!.promise
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      generationCalls++
+      return Response.json(imageJob(JSON.parse(String(init?.body)), `image-task-${generationCalls}`), { status: 202 })
+    }
+    if (/\/v1\/images\/image-task-\d+\/file$/.test(url)) return new Response(PNG)
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, async () => {
+    const jobs = ['resize-1', 'resize-2', 'resize-3'].map(idempotencyKey =>
+      generateImageWithGenStudio('permit-resize-key', request({ idempotencyKey, requestIdentity: idempotencyKey })))
+    try {
+      await waitFor(() => permitCalls === 3, { label: 'three permits at the initial width' })
+
+      width = 1
+      await refreshGenStudioAdmission('permit-resize-key')
+      jobs.push(generateImageWithGenStudio('permit-resize-key', request({ idempotencyKey: 'resize-4', requestIdentity: 'resize-4' })))
+      gates[0]!.resolve(Response.json({ id: 'permit-1' }))
+      gates[1]!.resolve(Response.json({ id: 'permit-2' }))
+      await new Promise<void>(resolve => setImmediate(resolve))
+      assert.equal(permitCalls, 3, 'shrinking waits until active acquisition drops below the new width')
+      gates[2]!.resolve(Response.json({ id: 'permit-3' }))
+      await waitFor(() => permitCalls === 4, { label: 'one permit after the shrink drains' })
+
+      width = 2
+      await refreshGenStudioAdmission('permit-resize-key')
+      jobs.push(generateImageWithGenStudio('permit-resize-key', request({ idempotencyKey: 'resize-5', requestIdentity: 'resize-5' })))
+      await waitFor(() => permitCalls === 5, { label: 'a second permit after the live width grows' })
+      gates[3]!.resolve(Response.json({ id: 'permit-4' }))
+      gates[4]!.resolve(Response.json({ id: 'permit-5' }))
+      await Promise.all(jobs)
+    } finally {
+      gates.forEach((gate, index) => gate.resolve(Response.json({ id: `permit-${index + 1}` })))
+      await Promise.allSettled(jobs)
+    }
+  }, () => accountCapacity(width))
+  assert.equal(generationCalls, 5)
+})
+
+test('cancellation after slot assignment releases it without requesting a permit', async () => {
+  const guardEntered = deferred<void>()
+  const releaseGuard = deferred<void>()
+  const controller = new AbortController()
+  let permitCalls = 0
+  await withFetch((async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      permitCalls++
+      return Response.json({ id: 'permit-after-cancel' })
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      return Response.json(imageJob(JSON.parse(String(init?.body))), { status: 202 })
+    }
+    if (url.endsWith('/v1/images/image-task-1/file')) return new Response(PNG)
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, async () => {
+    const cancelled = generateImageWithGenStudio('permit-slot-cancel-key', request({
+      idempotencyKey: 'cancelled-slot',
+      requestIdentity: 'cancelled-slot',
+      signal: controller.signal,
+      beforeSubmit: async () => {
+        guardEntered.resolve()
+        await releaseGuard.promise
+      },
+    }))
+    await guardEntered.promise
+    const follower = generateImageWithGenStudio('permit-slot-cancel-key', request({
+      idempotencyKey: 'cancelled-slot-follower',
+      requestIdentity: 'cancelled-slot-follower',
+    }))
+    controller.abort()
+    releaseGuard.resolve()
+    await assert.rejects(cancelled, /Cancelled by user/)
+    await follower
+  }, () => accountCapacity(1))
+  assert.equal(permitCalls, 1)
 })
 
 test('permit 429 waits locally and never reaches the paid POST before admission', async () => {
@@ -342,7 +595,7 @@ test('a queued permit follower keeps predecessor reactions bounded during repeat
   assert.equal(permitCalls, 1)
 })
 
-test('permit queues serialize one scope without holding an unrelated operation', async () => {
+test('a width-one permit scope waits without holding an unrelated operation', async () => {
   const firstTextPermit = deferred<Response>()
   const firstTextEntered = deferred<void>()
   const unrelatedEntered = deferred<void>()

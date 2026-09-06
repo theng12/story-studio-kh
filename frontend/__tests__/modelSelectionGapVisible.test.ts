@@ -227,6 +227,7 @@ const ModelMenuSpy = defineComponent({
     modelValue: { type: String, default: '' },
     options: { type: Array, default: () => [] },
     catalogNotice: { type: String, default: '' },
+    emptyCatalogLabel: { type: String, default: '' },
     missingSelectionLabel: { type: String, default: '' },
   },
   setup(props) {
@@ -244,11 +245,13 @@ async function mountModelSelector(modelValue: string, catalog: unknown) {
   // The SFC calls the auto-imported `useApi()` at setup; a global satisfies the
   // free identifier in the compiled module.
   ;(globalThis as any).useApi = () => ({
-    get: async () => {
+    get: async (path: string) => {
       if (catalog instanceof Error) throw catalog
+      if (path === '/app-settings/api-keys') return { providers: [{ providerId: 'genstudio', hasKey: false }] }
       return catalog
     },
   })
+  ;(globalThis as any).useAppSettingsModal = () => ({ open: () => {} })
   // Same treatment for the remembered-name store. The real one is backed by
   // localStorage and is exercised in `pickerRawIdLeak.test.ts`; here it is stubbed
   // so these tests vary only the catalogue, which is what they are about.
@@ -262,6 +265,10 @@ async function mountModelSelector(modelValue: string, catalog: unknown) {
   app.mount(host)
   // Settle the awaited catalogue read and the watchers it triggers.
   for (let i = 0; i < 6; i++) await nextTick()
+  // Empty catalogues perform a second, explicit settings read before their
+  // recovery copy can be decided.
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await nextTick()
   return { host, unmount: () => app.unmount() }
 }
 
@@ -271,6 +278,14 @@ const catalogWithoutThePin = [
 ]
 
 describe('ModelSelector — a pinned model that left the catalogue', () => {
+  test('distinguishes an empty catalogue caused by missing setup from a search miss', async () => {
+    const { host, unmount } = await mountModelSelector('', [])
+    assert.match(String(menuProps.emptyCatalogLabel), /Add a GenStudio API key/)
+    assert.match(host.querySelector('.catalog-message')?.textContent || '', /No GenStudio API key is configured/)
+    assert.ok(host.querySelector('.catalog-action'), 'the setup message must offer a usable action')
+    unmount()
+  })
+
   test('renders the written gap sentence under the field', async () => {
     const { host, unmount } = await mountModelSelector('deleted-by-dedupe', catalogWithoutThePin)
     const gap = host.querySelector('.selection-gap')

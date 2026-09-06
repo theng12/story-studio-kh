@@ -2,14 +2,14 @@
   <div v-if="show" class="niche-missing-banner" role="status">
     <span class="nmb-icon" aria-hidden="true">🎙️</span>
     <div class="nmb-body">
-      <strong>This project has no niche.</strong>
+      <strong>This channel has no Series Formula.</strong>
       <span class="nmb-detail">
-        Ideas, scripts, and metadata will use a generic voice — no distinct vocabulary, title style, or narrator.
-        Pick a niche to give your channel its identity.
+        Ideas, scripts, and metadata will use generic generation with no repeatable channel structure.
+        Choose a Series Formula to give this channel its identity.
       </span>
     </div>
-    <NuxtLink :to="`/projects/${slug}/settings`" class="btn btn-sm btn-primary nmb-action">
-      Choose a niche
+    <NuxtLink :to="`/projects/${slug}/settings#channel`" class="btn btn-sm btn-primary nmb-action">
+      Choose a Series Formula
     </NuxtLink>
     <button type="button" class="nmb-dismiss" aria-label="Dismiss for this session" @click="dismiss">×</button>
   </div>
@@ -86,4 +86,23 @@ const show = computed(() => !!props.slug && !props.nicheId && !dismissed.value)
   flex-shrink: 0;
 }
 .nmb-dismiss:hover { color: var(--text-primary); }
+
+@media (max-width: 560px) {
+  .niche-missing-banner {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px 10px;
+  }
+
+  .nmb-icon { grid-column: 1; grid-row: 1; margin-top: 2px; }
+  .nmb-body { grid-column: 2; grid-row: 1; }
+  .nmb-dismiss { grid-column: 3; grid-row: 1; }
+  .nmb-action {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    text-align: center;
+  }
+}
 </style>

@@ -55,6 +55,7 @@ async function mount(input: {
   /** Simulate Story's actual context-isolated Electron marker. */
   electron?: boolean
   connectionError?: { code: string; detail: string }
+  section?: 'all' | 'connections' | 'assignment'
 }): Promise<{
   el: HTMLElement
   calls: Recorded[]
@@ -125,7 +126,7 @@ async function mount(input: {
   const Component = await loadComponent()
   const el = document.createElement('div')
   const app = createApp(defineComponent({
-    render: () => h(Component as any, { slug: 'demo-project' }),
+    render: () => h(Component as any, { slug: 'demo-project', scope: input.section }),
   }))
   app.mount(el)
   await nextTick()
@@ -142,6 +143,18 @@ async function clickConnect(mounted: { el: HTMLElement }): Promise<void> {
 }
 
 describe('Settings → YouTube', () => {
+  test('separates Mac connection setup from this project’s assignment', async () => {
+    const connections = await mount({ section: 'connections' })
+    assert.match(connections.el.textContent!, /OAuth application/)
+    assert.doesNotMatch(connections.el.textContent!, /Channel for demo-project/)
+    connections.destroy()
+
+    const assignment = await mount({ section: 'assignment' })
+    assert.doesNotMatch(assignment.el.textContent!, /Google Cloud OAuth application/)
+    assert.match(assignment.el.textContent!, /Channel for demo-project/)
+    assignment.destroy()
+  })
+
   test('explains the one-time setup when no OAuth application exists', async () => {
     const mounted = await mount({ application: null })
     assert.match(mounted.el.textContent!, /Google Cloud OAuth application/)

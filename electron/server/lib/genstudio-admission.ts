@@ -273,6 +273,14 @@ export class GenStudioAdmissionPool {
     this.drain()
   }
 
+  async currentDispatchLimit(apiKey: string): Promise<number> {
+    await this.refresh(apiKey)
+    const state = this.stateFor(apiKey)
+    const limit = this.dispatchLimit(state)
+    const publishedCeiling = state.capacity.burst_concurrency_ceiling
+    return publishedCeiling === undefined ? limit : Math.min(limit, publishedCeiling)
+  }
+
   async noteRateLimit(apiKey: string, retryAfterMs: number): Promise<void> {
     const jitterMs = Math.floor(Math.random() * Math.min(750, Math.max(100, retryAfterMs * 0.1)))
     const state = this.stateFor(apiKey)

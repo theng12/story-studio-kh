@@ -6792,7 +6792,27 @@ export async function recoverImageWithGenStudio(
 
 type GenStudioImageAdmissionOperation = 'text-to-image' | 'image-to-image'
 
-const imagePermitQueues = new Map<string, Promise<void>>()
+interface ImagePermitWaiter {
+  request: GenStudioImageRequest
+  deadline: number
+  acquire: () => Promise<string>
+  resolve: (permitId: string) => void
+  reject: (error: Error) => void
+  abort?: () => void
+  waiting: boolean
+  monitoring: boolean
+  guardPromise?: Promise<void>
+}
+
+interface ImagePermitQueue {
+  apiKey: string
+  active: number
+  draining: boolean
+  pendingDrain: boolean
+  waiters: ImagePermitWaiter[]
+}
+
+const imagePermitQueues = new Map<string, ImagePermitQueue>()
 
 function imagePermitIdempotencyKey(generationKey: string, sequence: number): string {
   const digest = createHash('sha256')
@@ -6820,27 +6840,136 @@ function isRetryableImageAdmissionPermitFailure(error: unknown): boolean {
   return /fetch failed|network|socket|ECONN|timeout|timed out/i.test(error.message)
 }
 
-async function waitForImageAdmissionPermitTurn(
-  previous: Promise<void>,
-  request: GenStudioImageRequest,
-  deadline: number,
-): Promise<void> {
-  let previousCompleted = false
-  void previous.then(
-    () => { previousCompleted = true },
-    () => { previousCompleted = true },
-  )
-  while (!previousCompleted) {
-    await assertImageSubmissionAllowed(request)
-    if (previousCompleted) break
-    const left = deadline - Date.now()
-    if (left <= 0) throw new Error('GenStudio KH job timed out while waiting for completion')
-    await new Promise(resolve => setTimeout(resolve, Math.min(POLL_CANCEL_CHECK_MS, left)))
+function rejectImagePermitWaiter(queue: ImagePermitQueue, waiter: ImagePermitWaiter, error: unknown): void {
+  const index = queue.waiters.indexOf(waiter)
+  if (index >= 0) queue.waiters.splice(index, 1)
+  if (waiter.request.signal && waiter.abort) {
+    waiter.request.signal.removeEventListener('abort', waiter.abort)
   }
-  await assertImageSubmissionAllowed(request)
+  waiter.reject(error instanceof Error ? error : new Error(String(error)))
 }
 
-/** GenStudio permits are issued serially; paid image execution remains remote-owned. */
+function monitorQueuedImagePermit(scope: string, queue: ImagePermitQueue, waiter: ImagePermitWaiter): void {
+  if (waiter.monitoring) return
+  waiter.monitoring = true
+  void (async () => {
+    try {
+      while (queue.waiters.includes(waiter)) {
+        waiter.guardPromise = assertImageSubmissionAllowed(waiter.request)
+        try {
+          await waiter.guardPromise
+        } finally {
+          waiter.guardPromise = undefined
+        }
+        if (!queue.waiters.includes(waiter)) return
+        const left = waiter.deadline - Date.now()
+        if (left <= 0) throw new Error('GenStudio KH job timed out while waiting for completion')
+        await new Promise(resolve => setTimeout(resolve, Math.min(POLL_CANCEL_CHECK_MS, left)))
+      }
+    } catch (error) {
+      rejectImagePermitWaiter(queue, waiter, error)
+      void drainImagePermitQueue(scope, queue)
+    } finally {
+      waiter.monitoring = false
+    }
+  })()
+}
+
+async function drainImagePermitQueue(scope: string, queue: ImagePermitQueue): Promise<void> {
+  if (queue.draining) {
+    queue.pendingDrain = true
+    return
+  }
+  if (!queue.waiters.length) {
+    if (!queue.active && imagePermitQueues.get(scope) === queue) imagePermitQueues.delete(scope)
+    return
+  }
+  queue.draining = true
+  queue.pendingDrain = false
+  try {
+    const limit = await genStudioAdmission.currentDispatchLimit(queue.apiKey)
+    while (queue.waiters.length) {
+      if (queue.active >= limit) {
+        for (const waiter of [...queue.waiters]) {
+          if (!waiter.waiting) {
+            waiter.waiting = true
+            try {
+              await waiter.request.onQueueState?.('waiting_account_capacity')
+            } catch (error) {
+              rejectImagePermitWaiter(queue, waiter, error)
+              continue
+            }
+          }
+          monitorQueuedImagePermit(scope, queue, waiter)
+        }
+        break
+      }
+      const waiter = queue.waiters[0]!
+      if (waiter.guardPromise) {
+        try {
+          await waiter.guardPromise
+        } catch {
+          continue
+        }
+        if (queue.waiters[0] !== waiter) continue
+      }
+      queue.waiters.shift()
+      if (waiter.request.signal && waiter.abort) {
+        waiter.request.signal.removeEventListener('abort', waiter.abort)
+      }
+      queue.active++
+      void waiter.acquire().then(waiter.resolve, error => {
+        waiter.reject(error instanceof Error ? error : new Error(String(error)))
+      }).finally(() => {
+        queue.active = Math.max(0, queue.active - 1)
+        void drainImagePermitQueue(scope, queue)
+      })
+    }
+  } finally {
+    queue.draining = false
+    if (!queue.active && !queue.waiters.length && imagePermitQueues.get(scope) === queue) {
+      imagePermitQueues.delete(scope)
+    } else if (queue.pendingDrain) {
+      void drainImagePermitQueue(scope, queue)
+    }
+  }
+}
+
+function withImagePermitSlot(
+  scope: string,
+  apiKey: string,
+  request: GenStudioImageRequest,
+  deadline: number,
+  acquire: () => Promise<string>,
+): Promise<string> {
+  let queue = imagePermitQueues.get(scope)
+  if (!queue) {
+    queue = { apiKey, active: 0, draining: false, pendingDrain: false, waiters: [] }
+    imagePermitQueues.set(scope, queue)
+  }
+  return new Promise<string>((resolve, reject) => {
+    const waiter: ImagePermitWaiter = {
+      request,
+      deadline,
+      acquire,
+      resolve,
+      reject,
+      waiting: false,
+      monitoring: false,
+    }
+    if (request.signal) {
+      waiter.abort = () => {
+        rejectImagePermitWaiter(queue!, waiter, new Error('Cancelled by user'))
+        void drainImagePermitQueue(scope, queue!)
+      }
+      request.signal.addEventListener('abort', waiter.abort, { once: true })
+    }
+    queue!.waiters.push(waiter)
+    void drainImagePermitQueue(scope, queue!)
+  })
+}
+
+/** GenStudio permits use bounded parallel acquisition; paid image execution remains remote-owned. */
 async function acquireImageAdmissionPermit(
   baseUrl: string,
   apiKey: string,
@@ -6894,20 +7023,7 @@ async function acquireImageAdmissionPermit(
     }
   }
   const scope = imagePermitScope(baseUrl, apiKey, request.modelId.trim(), operation)
-  const previous = imagePermitQueues.get(scope)
-  const ready = previous
-    ? (async () => {
-        await request.onQueueState?.('waiting_account_capacity')
-        await waitForImageAdmissionPermitTurn(previous, request, deadline)
-      })()
-    : Promise.resolve()
-  const result = ready.then(acquire)
-  const tail = result.then(() => undefined, () => undefined)
-  imagePermitQueues.set(scope, tail)
-  void tail.then(() => {
-    if (imagePermitQueues.get(scope) === tail) imagePermitQueues.delete(scope)
-  })
-  return result
+  return withImagePermitSlot(scope, apiKey, request, deadline, acquire)
 }
 
 function isAuthoritativelyUnchargedPermitFailure(error: unknown): boolean {

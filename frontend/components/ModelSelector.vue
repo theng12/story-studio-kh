@@ -14,11 +14,16 @@
       search-placeholder="Search LLM models…"
       aria-label="LLM model options"
       :catalog-notice="selectionGap"
+      :empty-catalog-label="emptyCatalogLabel"
       :missing-selection-label="selectionGap ? 'No longer offered' : ''"
       :unverified-selection-label="unverifiedSelectionLabel"
       @update:model-value="selectModel"
     />
     <p v-if="loadError" class="catalog-message">{{ loadError }}</p>
+    <p v-if="emptyCatalogNeedsSetup" class="catalog-message">
+      No GenStudio API key is configured, so LLM models cannot load.
+      <button type="button" class="catalog-action" @click="appSettingsModal.open('connections')">Open connection settings</button>
+    </p>
     <!-- The saved product is gone from the catalogue. Body text in the flow,
          like the disclosure and retirement notices below it: this is the only
          thing telling the user why the field no longer names a model, and it
@@ -151,6 +156,14 @@ const { get } = useApi()
 const allModels = ref<LlmModelRow[]>([])
 const loading = ref(false)
 const loadError = ref('')
+type EmptyCatalogState = 'setup' | ''
+const emptyCatalogState = ref<EmptyCatalogState>('')
+const appSettingsModal = useAppSettingsModal()
+const emptyCatalogNeedsSetup = computed(() => emptyCatalogState.value === 'setup')
+const emptyCatalogLabel = computed(() => {
+  if (emptyCatalogState.value === 'setup') return 'Add a GenStudio API key in Settings to load LLM models.'
+  return allModels.value.length === 0 && !loading.value ? 'No LLM models are currently available.' : ''
+})
 /**
  * The sentence for a saved product that has LEFT the live catalogue, or ''.
  *
@@ -326,6 +339,17 @@ function syncModelSelection(): void {
   emit('model-meta', selected)
 }
 
+async function identifyEmptyCatalog(): Promise<void> {
+  emptyCatalogState.value = ''
+  try {
+    const keys = await get<{ providers: Array<{ providerId: string; hasKey: boolean }> }>('/app-settings/api-keys', { cache: 'no-store' })
+    if (!keys.providers.some(row => row.providerId === 'genstudio' && row.hasKey)) emptyCatalogState.value = 'setup'
+  } catch {
+    // An unavailable local settings read says nothing about the account. Keep the
+    // neutral empty-catalog state instead of sending a person to credentials.
+  }
+}
+
 /**
  * Load the catalogue through the shared `/models?` read cache.
  *
@@ -337,9 +361,11 @@ async function loadModels(force = false): Promise<void> {
   if (force) invalidateModelCatalogCache()
   loading.value = true
   loadError.value = ''
+  emptyCatalogState.value = ''
   try {
     const models = await get<LlmModelRow[]>(`/models?project=${props.projectSlug}`)
     allModels.value = models
+    if (models.length === 0) await identifyEmptyCatalog()
     // Every successful read is a chance to learn a name. The one that matters is
     // the CURRENTLY selected model's: it is what this picker will have to fall
     // back on the next time this read fails.
@@ -373,6 +399,8 @@ defineExpose({ reloadCatalog })
 <style scoped>
 .loading { margin-left: 8px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 400; }
 .catalog-message { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
+.catalog-action { margin-left: 6px; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.catalog-action:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
 /*
  * Same treatment as the two notices below, and for the same reason: a dead pin

@@ -210,7 +210,18 @@ export function useProjectFlow(
   /** Full route for a step (the ribbon links here). */
   function routeFor(step: FlowStep): string {
     const base = `/projects/${slug.value}${step.path}`
-    return step.tab ? `${base}?tab=${step.tab}` : base
+    // A workflow step is per-episode whenever the current project route has
+    // one selected. Keep that explicit selection while moving through the
+    // ribbon, but never borrow a query from another project's route.
+    const activeSlug = String(route.params.slug || '')
+    const episodeId = activeSlug === slug.value
+      ? String(route.query.episode_id || '').trim()
+      : ''
+    const query = new URLSearchParams()
+    if (episodeId) query.set('episode_id', episodeId)
+    if (step.tab) query.set('tab', step.tab)
+    const suffix = query.toString()
+    return suffix ? `${base}?${suffix}` : base
   }
 
   /** Which step (if any) the current route is on. null = off-flow page

@@ -298,7 +298,7 @@
     </p>
 
     <IntroductionPreview
-      v-if="segment.enabled && episodeId"
+      v-if="episodeId"
       :project-slug="slug"
       :episode-id="episodeId"
       :refresh-key="previewRefreshKey"

@@ -12,11 +12,17 @@
 import { ref } from 'vue'
 
 const isOpen = ref(false)
+export type AppSettingsSection = 'all' | 'connections' | 'performance' | 'appearance'
+const section = ref<AppSettingsSection>('all')
 
 export function useAppSettingsModal() {
   return {
     isOpen,
-    open: () => { isOpen.value = true },
+    section,
+    open: (nextSection: AppSettingsSection = 'all') => {
+      section.value = nextSection
+      isOpen.value = true
+    },
     close: () => { isOpen.value = false },
   }
 }

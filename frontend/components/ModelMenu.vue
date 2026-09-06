@@ -140,7 +140,7 @@
           </section>
 
           <div v-if="!groupedOptions.length" class="model-menu-empty">
-            {{ emptyResultLabel }}
+            {{ emptyCatalogLabel || emptyResultLabel }}
           </div>
         </div>
       </div>
@@ -203,6 +203,8 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   catalogNotice?: string
   catalogNoticeHref?: string
+  /** An owner-confirmed empty catalogue state. Search misses keep the shared default. */
+  emptyCatalogLabel?: string
   /**
    * What to show on the trigger when `modelValue` names a product this menu's
    * options no longer contain.
@@ -240,6 +242,7 @@ const props = withDefaults(defineProps<{
   disabled: false,
   catalogNotice: '',
   catalogNoticeHref: '',
+  emptyCatalogLabel: '',
   missingSelectionLabel: '',
   unverifiedSelectionLabel: '',
 })

@@ -105,14 +105,17 @@
             <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active">Presets</NuxtLink>
             <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }" class="nav-item" active-class="active">Assets Library</NuxtLink>
             <NuxtLink :to="`/projects/${slug}/image-pool`" class="nav-item" active-class="active">Image Pool</NuxtLink>
-            <NuxtLink to="/content-store" class="nav-item" active-class="active">Content Store</NuxtLink>
-            <NuxtLink :to="`/projects/${slug}/settings`" class="nav-item" active-class="active">Settings</NuxtLink>
           </div>
 
           <NuxtLink to="/" class="all-projects-link">All Projects <span aria-hidden="true">→</span></NuxtLink>
         </nav>
 
         <footer class="sidebar-credits" aria-label="Story Studio status">
+          <nav class="sidebar-utilities" aria-label="Application utilities">
+            <NuxtLink to="/content-store" class="sidebar-utility" active-class="active">Content Store</NuxtLink>
+            <NuxtLink v-if="slug" :to="`/projects/${slug}/settings`" class="sidebar-utility" active-class="active">Settings</NuxtLink>
+            <button v-else type="button" class="sidebar-utility" @click="appSettingsModal.open()">Settings</button>
+          </nav>
           <div
             class="network-status"
             :class="networkOnline ? 'online' : 'offline'"
@@ -169,6 +172,7 @@ const { public: pubCfg } = useRuntimeConfig()
 const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
 const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
 const whatsNewModal = useWhatsNewModal()
+const appSettingsModal = useAppSettingsModal()
 function openWhatsNew(): void { whatsNewModal.open() }
 
 const visualSource = ref<VisualSource>('narrated-scenes')
@@ -431,6 +435,23 @@ onUnmounted(() => {
   padding: 10px;
   border-top: 1px solid var(--border);
 }
+.sidebar-utilities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.sidebar-utility {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.sidebar-utility:hover, .sidebar-utility.active { border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); background: var(--bg-hover); color: var(--text-primary); }
+.sidebar-utility:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .network-status {
   display: flex;
   min-height: 32px;

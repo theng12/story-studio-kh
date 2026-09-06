@@ -182,10 +182,11 @@ const episodeErrorMessage = computed(() => {
 // hide the target (it's already done for this step), flip to Show all so the
 // selection is visible rather than a blank <select>.
 const route = useRoute()
+const router = useRouter()
 let didAutoSelect = false
 function tryAutoSelectFromQuery() {
   if (didAutoSelect) return
-  if (props.modelValue) { didAutoSelect = true; return }
+  if (String(route.params.slug || '') !== props.projectSlug) return
   const q = String(route.query.episode_id || '').trim()
   if (!q) return
   const match = episodes.value.find(e => e.episode_code === q)
@@ -198,6 +199,22 @@ function tryAutoSelectFromQuery() {
   emit('episode-selected', match)
 }
 watch(episodes, tryAutoSelectFromQuery)
+watch(() => route.query.episode_id, (episode) => {
+  if (String(route.params.slug || '') !== props.projectSlug) return
+  const queryEpisode = String(episode || '').trim()
+  if (!queryEpisode) {
+    didAutoSelect = false
+    if (props.modelValue) emit('update:modelValue', '')
+    return
+  }
+  if (queryEpisode === props.modelValue) return
+  didAutoSelect = false
+  tryAutoSelectFromQuery()
+})
+watch(() => props.projectSlug, () => {
+  didAutoSelect = false
+  tryAutoSelectFromQuery()
+})
 onMounted(tryAutoSelectFromQuery)
 
 // ── v1.0.338 — per-step status chips + manual mark-as-done ────────────────
@@ -594,6 +611,13 @@ async function onSelect(code: string) {
     }
   }
 
+  // The next/previous ribbon reads the current route. Synchronize the picker
+  // before a later navigation can reuse an old deep-link selection, while
+  // retaining page-local query state such as the active Script tab.
+  didAutoSelect = true
+  if (String(route.params.slug || '') === props.projectSlug) {
+    void router.replace({ query: { ...route.query, episode_id: code } })
+  }
   emit('update:modelValue', code)
   const ep = episodes.value.find(e => e.episode_code === code)
   if (ep) emit('episode-selected', ep)
