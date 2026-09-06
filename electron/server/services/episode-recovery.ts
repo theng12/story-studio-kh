@@ -17,7 +17,8 @@ import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
 
 export const EPISODE_RECOVERY_ORDER = ['audio_merge', 'subtitle_sections', 'subtitle_stitch', 'scene_plan_run', 'contextual_cues', 'continuity_render'] as const
 export type EpisodeRecoveryStep = typeof EPISODE_RECOVERY_ORDER[number]
-type RecoveryJob = { job_id: string; type: JobType; title: string; params: Job['params']; source_job_id?: string; dispatched?: boolean }
+type RecoveryJob = { job_id: string; type: JobType; title: string; params: Job['params']; source_job_id?: string; dispatched?: boolean; manual_image_finish_withheld?: true }
+type RecoveryContinuation = { type: JobType; title?: string; params?: Job['params']; manual_image_finish_withheld?: true }
 export interface EpisodeRecoveryPlan {
   version: 1
   id: string
@@ -28,12 +29,27 @@ export interface EpisodeRecoveryPlan {
   completed: EpisodeRecoveryStep[]
   first_unresolved: EpisodeRecoveryStep | null
   message: string
-  continuation?: Array<{ type: JobType; title?: string; params?: Job['params'] }>
+  continuation?: RecoveryContinuation[]
   continuation_dispatched?: boolean
   continuation_job_id?: string
   pipeline_batch_id?: string
   retry_source_job_ids?: string[]
   next_free_check_at?: string
+}
+
+const MANUAL_IMAGE_FINISH_GUIDANCE = 'Open Scene Review and use Finish missing images with the current model settings.'
+
+function withholdManualImageFinish(node: { params?: Job['params']; manual_image_finish_withheld?: true }): boolean {
+  if (node.params?.manual_image_finish) {
+    delete node.params.manual_image_finish
+    node.manual_image_finish_withheld = true
+  }
+  return node.manual_image_finish_withheld === true
+}
+
+function withholdManualImageFinishFromPlan(plan: EpisodeRecoveryPlan): void {
+  for (const node of Object.values(plan.steps)) if (node) withholdManualImageFinish(node)
+  for (const node of plan.continuation || []) withholdManualImageFinish(node)
 }
 
 function assertSectionScope(params: Job['params']): void {
@@ -106,6 +122,9 @@ export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = 
       if (params.generation_mode === 'regenerate' || params.generation_mode === 'new_version') params.generation_mode = 'skip'
     }
   }
+  // Manual Finish/Replace authority belongs to its original action identity.
+  // Episode recovery records the blocked edge but cannot clone that authority.
+  withholdManualImageFinishFromPlan(plan)
   return plan
 }
 
@@ -210,6 +229,10 @@ export async function dispatchEpisodeRecoveryStep(
   jobs: Job[],
   sourceJobIds: string[] = [],
 ): Promise<void> {
+  // Older persisted plans may predate the withheld marker. Scrub their copied
+  // nonce before considering any resume or enqueue path, and retain the marker
+  // so later restarts remain a deliberate Scene Review handoff.
+  withholdManualImageFinishFromPlan(plan)
   const verified = { ...facts.verified }
   const cancelled = jobs.find(job => job.params?.episode_recovery_id === plan.id && (job.status === 'cancelled' || job.force_abandoned))
   if (cancelled) {
@@ -227,6 +250,10 @@ export async function dispatchEpisodeRecoveryStep(
     if (plan.continuation_job_id && jobs.some(job => jq.subtitleFinalizerJobId(job) === plan.continuation_job_id
       && job.params.subtitle_finalizer_dispatched === true)) plan.continuation_dispatched = true
     if (plan.continuation?.length && !plan.continuation_dispatched) {
+      if (plan.continuation.some(node => node.manual_image_finish_withheld)) {
+        plan.message = MANUAL_IMAGE_FINISH_GUIDANCE
+        return
+      }
       const [next, ...rest] = plan.continuation
       await jq.enqueueEpisodeRecoveryOnce(plan.continuation_job_id || `recovery-${plan.id}-continuation`, {
         project_slug: plan.project_slug, episode_id: plan.episode_id, type: next.type, title: next.title,
@@ -243,7 +270,15 @@ export async function dispatchEpisodeRecoveryStep(
   const active = jobs.find(job => job.type === type && ['queued', 'running', 'paused'].includes(job.status))
   const existing = active || (node && jobs.find(job => job.job_id === node.job_id))
   if (active && node) { node.job_id = active.job_id; node.dispatched = true }
+  if (node && withholdManualImageFinish(node)) {
+    plan.message = MANUAL_IMAGE_FINISH_GUIDANCE
+    return
+  }
   if (existing) {
+    if (step === 'continuity_render' && existing.params?.manual_image_finish) {
+      plan.message = MANUAL_IMAGE_FINISH_GUIDANCE
+      return
+    }
     const states = Object.values(existing.params?.subtitle_recovery?.sections || {}) as Array<{ state?: string; message?: string }>
     plan.message = states.map(state => state.message).filter(Boolean).join(' ') || existing.error || plan.message
     if (existing.status === 'error' && sourceJobIds.length) {
@@ -317,6 +352,12 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       await writeJsonAtomic(file, store) // identity first, before any queue insertion
     }
     if (plan.project_slug !== projectSlug) throw new Error('Episode recovery belongs to another project.')
+    withholdManualImageFinishFromPlan(plan)
+    if (selected.length > 0 && selected.every(job => !!job?.params?.manual_image_finish)) {
+      plan.message = MANUAL_IMAGE_FINISH_GUIDANCE
+      await writeJsonAtomic(file, store)
+      return plan
+    }
     try {
       const facts = await inspectRecovery(plan, jobs)
       await dispatchEpisodeRecoveryStep(plan, facts, jobs, sourceJobIds)

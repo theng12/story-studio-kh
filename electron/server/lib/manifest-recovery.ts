@@ -1,10 +1,14 @@
 /** Recovery is supported only for durable GenStudio image jobs. */
 
 import type { ImageModelConfig } from '../models/types.js'
-import { hashInput, type TaskManifestEntry } from '../services/task-manifest.js'
+import { createHash } from 'node:crypto'
+import { getGenStudioUrl } from '../services/app-settings.js'
+import { hashInput, type ImageRequestIdentityEvidence, type TaskManifestEntry } from '../services/task-manifest.js'
 import {
   GenStudioImageArtifactUnavailableError,
   GenStudioImageTerminalFailureError,
+  getGenStudioCancellationStatus,
+  getGenStudioJobByIdempotencyKey,
   recoverImageWithGenStudio,
 } from './genstudio-client.js'
 
@@ -49,6 +53,8 @@ export type ImageRecoveryOutcome =
   | { kind: 'terminal-failed'; taskId: string; failureCode: string | null; reason: string }
   /** The job succeeded but its artifact is gone. Also needs a NEW retry identity. */
   | { kind: 'artifact-unavailable'; taskId: string; reason: string }
+  /** GenStudio authoritatively says the accepted task is still active. */
+  | { kind: 'still-generating'; taskId: string; state: string; reason: string }
   /**
    * The saved job's outcome is genuinely unknown (network/timeout). Callers MUST
    * NOT submit fresh work here — that is exactly how an uncertain request turns
@@ -75,8 +81,10 @@ export async function tryRecoverImageFromManifestEntry(
   apiKey: string,
   _modelConfig: ImageModelConfig,
   isCancelled?: () => boolean,
+  options: { observeCurrentState?: boolean } = {},
 ): Promise<ImageRecoveryOutcome> {
-  if (!entry?.task_id) return { kind: 'no-saved-job' }
+  if (!entry) return { kind: 'no-saved-job' }
+  if (!entry.task_id && !entry.idempotency_key) return { kind: 'no-saved-job' }
   if (entry.provider !== 'genstudio-image' && entry.provider !== 'genstudio') {
     throw new Error('This image job predates GenStudio-only operation. Submit a new GenStudio image job.')
   }
@@ -90,7 +98,28 @@ export async function tryRecoverImageFromManifestEntry(
       : { kind: 'terminal-failed', taskId: entry.task_id, failureCode: null, reason }
   }
   try {
-    const result = await recoverImageWithGenStudio(apiKey, entry.task_id, { isCancelled })
+    let taskId = entry.task_id
+    if (!taskId || options.observeCurrentState) {
+      const baseUrl = await getGenStudioUrl()
+      const deadline = Date.now() + 30_000
+      const control = taskId
+        ? await getGenStudioCancellationStatus('image.generation', baseUrl, apiKey, taskId, { isCancelled }, deadline)
+        : await getGenStudioJobByIdempotencyKey('image.generation', baseUrl, apiKey, entry.idempotency_key!, { isCancelled }, deadline)
+      taskId = control.id
+      if (!['succeeded', 'failed'].includes(control.state) && control.cancelled !== true && options.observeCurrentState) {
+        return {
+          kind: 'still-generating', taskId: control.id, state: control.state,
+          reason: `GenStudio reports this task as ${control.state}`,
+        }
+      }
+      if (control.state === 'failed' || control.cancelled === true) {
+        return {
+          kind: 'terminal-failed', taskId: control.id, failureCode: control.failure_code || null,
+          reason: `GenStudio reports this task as failed`,
+        }
+      }
+    }
+    const result = await recoverImageWithGenStudio(apiKey, taskId, { isCancelled })
     return { kind: 'recovered', urls: [result.url], taskId: result.jobId, provider: entry.provider }
   } catch (error) {
     if (isCancellation(error, isCancelled)) throw error
@@ -107,11 +136,55 @@ export async function tryRecoverImageFromManifestEntry(
     }
     return {
       kind: 'uncertain',
-      taskId: entry.task_id,
-      reason: error instanceof Error ? error.message : String(error),
+      taskId: entry.task_id || '',
+      reason: !entry.task_id && entry.idempotency_key
+        ? `Could not confirm the prepared image by its idempotency key: ${error instanceof Error ? error.message : String(error)}`
+        : error instanceof Error ? error.message : String(error),
       error: error instanceof Error ? error : new Error(String(error)),
     }
   }
+}
+
+export interface ManualImageReplacement {
+  scope: string
+  superseded: ImageRequestIdentityEvidence
+}
+
+export function imageManifestIdentityHash(entry: TaskManifestEntry): string {
+  return createHash('sha256').update(JSON.stringify({
+    provider: entry.provider,
+    task_id: entry.task_id,
+    submitted_at: entry.submitted_at,
+    input_hash: entry.input_hash || '',
+    idempotency_key: entry.idempotency_key || '',
+    operation: entry.operation || '',
+    last_state: entry.last_state || '',
+    request_scope: entry.request_scope || '',
+  })).digest('hex')
+}
+
+/** Derive one replay-stable explicit replacement while retaining old evidence. */
+export function resolveManualImageReplacement(
+  entry: TaskManifestEntry,
+  actionId: string,
+): ManualImageReplacement {
+  if (!entry.task_id && !entry.idempotency_key) {
+    throw new Error('Replace anyway requires a durable earlier image request identity.')
+  }
+  const superseded: ImageRequestIdentityEvidence = {
+    provider: entry.provider,
+    task_id: entry.task_id,
+    submitted_at: entry.submitted_at,
+    ...(entry.idempotency_key ? { idempotency_key: entry.idempotency_key } : {}),
+    ...(entry.input_hash ? { input_hash: entry.input_hash } : {}),
+    ...(entry.request_scope ? { request_scope: entry.request_scope } : {}),
+    ...(entry.operation === 'image' ? { operation: 'image' as const } : {}),
+    ...(entry.last_state ? { last_state: entry.last_state } : {}),
+  }
+  const token = createHash('sha256')
+    .update(`${actionId}\n${imageManifestIdentityHash(entry)}`)
+    .digest('hex').slice(0, 12)
+  return { scope: `manual-finish:${actionId}:replace:${token}`, superseded }
 }
 
 /**

@@ -41,12 +41,12 @@
         v-model:episode-id="episodeId"
         filter-field="scene_review"
         :presets="srPresets"
-        generate-label="Generate all missing"
-        loading-label="Queuing…"
+        :generate-label="finishMissingLabel"
+        loading-label="Finishing…"
         :generate-loading="(bulkQueuing && !isRenderPaused) || isRendering"
         :generate-disabled="!canBulkGenerate || reviewJobActive"
         :generate-status="bulkStatus"
-        @generate="generateAllMissing"
+        @generate="finishMissingImages"
       />
     </div>
 
@@ -84,6 +84,25 @@
       title="Older images are not mapped to this timeline"
     >
       {{ stats.legacy_unmapped_images }} older numbered image{{ stats.legacy_unmapped_images === 1 ? '' : 's' }} cannot be safely assigned to these stable scene IDs and are intentionally not counted.
+    </WorkspaceNotice>
+    <WorkspaceNotice
+      v-if="manualFinishStillGeneratingCount"
+      tone="info"
+      title="Still generating"
+    >
+      Story Studio is rejoining {{ manualFinishStillGeneratingCount }} earlier accepted image{{ manualFinishStillGeneratingCount === 1 ? '' : 's' }} that GenStudio still reports as generating. No replacement was submitted.
+    </WorkspaceNotice>
+    <WorkspaceNotice
+      v-if="replaceableUncertainJob"
+      tone="warning"
+      title="Earlier image request needs a decision"
+    >
+      GenStudio did not prove whether the earlier request finished. Check saved results again, or explicitly replace only the uncertain image{{ replaceableUncertainJob.params.manual_image_finish.uncertain_scene_ids.length === 1 ? '' : 's' }}.
+      <template #actions>
+        <button class="btn btn-sm btn-warn" :disabled="replacingUncertain" @click="replaceUncertainImages">
+          {{ replacingUncertain ? 'Replacing…' : 'Replace anyway' }}
+        </button>
+      </template>
     </WorkspaceNotice>
 
     <!-- Greenlight panel -->
@@ -921,6 +940,16 @@ const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.i
 const sceneInputsComplete = computed(() =>
   promptIntegrity.value?.complete === true && subtitleIntegrity.value?.complete === true,
 )
+// Finish only submits scenes that do not yet have an image. A prompt problem
+// on an already saved image remains visible in the editor health warning, but
+// it must not prevent recovery of the independent missing-image targets.
+const missingImageScenes = computed(() => scenes.value.filter(scene => scene.image_filename === null))
+const missingImagePromptsComplete = computed(() => missingImageScenes.value.every(scene =>
+  !!scene.visual_prompt?.trim() && !duplicatePromptIds.value.has(scene.id),
+))
+const finishMissingInputsComplete = computed(() =>
+  subtitleIntegrity.value?.complete === true && missingImagePromptsComplete.value,
+)
 async function jumpToScene(id: string, { focus = false }: { focus?: boolean } = {}): Promise<void> {
   if (typeof document === 'undefined') return
   const index = scenes.value.findIndex(scene => scene.id === id)
@@ -940,18 +969,22 @@ const canBulkGenerate = computed(() => {
   if (!episodeId.value) return false
   if (!form.value.model) return false
   if (!stats.value) return false
-  if (!sceneInputsComplete.value) return false
+  if (!finishMissingInputsComplete.value) return false
   return stats.value.total_scenes > stats.value.with_image
 })
+const missingCount = computed(() => Math.max(0, (stats.value?.total_scenes || 0) - (stats.value?.with_image || 0)))
+const finishMissingLabel = computed(() =>
+  `Finish ${missingCount.value} missing image${missingCount.value === 1 ? '' : 's'} · may use credits`,
+)
 const bulkStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!form.value.model) return 'Pick a model'
   if (!stats.value) return ''
   if (subtitleIntegrity.value && !subtitleIntegrity.value.complete) return 'Complete and re-stitch subtitles first'
-  if (promptIntegrity.value && !promptIntegrity.value.complete) return 'Repair missing or duplicated prompts first'
+  if (!missingImagePromptsComplete.value) return 'Repair missing or duplicated prompts for images still missing'
   const missing = stats.value.total_scenes - stats.value.with_image
   if (missing === 0) return 'All scenes have images'
-  return `${missing} scene${missing === 1 ? '' : 's'} missing — queue one recoverable batch`
+  return `Checks saved GenStudio results first; completed images are preserved. ${missing} scene${missing === 1 ? '' : 's'} may need fresh generation.`
 })
 
 function imageUrl(scene: ReviewScene): string {
@@ -1262,14 +1295,33 @@ async function uploadClipOne(scene: ReviewScene): Promise<void> {
   input.click()
 }
 
-async function generateAllMissing(): Promise<void> {
+type ManualFinishAction = { slug: string; episodeId: string; id: string }
+const finishAction = ref<ManualFinishAction | null>(null)
+const replaceAction = ref<ManualFinishAction | null>(null)
+const replacingUncertain = ref(false)
+
+function nextManualFinishActionId(action: typeof finishAction, context: Omit<ManualFinishAction, 'id'>): string | null {
+  if (action.value?.slug === context.slug && action.value.episodeId === context.episodeId) return action.value.id
+  if (!globalThis.crypto?.randomUUID) {
+    showError('This browser cannot create the secure action id needed to finish missing images.')
+    return null
+  }
+  action.value = { ...context, id: globalThis.crypto.randomUUID() }
+  return action.value.id
+}
+
+async function finishMissingImages(): Promise<void> {
   if (!canBulkGenerate.value || reviewJobActive.value) return
   const ep = episodeId.value
+  const projectSlug = slug.value
+  const actionId = nextManualFinishActionId(finishAction, { slug: projectSlug, episodeId: ep })
+  if (!actionId) return
   bulkQueuingEpisode.value = ep
   try {
     const r = await post<{ queued: number; skipped: number; reused?: boolean; job_id?: string }>(
-      `/projects/${slug.value}/scene-review/${ep}/generate-missing`,
+      `/projects/${projectSlug}/scene-review/${ep}/finish-missing`,
       {
+        action_id: actionId,
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
         auto_approve_generated: autoApproveGenerated.value,
@@ -1277,12 +1329,13 @@ async function generateAllMissing(): Promise<void> {
       },
     )
     success(r.reused
-      ? 'Already rendering — reused the existing work instead of submitting duplicate images.'
-      : `Queued one render for ${r.queued} missing scene${r.queued === 1 ? '' : 's'} (${r.skipped} skipped).`)
+      ? 'Already checking this Finish action — reused its existing work.'
+      : `Finish is checking ${r.queued} missing image${r.queued === 1 ? '' : 's'} (${r.skipped} already saved).`)
+    if (finishAction.value?.id === actionId) finishAction.value = null
     // Re-load every 4s while images are landing.
     await pollUntilAllPresent(ep)
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to queue bulk gen')
+    showError(e?.data?.detail || e?.message || 'Could not finish missing images')
   } finally {
     if (bulkQueuingEpisode.value === ep) bulkQueuingEpisode.value = null
   }
@@ -1346,6 +1399,31 @@ const { jobs, isJobActiveFor } = useJobs()
 // this episode, so the bulk button stays greyed even after a reload (the local
 // `bulkQueuing` ref doesn't survive one). See useJobs.isJobActiveFor.
 const reviewJobActive = computed(() => isJobActiveFor(episodeId.value, ['scene_image_generate', 'scene_images_batch', 'continuity_render']))
+function jobCreatedAt(job: any): number {
+  const createdAt = Date.parse(String(job?.created_at || ''))
+  return Number.isFinite(createdAt) ? createdAt : Number.MIN_SAFE_INTEGER
+}
+
+// `getJobs()` groups by status and SSE updates replace in place, so array order
+// is not action chronology. Created time is the durable action clock; job ID
+// makes a same-millisecond tie deterministic.
+const latestContinuityRenderJob = computed(() => jobs.value
+  .filter(job => job.type === 'continuity_render' && job.episode_id === episodeId.value)
+  .reduce<any | null>((latest, job) => {
+    if (!latest) return job
+    const createdDiff = jobCreatedAt(job) - jobCreatedAt(latest)
+    return createdDiff > 0 || (createdDiff === 0 && String(job.job_id) > String(latest.job_id)) ? job : latest
+  }, null))
+const manualFinishStillGeneratingCount = computed(() => {
+  const state = (latestContinuityRenderJob.value?.params as any)?.manual_image_finish
+  return Array.isArray(state?.still_generating_scene_ids) ? state.still_generating_scene_ids.length : 0
+})
+const replaceableUncertainJob = computed(() => {
+  const job = latestContinuityRenderJob.value as any
+  const state = job?.params?.manual_image_finish
+  if (reviewJobActive.value) return null
+  return Array.isArray(state?.uncertain_scene_ids) && state.uncertain_scene_ids.length > 0 ? job : null
+})
 const activeRenderJob = computed(() => resolveActiveSceneRenderJob(episodeId.value, activeRenderJobFromReview.value, jobs.value))
 const activeContinuityRenderJob = computed(() => resolveActiveSceneRenderJob(episodeId.value, activeRenderJobFromReview.value, jobs.value, ['continuity_render', 'scene_images_batch']))
 const isRenderPaused = computed(() => activeRenderJob.value?.status === 'paused')
@@ -1364,6 +1442,51 @@ function isSceneGenerating(scene: ReviewScene): boolean {
   if (isRenderPaused.value) return false
   if (regeneratingId.value === scene.id) return true
   return batchInFlight.value.has(scene.scene_index)
+}
+
+async function replaceUncertainImages(): Promise<void> {
+  const source = replaceableUncertainJob.value as any
+  if (!source || replacingUncertain.value) return
+  const projectSlug = slug.value
+  const ep = episodeId.value
+  const sourceJobId = source.job_id
+  if (!await ask({
+    title: 'Replace uncertain image request?',
+    message: 'GenStudio did not prove whether the earlier request finished. A new request may create a second image and may charge again. Any late old result will not replace the new chosen result.',
+    confirmLabel: 'Replace anyway',
+    danger: true,
+  })) return
+  // The dialog can outlive navigation or a queue update. Re-check that the
+  // exact uncertain job still owns this episode before posting any new work.
+  if (slug.value !== projectSlug || episodeId.value !== ep || replaceableUncertainJob.value?.job_id !== sourceJobId) {
+    showError('The image recovery state changed while this confirmation was open. Check the current Scene Review result.')
+    return
+  }
+  const actionId = nextManualFinishActionId(replaceAction, { slug: projectSlug, episodeId: ep })
+  if (!actionId) return
+  replacingUncertain.value = true
+  try {
+    const r = await post<{ queued: number; skipped: number; reused?: boolean }>(
+      `/projects/${projectSlug}/scene-review/${ep}/replace-uncertain`,
+      {
+        action_id: actionId,
+        source_job_id: sourceJobId,
+        model: form.value.model,
+        aspect_ratio: form.value.aspect_ratio,
+        auto_approve_generated: autoApproveGenerated.value,
+        ...genStudioImageBody.value,
+      },
+    )
+    success(r.reused
+      ? 'Already checking this replacement action — reused its existing work.'
+      : `Replacing ${r.queued} uncertain image${r.queued === 1 ? '' : 's'} (${r.skipped} already saved).`)
+    if (replaceAction.value?.id === actionId) replaceAction.value = null
+    await pollUntilAllPresent(ep)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not replace uncertain images')
+  } finally {
+    replacingUncertain.value = false
+  }
 }
 
 const sceneRenderControls = (job: any): any[] => {

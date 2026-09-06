@@ -171,6 +171,231 @@ test('current machine Off revokes every supported committed image submit permiss
   }
 })
 
+test('manual Finish replaces one known terminal image immediately while preserving completed scenes', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const pm = await import('../services/project-manager.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Manual terminal Finish')
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({ scenes: [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'Replace the terminal image.' },
+      { id: 'scene-complete', scene_index: 2, visual_prompt: 'Preserve this completed image.' },
+    ] }))
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(outDir, { recursive: true })
+    const completedPath = path.join(outDir, 'scene-complete.png')
+    await sharp({ create: { width: 3, height: 3, channels: 3, background: '#123456' } }).png().toFile(completedPath)
+    const completedBytes = await fs.readFile(completedPath)
+    const now = new Date().toISOString()
+    const automaticJob: any = {
+      job_id: 'automatic-image-failure', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Automatic image failure', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001'], missing_only: true,
+      },
+    }
+    await writeAuthoritativeFixture(automaticJob)
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED' })
+    await assert.rejects(runContinuityRenderJob(automaticJob), /incomplete/i)
+    assert.equal(service.providerSubmissionCount('image'), 1, 'background policy does not buy a replacement for IMAGE_FAILED')
+    assert.equal(automaticJob.paid_image_replacement_attempts, undefined)
+    const failedEntry = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(failedEntry.last_state, 'failed')
+
+    const manualJob: any = {
+      ...automaticJob,
+      job_id: 'manual-terminal-finish',
+      title: 'Finish missing images',
+      output_lines: [],
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001', 'scene-complete'], missing_only: true,
+        manual_image_finish: {
+          action_id: '44444444-4444-4444-8444-444444444444', replace_uncertain: false,
+        },
+      },
+    }
+    delete manualJob.paid_image_replacement_attempts
+    await writeAuthoritativeFixture(manualJob)
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+    assert.equal(await runContinuityRenderJob(manualJob), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 2, 'the explicit click makes exactly one fresh POST')
+    await sharp(path.join(outDir, 'scene-001.png')).stats()
+    assert.deepEqual(await fs.readFile(completedPath), completedBytes, 'completed output is byte-identical')
+    const completedEntry = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.ok(completedEntry.superseded_image_requests?.some(entry => entry.task_id === failedEntry.task_id))
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('manual Finish rejoins an accepted image through recovery without another provider POST', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest, recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Manual accepted rejoin')
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(outDir, { recursive: true })
+    const idempotencyKey = 'story-image-existing-active'
+    service.queueScenario('image', { states: ['accepted', 'running', 'succeeded'] })
+    const submitted = await fetch(`${service.baseUrl}/v1/images/generations`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({
+        model_id: 'mock-image-v1', prompt: 'A lantern in a quiet archive.',
+        aspect_ratio: '16:9', resolution: '1K',
+      }),
+    })
+    assert.equal(submitted.status, 202)
+    const accepted = await submitted.json() as { id: string; state: string }
+    assert.equal(accepted.state, 'accepted')
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: accepted.id, submitted_at: new Date().toISOString(),
+      input_hash: 'old-active-input', idempotency_key: idempotencyKey, operation: 'image',
+      last_state: 'accepted', request_scope: 'old-active-scope',
+    })
+    const postsBeforeFinish = service.providerSubmissionCount('image')
+    const now = new Date().toISOString()
+    const finishJob: any = {
+      job_id: 'manual-accepted-rejoin', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Finish missing images', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001'], missing_only: true,
+        manual_image_finish: {
+          action_id: '77777777-7777-4777-8777-777777777777', replace_uncertain: false,
+        },
+      },
+    }
+    await writeAuthoritativeFixture(finishJob)
+
+    assert.equal(await runContinuityRenderJob(finishJob), undefined)
+    assert.equal(service.providerSubmissionCount('image'), postsBeforeFinish, 'Finish only rejoins the accepted request')
+    await sharp(path.join(outDir, 'scene-001.png')).stats()
+    const completed = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(completed.task_id, accepted.id)
+    assert.equal(completed.idempotency_key, idempotencyKey)
+    assert.equal(completed.last_state, 'succeeded')
+    assert.deepEqual(finishJob.params.manual_image_finish.still_generating_scene_ids, [])
+    assert.ok(service.pollCount(accepted.id) >= 2, 'Finish observes the active state, then long-polls the same request')
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('uncertain Finish makes no POST and Replace anyway submits only its exact confirmed scene', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { imageManifestIdentityHash } = await import('../lib/manifest-recovery.js')
+    const { readManifest, recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Manual uncertain replacement')
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(outDir, { recursive: true })
+    const uncertainEntry = {
+      provider: 'genstudio-image', task_id: '', submitted_at: '2026-09-06T00:00:00.000Z',
+      input_hash: 'old-input', idempotency_key: 'story-image-uncertain-old', operation: 'image' as const,
+      last_state: 'prepared', request_scope: 'old-uncertain-scope',
+    }
+    await recordTaskStrict(outDir, 'scene-001.png', uncertainEntry)
+    const now = new Date().toISOString()
+    const finishJob: any = {
+      job_id: 'manual-uncertain-finish', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Finish missing images', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001'], missing_only: true,
+        manual_image_finish: {
+          action_id: '55555555-5555-4555-8555-555555555555', replace_uncertain: false,
+        },
+      },
+    }
+    await writeAuthoritativeFixture(finishJob)
+    await assert.rejects(runContinuityRenderJob(finishJob), /incomplete/i)
+    assert.equal(service.providerSubmissionCount('image'), 0)
+    assert.deepEqual(finishJob.params.manual_image_finish.uncertain_scene_ids, ['scene-001'])
+    const confirmedHash = finishJob.params.manual_image_finish.uncertain_identity_hashes['scene-001']
+    assert.equal(confirmedHash, imageManifestIdentityHash(uncertainEntry))
+
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({ scenes: [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'Replace the exact uncertain image.' },
+      { id: 'scene-other-missing', scene_index: 2, visual_prompt: 'This unconfirmed scene stays untouched.' },
+    ] }))
+    const replaceJob: any = {
+      ...finishJob,
+      job_id: 'manual-replace-uncertain',
+      output_lines: [],
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001'], missing_only: true,
+        manual_image_finish: {
+          action_id: '66666666-6666-4666-8666-666666666666', replace_uncertain: true,
+          source_job_id: finishJob.job_id,
+          expected_uncertain_identity_hashes: { 'scene-001': confirmedHash },
+        },
+      },
+    }
+    await writeAuthoritativeFixture(replaceJob)
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+    assert.equal(await runContinuityRenderJob(replaceJob), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 1)
+    await sharp(path.join(outDir, 'scene-001.png')).stats()
+    await assert.rejects(fs.stat(path.join(outDir, 'scene-other-missing.png')), /ENOENT/)
+    const replacedEntry = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.ok(replacedEntry.superseded_image_requests?.some(entry => entry.idempotency_key === uncertainEntry.idempotency_key))
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
 test('Continuity freezes the exact original request before POST and returns a durable paid wait after positive infrastructure settlement', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()

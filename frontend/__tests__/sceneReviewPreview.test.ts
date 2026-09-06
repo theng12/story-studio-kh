@@ -51,7 +51,8 @@ describe('Scene Review image preview', () => {
 
   test('legacy render modes and duplicate actions are removed at the surface', () => {
     assert.doesNotMatch(sceneReviewSource, /render_mode|form\.concurrency|Render sequentially|Render in parallel|Generate \(refs\)|🛠 Repair|⛓ From here|showLivePreview|mode === 'independent'/)
-    assert.match(sceneReviewSource, /generate-label="Generate all missing"/)
+    assert.match(sceneReviewSource, /:generate-label="finishMissingLabel"/)
+    assert.match(sceneReviewSource, /`Finish \$\{missingCount\.value\} missing image\$\{missingCount\.value === 1 \? '' : 's'\} · may use credits`/)
     assert.match(sceneReviewSource, /Generate image/)
     assert.match(sceneReviewSource, /Regenerate image/)
     assert.match(sceneReviewSource, /Upload replacement…/)

@@ -102,8 +102,11 @@ describe('every kind of fleet work is pipelined, not just images', () => {
     const routes = await read('routes/scene-review.ts')
     const handler = routes.slice(routes.indexOf("/generate-missing'"))
     const body = handler.slice(0, handler.indexOf("/generate-missing-clips'"))
-    assert.match(body, /enqueueContinuityRender\(/,
+    assert.match(body, /enqueueMissingScenes\(/,
       'generate-missing must batch into one continuity_render, not one job per scene')
+    const helper = routes.slice(routes.indexOf('async function enqueueMissingScenes'), routes.indexOf("/generate-missing'"))
+    assert.match(helper, /enqueueContinuityRender\(/,
+      'the shared missing-image handler must enqueue one continuity_render')
     assert.doesNotMatch(body, /type: 'scene_image_generate'[^,]*,\s*\n\s*episode_id/,
       'generate-missing must not enqueue per-scene scene_image_generate jobs')
   })

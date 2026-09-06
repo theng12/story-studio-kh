@@ -22,6 +22,8 @@ const ROUTE = path.resolve(HERE, '../routes/scene-review.ts')
 const WRITE_ROUTES = [
   'generate-image',
   'generate-missing',
+  'finish-missing',
+  'replace-uncertain',
   'continuity-render',
   'upload-image/:sceneId',
   'approve',
@@ -49,8 +51,15 @@ describe('scene-review write routes invalidate the episode status cache', () => 
       assert.ok(index >= 0, `route ${route} not found — did it get renamed?`)
       const from = starts[index]!.index!
       const to = starts[index + 1]?.index ?? source.length
-      if (!/await invalidateEpisodeStatus\(slug, episodeId\)/.test(source.slice(from, to))) missing.push(route)
+      const routeSource = source.slice(from, to)
+      const delegatedMissingRender = ['generate-missing', 'finish-missing', 'replace-uncertain'].includes(route)
+        && /enqueueMissingScenes\(req, res/.test(routeSource)
+      if (!/await invalidateEpisodeStatus\(slug, episodeId\)/.test(routeSource) && !delegatedMissingRender) missing.push(route)
     }
+    const helperStart = source.indexOf('async function enqueueMissingScenes(')
+    const helperEnd = source.indexOf("router.post('/projects/:slug/scene-review/:episodeId/generate-missing'", helperStart)
+    assert.match(source.slice(helperStart, helperEnd), /await invalidateEpisodeStatus\(slug, episodeId\)/,
+      'the shared missing-image enqueue boundary must invalidate before answering')
     assert.deepEqual(missing, [], `these routes change episode status without dropping its cache: ${missing.join(', ')}`)
   })
 

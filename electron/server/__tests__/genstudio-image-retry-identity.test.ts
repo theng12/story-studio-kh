@@ -31,6 +31,7 @@ import type { ImageModelConfig } from '../models/types.js'
 // other test processes mid-assertion.
 const temp = await useTempDataDir()
 const {
+  resolveManualImageReplacement,
   isTerminalGenStudioImageTaskFailure,
   resolveImageRetryScope,
   terminalImageManifestEntry,
@@ -84,21 +85,35 @@ void test('GenStudio image retry identity is fresh after failure and stable on a
       assert.equal(service.providerSubmissionCount('image'), 1)
     })
 
-    await suite.test('an ACTIVE saved job is reconnected, not resubmitted', async () => {
+    await suite.test('an ACTIVE saved job is reported as still generating, not resubmitted', async () => {
       service.reset()
       // Accepted → dispatched → running → succeeded: still in flight when the
       // manifest entry was written, so recovery must poll it to completion.
       service.queueScenario('image', { states: ['accepted', 'dispatched', 'running', 'succeeded'] })
       const started = await submit('scene:active')
       assert.equal(service.providerSubmissionCount('image'), 1)
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async (input, init) => {
+        if (String(input).endsWith(`/v1/images/${started.jobId}`)) {
+          return Response.json({ id: started.jobId, state: 'running', cancelled: false })
+        }
+        return originalFetch(input, init)
+      }
+      let outcome
+      try {
+        outcome = await tryRecoverImageFromManifestEntry(
+          manifestEntry({ task_id: started.jobId, last_state: 'accepted' }),
+          MOCK_GENSTUDIO_FULL_KEY,
+          MODEL_CONFIG,
+          undefined,
+          { observeCurrentState: true },
+        )
+      } finally {
+        globalThis.fetch = originalFetch
+      }
 
-      const outcome = await tryRecoverImageFromManifestEntry(
-        manifestEntry({ task_id: started.jobId, last_state: 'accepted' }),
-        MOCK_GENSTUDIO_FULL_KEY,
-        MODEL_CONFIG,
-      )
-
-      assert.equal(outcome.kind, 'recovered')
+      assert.equal(outcome.kind, 'still-generating')
+      assert.match(outcome.kind === 'still-generating' ? outcome.state : '', /accepted|dispatched|running/)
       assert.equal(service.providerSubmissionCount('image'), 1)
     })
 
@@ -168,6 +183,40 @@ void test('GenStudio image retry identity is fresh after failure and stable on a
       const again = await submit(identity)
       assert.equal(again.jobId, first.jobId)
       assert.equal(service.providerSubmissionCount('image'), 1, 'no second paid job')
+    })
+
+    await suite.test('a prepared entry with no task id reclaims by its durable idempotency key', async () => {
+      service.reset()
+      const requestIdentity = 'scene:prepared-response-lost'
+      const result = await submit(requestIdentity)
+      const key = client.buildGenStudioImageIdempotencyKey({
+        prompt: 'A calm moonlit temple above a river.',
+        modelId: 'mock-image-v1',
+        aspectRatio: '16:9',
+        requestIdentity,
+      })
+
+      const outcome = await tryRecoverImageFromManifestEntry(
+        manifestEntry({ task_id: '', idempotency_key: key, last_state: 'prepared' }),
+        MOCK_GENSTUDIO_FULL_KEY,
+        MODEL_CONFIG,
+      )
+
+      assert.equal(outcome.kind, 'recovered')
+      assert.equal(outcome.kind === 'recovered' && outcome.taskId, result.jobId)
+      assert.equal(service.providerSubmissionCount('image'), 1)
+    })
+
+    await suite.test('a prepared key with no authoritative job requires Replace anyway', async () => {
+      service.reset()
+      const outcome = await tryRecoverImageFromManifestEntry(
+        manifestEntry({ task_id: '', idempotency_key: 'story-image-missing-key', last_state: 'prepared' }),
+        MOCK_GENSTUDIO_FULL_KEY,
+        MODEL_CONFIG,
+      )
+      assert.equal(outcome.kind, 'uncertain')
+      assert.match(outcome.kind === 'uncertain' ? outcome.reason : '', /idempotency/i)
+      assert.equal(service.providerSubmissionCount('image'), 0)
     })
 
     await suite.test('an unconfirmed reconnect is reported as uncertain, never as "nothing was submitted"', async () => {
@@ -254,6 +303,31 @@ void test('retry scopes are deterministic, bounded, and scoped to their base att
 
   // A different deliberate attempt never inherits another attempt's retry chain.
   assert.equal(resolveImageRetryScope(failedAgain, 'force:job-77').scope, 'force:job-77')
+})
+
+void test('Replace anyway keeps the complete uncertain identity and replays one action scope', () => {
+  const uncertain = manifestEntry({
+    task_id: '',
+    idempotency_key: 'story-image-old-key',
+    request_scope: 'missing:retry:old',
+    input_hash: 'sha256:old',
+    last_state: 'prepared',
+  })
+  const first = resolveManualImageReplacement(uncertain, '8e747b4d-730c-4b28-96b8-758256e9ea57')
+  const replay = resolveManualImageReplacement(uncertain, '8e747b4d-730c-4b28-96b8-758256e9ea57')
+
+  assert.deepEqual(replay, first)
+  assert.match(first.scope, /^manual-finish:8e747b4d-730c-4b28-96b8-758256e9ea57:replace:[0-9a-f]{12}$/)
+  assert.deepEqual(first.superseded, {
+    provider: 'genstudio',
+    task_id: '',
+    submitted_at: '2026-07-24T00:00:00.000Z',
+    idempotency_key: 'story-image-old-key',
+    input_hash: 'sha256:old',
+    request_scope: 'missing:retry:old',
+    operation: 'image',
+    last_state: 'prepared',
+  })
 })
 
 void test('completion errors name each unresolved item exactly once', () => {

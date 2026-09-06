@@ -17,7 +17,7 @@ import express, { Router } from 'express'
 import fs from 'fs/promises'
 import { existsSync, createReadStream } from 'fs'
 import path from 'path'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
@@ -25,6 +25,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseHttpByteRange } from '../lib/http-byte-range.js'
+import { isDecodableImage } from '../lib/image-validation.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
 import { requireSceneClipGenStudioModel, resolveVideoAssetsDir } from '../generators/scene-clip.js'
@@ -102,13 +103,18 @@ function streamLocalMedia(
   createReadStream(filePath, { start: range.start, end: range.end }).pipe(res)
 }
 
-async function validateSceneRenderRequest(slug: string, episodeId: string, sceneIds?: string[]) {
+async function validateSceneRenderRequest(
+  slug: string,
+  episodeId: string,
+  sceneIds?: string[],
+  validatePrompts = true,
+) {
   const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
   const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
   if (!existsSync(planPath)) throw new Error('No scene_plan.json yet')
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
   await assertSubtitleTimelineComplete(paths.subtitles_dir, episodeId)
-  assertScenePromptsRenderable(plan.scenes, sceneIds)
+  if (validatePrompts) assertScenePromptsRenderable(plan.scenes, sceneIds)
   return { paths, plan, planPath }
 }
 
@@ -190,9 +196,10 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     let motionReviewedCount = 0
     for (const s of plan.scenes) {
       const filename = `${s.id}.png`
-      const exists = existsSync(path.join(namedDir, filename)) || existsSync(path.join(legacyDir, filename))
-      imageReady.push(exists)
-      if (exists) withImageCount++
+      const imageExists = await isDecodableImage(path.join(namedDir, filename))
+        || await isDecodableImage(path.join(legacyDir, filename))
+      imageReady.push(imageExists)
+      if (imageExists) withImageCount++
       if (s.approved) approvedCount++
       // v1.0.470 — clip existence + stale (rendered from a now-changed motion prompt).
       const clipExists = existsSync(path.join(clipsDir, `${s.id}.mp4`))
@@ -213,12 +220,12 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         visual_prompt: s.visual_prompt,
         motion_prompt: s.motion_prompt,  // v1.0.468 — image-to-video instruction
         approved: !!s.approved,
-        image_filename: exists ? filename : null,
+        image_filename: imageExists ? filename : null,
         boundary_reason: s.boundary_reason,
         // Stale = image on disk but its rendered_prompt no longer matches the
         // current visual_prompt. Unknown rendered_prompt (pre-feature renders)
         // → not stale, so old episodes don't all light up red.
-        stale: exists
+        stale: imageExists
           && typeof (s as any).rendered_prompt === 'string'
           && (s as any).rendered_prompt !== s.visual_prompt,
         // v1.0.470 — clip animation status.
@@ -316,11 +323,46 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
   }
 })
 
+interface ManualFinishMarker {
+  action_id: string
+  replace_uncertain: boolean
+  source_job_id?: string
+  expected_uncertain_identity_hashes?: Record<string, string>
+  request_fingerprint?: string
+}
+
+function finishRequestFingerprint(
+  slug: string,
+  episodeId: string,
+  body: Record<string, any>,
+  marker: ManualFinishMarker,
+  sceneIds: string[],
+): string {
+  return createHash('sha256').update(JSON.stringify({
+    slug,
+    episodeId,
+    action_id: marker.action_id,
+    replace_uncertain: marker.replace_uncertain,
+    source_job_id: marker.source_job_id || '',
+    scene_ids: [...sceneIds].sort(),
+    model: typeof body.model === 'string' ? body.model.trim() : '',
+    aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+    resolution: typeof body.resolution === 'string' ? body.resolution.trim() : '',
+    width: typeof body.width === 'number' ? body.width : null,
+    height: typeof body.height === 'number' ? body.height : null,
+    seed: Number.isInteger(body.seed) ? body.seed : null,
+    auto_approve_generated: body.auto_approve_generated === true,
+  })).digest('hex')
+}
+
 async function enqueueContinuityRender(
   slug: string,
   episodeId: string,
   body: any,
-  opts: { singleSceneId?: string } = {},
+  opts: {
+    singleSceneId?: string
+    manualFinish?: ManualFinishMarker
+  } = {},
 ) {
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) throw new Error('model is required')
@@ -353,6 +395,7 @@ async function enqueueContinuityRender(
         : undefined,
       missing_only: body.missing_only === true,
       auto_approve_generated: body.auto_approve_generated === true,
+      ...(opts.manualFinish ? { manual_image_finish: opts.manualFinish } : {}),
     },
   })
 }
@@ -402,14 +445,34 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
 // Queue one canonical continuity_render job for every missing scene. The
 // renderer itself batches local Hub work across the fleet and preserves
 // verified partial outputs, so Scene Review and Pipeline share one owner.
-router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (req, res) => {
-  const { slug, episodeId } = req.params
+async function enqueueMissingScenes(
+  req: express.Request,
+  res: express.Response,
+  manualFinish?: ManualFinishMarker & { scene_ids?: string[] },
+) {
+  const slug = String(req.params.slug)
+  const episodeId = String(req.params.episodeId)
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
   try {
-    const { paths, plan } = await validateSceneRenderRequest(slug, episodeId)
+    if (manualFinish) {
+      if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+      const replay = (await jq.getJobs(slug)).find(job =>
+        job.type === 'continuity_render'
+        && job.episode_id === episodeId
+        && job.params?.manual_image_finish?.action_id === manualFinish.action_id,
+      )
+      if (replay) {
+        const fingerprint = finishRequestFingerprint(slug, episodeId, body, manualFinish, replay.params.scene_ids || [])
+        if (replay.params.manual_image_finish?.request_fingerprint !== fingerprint) {
+          return res.status(409).json({ detail: 'This finish action id already belongs to a different request.' })
+        }
+        return res.json({ ok: true, queued: 0, skipped: 0, reused: true, job_id: replay.job_id, queued_scene_ids: replay.params.scene_ids || [] })
+      }
+    }
+    const { paths, plan } = await validateSceneRenderRequest(slug, episodeId, undefined, false)
 
     // v1.0.457 — "missing" means missing from BOTH the unified named folder and
     // the legacy flat folder, so an un-consolidated episode isn't re-queued.
@@ -421,16 +484,23 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
     const height = typeof body.height === 'number' && body.height > 0 ? body.height : undefined
 
     // Scenes with no image AND no individual render already in flight.
-    const missing = plan.scenes.filter((s) => {
+    const allowed = manualFinish?.scene_ids ? new Set(manualFinish.scene_ids) : null
+    const missing = [] as typeof plan.scenes
+    for (const s of plan.scenes) {
+      if (allowed && !allowed.has(s.id)) continue
       const filename = `${s.id}.png`
-      if (existsSync(path.join(namedDir, filename)) || existsSync(path.join(legacyDir, filename))) { skipped++; return false }
-      if (jq.isDuplicate(slug, episodeId, 'scene_image_generate' as JobType, (p: any) => p?.scene_id === s.id)) { skipped++; return false }
-      return true
-    })
+      const namedPath = path.join(namedDir, filename)
+      const legacyPath = path.join(legacyDir, filename)
+      if (await isDecodableImage(namedPath) || await isDecodableImage(legacyPath)) { skipped++; continue }
+      if (jq.isDuplicate(slug, episodeId, 'scene_image_generate' as JobType, (p: any) => p?.scene_id === s.id)) { skipped++; continue }
+      missing.push(s)
+    }
 
     if (missing.length === 0) {
       return res.json({ ok: true, queued: 0, skipped, queued_scene_ids: [] })
     }
+
+    assertScenePromptsRenderable(plan.scenes, missing.map(scene => scene.id))
 
     const existing = jq.getActiveBulkSceneRenderJob(slug, episodeId)
     if (existing) {
@@ -445,6 +515,19 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
     }
 
     try {
+      const manualMarker: ManualFinishMarker | undefined = manualFinish
+        ? {
+            action_id: manualFinish.action_id,
+            replace_uncertain: manualFinish.replace_uncertain,
+            ...(manualFinish.source_job_id ? { source_job_id: manualFinish.source_job_id } : {}),
+            ...(manualFinish.expected_uncertain_identity_hashes
+              ? { expected_uncertain_identity_hashes: manualFinish.expected_uncertain_identity_hashes }
+              : {}),
+          }
+        : undefined
+      if (manualMarker) {
+        manualMarker.request_fingerprint = finishRequestFingerprint(slug, episodeId, body, manualMarker, missing.map(scene => scene.id))
+      }
       const job = await enqueueContinuityRender(slug, episodeId, {
         ...body,
         model,
@@ -453,7 +536,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
         height,
         scene_ids: missing.map((s) => s.id),
         missing_only: true,
-      })
+      }, manualMarker ? { manualFinish: manualMarker } : {})
       await invalidateEpisodeStatus(slug, episodeId)
       return res.json({
         ok: true,
@@ -484,6 +567,47 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Failed to queue scene-image jobs'))
   }
+}
+
+router.post('/projects/:slug/scene-review/:episodeId/generate-missing', (req, res) =>
+  enqueueMissingScenes(req, res))
+
+const FINISH_ACTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+router.post('/projects/:slug/scene-review/:episodeId/finish-missing', async (req, res) => {
+  const actionId = typeof req.body?.action_id === 'string' ? req.body.action_id.trim() : ''
+  if (!FINISH_ACTION_ID.test(actionId)) return res.status(400).json({ detail: 'A valid finish action id is required.' })
+  return enqueueMissingScenes(req, res, { action_id: actionId, replace_uncertain: false })
+})
+
+router.post('/projects/:slug/scene-review/:episodeId/replace-uncertain', async (req, res) => {
+  const actionId = typeof req.body?.action_id === 'string' ? req.body.action_id.trim() : ''
+  const sourceJobId = typeof req.body?.source_job_id === 'string' ? req.body.source_job_id.trim() : ''
+  if (!FINISH_ACTION_ID.test(actionId)) return res.status(400).json({ detail: 'A valid finish action id is required.' })
+  if (!await pm.getProject(String(req.params.slug))) return res.status(404).json({ detail: 'Project not found' })
+  // Hydrate this project's durable jobs before resolving the private receipt.
+  // getJobs returns a public/redacted view; getJob below deliberately reads the
+  // in-memory durable copy after hydration so a restart cannot erase authority.
+  await jq.getJobs(String(req.params.slug))
+  const sourceJob = jq.getJob(sourceJobId)
+  const uncertainSceneIds = sourceJob?.params?.manual_image_finish?.uncertain_scene_ids
+  const uncertainIdentityHashes = sourceJob?.params?.manual_image_finish?.uncertain_identity_hashes
+  if (!sourceJob || sourceJob.project_slug !== req.params.slug || sourceJob.episode_id !== req.params.episodeId
+    || sourceJob.type !== 'continuity_render' || !Array.isArray(uncertainSceneIds) || uncertainSceneIds.length === 0
+    || !uncertainIdentityHashes || typeof uncertainIdentityHashes !== 'object') {
+    return res.status(409).json({ detail: 'The uncertain image request is no longer current. Check saved results again.' })
+  }
+  return enqueueMissingScenes(req, res, {
+    action_id: actionId,
+    replace_uncertain: true,
+    source_job_id: sourceJob.job_id,
+    scene_ids: uncertainSceneIds.filter((value: unknown): value is string => typeof value === 'string'),
+    expected_uncertain_identity_hashes: Object.fromEntries(
+      uncertainSceneIds.flatMap((sceneId: unknown) => typeof sceneId === 'string' && typeof uncertainIdentityHashes[sceneId] === 'string'
+        ? [[sceneId, uncertainIdentityHashes[sceneId]]]
+        : []),
+    ),
+  })
 })
 
 // ── POST /scene-review/:ep/generate-clip ──────────────────────────────

@@ -13,12 +13,25 @@
  * survives in the final manifest.
  */
 
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
-import { recordTask, recordTaskStrict, readManifest, readManifestStrict } from '../services/task-manifest.js'
+import sharp from 'sharp'
+import {
+  claimMissingImageTaskStrict,
+  compareAndRecordImageTaskStrict,
+  promoteCurrentImageTaskArtifactStrict,
+  recordTask,
+  recordTaskStrict,
+  readManifest,
+  readManifestStrict,
+} from '../services/task-manifest.js'
+import { useTempDataDir } from './_helpers.js'
+
+const testData = await useTempDataDir()
+after(() => testData.cleanup())
 
 test('subtitle originals survive current-task updates and cannot be overwritten or rebound from a stale current entry', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'subtitle-original-manifest-'))
@@ -144,6 +157,64 @@ test('recordTask: writes to different dirs do not block each other', async () =>
     await fs.rm(dirA, { recursive: true, force: true }).catch(() => {})
     await fs.rm(dirB, { recursive: true, force: true }).catch(() => {})
   }
+})
+
+test('a superseded scene attempt cannot reclaim ownership or replace the winner', async t => {
+  const dir = await fs.mkdtemp(path.join(testData.dir, 'scene-image-owner-'))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const filename = 'scene-001.png'
+  const outputPath = path.join(dir, filename)
+  const ownerA = {
+    provider: 'genstudio', task_id: 'task-a', submitted_at: 'ts-a', operation: 'image' as const,
+    idempotency_key: 'key-a', input_hash: 'hash-a', request_scope: 'scope-a', last_state: 'accepted',
+  }
+  const ownerB = {
+    provider: 'genstudio', task_id: '', submitted_at: 'ts-b', operation: 'image' as const,
+    idempotency_key: 'key-b', input_hash: 'hash-b', request_scope: 'scope-b', last_state: 'prepared',
+    superseded_image_requests: [ownerA],
+  }
+  await recordTaskStrict(dir, filename, ownerA)
+  await compareAndRecordImageTaskStrict(dir, filename, ownerA, ownerB)
+  await assert.rejects(compareAndRecordImageTaskStrict(dir, filename, ownerA, ownerA), /ownership changed/i)
+
+  const staleStage = path.join(dir, '.stale.png')
+  const winnerStage = path.join(dir, '.winner.png')
+  await fs.writeFile(staleStage, 'stale')
+  await fs.writeFile(winnerStage, 'winner')
+  let checkpoints = 0
+  assert.equal(await promoteCurrentImageTaskArtifactStrict(
+    dir, filename, ownerA, staleStage, outputPath, async () => { checkpoints++ },
+  ), false)
+  assert.equal(await promoteCurrentImageTaskArtifactStrict(dir, filename, ownerB, winnerStage, outputPath, async () => {
+    assert.equal(await fs.readFile(outputPath, 'utf8'), 'winner')
+    checkpoints++
+  }), true)
+  assert.equal(await fs.readFile(outputPath, 'utf8'), 'winner')
+  assert.equal(checkpoints, 1)
+  assert.equal((await readManifestStrict(dir)).tasks[filename]?.idempotency_key, 'key-b')
+  assert.equal(await fs.stat(staleStage).catch(() => null), null)
+})
+
+test('a completed output that appears before the manual claim keeps its original manifest owner', async t => {
+  const dir = await fs.mkdtemp(path.join(testData.dir, 'scene-image-before-claim-'))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const filename = 'scene-001.png'
+  const outputPath = path.join(dir, filename)
+  const original = {
+    provider: 'genstudio', task_id: 'task-old', submitted_at: 'ts-old', operation: 'image' as const,
+    idempotency_key: 'key-old', input_hash: 'hash-old', request_scope: 'scope-old', last_state: 'accepted',
+  }
+  const replacement = {
+    provider: 'genstudio', task_id: '', submitted_at: 'ts-new', operation: 'image' as const,
+    idempotency_key: 'key-new', input_hash: 'hash-new', request_scope: 'scope-new', last_state: 'prepared',
+    superseded_image_requests: [original],
+  }
+  await recordTaskStrict(dir, filename, original)
+  await sharp({ create: { width: 2, height: 2, channels: 3, background: '#123456' } }).png().toFile(outputPath)
+
+  assert.equal(await claimMissingImageTaskStrict(dir, filename, outputPath, original, replacement), false)
+  assert.deepEqual((await readManifestStrict(dir)).tasks[filename], original)
+  await sharp(outputPath).stats()
 })
 
 test('shouldChunkByBudget: trips chunking when prompt + output crowd the cap', async () => {
