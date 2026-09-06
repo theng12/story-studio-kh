@@ -53,7 +53,7 @@ import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../s
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
-import { allowedSubtitleCueGapSec, resolveScenePlanPacing } from '../services/scene-plan-pacing.js'
+import { allowedSubtitleCueGapSec } from '../services/scene-plan-pacing.js'
 import { listTranscriptionModels as listGenStudioTranscriptionModels } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import type { ScenePlan, VideoSubtitleStyle } from '../models/types.js'
@@ -1092,11 +1092,10 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       ? await inspectExistingTranscriptSource(subtitlesDir, episodeId)
       : null
     const subtitleTimelineIntegrity = existsSync(stitchedPath)
-      ? await resolveScenePlanPacing(slug, assets.episode_dir)
-        .then(async ({ pacing }) => readSubtitleTimelineIntegrity(subtitlesDir, episodeId, {
-          max_cue_gap_sec: allowedSubtitleCueGapSec(pacing),
-          cue_source_path: planningTranscript?.path,
-        }))
+      ? await readSubtitleTimelineIntegrity(subtitlesDir, episodeId, {
+        max_cue_gap_sec: allowedSubtitleCueGapSec(),
+        cue_source_path: planningTranscript?.path,
+      })
       : null
 
     res.json({

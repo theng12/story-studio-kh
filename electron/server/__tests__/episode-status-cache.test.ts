@@ -629,6 +629,9 @@ describe('episode-status-cache', () => {
 
   test('subtitles: a blocking gap in the fresh planning transcript stays visible in Pending', async () => {
     const { epDir } = await makeProject()
+    await fs.writeFile(path.join(epDir, 'continuity.json'), JSON.stringify({
+      pacing: { min_sec: 45, max_sec: 60 },
+    }))
     const srt = [
       '1', '00:00:17,880 --> 00:00:18,000', 'before', '',
       '2', '00:00:55,460 --> 00:00:56,000', 'after', '',
@@ -640,7 +643,7 @@ describe('episode-status-cache', () => {
     await writeFreshCorrectedTranscript(epDir, srt)
 
     const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
-    assert.equal(status.subtitles, false, 'the confirmed 37.58s planning-source gap needs attention')
+    assert.equal(status.subtitles, false, 'the confirmed 37.58s gap stays blocking at 45–60s visual pacing')
   })
 
   // v1.2.7 — Contextual Cues is OPTIONAL, and an episode that never proposed a

@@ -62,6 +62,10 @@ export const PACING_PRESETS = [
   { id: 'cinematic', min: 2, max: 8, label: '2–8 seconds — Cinematic & robust' },
   { id: 'slow', min: 5, max: 10, label: '5–10 seconds — Slow & deliberate' },
   { id: 'contemplative', min: 8, max: 15, label: '8–15 seconds — Contemplative / ambient' },
+  { id: 'drifting', min: 12, max: 20, label: '12–20 seconds — Drifting' },
+  { id: 'sleep-slow', min: 20, max: 30, label: '20–30 seconds — Slow drift' },
+  { id: 'sleep-very-slow', min: 30, max: 45, label: '30–45 seconds — Very slow' },
+  { id: 'near-still', min: 45, max: 60, label: '45–60 seconds — Near-still' },
 ] as const
 
 export function continuityDefaults(): ContinuityConfig {

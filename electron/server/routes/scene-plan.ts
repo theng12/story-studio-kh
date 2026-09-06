@@ -22,7 +22,7 @@ import { findIncompleteSubtitleSections, stitchSubtitles } from '../services/sub
 import { resolveTranscriptSrt, resolveTranscriptSrtPath, stitchedSrtPath } from '../services/subtitle-correction.js'
 import { inspectSubtitleText } from '../lib/subtitle-quality.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
-import { allowedSubtitleCueGapSec, resolveScenePlanPacing } from '../services/scene-plan-pacing.js'
+import { allowedSubtitleCueGapSec } from '../services/scene-plan-pacing.js'
 import { requireScenePlanGenStudioModel, SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
   computePlanCoverage,
@@ -945,10 +945,9 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     const transcriptQuality = transcript.path
       ? await fs.readFile(transcript.path, 'utf-8').then(inspectSubtitleText).catch(() => null)
       : null
-    const { pacing } = await resolveScenePlanPacing(slug, paths.episode_dir)
     const subtitleTimelineIntegrity = existsSync(stitchedPath)
       ? await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId, {
-        max_cue_gap_sec: allowedSubtitleCueGapSec(pacing),
+        max_cue_gap_sec: allowedSubtitleCueGapSec(),
         cue_source_path: transcript.path,
       })
       : null

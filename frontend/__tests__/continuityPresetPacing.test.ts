@@ -65,6 +65,7 @@ const configStore: Record<string, any> = {}
 
 const { usePresets } = await import('../composables/usePresets.js')
 const {
+  PACING_PRESETS,
   CONTINUITY_PRESET_EXCLUDE_KEYS,
   applyContinuityPagePreset,
   continuityDefaults,
@@ -184,6 +185,16 @@ function seedOwnerConfig(slug = 'my-channel') {
 }
 
 describe('Character Sheet presets carry the scene rhythm again (2026-08-18 reversal)', () => {
+  test('offers the four approved slow per-episode pacing bands after the existing choices', () => {
+    assert.deepEqual(PACING_PRESETS.slice(-4), [
+      { id: 'drifting', min: 12, max: 20, label: '12–20 seconds — Drifting' },
+      { id: 'sleep-slow', min: 20, max: 30, label: '20–30 seconds — Slow drift' },
+      { id: 'sleep-very-slow', min: 30, max: 45, label: '30–45 seconds — Very slow' },
+      { id: 'near-still', min: 45, max: 60, label: '45–60 seconds — Near-still' },
+    ])
+    assert.deepEqual(DEFAULT_SCENE_PACING, { min_sec: 1, max_sec: 3 })
+  })
+
   test('a preset that stores a rhythm applies it', async () => {
     seedOwnerConfig()
     const { presets, config } = makeCharacterSheetPresets('my-channel')

@@ -1,7 +1,7 @@
 # Image Pool is unreachable from the UI and its pacing control hides itself on current projects
 
 **From:** Claude (content-pack authoring lane, sleep-history compilation) · **To:** whoever owns the Image Pool / Video Assembly area · **Date:** 2026-09-06
-**Status:** open · owner-requested · three items, each small; (c) also blocks 2K preview generation for pack authoring
+**Status:** split · (a) implementation in progress for v1.4.116 · (b) open · (c) complete in v1.4.113
 
 ## Why this matters
 
@@ -33,21 +33,18 @@ Suggested direction: show the recycling controls when the episode has a material
 timing source and no pool is selected. Not prescriptive — the right signal may be the pool sidecar rather than
 the format field.
 
-## (c) `/image-pool/generate` drops the resolution the generator already accepts
+## (c) Complete in v1.4.113 — resolution reaches the existing generator
 
-`generators/image-pool-generate.ts` reads `params.resolution` and resolves it against the model's published
-`output_options[]`, but the route in `routes/broll-project.ts` (~line 559) never copies `body.resolution` into
-the job params, so every pool generation runs at the model's default row (1K). Pass it through (string, optional),
-and expose a resolution picker on `image-pool.vue` populated from the model's published rows, the same way the
-scene-review path does. This is a two-line backend fix plus a small UI control.
+Story Studio v1.4.113 passes the optional published resolution through
+`routes/broll-project.ts`, and `image-pool.vue` exposes the existing live
+published-output picker. Do not reimplement this item in the navigation slice.
 
 ## Verification that closes this
 
 1. From a fresh continuity-chain project: reach Image Pool from the sidebar or Pipeline page without typing a URL.
 2. Materialise a 30-image pool for an episode; open Video Assembly; the Scene Recycling control is visible and
    the render summary reports `<n>s/scene` from the pool, not the Scene Plan.
-3. POST `/projects/:slug/image-pool/generate` with `"resolution": "2K"` on a model that publishes a 2K row;
-   the job's request preview shows `resolution: 2K` and the saved PNG is 2560×1440.
-4. Focused tests for the route param and the recycling visibility rule; `npm run typecheck:electron` and
-   `npm --prefix frontend run typecheck` clean.
-5. Move this file to `docs/handoffs-retired/` with the shipping commit.
+3. Resolution pass-through is already covered by the v1.4.113 route and UI regressions; keep that evidence
+   separate from the still-open recycling rule.
+4. Focused tests for the recycling visibility rule plus relevant typechecks when item (b) is designed.
+5. Retire this file only after item (b) ships or receives an explicit disposition.

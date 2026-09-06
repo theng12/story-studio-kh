@@ -29,3 +29,15 @@ test('the footer badge reports the same build facts as the channels top bar', ()
   assert.match(footer, title)
   assert.match(defaultLayout, title)
 })
+
+test('the project sidebar reaches the existing Image Pool beside Assets Library', () => {
+  const assets = dashboard.indexOf('>Assets Library</NuxtLink>')
+  const imagePool = dashboard.indexOf('>Image Pool</NuxtLink>')
+  assert.notEqual(assets, -1)
+  assert.notEqual(imagePool, -1)
+  assert.ok(imagePool > assets, 'Image Pool belongs after Assets Library in the Manage group')
+  assert.match(
+    dashboard.slice(assets, imagePool + '>Image Pool</NuxtLink>'.length),
+    /:to="`\/projects\/\$\{slug\}\/image-pool`"[^>]*>Image Pool<\/NuxtLink>/,
+  )
+})

@@ -322,6 +322,9 @@ describe('Ideas routes', () => {
       .post(`/api/projects/${isolatedSlug}/ideas/${created.body.id}/accept`).send({})
     const code = accepted.body.episode_code
     const episodeDir = path.join(tempDir, 'projects', isolatedSlug, 'episodes', 'Season 001', `${code} - Coverage Gap`)
+    await fs.writeFile(path.join(episodeDir, 'continuity.json'), JSON.stringify({
+      pacing: { min_sec: 45, max_sec: 60 },
+    }))
     const subtitlesDir = path.join(episodeDir, `${code} - 09 Subtitles Output`)
     await fs.mkdir(subtitlesDir, { recursive: true })
     const srt = [
@@ -341,7 +344,7 @@ describe('Ideas routes', () => {
     assert.equal(status.status, 200)
     assert.equal(status.body.completion.complete, true, 'chapter/full-track completion remains a separate fact')
     assert.equal(status.body.timeline_integrity.complete, false)
-    assert.equal(status.body.timeline_integrity.max_cue_gap_sec, 30)
+    assert.equal(status.body.timeline_integrity.max_cue_gap_sec, 30, 'slow visual pacing must not relax subtitle admission')
     assert.deepEqual(status.body.timeline_integrity.blocking_cue_gaps[0].section_slugs, ['Chapter_15'])
     assert.equal(status.body.planning_transcript_source, 'raw')
     assert.equal(status.body.planning_source_revalidation_required, true)

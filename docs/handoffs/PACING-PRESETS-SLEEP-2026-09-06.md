@@ -1,7 +1,7 @@
 # Add slower scene-pacing presets for sleep-length episodes
 
 **From:** Claude (content-pack authoring lane, sleep-history compilation) · **To:** whoever owns the Continuity Engine pacing UI · **Date:** 2026-09-06
-**Status:** open · owner-requested · numbers below are Claude's proposal; the owner may adjust them before this is picked up
+**Status:** implementation in progress for Story Studio v1.4.116 · exact values approved 2026-09-06
 
 ## What is missing
 
@@ -16,10 +16,10 @@ and `contracts/index.ts` allows a Series Formula `visual_pacing_profile` up to 3
 
 | id | min | max | label | images for a 150-min episode (approx.) |
 | --- | ---: | ---: | --- | ---: |
-| `drifting` | 12 | 20 | 12–20 seconds — Drifting / slow slideshow | ~560 |
-| `sleep-slow` | 20 | 30 | 20–30 seconds — Sleep story, slow drift | ~360 |
-| `sleep-very-slow` | 30 | 45 | 30–45 seconds — Sleep story, very slow | ~240 |
-| `near-still` | 45 | 60 | 45–60 seconds — Near-still, about one image a minute | ~170 |
+| `drifting` | 12 | 20 | 12–20 seconds — Drifting | ~560 |
+| `sleep-slow` | 20 | 30 | 20–30 seconds — Slow drift | ~360 |
+| `sleep-very-slow` | 30 | 45 | 30–45 seconds — Very slow | ~240 |
+| `near-still` | 45 | 60 | 45–60 seconds — Near-still | ~170 |
 
 All four sit inside the current 60 s route clamp, so no backend change is required for this brief.
 If the owner later wants bands above 60 s, raise the clamp in `routes/continuity.ts` (both the PUT coercion and
@@ -38,6 +38,9 @@ the settled range) to match the 300 s contract ceiling in the same change — do
 
 1. `npm --prefix frontend run typecheck` clean.
 2. `frontend/__tests__/characterSheetWorkspace.test.ts` green (the literal-pair sweep).
-3. On a real episode, choose `near-still`, run Scene Plan, and confirm the planned scene count is roughly
-   narration seconds ÷ 52 (±15 %) and every planned span sits within 45–60 s.
+3. With a local synthetic 150-minute subtitle timeline, confirm `near-still` produces roughly
+   narration seconds ÷ 52.5 scenes and never exceeds 60 seconds of spoken material. The established
+   planner may retain a shorter final tail when it cannot rebalance the last two scenes inside the band,
+   and a hold spanning inter-cue silence may exceed 60 wall-clock seconds; those are deliberate existing
+   exceptions, not reasons to change the splitter in this slice.
 4. Move this file to `docs/handoffs-retired/` with the shipping commit.
