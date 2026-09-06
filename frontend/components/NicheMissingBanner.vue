@@ -2,14 +2,14 @@
   <div v-if="show" class="niche-missing-banner" role="status">
     <span class="nmb-icon" aria-hidden="true">🎙️</span>
     <div class="nmb-body">
-      <strong>This project has no niche.</strong>
+      <strong>This channel has no Series Formula.</strong>
       <span class="nmb-detail">
-        Ideas, scripts, and metadata will use a generic voice — no distinct vocabulary, title style, or narrator.
-        Pick a niche to give your channel its identity.
+        Ideas, scripts, and metadata will use generic generation with no repeatable channel structure.
+        Choose a Series Formula to give this channel its identity.
       </span>
     </div>
-    <NuxtLink :to="`/projects/${slug}/settings`" class="btn btn-sm btn-primary nmb-action">
-      Choose a niche
+    <NuxtLink :to="`/projects/${slug}/settings#channel`" class="btn btn-sm btn-primary nmb-action">
+      Choose a Series Formula
     </NuxtLink>
     <button type="button" class="nmb-dismiss" aria-label="Dismiss for this session" @click="dismiss">×</button>
   </div>

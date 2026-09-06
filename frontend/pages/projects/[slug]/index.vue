@@ -110,8 +110,9 @@
         </NuxtLink>
       </div>
       <div v-else class="dashboard-empty">
-        <strong>No blockers detected.</strong>
-        <span>Your required production stages are complete for every accepted episode.</span>
+        <strong>{{ noAcceptedIdeas ? 'Start with ideas.' : 'No blockers detected.' }}</strong>
+        <span v-if="noAcceptedIdeas">Generate and accept an idea to begin tracking this channel’s production workflow.</span>
+        <span v-else>Your required production stages are complete for every accepted episode.</span>
       </div>
     </WorkspaceSection>
 
@@ -314,6 +315,7 @@ const STATUS_FIELD = STEP_STATUS_FIELD as Record<string, keyof EpisodeRow['statu
 
 const steps = computed(() => flowForVisualSource(visualSource.value))
 const episodeCount = computed(() => episodes.value.length)
+const noAcceptedIdeas = computed(() => overview.value?.ideas?.accepted === 0 && episodeCount.value === 0)
 
 function routeForStep(step: FlowStep): string {
   const base = `/projects/${slug.value}${step.path}`
@@ -367,9 +369,17 @@ interface FocusAction { key: string; order: string; title: string; detail: strin
 
 const focusActions = computed<FocusAction[]>(() => {
   const actions: FocusAction[] = []
+  if (noAcceptedIdeas.value) {
+    actions.push({
+      key: 'start-ideas', order: '01', tone: 'accent',
+      title: 'Start with ideas',
+      detail: 'Generate and accept an idea to begin this channel’s production workflow.',
+      to: `/projects/${slug.value}/ideas`,
+    })
+  }
   if (jobStats.value.error > 0) {
     actions.push({
-      key: 'failed-jobs', order: '01', tone: 'warning',
+      key: 'failed-jobs', order: String(actions.length + 1).padStart(2, '0'), tone: 'warning',
       title: `Repair ${jobStats.value.error} failed job${jobStats.value.error === 1 ? '' : 's'}`,
       detail: 'Open the queue for the exact missing output and a safe retry path.',
       to: `/projects/${slug.value}/jobs?status=error`,

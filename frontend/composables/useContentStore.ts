@@ -278,15 +278,16 @@ export interface ContentStoreErrorPresentation {
   title: string
   detail: string
   recovery: string
+  settingsAction: boolean
 }
 
 /** Maps the backend's public, exact error codes to recovery copy without inventing facts. */
 export function contentStoreErrorPresentation(error: ContentStoreUiError): ContentStoreErrorPresentation {
-  const failure = (title: string, recovery: string): ContentStoreErrorPresentation => ({ title, detail: error.detail, recovery })
+  const failure = (title: string, recovery: string, settingsAction = false): ContentStoreErrorPresentation => ({ title, detail: error.detail, recovery, settingsAction })
   switch (error.code) {
     case 'CONTENT_STORE_KEY_REQUIRED':
-    case 'CONTENT_STORE_SCOPE_REQUIRED':
-    case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Content Store access is needed', 'Open Settings and test the Content Store scope, then refresh.')
+    case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Content Store access is needed', 'Open Settings and test the Content Store scope, then refresh.', true)
+    case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Content Store access is needed', 'GenStudio did not publish the signing key needed to verify this Content Store proof. Refresh later.')
     case 'CONTENT_PRODUCT_NOT_AVAILABLE': return failure('This product is not available', 'Refresh the Store to see currently published products.')
     case 'CONTENT_PRODUCT_ALREADY_OWNED': return failure('Already owned in GenStudio', 'Restore purchases to verify ownership on this Mac.')
     case 'CONTENT_PRODUCT_RETIRED': return failure('This product is retired', 'Choose a currently published product instead.')

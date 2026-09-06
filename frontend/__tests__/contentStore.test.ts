@@ -247,6 +247,12 @@ describe('useContentStore explicit commerce state machine', () => {
     })
   }
 
+  test('offers connection settings only for recoverable Store key and scope refusals', () => {
+    assert.equal(contentStoreErrorPresentation({ status: 401, code: 'CONTENT_STORE_KEY_REQUIRED', detail: 'x' }).settingsAction, true)
+    assert.equal(contentStoreErrorPresentation({ status: 401, code: 'CONTENT_STORE_SCOPE_REQUIRED', detail: 'x' }).settingsAction, true)
+    assert.equal(contentStoreErrorPresentation({ status: 502, code: 'CONTENT_STORE_UPSTREAM_REFUSED', detail: 'x' }).settingsAction, false)
+  })
+
   test('names a payload the installed build cannot read instead of calling the Store unavailable', () => {
     const presentation = contentStoreErrorPresentation({
       status: 502,

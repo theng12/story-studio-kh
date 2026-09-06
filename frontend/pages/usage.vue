@@ -25,6 +25,11 @@
 
     <WorkspaceNotice v-if="error" tone="warning" title="Authoritative credit data unavailable">
       {{ error }}
+      <template v-if="showConnectionSettings" #actions>
+        <button type="button" class="btn btn-sm btn-secondary" @click="appSettingsModal.open('connections')">
+          {{ usageErrorCode === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' ? 'Review GenStudio connection' : 'Add GenStudio API key' }}
+        </button>
+      </template>
     </WorkspaceNotice>
 
     <template v-if="snapshot">
@@ -141,16 +146,24 @@ interface ServiceTierStanding {
 const snapshot = ref<Snapshot | null>(null)
 const loading = ref(false)
 const error = ref('')
+const usageErrorCode = ref('')
 const { get } = useApi()
+const appSettingsModal = useAppSettingsModal()
 const genStudioModels = useGenStudioModelDisplay()
+const showConnectionSettings = computed(() => (
+  usageErrorCode.value === 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE'
+  || error.value === 'Add a GenStudio API key first.'
+))
 
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
+  usageErrorCode.value = ''
   try {
     snapshot.value = await get<Snapshot>('/app-settings/genstudio/usage', { cache: 'no-store' })
   } catch (cause: any) {
     snapshot.value = null
+    usageErrorCode.value = cause?.data?.code || ''
     error.value = cause?.data?.detail || cause?.message || 'GenStudio usage is unavailable.'
   } finally { loading.value = false }
 }

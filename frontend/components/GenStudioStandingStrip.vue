@@ -1,5 +1,6 @@
 <template>
   <NuxtLink
+    v-if="genstudioConfigured"
     to="/usage"
     class="genstudio-standing-strip"
     :class="`standing-strip-${variant}`"
@@ -11,6 +12,20 @@
     <em v-if="stalenessNote" class="freshness-badge">{{ stalenessNote }}</em>
     <small v-if="standingSummary">{{ standingSummary }}</small>
   </NuxtLink>
+  <button
+    v-else
+    type="button"
+    class="genstudio-standing-strip"
+    :class="`standing-strip-${variant}`"
+    aria-label="Set up GenStudio"
+    :title="usageError || 'Set up GenStudio'"
+    @click="appSettingsModal.open('connections')"
+  >
+    <span>GenStudio</span>
+    <strong>{{ creditSummary }}</strong>
+    <em v-if="stalenessNote" class="freshness-badge">{{ stalenessNote }}</em>
+    <small v-if="standingSummary">{{ standingSummary }}</small>
+  </button>
 </template>
 
 <script setup lang="ts">
@@ -39,6 +54,7 @@ const {
   usageError,
   startPolling,
 } = useCredits()
+const appSettingsModal = useAppSettingsModal()
 
 /**
  * Three states, not two. A balance we hold is shown whether or not the last
@@ -89,6 +105,7 @@ onUnmounted(() => { releasePolling?.() })
   color: var(--text-secondary);
   font-size: var(--font-xs);
 }
+.genstudio-standing-strip[type="button"] { width: 100%; background: transparent; cursor: pointer; font: inherit; text-align: left; }
 .genstudio-standing-strip:hover { background: var(--bg-hover); color: var(--text-primary); }
 .genstudio-standing-strip strong { color: var(--text-primary); font-weight: 650; }
 .genstudio-standing-strip small { width: 100%; color: var(--text-muted); line-height: 1.35; }
