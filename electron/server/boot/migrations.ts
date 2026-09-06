@@ -7,6 +7,9 @@
  */
 
 import { cleanOrphanWorkTempDirs } from '../lib/work-tempdir.js'
+import { collectProtectedVideoAssemblyWorkDirs } from '../lib/video-assembly-checkpoint.js'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { cleanupStaleUndoSidecars } from '../services/upload-renumber-undo.js'
 import { cleanupStaleReseasonUndoSidecars } from '../services/upload-reseason.js'
 import { proactiveRecoverySweep } from '../services/boot-recovery.js'
@@ -15,6 +18,22 @@ import { readLastSession } from '../services/last-session.js'
 let bootComplete = false
 
 export function isBootComplete(): boolean { return bootComplete }
+
+async function protectedVideoAssemblyWorkDirsAtBoot(): Promise<Set<string>> {
+  const { listProjects, getProjectDir } = await import('../services/project-manager.js')
+  const projects = await listProjects() as Array<{ slug?: string }>
+  const jobs: unknown[] = []
+  for (const project of projects) {
+    if (!project.slug) continue
+    const projectDir = getProjectDir(project.slug)
+    if (!projectDir) continue
+    try {
+      const parsed = JSON.parse(await fs.readFile(path.join(projectDir, 'jobs.json'), 'utf8'))
+      if (Array.isArray(parsed?.jobs)) jobs.push(...parsed.jobs)
+    } catch { /* no readable durable job history for this project */ }
+  }
+  return collectProtectedVideoAssemblyWorkDirs(jobs)
+}
 
 export function runBootMigrations(): void {
   const tasks: Promise<unknown>[] = []
@@ -95,9 +114,14 @@ export function runBootMigrations(): void {
     for (const [providerId, urls] of Object.entries(all)) setDisabledEndpoints(providerId, urls)
   })().catch(error => console.error('[boot] disabled-endpoints load failed:', error?.message || error)))
 
-  tasks.push(cleanOrphanWorkTempDirs().then(summary => {
+  tasks.push((async () => {
+    // `app.ts` starts this migration before registering executors. Resolve and
+    // validate every durable Video Assembly owner before the first directory is
+    // inspected, so recovery and the 24-hour sweep cannot race over one path.
+    const protectedDirs = await protectedVideoAssemblyWorkDirsAtBoot()
+    const summary = await cleanOrphanWorkTempDirs(24 * 60 * 60 * 1000, protectedDirs)
     if (summary.removed > 0) console.log(`[boot] work-tempdir: removed ${summary.removed} orphan(s) (scanned ${summary.scanned})`)
-  }).catch(error => console.error('[boot] work-tempdir cleanup failed:', error)))
+  })().catch(error => console.error('[boot] work-tempdir cleanup failed:', error)))
 
   tasks.push(cleanupStaleUndoSidecars().then(cleaned => {
     if (cleaned.length > 0) console.log(`[boot] renumber-undo: removed ${cleaned.length} stale sidecar(s)`)
