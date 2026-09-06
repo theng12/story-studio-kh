@@ -8,7 +8,7 @@
     <p v-if="!seriesFormulaId" class="empty-note">Choose a Series Formula first.</p>
     <p v-else-if="isLoading" class="empty-note">Loading compatible Topic Packs…</p>
     <p v-else-if="!compatible.length" class="empty-note">
-      This formula has no compatible Topic Packs yet. Its example topics will be used.
+      This Formula has no compatible Topic Packs in the current library.
     </p>
     <div v-else class="pack-grid">
       <label
@@ -26,9 +26,7 @@
         <span class="pack-copy">
           <span class="pack-title">
             <strong>{{ pack.name }}</strong>
-            <span v-if="isOwnedPack(pack)" class="pack-badge owned">Owned pack</span>
-            <span v-else-if="pack.builtin" class="pack-badge builtin">Built-in</span>
-            <span v-else class="pack-badge custom">Custom</span>
+            <span class="pack-badge" :class="sourceClass(pack)">{{ sourceLabel(pack) }}</span>
           </span>
           <span class="pack-description">{{ pack.description }}</span>
           <span class="pack-stats">{{ pack.subjects.length }} subjects · <strong>{{ formatCapacity(pack) }}</strong></span>
@@ -46,18 +44,16 @@
 </template>
 
 <script setup lang="ts">
-/**
- * A Topic Pack bought from the Content Store and a built-in of the same name
- * are two different packs, and until this badge existed they were two
- * identical rows. The owner installed a 50-subject Animals pack, opened
- * Channel Identity, and saw "10 subjects" -- his project was on the built-in
- * and nothing in the list said so.
- *
- * Store packs are the only ones whose id sits in the publisher namespace, so
- * that is the test rather than a flag the built-ins would have to carry.
- */
-function isOwnedPack(pack: { id: string }): boolean {
-  return pack.id.startsWith('com.storystudio.')
+function sourceLabel(pack: { builtin: boolean; catalog?: { source: string } }): string {
+  if (pack.catalog?.source === 'signed-installed') return 'Installed'
+  if (pack.catalog?.source === 'signed-recovery') return 'Included'
+  if (pack.catalog?.source === 'legacy-builtin') return 'Built in'
+  if (pack.catalog?.source === 'legacy-user-fork') return 'Custom'
+  return pack.builtin ? 'Built in' : 'Custom'
+}
+
+function sourceClass(pack: { builtin: boolean; catalog?: { source: string } }): string {
+  return pack.catalog?.source?.replace('signed-', '').replace('legacy-', '') || (pack.builtin ? 'builtin' : 'custom')
 }
 
 /**
@@ -130,7 +126,8 @@ function formatErr(cause: any): string {
 .pack-description { color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.4; }
 .pack-stats { color: var(--text-muted); font-size: var(--font-xs); }
 .pack-badge { padding: 2px 7px; border-radius: 999px; font-size: var(--font-xs); font-weight: 750; }
-.pack-badge.owned { background: var(--accent-dim); color: var(--accent); }
+.pack-badge.installed { background: var(--accent-dim); color: var(--accent); }
+.pack-badge.recovery { background: color-mix(in srgb, var(--success) 12%, var(--bg-tertiary)); color: var(--success); }
 .pack-badge.builtin { background: var(--bg-tertiary); color: var(--text-muted); }
 .pack-badge.custom { font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--accent); }
 .empty-note, .error-note { margin: 0; padding: 8px 10px; border-radius: 4px; background: var(--bg-secondary); color: var(--text-muted); font-size: var(--font-xs); }

@@ -51,13 +51,14 @@ function documents(
   suffix: string,
   recipeId = `${packId}.recipe`,
   styleCategory = 'Realistic',
+  names: { formula?: string; topic?: string } = {},
 ): ContentPackDocument[] {
   const formulaId = `${packId}.formula`
   const topicId = `${packId}.topic`
   const styleId = `${packId}.style`
   return [
     {
-      kind: 'series-formula', schema_version: 1, id: formulaId, name: `Formula ${suffix}`, description: 'A signed Formula.',
+      kind: 'series-formula', schema_version: 1, id: formulaId, name: names.formula ?? `Formula ${suffix}`, description: 'A signed Formula.',
       channel_promise: 'Explain bounded systems.', audience: 'Curious adults.', narrative_rules: ['Stay causal.'], title_rules: ['Be specific.'],
       script_structure: {
         default_chapter_count: 3, chapter_count_range: [2, 4], default_length_minutes: 10, length_minutes_range: [5, 15],
@@ -67,7 +68,7 @@ function documents(
       recommended_visual_style_ids: [styleId], recommended_thumbnail_recipe_ids: [recipeId],
     },
     {
-      kind: 'topic-pack', schema_version: 1, id: topicId, name: `Topic ${suffix}`, description: 'A signed Topic Pack.',
+      kind: 'topic-pack', schema_version: 1, id: topicId, name: names.topic ?? `Topic ${suffix}`, description: 'A signed Topic Pack.',
       compatible_formula_ids: [formulaId], subjects: ['Ledger'], episode_objects: ['Tax office'], time_place_scopes: ['1800s'],
       mechanisms: ['Extraction'], evidence_lenses: ['Accounts'], exclusions: [], max_siblings_per_subject: 4, prompt_context: `Context ${suffix}`,
     },
@@ -95,8 +96,9 @@ async function buildArchive(
   minAppVersion = '1.0.0',
   recipeId?: string,
   styleCategory = 'Realistic',
+  names: { formula?: string; topic?: string } = {},
 ): Promise<Uint8Array> {
-  const docs = documents(packId, suffix, recipeId, styleCategory)
+  const docs = documents(packId, suffix, recipeId, styleCategory, names)
   const jsonFiles = docs.map((document, index) => ({
     path: `content/item-${index}.json`, bytes: Buffer.from(JSON.stringify(document)), document,
   }))
@@ -130,6 +132,51 @@ async function isolated() {
 }
 
 describe('verified Content Pack registry', () => {
+  test('formula and Topic Pack catalogue routes expose verified source without collapsing same-name legacy entries', async () => {
+    const { paths, options } = await isolated()
+    const packId = 'com.storystudio.registry-catalogue-source'
+    const archive = await buildArchive(
+      packId,
+      '1.0.0',
+      'catalogue source',
+      'active',
+      '1.0.0',
+      undefined,
+      'Realistic',
+      { formula: 'Natural World, Explained', topic: 'Wars, Treaties & World Order' },
+    )
+    await installContentPack({ archiveBytes: archive, source: 'local-import' }, { paths, policy })
+    const app = express()
+    app.locals.contentPackOptions = options
+    app.use('/api', nichesRouter)
+
+    const formulas = (await request(app).get('/api/niches').expect(200)).body.niches
+    const signedFormula = formulas.find((item: any) => item.id === `${packId}.formula`)
+    const legacyFormula = formulas.find((item: any) => item.id === 'animals')
+    assert.equal(signedFormula.name, legacyFormula.catalogName)
+    assert.deepEqual(signedFormula.catalog, {
+      source: 'signed-installed', pack_id: packId, version: '1.0.0',
+    })
+    assert.deepEqual(legacyFormula.catalog, { source: 'legacy-builtin' })
+
+    const topics = (await request(app).get('/api/topic-packs').expect(200)).body.topic_packs
+    const signedTopic = topics.find((item: any) => item.id === `${packId}.topic`)
+    const legacyTopic = topics.find((item: any) => item.id === 'historical-wars-treaties-world-order')
+    assert.equal(signedTopic.name, legacyTopic.name)
+    assert.deepEqual(signedTopic.catalog, {
+      source: 'signed-installed', pack_id: packId, version: '1.0.0',
+    })
+    assert.deepEqual(legacyTopic.catalog, { source: 'legacy-builtin' })
+    assert.doesNotMatch(JSON.stringify({ formulas, topics }), /archive_sha256|install_path|\/Users\//i)
+
+    const runtimeFormula = (await nicheLoader.listNiches(options))
+      .find(item => item.id === `${packId}.formula`)
+    const runtimeTopic = (await topicPackLoader.listTopicPacks(options))
+      .find(item => item.id === `${packId}.topic`)
+    assert.equal('catalog' in (runtimeFormula || {}), false, 'display provenance must not enter planner Formula values')
+    assert.equal('catalog' in (runtimeTopic || {}), false, 'display provenance must not enter planner Topic Pack values')
+  })
+
   test('publishes renderer-safe visual styles through the existing catalog router', async () => {
     await isolated()
     const app = express()

@@ -19,6 +19,7 @@ import {
   listUserForkCatalogEntries,
   resolveCatalogItem,
   resolveUserForkCatalogItem,
+  type CatalogEntry,
   type ContentPackRegistryOptions,
 } from '../content-packs/registry.js'
 import { registryOptionsForCurrentJob } from '../content-packs/project-pins.js'
@@ -124,21 +125,23 @@ export async function loadLegacyTopicPack(id: string): Promise<{ document: Topic
   return { document: pack, source: 'legacy-builtin' }
 }
 
-export async function listTopicPacks(registryOptions: ContentPackRegistryOptions = {}): Promise<TopicPack[]> {
-  const found = new Map<string, TopicPack>()
+export async function listTopicPackCatalogEntries(registryOptions: ContentPackRegistryOptions = {}): Promise<Array<CatalogEntry<TopicPack>>> {
+  const found = new Map<string, CatalogEntry<TopicPack>>()
   for (const entry of await listCatalogEntries('topic-pack', registryOptions)) {
-    if (entry.value.kind === 'topic-pack') found.set(entry.value.id, contentPackDocumentToTopicPack(entry.value))
+    if (entry.value.kind === 'topic-pack') {
+      found.set(entry.value.id, { ...entry, value: contentPackDocumentToTopicPack(entry.value) })
+    }
   }
   for (const entry of await listUserForkCatalogEntries('topic-pack', registryOptions)) {
     const pack = entry.value as TopicPack
-    if (!found.has(pack.id)) found.set(pack.id, pack)
+    if (!found.has(pack.id)) found.set(pack.id, { ...entry, value: pack })
   }
   if (existsSync(userDir())) {
     for (const name of await fs.readdir(userDir()).catch(() => [] as string[])) {
       if (!name.endsWith('.json')) continue
       try {
         const pack = await readPack(path.join(userDir(), name))
-        if (!found.has(pack.id)) found.set(pack.id, pack)
+        if (!found.has(pack.id)) found.set(pack.id, { value: pack, source: 'legacy-user-fork' })
       } catch (error: any) {
         console.warn(`[topic-pack-loader] skipping malformed user pack ${name}: ${error.message}`)
       }
@@ -149,13 +152,17 @@ export async function listTopicPacks(registryOptions: ContentPackRegistryOptions
       if (!name.endsWith('.json')) continue
       try {
         const pack = await readPack(path.join(BUILTIN_TOPIC_PACKS_DIR, name))
-        if (!found.has(pack.id)) found.set(pack.id, pack)
+        if (!found.has(pack.id)) found.set(pack.id, { value: pack, source: 'legacy-builtin' })
       } catch (error: any) {
         console.warn(`[topic-pack-loader] skipping malformed built-in pack ${name}: ${error.message}`)
       }
     }
   }
-  return [...found.values()].sort((a, b) => a.name.localeCompare(b.name))
+  return [...found.values()].sort((a, b) => a.value.name.localeCompare(b.value.name))
+}
+
+export async function listTopicPacks(registryOptions: ContentPackRegistryOptions = {}): Promise<TopicPack[]> {
+  return (await listTopicPackCatalogEntries(registryOptions)).map(entry => entry.value)
 }
 
 export function topicPackFilePath(id: string): string {

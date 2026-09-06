@@ -162,9 +162,9 @@
             <strong class="context-detail-value" :class="{ 'is-fallback': !form.niche_id }">
               {{ activeFormulaName }}
             </strong>
-            <NuxtLink :to="`/projects/${slug}/settings#channel`" class="effective-link">
-              Change channel identity
-            </NuxtLink>
+            <button type="button" class="btn btn-ghost btn-sm effective-link" @click="identityPickerOpen = true">
+              Choose Formula &amp; Topics
+            </button>
           </div>
 
           <div class="context-detail-row">
@@ -181,6 +181,22 @@
             <span class="text-muted text-xs">Edit the prefix/suffix in the form below.</span>
           </div>
       </ContextStrip>
+
+      <div class="identity-context-action">
+        <span>Formula and Topic Packs shape every idea in this batch.</span>
+        <button type="button" class="btn btn-secondary btn-sm" @click="identityPickerOpen = true">Choose Formula &amp; Topics</button>
+      </div>
+
+      <ChannelIdentityPickerModal
+        :visible="identityPickerOpen"
+        :project-slug="slug"
+        :selected-formula-id="projectNicheId"
+        :selected-topic-pack-ids="projectTopicPackIds"
+        :project-content-pack-versions="projectContentPackVersions"
+        action-label="Apply to channel"
+        @close="identityPickerOpen = false"
+        @saved="onIdeasIdentitySaved"
+      />
 
       <div class="idea-composer">
         <div class="idea-composer-heading">
@@ -332,7 +348,7 @@
                   <div class="channel-identity-readonly">
                     <strong>{{ activeFormulaName }}</strong>
                     <span>{{ activeTopicPackLabel }}</span>
-                    <NuxtLink :to="`/projects/${slug}/settings#channel`" class="effective-link">Change in Channel Identity</NuxtLink>
+                    <button type="button" class="btn btn-ghost btn-sm effective-link" @click="identityPickerOpen = true">Choose Formula &amp; Topics</button>
                   </div>
                 </div>
                 <div class="form-group">
@@ -1357,6 +1373,8 @@ const form = reactive({
 const projectNicheId = ref<string>('')
 const projectTopicPackIds = ref<string[]>([])
 const projectTopicPacksExplicit = ref(false)
+const projectContentPackVersions = ref<Record<string, string>>({})
+const identityPickerOpen = ref(false)
 
 // v1.0.170 — Channel context strip disclosure. Collapsed by default so the
 // page opens straight onto the generator; the strip's one-line summary
@@ -1711,6 +1729,9 @@ async function loadPatternPreferences(): Promise<boolean> {
     projectTopicPackIds.value = projectTopicPacksExplicit.value
       ? meta.topic_pack_ids.filter((value: unknown): value is string => typeof value === 'string')
       : []
+    projectContentPackVersions.value = meta?.content_pack_versions && typeof meta.content_pack_versions === 'object'
+      ? { ...meta.content_pack_versions }
+      : {}
   } catch (e: any) {
     hydrationError.value = { kind: 'project-fetch', detail: e?.data?.detail || e?.message || 'unknown error' }
     return false
@@ -1755,6 +1776,30 @@ async function loadPatternPreferences(): Promise<boolean> {
   }
   patternHydrated = true
   return true
+}
+
+async function onIdeasIdentitySaved(value: { formulaId: string; topicPackIds: string[] }): Promise<void> {
+  projectNicheId.value = value.formulaId
+  projectTopicPackIds.value = [...value.topicPackIds]
+  projectTopicPacksExplicit.value = true
+  form.niche_id = value.formulaId
+  form.topic_pack_ids = [...value.topicPackIds]
+  try {
+    const meta = await get<any>(`/projects/${slug.value}`)
+    projectNicheId.value = typeof meta?.niche_id === 'string' ? meta.niche_id : ''
+    projectTopicPacksExplicit.value = Array.isArray(meta?.topic_pack_ids)
+    projectTopicPackIds.value = projectTopicPacksExplicit.value
+      ? meta.topic_pack_ids.filter((id: unknown): id is string => typeof id === 'string')
+      : []
+    projectContentPackVersions.value = meta?.content_pack_versions && typeof meta.content_pack_versions === 'object'
+      ? { ...meta.content_pack_versions }
+      : {}
+    form.niche_id = projectNicheId.value
+    form.topic_pack_ids = [...projectTopicPackIds.value]
+    success('Channel Identity updated')
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Channel Identity was saved, but the project could not be refreshed.')
+  }
 }
 
 // Persists the per-project Ideas-form preferences (title template, theme,
@@ -3462,6 +3507,11 @@ async function confirmCompact() {
 .channel-identity-readonly { display: flex; flex-direction: column; gap: 5px; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-radius: 6px; background: var(--bg-secondary); font-size: var(--font-xs); }
 .channel-identity-readonly strong { color: var(--text-primary); font-size: 13px; }
 .channel-identity-readonly span { color: var(--text-secondary); }
+.identity-context-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 8px 12px; color: var(--text-muted); font-size: var(--font-xs); }
+@media (max-width: 620px) {
+  .identity-context-action { align-items: stretch; flex-direction: column; }
+  .identity-context-action .btn { align-self: flex-start; }
+}
 
 /* Import modal */
 .import-error {
