@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.120 — 2026-09-07
+
+- **Image permit requests refill in parallel as GenStudio capacity becomes available.** A request waiting to retry no longer holds up other eligible requests; cancellation and existing billing checks stay intact.
+- **Settings, account recovery, and the Content Store now make the next action clear.** Searchable, scoped settings keep unrelated changes separate; recovery and setup routes return you to the account, store, or configuration that needs attention. Project utilities and empty workspaces are also easier to find from the dashboard.
+- **Workflow navigation keeps the episode you selected.** Previous and Next preserve the selected episode, including completed imported work; changing or clearing the picker updates the route without carrying an episode into another project. A saved handwritten Introduction remains visible and editable even when this channel is set not to generate new openings.
+
 ## v1.4.119 — 2026-09-07
 
 - **Formula and Topic Pack choices now open in one searchable library.** Channel Identity and Ideas keep the current selection compact, then let you review and explicitly apply exact Formula and Topic Pack IDs in the shared picker.
