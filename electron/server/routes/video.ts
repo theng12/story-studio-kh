@@ -47,11 +47,13 @@ import { resolveSubtitlesDir, resolveTranscriptionLanguage } from '../generators
 import { readSelectedSubtitle, resolveBurnSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { inspectSubtitleText, type SubtitleQualityReport } from '../lib/subtitle-quality.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
+import { inspectExistingTranscriptSource } from '../services/subtitle-correction.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
-import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
+import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
+import { allowedSubtitleCueGapSec, resolveScenePlanPacing } from '../services/scene-plan-pacing.js'
 import { listTranscriptionModels as listGenStudioTranscriptionModels } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import type { ScenePlan, VideoSubtitleStyle } from '../models/types.js'
@@ -1085,6 +1087,18 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       existingSrts.sort((a, b) => b.mtime - a.mtime)
     } catch { /* no dir yet — fine */ }
 
+    const stitchedPath = path.join(subtitlesDir, `${episodeId.toUpperCase()}_stitched.srt`)
+    const planningTranscript = existsSync(stitchedPath)
+      ? await inspectExistingTranscriptSource(subtitlesDir, episodeId)
+      : null
+    const subtitleTimelineIntegrity = existsSync(stitchedPath)
+      ? await resolveScenePlanPacing(slug, assets.episode_dir)
+        .then(async ({ pacing }) => readSubtitleTimelineIntegrity(subtitlesDir, episodeId, {
+          max_cue_gap_sec: allowedSubtitleCueGapSec(pacing),
+          cue_source_path: planningTranscript?.path,
+        }))
+      : null
+
     res.json({
       has_libass: libass,
       has_merged_audio: assembly.merged_audio_ready,
@@ -1105,6 +1119,9 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
         .then(p => (p ? path.basename(p) : null))
         .catch(() => null),
       completion: await inspectSubtitleCompletion(assets.episode_dir, subtitlesDir, episodeId),
+      timeline_integrity: subtitleTimelineIntegrity,
+      planning_transcript_source: planningTranscript?.source ?? null,
+      planning_source_revalidation_required: planningTranscript?.planning_source_revalidation_required ?? false,
       // v1.4.0 — the Scene Plan is GENERATED FROM the stitched transcript, so an
       // automatic re-stitch that moves the timeline leaves an existing plan's
       // scene times describing the old one. Repairing the captions while

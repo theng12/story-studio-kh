@@ -66,3 +66,36 @@ test('the head is credited by the same test the render applies', () => {
   assert.match(source, /plan\?\.opening_mode === 'branded-opening'/)
   assert.match(source, /Number\(plan\?\.opening_reserved_sec\) \|\| 0\) > 0/)
 })
+
+test('Subtitles surfaces the shared pacing-blocking cue gap and focuses its attributed chapter', () => {
+  const subtitles = fs.readFileSync(
+    path.resolve(process.cwd(), 'pages/projects/[slug]/subtitles.vue'),
+    'utf-8',
+  )
+  assert.match(subtitles, /blocking_cue_gaps/)
+  assert.match(subtitles, /subtitle coverage gap/i)
+  assert.match(subtitles, /Re-stitching alone cannot add the missing cues/)
+  assert.match(subtitles, /route\.query\.section/)
+  assert.match(subtitles, /sub-section-/)
+})
+
+test('stitching refreshes planning readiness before claiming Scene Plan is ready', () => {
+  const subtitles = fs.readFileSync(
+    path.resolve(process.cwd(), 'pages/projects/[slug]/subtitles.vue'),
+    'utf-8',
+  )
+  assert.match(subtitles, /await loadStatus\(\)\s+const readiness = subtitleTimelineComplete\.value/)
+  assert.match(subtitles, /hasBlockingCueGaps\.value/)
+  assert.match(subtitles, /re-stitching alone cannot add missing cues/i)
+  assert.match(subtitles, /\? ' — ready for Scene Plan\.'/)
+})
+
+
+test('Scene Plan keeps exact subtitle targets and correction causes truthful', () => {
+  assert.match(source, /missingSubtitleSectionForScene/)
+  assert.match(source, /blockingSubtitleGapSections/)
+  assert.match(source, /subtitleLink\(missingSubtitleSections\[0\]\)/)
+  assert.match(source, /refused_chapters/)
+  assert.match(source, /unmapped_section/)
+  assert.match(source, /script_audio_mismatch/)
+})

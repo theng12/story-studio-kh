@@ -99,6 +99,8 @@ export interface ProjectFactsCache {
    * makes the whole API unresponsive while a cold list is being built.
    */
   config?: Promise<unknown>
+  /** Effective format shared by one episode-list request. */
+  scenePlanFormat?: Promise<any>
   /**
    * Every directory under the project's episodes root, in the exact order a
    * depth-first episode-folder search visits it.

@@ -15,6 +15,7 @@ const continuityRoute = source('../../electron/server/routes/continuity.ts')
 // tests can import and exercise them — see continuityPresetPacing.test.ts.
 const continuityConfig = source('../composables/useContinuityConfig.ts')
 const scenePlanGenerator = source('../../electron/server/generators/scene-plan.ts')
+const scenePlanPacing = source('../../electron/server/services/scene-plan-pacing.ts')
 const scenePlanPage = source('../pages/projects/[slug]/scene-plan.vue')
 const pacingConstant = source('../../electron/server/contracts/pacing.ts')
 
@@ -135,9 +136,11 @@ describe('Continuity Engine default scene pacing — single source of truth', ()
     assert.doesNotMatch(continuityRoute, /pacing:\s*\{\s*min_sec:\s*\d+,\s*max_sec:\s*\d+\s*\}/)
   })
 
-  test('generators/scene-plan.ts imports the shared default instead of hardcoding it', () => {
-    assert.match(scenePlanGenerator, /import \{ DEFAULT_SCENE_PACING \} from '\.\.\/contracts\/pacing\.js'/)
-    assert.match(scenePlanGenerator, /pacing = \{ \.\.\.DEFAULT_SCENE_PACING, mode: 'live' \}/)
+  test('Scene Plan resolves the shared default through its readiness pacing service', () => {
+    assert.match(scenePlanPacing, /import \{ DEFAULT_SCENE_PACING \} from '\.\.\/contracts\/pacing\.js'/)
+    assert.match(scenePlanPacing, /pacing: ScenePlanPacing = \{ \.\.\.DEFAULT_SCENE_PACING, mode: 'live' \}/)
+    assert.match(scenePlanGenerator, /import \{ allowedSubtitleCueGapSec, resolveScenePlanPacing/)
+    assert.match(scenePlanGenerator, /await resolveScenePlanPacing\(job\.project_slug, paths\.episode_dir\)/)
     assert.doesNotMatch(scenePlanGenerator, /pacing\s*=\s*\{\s*min_sec:\s*\d+,\s*max_sec:\s*\d+/)
   })
 

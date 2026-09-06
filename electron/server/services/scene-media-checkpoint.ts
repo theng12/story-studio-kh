@@ -10,6 +10,7 @@ export interface SceneImageCompletionAudit {
   completed: number
   missing: string[]
   invalid: string[]
+  issues: Array<{ item_id: string; state: 'missing' | 'invalid'; reason?: string }>
 }
 
 export type SceneClipCompletionAudit = SceneImageCompletionAudit
@@ -33,11 +34,13 @@ export async function auditSceneImageCompletion(
   const scenesById = new Map(plan.scenes.map(scene => [scene.id, scene]))
   const missing: string[] = []
   const invalid: string[] = []
+  const issues: SceneImageCompletionAudit['issues'] = []
 
   for (const sceneId of [...new Set(sceneIds)]) {
     const scene = scenesById.get(sceneId)
     if (!scene) {
       invalid.push(`${sceneId} (missing from scene plan)`)
+      issues.push({ item_id: sceneId, state: 'invalid', reason: 'missing from scene plan' })
       continue
     }
 
@@ -63,14 +66,21 @@ export async function auditSceneImageCompletion(
       foundEmpty = true
     }
     if (!foundUsable) {
-      if (foundCorrupt) invalid.push(`${sceneId} (corrupt image)`)
-      else if (foundEmpty) invalid.push(`${sceneId} (empty image)`)
-      else missing.push(sceneId)
+      if (foundCorrupt) {
+        invalid.push(`${sceneId} (corrupt image)`)
+        issues.push({ item_id: sceneId, state: 'invalid', reason: 'corrupt image' })
+      } else if (foundEmpty) {
+        invalid.push(`${sceneId} (empty image)`)
+        issues.push({ item_id: sceneId, state: 'invalid', reason: 'empty image' })
+      } else {
+        missing.push(sceneId)
+        issues.push({ item_id: sceneId, state: 'missing' })
+      }
     }
   }
 
   const expected = new Set(sceneIds).size
-  return { expected, completed: expected - missing.length - invalid.length, missing, invalid }
+  return { expected, completed: expected - missing.length - invalid.length, missing, invalid, issues }
 }
 
 export async function auditSceneClipCompletion(
@@ -82,36 +92,45 @@ export async function auditSceneClipCompletion(
   const scenesById = new Map(plan.scenes.map(scene => [scene.id, scene]))
   const missing: string[] = []
   const invalid: string[] = []
+  const issues: SceneClipCompletionAudit['issues'] = []
 
   for (const sceneId of [...new Set(sceneIds)]) {
     const scene = scenesById.get(sceneId)
     if (!scene) {
       invalid.push(`${sceneId} (missing from scene plan)`)
+      issues.push({ item_id: sceneId, state: 'invalid', reason: 'missing from scene plan' })
       continue
     }
     const clipPath = path.join(clipsDirectory, `${sceneId}.mp4`)
     const stat = await fs.stat(clipPath).catch(() => null)
     if (!stat?.isFile()) {
       missing.push(sceneId)
+      issues.push({ item_id: sceneId, state: 'missing' })
       continue
     }
     if (stat.size <= 0) {
       invalid.push(`${sceneId} (empty clip)`)
+      issues.push({ item_id: sceneId, state: 'invalid', reason: 'empty clip' })
       continue
     }
     if (scene.rendered_motion_prompt !== (scene.motion_prompt || '')) {
       invalid.push(`${sceneId} (stale motion prompt)`)
+      issues.push({ item_id: sceneId, state: 'invalid', reason: 'stale motion prompt' })
       continue
     }
     if (scene.image_version != null && scene.clip_source_image_version !== scene.image_version) {
       invalid.push(`${sceneId} (stale source image)`)
+      issues.push({ item_id: sceneId, state: 'invalid', reason: 'stale source image' })
       continue
     }
-    if (scene.motion_choice !== 'clip') invalid.push(`${sceneId} (clip not selected)`)
+    if (scene.motion_choice !== 'clip') {
+      invalid.push(`${sceneId} (clip not selected)`)
+      issues.push({ item_id: sceneId, state: 'invalid', reason: 'clip not selected' })
+    }
   }
 
   const expected = new Set(sceneIds).size
-  return { expected, completed: expected - missing.length - invalid.length, missing, invalid }
+  return { expected, completed: expected - missing.length - invalid.length, missing, invalid, issues }
 }
 
 export async function checkpointSceneImage(

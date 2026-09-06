@@ -244,12 +244,18 @@ export async function resolvePaidImageForceLivePublishedRate(
 }
 
 export type PaidImageReplacementDecision =
-  | { action: 'not-eligible'; reason: string }
+  | { action: 'not-eligible'; reason: string; public_reason: PaidImageReplacementPublicReason }
   | { action: 'recover-original' }
   | { action: 'safe-zero-settlement-retry' }
   | { action: 'wait'; attempt: PaidImageReplacementAttempt }
   | { action: 'commit'; attempt: PaidImageReplacementAttempt; scope: string }
-  | { action: 'blocked'; reason: string }
+  | { action: 'blocked'; reason: string; public_reason: PaidImageReplacementPublicReason }
+
+export type PaidImageReplacementPublicReason =
+  | 'original_failure_not_eligible'
+  | 'replacement_disabled'
+  | 'not_verified'
+  | 'budget_limit'
 
 export interface PaidImageCommitPersistence {
   loadAuthoritativeJob(projectSlug: string, jobId: string): Promise<Job | null>
@@ -319,8 +325,11 @@ export function authoritativePaidImageSettledCredits(value: unknown): number | u
   return isFiniteCredit(value) ? value : undefined
 }
 
-function blocked(reason: string): PaidImageReplacementDecision {
-  return { action: 'blocked', reason }
+function blocked(
+  reason: string,
+  public_reason: PaidImageReplacementPublicReason = 'not_verified',
+): PaidImageReplacementDecision {
+  return { action: 'blocked', reason, public_reason }
 }
 
 function validPolicy(job: Job): number | null {
@@ -444,7 +453,9 @@ function overwriteJob(target: Job, source: Job): void {
  */
 export async function decidePaidImageReplacement(input: PaidImageReplacementDecisionInput): Promise<PaidImageReplacementDecision> {
   const ceiling = validPolicy(input.job)
-  if (ceiling === null) return { action: 'not-eligible', reason: 'the job has no valid paid image replacement policy' }
+  if (ceiling === null) return {
+    action: 'not-eligible', reason: 'the job has no valid paid image replacement policy', public_reason: 'replacement_disabled',
+  }
   const persistence = input.persistence || await defaultPersistence()
   const now = input.now || (() => new Date())
   let manifest: Manifest
@@ -474,10 +485,10 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
     return { action: 'recover-original' }
   }
   if (control.id !== entry.task_id) return blocked('the terminal control task does not match the durable original task')
-  if (control.cancelled === true) return blocked('the original task was cancelled')
-  if (EXPLICIT_BLOCKED_FAILURE.test(String(control.failure_code || ''))) return blocked('the original task has an explicit refusal or uncertain submission result')
+  if (control.cancelled === true) return blocked('the original task was cancelled', 'original_failure_not_eligible')
+  if (EXPLICIT_BLOCKED_FAILURE.test(String(control.failure_code || ''))) return blocked('the original task has an explicit refusal or uncertain submission result', 'original_failure_not_eligible')
   if (control.state !== 'failed') return { action: 'recover-original' }
-  if (!FLEET_FAILURE_CODES.has(String(control.failure_code || ''))) return blocked('the original failure is not an allow-listed transient infrastructure result')
+  if (!FLEET_FAILURE_CODES.has(String(control.failure_code || ''))) return blocked('the original failure is not an allow-listed transient infrastructure result', 'original_failure_not_eligible')
   if (!isFiniteCredit(control.reserved_credits) || !isFiniteCredit(control.settled_credits) || !isFiniteCredit(control.released_credits)
     || control.reserved_credits !== control.settled_credits + control.released_credits) {
     return blocked('the original settlement is incomplete or imbalanced')
@@ -558,7 +569,7 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   if (dueArtifact === null) return blocked('the original artifact could not be audited')
   if (dueArtifact) return { action: 'recover-original' }
   const setting = await dependencies.getSetting().catch(() => null)
-  if (!setting?.enabled) return blocked('paid image replacement is currently off on this machine')
+  if (!setting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
   let rate: PaidImagePublishedRate
   let admission: GenStudioAdmissionSnapshot
   try {

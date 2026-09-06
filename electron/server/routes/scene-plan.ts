@@ -21,6 +21,8 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { findIncompleteSubtitleSections, stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { resolveTranscriptSrt, resolveTranscriptSrtPath, stitchedSrtPath } from '../services/subtitle-correction.js'
 import { inspectSubtitleText } from '../lib/subtitle-quality.js'
+import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
+import { allowedSubtitleCueGapSec, resolveScenePlanPacing } from '../services/scene-plan-pacing.js'
 import { requireScenePlanGenStudioModel, SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
   computePlanCoverage,
@@ -943,6 +945,13 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     const transcriptQuality = transcript.path
       ? await fs.readFile(transcript.path, 'utf-8').then(inspectSubtitleText).catch(() => null)
       : null
+    const { pacing } = await resolveScenePlanPacing(slug, paths.episode_dir)
+    const subtitleTimelineIntegrity = existsSync(stitchedPath)
+      ? await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId, {
+        max_cue_gap_sec: allowedSubtitleCueGapSec(pacing),
+        cue_source_path: transcript.path,
+      })
+      : null
 
     res.json({
       stitched_srt: existsSync(stitchedPath) ? {
@@ -962,9 +971,13 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
         chapters_corrected: transcript.report?.chapters_corrected ?? null,
         chapters_refused: transcript.report?.chapters_refused ?? null,
         warnings: transcript.report?.warnings ?? [],
+        refused_chapters: (transcript.report?.chapters || [])
+          .filter(chapter => !chapter.accepted)
+          .map(chapter => ({ slug: chapter.slug, reason_code: chapter.reason_code || 'unknown' })),
         skipped_reason: transcript.report?.skipped_reason ?? null,
         quality: transcriptQuality,
       },
+      timeline_integrity: subtitleTimelineIntegrity,
       plan_stale_vs_stitched: planStaleVsStitched,
       scene_plan: scenePlan,
       coverage_integrity: scenePlan ? inspectScenePlanCoverage(scenePlan) : null,

@@ -46,7 +46,10 @@ import { getAudioStatus } from './audio-reconciler.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
 import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
+import { allowedSubtitleCueGapSec, resolveScenePlanPacing } from './scene-plan-pacing.js'
+import { getEffectiveFormat } from './format-loader.js'
 import { inspectSubtitleCompletion } from './subtitle-completion.js'
+import { inspectExistingTranscriptSource } from './subtitle-correction.js'
 import { inspectPromptCompletion } from './prompt-completion.js'
 import { inspectMetadataCompletion } from './metadata-completion.js'
 import { inspectScenePlanCoverage } from './scene-planner.js'
@@ -1115,6 +1118,24 @@ export async function computeEpisodeStatus(
         code,
       )
       status.subtitles = completion.complete
+      const stitched = path.join(subtitlePaths.subtitles_dir, `${code.toUpperCase()}_stitched.srt`)
+      if (status.subtitles && existsSync(stitched)) {
+        const formatPromise = cache
+          ? (cache.scenePlanFormat ??= getEffectiveFormat(slug))
+          : getEffectiveFormat(slug)
+        const { pacing } = await resolveScenePlanPacing(slug, subtitlePaths.episode_dir, await formatPromise)
+        const planningTranscript = await inspectExistingTranscriptSource(subtitlePaths.subtitles_dir, code)
+        const integrity = await readSubtitleTimelineIntegrity(subtitlePaths.subtitles_dir, code, {
+          max_cue_gap_sec: allowedSubtitleCueGapSec(pacing),
+          cue_source_path: planningTranscript.path,
+        })
+        // A missing/stale correction is not a transcription failure. Scene Plan
+        // rebuilds and validates that source before provider work; only a fresh,
+        // exact planning transcript can move the Pending picker back to false.
+        if (!planningTranscript.planning_source_revalidation_required) {
+          status.subtitles = integrity.complete
+        }
+      }
     } catch {
       status.subtitles = false
     }

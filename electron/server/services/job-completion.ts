@@ -6,6 +6,8 @@ export interface JobCompletionAudit {
   completed: number
   missing?: Array<string | number>
   invalid?: Array<string | number>
+  item_name?: string
+  issues?: Array<{ item_id: string; state: 'missing' | 'invalid'; reason?: string }>
   retry_hint?: string
 }
 
@@ -34,7 +36,25 @@ function dedupeItems(items: Array<string | number>): Array<string | number> {
 
 export function completionErrorMessage(audit: JobCompletionAudit): string {
   const problems = dedupeItems([...(audit.missing || []), ...(audit.invalid || [])])
-  const itemLabel = problems.length ? ` Missing/invalid: ${formatItems(problems)}.` : ''
+  const noun = audit.item_name?.trim()
+  const exactIssues = new Map<string, NonNullable<JobCompletionAudit['issues']>[number]>()
+  for (const issue of audit.issues || []) {
+    if (!exactIssues.has(issue.item_id)) exactIssues.set(issue.item_id, issue)
+  }
+  const namedMissing = exactIssues.size
+    ? [...exactIssues.values()].filter(issue => issue.state === 'missing').map(issue => issue.item_id)
+    : dedupeItems(audit.missing || [])
+  const namedInvalid = exactIssues.size
+    ? [...exactIssues.values()].filter(issue => issue.state === 'invalid')
+      .map(issue => `${issue.item_id}${issue.reason ? ` (${issue.reason})` : ''}`)
+    : dedupeItems((audit.invalid || []).filter(item => !namedMissing.includes(item)))
+  const named = noun
+    ? [
+        namedMissing.length ? ` Missing ${noun}${namedMissing.length === 1 ? '' : 's'}: ${formatItems(namedMissing)}.` : '',
+        namedInvalid.length ? ` Invalid ${noun}${namedInvalid.length === 1 ? '' : 's'}: ${formatItems(namedInvalid)}.` : '',
+      ].join('')
+    : ''
+  const itemLabel = noun ? named : (problems.length ? ` Missing/invalid: ${formatItems(problems)}.` : '')
   const retry = audit.retry_hint ? ` ${audit.retry_hint}` : ''
   return `${audit.label} incomplete: ${audit.completed}/${audit.expected} required item(s) verified.${itemLabel}${retry}`
 }

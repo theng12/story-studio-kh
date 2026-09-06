@@ -801,7 +801,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   throw new Error('The original task may still be recoverable; no replacement was submitted.')
                 }
                 if (decision.action === 'blocked') {
-                  await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
+                  await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason, decision.public_reason)
+                  jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                   throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                 }
                 if (decision.action === 'commit') replacementScope = decision.scope
@@ -876,7 +877,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     return
                   }
                   if (decision.action === 'blocked') {
-                    await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
+                    await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason, decision.public_reason)
+                    jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                     throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                   }
                 }
@@ -1124,7 +1126,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     return
                   }
                   if (decision?.action === 'blocked') {
-                    await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
+                    await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason, decision.public_reason)
+                    jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                     job.output_lines.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                   }
                 }
@@ -1212,24 +1215,21 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     job.output_dir = outDir
     syncItemProgress()
     const mediaAudit = await auditSceneImageCompletion(planPath, toRender.map(scene => scene.id), [outDir])
-    // One scene can reach this audit from three directions (media audit, the
-    // per-scene failure list, and the "never succeeded" sweep). Key everything
-    // by the bare scene ID so the error message names each scene exactly once,
-    // preferring the audit's annotated form ("id (reason)") when it exists.
-    const bareId = (item: string): string => item.replace(/ \(.+\)$/, '')
-    const missingIds = new Set(mediaAudit.missing.map(bareId))
-    const invalidById = new Map<string, string>()
-    for (const item of mediaAudit.invalid) invalidById.set(bareId(item), item)
+    // Exact scene IDs remain separate from their display reasons so Jobs can
+    // link to the owning Scene Review row without parsing prose.
+    const issuesById = new Map(mediaAudit.issues.map(issue => [issue.item_id, issue]))
     for (const sceneId of failedSceneIds) {
-      if (!missingIds.has(sceneId) && !invalidById.has(sceneId)) invalidById.set(sceneId, sceneId)
+      if (!issuesById.has(sceneId)) issuesById.set(sceneId, { item_id: sceneId, state: 'invalid', reason: 'generation failed' })
     }
     for (const scene of toRender) {
       if (successfulSceneIds.has(scene.id) || preservedCommittedArtifactIds.has(scene.id)) continue
-      if (!missingIds.has(scene.id) && !invalidById.has(scene.id)) invalidById.set(scene.id, scene.id)
+      if (!issuesById.has(scene.id)) issuesById.set(scene.id, { item_id: scene.id, state: 'invalid', reason: 'not saved' })
     }
-    const invalid = [...invalidById.values()]
-    const unresolved = new Set(missingIds)
-    for (const item of invalid) unresolved.add(bareId(item))
+    const issues = [...issuesById.values()]
+    const missing = issues.filter(issue => issue.state === 'missing').map(issue => issue.item_id)
+    const invalid = issues.filter(issue => issue.state === 'invalid')
+      .map(issue => `${issue.item_id}${issue.reason ? ` (${issue.reason})` : ''}`)
+    const unresolved = new Set(issues.map(issue => issue.item_id))
     if (unresolved.size > 0) {
       job.params.scene_ids = toRender.filter(scene => unresolved.has(scene.id)).map(scene => scene.id)
       // The scope is already narrowed to failed IDs. Do not let an older image
@@ -1239,9 +1239,11 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     requireJobCompletion(job, {
       label: 'Scene image generation', expected: toRender.length,
       completed: toRender.length - unresolved.size,
-      missing: mediaAudit.missing,
+      item_name: 'image',
+      missing,
       invalid,
-      retry_hint: 'Successful images were saved; Retry resumes with only missing scenes.',
+      issues,
+      retry_hint: 'Successful images were saved. Recover saved provider output first; only a missing image with no recoverable result needs a new submission.',
     })
     job.output_lines.push(`Done — ${toRender.length}/${toRender.length} target scene(s) verified; ${skipped} skipped.`)
     return

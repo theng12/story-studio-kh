@@ -10,6 +10,8 @@ import request from 'supertest'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { parseSrt } from '../lib/subtitle-builder.js'
+import { stampFromCues } from '../lib/scene-plan-timeline.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -306,6 +308,43 @@ describe('Ideas routes', () => {
     assert.deepEqual(single.body.scene_images, { total: 3, present: 2, complete: false })
     assert.equal(single.body.status._scene_images, undefined,
       'single-episode status must expose the same public projection without leaking internals')
+  })
+
+  test('subtitle status exposes the same pacing-blocking gap and chapter target as Scene Plan', async () => {
+    const project = await request(app).post('/api/projects').send({
+      name: 'Subtitle Gap Status Project', episode_prefix: 'SG', episode_digits: 3,
+    })
+    const isolatedSlug = project.body.slug
+    const created = await request(app).post(`/api/projects/${isolatedSlug}/ideas`).send({
+      title: 'Coverage Gap', suggested_chapters: 1,
+    })
+    const accepted = await request(app)
+      .post(`/api/projects/${isolatedSlug}/ideas/${created.body.id}/accept`).send({})
+    const code = accepted.body.episode_code
+    const episodeDir = path.join(tempDir, 'projects', isolatedSlug, 'episodes', 'Season 001', `${code} - Coverage Gap`)
+    const subtitlesDir = path.join(episodeDir, `${code} - 09 Subtitles Output`)
+    await fs.mkdir(subtitlesDir, { recursive: true })
+    const srt = [
+      '1', '00:00:17,880 --> 00:00:18,000', 'before', '',
+      '2', '00:00:55,460 --> 00:00:56,000', 'after', '',
+    ].join('\n')
+    const cues = parseSrt(srt)
+    const stitched = path.join(subtitlesDir, `${code}_stitched.srt`)
+    await fs.writeFile(stitched, srt)
+    await fs.writeFile(`${stitched}.json`, JSON.stringify({
+      complete: true, missing_sections: [], total_cues: cues.length, timeline: stampFromCues(cues),
+      sections: [{ slug: 'Chapter_15', source_srt: `${code}_Chapter_15.srt`, offset_sec: 0, duration_sec: 90, cues_added: 2 }],
+    }))
+
+    const status = await request(app)
+      .get(`/api/projects/${isolatedSlug}/video-editor/subtitles/status/${code}`)
+    assert.equal(status.status, 200)
+    assert.equal(status.body.completion.complete, true, 'chapter/full-track completion remains a separate fact')
+    assert.equal(status.body.timeline_integrity.complete, false)
+    assert.equal(status.body.timeline_integrity.max_cue_gap_sec, 30)
+    assert.deepEqual(status.body.timeline_integrity.blocking_cue_gaps[0].section_slugs, ['Chapter_15'])
+    assert.equal(status.body.planning_transcript_source, 'raw')
+    assert.equal(status.body.planning_source_revalidation_required, true)
   })
 
   test('GET /episodes reports thumbnail counts after thumbnail files go missing or are deleted', async () => {

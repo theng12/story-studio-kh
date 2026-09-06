@@ -1449,7 +1449,7 @@ function safeJob(job: Job): Omit<Job, never> {
 /** Public job snapshots derive controls at the last possible moment. */
 type RendererPaidImageReplacementAttempt = Pick<PaidImageReplacementAttempt,
   'state' | 'eligible_at' | 'replacement_committed_at' | 'quoted_credits' | 'price_version' | 'actual_settled_credits'> & {
-  reason?: 'automatic_replacement_unavailable'
+  reason?: NonNullable<PaidImageReplacementAttempt['public_reason']> | 'automatic_replacement_unavailable'
 }
 type RendererJob = Omit<Job, 'paid_image_replacement_attempts'> & {
   paid_image_replacement_attempt?: RendererPaidImageReplacementAttempt
@@ -1457,6 +1457,16 @@ type RendererJob = Omit<Job, 'paid_image_replacement_attempts'> & {
 
 export const PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE =
   'Automatic image replacement is unavailable. No replacement was submitted.'
+
+export function recordPaidImageReplacementPublicReason(
+  job: Job,
+  reason: NonNullable<PaidImageReplacementAttempt['public_reason']>,
+): void {
+  job.result = {
+    ...(job.result || {}),
+    image_replacement: { state: 'blocked', reason, submitted: false },
+  }
+}
 
 function serializeJob(job: Job): RendererJob {
   jobPersistenceCounters.public_serializations++
@@ -1484,7 +1494,9 @@ function serializeJob(job: Job): RendererJob {
       ...(latestPaidImageAttempt.replacement_committed_at ? { replacement_committed_at: latestPaidImageAttempt.replacement_committed_at } : {}),
       ...(latestPaidImageAttempt.quoted_credits !== undefined ? { quoted_credits: latestPaidImageAttempt.quoted_credits } : {}),
       ...(latestPaidImageAttempt.price_version ? { price_version: latestPaidImageAttempt.price_version } : {}),
-      ...(latestPaidImageAttempt.state === 'blocked' ? { reason: 'automatic_replacement_unavailable' as const } : {}),
+      ...(latestPaidImageAttempt.state === 'blocked' ? {
+        reason: latestPaidImageAttempt.public_reason || 'automatic_replacement_unavailable',
+      } : {}),
       ...(latestPaidImageAttempt.actual_settled_credits !== undefined ? { actual_settled_credits: latestPaidImageAttempt.actual_settled_credits } : {}),
     }
   }
@@ -1856,6 +1868,7 @@ export async function checkpointPaidImageReplacementBlockedIfPresent(
   job: Job,
   assetKey: string,
   reason: string,
+  publicReason?: NonNullable<PaidImageReplacementAttempt['public_reason']>,
 ): Promise<boolean> {
   const durable = await mutateAuthoritativeJob(job.project_slug, job.job_id, (authoritative) => {
     const attempts = authoritative.paid_image_replacement_attempts || []
@@ -1863,7 +1876,10 @@ export async function checkpointPaidImageReplacementBlockedIfPresent(
     if (matches.length !== 1 || !['waiting', 'committed', 'submitted'].includes(matches[0]!.state)) return null
     const current = matches[0]!
     authoritative.paid_image_replacement_attempts = attempts.map(attempt => (
-      attempt === current ? { ...current, state: 'blocked', reason } : attempt
+      attempt === current ? {
+        ...current, state: 'blocked', reason,
+        ...(publicReason ? { public_reason: publicReason } : {}),
+      } : attempt
     ))
     return authoritative
   })
@@ -1919,7 +1935,7 @@ export async function getPaidImageReplacementSubmitPermission(
     if (attempt.state === 'submitted') return setting?.enabled ? attempt : null
     if (setting?.enabled) return attempt
     await checkpointPaidImageReplacementBlockedIfPresent(
-      job, assetKey, 'paid image replacement is currently off on this machine',
+      job, assetKey, 'paid image replacement is currently off on this machine', 'replacement_disabled',
     )
     return null
   })

@@ -8,11 +8,76 @@ import { stampFromCues } from '../lib/scene-plan-timeline.js'
 export interface SubtitleTimelineIntegrity {
   complete: boolean
   missing_sections: string[]
+  blocking_cue_gaps?: SubtitleCueGap[]
+  max_cue_gap_sec?: number
+}
+
+export interface SubtitleCueGap {
+  previous_end_sec: number
+  next_start_sec: number
+  gap_sec: number
+  section_slugs: string[]
+  section_local_start_sec?: number
+  section_local_end_sec?: number
+}
+
+interface StitchSection {
+  slug?: unknown
+  offset_sec?: unknown
+  duration_sec?: unknown
+}
+
+function sectionsForGap(sections: StitchSection[], start: number, end: number): string[] {
+  return sections.filter(section => {
+    const offset = Number(section.offset_sec)
+    const duration = Number(section.duration_sec)
+    return typeof section.slug === 'string' && section.slug.trim()
+      && Number.isFinite(offset) && Number.isFinite(duration) && duration >= 0
+      && end >= offset && start <= offset + duration
+  }).map(section => String(section.slug))
+}
+
+function inspectCueGaps(
+  cues: ReturnType<typeof parseSrt>,
+  sections: StitchSection[],
+  maxGap: number,
+): SubtitleCueGap[] {
+  const gaps: SubtitleCueGap[] = []
+  for (let index = 1; index < cues.length; index++) {
+    const previous = cues[index - 1]!
+    const next = cues[index]!
+    const gap = next.start_sec - previous.end_sec
+    if (!(gap > maxGap)) continue
+    const sectionSlugs = sectionsForGap(sections, previous.end_sec, next.start_sec)
+    const one = sectionSlugs.length === 1
+      ? sections.find(section => section.slug === sectionSlugs[0])
+      : undefined
+    const offset = Number(one?.offset_sec)
+    gaps.push({
+      previous_end_sec: previous.end_sec,
+      next_start_sec: next.start_sec,
+      gap_sec: gap,
+      section_slugs: sectionSlugs,
+      ...(Number.isFinite(offset) ? {
+        section_local_start_sec: previous.end_sec - offset,
+        section_local_end_sec: next.start_sec - offset,
+      } : {}),
+    })
+  }
+  return gaps
+}
+
+function writtenTimelineMatches(meta: any, cues: ReturnType<typeof parseSrt>): boolean {
+  return meta?.complete === true
+    && cues.length > 0
+    && meta.total_cues === cues.length
+    && meta.timeline?.sha256 === stampFromCues(cues).sha256
 }
 
 export async function readSubtitleTimelineIntegrity(
   subtitlesDir: string,
   episodeCode: string,
+  options: { max_cue_gap_sec?: number; cue_source_path?: string } = {},
 ): Promise<SubtitleTimelineIntegrity> {
   // Deliberately the RAW stitch, not the corrected transcript: this checks
   // that every audio section produced subtitles at all. Correction happens
@@ -33,7 +98,23 @@ export async function readSubtitleTimelineIntegrity(
       ...(Array.isArray(meta?.missing_sections) ? meta.missing_sections : []),
     ]))
     if (meta?.complete === false && !missing.length) missing.push('subtitle timeline verification')
-    return { complete: missing.length === 0, missing_sections: missing }
+    const maxGap = Number(options.max_cue_gap_sec)
+    if (!Number.isFinite(maxGap) || maxGap < 0) {
+      return { complete: missing.length === 0, missing_sections: missing }
+    }
+    const rawCues = parseSrt(await fs.readFile(stitchedPath, 'utf-8'))
+    if (!writtenTimelineMatches(meta, rawCues)) missing.push('subtitle timeline verification')
+    const planningCues = options.cue_source_path && options.cue_source_path !== stitchedPath
+      ? parseSrt(await fs.readFile(options.cue_source_path, 'utf-8'))
+      : rawCues
+    if (!planningCues.length) missing.push('planning transcript cues')
+    const blocking_cue_gaps = inspectCueGaps(planningCues, Array.isArray(meta?.sections) ? meta.sections : [], maxGap)
+    return {
+      complete: missing.length === 0 && blocking_cue_gaps.length === 0,
+      missing_sections: missing,
+      blocking_cue_gaps,
+      max_cue_gap_sec: maxGap,
+    }
   } catch {
     return { complete: false, missing_sections: ['subtitle timeline verification'] }
   }
@@ -52,10 +133,7 @@ export async function verifyWrittenSubtitleTimeline(
   try {
     const meta = JSON.parse(await fs.readFile(`${stitchedPath}.json`, 'utf-8'))
     const cues = parseSrt(await fs.readFile(stitchedPath, 'utf-8'))
-    return meta.complete === true
-      && cues.length > 0
-      && meta.total_cues === cues.length
-      && meta.timeline?.sha256 === stampFromCues(cues).sha256
+    return writtenTimelineMatches(meta, cues)
   } catch {
     return false
   }

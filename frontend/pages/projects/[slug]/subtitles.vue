@@ -74,14 +74,52 @@
               </span>
               <span class="text-muted">
                 <strong>{{ coverage.done }}/{{ coverage.total }}</strong> chapter(s) transcribed
-                <template v-if="coverage.total && coverage.done === coverage.total"> — ready for Scene Plan ✓</template>
+                <template v-if="coverage.total && coverage.done === coverage.total && subtitleTimelineComplete"> — ready for Scene Plan ✓</template>
+                <template v-else-if="coverage.total && coverage.done === coverage.total && planningSourceRevalidationRequired"> — chapters transcribed; Scene Plan will revalidate the corrected timeline before any provider work</template>
+                <template v-else-if="coverage.total && coverage.done === coverage.total"> — chapter files exist; check the timeline below</template>
               </span>
             </div>
+            <WorkspaceNotice
+              v-if="subtitleTimelineIntegrity && !subtitleTimelineIntegrity.complete"
+              tone="error"
+              :title="hasBlockingCueGaps ? 'Subtitle coverage gap' : 'Subtitle timeline verification is incomplete'"
+              class="mt-2"
+            >
+              <p v-if="hasBlockingCueGaps">
+                The stitched timeline has an interval with no subtitle cues. Re-stitching alone cannot add the missing cues.
+                Transcribe the attributed chapter, then stitch again.
+              </p>
+              <p v-else-if="planningSourceRevalidationRequired">
+                This is the current raw timeline. Scene Plan will revalidate the corrected timeline before any provider work.
+              </p>
+              <p v-else>Subtitle timeline verification is incomplete. Re-stitch it, then recheck before Scene Plan.</p>
+              <ul v-if="subtitleTimelineIntegrity.blocking_cue_gaps?.length" class="sub-gap-list">
+                <li v-for="(gap, index) in subtitleTimelineIntegrity.blocking_cue_gaps || []" :key="`${gap.previous_end_sec}-${gap.next_start_sec}-${index}`">
+                  {{ gapLabel(gap) }}
+                  <template v-if="gap.section_local_start_sec !== undefined && gap.section_local_end_sec !== undefined">
+                    (chapter {{ formatSeconds(gap.section_local_start_sec) }}–{{ formatSeconds(gap.section_local_end_sec) }})
+                  </template>
+                </li>
+              </ul>
+              <template #actions>
+                <NuxtLink
+                  v-if="planningSourceRevalidationRequired && !hasBlockingCueGaps"
+                  :to="`/projects/${slug}/scene-plan?episode_id=${encodeURIComponent(episodeId)}`"
+                  class="btn btn-sm btn-secondary"
+                >Open Scene Plan</NuxtLink>
+                <NuxtLink
+                  v-for="section in gapActionSections"
+                  :key="section"
+                  :to="subtitleSectionLink(section)"
+                  class="btn btn-sm btn-secondary"
+                >Open {{ section }}</NuxtLink>
+              </template>
+            </WorkspaceNotice>
             <p v-if="sections.length" class="text-muted text-xs mt-2">
               Generate or regenerate one chapter at a time. Each action starts a new GenStudio request for only that chapter; its current quote may be charged.
             </p>
             <ul v-if="sections.length" class="sub-chapter-list mt-2">
-              <li v-for="s in sections" :key="s.slug" class="sub-chapter-row">
+              <li v-for="s in sections" :id="`sub-section-${s.slug}`" :key="s.slug" class="sub-chapter-row" tabindex="-1">
                 <span class="sub-chapter-mark" :class="{ ok: chapterHasSrt(s.slug) }" aria-hidden="true">
                   {{ chapterHasSrt(s.slug) ? '✓' : '○' }}
                 </span>
@@ -377,6 +415,21 @@ interface SubtitleStatus {
   audio_assembly_ready: boolean
   audio_assembly_issues: string[]
   existing_srts: ExistingSrt[]
+  planning_transcript_source?: 'raw' | 'corrected' | null
+  planning_source_revalidation_required?: boolean
+  timeline_integrity?: {
+    complete: boolean
+    missing_sections: string[]
+    max_cue_gap_sec: number
+    blocking_cue_gaps?: Array<{
+      previous_end_sec: number
+      next_start_sec: number
+      gap_sec: number
+      section_slugs: string[]
+      section_local_start_sec?: number
+      section_local_end_sec?: number
+    }>
+  } | null
   completion?: {
     complete: boolean
     mode: 'per-section' | 'full-track' | 'none'
@@ -390,13 +443,16 @@ interface SubtitleStatus {
 interface SectionRow { label: string; slug: string }
 
 const route = useRoute()
+const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, post, del } = useApi()
 const { success, error: showError, info: showInfo } = useToast()
 const { jobs } = useJobs()
 const { project, episodesRoot } = useProject()
 
-const episodeId = ref('')
+const initialEpisodeId = typeof route.query.episode_id === 'string' ? route.query.episode_id : ''
+const episodeId = ref(initialEpisodeId)
+const pendingSectionDeepLink = ref(typeof route.query.section === 'string' ? route.query.section : '')
 const status = ref<SubtitleStatus | null>(null)
 const sections = ref<SectionRow[]>([])
 const loading = ref(false)
@@ -525,6 +581,47 @@ const coverage = computed(() => {
   return { total, done }
 })
 const coveragePct = computed(() => coverage.value.total ? Math.round((coverage.value.done / coverage.value.total) * 100) : 0)
+const subtitleTimelineIntegrity = computed(() => status.value?.timeline_integrity || null)
+const planningSourceRevalidationRequired = computed(() => status.value?.planning_source_revalidation_required === true)
+const subtitleTimelineComplete = computed(() =>
+  !planningSourceRevalidationRequired.value && subtitleTimelineIntegrity.value?.complete === true,
+)
+const hasBlockingCueGaps = computed(() => (subtitleTimelineIntegrity.value?.blocking_cue_gaps?.length || 0) > 0)
+const normalizedSectionSlug = (section: string) => section.toLowerCase().replace(/[^a-z0-9]/g, '')
+const gapActionSections = computed(() => {
+  const known = new Map(sections.value.map(section => [normalizedSectionSlug(section.slug), section.slug]))
+  const fromGaps = subtitleTimelineIntegrity.value?.blocking_cue_gaps?.flatMap(gap => gap.section_slugs) || []
+  const missing = subtitleTimelineIntegrity.value?.missing_sections || []
+  return Array.from(new Set([...fromGaps, ...missing]))
+    .map(section => known.get(normalizedSectionSlug(section)))
+    .filter((section): section is string => typeof section === 'string')
+})
+function formatSeconds(value: number): string {
+  const minutes = Math.floor(value / 60)
+  const seconds = value - minutes * 60
+  return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`
+}
+function gapLabel(gap: NonNullable<NonNullable<SubtitleStatus['timeline_integrity']>['blocking_cue_gaps']>[number]): string {
+  const chapters = gap.section_slugs.join(', ') || 'unmapped chapter'
+  return `${chapters}: ${formatSeconds(gap.previous_end_sec)}–${formatSeconds(gap.next_start_sec)} (${gap.gap_sec.toFixed(1)}s)`
+}
+function subtitleSectionLink(section: string): string {
+  return `/projects/${slug.value}/subtitles?episode_id=${encodeURIComponent(episodeId.value)}&section=${encodeURIComponent(section)}`
+}
+async function focusPendingSection(): Promise<void> {
+  const section = pendingSectionDeepLink.value
+  if (typeof document === 'undefined' || !section || !sections.value.some(row => row.slug === section)) return
+  await nextTick()
+  if (!document.getElementById(`sub-section-${section}`)) return
+  const { section: _section, ...query } = route.query
+  await router.replace({ query })
+  await nextTick()
+  const el = document.getElementById(`sub-section-${section}`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.focus({ preventScroll: true })
+  pendingSectionDeepLink.value = ''
+}
 
 const transcribeJobActive = computed(() =>
   (jobs.value as any[]).some(j =>
@@ -561,6 +658,7 @@ let loadToken = 0
 async function loadStatus(): Promise<void> {
   const myToken = ++loadToken
   if (!episodeId.value) { status.value = null; sections.value = []; loading.value = false; return }
+  let loaded = false
   loading.value = true
   try {
     const [st, secs] = await Promise.all([
@@ -570,16 +668,29 @@ async function loadStatus(): Promise<void> {
     if (myToken !== loadToken) return   // a newer load (episode switch) superseded this one
     status.value = st
     sections.value = (secs.sections || []).map((s: any) => ({ label: s.label, slug: s.slug }))
+    loaded = true
     void loadStitchStatus()
   } catch (e: any) {
     if (myToken === loadToken && !e?.__slugRace) showError(e?.data?.detail || e?.message || 'Could not load subtitle status')
   } finally {
     if (myToken === loadToken) loading.value = false
   }
+  // Chapter rows render only after loading clears. Focus on the next tick so a
+  // deep link scrolls and focuses the real row instead of racing the v-else.
+  if (loaded && myToken === loadToken) await focusPendingSection()
 }
 // v1.0.360 — on episode switch, clear the transient queue flag so a slow/
 // in-flight transcribe POST on the PREVIOUS episode doesn't leave the new
 // episode's Transcribe button stuck on "Queuing…" / disabled.
+watch(() => route.query.episode_id, (episode) => {
+  if (typeof episode === 'string' && episode !== episodeId.value) episodeId.value = episode
+})
+watch(() => route.query.section, (section) => {
+  if (typeof section === 'string') {
+    pendingSectionDeepLink.value = section
+    void focusPendingSection()
+  }
+})
 watch(episodeId, () => {
   transcribing.value = false
   closePreview()   // don't show the previous episode's cues under a new episode
@@ -617,6 +728,12 @@ async function stitchSubtitles(): Promise<void> {
     }>(
       `/projects/${slug.value}/scene-plan/${episodeId.value}/stitch-subtitles`, {},
     )
+    await loadStatus()
+    const readiness = subtitleTimelineComplete.value
+      ? ' — ready for Scene Plan.'
+      : hasBlockingCueGaps.value
+        ? '. The refreshed timeline still has a subtitle coverage gap; re-stitching alone cannot add missing cues.'
+        : '. Review the refreshed timeline status before Scene Plan.'
     const stitched = `Stitched ${r.total_cues} cue(s) across ${r.sections?.length ?? '?'} section(s)`
     // v1.3.4 — all three outcomes are stated. This used to append the offset
     // only when it was above zero, so "your episode has no intro" and "the
@@ -631,12 +748,11 @@ async function stitchSubtitles(): Promise<void> {
     } else if (r.lead_in_sec > 0) {
       success(
         `${stitched}, offset by the ${r.lead_in_sec.toFixed(2)}s that plays before the narration`
-        + `${r.lead_in?.merged_filename ? ` in ${r.lead_in.merged_filename}` : ''} — ready for Scene Plan.`,
+        + `${r.lead_in?.merged_filename ? ` in ${r.lead_in.merged_filename}` : ''}${readiness}`,
       )
     } else {
-      success(`${stitched}. Nothing plays before the narration, so the timeline starts at zero — ready for Scene Plan.`)
+      success(`${stitched}. Nothing plays before the narration, so the timeline starts at zero${readiness}`)
     }
-    await loadStitchStatus()
   } catch (e: any) {
     // The stitcher now fails loudly with a diagnostic message (e.g. which
     // section slugs had no matching SRT) instead of writing a blank file.
@@ -768,6 +884,10 @@ const subtitlesPresets = usePresets<{ model?: string; language?: string; force?:
 })
 
 onMounted(async () => {
+  // A deep link seeds episodeId before the watcher is registered, so the
+  // selector may never emit a change. Load the selected episode once on mount
+  // to populate completion and timeline-integrity status immediately.
+  await loadStatus()
   // Auto-apply the model/re-run preset, then heal retired model IDs against the
   // authoritative GenStudio catalog.
   await subtitlesPresets.load()
@@ -811,6 +931,7 @@ onMounted(async () => {
 .sub-coverage-bar { flex: 0 0 140px; height: 8px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; }
 .sub-coverage-fill { display: block; height: 100%; background: rgb(74, 222, 128); transition: width 0.2s; }
 
+.sub-gap-list { margin: 8px 0 0; padding-left: 18px; font-size: var(--font-xs); }
 .sub-chapter-list, .sub-file-list { list-style: none; margin: 0; padding: 0; }
 .sub-chapter-row, .sub-file-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .sub-chapter-row:last-child, .sub-file-row:last-child { border-bottom: none; }

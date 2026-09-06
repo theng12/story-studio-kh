@@ -143,6 +143,7 @@ describe('scene prompt checkpoints', () => {
     const audit = await auditScenePromptCompletion(file, ['scene-1', 'scene-2'], 'visual')
     assert.deepEqual(audit.completed_ids, ['scene-1'])
     assert.deepEqual(audit.missing_ids, ['scene-2'])
+    assert.deepEqual(audit.issues, [{ item_id: 'scene-2', state: 'missing', reason: 'missing prompt' }])
   })
 
   it('treats a duplicated saved visual prompt as incomplete', async () => {
@@ -153,6 +154,7 @@ describe('scene prompt checkpoints', () => {
     const audit = await auditScenePromptCompletion(file, ['scene-1', 'scene-2'], 'visual')
     assert.deepEqual(audit.completed_ids, ['scene-1'])
     assert.deepEqual(audit.missing_ids, ['scene-2'])
+    assert.deepEqual(audit.issues, [{ item_id: 'scene-2', state: 'invalid', reason: 'duplicate prompt' }])
   })
 
   it('labels duplicate prompt rejection separately from a provider omission', async () => {
@@ -232,5 +234,6 @@ describe('scene prompt checkpoints', () => {
     const audit = await auditScenePromptCompletion(file, ['scene-1', 'scene-2'], 'motion')
     assert.deepEqual(audit.completed_ids, ['scene-1'])
     assert.deepEqual(audit.missing_ids, ['scene-2'])
+    assert.deepEqual(audit.issues, [{ item_id: 'scene-2', state: 'missing', reason: 'missing prompt' }])
   })
 })

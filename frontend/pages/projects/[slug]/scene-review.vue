@@ -53,11 +53,19 @@
     <WorkspaceNotice
       v-if="subtitleIntegrity && !subtitleIntegrity.complete"
       tone="error"
-      title="Scene rendering paused: subtitle narration is incomplete"
+      :title="subtitleIntegrity.blocking_cue_gaps?.length ? 'Scene rendering paused: subtitle coverage gap' : 'Scene rendering paused: subtitle timeline is incomplete'"
     >
-      Missing: {{ subtitleIntegrity.missing_sections.join(', ') }}.
+      <template v-if="subtitleIntegrity.blocking_cue_gaps?.length">
+        The stitched timeline has an interval with no subtitle cues
+        <template v-if="subtitleGapSections.length">in {{ subtitleGapSections.join(', ') }}.</template>
+        <template v-else>in an unmapped section.</template>
+        Re-stitching alone cannot add the missing cues.
+      </template>
+      <template v-else>
+        Subtitle timeline verification is incomplete. Review the subtitle workspace before rendering scenes.
+      </template>
       <template #actions>
-        <NuxtLink :to="`/projects/${slug}/subtitles`" class="btn btn-sm btn-secondary">Fix subtitles</NuxtLink>
+        <NuxtLink :to="subtitleRepairLink" class="btn btn-sm btn-secondary">Fix subtitles</NuxtLink>
       </template>
     </WorkspaceNotice>
     <WorkspaceNotice
@@ -336,6 +344,7 @@
           v-for="scene in renderedScenes"
           :id="`sr-scene-${scene.id}`"
           :key="scene.id"
+          tabindex="-1"
           :class="['review-scene-row', {
             'is-approved': scene.approved,
             'is-current': scene.id === currentSceneId,
@@ -580,6 +589,7 @@ definePageMeta({ layout: 'dashboard' })
 useAppTitle('Scene Review')
 
 const route = useRoute()
+const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 // v1.0.229 — image-model catalog for the picker. Scene Review renders IMAGES
 // (continuity chain / per-scene regen), so it needs the image-model picker,
@@ -615,6 +625,7 @@ const initialEpisodeId = typeof route.query.episode_id === 'string'
     ? route.query.episode
     : ''
 const episodeId = ref(initialEpisodeId)
+const pendingSceneDeepLink = ref(typeof route.query.scene_id === 'string' ? route.query.scene_id : '')
 const motionReviewLink = computed(() => `/projects/${slug.value}/motion-review?episode_id=${encodeURIComponent(episodeId.value)}`)
 const videoAssemblyLink = computed(() => `/projects/${slug.value}/video-assembly?episode_id=${encodeURIComponent(episodeId.value)}`)
 
@@ -653,6 +664,15 @@ interface PromptIntegrity {
 interface SubtitleIntegrity {
   complete: boolean
   missing_sections: string[]
+  max_cue_gap_sec?: number
+  blocking_cue_gaps?: Array<{
+    previous_end_sec: number
+    next_start_sec: number
+    gap_sec: number
+    section_slugs: string[]
+    section_local_start_sec?: number
+    section_local_end_sec?: number
+  }>
 }
 interface PlanMeta {
   schema_version: 1
@@ -687,6 +707,16 @@ const audioPath = ref<string | null>(null)
 const stats = ref<ReviewStats | null>(null)
 const promptIntegrity = ref<PromptIntegrity | null>(null)
 const subtitleIntegrity = ref<SubtitleIntegrity | null>(null)
+const subtitleGapSections = computed(() => Array.from(new Set(
+  subtitleIntegrity.value?.blocking_cue_gaps?.flatMap(gap => gap.section_slugs) || [],
+)))
+const subtitleRepairLink = computed(() => {
+  const section = subtitleIntegrity.value?.missing_sections[0]
+    || subtitleIntegrity.value?.blocking_cue_gaps?.flatMap(gap => gap.section_slugs)[0]
+  const query = new URLSearchParams({ episode_id: episodeId.value })
+  if (section) query.set('section', section)
+  return `/projects/${slug.value}/subtitles?${query.toString()}`
+})
 const loading = ref(false)
 const renderStatus = ref<RenderStatus | null>(null)
 const activeRenderJobFromReview = ref<any | null>(null)
@@ -891,7 +921,7 @@ const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.i
 const sceneInputsComplete = computed(() =>
   promptIntegrity.value?.complete === true && subtitleIntegrity.value?.complete === true,
 )
-async function jumpToScene(id: string): Promise<void> {
+async function jumpToScene(id: string, { focus = false }: { focus?: boolean } = {}): Promise<void> {
   if (typeof document === 'undefined') return
   const index = scenes.value.findIndex(scene => scene.id === id)
   if (index >= renderedSceneLimit.value) {
@@ -901,6 +931,7 @@ async function jumpToScene(id: string): Promise<void> {
   const el = document.getElementById(`sr-scene-${id}`)
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (focus) el.focus({ preventScroll: true })
     el.classList.add('sr-row-flash')
     setTimeout(() => el.classList.remove('sr-row-flash'), 1500)
   }
@@ -1077,6 +1108,7 @@ async function loadReview(): Promise<void> {
     subtitleIntegrity.value = null
     return
   }
+  let loaded = false
   loading.value = true
   try {
     interface ReviewResponse {
@@ -1099,11 +1131,13 @@ async function loadReview(): Promise<void> {
     subtitleIntegrity.value = r.subtitle_integrity || null
     renderStatus.value = r.render_status || null
     activeRenderJobFromReview.value = r.active_render_job || null
+    loaded = true
   } catch (e: any) {
     if (e?.__slugRace) return
   } finally {
     if (requestSequence === reviewLoadSequence && episodeId.value === ep) loading.value = false
   }
+  if (loaded && requestSequence === reviewLoadSequence && episodeId.value === ep) await focusPendingScene()
 }
 
 // ── Actions ─────────────────────────────────────────────────────────
@@ -1524,6 +1558,24 @@ onBeforeUnmount(() => {
   if (el) el.removeEventListener('scroll', onScroll)
   sceneLoadObserver?.disconnect()
   sceneLoadObserver = null
+})
+async function focusPendingScene(): Promise<void> {
+  const sceneId = pendingSceneDeepLink.value
+  if (!sceneId || !scenes.value.some(scene => scene.id === sceneId)) return
+  const { scene_id: _sceneId, ...query } = route.query
+  await router.replace({ query })
+  await nextTick()
+  await jumpToScene(sceneId, { focus: true })
+  if (document.activeElement?.id === `sr-scene-${sceneId}`) pendingSceneDeepLink.value = ''
+}
+watch(() => route.query.episode_id, (episode) => {
+  if (typeof episode === 'string' && episode !== episodeId.value) episodeId.value = episode
+})
+watch(() => route.query.scene_id, (sceneId) => {
+  if (typeof sceneId === 'string') {
+    pendingSceneDeepLink.value = sceneId
+    void focusPendingScene()
+  }
 })
 watch(episodeId, () => {
   renderedSceneLimit.value = SCENE_RENDER_BATCH

@@ -57,6 +57,31 @@ describe('force-abandon on the Jobs page', () => {
 })
 
 describe('per-episode targeted recovery', () => {
+  it('links structured image issues to the exact Scene Review scene and distinguishes recovery from submission', () => {
+    assert.match(jobsPage, /function jobAttentionLinks\(job: RJob\)/)
+    assert.match(jobsPage, /completion\?\.issues/)
+    assert.match(jobsPage, /scene-review\?episode_id=.*scene_id=/)
+    assert.match(jobsPage, /paidReplacementAttemptMessage\(job: RJob\)/)
+    assert.match(jobsPage, /no replacement was submitted/i)
+  })
+
+  it('links the current structured subtitle prerequisite to its exact chapter', () => {
+    assert.match(jobsPage, /currentSubtitleAttention/)
+    assert.match(jobsPage, /const suffix = section \? `&section=\$\{encodeURIComponent\(section\)\}` : ''/)
+    assert.match(jobsPage, /subtitle coverage gap/i)
+  })
+
+  it('uses typed current status for legacy Scene Plan rows and preserves structured image reasons', () => {
+    assert.match(jobsPage, /loadCurrentSubtitleAttention/)
+    assert.match(jobsPage, /Current subtitle coverage gap/)
+    assert.match(jobsPage, /SAFE_IMAGE_ISSUE_REASONS/)
+    assert.match(jobsPage, /SAFE_PROMPT_ISSUE_REASONS/)
+    assert.match(jobsPage, /const hasOpaqueLegacyInvalid = !structured\.length && legacyInvalid\.some/)
+    assert.match(jobsPage, /scene_plan_run/)
+    assert.match(jobsPage, /original_failure_not_eligible/)
+    assert.match(jobsPage, /no replacement was submitted/i)
+  })
+
   it('is offered ONLY where recovering the episode can actually help', () => {
     // v1.4.43 — this was the inverse rule ("anything the per-job Repair does
     // not cover"), which put the button on Scene Plan (text — nothing to

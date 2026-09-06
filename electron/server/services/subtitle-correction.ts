@@ -87,6 +87,7 @@ export interface ChapterCorrectionReport {
   script_file: string
   accepted: boolean
   reason: string
+  reason_code?: 'unmapped_section' | 'script_missing' | 'script_unreadable' | 'script_audio_mismatch'
   cues_in: number
   cues_out: number
   cues_dropped: number
@@ -200,7 +201,7 @@ export async function buildCorrectedTranscript(inputs: BuildCorrectedInputs): Pr
       refused++
       warnings.push(`${slug}: ${script.reason} — its original transcription was kept.`)
       chapterReports.push({
-        slug, script_file: script.file, accepted: false, reason: script.reason,
+        slug, script_file: script.file, accepted: false, reason: script.reason, reason_code: script.reason_code,
         cues_in: chapterCues.length, cues_out: chapterCues.length, cues_dropped: 0, cues_rewritten: 0,
         trust: emptyTrust(script.reason),
       })
@@ -228,6 +229,7 @@ export async function buildCorrectedTranscript(inputs: BuildCorrectedInputs): Pr
       script_file: script.file,
       accepted: result.trust.accepted,
       reason: result.trust.reason,
+      ...(!result.trust.accepted ? { reason_code: 'script_audio_mismatch' as const } : {}),
       cues_in: chapterCues.length,
       cues_out: result.cues.length,
       cues_dropped: result.dropped.length,
@@ -357,6 +359,45 @@ export async function resolveTranscriptSrtPath(inputs: BuildCorrectedInputs): Pr
   return (await resolveTranscriptSrt(inputs)).path
 }
 
+/** Read-only counterpart for status surfaces: use a fresh correction if one
+ * already exists, but never rebuild files while answering a poll. */
+export interface ExistingTranscriptSource {
+  path: string
+  source: 'raw' | 'corrected'
+  planning_source_revalidation_required: boolean
+}
+
+export async function inspectExistingTranscriptSource(
+  subtitlesDir: string,
+  episodeCode: string,
+): Promise<ExistingTranscriptSource> {
+  const code = episodeCode.toUpperCase()
+  const rawPath = stitchedSrtPath(subtitlesDir, code)
+  const correctedPath = correctedSrtPath(subtitlesDir, code)
+  if (!existsSync(correctedPath)) {
+    return { path: rawPath, source: 'raw', planning_source_revalidation_required: true }
+  }
+  try {
+    const [meta, rawStat] = await Promise.all([
+      fs.readFile(`${correctedPath}.json`, 'utf-8').then(JSON.parse),
+      fs.stat(rawPath),
+    ])
+    if (
+      meta?.schema_version === CORRECTED_SCHEMA_VERSION
+      && meta?.source_mtime_ms === rawStat.mtimeMs
+      && meta?.source_size === rawStat.size
+    ) return { path: correctedPath, source: 'corrected', planning_source_revalidation_required: false }
+  } catch { /* stale/unreadable correction falls back to raw */ }
+  return { path: rawPath, source: 'raw', planning_source_revalidation_required: true }
+}
+
+export async function resolveExistingTranscriptSrtPath(
+  subtitlesDir: string,
+  episodeCode: string,
+): Promise<string> {
+  return (await inspectExistingTranscriptSource(subtitlesDir, episodeCode)).path
+}
+
 /**
  * Operator-facing lines describing what the correction pass did, for a job's
  * output log. A silent correction would be worse than none: the whole point is
@@ -378,7 +419,7 @@ export function describeTranscriptCorrection(resolved: ResolvedTranscript): stri
   if (report.chapters_refused > 0) {
     lines.push(
       `Transcript: ${report.chapters_refused} of ${report.chapters_total} chapter(s) kept Whisper's words because `
-      + 'the script and the audio did not agree closely enough to correct safely.',
+      + 'they could not be corrected safely.',
     )
   }
   for (const warning of report.warnings.slice(0, 10)) lines.push(`Transcript: ${warning}`)
@@ -414,7 +455,12 @@ export function partitionCuesByCueCount(
   return out
 }
 
-interface ChapterScript { text: string; file: string; reason: string }
+interface ChapterScript {
+  text: string
+  file: string
+  reason: string
+  reason_code?: 'unmapped_section' | 'script_missing' | 'script_unreadable'
+}
 
 /**
  * Read the clean narration for one chapter.
@@ -433,26 +479,26 @@ async function readChapterScript(
 ): Promise<ChapterScript> {
   const num = chapterNumberFrom(slug) ?? chapterNumberFrom(sourceSrt || '')
   if (num === null) {
-    return { text: '', file: '', reason: `no chapter number could be read from section "${slug}"` }
+    return { text: '', file: '', reason: `no chapter number could be read from section "${slug}"`, reason_code: 'unmapped_section' }
   }
   const file = resolveReadPath(chapterFilePath(scriptDir, code, num))
   if (!existsSync(file)) {
-    return { text: '', file: path.basename(file), reason: `the script chapter ${path.basename(file)} is missing` }
+    return { text: '', file: path.basename(file), reason: `the script chapter ${path.basename(file)} is missing`, reason_code: 'script_missing' }
   }
   try {
     const sections = await parseNarrationDocx(file)
     if (!sections.length) {
-      return { text: '', file: path.basename(file), reason: `${path.basename(file)} has no readable narration` }
+      return { text: '', file: path.basename(file), reason: `${path.basename(file)} has no readable narration`, reason_code: 'script_unreadable' }
     }
     const wanted = `Chapter_${num.toString().padStart(2, '0')}`
     const match = sections.find(s => s.slug === wanted) || sections[0]!
     const text = (match.text || '').trim()
     if (!text) {
-      return { text: '', file: path.basename(file), reason: `${path.basename(file)} has no narration body` }
+      return { text: '', file: path.basename(file), reason: `${path.basename(file)} has no narration body`, reason_code: 'script_unreadable' }
     }
     return { text, file: path.basename(file), reason: '' }
   } catch (err) {
-    return { text: '', file: path.basename(file), reason: `${path.basename(file)} could not be read: ${errText(err)}` }
+    return { text: '', file: path.basename(file), reason: `${path.basename(file)} could not be read: ${errText(err)}`, reason_code: 'script_unreadable' }
   }
 }
 

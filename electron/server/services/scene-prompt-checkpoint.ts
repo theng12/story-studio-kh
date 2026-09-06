@@ -15,6 +15,7 @@ export interface ScenePromptCompletionAudit {
   plan: ScenePlan
   completed_ids: string[]
   missing_ids: string[]
+  issues: Array<{ item_id: string; state: 'missing' | 'invalid'; reason: 'missing prompt' | 'duplicate prompt' | 'missing from scene plan' }>
 }
 
 /**
@@ -36,6 +37,7 @@ export async function auditScenePromptCompletion(
     : null
   const completedIds: string[] = []
   const missingIds: string[] = []
+  const issues: ScenePromptCompletionAudit['issues'] = []
 
   for (const sceneId of requested) {
     const scene = sceneById.get(sceneId)
@@ -43,10 +45,18 @@ export async function auditScenePromptCompletion(
       ? !!scene?.motion_prompt?.trim()
       : !!scene?.visual_prompt?.trim() && !invalidVisualIds!.has(sceneId)
     if (complete) completedIds.push(sceneId)
-    else missingIds.push(sceneId)
+    else {
+      missingIds.push(sceneId)
+      const reason = !scene
+        ? 'missing from scene plan'
+        : kind === 'visual' && invalidVisualIds!.has(sceneId) && !!scene.visual_prompt?.trim()
+          ? 'duplicate prompt'
+          : 'missing prompt'
+      issues.push({ item_id: sceneId, state: reason === 'missing prompt' ? 'missing' : 'invalid', reason })
+    }
   }
 
-  return { plan, completed_ids: completedIds, missing_ids: missingIds }
+  return { plan, completed_ids: completedIds, missing_ids: missingIds, issues }
 }
 
 /**
