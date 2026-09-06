@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.111 — 2026-09-06
+
+- **Subtitle readiness now distinguishes complete chapter files from a usable planning timeline.** Subtitles and Scene Plan identify pacing-blocking cue gaps with their exact chapter and times, keep the chapter count as a separate fact, and explain that re-stitching alone cannot create missing cues.
+- **Jobs now names the exact missing or invalid scene images and prompts.** Each issue links back to its owning Scene Review or Scene Plan workspace, while a blocked automatic image replacement states why no replacement was submitted without exposing provider details.
+- **Recovery links now reopen the exact work that needs attention.** Subtitle links focus the affected chapter, Scene Review links focus the stable scene row, and a selected deep-linked episode remains available while the picker shows Pending only.
+
 ## v1.4.110 — 2026-09-06
 
 - **The YouTube Upload Center now opens for projects created before newer media folders were added.** Existing folder names remain unchanged, missing optional folder names use their established defaults, and unknown or unsafe folder paths remain blocked.

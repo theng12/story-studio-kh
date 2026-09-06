@@ -17,7 +17,6 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
-import { getEffectiveFormat } from '../services/format-loader.js'
 import { getConfig } from '../services/project-manager.js'
 import { computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { resolveProjectOpening } from '../services/opening-assets.js'
@@ -55,7 +54,8 @@ import {
   readPromptLength,
 } from '../services/prompt-char-cap.js'
 import { scanEpisodeAssets } from './video.js'
-import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
+import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
+import { allowedSubtitleCueGapSec, resolveScenePlanPacing, type ScenePlanPacing } from '../services/scene-plan-pacing.js'
 import { resolveTranscriptSrt, describeTranscriptCorrection } from '../services/subtitle-correction.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditScenePromptCompletion, checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
@@ -72,7 +72,6 @@ import {
   normalizeCreativeDirection,
 } from '../services/scene-creative-direction.js'
 import { assignSceneMotionProfile, motionModeLevel } from '../services/scene-motion-profile.js'
-import { DEFAULT_SCENE_PACING } from '../contracts/pacing.js'
 import type { Job, SceneCreativeDirection, SceneCreativeStrategy, SceneMotionProfile, ScenePlan } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 
@@ -636,66 +635,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // otherwise a Series Formula may supply a two-phase documentary rhythm
   // (denser opening, then long ambient visual holds). Legacy projects retain
   // the historical 1–4s fallback.
-  let pacing: {
-    min_sec: number
-    max_sec: number
-    mode: 'live' | 'documentary'
-    opening_duration_sec?: number
-    settled_min_sec?: number
-    settled_max_sec?: number
-  } | undefined
+  let pacing: ScenePlanPacing | undefined
   let formulaMotionProfile: SceneMotionProfile | undefined
   try {
-    const fmt = await getEffectiveFormat(job.project_slug)
-    formulaMotionProfile = fmt?.script.motionProfile
-    if (fmt?.visualSource === 'continuity-chain') {
-      // DEFAULT_SCENE_PACING (1-3s), not the older hardcoded 1-4s: the
-      // owner's channels want an image every one to three seconds, and a 4s
-      // ceiling let quiet passages drift to a near-static hold. A Character
-      // Sheet or Series Formula range still wins over this -- it is only the
-      // fallback for a project that declares none. Imported rather than
-      // hardcoded here so this can't drift from defaultContinuityConfig() in
-      // routes/continuity.ts again -- see contracts/pacing.ts.
-      pacing = { ...DEFAULT_SCENE_PACING, mode: 'live' }
-      const continuityPath = path.join(paths.episode_dir, 'continuity.json')
-      if (existsSync(continuityPath)) {
-        try {
-          const cfg = JSON.parse(await fs.readFile(continuityPath, 'utf-8'))
-          const mn = Number(cfg?.pacing?.min_sec)
-          const mx = Number(cfg?.pacing?.max_sec)
-          if (Number.isFinite(mn) && Number.isFinite(mx) && mx >= mn) {
-            const openingDuration = Number(cfg?.pacing?.opening_duration_sec)
-            const settledMin = Number(cfg?.pacing?.settled_min_sec)
-            const settledMax = Number(cfg?.pacing?.settled_max_sec)
-            const hasProfile = Number.isFinite(openingDuration) && openingDuration >= 0
-              && Number.isFinite(settledMin) && Number.isFinite(settledMax)
-              && settledMin >= 1 && settledMax >= settledMin
-            pacing = {
-              min_sec: mn,
-              max_sec: mx,
-              mode: hasProfile ? 'documentary' : 'live',
-              ...(hasProfile ? {
-                opening_duration_sec: openingDuration,
-                settled_min_sec: settledMin,
-                settled_max_sec: settledMax,
-              } : {}),
-            }
-          }
-        } catch { /* keep the default pacing */ }
-      } else {
-        const profile = fmt.script.visualPacingProfile
-        if (profile) {
-          pacing = {
-            min_sec: profile.opening.min_sec,
-            max_sec: profile.opening.max_sec,
-            mode: 'documentary',
-            opening_duration_sec: profile.opening_duration_sec,
-            settled_min_sec: profile.settled.min_sec,
-            settled_max_sec: profile.settled.max_sec,
-          }
-        }
-      }
-    }
+    const resolved = await resolveScenePlanPacing(job.project_slug, paths.episode_dir)
+    pacing = resolved.pacing
+    formulaMotionProfile = resolved.formula_motion_profile
   } catch { /* non-continuity project or format load failed — no pacing */ }
 
   // v1.0.337 — per-project guide cast density (config.json `character_density`).
@@ -814,15 +759,35 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const { splitScenesDeterministically } = await import('../services/scene-planner.js')
       const minSec = pacing?.min_sec ?? 3
       const maxSec = pacing?.max_sec ?? 12
-      const suspiciousGap = allCues.find((cue, index) => {
-        if (index === 0) return false
-        return cue.start_sec - allCues[index - 1]!.end_sec > Math.max(30, maxSec * 3)
+      const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episode_id, {
+        max_cue_gap_sec: allowedSubtitleCueGapSec(pacing),
+        cue_source_path: stitchedSrt,
       })
+      const suspiciousGap = subtitleIntegrity.blocking_cue_gaps?.[0]
       if (suspiciousGap) {
-        const previous = allCues[allCues.indexOf(suspiciousGap) - 1]!
+        job.result = {
+          ...(job.result || {}),
+          attention: {
+            kind: 'subtitle_coverage_gap',
+            workspace: 'subtitles',
+            episode_id,
+            gaps: subtitleIntegrity.blocking_cue_gaps,
+          },
+        }
+        const section = suspiciousGap.section_slugs.length
+          ? ` in ${suspiciousGap.section_slugs.join(' / ')}`
+          : ' in a section that could not be mapped'
         throw new Error(
-          `Subtitle timeline contains an unexplained ${(suspiciousGap.start_sec - previous.end_sec).toFixed(1)}s gap ` +
-          `near ${previous.end_sec.toFixed(1)}s. Re-open Subtitles, transcribe any missing chapters, and stitch again.`,
+          `Subtitle coverage gap: ${suspiciousGap.gap_sec.toFixed(1)}s without subtitle cues${section}, ` +
+          `from ${suspiciousGap.previous_end_sec.toFixed(1)}s to ${suspiciousGap.next_start_sec.toFixed(1)}s. ` +
+          'Open Subtitles, regenerate or correct the affected chapter, then re-stitch and recheck. ' +
+          'Re-stitching alone cannot add missing cues.',
+        )
+      }
+      if (!subtitleIntegrity.complete) {
+        throw new Error(
+          'Subtitle timeline verification no longer matches the stitched file. ' +
+          'Open Subtitles, re-stitch, and recheck before creating the Scene Plan.',
         )
       }
       const splitScenes = splitScenesDeterministically({
@@ -1543,7 +1508,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     if (!isMotion) {
       requireJobCompletion(job, {
         label: 'Visual prompt generation', expected: targets.length, completed: completion.completed_ids.length,
+        item_name: 'visual prompt',
         missing: completion.missing_ids,
+        issues: completion.issues,
         retry_hint: explicitPaidRepair
           ? 'Paid auto-repair stopped with unresolved prompts. Review the named reason, then click Auto repair prompts again; verified prompts remain saved.'
           : 'Automatic GenStudio repair is exhausted. Retry All pending; image rendering remains blocked until every scene has a unique prompt.',
@@ -1551,7 +1518,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     } else {
       requireJobCompletion(job, {
         label: 'Motion prompt generation', expected: targets.length, completed: completion.completed_ids.length,
+        item_name: 'motion prompt',
         missing: completion.missing_ids,
+        issues: completion.issues,
         retry_hint: 'Motion is optional until enabled; once enabled, Retry fills only the missing prompts.',
       })
     }
@@ -2006,6 +1975,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     expected: plan.scenes.length,
     completed: plan.scenes.length - visualIntegrity.invalid_ids.length,
     missing: visualIntegrity.invalid_ids,
+    item_name: 'visual prompt',
+    issues: [
+      ...visualIntegrity.empty_ids.map(item_id => ({ item_id, state: 'missing' as const, reason: 'missing prompt' })),
+      ...visualIntegrity.duplicate_ids.map(item_id => ({ item_id, state: 'invalid' as const, reason: 'duplicate prompt' })),
+    ],
     retry_hint: 'The valid timeline and prompts were kept. Run All pending to fill missing or duplicated prompts.',
   })
 
@@ -2070,7 +2044,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       )
       requireJobCompletion(job, {
         label: 'Motion prompt generation', expected: targets.length, completed: made,
+        item_name: 'motion prompt',
         missing: missingMotionIds,
+        issues: missingMotionIds.map(item_id => ({ item_id, state: 'missing' as const, reason: 'missing prompt' as const })),
         retry_hint: 'Motion prompts already saved were kept; Retry fills only the remaining gaps.',
       })
       if (failed && !missingMotionIds.length) {

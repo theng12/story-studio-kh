@@ -2501,6 +2501,8 @@ export interface PaidImageReplacementAttempt {
   replacement_task_id?: string
   actual_settled_credits?: number
   reason?: string
+  /** Allow-listed renderer explanation; never derived from provider prose. */
+  public_reason?: 'original_failure_not_eligible' | 'replacement_disabled' | 'not_verified' | 'budget_limit'
 }
 
 export interface Job {

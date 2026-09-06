@@ -58,6 +58,24 @@ describe('verified job completion contract', () => {
       label: 'Audio', expected: 2, completed: 1, missing: ['Introduction'], retry_hint: 'Retry it.',
     }), /1\/2.*Introduction.*Retry it/)
   })
+
+  test('image completion names missing and invalid images separately and persists exact issue ids', () => {
+    const target = job()
+    assert.throws(() => requireJobCompletion(target, {
+      label: 'Scene image generation', expected: 3, completed: 1,
+      item_name: 'image',
+      missing: ['scene-002'], invalid: ['scene-003 (corrupt image)'],
+      issues: [
+        { item_id: 'scene-002', state: 'missing' },
+        { item_id: 'scene-003', state: 'invalid', reason: 'corrupt image' },
+      ],
+      retry_hint: 'Review the affected images in Scene Review.',
+    }), /Missing image: scene-002.*Invalid image: scene-003 \(corrupt image\)/)
+    assert.deepEqual(target.result?.completion?.issues, [
+      { item_id: 'scene-002', state: 'missing' },
+      { item_id: 'scene-003', state: 'invalid', reason: 'corrupt image' },
+    ])
+  })
 })
 
 describe('prompt completion manifest', () => {

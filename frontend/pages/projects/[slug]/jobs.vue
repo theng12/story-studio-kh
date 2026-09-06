@@ -632,6 +632,12 @@
           <div :id="`job-error-active-${job.job_id}`" v-if="errorExpanded === job.job_id && job.error" class="error-details">
             {{ customerJobText(job.error, job) }}
           </div>
+          <div v-if="jobAttentionLinks(job).length" class="job-attention-links">
+            <p v-if="paidReplacementAttemptMessage(job)" class="text-muted text-xs">{{ paidReplacementAttemptMessage(job) }}</p>
+            <NuxtLink v-for="link in jobAttentionLinks(job)" :key="`${link.kind}-${link.to}-${link.label}`" :to="link.to" class="inline-link">
+              {{ link.label }} →
+            </NuxtLink>
+          </div>
         </div>
 
         <!-- Technical details. Diagnostic state and customer-safe output stay
@@ -959,6 +965,12 @@
             </button>
             <div :id="`job-error-history-${job.job_id}`" v-if="errorExpanded === job.job_id && job.error" class="error-details">
               {{ customerJobText(job.error, job) }}
+            </div>
+            <div v-if="jobAttentionLinks(job).length" class="job-attention-links">
+              <p v-if="paidReplacementAttemptMessage(job)" class="text-muted text-xs">{{ paidReplacementAttemptMessage(job) }}</p>
+              <NuxtLink v-for="link in jobAttentionLinks(job)" :key="`${link.kind}-${link.to}-${link.label}`" :to="link.to" class="inline-link">
+                {{ link.label }} →
+              </NuxtLink>
             </div>
           </div>
         </div>
@@ -2305,6 +2317,146 @@ function jobQueuePath(job: Pick<RJob, 'project_slug' | 'job_id'>): string {
     : `/projects/${jobProjectSlug(job)}/jobs/${job.job_id}`
 }
 
+type JobAttentionLink = { kind: 'subtitle' | 'image' | 'prompt'; label: string; to: string }
+type CurrentSubtitleStatus = {
+  timeline_integrity?: { blocking_cue_gaps?: Array<{ section_slugs?: string[] }> }
+}
+const currentSubtitleAttentionByEpisode = ref<Record<string, JobAttentionLink | null>>({})
+const currentSubtitleAttentionChecked = new Set<string>()
+const currentSubtitleAttentionLoading = new Set<string>()
+
+function subtitleAttentionKey(job: RJob): string | null {
+  if (job.type !== 'scene_plan_run' || !job.episode_id) return null
+  return `${jobProjectSlug(job)}:${job.episode_id}`
+}
+function subtitleAttentionLink(job: RJob, section?: string, current = false): JobAttentionLink | null {
+  if (!job.episode_id) return null
+  const suffix = section ? `&section=${encodeURIComponent(section)}` : ''
+  const prefix = current ? 'Current subtitle coverage gap' : 'Subtitle coverage gap'
+  return {
+    kind: 'subtitle',
+    label: section ? `${prefix} — open ${section}` : `${prefix} — open Subtitles`,
+    to: `/projects/${jobProjectSlug(job)}/subtitles?episode_id=${encodeURIComponent(job.episode_id)}${suffix}`,
+  }
+}
+function currentSubtitleAttention(job: RJob): JobAttentionLink | null {
+  const attention = (job.result as any)?.attention
+  if (attention?.kind === 'subtitle_coverage_gap' && attention.workspace === 'subtitles') {
+    const section = Array.isArray(attention.gaps)
+      ? attention.gaps.flatMap((gap: any) => Array.isArray(gap?.section_slugs) ? gap.section_slugs : [])[0]
+      : undefined
+    return subtitleAttentionLink({ ...job, episode_id: typeof attention.episode_id === 'string' ? attention.episode_id : job.episode_id }, section)
+  }
+  const key = subtitleAttentionKey(job)
+  return key ? currentSubtitleAttentionByEpisode.value[key] || null : null
+}
+async function loadCurrentSubtitleAttention(job: RJob): Promise<void> {
+  const key = subtitleAttentionKey(job)
+  const structured = (job.result as any)?.attention
+  if (!key || (job.status !== 'error' && job.status !== 'cancelled') || structured?.kind === 'subtitle_coverage_gap'
+    || currentSubtitleAttentionChecked.has(key) || currentSubtitleAttentionLoading.has(key)) return
+  currentSubtitleAttentionLoading.add(key)
+  try {
+    const status = await get<CurrentSubtitleStatus>(
+      `/projects/${jobProjectSlug(job)}/video-editor/subtitles/status/${encodeURIComponent(job.episode_id!)}`,
+    )
+    const gaps = status.timeline_integrity?.blocking_cue_gaps || []
+    const section = gaps.flatMap(gap => Array.isArray(gap.section_slugs) ? gap.section_slugs : [])[0]
+    currentSubtitleAttentionByEpisode.value = {
+      ...currentSubtitleAttentionByEpisode.value,
+      [key]: gaps.length ? subtitleAttentionLink(job, section, true) : null,
+    }
+    currentSubtitleAttentionChecked.add(key)
+  } catch {
+    // A transient status failure stays unknown and can be retried on a later refresh.
+  } finally {
+    currentSubtitleAttentionLoading.delete(key)
+  }
+}
+const SAFE_IMAGE_ISSUE_REASONS: Record<string, string> = {
+  'generation failed': 'generation failed',
+  'not saved': 'output was not saved',
+  'missing from scene plan': 'no longer appears in the Scene Plan',
+  'corrupt image': 'image file is corrupt',
+  'empty image': 'image file is empty',
+}
+const SAFE_PROMPT_ISSUE_REASONS: Record<string, string> = {
+  'missing prompt': 'prompt is missing',
+  'duplicate prompt': 'prompt duplicates another scene',
+  'empty prompt': 'prompt is empty',
+  'missing from scene plan': 'no longer appears in the Scene Plan',
+}
+const PAID_REPLACEMENT_MESSAGES: Record<string, string> = {
+  original_failure_not_eligible: 'The original failure does not qualify for automatic replacement; no replacement was submitted.',
+  replacement_disabled: 'Automatic replacement is disabled for this job.',
+  not_verified: 'The saved result has not been verified as missing, so no replacement was submitted.',
+  budget_limit: 'Automatic replacement is not allowed at the current limit, so no replacement was submitted.',
+  automatic_replacement_unavailable: 'Automatic replacement is currently unavailable for this job.',
+}
+function paidReplacementAttemptMessage(job: RJob): string | null {
+  const reason = (job.result as any)?.image_replacement?.reason
+    || (job.paid_image_replacement_attempt as any)?.reason
+  return typeof reason === 'string' ? PAID_REPLACEMENT_MESSAGES[reason] || null : null
+}
+function exactLegacyIssue(itemId: unknown, state: 'missing' | 'invalid') {
+  return typeof itemId === 'string' && /^[A-Za-z0-9_-]+$/.test(itemId)
+    ? { item_id: itemId, state }
+    : null
+}
+function jobAttentionLinks(job: RJob): JobAttentionLink[] {
+  const subtitle = currentSubtitleAttention(job)
+  if (subtitle) return [subtitle]
+  const completion = (job.result as any)?.completion
+  const structured = Array.isArray(completion?.issues) ? completion.issues : []
+  const legacyMissing = Array.isArray(completion?.missing) ? completion.missing : []
+  const legacyInvalid = Array.isArray(completion?.invalid) ? completion.invalid : []
+  const legacy = [
+    ...legacyMissing.map((item: unknown) => exactLegacyIssue(item, 'missing')),
+    ...legacyInvalid.map((item: unknown) => exactLegacyIssue(item, 'invalid')),
+  ].filter(Boolean)
+  const issues = structured.length ? structured : legacy
+  const hasOpaqueLegacyInvalid = !structured.length && legacyInvalid.some((item: unknown) => !exactLegacyIssue(item, 'invalid'))
+  if (!job.episode_id || !issues.length) {
+    const hasLegacyIssue = legacyMissing.length > 0 || legacyInvalid.length > 0
+    return hasLegacyIssue && job.type === 'continuity_render' && job.episode_id
+      ? [{ kind: 'image', label: 'Image output needs review — open Scene Review', to: `/projects/${jobProjectSlug(job)}/scene-review?episode_id=${encodeURIComponent(job.episode_id)}` }]
+      : []
+  }
+  const links = issues.flatMap((issue: any): JobAttentionLink[] => {
+    if ((issue?.state !== 'missing' && issue?.state !== 'invalid') || typeof issue.item_id !== 'string') return []
+    if (job.type === 'continuity_render') {
+      const reason = typeof issue.reason === 'string' ? SAFE_IMAGE_ISSUE_REASONS[issue.reason] : undefined
+      const detail = reason || (issue.state === 'missing' ? 'missing' : 'invalid')
+      return [{
+        kind: 'image',
+        label: `Scene ${issue.item_id}: ${detail} — open Scene Review`,
+        to: `/projects/${jobProjectSlug(job)}/scene-review?episode_id=${encodeURIComponent(job.episode_id)}&scene_id=${encodeURIComponent(issue.item_id)}`,
+      }]
+    }
+    if (job.type === 'scene_plan_run') {
+      const reason = typeof issue.reason === 'string' ? SAFE_PROMPT_ISSUE_REASONS[issue.reason] : undefined
+      const detail = reason || (issue.state === 'missing' ? 'prompt is missing' : 'prompt needs review')
+      return [{
+        kind: 'prompt',
+        label: `Scene ${issue.item_id}: ${detail} — open Scene Plan`,
+        to: `/projects/${jobProjectSlug(job)}/scene-plan?episode_id=${encodeURIComponent(job.episode_id)}`,
+      }]
+    }
+    return []
+  })
+  if (hasOpaqueLegacyInvalid && job.type === 'continuity_render') {
+    links.push({ kind: 'image', label: 'Some historical image output needs review — open Scene Review', to: `/projects/${jobProjectSlug(job)}/scene-review?episode_id=${encodeURIComponent(job.episode_id)}` })
+  }
+  return links
+}
+
+// Older Scene Plan rows predate `result.attention`. Only when a terminal row is
+// visible, read current typed subtitle status for that episode; never guess a
+// historical cause from error prose.
+watch([activeJobs, paginatedHistory], ([active, history]) => {
+  for (const job of [...active, ...history]) void loadCurrentSubtitleAttention(job)
+}, { immediate: true })
+
 /**
  * The job types for which "Recover this episode" can actually recover
  * something.
@@ -3438,6 +3590,8 @@ async function clearFinished() {
   font-size: 12px; color: var(--error); font-family: 'SF Mono', Monaco, monospace;
   white-space: pre-wrap; word-break: break-word;
 }
+.job-attention-links { display: grid; gap: 4px; margin-top: 8px; font-size: var(--font-xs); }
+.job-attention-links .inline-link { width: fit-content; }
 
 /* Pagination */
 .pagination {

@@ -1171,7 +1171,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 throw new Error('The original task may still be recoverable; no replacement was submitted.')
               }
               if (decision.action === 'blocked') {
-                await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
+                await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason, decision.public_reason)
+                jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                 throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
               }
               if (decision.action === 'commit') committedScope = decision.scope
@@ -1238,7 +1239,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               return
             }
             if (decision.action === 'blocked') {
-              await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
+              await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason, decision.public_reason)
+              jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
               throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
             }
           }
@@ -1400,7 +1402,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                   return
                 }
                 if (decision.action === 'blocked') {
-                  await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason)
+                  await jq.checkpointPaidImageReplacementBlockedIfPresent(job, filename, decision.reason, decision.public_reason)
+                  jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                   job.output_lines.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                 }
               }

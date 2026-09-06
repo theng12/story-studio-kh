@@ -363,7 +363,8 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
             throw new Error('The original task may still be recoverable; no replacement was submitted.')
           }
           if (decision.action === 'blocked') {
-            await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason)
+            await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason, decision.public_reason)
+            jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
             throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
           }
           if (decision.action === 'commit') replacementScope = decision.scope
@@ -428,7 +429,8 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
               return { kind: 'paid-image-wait' }
             }
             if (decision.action === 'blocked') {
-              await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason)
+              await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason, decision.public_reason)
+              jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
               throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
             }
           }
@@ -630,7 +632,8 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
                 return { kind: 'paid-image-wait' }
               }
               if (decision.action === 'blocked') {
-                await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason)
+                await jq.checkpointPaidImageReplacementBlockedIfPresent(job, item.filename, decision.reason, decision.public_reason)
+                jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                 job.output_lines.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
               }
             }

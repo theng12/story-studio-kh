@@ -412,17 +412,17 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     return { result, current, jobs, manifests, writes }
   }
 
-  for (const [label, control, expected] of [
-    ['running control', { id: 'original-task', state: 'running' }, 'recover-original'],
-    ['unknown control state', { id: 'original-task', state: 'reconciling' }, 'recover-original'],
-    ['uncertain submission', { id: 'original-task', state: 'failed', failure_code: 'CLOUD_SUBMISSION_UNCERTAIN', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked'],
-    ['cancelled task', { id: 'original-task', state: 'failed', cancelled: true, failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked'],
-    ['billing refusal', { id: 'original-task', state: 'failed', failure_code: 'INSUFFICIENT_CREDITS', reserved_credits: 9, settled_credits: 0, released_credits: 9 }, 'blocked'],
-    ['validation refusal before recoverable classification', { id: 'original-task', state: 'running', failure_code: 'VALIDATION_FAILED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked'],
-    ['authentication refusal before recoverable classification', { id: 'original-task', state: 'reconciling', failure_code: 'AUTH_FAILED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked'],
-    ['imbalanced settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 5 }, 'blocked'],
-    ['missing settlement fields', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, released_credits: 6 }, 'blocked'],
-    ['nonfinite settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: Number.NaN, settled_credits: 3, released_credits: 6 }, 'blocked'],
+  for (const [label, control, expected, publicReason] of [
+    ['running control', { id: 'original-task', state: 'running' }, 'recover-original', undefined],
+    ['unknown control state', { id: 'original-task', state: 'reconciling' }, 'recover-original', undefined],
+    ['uncertain submission', { id: 'original-task', state: 'failed', failure_code: 'CLOUD_SUBMISSION_UNCERTAIN', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked', 'original_failure_not_eligible'],
+    ['cancelled task', { id: 'original-task', state: 'failed', cancelled: true, failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked', 'original_failure_not_eligible'],
+    ['billing refusal', { id: 'original-task', state: 'failed', failure_code: 'INSUFFICIENT_CREDITS', reserved_credits: 9, settled_credits: 0, released_credits: 9 }, 'blocked', 'original_failure_not_eligible'],
+    ['validation refusal before recoverable classification', { id: 'original-task', state: 'running', failure_code: 'VALIDATION_FAILED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked', 'original_failure_not_eligible'],
+    ['authentication refusal before recoverable classification', { id: 'original-task', state: 'reconciling', failure_code: 'AUTH_FAILED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked', 'original_failure_not_eligible'],
+    ['imbalanced settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 5 }, 'blocked', 'not_verified'],
+    ['missing settlement fields', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, released_credits: 6 }, 'blocked', 'not_verified'],
+    ['nonfinite settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: Number.NaN, settled_credits: 3, released_credits: 6 }, 'blocked', 'not_verified'],
   ] as const) {
     await suite.test(`does not spend for ${label}`, async () => {
       const { result, writes } = await decision({ dependencies: {
@@ -433,6 +433,7 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
         refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 } as any),
       } })
       assert.equal(result.action, expected)
+      if (result.action === 'blocked') assert.equal(result.public_reason, publicReason)
       assert.deepEqual(writes, [])
     })
   }

@@ -21,6 +21,8 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { parseSrt } from '../lib/subtitle-builder.js'
+import { stampFromCues } from '../lib/scene-plan-timeline.js'
 
 let cacheMod: typeof import('../services/episode-status-cache.js')
 let pm: typeof import('../services/project-manager.js')
@@ -65,15 +67,35 @@ async function makeProject() {
   return { projDir, epDir, scriptDir }
 }
 
-async function writeVerifiedSubtitleTimeline(epDir: string) {
+async function writeVerifiedSubtitleTimeline(
+  epDir: string,
+  srt = '1\n00:00:00,000 --> 00:00:05,000\nNarration\n',
+  sections = [{ slug: 'Introduction', source_srt: `${CODE}_Introduction.srt`, cues_added: 1, offset_sec: 0, duration_sec: 5 }],
+) {
   const dir = path.join(epDir, `${CODE} - 09 Subtitles Output`)
   const stitched = path.join(dir, `${CODE}_stitched.srt`)
   await fs.mkdir(dir, { recursive: true })
-  await fs.writeFile(stitched, '1\n00:00:00,000 --> 00:00:05,000\nNarration\n')
+  await fs.writeFile(stitched, srt)
+  const cues = parseSrt(srt)
   await fs.writeFile(`${stitched}.json`, JSON.stringify({
     complete: true,
     missing_sections: [],
-    sections: [{ slug: 'Introduction', source_srt: `${CODE}_Introduction.srt`, cues_added: 1 }],
+    total_cues: cues.length,
+    timeline: stampFromCues(cues),
+    sections,
+  }))
+}
+
+async function writeFreshCorrectedTranscript(epDir: string, srt: string) {
+  const dir = path.join(epDir, `${CODE} - 09 Subtitles Output`)
+  const stitched = path.join(dir, `${CODE}_stitched.srt`)
+  const corrected = path.join(dir, `${CODE}_stitched.corrected.srt`)
+  const source = await fs.stat(stitched)
+  await fs.writeFile(corrected, srt)
+  await fs.writeFile(`${corrected}.json`, JSON.stringify({
+    schema_version: 1,
+    source_mtime_ms: source.mtimeMs,
+    source_size: source.size,
   }))
 }
 
@@ -588,6 +610,37 @@ describe('episode-status-cache', () => {
     const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
     assert.equal(status.scene_plan, false, '5s internal gap must surface in Pending only')
     assert.equal(status.scene_review, false, 'Scene Review cannot be complete while coverage is unsafe')
+  })
+
+  test('subtitles: a raw gap awaits corrected-source revalidation without reopening transcription', async () => {
+    const { epDir } = await makeProject()
+    const srt = [
+      '1', '00:00:17,880 --> 00:00:18,000', 'before', '',
+      '2', '00:00:55,460 --> 00:00:56,000', 'after', '',
+    ].join('\n')
+    await writeVerifiedSubtitleTimeline(epDir, srt, [{
+      slug: 'Chapter_15', source_srt: `${CODE}_Chapter_15.srt`, cues_added: 2,
+      offset_sec: 0, duration_sec: 90,
+    }])
+
+    const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
+    assert.equal(status.subtitles, true, 'an absent correction must not create a transcription loop')
+  })
+
+  test('subtitles: a blocking gap in the fresh planning transcript stays visible in Pending', async () => {
+    const { epDir } = await makeProject()
+    const srt = [
+      '1', '00:00:17,880 --> 00:00:18,000', 'before', '',
+      '2', '00:00:55,460 --> 00:00:56,000', 'after', '',
+    ].join('\n')
+    await writeVerifiedSubtitleTimeline(epDir, srt, [{
+      slug: 'Chapter_15', source_srt: `${CODE}_Chapter_15.srt`, cues_added: 2,
+      offset_sec: 0, duration_sec: 90,
+    }])
+    await writeFreshCorrectedTranscript(epDir, srt)
+
+    const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
+    assert.equal(status.subtitles, false, 'the confirmed 37.58s planning-source gap needs attention')
   })
 
   // v1.2.7 — Contextual Cues is OPTIONAL, and an episode that never proposed a

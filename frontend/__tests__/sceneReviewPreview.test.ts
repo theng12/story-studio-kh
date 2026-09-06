@@ -138,4 +138,25 @@ describe('Scene Review image preview', () => {
     assert.match(videoAssemblySource, /const initialEpisodeId = typeof route\.query\.episode_id === 'string'/)
     assert.match(videoAssemblySource, /const episodeId = ref\(initialEpisodeId\)/)
   })
+
+  test('an exact Jobs deep link selects the episode and focuses the requested Scene Review row', () => {
+    assert.match(sceneReviewSource, /route\.query\.scene_id/)
+    assert.match(sceneReviewSource, /pendingSceneDeepLink/)
+    assert.match(sceneReviewSource, /await jumpToScene\(sceneId, \{ focus: true \}\)/)
+    assert.match(sceneReviewSource, /el\.focus\(\{ preventScroll: true \}\)/)
+    const focusFlow = sceneReviewSource.slice(
+      sceneReviewSource.indexOf('async function focusPendingScene'),
+      sceneReviewSource.indexOf("watch(() => route.query.episode_id"),
+    )
+    assert.ok(
+      focusFlow.indexOf('await router.replace({ query })') < focusFlow.indexOf('await jumpToScene(sceneId, { focus: true })'),
+      'query cleanup must finish before final row focus so navigation cannot steal focus',
+    )
+    assert.match(focusFlow, /document\.activeElement\?\.id === `sr-scene-\$\{sceneId\}`/)
+  })
+
+  test('the subtitle rendering guard distinguishes a measured gap from an incomplete timeline', () => {
+    assert.match(sceneReviewSource, /blocking_cue_gaps\?\.length/)
+    assert.match(sceneReviewSource, /subtitle timeline is incomplete/i)
+  })
 })

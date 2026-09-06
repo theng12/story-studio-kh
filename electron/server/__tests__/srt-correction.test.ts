@@ -416,6 +416,71 @@ describe('transcript resolution', () => {
     assert.match(cues[1]!.text, /Procopius/)
   })
 
+  test('read-only status selects only a fresh correction and never rebuilds a stale one', async () => {
+    const ep = await makeEpisode([{
+      cues: [{ start: 0, end: 4, text: 'The wharves at Mirion fell silent.' }],
+      script: 'The wharves at Neorion fell silent.',
+    }])
+    await mod.resolveTranscriptSrt(ep)
+    const fresh = await mod.inspectExistingTranscriptSource(ep.subtitles_dir, CODE)
+    assert.equal(fresh.source, 'corrected')
+    assert.equal(fresh.planning_source_revalidation_required, false)
+
+    await fs.appendFile(ep.stitched, '\n')
+    const correctedBefore = await fs.stat(mod.correctedSrtPath(ep.subtitles_dir, CODE))
+    const stale = await mod.inspectExistingTranscriptSource(ep.subtitles_dir, CODE)
+    const correctedAfter = await fs.stat(mod.correctedSrtPath(ep.subtitles_dir, CODE))
+    assert.equal(stale.source, 'raw')
+    assert.equal(stale.planning_source_revalidation_required, true)
+    assert.equal(correctedAfter.mtimeMs, correctedBefore.mtimeMs, 'status inspection must not rewrite the correction')
+  })
+
+  test('a legacy correction report does not relabel an unmapped chapter as an audio mismatch', () => {
+    const lines = mod.describeTranscriptCorrection({
+      path: '/tmp/EP0001_stitched.corrected.srt',
+      corrected: true,
+      report: {
+        written: true,
+        path: '/tmp/EP0001_stitched.corrected.srt',
+        cues_in: 1,
+        cues_out: 1,
+        cues_dropped: 0,
+        cues_rewritten: 0,
+        chapters_total: 1,
+        chapters_corrected: 0,
+        chapters_refused: 1,
+        warnings: ['Introduction: no chapter number could be read — its original transcription was kept.'],
+        chapters: [{
+          slug: 'Introduction',
+          script_file: '',
+          accepted: false,
+          reason: 'no chapter number could be read',
+          cues_in: 1,
+          cues_out: 1,
+          cues_dropped: 0,
+          cues_rewritten: 0,
+          trust: {
+            accepted: false,
+            reason: 'no chapter number could be read',
+            script_words: 0,
+            asr_words: 0,
+            substitutions: 0,
+            deletions: 0,
+            plausible_insertions: 0,
+            fabricated_insertions: 0,
+            mismatch_words: 0,
+            mismatch_rate: 1,
+            longest_mismatch_run: 0,
+          },
+        }],
+        samples: [],
+      },
+    })
+    assert.ok(lines.some(line => line.includes('could not be corrected safely')))
+    assert.ok(lines.some(line => line.includes('no chapter number could be read')))
+    assert.equal(lines.some(line => line.includes('script and the audio did not agree')), false)
+  })
+
   /**
    * v1.4.0 — REVERSED, by the owner's decision on 2026-08-18.
    *

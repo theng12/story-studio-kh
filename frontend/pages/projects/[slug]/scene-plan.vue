@@ -93,13 +93,12 @@
           and your original transcript is untouched. ✓
         </div>
         <div
-          v-if="status.transcript_source?.corrected && (status.transcript_source.chapters_refused || 0) > 0"
+          v-if="status.transcript_source?.corrected && (status.transcript_source.refused_chapters?.length || 0) > 0"
           class="validation-msg text-sm mt-2"
         >
-          ⚠ <strong>{{ status.transcript_source.chapters_refused }}</strong> chapter(s) kept Whisper's
-          own words because the script and the audio did not agree closely enough to correct safely.
-          That usually means the audio was generated from a different draft than the script now on
-          disk. Re-generate that chapter's audio, or re-transcribe it, to bring the two back in step.
+          <p v-for="chapter in status.transcript_source.refused_chapters" :key="chapter.slug">
+            ⚠ {{ refusedChapterMessage(chapter) }}
+          </p>
         </div>
         <div v-if="!status.stitched_srt" class="validation-msg text-sm mt-2">
           ⚠ Stitch the subtitles first —
@@ -109,8 +108,16 @@
           ⚠ <strong>Do not rebuild or re-plan yet.</strong>
           Audio exists but subtitles are missing for
           <strong>{{ missingSubtitleSections.join(', ') }}</strong>.
-          <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Open Subtitles and transcribe those chapters</NuxtLink>,
+          <NuxtLink :to="subtitleLink(missingSubtitleSections[0])" class="inline-link">Open the first affected chapter in Subtitles</NuxtLink>,
           then stitch again. The current long scene crosses narration the app could not see.
+        </div>
+        <div v-else-if="blockingSubtitleCueGaps.length" class="validation-msg validation-msg-strong text-sm mt-2">
+          ⚠ <strong>Do not rebuild or re-plan yet.</strong>
+          The stitched timeline has an interval with no subtitle cues
+          <template v-if="blockingSubtitleGapSections.length">in <strong>{{ blockingSubtitleGapSections.join(', ') }}</strong>.</template>
+          <template v-else>in an unmapped section (such as an Intro).</template>
+          <NuxtLink :to="subtitleLink(blockingSubtitleGapSections[0])" class="inline-link">Open Subtitles</NuxtLink>,
+          then transcribe or correct it and stitch again.
         </div>
         <div v-else-if="status.stitched_srt?.drifts_from_current_merge" class="validation-msg text-sm mt-2">
           ⚠ Stitched SRT was built with a different gap
@@ -867,7 +874,7 @@
             <div class="scene-row-actions mt-1">
               <NuxtLink
                 v-if="sceneOverlapsMissingSubtitles(scene)"
-                :to="`/projects/${slug}/subtitles`"
+                :to="subtitleLink(missingSubtitleSectionForScene(scene))"
                 class="btn-icon"
                 title="This scene crosses audio with no subtitles. Transcribe the named chapters and stitch again before repairing it."
               >Fix subtitles first</NuxtLink>
@@ -1214,9 +1221,23 @@ interface ScenePlanStatus {
     chapters_refused: number | null
     warnings: string[]
     skipped_reason: string | null
+    refused_chapters?: Array<{
+      slug: string
+      reason_code: 'unmapped_section' | 'script_missing' | 'script_unreadable' | 'script_audio_mismatch' | 'unknown'
+    }>
     /** v1.2.2 — advisory text-quality report for this exact transcript. */
     quality?: SubtitleQualityReport | null
   }
+  timeline_integrity?: {
+    complete: boolean
+    missing_sections: string[]
+    blocking_cue_gaps?: Array<{
+      section_slugs: string[]
+      previous_end_sec: number
+      next_start_sec: number
+      gap_sec: number
+    }>
+  } | null
   scene_plan: ScenePlan | null
   plan_stale_vs_stitched?: boolean
   audio_merged: boolean
@@ -1350,8 +1371,14 @@ const missingSubtitleSections = computed(() => {
     .map(section => section.slug)
   return Array.from(new Set([...reported, ...derived]))
 })
+const blockingSubtitleCueGaps = computed(() => status.value?.timeline_integrity?.blocking_cue_gaps || [])
+const blockingSubtitleGapSections = computed(() => Array.from(new Set(
+  blockingSubtitleCueGaps.value.flatMap(gap => gap.section_slugs),
+)))
 const subtitleTimelineComplete = computed(() =>
-  !!status.value?.stitched_srt && missingSubtitleSections.value.length === 0,
+  !!status.value?.stitched_srt
+  && missingSubtitleSections.value.length === 0
+  && status.value?.timeline_integrity?.complete !== false,
 )
 /** Uncovered narration that "Repair coverage" can actually close: gaps between
  *  scenes, and a tail. A head gap is deliberately NOT counted — repair declines
@@ -1409,14 +1436,33 @@ const missingSubtitleRanges = computed(() =>
   (status.value?.stitched_srt?.meta?.sections || [])
     .filter(section => missingSubtitleSections.value.includes(section.slug))
     .map(section => ({
+      slug: section.slug,
       start: section.offset_sec,
       end: section.offset_sec + section.duration_sec,
     })),
 )
-function sceneOverlapsMissingSubtitles(scene: ScenePlanEntry): boolean {
-  return missingSubtitleRanges.value.some(range =>
+function missingSubtitleSectionForScene(scene: ScenePlanEntry): string | undefined {
+  return missingSubtitleRanges.value.find(range =>
     scene.end_sec > range.start + 0.01 && scene.start_sec < range.end - 0.01,
-  )
+  )?.slug
+}
+function sceneOverlapsMissingSubtitles(scene: ScenePlanEntry): boolean {
+  return !!missingSubtitleSectionForScene(scene)
+}
+function subtitleLink(section?: string): string {
+  const query = new URLSearchParams({ episode_id: episodeId.value })
+  if (section) query.set('section', section)
+  return `/projects/${slug.value}/subtitles?${query.toString()}`
+}
+function refusedChapterMessage(chapter: NonNullable<NonNullable<ScenePlanStatus['transcript_source']>['refused_chapters']>[number]): string {
+  if (chapter.reason_code === 'unmapped_section') {
+    return `${chapter.slug} could not be mapped to a numbered script chapter; it keeps Whisper's words.`
+  }
+  if (chapter.reason_code === 'script_audio_mismatch') {
+    return `${chapter.slug} script and audio did not agree closely enough to correct safely; it keeps Whisper's words.`
+  }
+  if (chapter.reason_code === 'script_missing') return `${chapter.slug} has no matching script chapter; it keeps Whisper's words.`
+  return `${chapter.slug} could not be corrected safely; it keeps Whisper's words.`
 }
 // v1.0.272 — per-episode in-flight flags. A plan run holds its flag
 // through a long poll; keying it to the episode means switching episodes

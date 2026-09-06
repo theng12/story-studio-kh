@@ -11,6 +11,9 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
+import { parseSrt } from '../lib/subtitle-builder.js'
+import { stampFromCues } from '../lib/scene-plan-timeline.js'
+import { allowedSubtitleCueGapSec } from '../services/scene-plan-pacing.js'
 
 let stitch: typeof import('../services/subtitle-stitcher.js')
 let subtitles: typeof import('../generators/subtitles.js')
@@ -148,5 +151,55 @@ describe('subtitle stitcher', () => {
     assert.deepEqual(result.missing_sections, [])
     assert.equal(meta.complete, true)
     assert.deepEqual(meta.missing_sections, [])
+  })
+
+  test('attributes a pacing-blocking stitched cue gap to its exact chapter without changing raw integrity', async () => {
+    const inputs = await makeCase('cue-gap', {
+      gap_duration_s: 1,
+      sections: [{ slug: 'Chapter_15', duration_s: 90 }],
+    }, { 'EP0001_Chapter_15.srt': SRT })
+    const result = await stitch.stitchSubtitles(inputs)
+    const gapSrt = [
+      '1', '00:00:17,880 --> 00:00:17,880', 'before', '',
+      '2', '00:00:55,460 --> 00:00:56,000', 'after', '',
+    ].join('\n')
+    await fs.writeFile(result.output_path, gapSrt)
+    const metaPath = `${result.output_path}.json`
+    const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8'))
+    const cues = parseSrt(gapSrt)
+    await fs.writeFile(metaPath, JSON.stringify({ ...meta, total_cues: cues.length, timeline: stampFromCues(cues) }))
+    const raw = await timelineIntegrity.readSubtitleTimelineIntegrity(inputs.subtitles_dir, inputs.episode_code)
+    assert.equal(raw.complete, true, 'callers that do not choose a pacing threshold keep section-only semantics')
+    const paced = await timelineIntegrity.readSubtitleTimelineIntegrity(inputs.subtitles_dir, inputs.episode_code, {
+      max_cue_gap_sec: allowedSubtitleCueGapSec({ max_sec: 12 }),
+    })
+    assert.equal(paced.complete, false)
+    assert.deepEqual(paced.blocking_cue_gaps, [{
+      previous_end_sec: 17.88,
+      next_start_sec: 55.46,
+      gap_sec: 37.58,
+      section_slugs: ['Chapter_15'],
+      section_local_start_sec: 17.88,
+      section_local_end_sec: 55.46,
+    }])
+    const wider = await timelineIntegrity.readSubtitleTimelineIntegrity(inputs.subtitles_dir, inputs.episode_code, {
+      max_cue_gap_sec: allowedSubtitleCueGapSec({ max_sec: 20 }),
+    })
+    assert.equal(wider.complete, true, 'a custom 20s pacing band keeps the exact 60s admission threshold')
+  })
+
+  test('pacing readiness refuses a stitched file whose bytes no longer match its proof', async () => {
+    const inputs = await makeCase('cue-proof', {
+      gap_duration_s: 1,
+      sections: [{ slug: 'Chapter_01', duration_s: 60 }],
+    }, { 'EP0001_Chapter_01.srt': SRT })
+    const result = await stitch.stitchSubtitles(inputs)
+    await fs.writeFile(result.output_path, '')
+    const paced = await timelineIntegrity.readSubtitleTimelineIntegrity(inputs.subtitles_dir, inputs.episode_code, {
+      max_cue_gap_sec: 36,
+    })
+    assert.equal(paced.complete, false)
+    assert.ok(paced.missing_sections.includes('subtitle timeline verification'))
+    assert.ok(paced.missing_sections.includes('planning transcript cues'))
   })
 })

@@ -130,6 +130,10 @@ describe('scene media checkpoints', () => {
       completed: 1,
       missing: [],
       invalid: ['scene-2 (empty image)', 'scene-3 (missing from scene plan)'],
+      issues: [
+        { item_id: 'scene-2', state: 'invalid', reason: 'empty image' },
+        { item_id: 'scene-3', state: 'invalid', reason: 'missing from scene plan' },
+      ],
     })
   })
 
@@ -151,6 +155,10 @@ describe('scene media checkpoints', () => {
       completed: 0,
       missing: [],
       invalid: ['scene-1 (stale motion prompt)', 'scene-2 (empty clip)'],
+      issues: [
+        { item_id: 'scene-1', state: 'invalid', reason: 'stale motion prompt' },
+        { item_id: 'scene-2', state: 'invalid', reason: 'empty clip' },
+      ],
     })
   })
 })
