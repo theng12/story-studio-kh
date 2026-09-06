@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.formula.sleep-history-compilation",
+  "item_id": "com.storystudio.formula.sleep-history-compilation",
+  "version": "1.0.0",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "series-formula",
+  "source_path": "content-packs/sleep-history/formula/sleep-history-compilation",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.formula.sleep-history-compilation",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.formula.sleep-history-compilation",
+      "status": "proposed"
+    }
+  }
+}

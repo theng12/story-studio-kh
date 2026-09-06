@@ -1,0 +1,13 @@
+{
+  "expected_revision": 144,
+  "coordinator": {
+    "task": "sleep-history-compilation-2026-09-06",
+    "branch": "content/sleep-history-2026-09-06"
+  },
+  "receipt_ref": "authoring:6a7d2a107dacc5f4f3ba37f76913e0dcc7861459094d7eb7af7ebf0fcbb9a473",
+  "pack_id": "com.storystudio.pack.topic.food-histories",
+  "version": "1.0.0",
+  "changes": {
+    "status": "authored"
+  }
+}

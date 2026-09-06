@@ -1,0 +1,142 @@
+{
+  "expected_revision": 142,
+  "coordinator": {
+    "task": "sleep-history-compilation-2026-09-06",
+    "branch": "content/sleep-history-2026-09-06"
+  },
+  "proposal_ref": "docs/superpowers/plans/2026-09-06-sleep-history-compilation-packs.md#reserve-one-atomic-batch",
+  "records": [
+    {
+      "pack_id": "com.storystudio.pack.formula.sleep-history-compilation",
+      "item_id": "com.storystudio.formula.sleep-history-compilation",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/sleep-history/formula/sleep-history-compilation",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.sleep-history-compilation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.sleep-history-compilation",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.food-histories",
+      "item_id": "com.storystudio.topic.food-histories",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/sleep-history/topic/food-histories",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.food-histories",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.food-histories",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.everyday-object-histories",
+      "item_id": "com.storystudio.topic.everyday-object-histories",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/sleep-history/topic/everyday-object-histories",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.everyday-object-histories",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.everyday-object-histories",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.drinks-and-spices-histories",
+      "item_id": "com.storystudio.topic.drinks-and-spices-histories",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/sleep-history/topic/drinks-and-spices-histories",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.drinks-and-spices-histories",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.drinks-and-spices-histories",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.old-master-still-life",
+      "item_id": "com.storystudio.style.old-master-still-life",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/sleep-history/style/old-master-still-life",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.old-master-still-life",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.old-master-still-life",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.period-portrait-serif-title",
+      "item_id": "com.storystudio.thumbnail.period-portrait-serif-title",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/sleep-history/thumbnail/period-portrait-serif-title",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.period-portrait-serif-title",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.period-portrait-serif-title",
+          "status": "proposed"
+        }
+      }
+    }
+  ]
+}
