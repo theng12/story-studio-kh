@@ -245,6 +245,161 @@ test('manual Finish replaces one known terminal image immediately while preservi
   }
 })
 
+test('automatic missing-only run replaces a released exhausted-failover image and preserves completed scenes', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const pm = await import('../services/project-manager.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Automatic exhausted failover retry')
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({ scenes: [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'Replace only the released failover.' },
+      { id: 'scene-complete', scene_index: 2, visual_prompt: 'Preserve this completed image.' },
+    ] }))
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(outDir, { recursive: true })
+    const completedPath = path.join(outDir, 'scene-complete.png')
+    await sharp({ create: { width: 3, height: 3, channels: 3, background: '#654321' } }).png().toFile(completedPath)
+    const completedBytes = await fs.readFile(completedPath)
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: 'automatic-exhausted-failover', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Automatic exhausted failover', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001', 'scene-complete'], missing_only: true,
+      },
+    }
+    await writeAuthoritativeFixture(job)
+    service.queueScenario('image', {
+      states: ['accepted', 'failed'], failureCode: 'SITE_FAILOVER_EXHAUSTED', reservedCredits: 9,
+    })
+    service.queueScenario('image', { states: ['accepted', 'succeeded'], reservedCredits: 4, finalCredits: 4 })
+    assert.equal(await runContinuityRenderJob(job), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 2, 'the same run submits exactly one fresh image request')
+    await sharp(path.join(outDir, 'scene-001.png')).stats()
+    assert.deepEqual(await fs.readFile(completedPath), completedBytes, 'the completed scene remains byte-identical')
+    const completedEntry = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(completedEntry.last_state, 'succeeded')
+    assert.match(job.output_lines.join('\n'), /attempt 2 of 2/)
+    const successfulSubmissions = service.submissions.filter(submission => submission.operation === 'image')
+    assert.equal(new Set(successfulSubmissions.map(submission => submission.idempotencyKey)).size, 2, 'the replacement has a fresh stable identity')
+
+    assert.equal(await runContinuityRenderJob(job), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 2, 're-entry after completion submits nothing')
+
+    const bounded = await createContinuityFixture('Bounded exhausted failover retry')
+    const boundedNow = new Date().toISOString()
+    const boundedJob: any = {
+      job_id: 'bounded-exhausted-failover', project_slug: bounded.project.slug, type: 'continuity_render', episode_id: bounded.episodeId,
+      title: 'Bounded exhausted failover', status: 'running', created_at: boundedNow, started_at: boundedNow, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: boundedNow },
+      params: { episode_id: bounded.episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K', missing_only: true },
+    }
+    await writeAuthoritativeFixture(boundedJob)
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_FAILOVER_EXHAUSTED', reservedCredits: 9 })
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_FAILOVER_EXHAUSTED', reservedCredits: 9 })
+    await assert.rejects(runContinuityRenderJob(boundedJob), /incomplete/i)
+    assert.equal(service.providerSubmissionCount('image'), 4, 'two exhausted failovers receive at most one automatic replacement')
+    const boundedOutDir = await resolveSceneImagesDir(bounded.project.slug, bounded.episodeId, bounded.paths.episode_dir)
+    await assert.rejects(fs.stat(path.join(boundedOutDir, 'scene-001.png')), { code: 'ENOENT' })
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('Image Pool and paid thumbnails each retry one released exhausted failover in the same run', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input, init) => {
+      const response = await originalFetch(input, init)
+      const url = String(input)
+      if (url.startsWith(`${service.baseUrl}/v1/image/models`) && response.headers.get('content-type')?.includes('application/json')) {
+        const models = await response.clone().json() as Array<Record<string, any>>
+        return Response.json(models.map(model => ({
+          ...model, chargeable: true,
+          output_options: model.output_options.map((row: Record<string, unknown>) => ({
+            ...row, credits_per_image: 4, price_version: 'mock-image-price-v1',
+          })),
+        })))
+      }
+      return response
+    }
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const pm = await import('../services/project-manager.js')
+    const pools = await import('../services/broll-pool-manager.js')
+    const { toMdPath } = await import('../lib/episode-artifacts.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const poolProject = await pm.createProject({ name: 'Automatic failover Image Pool' })
+    const poolRoot = path.join(pm.getProjectDir(poolProject.slug)!, 'automatic-failover-pool')
+    await fs.mkdir(poolRoot, { recursive: true })
+    const pool = await pools.createPool({ name: 'Automatic Failover Pool', folder_path: poolRoot, media: 'image' })
+    const now = new Date().toISOString()
+    const poolJob: any = {
+      job_id: 'automatic-failover-pool', project_slug: poolProject.slug, type: 'image_pool_generate', episode_id: 'POOL',
+      title: 'Automatic failover pool', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
+      params: { pool_id: pool.id, prompts: ['A quiet archive.'], model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K', variants: 1, run_id: 'automatic-failover' },
+    }
+    await writeAuthoritativeFixture(poolJob)
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_FAILOVER_EXHAUSTED', reservedCredits: 9 })
+    service.queueScenario('image', { states: ['accepted', 'succeeded'], reservedCredits: 4, finalCredits: 4 })
+    const { generateImagePoolImages } = await import('../generators/image-pool-generate.js')
+    assert.equal(await generateImagePoolImages(poolJob), undefined)
+    await sharp(path.join(poolRoot, 'gen-automatic-failover-0001.png')).stats()
+    assert.equal(service.providerSubmissionCount('image'), 2)
+
+    const thumbnail = await createContinuityFixture('Automatic failover thumbnail')
+    const promptPath = toMdPath(thumbnail.paths.thumb_prompts_docx)
+    await fs.mkdir(path.dirname(promptPath), { recursive: true })
+    await fs.writeFile(promptPath, '# Thumbnail Prompts\n\n## Thumbnail 1: First\n\nA moonlit archive.\n')
+    const thumbJob: any = {
+      job_id: 'automatic-failover-thumbnail', project_slug: thumbnail.project.slug, type: 'thumb_images', episode_id: thumbnail.episodeId,
+      title: 'Automatic failover thumbnail', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
+      params: { episode_id: thumbnail.episodeId, mode: 'thumbs', model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
+    }
+    await writeAuthoritativeFixture(thumbJob)
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_FAILOVER_EXHAUSTED', reservedCredits: 9 })
+    service.queueScenario('image', { states: ['accepted', 'succeeded'], reservedCredits: 4, finalCredits: 4 })
+    const { generateImages, resolveImageDirs } = await import('../generators/images.js')
+    assert.equal(await generateImages(thumbJob), undefined)
+    const { thumbDir } = await resolveImageDirs(thumbnail.project.slug, promptPath, thumbnail.episodeId)
+    await sharp(path.join(thumbDir, `${thumbnail.episodeId.toUpperCase()}_Thumb01_v1.png`)).stats()
+    assert.equal(service.providerSubmissionCount('image'), 4)
+  } finally {
+    globalThis.fetch = originalFetch
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
 test('manual Finish rejoins an accepted image through recovery without another provider POST', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()

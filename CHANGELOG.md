@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.121 — 2026-09-07
+
+- **With automatic image replacement enabled, a fully released image can recover after GenStudio exhausts its site failover.** Story Studio verifies the authoritative failed task and zero settlement, then makes one bounded fresh attempt in the same run for Continuity, Image Pool, or thumbnails. Active, uncertain, cancelled, incomplete, and charged outcomes remain protected from automatic resubmission.
+
 ## v1.4.120 — 2026-09-07
 
 - **Image permit requests refill in parallel as GenStudio capacity becomes available.** A request waiting to retry no longer holds up other eligible requests; cancellation and existing billing checks stay intact.

@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { listImageModelsForceLive, type GenStudioImageModel } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, listImageModelsForceLive, type GenStudioImageModel } from '../lib/genstudio-client.js'
 import type { Job, PaidImageReplacementAttempt } from '../models/types.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
 import { hashInput, readManifest, recordPaidImageReplacementStrict, type Manifest, type PaidImageOutputSelector, type PaidImageReferenceInput, type TaskManifestEntry } from './task-manifest.js'
@@ -251,6 +251,16 @@ export type PaidImageReplacementDecision =
   | { action: 'commit'; attempt: PaidImageReplacementAttempt; scope: string }
   | { action: 'blocked'; reason: string; public_reason: PaidImageReplacementPublicReason }
 
+/** The image-only exhausted-failover shape, after the authoritative policy accepted it. */
+export function isReleasedFailoverImageRetry(
+  error: unknown,
+  decision: PaidImageReplacementDecision | null,
+): boolean {
+  return error instanceof GenStudioImageTerminalFailureError
+    && error.failureCode === 'SITE_FAILOVER_EXHAUSTED'
+    && decision?.action === 'safe-zero-settlement-retry'
+}
+
 export type PaidImageReplacementPublicReason =
   | 'original_failure_not_eligible'
   | 'replacement_disabled'
@@ -313,6 +323,7 @@ export interface PaidImageReplacementDecisionInput {
 
 const PAID_WAIT_MS = 30 * 60 * 1_000
 const FLEET_FAILURE_CODES = new Set(['SITE_PLACEMENT_EXHAUSTED', 'SITE_CAPACITY_UNAVAILABLE'])
+const ZERO_SETTLEMENT_IMAGE_FAILURE_CODES = new Set([...FLEET_FAILURE_CODES, 'SITE_FAILOVER_EXHAUSTED'])
 const commitLocks = new Map<string, Promise<void>>()
 const EXPLICIT_BLOCKED_FAILURE = /(?:UNCERTAIN|REFUS|VALIDATION|AUTH|CREDIT|BILLING)/i
 
@@ -488,7 +499,8 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   if (control.cancelled === true) return blocked('the original task was cancelled', 'original_failure_not_eligible')
   if (EXPLICIT_BLOCKED_FAILURE.test(String(control.failure_code || ''))) return blocked('the original task has an explicit refusal or uncertain submission result', 'original_failure_not_eligible')
   if (control.state !== 'failed') return { action: 'recover-original' }
-  if (!FLEET_FAILURE_CODES.has(String(control.failure_code || ''))) return blocked('the original failure is not an allow-listed transient infrastructure result', 'original_failure_not_eligible')
+  const failureCode = String(control.failure_code || '')
+  if (!ZERO_SETTLEMENT_IMAGE_FAILURE_CODES.has(failureCode)) return blocked('the original failure is not an allow-listed transient infrastructure result', 'original_failure_not_eligible')
   if (!isFiniteCredit(control.reserved_credits) || !isFiniteCredit(control.settled_credits) || !isFiniteCredit(control.released_credits)
     || control.reserved_credits !== control.settled_credits + control.released_credits) {
     return blocked('the original settlement is incomplete or imbalanced')
@@ -523,6 +535,9 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
       return blocked(error?.message || 'the zero settlement retry could not be verified')
     }
     return { action: 'safe-zero-settlement-retry' }
+  }
+  if (!FLEET_FAILURE_CODES.has(failureCode)) {
+    return blocked('exhausted failover is eligible only after a fully released zero settlement', 'original_failure_not_eligible')
   }
 
   let attempt: PaidImageReplacementAttempt | undefined

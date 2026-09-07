@@ -47,6 +47,7 @@ import {
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
+  isReleasedFailoverImageRetry,
   readPaidImageOriginalRequest,
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
@@ -1132,9 +1133,11 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
         : null
 
       let attempt: DurableImageAttempt | null = null
+      let releasedFailoverRetryUsed = false
       for (let attemptNum = 1; ; attemptNum++) {
         let acceptedTaskId = ''
         let acceptedKey = ''
+        let releasedFailoverRetry = false
         try {
           if (attemptNum === 1) {
             const currentManifest = await readManifest(thumbDir).catch(() => thumbManifest)
@@ -1397,6 +1400,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                     modelId: resolvedModelConfig.api_model || modelName, apiKey,
                   },
                 })
+                releasedFailoverRetry = isReleasedFailoverImageRetry(e, decision)
                 if (decision.action === 'wait') {
                   paidImageWaitRequested = true
                   return
@@ -1412,9 +1416,14 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           // Same two retryable refusals as `runScene`, on the same terms — see
           // the comment there and `imageRetryPlan`.
           const plan = imageRetryPlan(e, attemptNum)
+            || (releasedFailoverRetry && !releasedFailoverRetryUsed
+              ? { waitMs: 0, reason: 'Failover ended before an image was published', maxAttempts: attemptNum + 1 }
+              : null)
           const fleetBusy = isFleetBusyFailure(e, 'image')
+          const stoppableRetry = fleetBusy || releasedFailoverRetry
           if (plan && attempt && !jq.isCancelled(job.job_id)
-            && !(fleetBusy && jq.isPauseRequested(job.job_id))) {
+            && !(stoppableRetry && jq.isPauseRequested(job.job_id))) {
+            if (releasedFailoverRetry) releasedFailoverRetryUsed = true
             const { waitMs, reason, maxAttempts } = plan
             activeItems.set(key, {
               label,
@@ -1439,7 +1448,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             // the ROUTE-exhaustion path byte-identical: it has never checked
             // pause, and waking it early would turn its paced retry into an
             // immediate one.
-            if (fleetBusy) {
+            if (stoppableRetry) {
               await waitUnlessStopped(
                 waitMs,
                 () => jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id),
@@ -1451,7 +1460,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               job.output_lines.push('  Cancelled.')
               return
             }
-            if (fleetBusy && jq.isPauseRequested(job.job_id)) {
+            if (stoppableRetry && jq.isPauseRequested(job.job_id)) {
               job.output_lines.push('  Paused.')
               return
             }

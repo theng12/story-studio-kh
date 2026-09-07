@@ -51,6 +51,7 @@ import {
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
+  isReleasedFailoverImageRetry,
   readPaidImageOriginalRequest,
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
@@ -740,6 +741,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
           // attempt that just failed actually wrote to disk.
           let savedEntry: TaskManifestEntry | null = taskManifest.tasks[filename] || null
           let attemptNum = 1
+          let releasedFailoverRetryUsed = false
           for (;;) {
             // Cancel and Pause are re-read at the top of EVERY attempt, not
             // just every scene: a resubmission must never start after the owner
@@ -759,6 +761,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
             let attemptBaseScope = ''
             let attemptPaidOwningRoot = ''
             let attemptOwner: TaskManifestEntry | null = savedEntry
+            let releasedFailoverRetry = false
             try {
               // The base scope names the deliberate user action. A force re-render
               // owns a fresh one; an ordinary resume/repair deliberately reuses
@@ -1242,6 +1245,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   if (decision) {
                     job.output_lines.push(`Scene ${scene.scene_index}: paid replacement decision — ${decision.action}.`)
                   }
+                  releasedFailoverRetry = isReleasedFailoverImageRetry(e, decision)
                   if (decision?.action === 'wait') {
                     paidImageWaitRequested = true
                     return
@@ -1253,15 +1257,19 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   }
                 }
                 if (e.cancelled) cancelledSceneIds.add(scene.id)
-                // ── "Every machine was busy" — wait, then ask again ──
-                // The only failure this generator resubmits; see
-                // `continuityFleetBusyRetryPlan` for why it costs nothing and
-                // why nothing else qualifies. A task id is required because the
+                // A no-worker fleet failure uses the shared bounded backoff.
+                // One image-only exhausted failover may retry immediately when
+                // the paid policy has verified its authoritative zero settlement.
+                // A task id is required because the
                 // next identity is DERIVED from the dead job id: without one the
                 // scope cannot be promoted, and the retry would replay a
                 // settled-failed key, which returns the same failure forever.
                 const plan = manualFinish ? null : continuityFleetBusyRetryPlan(e, attemptNum)
+                  || (releasedFailoverRetry && !releasedFailoverRetryUsed
+                    ? { waitMs: 0, reason: 'Failover ended before an image was published', maxAttempts: attemptNum + 1 }
+                    : null)
                 if (plan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
+                  if (releasedFailoverRetry) releasedFailoverRetryUsed = true
                   fleetWaiting.set(scene.scene_index, {
                     attempt: attemptNum,
                     maxAttempts: plan.maxAttempts,

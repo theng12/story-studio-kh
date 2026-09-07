@@ -103,10 +103,12 @@ test('This Mac keeps paid image replacement off until a positive whole-number ce
     assert.match(section.textContent || '', /Automatically buy one replacement for a confirmed failed image/)
     assert.match(section.textContent || '', /reconnects to the original GenStudio task first/i)
     assert.match(section.textContent || '', /After GenStudio confirms that task failed/i)
+    assert.match(section.textContent || '', /eligible fully refunded site-failover failure may retry once immediately/i)
+    assert.match(section.textContent || '', /eligible failure that already used credits/i)
     assert.match(section.textContent || '', /waits 30 minutes/i)
     assert.match(section.textContent || '', /exact current price/i)
     assert.match(section.textContent || '', /per-Story-job credit limit/i)
-    assert.match(section.textContent || '', /Maximum 1 replacement per image/)
+    assert.match(section.textContent || '', /maximum 1 per image/i)
     assert.match(section.textContent || '', /Time alone never proves a task stopped\./)
 
     const enabled = section.querySelector<HTMLSelectElement>('select[name="paid-image-replacement-enabled"]')

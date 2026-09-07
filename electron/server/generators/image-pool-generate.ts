@@ -42,6 +42,7 @@ import {
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
+  isReleasedFailoverImageRetry,
   readPaidImageOriginalRequest,
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
@@ -305,6 +306,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
     // its waits fails exactly as it does today, the catch below still records
     // it, and the outer loop still goes on to the remaining items.
     let attemptNum = 1
+    let releasedFailoverRetryUsed = false
     let retryItem = true
     while (retryItem) {
       retryItem = false
@@ -320,6 +322,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
       let attemptOriginal: Partial<TaskManifestEntry> = {}
       let attemptBaseScope = ''
       let paidReplacement = false
+      let releasedFailoverRetry = false
       try {
         // Re-read per attempt, from DISK — not from a copy taken before the
         // run. The failed entry the catch below writes is what promotes the
@@ -627,6 +630,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
                   modelId: modelConfig.api_model || model, apiKey,
                 },
               })
+              releasedFailoverRetry = isReleasedFailoverImageRetry(e, decision)
               if (decision.action === 'wait') {
                 await jq.checkpointJobState(job)
                 return { kind: 'paid-image-wait' }
@@ -646,7 +650,11 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           // cannot promote the scope, and the retry would replay a
           // settled-failed key, which returns the same failure forever.
           const retryPlan = imagePoolFleetBusyRetryPlan(e, attemptNum)
+            || (releasedFailoverRetry && !releasedFailoverRetryUsed
+              ? { waitMs: 0, reason: 'Failover ended before an image was published', maxAttempts: attemptNum + 1 }
+              : null)
           if (retryPlan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
+            if (releasedFailoverRetry) releasedFailoverRetryUsed = true
             job.output_lines.push(
               `item ${item.index + 1}: ${retryPlan.reason.toLowerCase()} — nothing was charged, ` +
               'the credits came back whole. ' +

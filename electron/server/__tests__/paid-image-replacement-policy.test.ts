@@ -412,16 +412,41 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     return { result, current, jobs, manifests, writes }
   }
 
+  await suite.test('the in-run signal is exact to image failover plus an accepted zero-settlement decision', () => {
+    const failure = new client.GenStudioImageTerminalFailureError({
+      id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED',
+      reserved_credits: 9, settled_credits: 0, released_credits: 9,
+    } as any)
+    assert.equal(policy.isReleasedFailoverImageRetry(failure, { action: 'safe-zero-settlement-retry' }), true)
+    assert.equal(policy.isReleasedFailoverImageRetry(failure, {
+      action: 'blocked', reason: 'not released', public_reason: 'not_verified',
+    }), false)
+    assert.equal(policy.isReleasedFailoverImageRetry(
+      new client.GenStudioImageTerminalFailureError({
+        id: 'other', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+        reserved_credits: 9, settled_credits: 0, released_credits: 9,
+      } as any),
+      { action: 'safe-zero-settlement-retry' },
+    ), false)
+    assert.equal(policy.isReleasedFailoverImageRetry(
+      new client.GenStudioTtsTerminalFailureError({
+        id: 'tts', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED',
+        reserved_credits: 9, settled_credits: 0, released_credits: 9,
+      } as any),
+      { action: 'safe-zero-settlement-retry' },
+    ), false)
+  })
+
   for (const [label, control, expected, publicReason] of [
-    ['running control', { id: 'original-task', state: 'running' }, 'recover-original', undefined],
-    ['unknown control state', { id: 'original-task', state: 'reconciling' }, 'recover-original', undefined],
+    ['running exhausted-failover control', { id: 'original-task', state: 'running', failure_code: 'SITE_FAILOVER_EXHAUSTED' }, 'recover-original', undefined],
+    ['reconciling exhausted-failover control', { id: 'original-task', state: 'reconciling', failure_code: 'SITE_FAILOVER_EXHAUSTED' }, 'recover-original', undefined],
     ['uncertain submission', { id: 'original-task', state: 'failed', failure_code: 'CLOUD_SUBMISSION_UNCERTAIN', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked', 'original_failure_not_eligible'],
     ['cancelled task', { id: 'original-task', state: 'failed', cancelled: true, failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked', 'original_failure_not_eligible'],
     ['billing refusal', { id: 'original-task', state: 'failed', failure_code: 'INSUFFICIENT_CREDITS', reserved_credits: 9, settled_credits: 0, released_credits: 9 }, 'blocked', 'original_failure_not_eligible'],
     ['validation refusal before recoverable classification', { id: 'original-task', state: 'running', failure_code: 'VALIDATION_FAILED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked', 'original_failure_not_eligible'],
     ['authentication refusal before recoverable classification', { id: 'original-task', state: 'reconciling', failure_code: 'AUTH_FAILED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked', 'original_failure_not_eligible'],
-    ['imbalanced settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 5 }, 'blocked', 'not_verified'],
-    ['missing settlement fields', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, released_credits: 6 }, 'blocked', 'not_verified'],
+    ['imbalanced exhausted-failover settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 8 }, 'blocked', 'not_verified'],
+    ['missing exhausted-failover settlement fields', { id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED', reserved_credits: 9, released_credits: 9 }, 'blocked', 'not_verified'],
     ['nonfinite settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: Number.NaN, settled_credits: 3, released_credits: 6 }, 'blocked', 'not_verified'],
   ] as const) {
     await suite.test(`does not spend for ${label}`, async () => {
@@ -438,9 +463,9 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     })
   }
 
-  await suite.test('safe zero settlement with no attempt writes neither the authoritative job nor manifest', async () => {
+  await suite.test('released exhausted failover is an image-only safe zero retry with no policy writes', async () => {
     const zero = await decision({ dependencies: {
-      readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
+      readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
       artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
       resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
       refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }),
@@ -448,6 +473,18 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     assert.equal(zero.result.action, 'safe-zero-settlement-retry')
     assert.equal(zero.writes.filter(write => write === 'job').length, 0)
     assert.equal(zero.writes.filter(write => write === 'manifest').length, 0)
+  })
+
+  await suite.test('exhausted failover with any settlement is never promoted into the paid wait path', async () => {
+    const charged = await decision({ dependencies: {
+      readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED', reserved_credits: 9, settled_credits: 1, released_credits: 8 }),
+      artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
+      resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
+      refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }),
+    } })
+    assert.equal(charged.result.action, 'blocked')
+    assert.equal(charged.result.action === 'blocked' && charged.result.public_reason, 'original_failure_not_eligible')
+    assert.deepEqual(charged.writes, [])
   })
 
   await suite.test('production safe-zero inspection is byte-stable under the shared checkpoint lock', async () => {
