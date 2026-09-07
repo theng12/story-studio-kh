@@ -9,6 +9,7 @@ import {
   GenStudioImageTerminalFailureError,
   getGenStudioCancellationStatus,
   getGenStudioJobByIdempotencyKey,
+  isGenStudioTaskAbsent,
   recoverImageWithGenStudio,
 } from './genstudio-client.js'
 
@@ -81,7 +82,7 @@ export async function tryRecoverImageFromManifestEntry(
   apiKey: string,
   _modelConfig: ImageModelConfig,
   isCancelled?: () => boolean,
-  options: { observeCurrentState?: boolean } = {},
+  options: { observeCurrentState?: boolean; allowPreparedReplayOnAbsent?: boolean } = {},
 ): Promise<ImageRecoveryOutcome> {
   if (!entry) return { kind: 'no-saved-job' }
   if (!entry.task_id && !entry.idempotency_key) return { kind: 'no-saved-job' }
@@ -123,6 +124,10 @@ export async function tryRecoverImageFromManifestEntry(
     return { kind: 'recovered', urls: [result.url], taskId: result.jobId, provider: entry.provider }
   } catch (error) {
     if (isCancellation(error, isCancelled)) throw error
+    if (options.allowPreparedReplayOnAbsent && !entry.task_id && entry.last_state === 'prepared'
+      && isGenStudioTaskAbsent(error)) {
+      return { kind: 'no-saved-job' }
+    }
     if (error instanceof GenStudioImageTerminalFailureError) {
       return {
         kind: 'terminal-failed',
@@ -185,6 +190,19 @@ export function resolveManualImageReplacement(
     .update(`${actionId}\n${imageManifestIdentityHash(entry)}`)
     .digest('hex').slice(0, 12)
   return { scope: `manual-finish:${actionId}:replace:${token}`, superseded }
+}
+
+/** Whether this manifest already records a fresh request for one bulk repair action. */
+export function isCurrentPipelineRepairImageAttempt(entry: { request_scope?: string } | null | undefined, actionId: string): boolean {
+  const scope = entry?.request_scope
+  const base = `manual-finish:${actionId}`
+  return scope === base || Boolean(scope?.startsWith(`${base}:`))
+}
+
+export function hasPipelineRepairImageAttempt(entry: TaskManifestEntry | null | undefined, actionId: string): boolean {
+  return isCurrentPipelineRepairImageAttempt(entry, actionId)
+    || Boolean(entry?.superseded_image_requests?.some(previous =>
+      isCurrentPipelineRepairImageAttempt(previous, actionId)))
 }
 
 /**

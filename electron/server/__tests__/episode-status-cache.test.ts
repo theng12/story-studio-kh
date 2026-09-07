@@ -253,12 +253,36 @@ describe('episode-status-cache', () => {
       path.join(subtitlesDir, `${CODE}_Chapter_01.srt`),
       '1\n00:00:00,000 --> 00:00:02,000\nchapter\n',
     )
+    await writeVerifiedSubtitleTimeline(epDir, '1\n00:00:00,000 --> 00:00:04,000\nstitched\n', [
+      { slug: 'Introduction', source_srt: `${CODE}_Introduction.srt`, cues_added: 1, offset_sec: 0, duration_sec: 2 },
+      { slug: 'Chapter_01', source_srt: `${CODE}_Chapter_01.srt`, cues_added: 1, offset_sec: 2, duration_sec: 2 },
+    ])
     const storedMtime = stored.watchedMtimes[subtitlesDir]!
     const bumped = new Date(storedMtime + 2_000)
     await fs.utimes(subtitlesDir, bumped, bumped)
 
     const complete = await cache.get(SLUG, CODE)
     assert.equal(complete.subtitles, true)
+  })
+
+  test('per-chapter subtitle sources stay pending until their stitched timeline exists, while an imported track stays complete', async () => {
+    const { epDir } = await makeProject()
+    const subtitlesDir = path.join(epDir, `${CODE} - 09 Subtitles Output`)
+    // `makeProject` intentionally reuses this episode root across cache cases.
+    // Remove the prior case's verified stitch so this asserts the missing-stitch
+    // state rather than accidentally reading its leftover timeline.
+    await fs.rm(subtitlesDir, { recursive: true, force: true })
+    await fs.mkdir(subtitlesDir, { recursive: true })
+    await fs.writeFile(path.join(epDir, 'audio_chapters.json'), JSON.stringify({ sections: [{ slug: 'Introduction' }] }))
+    await fs.writeFile(path.join(subtitlesDir, `${CODE}_Introduction.srt`), '1\n00:00:00,000 --> 00:00:01,000\nchapter\n')
+    cacheMod.episodeStatusCache.invalidate(SLUG, CODE)
+    assert.equal((await cacheMod.episodeStatusCache.get(SLUG, CODE)).subtitles, false)
+
+    await fs.rm(subtitlesDir, { recursive: true, force: true })
+    await fs.mkdir(subtitlesDir, { recursive: true })
+    await fs.writeFile(path.join(subtitlesDir, `${CODE}_imported.srt`), '1\n00:00:00,000 --> 00:00:01,000\nimported\n')
+    cacheMod.episodeStatusCache.invalidate(SLUG, CODE)
+    assert.equal((await cacheMod.episodeStatusCache.get(SLUG, CODE)).subtitles, true)
   })
 
   test('invalidate(): explicit drop forces miss next time', async () => {

@@ -1118,6 +1118,12 @@ export async function computeEpisodeStatus(
       )
       status.subtitles = completion.complete
       const stitched = path.join(subtitlePaths.subtitles_dir, `${code.toUpperCase()}_stitched.srt`)
+      // Per-chapter sources only become a usable Pipeline prerequisite once
+      // their shared timeline is written and verified. An intentional imported
+      // or whole-track transcript remains a complete standalone source.
+      if (status.subtitles && completion.mode === 'per-section' && !existsSync(stitched)) {
+        status.subtitles = false
+      }
       if (status.subtitles && existsSync(stitched)) {
         const planningTranscript = await inspectExistingTranscriptSource(subtitlePaths.subtitles_dir, code)
         const integrity = await readSubtitleTimelineIntegrity(subtitlePaths.subtitles_dir, code, {

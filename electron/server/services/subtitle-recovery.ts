@@ -39,6 +39,9 @@ interface Section {
   identityVerified: boolean
   confirmStarted?: boolean
   freeRetries: number
+  /** One deliberate Pipeline repair action may mint one fresh section key. */
+  pipelineRepairActionId?: string
+  pipelineRepairOriginal?: { taskId: string; idempotencyKey: string }
   /** A confirmed fully refunded attempt may replay its authorization for free. */
   freeRetryFromKey?: string
   replacement?: {
@@ -78,6 +81,9 @@ async function readLedger(file: string): Promise<Ledger> {
         || !parsed.plans[s.planId] || typeof s.taskId !== 'string' || typeof s.identityVerified !== 'boolean'
         || !Number.isSafeInteger(s.freeRetries) || s.freeRetries < 0
         || (s.confirmStarted !== undefined && typeof s.confirmStarted !== 'boolean')
+        || (s.pipelineRepairActionId !== undefined && !text(s.pipelineRepairActionId))
+        || (s.pipelineRepairOriginal !== undefined && (!text(s.pipelineRepairActionId)
+          || !text(s.pipelineRepairOriginal.taskId) || !text(s.pipelineRepairOriginal.idempotencyKey)))
         || (s.freeRetryFromKey !== undefined && (!text(s.freeRetryFromKey) || !s.replacement))
         || (s.replacement !== undefined && (!s.replacement || s.identityVerified !== true
           || ![s.replacement.originalTaskId, s.replacement.originalIdempotencyKey].every(text)
@@ -118,6 +124,8 @@ export interface SubtitleRecoveryInput {
   audioHash: string
   apiKey: string
   force: boolean
+  /** A pipeline-stamped action may replace one proved-unusable result once. */
+  pipelineRepair?: { actionId: string; isResultUsable: (srt: string) => boolean }
   /** Only the explicit manual purchase route supplies this, never pipeline defaults. */
   manualCreditCeiling?: number
   request: GenStudioTranscriptionRequest
@@ -155,6 +163,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
       return result
     })
     let prior: Section | undefined
+    const pipelineActionId = input.pipelineRepair?.actionId.trim() || ''
     let current = await change(ledger => {
       const saved = ledger.sections[manifestKey]
       prior = saved
@@ -171,7 +180,9 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         && (saved.input_hash === input.inputHash || saved.input_hash === input.audioHash) ? saved : null
       freshCurrent = !reuse
       const key = reuse?.idempotency_key || buildGenStudioTranscriptionIdempotencyKey({
-        requestIdentity: input.force && (saved || prior) ? `${input.request.requestIdentity}:manual-rerun:${job.job_id}` : input.request.requestIdentity,
+        requestIdentity: !reuse && pipelineActionId
+          ? `${input.request.requestIdentity}:pipeline-repair:${pipelineActionId}:${section}`
+          : input.force && (saved || prior) ? `${input.request.requestIdentity}:manual-rerun:${job.job_id}` : input.request.requestIdentity,
         fileSha256: input.audioHash.replace(/^sha256:/, ''), modelId: input.request.modelId,
         language: input.request.language, wordTimestamps: input.request.wordTimestamps,
       })
@@ -183,6 +194,10 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         identityVerified: !reuse || (!!reuse.idempotency_key && reuse.input_hash === input.inputHash),
         // A legacy key with no task is an ambiguous submission, not fresh authority.
         confirmStarted: !!reuse?.idempotency_key && !reuse.task_id,
+        // A missing source has no earlier provider task to recover. Its first
+        // deliberate Pipeline request is therefore the one action-scoped fresh
+        // attempt, persisted before any confirm POST.
+        ...(!reuse && pipelineActionId ? { pipelineRepairActionId: pipelineActionId } : {}),
       }
       await change(ledger => {
         ledger.sections[manifestKey] = current!
@@ -239,6 +254,47 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         enabled: input.manualCreditCeiling !== undefined || setting.enabled === true,
         ceiling: input.manualCreditCeiling ?? setting.additional_credit_ceiling,
       }
+    }
+    const beginPipelineRepair = async (): Promise<boolean> => {
+      if (!pipelineActionId || current!.pipelineRepairActionId === pipelineActionId) return false
+      const original = { taskId: current!.taskId, idempotencyKey: current!.idempotencyKey }
+      if (!original.taskId || !original.idempotencyKey) return false
+      if (savedAtStart?.provider === 'genstudio'
+        && savedAtStart.task_id === original.taskId
+        && savedAtStart.idempotency_key === original.idempotencyKey
+        && savedAtStart.input_hash === input.inputHash) {
+        await recordTaskStrict(outDir, manifestKey, {
+          ...savedAtStart,
+          subtitle_originals: {
+            ...(savedAtStart.subtitle_originals || {}),
+            [original.idempotencyKey]: {
+              task_id: original.taskId,
+              idempotency_key: original.idempotencyKey,
+              input_hash: input.inputHash,
+            },
+          },
+        })
+      }
+      current!.pipelineRepairActionId = pipelineActionId
+      current!.pipelineRepairOriginal = original
+      current!.idempotencyKey = buildGenStudioTranscriptionIdempotencyKey({
+        requestIdentity: `${input.request.requestIdentity}:pipeline-repair:${pipelineActionId}:${section}`,
+        fileSha256: input.audioHash.replace(/^sha256:/, ''), modelId: input.request.modelId,
+        language: input.request.language, wordTimestamps: input.request.wordTimestamps,
+      })
+      current!.taskId = ''
+      current!.confirmStarted = false
+      current!.submittedAt = new Date().toISOString()
+      current!.state = 'prepared'
+      current!.freeRetries = 0
+      current!.replacement = undefined
+      current!.freeRetryFromKey = undefined
+      // Preserve the original manifest/output until this one fresh result is
+      // verified; the ledger is the durable reconnect identity meanwhile.
+      mayWriteManifest = false
+      await persist('prepared')
+      await state('pipeline_repair', `Pipeline repair is submitting one fresh scoped request for ${section}.`)
+      return true
     }
     // Deliberately invocation-local: a saved ledger flag is never spending authority.
     let originalAuthorityVerified = false
@@ -359,6 +415,16 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         const result = current.taskId
           ? await recoverTranscriptionWithGenStudio(input.apiKey, current.taskId, request)
           : await transcribeWithGenStudio(input.apiKey, request)
+        if (pipelineActionId && !input.pipelineRepair!.isResultUsable(result.srt)) {
+          if (await beginPipelineRepair()) continue
+          return block('The fresh subtitle result is still invalid after its one fresh repair request. Review this section before another re-transcription.', false, 'needs_attention')
+        }
+        if (pipelineActionId && current!.pipelineRepairActionId === pipelineActionId) {
+          // The replacement bytes passed the same source checks that selected
+          // this repair. Only now may it supersede the saved original binding.
+          mayWriteManifest = true
+          await persist('succeeded')
+        }
         await state('artifact_recovered', 'Subtitle task recovered; verifying its artifact and stitch next.')
         return result
       } catch (error) {
@@ -374,6 +440,12 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         } else if (error instanceof GenStudioTerminalFailureError && error.modality === 'transcription') {
           current.taskId = error.jobId
           await persist('failed')
+          if (pipelineActionId) {
+            if (current.pipelineRepairActionId !== pipelineActionId && await beginPipelineRepair()) continue
+            if (current.pipelineRepairActionId === pipelineActionId) {
+              return block('The one fresh pipeline repair request failed. Review this section before another re-transcription.', false, 'needs_attention')
+            }
+          }
           const failure = subtitleFailure(error)
           const classification = classifySubtitleFailure(failure)
           if (classification === 'blocked') {
@@ -402,10 +474,18 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             'needs_attention',
           )
         } else if (error instanceof GenStudioArtifactUnavailableError) {
+          if (pipelineActionId) {
+            if (current.pipelineRepairActionId !== pipelineActionId && await beginPipelineRepair()) continue
+            if (current.pipelineRepairActionId === pipelineActionId) {
+              return block('The one fresh pipeline repair artifact is unavailable. Review this section before another re-transcription.', false, 'needs_attention')
+            }
+          }
           return block('The successful subtitle artifact expired; it may already have been charged. Review it before explicitly re-running this section.', 'rerun_subtitle_section', 'needs_attention')
         } else {
           if (!(error instanceof Error && error.message.startsWith(`${section}:`))) {
-            await state('needs_attention', 'Subtitle recovery interrupted; its saved task/key is retained. No fresh replacement was authorized.')
+            await state('needs_attention', pipelineActionId
+              ? 'Pipeline subtitle repair was interrupted; its saved scoped request identity is retained and will reconnect on retry.'
+              : 'Subtitle recovery interrupted; its saved task/key is retained. No fresh replacement was authorized.')
           }
           throw error
         }

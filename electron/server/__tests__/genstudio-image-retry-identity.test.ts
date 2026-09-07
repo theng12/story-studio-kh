@@ -32,6 +32,7 @@ import type { ImageModelConfig } from '../models/types.js'
 const temp = await useTempDataDir()
 const {
   resolveManualImageReplacement,
+  hasPipelineRepairImageAttempt,
   isTerminalGenStudioImageTaskFailure,
   resolveImageRetryScope,
   terminalImageManifestEntry,
@@ -219,6 +220,22 @@ void test('GenStudio image retry identity is fresh after failure and stable on a
       assert.equal(service.providerSubmissionCount('image'), 0)
     })
 
+    await suite.test('a prepared key owned by the same Pipeline repair may replay the exact absent submission', async () => {
+      service.reset()
+      const outcome = await tryRecoverImageFromManifestEntry(
+        manifestEntry({
+          task_id: '', idempotency_key: 'story-image-pipeline-prepared', last_state: 'prepared',
+          request_scope: 'manual-finish:8e747b4d-730c-4b28-96b8-758256e9ea57',
+        }),
+        MOCK_GENSTUDIO_FULL_KEY,
+        MODEL_CONFIG,
+        undefined,
+        { allowPreparedReplayOnAbsent: true },
+      )
+      assert.equal(outcome.kind, 'no-saved-job', '404 proves this exact prepared key never reached GenStudio')
+      assert.equal(service.providerSubmissionCount('image'), 0, 'the recovery check itself remains read-only')
+    })
+
     await suite.test('an unconfirmed reconnect is reported as uncertain, never as "nothing was submitted"', async () => {
       service.reset()
       const settingsModule = await import('../services/app-settings.js')
@@ -328,6 +345,19 @@ void test('Replace anyway keeps the complete uncertain identity and replays one 
     operation: 'image',
     last_state: 'prepared',
   })
+})
+
+void test('one Pipeline repair action cannot mint a second fresh image request after restart', () => {
+  const actionId = '8e747b4d-730c-4b28-96b8-758256e9ea57'
+  assert.equal(hasPipelineRepairImageAttempt(manifestEntry({ request_scope: `manual-finish:${actionId}` }), actionId), true)
+  assert.equal(hasPipelineRepairImageAttempt(manifestEntry({ request_scope: `manual-finish:${actionId}:replace:abc123` }), actionId), true)
+  assert.equal(hasPipelineRepairImageAttempt(manifestEntry({ request_scope: `manual-finish:${actionId}:selector:abc:references:def` }), actionId), true)
+  assert.equal(hasPipelineRepairImageAttempt(manifestEntry({
+    request_scope: 'manual-finish:later-action',
+    superseded_image_requests: [{ provider: 'genstudio', task_id: 'old', submitted_at: '2026-07-24T00:00:00.000Z', request_scope: `manual-finish:${actionId}` }],
+  }), actionId), true)
+  assert.equal(hasPipelineRepairImageAttempt(manifestEntry({ request_scope: 'manual-finish:different-action' }), actionId), false)
+  assert.equal(hasPipelineRepairImageAttempt(manifestEntry({ request_scope: 'missing:retry:abc123' }), actionId), false)
 })
 
 void test('completion errors name each unresolved item exactly once', () => {

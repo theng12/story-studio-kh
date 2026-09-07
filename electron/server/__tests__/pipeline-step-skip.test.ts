@@ -29,6 +29,8 @@ import type { EpisodeStatus } from '../services/asset-status.js'
 // every test run. All test-dependent modules must be dynamic-imported
 // from inside `before()` to guarantee env-first initialization.
 let isStepAlreadyDone: typeof import('../routes/pipeline.js').isStepAlreadyDone
+let applyPipelineRepairParams: typeof import('../routes/pipeline.js').applyPipelineRepairParams
+let pipelineRepairFingerprint: typeof import('../routes/pipeline.js').pipelineRepairFingerprint
 
 function fullStatus(overrides: Partial<EpisodeStatus> = {}): EpisodeStatus {
   return {
@@ -128,6 +130,8 @@ before(async () => {
   // useTempDataDir already rewrote STORY_STUDIO_DATA_DIR before this runs.
   const pipelineMod = await import('../routes/pipeline.js')
   isStepAlreadyDone = pipelineMod.isStepAlreadyDone
+  applyPipelineRepairParams = pipelineMod.applyPipelineRepairParams
+  pipelineRepairFingerprint = pipelineMod.pipelineRepairFingerprint
 })
 
 after(async () => { await cleanup() })
@@ -187,6 +191,88 @@ function enableMockVideoCatalog(
 }
 
 describe('run-batch — step skip behaviour', () => {
+  test('repair request helpers preserve scope, disable regeneration, and fingerprint resolved settings', () => {
+    const params = applyPipelineRepairParams(
+      { episode_id: 'EP0001', force: true, no_overwrite: true, model: 'model-a' },
+      'd155005b-4bb4-4ee7-90dc-0094783c9282',
+      'fingerprint-a',
+    )
+    assert.equal(params.force, false)
+    assert.equal(params.no_overwrite, false)
+    assert.deepEqual(params.pipeline_repair, { action_id: 'd155005b-4bb4-4ee7-90dc-0094783c9282' })
+    assert.equal(params.pipeline_repair_request_fingerprint, 'fingerprint-a')
+    assert.equal(
+      pipelineRepairFingerprint({ episodes: ['EP0001'], preset: { voice: 'a', model: 'b' } }),
+      pipelineRepairFingerprint({ preset: { model: 'b', voice: 'a' }, episodes: ['EP0001'] }),
+      'object key order does not change the durable action fingerprint',
+    )
+    assert.notEqual(
+      pipelineRepairFingerprint({ episodes: ['EP0001'], preset: { model: 'b' } }),
+      pipelineRepairFingerprint({ episodes: ['EP0001'], preset: { model: 'changed' } }),
+      'effective setting changes are detected before a partial replay can mix jobs',
+    )
+  })
+
+  test('repair mode requires one valid stable action and cannot force completed work', async () => {
+    const { slug, episodeId } = await seedProjectWithAcceptedIdea()
+    const invalid = await request(app)
+      .post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['metadata'], repair_missing: true, action_id: 'not-a-uuid' })
+    assert.equal(invalid.status, 400)
+    assert.match(invalid.body.detail, /valid action_id UUID/)
+
+    const forced = await request(app)
+      .post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['metadata'], repair_missing: true, action_id: 'd155005b-4bb4-4ee7-90dc-0094783c9282', force: true })
+    assert.equal(forced.status, 400)
+    assert.match(forced.body.detail, /cannot be combined with force/)
+  })
+
+  test('one repair action stamps the whole chain, replays without duplicate jobs, and rejects changed settings', async () => {
+    const { slug, episodeId } = await seedProjectWithAcceptedIdea()
+    await pm.updateConfig(slug, {
+      audio_generator_presets: [{ id: 'audio-1', name: 'repair audio', data: { form: {
+        model: 'mock-tts', voice: 'voice-1', generation_mode: 'new_version',
+      } } }],
+      audio_generator_last_preset: 'audio-1',
+      audio_merge_presets: [{ id: 'merge-1', name: 'repair merge', data: { gap_duration: 2 } }],
+      audio_merge_last_preset: 'merge-1',
+    } as any)
+    const actionId = 'd155005b-4bb4-4ee7-90dc-0094783c9282'
+    const body = { episode_ids: [episodeId], steps: ['audio', 'metadata'], repair_missing: true, action_id: actionId }
+    const jq = await import('../services/job-queue.js')
+    await jq.setQueuePaused(true)
+    try {
+      const first = await request(app).post(`/api/projects/${slug}/pipeline/run-batch`).send(body)
+      assert.equal(first.status, 201)
+      assert.equal(first.body.enqueued, 1)
+      const job = jq.getJob(first.body.jobs[0].job_id)
+      assert.deepEqual(job?.params.pipeline_repair, { action_id: actionId })
+      assert.equal(job?.params.force, false)
+      assert.equal(job?.params.no_overwrite, false)
+      assert.equal(job?.params.pipeline_chain?.length, 1)
+      assert.deepEqual(job?.params.pipeline_chain[0].params.pipeline_repair, { action_id: actionId })
+      assert.equal(job?.params.pipeline_chain[0].params.pipeline_repair_request_fingerprint, job?.params.pipeline_repair_request_fingerprint)
+
+      const replay = await request(app).post(`/api/projects/${slug}/pipeline/run-batch`).send(body)
+      assert.equal(replay.status, 201)
+      assert.equal(replay.body.enqueued, 0)
+      assert.equal(replay.body.reused, 1)
+      assert.equal((await jq.getJobs(slug)).filter(j => j.params?.pipeline_repair?.action_id === actionId).length, 1)
+
+      await pm.updateConfig(slug, {
+        audio_generator_presets: [{ id: 'audio-1', name: 'changed', data: { form: {
+          model: 'mock-tts', voice: 'voice-2', generation_mode: 'new_version',
+        } } }],
+      } as any)
+      const changed = await request(app).post(`/api/projects/${slug}/pipeline/run-batch`).send(body)
+      assert.equal(changed.status, 409)
+      assert.match(changed.body.detail, /different episodes, stages, or resolved settings/)
+    } finally {
+      await jq.setQueuePaused(false)
+    }
+  })
+
   test('targeted YouTube Finalizer refuses missing Audio Assembly and queues nothing', async () => {
     const { slug, episodeId } = await seedProjectWithAcceptedIdea(false)
     const res = await request(app)
@@ -411,6 +497,48 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
       const jq = await import('../services/job-queue.js')
       assert.equal((await jq.getJobs(proj.slug)).length, 0, 'invalid language must not enter the queue')
       assert.equal(service.providerSubmissionCount('transcription'), 0, 'catalog validation must not submit paid work')
+    } finally {
+      await service.close()
+    }
+  })
+
+  test('repair preserves an intentional imported whole-track subtitle without a transcription job', async () => {
+    const service = await startMockGenStudioService()
+    try {
+      assert.equal((await request(app).put('/api/app-settings/genstudio').send({ url: service.baseUrl })).status, 200)
+      assert.equal((await request(app).put('/api/app-settings/api-keys/genstudio').send({ apiKey: MOCK_GENSTUDIO_FULL_KEY })).status, 200)
+      const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+      clearGenStudioCatalogCache()
+      const { slug, episodeId } = await seedProjectWithAcceptedIdea()
+      await pm.updateConfig(slug, {
+        subtitles_generator_presets: [{
+          id: 'stt-imported', name: 'Mock STT', data: { model: 'mock-whisper-v1', language: 'en', per_chapter: true },
+        }],
+        subtitles_generator_last_preset: 'stt-imported',
+      } as any)
+      const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+      const paths = await resolveEpisodePathsByCode(slug, episodeId)
+      await fs.mkdir(paths.subtitles_dir, { recursive: true })
+      await fs.writeFile(
+        path.join(paths.subtitles_dir, `${episodeId}_imported.srt`),
+        '1\n00:00:00,000 --> 00:00:01,000\nIntentional imported transcript.\n',
+      )
+
+      const response = await request(app)
+        .post(`/api/projects/${slug}/pipeline/run-batch`)
+        .send({
+          episode_ids: [episodeId],
+          steps: ['subtitles'],
+          repair_missing: true,
+          action_id: 'eb35f126-b808-42e9-8b5a-6fbe1f3b229a',
+        })
+
+      assert.equal(response.status, 201, JSON.stringify(response.body))
+      assert.equal(response.body.enqueued, 0)
+      assert.deepEqual(response.body.steps_skipped_as_done, [{ episode_id: episodeId, step: 'subtitles' }])
+      const jq = await import('../services/job-queue.js')
+      assert.equal((await jq.getJobs(slug)).filter(job => job.type === 'subtitles_transcribe').length, 0)
+      assert.equal(service.providerSubmissionCount('transcription'), 0)
     } finally {
       await service.close()
     }
