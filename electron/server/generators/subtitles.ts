@@ -13,7 +13,11 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveSubfolderNames, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { stitchSubtitles } from '../services/subtitle-stitcher.js'
-import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
+import {
+  inspectPipelineSubtitleRepairReadiness,
+  inspectSubtitleCompletion,
+  isPipelineRepairTranscriptUsable,
+} from '../services/subtitle-completion.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { scanEpisodeAssets } from './video.js'
 import {
@@ -86,6 +90,8 @@ export interface TranscribeSubtitlesRequest {
    * Ignored outside `per_chapter` mode, where there is only one audio track.
    */
   sections?: string[]
+  /** Pipeline-stamped, deliberate one-action repair identity. */
+  pipeline_repair?: { action_id: string }
   /** Backend-only explicit owner purchase, scoped to the failed job's missing set. */
   subtitle_purchase?: { additional_credit_ceiling: number }
   /** New work uses the current live transcription catalog. */
@@ -455,7 +461,21 @@ async function transcribePerChapter(
   }, 500)
 
   const allSections = [...bySlug.values()]
-  const sections = selectRequestedSections(allSections, req.sections)
+  let sections = selectRequestedSections(allSections, req.sections)
+  const repairActionId = typeof req.pipeline_repair?.action_id === 'string'
+    ? req.pipeline_repair.action_id.trim()
+    : ''
+  const force = repairActionId ? false : req.force === true
+  const repairSections = new Set<string>()
+  if (repairActionId) {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(projectSlug, episodeId, 'audio_chapters.json')
+    const readiness = await inspectPipelineSubtitleRepairReadiness(paths.episode_dir, outDir, code)
+    for (const section of readiness.affected_sections) repairSections.add(section.toLowerCase())
+    // The stamped action owns its exact audited scope. Ignore a stale or
+    // widened caller list so completed chapters cannot be regenerated.
+    sections = allSections.filter(section => repairSections.has(section.slug.toLowerCase()))
+    if (!sections.length) job.output_lines.push('Pipeline repair found no unusable subtitle source sections; existing subtitles were preserved while stitch verification continues.')
+  }
   if (sections.length !== allSections.length) {
     job.output_lines.push(
       `Re-transcribing ${sections.length} of ${allSections.length} chapter(s): ${sections.map(s => s.slug).join(', ')}.`,
@@ -481,7 +501,8 @@ async function transcribePerChapter(
   // One chapter's transcription. (The old loop's `continue`s become `return`s.)
   async function transcribeSection(sec: { slug: string; files: Array<{ name: string; part: number }> }): Promise<void> {
     const outPath = path.join(outDir, `${code}_${sec.slug}.srt`)
-    if (!req.force && await fileExistsWithContent(outPath)) {
+    const repairSection = repairSections.has(sec.slug.toLowerCase())
+    if (!force && !repairSection && await fileExistsWithContent(outPath)) {
       job.output_lines.push(`Skipping ${sec.slug} — SRT already exists. Tick "Re-run" to overwrite.`)
       done++; job.progress = Math.round((done / sections.length) * 100)
       return
@@ -530,7 +551,10 @@ async function transcribePerChapter(
       }))
       const result = await runSubtitleTranscription({
         job, outDir, section: sec.slug, manifestKey, inputHash: currentInputHash,
-        audioHash: currentAudioHash, apiKey: genstudio.apiKey, force: req.force === true,
+        audioHash: currentAudioHash, apiKey: genstudio.apiKey, force,
+        ...(repairSection ? {
+          pipelineRepair: { actionId: repairActionId, isResultUsable: isPipelineRepairTranscriptUsable },
+        } : {}),
         manualCreditCeiling: req.subtitle_purchase?.additional_credit_ceiling,
         request: {
           audioPath: audioPath, modelId: genstudio.modelId, requestIdentity,

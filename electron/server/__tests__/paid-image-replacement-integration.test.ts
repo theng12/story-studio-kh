@@ -551,6 +551,163 @@ test('uncertain Finish makes no POST and Replace anyway submits only its exact c
   }
 })
 
+test('a restarted Pipeline repair does not submit a second fresh attempt for its failed image', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Pipeline repair restart bound')
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(outDir, { recursive: true })
+    const actionId = '77777777-7777-4777-8777-777777777777'
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: 'failed-replacement', submitted_at: new Date().toISOString(),
+      input_hash: 'failed-replacement-input', idempotency_key: 'failed-replacement-key', operation: 'image',
+      last_state: 'failed', request_scope: `manual-finish:${actionId}:replace:stable`,
+    })
+    const now = new Date().toISOString()
+    const repairJob: any = {
+      job_id: 'pipeline-repair-restart', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Repair selected gaps', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001'], missing_only: true,
+        pipeline_repair: { action_id: actionId },
+      },
+    }
+    await writeAuthoritativeFixture(repairJob)
+
+    await assert.rejects(runContinuityRenderJob(repairJob), /incomplete/)
+    assert.ok(repairJob.output_lines.some((line: string) => /already used its one fresh attempt/.test(line)))
+    assert.deepEqual(repairJob.params.manual_image_finish, { action_id: actionId, replace_uncertain: false },
+      'generic Retry restores only the original Pipeline repair marker')
+    assert.equal(service.providerSubmissionCount('image'), 0)
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('Pipeline repair replays its exact prepared image identity after an absent pre-POST attempt', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await client.listImageModels(MOCK_GENSTUDIO_FULL_KEY)
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Pipeline prepared image replay')
+    const actionId = '88888888-8888-4888-8888-888888888888'
+    const now = new Date().toISOString()
+    const params = {
+      episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+      scene_ids: ['scene-001'], missing_only: true, pipeline_repair: { action_id: actionId },
+    }
+    const interrupted: any = {
+      job_id: 'pipeline-pre-post-interruption', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Repair selected gaps', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [], params: structuredClone(params),
+    }
+    await writeAuthoritativeFixture(interrupted)
+    let interruptSubmit = true
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (interruptSubmit && url.pathname === '/v1/images/generations' && (init?.method || 'GET') === 'POST') {
+        throw new TypeError('simulated interruption before image POST reached GenStudio')
+      }
+      return originalFetch(input, init)
+    }
+    await assert.rejects(runContinuityRenderJob(interrupted), /incomplete/)
+    assert.equal(service.providerSubmissionCount('image'), 0)
+
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    const prepared = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(prepared.last_state, 'prepared')
+    assert.match(prepared.request_scope || '', new RegExp(`^manual-finish:${actionId}:selector:`))
+    assert.ok(prepared.idempotency_key)
+    assert.ok(prepared.input_hash)
+
+    interruptSubmit = false
+    const restarted: any = {
+      ...interrupted,
+      job_id: 'pipeline-pre-post-restart',
+      output_lines: [],
+      params: structuredClone(params),
+    }
+    await writeAuthoritativeFixture(restarted)
+    assert.equal(await runContinuityRenderJob(restarted), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 1)
+    const completed = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(completed.request_scope, prepared.request_scope)
+    assert.equal(completed.idempotency_key, prepared.idempotency_key)
+    assert.equal(completed.input_hash, prepared.input_hash)
+  } finally {
+    globalThis.fetch = originalFetch
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('Pipeline repair preserves a decodable image owned by scene.image_path', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Pipeline imported image preservation')
+    const importedPath = path.join(paths.episode_dir, 'imported-scene.png')
+    await sharp({ create: { width: 3, height: 3, channels: 3, background: '#223344' } }).png().toFile(importedPath)
+    const importedBytes = await fs.readFile(importedPath)
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({ scenes: [
+      { id: 'scene-imported', scene_index: 1, visual_prompt: 'Keep imported.', image_path: importedPath },
+      { id: 'scene-missing', scene_index: 2, visual_prompt: 'Generate only this missing scene.' },
+    ] }))
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: 'pipeline-imported-preservation', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Repair selected gaps', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [], params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K', missing_only: true,
+        pipeline_repair: { action_id: '99999999-9999-4999-8999-999999999999' },
+      },
+    }
+    await writeAuthoritativeFixture(job)
+    assert.equal(await runContinuityRenderJob(job), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 1)
+    assert.deepEqual(await fs.readFile(importedPath), importedBytes)
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
 test('Continuity freezes the exact original request before POST and returns a durable paid wait after positive infrastructure settlement', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()

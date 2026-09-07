@@ -1,6 +1,9 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { readSelectedSubtitle } from '../lib/subtitle-selection.js'
+import { parseSrt } from '../lib/subtitle-builder.js'
+import { readStitchPlan } from './subtitle-stitcher.js'
+import { allowedSubtitleCueGapSec } from './scene-plan-pacing.js'
 
 export interface SubtitleCompletion {
   complete: boolean
@@ -14,6 +17,12 @@ export interface SubtitleCompletion {
 export interface SubtitleCompletionOptions {
   /** Transcription jobs must produce one source SRT per expected audio section. */
   require_per_section?: boolean
+}
+
+export interface PipelineSubtitleRepairReadiness {
+  expected_sections: string[]
+  completed_sections: string[]
+  affected_sections: string[]
 }
 
 const BURNABLE = /\.(srt|ass|vtt)$/i
@@ -105,6 +114,45 @@ async function stitchedCoverage(
   }
 }
 
+/** A replacement must close the same cue-gap contract that blocks Scene Plan. */
+export function isPipelineRepairTranscriptUsable(raw: string): boolean {
+  const cues = parseSrt(raw).filter(cue => cue.text.trim() && cue.end_sec > cue.start_sec)
+  if (!cues.length) return false
+  const maxGap = allowedSubtitleCueGapSec()
+  return cues.every((cue, index) => index === 0 || cue.start_sec - cues[index - 1]!.end_sec <= maxGap)
+}
+
+/**
+ * Pipeline repair is intentionally narrower than ordinary subtitle presence:
+ * it names only source sections with no usable cues or an internal pacing gap.
+ * Boundary gaps are assessed after a local restitch, never inferred from a
+ * stale stitched timeline as authority to transcribe source chapters again.
+ */
+export async function inspectPipelineSubtitleRepairReadiness(
+  episodeDir: string,
+  subtitlesDir: string,
+  episodeCode: string,
+): Promise<PipelineSubtitleRepairReadiness> {
+  const stitch = await readStitchPlan(episodeDir, subtitlesDir, episodeCode)
+  if (!stitch.ok) return { expected_sections: [], completed_sections: [], affected_sections: [] }
+  const expected = stitch.sections.map(section => section.slug)
+  const unusable = new Set<string>()
+  await Promise.all(stitch.matched.map(async section => {
+    const raw = section.source_srt
+      ? await fs.readFile(path.join(subtitlesDir, section.source_srt), 'utf8').catch(() => '')
+      : ''
+    if (!isPipelineRepairTranscriptUsable(raw)) unusable.add(normalize(section.slug))
+  }))
+
+  const affected = expected.filter(section => unusable.has(normalize(section)))
+  const affectedSet = new Set(affected.map(normalize))
+  return {
+    expected_sections: expected,
+    completed_sections: expected.filter(section => !affectedSet.has(normalize(section))),
+    affected_sections: affected,
+  }
+}
+
 /**
  * A subtitle step is complete only when every audio section has a usable
  * transcript, or when an intentional whole-episode track exists. A partial
@@ -117,6 +165,18 @@ export async function inspectSubtitleCompletion(
   options: SubtitleCompletionOptions = {},
 ): Promise<SubtitleCompletion> {
   const code = episodeCode.toUpperCase()
+  if (options.require_per_section) {
+    const strict = await inspectPipelineSubtitleRepairReadiness(episodeDir, subtitlesDir, code)
+    const completed = strict.completed_sections
+    const missing = strict.affected_sections
+    return {
+      complete: strict.expected_sections.length > 0 && missing.length === 0,
+      mode: completed.length ? 'per-section' : 'none',
+      expected_sections: strict.expected_sections,
+      completed_sections: completed,
+      missing_sections: missing,
+    }
+  }
   const [expected, files, pinned] = await Promise.all([
     readExpectedSections(episodeDir),
     nonEmptySubtitleFiles(subtitlesDir),
@@ -125,18 +185,16 @@ export async function inspectSubtitleCompletion(
 
   const sectionByFile = new Map(files.map(filename => [filename, sectionForFile(filename, code, expected)]))
   const fullTrackPattern = new RegExp(`^${escapeRegExp(code)}(?:_(?:imported|whisper|chapters))?\\.(?:srt|ass|vtt)$`, 'i')
-  let fullTrack = options.require_per_section
-    ? undefined
-    : files.find(filename => fullTrackPattern.test(filename))
+  let fullTrack = files.find(filename => fullTrackPattern.test(filename))
 
   // A custom pinned file is an explicit whole-track choice unless its name
   // maps to one expected chapter. This preserves hand-imported legacy tracks.
-  if (!options.require_per_section && !fullTrack && pinned && files.includes(pinned) && !sectionByFile.get(pinned) && !/_stitched\./i.test(pinned)) {
+  if (!fullTrack && pinned && files.includes(pinned) && !sectionByFile.get(pinned) && !/_stitched\./i.test(pinned)) {
     fullTrack = pinned
   }
 
   const stitchedCovered = new Set<string>()
-  if (!options.require_per_section && !fullTrack) {
+  if (!fullTrack) {
     for (const filename of files.filter(name => /_stitched\.(srt|ass|vtt)$/i.test(name))) {
       const coverage = await stitchedCoverage(subtitlesDir, filename, expected)
       for (const section of coverage?.covered || []) stitchedCovered.add(section)

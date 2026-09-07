@@ -35,8 +35,18 @@
         :generate-loading="submitting || preflighting"
         :generate-disabled="!canRun"
         :generate-status="pipelineGenerateStatus"
-        @generate="openConfirm"
-      />
+        @generate="openRunConfirm"
+      >
+        <template #actions>
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="!canRun"
+            title="Recover saved provider results first, then repair only missing output in the selected stages."
+            @click="openRepairConfirm"
+          >Repair selected gaps</button>
+        </template>
+      </TopActionBar>
       <p class="pipeline-command-copy">
         Each episode follows the <strong>{{ chainLabel }}</strong> chain in order while separate episodes share the available queue capacity.
         Preset choices stay pinned to this project, and completed work is skipped unless you explicitly force a re-run.
@@ -504,12 +514,18 @@
 
 
     <!-- ── Confirmation modal ───────────────────────────────────────────── -->
-    <Modal :visible="showConfirm" size="md" labelledby="batch-confirm-title" @close="showConfirm = false">
-      <h3 id="batch-confirm-title">Run batch?</h3>
+    <Modal :visible="showConfirm" size="md" labelledby="batch-confirm-title" @close="closeConfirm()">
+      <h3 id="batch-confirm-title">{{ repairMode ? 'Repair selected gaps?' : 'Run batch?' }}</h3>
       <p class="text-muted text-md mt-1">
-        About to queue <strong>{{ selectedEpisodes.size * checkedStepCount }}</strong> job(s):
-        <strong>{{ selectedEpisodes.size }}</strong> episodes ×
-        <strong>{{ checkedStepCount }}</strong> step(s) each.
+        <template v-if="repairMode">
+          Check <strong>{{ selectedEpisodes.size }}</strong> episode(s) for gaps across
+          <strong>{{ checkedStepCount }}</strong> selected step(s).
+        </template>
+        <template v-else>
+          About to queue <strong>{{ selectedEpisodes.size * checkedStepCount }}</strong> job(s):
+          <strong>{{ selectedEpisodes.size }}</strong> episodes ×
+          <strong>{{ checkedStepCount }}</strong> step(s) each.
+        </template>
       </p>
       <div class="chain-preview">
         <span v-for="(step, i) in checkedStepsOrdered" :key="step.id" class="chain-step">
@@ -518,7 +534,13 @@
           <span v-if="i < checkedStepsOrdered.length - 1" class="chain-arrow">→</span>
         </span>
       </div>
-      <p class="text-muted text-sm mt-2">
+      <p v-if="repairMode" class="text-muted text-sm mt-2">
+        Valid completed outputs are kept. Story Studio reconnects to saved provider work first. For each
+        selected item still missing after a confirmed terminal failure or expired artifact, this action
+        may use credits for one fresh attempt at the current live price. Active or uncertain requests
+        are held without a duplicate submission, and Scene Review approval remains explicit.
+      </p>
+      <p v-else class="text-muted text-sm mt-2">
         Steps within each episode run in order. Different episodes' steps run
         concurrently when the queue has capacity. If a step fails for an
         episode, that episode's chain stops; other episodes continue.
@@ -528,7 +550,7 @@
            runs over partially-complete episodes don't burn tokens on
            regeneration. Opt in here to regenerate regardless of existing
            output. -->
-      <label class="force-rerun" :title="forceRerunTitle">
+      <label v-if="!repairMode" class="force-rerun" :title="forceRerunTitle">
         <input type="checkbox" v-model="forceRerun" />
         <span class="force-rerun-label">
           Force re-run
@@ -539,10 +561,10 @@
       </label>
 
       <div class="flex gap-2 mt-3 justify-end">
-        <button class="btn btn-secondary" :disabled="submitting" @click="showConfirm = false">Cancel</button>
+        <button class="btn btn-secondary" :disabled="submitting" @click="closeConfirm()">Cancel</button>
         <button class="btn btn-primary" :disabled="submitting" @click="submit">
           <LoadingSpinner v-if="submitting" size="sm" />
-          {{ submitting ? 'Queuing…' : (forceRerun ? 'Start batch (force)' : 'Start batch') }}
+          {{ submitting ? 'Queuing…' : (repairMode ? 'Start repair · may use credits' : (forceRerun ? 'Start batch (force)' : 'Start batch')) }}
         </button>
       </div>
     </Modal>
@@ -1687,6 +1709,8 @@ const runButtonLabel = computed(() => {
 const submitting = ref(false)
 const preflighting = ref(false)
 const showConfirm = ref(false)
+const repairMode = ref(false)
+const repairActionId = ref('')
 const preflightSummary = ref('')
 // Force re-run: opt-in to regenerate every selected step even if its
 // output already exists on disk. Off by default so routine batch runs
@@ -1703,15 +1727,28 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 ** index)).toFixed(index > 1 ? 1 : 0)} ${units[index]}`
 }
 
-async function openConfirm() {
+function closeConfirm(force = false): void {
+  if (submitting.value && !force) return
+  showConfirm.value = false
+  repairMode.value = false
+  repairActionId.value = ''
+}
+
+function openRunConfirm(): void { void openConfirm(false) }
+function openRepairConfirm(): void { void openConfirm(true) }
+
+async function openConfirm(repair: boolean) {
   if (!canRun.value) return
+  repairMode.value = repair
+  if (repair && !repairActionId.value) repairActionId.value = crypto.randomUUID()
   preflighting.value = true
   preflightSummary.value = ''
   try {
     const body = {
       episode_ids: [...selectedEpisodes],
       steps: checkedStepsOrdered.value.map(s => s.id),
-      force: forceRerun.value,
+      force: repair ? false : forceRerun.value,
+      ...(repair ? { repair_missing: true, action_id: repairActionId.value } : {}),
     }
     const result = await post<any>(`/projects/${slug.value}/pipeline/preflight`, body)
     const estimated = Number(result?.estimated_bytes || 0)
@@ -1719,6 +1756,7 @@ async function openConfirm() {
     preflightSummary.value = `${result.episodes} episode(s) and ${result.steps} step(s) are ready.${storage}`
     showConfirm.value = true
   } catch (e: any) {
+    if (repair) repairActionId.value = ''
     const issues = Array.isArray(e?.data?.issues) ? e.data.issues : []
     showError(issues.length ? issues.map((issue: any) => issue.message).join(' ') : (e?.data?.detail || 'Preflight failed'))
   } finally {
@@ -1733,10 +1771,12 @@ async function submit() {
     const body = {
       episode_ids: [...selectedEpisodes],
       steps: checkedStepsOrdered.value.map(s => s.id),
-      force: forceRerun.value,
+      force: repairMode.value ? false : forceRerun.value,
+      ...(repairMode.value ? { repair_missing: true, action_id: repairActionId.value } : {}),
     }
     const r = await post<any>(`/projects/${slug.value}/pipeline/run-batch`, body)
-    showConfirm.value = false
+    const completedRepair = repairMode.value
+    closeConfirm(true)
     const { enqueued, reused, skipped, total_jobs_planned, steps_skipped_as_done, character_sheets_applied } = r || {}
     const skipDoneCount = Array.isArray(steps_skipped_as_done) ? steps_skipped_as_done.length : 0
     const parts: string[] = []
@@ -1747,7 +1787,7 @@ async function submit() {
     if (character_sheets_applied > 0) parts.push(`${character_sheets_applied} character sheet(s) applied`)
     if (skipDoneCount > 0) parts.push(`${skipDoneCount} step(s) skipped as already complete`)
     if (skipped?.length) parts.push(`${skipped.length} episode(s) skipped`)
-    success(parts.join(' · '))
+    success(completedRepair ? `Repair started · ${parts.join(' · ')}` : parts.join(' · '))
     // A skipped step queues NO job, so "see Jobs tab" sent the user to a
     // screen that could not explain the skip. The backend already returns a
     // reason per episode — show it. Distinct reasons only: a batch skips the

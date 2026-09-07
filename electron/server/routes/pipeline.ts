@@ -8,8 +8,8 @@
  * hand-off between steps on successful completion.
  */
 
-import { Router } from 'express'
-import { randomUUID } from 'crypto'
+import { Router, type Request, type Response } from 'express'
+import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -51,6 +51,13 @@ import { listTranscriptionModels } from '../lib/genstudio-client.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import { withLock } from '../lib/atomic-store.js'
+import { isDecodableImage } from '../lib/image-validation.js'
+import {
+  inspectPipelineSubtitleRepairReadiness,
+  inspectSubtitleCompletion,
+} from '../services/subtitle-completion.js'
+import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 
 export const router = Router()
 
@@ -1329,11 +1336,91 @@ router.get('/projects/:slug/pipeline/pending-approvals', async (req, res) => {
   }
 })
 
-function parseBatchRequest(body: any): { episodeIds: string[]; steps: BatchStep[]; force: boolean } {
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function parseBatchRequest(body: any): { episodeIds: string[]; steps: BatchStep[]; force: boolean; repairMissing: boolean; actionId: string } {
   const episodeIds = Array.isArray(body?.episode_ids) ? body.episode_ids.filter((x: any) => typeof x === 'string' && x) : []
   const stepsRaw: any[] = Array.isArray(body?.steps) ? body.steps : []
   const steps = stepsRaw.filter((s): s is BatchStep => VALID_STEPS.includes(s))
-  return { episodeIds, steps, force: body?.force === true }
+  return {
+    episodeIds,
+    steps,
+    force: body?.force === true,
+    repairMissing: body?.repair_missing === true,
+    actionId: typeof body?.action_id === 'string' ? body.action_id.trim() : '',
+  }
+}
+
+function repairRequestError(request: ReturnType<typeof parseBatchRequest>): string | null {
+  if (!request.repairMissing) return request.actionId ? 'action_id is only valid with repair_missing' : null
+  if (!UUID_V4.test(request.actionId)) return 'repair_missing requires a valid action_id UUID'
+  if (request.force) return 'repair_missing cannot be combined with force'
+  return null
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+export function pipelineRepairFingerprint(value: Record<string, unknown>): string {
+  return createHash('sha256').update(stableJson(value)).digest('hex')
+}
+
+export function applyPipelineRepairParams(
+  params: Record<string, unknown>, actionId: string, fingerprint: string,
+): Record<string, unknown> {
+  const repaired = {
+    ...params,
+    force: false,
+    pipeline_repair: { action_id: actionId },
+    pipeline_repair_request_fingerprint: fingerprint,
+  }
+  if ('no_overwrite' in repaired) repaired.no_overwrite = false
+  return repaired
+}
+
+async function missingSceneIds(slug: string, episodeId: string): Promise<string[] | null> {
+  const paths = await resolveEpisodePathsByCode(slug, episodeId)
+  const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+  if (!existsSync(planPath)) return null
+  const scenes = JSON.parse(await fs.readFile(planPath, 'utf8'))?.scenes
+  if (!Array.isArray(scenes)) return []
+  const namedDir = await resolveSceneImagesDir(slug, episodeId, paths.episode_dir).catch(() => '')
+  const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+  const missing: string[] = []
+  for (const scene of scenes) {
+    if (typeof scene?.id !== 'string' || !scene.id) continue
+    const named = namedDir ? await isDecodableImage(path.join(namedDir, `${scene.id}.png`)) : false
+    const legacy = named ? false : await isDecodableImage(path.join(legacyDir, `${scene.id}.png`))
+    const recorded = named || legacy || (typeof scene.image_path === 'string' && await isDecodableImage(scene.image_path))
+    if (!recorded) missing.push(scene.id)
+  }
+  return missing
+}
+
+async function pipelineSubtitleRepairComplete(slug: string, episodeId: string): Promise<boolean> {
+  const paths = await resolveEpisodePathsByCode(slug, episodeId)
+  const completion = await inspectSubtitleCompletion(paths.episode_dir, paths.subtitles_dir, episodeId)
+  if (
+    completion.complete
+    && completion.mode === 'full-track'
+    && completion.full_track_filename
+    && !/_stitched\.(?:srt|ass|vtt)$/i.test(completion.full_track_filename)
+  ) return true
+  const readiness = await inspectPipelineSubtitleRepairReadiness(
+    paths.episode_dir,
+    paths.subtitles_dir,
+    episodeId,
+  )
+  if (!readiness.expected_sections.length || readiness.affected_sections.length) return false
+  return (await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId)).complete
 }
 
 /**
@@ -1367,7 +1454,10 @@ export async function applyChannelSegmentIntent(slug: string, steps: BatchStep[]
 router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-  const { episodeIds, steps: requestedSteps, force } = parseBatchRequest(req.body)
+  const parsed = parseBatchRequest(req.body)
+  const { episodeIds, steps: requestedSteps, force } = parsed
+  const requestError = repairRequestError(parsed)
+  if (requestError) return res.status(400).json({ detail: requestError })
   if (!episodeIds.length) return res.status(400).json({ detail: 'episode_ids must be a non-empty array' })
   if (!requestedSteps.length) return res.status(400).json({ detail: 'steps must include at least one valid pipeline step' })
   const steps = await applyChannelSegmentIntent(slug, requestedSteps)
@@ -1387,11 +1477,14 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   }
 })
 
-router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
+async function runBatch(req: Request<{ slug: string }>, res: Response) {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
-  const { episodeIds: episode_ids, steps: requestedSteps, force } = parseBatchRequest(req.body)
+  const parsed = parseBatchRequest(req.body)
+  const { episodeIds: episode_ids, steps: requestedSteps, force, repairMissing, actionId } = parsed
+  const requestError = repairRequestError(parsed)
+  if (requestError) return res.status(400).json({ detail: requestError })
   // `force: true` disables per-step idempotency skipping — every selected
   // step runs even if its output already exists. Default is to skip done
   // steps so the batch doesn't silently burn tokens on regeneration.
@@ -1462,7 +1555,26 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     }
   }
 
-  const batch_id = randomUUID()
+  const repairFingerprint = repairMissing ? pipelineRepairFingerprint({
+    slug,
+    episode_ids: [...new Set(episode_ids)].sort(),
+    steps,
+    presets: Object.fromEntries(steps.map(step => [step, presetByStep[step] || null])),
+    effective_format: effectiveFormat,
+    transcription: pipelineTranscriptionParams,
+    motion: pipelineMotionParams,
+    default_chat_model: batchDefaultChatModel,
+    introduction_chat_model: preflight.introductionChatModel,
+    script_chat_model: preflight.scriptSideChatModel,
+  }) : ''
+  const batch_id = repairMissing ? actionId : randomUUID()
+  const existingRepairJobs = repairMissing
+    ? (await jq.getJobs(slug)).filter(job => job.params?.pipeline_repair?.action_id === actionId)
+    : []
+  if (existingRepairJobs.some(job => job.params?.pipeline_repair_request_fingerprint !== repairFingerprint)) {
+    return res.status(409).json({ detail: 'This repair action_id already belongs to different episodes, stages, or resolved settings.' })
+  }
+  const existingRepairByEpisode = new Map(existingRepairJobs.map(job => [job.episode_id, job]))
   const enqueued: Array<{ episode_id: string; job_id: string; type: JobType }> = []
   const reused: Array<{ episode_id: string; job_id: string; type: JobType }> = []
   const skipped: Array<{ episode_id: string; reason: string }> = []
@@ -1481,6 +1593,11 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     const idea = ideaByCode.get(episodeId)
     if (!idea) {
       skipped.push({ episode_id: episodeId, reason: 'Not found among accepted ideas' })
+      continue
+    }
+    const existingRepair = existingRepairByEpisode.get(episodeId)
+    if (existingRepair) {
+      reused.push({ episode_id: episodeId, job_id: existingRepair.job_id, type: existingRepair.type })
       continue
     }
 
@@ -1502,8 +1619,14 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     let effectiveSteps: BatchStep[] = steps
     if (!force) {
       const status = await computeEpisodeStatus(slug, episodeId)
+      const repairSubtitlesComplete = repairMissing && steps.includes('subtitles')
+        ? await pipelineSubtitleRepairComplete(slug, episodeId)
+        : null
       effectiveSteps = steps.filter(step => {
-        if (isStepAlreadyDone(status, step, effectiveFormat)) {
+        const done = repairSubtitlesComplete != null && step === 'subtitles'
+          ? repairSubtitlesComplete
+          : isStepAlreadyDone(status, step, effectiveFormat)
+        if (done) {
           steps_skipped_as_done.push({ episode_id: episodeId, step })
           return false
         }
@@ -1586,6 +1709,20 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       if (step === 'subtitles' && pipelineTranscriptionParams) {
         Object.assign(params, pipelineTranscriptionParams)
       }
+      if (repairMissing && step === 'scene_review') {
+        // When this chain rebuilds Scene Plan, let the renderer derive its IDs
+        // from that new plan at execution time rather than freezing stale IDs.
+        const sceneIds = effectiveSteps.includes('scene_plan')
+          ? null
+          : await missingSceneIds(slug, episodeId)
+        if (sceneIds?.length === 0) {
+          skipped.push({ episode_id: episodeId, reason: 'Scene images are present; review and approve them in Scene Review.' })
+          break
+        }
+        params.missing_only = true
+        if (sceneIds) params.scene_ids = sceneIds
+        params.manual_image_finish = { action_id: actionId, replace_uncertain: false }
+      }
       if (step === 'motion_review' && pipelineMotionParams) {
         Object.assign(params, pipelineMotionParams)
       }
@@ -1636,11 +1773,17 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       }
     }
 
+    if (repairMissing) {
+      for (const link of chain) {
+        link.params = applyPipelineRepairParams(link.params, actionId, repairFingerprint)
+      }
+    }
+
     // Nothing to enqueue. If the only selected work was the inline character
     // sheet, that's NOT a skip — we did do the work. Otherwise every step was
     // skipped-as-done, so record the skip.
     if (chain.length === 0) {
-      if (!effectiveSteps.includes('character_sheet')) {
+      if (!effectiveSteps.includes('character_sheet') && !skipped.some(item => item.episode_id === episodeId)) {
         skipped.push({ episode_id: episodeId, reason: 'All selected steps already complete' })
       }
       continue
@@ -1709,4 +1852,12 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     steps,
     force,
   })
+}
+
+router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
+  const parsed = parseBatchRequest(req.body)
+  const requestError = repairRequestError(parsed)
+  if (requestError) return res.status(400).json({ detail: requestError })
+  if (!parsed.repairMissing) return runBatch(req, res)
+  return withLock(`pipeline-repair:${req.params.slug}:${parsed.actionId}`, () => runBatch(req, res))
 })

@@ -107,6 +107,20 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, /showInfo\(`Skipped — \$\{reason\}`\)/)
   })
 
+  test('offers one explicit recover-first repair action with replay-stable authority', () => {
+    assert.match(pipeline, />Repair selected gaps<\/button>/)
+    assert.match(pipeline, /repairActionId\.value = crypto\.randomUUID\(\)/)
+    assert.match(pipeline, /repair_missing: true, action_id: repairActionId\.value/)
+    assert.match(pipeline, /force: repairMode\.value \? false : forceRerun\.value/)
+    assert.match(pipeline, /one fresh attempt at the current live price/)
+    assert.match(pipeline, /Valid completed outputs are kept/)
+    assert.match(pipeline, /Start repair · may use credits/)
+    assert.match(pipeline, /Active or uncertain requests[\s\S]*without a duplicate submission/)
+    assert.match(pipeline, /v-if="!repairMode" class="force-rerun"/)
+    assert.match(pipeline, /if \(submitting\.value && !force\) return/)
+    assert.match(pipeline, /closeConfirm\(true\)/)
+  })
+
   test('keeps optional Research in the narrated-scenes Pipeline chain', () => {
     const narratedChain = pipeline.match(/const CHAIN_NARRATED_SCENES: ChainSpec = \[([\s\S]*?)\n\]/)?.[1] || ''
     assert.match(narratedChain, /'research'/)

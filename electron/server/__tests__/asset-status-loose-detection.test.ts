@@ -19,6 +19,7 @@ import { writePromptCompletionManifest } from '../services/prompt-completion.js'
 let pm: typeof import('../services/project-manager.js')
 let assetStatus: typeof import('../services/asset-status.js')
 let cacheMod: typeof import('../services/episode-status-cache.js')
+let stitcher: typeof import('../services/subtitle-stitcher.js')
 let tmp: { dir: string; cleanup: () => Promise<void> }
 
 const SLUG = 'loose-detect'
@@ -88,6 +89,7 @@ describe('asset-status verified completion', () => {
     pm = await import('../services/project-manager.js')
     assetStatus = await import('../services/asset-status.js')
     cacheMod = await import('../services/episode-status-cache.js')
+    stitcher = await import('../services/subtitle-stitcher.js')
     assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'))
   })
 
@@ -222,7 +224,12 @@ describe('asset-status verified completion', () => {
     const subsDir = path.join(episodeDir, `${CODE} - 09 Subtitles Output`)
     await fs.mkdir(subsDir, { recursive: true })
     await fs.writeFile(path.join(episodeDir, 'audio_chapters.json'), JSON.stringify({
-      sections: [{ slug: 'Introduction' }, { slug: 'Chapter_01' }, { slug: 'Chapter_02' }],
+      gap_duration_s: 0,
+      sections: [
+        { slug: 'Introduction', duration_s: 2 },
+        { slug: 'Chapter_01', duration_s: 2 },
+        { slug: 'Chapter_02', duration_s: 2 },
+      ],
     }))
 
     let status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
@@ -237,7 +244,12 @@ describe('asset-status verified completion', () => {
     await fs.writeFile(path.join(subsDir, `${CODE}_Chapter_02.srt`), '1\n00:00:00,000 --> 00:00:02,000\ntwo\n')
     cacheMod.episodeStatusCache.clear()
     status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
-    assert.equal(status.subtitles, true, 'all expected sections → subtitles done')
+    assert.equal(status.subtitles, false, 'complete chapter sources still need their derived timeline')
+
+    await stitcher.stitchSubtitles({ episode_dir: episodeDir, subtitles_dir: subsDir, episode_code: CODE })
+    cacheMod.episodeStatusCache.clear()
+    status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.subtitles, true, 'a verified stitch over every expected section completes subtitles')
   })
 
   test('subtitles also detects a .vtt track', async () => {

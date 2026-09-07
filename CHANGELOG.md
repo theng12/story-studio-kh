@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.122 — 2026-09-07
+
+- **Pipeline Repair can restore selected subtitle gaps without redoing completed chapters.** The optional action keeps good outputs, reconnects to saved transcription tasks first, and allows one scoped fresh request per affected chapter at the live price when a recovered source remains unusable or known terminal/expired evidence cannot recover. Its action identity remains stable across restart; active or unconfirmed ownership stays protected from replacement.
+- **Internal subtitle gaps now target their affected chapters and rebuild the stitched timeline.** Repair checks actual chapter sources, maps internal gaps to their affected chapters, and verifies the refreshed timeline before selected downstream work continues.
+- **The same repair action can finish missing Scene Review images without replacing valid or imported images.** It recovers saved work first, keeps review approval explicit, and permits at most one fresh image request per missing item and action.
+
 ## v1.4.121 — 2026-09-07
 
 - **With automatic image replacement enabled, a fully released image can recover after GenStudio exhausts its site failover.** Story Studio verifies the authoritative failed task and zero settlement, then makes one bounded fresh attempt in the same run for Continuity, Image Pool, or thumbnails. Active, uncertain, cancelled, incomplete, and charged outcomes remain protected from automatic resubmission.

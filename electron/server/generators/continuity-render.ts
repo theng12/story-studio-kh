@@ -26,7 +26,7 @@ import {
   type TaskManifestEntry,
 } from '../services/task-manifest.js'
 import { getCharacter } from '../services/character-manager.js'
-import { resolveSceneImagesDir } from './scene-image.js'
+import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { resolveStyleBible } from '../lib/style-bible.js'
@@ -38,6 +38,8 @@ import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveIma
 import { getApiKey } from '../services/app-secrets-store.js'
 import {
   imageManifestIdentityHash,
+  hasPipelineRepairImageAttempt,
+  isCurrentPipelineRepairImageAttempt,
   isTerminalGenStudioImageTaskFailure,
   resolveManualImageReplacement,
   resolveImageRetryScope,
@@ -97,6 +99,8 @@ interface ContinuityRenderParams {
     expected_uncertain_identity_hashes?: Record<string, string>
     still_generating_scene_ids?: string[]
   }
+  /** One upfront Pipeline repair authority, propagated unchanged through its chain. */
+  pipeline_repair?: { action_id: string }
 }
 
 export function shouldPauseContinuityForStall(state: {
@@ -281,7 +285,11 @@ export async function resolveContinuityRenderOutputDir(
 
 export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorResult> {
   const params = job.params as ContinuityRenderParams
-  const manualFinish = params.manual_image_finish
+  const pipelineRepairActionId = params.pipeline_repair?.action_id
+  const manualFinish = params.manual_image_finish || (pipelineRepairActionId
+    ? { action_id: pipelineRepairActionId, replace_uncertain: false }
+    : undefined)
+  if (manualFinish && !params.manual_image_finish) params.manual_image_finish = manualFinish
   const { episode_id, model } = params
   if (!episode_id) throw new Error('episode_id is required')
   if (!model) throw new Error('model is required')
@@ -465,6 +473,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   job.output_dir = outDir
   await fs.mkdir(outDir, { recursive: true })
   const taskManifest = await readManifest(outDir)
+  const legacyImageDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
 
   // Resume only from images that fully decode. A non-empty but truncated file
   // must re-enter the missing-scene scope; otherwise every Retry keeps
@@ -472,7 +481,11 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   const usableRenderedIds = new Set<string>()
   const preservedCommittedArtifactIds = new Set<string>()
   for (const scene of scenes) {
-    const candidates = [path.join(outDir, `${scene.id}.png`)]
+    const candidates = [
+      path.join(outDir, `${scene.id}.png`),
+      path.join(legacyImageDir, `${scene.id}.png`),
+      ...(typeof scene.image_path === 'string' ? [scene.image_path] : []),
+    ]
     for (const candidate of candidates) {
       if (!existsSync(candidate)) continue
       if (await isDecodableImage(candidate)) {
@@ -786,9 +799,16 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 && (!durablePermission || !submittedRecoveryCandidate.idempotency_key)
                 ? submittedRecoveryCandidate
                 : null
-              const useFrozenOriginal = !manualFinish && (!!durablePermission || !!submittedRecoveryEntry || !!(manifestEntry?.original_output_selector
-                && isTerminalGenStudioImageTaskFailure(manifestEntry))
+              const pipelinePreparedReplay = Boolean(
+                pipelineRepairActionId
+                && isCurrentPipelineRepairImageAttempt(manifestEntry, pipelineRepairActionId)
+                && !manifestEntry?.task_id
+                && manifestEntry?.idempotency_key
+                && manifestEntry.last_state === 'prepared',
               )
+              const useFrozenOriginal = pipelinePreparedReplay || (!manualFinish
+                && (!!durablePermission || !!submittedRecoveryEntry || !!(manifestEntry?.original_output_selector
+                  && isTerminalGenStudioImageTaskFailure(manifestEntry))))
               const originalSelector = (useFrozenOriginal ? manifestEntry?.original_output_selector : null) || (paidSelector ? {
                 ...paidSelector,
                 reference_mode: sref.referenceImagePaths.length ? 'reference-guided' as const : 'normal' as const,
@@ -844,8 +864,17 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               let identity = originalSelector && capturedReferences
                 ? buildPaidImageOriginalIdentity({ prompt: finalPrompt, selector: originalSelector, references: capturedReferences.inputs, baseScope: logicalScope })
                 : null
-              let requestScope = replacementScope || (submittedRecoveryEntry ? manifestEntry!.replacement_scope! : '') || identity?.requestScope || logicalScope
-              const expectedInputHash = identity?.inputHash || hashRequest(requestScope)
+              let requestScope = pipelinePreparedReplay
+                ? manifestEntry!.request_scope!
+                : replacementScope || (submittedRecoveryEntry ? manifestEntry!.replacement_scope! : '') || identity?.requestScope || logicalScope
+              const expectedInputHash = pipelinePreparedReplay
+                ? manifestEntry!.input_hash!
+                : identity?.inputHash || hashRequest(requestScope)
+              if (manualFinish && pipelineRepairActionId === manualFinish.action_id
+                && isTerminalGenStudioImageTaskFailure(manifestEntry)
+                && hasPipelineRepairImageAttempt(manifestEntry, pipelineRepairActionId)) {
+                throw new Error('This Pipeline repair action already used its one fresh attempt for this scene image.')
+              }
               let manualSupersession = manualFinish && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
                 ? resolveManualImageReplacement(manifestEntry, manualFinish.action_id)
                 : null
@@ -865,7 +894,12 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 apiKey,
                 modelConfig,
                 () => jq.isCancelled(job.job_id),
-                { observeCurrentState: Boolean(manualFinish) },
+                {
+                  observeCurrentState: Boolean(manualFinish),
+                  allowPreparedReplayOnAbsent: Boolean(
+                    pipelinePreparedReplay,
+                  ),
+                },
               )
               if (recovery.kind === 'still-generating') {
                 if (manualFinish) {
@@ -973,6 +1007,10 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   'submitting one fresh job under a new retry identity.',
                 )
                 if (manualFinish) {
+                  if (pipelineRepairActionId === manualFinish.action_id
+                    && hasPipelineRepairImageAttempt(carried, pipelineRepairActionId)) {
+                    throw new Error('This Pipeline repair action already used its one fresh attempt for this scene image.')
+                  }
                   manualSupersession = resolveManualImageReplacement(carried, manualFinish.action_id)
                 }
               }
@@ -983,7 +1021,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   : null
                 requestScope = identity?.requestScope || logicalScope
               }
-              const inputHash = replacementScope || submittedRecoveryEntry
+              const inputHash = pipelinePreparedReplay
+                ? manifestEntry!.input_hash!
+                : replacementScope || submittedRecoveryEntry
                 ? manifestEntry!.input_hash!
                 : identity?.inputHash || (requestScope === retryScope.scope ? expectedInputHash : hashRequest(requestScope))
               attemptScope = requestScope
@@ -1005,7 +1045,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               const requestIdentity = replacementScope
                 ? replacementScope
                 : `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${requestScope}`
-              const preparedKey = buildGenStudioImageIdempotencyKey({
+              const preparedKey = pipelinePreparedReplay ? manifestEntry!.idempotency_key! : buildGenStudioImageIdempotencyKey({
                 prompt: finalPrompt,
                 modelId: modelConfig.api_model || model,
                 aspectRatio: requestSelector?.aspect_ratio || aspectRatio,

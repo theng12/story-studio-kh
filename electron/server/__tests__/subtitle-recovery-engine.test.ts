@@ -42,6 +42,9 @@ async function fixture(t: any, sections = ['Chapter_01']) {
   let quoteFailure: number | null = null
   let quoteFailureDetail = 'quote expired'
   let originalMissing = false
+  let originalArtifact = srt
+  let replacementArtifact = srt
+  let replacementArtifactError: Error | null = null
   let replacement = (id: string) => ({ id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }) as any
   globalThis.fetch = async (input, init) => {
     const url = String(input)
@@ -70,7 +73,10 @@ async function fixture(t: any, sections = ['Chapter_01']) {
       acceptedConfirmations.add(key)
       return Response.json(replacement(`new-${key}`), { status: 202 })
     }
-    if (url.endsWith('/srt')) return new Response(srt)
+    if (url.endsWith('/srt')) {
+      if (!url.includes('/old-') && replacementArtifactError) throw replacementArtifactError
+      return new Response(url.includes('/old-') ? originalArtifact : replacementArtifact)
+    }
     const id = decodeURIComponent(url.split('/').pop()!)
     if (url.includes('/by-idempotency-key/')) {
       const section = sections.find(s => id === `original-${s}-confirm`)
@@ -92,7 +98,7 @@ async function fixture(t: any, sections = ['Chapter_01']) {
       ...overrides,
     })
   }
-  return { outDir, run, job, calls, confirmations,
+  return { outDir, audioPath, run, job, calls, confirmations,
     original: (fn: typeof original) => { original = fn },
     quote: (value: typeof quoteFields) => { quoteFields = value },
     beforeConfirm: (fn: typeof beforeConfirm) => { beforeConfirm = fn },
@@ -100,7 +106,11 @@ async function fixture(t: any, sections = ['Chapter_01']) {
     acceptConfirmation: (key: string) => { acceptedConfirmations.add(key) },
     expireQuote: (status = 410, detail = 'quote expired') => { quoteFailure = status; quoteFailureDetail = detail },
     originalMissing: () => { originalMissing = true },
+    originalArtifact: (value: string) => { originalArtifact = value },
+    replacementArtifact: (value: string) => { replacementArtifact = value },
+    replacementArtifactError: (value: Error | null) => { replacementArtifactError = value },
     replacement: (fn: typeof replacement) => { replacement = fn },
+    clearOriginal: async () => { await fs.rm(path.join(outDir, '.task-manifest.json'), { force: true }) },
   }
 }
 
@@ -109,6 +119,173 @@ test('accepted task is recovered before any POST, even if local state says faile
   f.original(id => ({ ...failed(id), state: 'succeeded', srt_url: `/v1/transcriptions/${id}/srt` }))
   assert.equal((await f.run()).srt, srt)
   assert.equal(f.calls.filter(c => c.startsWith('POST')).length, 0)
+})
+
+test('one stamped bulk repair action replaces a recovered gap-invalid result once and reconnects after restart', async t => {
+  const f = await fixture(t)
+  f.original(id => ({ id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }) as any)
+  f.originalArtifact('1\n00:00:00,000 --> 00:00:01,000\nBefore\n\n2\n00:00:38,000 --> 00:00:39,000\nAfter\n')
+  f.replacementArtifact(srt)
+  const repair = {
+    actionId: 'bulk-repair-ep0083',
+    isResultUsable: (candidate: string) => candidate === srt,
+  }
+
+  assert.equal((await f.run('Chapter_01', { pipelineRepair: repair } as any)).srt, srt)
+  assert.equal(f.confirmations.length, 1, 'only the stamped fresh repair is submitted')
+  const ledger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  assert.equal(ledger.sections['Chapter_01.srt'].pipelineRepairActionId, 'bulk-repair-ep0083')
+
+  const restarted = { ...f.job, params: { ...f.job.params } }
+  assert.equal((await f.run('Chapter_01', { job: restarted, pipelineRepair: repair } as any)).srt, srt)
+  assert.equal(f.confirmations.length, 1, 'restart reconnects the persisted repair identity')
+})
+
+test('bulk repair never replaces an old task unavailable to this account', async t => {
+  const f = await fixture(t)
+  f.originalMissing()
+  await assert.rejects(f.run('Chapter_01', {
+    pipelineRepair: { actionId: 'bulk-repair-account', isResultUsable: () => true },
+  } as any), /not found with the current GenStudio connection\/account/)
+  assert.equal(f.confirmations.length, 0)
+})
+
+test('a known historical provider cancellation may use the one explicit bulk repair request', async t => {
+  const f = await fixture(t)
+  f.original(id => failed(id, { cancelled: true, settled_credits: null, released_credits: null }))
+  const repair = { actionId: 'bulk-repair-old-cancelled', isResultUsable: (candidate: string) => candidate === srt }
+  assert.equal((await f.run('Chapter_01', { pipelineRepair: repair } as any)).srt, srt)
+  assert.equal(f.confirmations.length, 1)
+})
+
+test('a cancelled current bulk repair sends no fresh confirmation', async t => {
+  const f = await fixture(t)
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(f.run('Chapter_01', {
+    pipelineRepair: { actionId: 'bulk-repair-current-cancel', isResultUsable: () => true },
+    request: {
+      audioPath: f.audioPath,
+      modelId: 'model',
+      requestIdentity: 'episode:Chapter_01',
+      wordTimestamps: true,
+      signal: controller.signal,
+      isCancelled: () => true,
+    },
+  } as any), /stopped by owner/)
+  assert.equal(f.confirmations.length, 0)
+})
+
+test('bulk repair stops after its one fresh result is still invalid', async t => {
+  const f = await fixture(t)
+  f.original(id => ({ id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }) as any)
+  f.originalArtifact('old invalid')
+  f.replacementArtifact('still invalid')
+  await assert.rejects(f.run('Chapter_01', {
+    pipelineRepair: { actionId: 'bulk-repair-once', isResultUsable: () => false },
+  } as any), /still invalid after its one fresh repair request/)
+  assert.equal(f.confirmations.length, 1)
+})
+
+test('bulk repair persists its fresh key before confirm and reuses it after interruption', async t => {
+  const f = await fixture(t)
+  f.original(id => ({ id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }) as any)
+  f.originalArtifact('old invalid')
+  let interrupted = true
+  f.beforeConfirm(async () => {
+    if (interrupted) throw new Error('interrupted before confirm POST')
+  })
+  const repair = { actionId: 'bulk-repair-before-confirm', isResultUsable: (candidate: string) => candidate === srt }
+  await assert.rejects(f.run('Chapter_01', { pipelineRepair: repair } as any), /interrupted before confirm POST/)
+  const before = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  const key = before.sections['Chapter_01.srt'].idempotencyKey
+  assert.equal(before.sections['Chapter_01.srt'].pipelineRepairActionId, repair.actionId)
+  assert.equal(f.confirmations.length, 0)
+
+  interrupted = false
+  assert.equal((await f.run('Chapter_01', { pipelineRepair: repair } as any)).srt, srt)
+  const after = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  assert.equal(after.sections['Chapter_01.srt'].idempotencyKey, key)
+  assert.equal(f.confirmations.length, 1)
+})
+
+test('bulk repair reconnects an accepted task when its first result is lost', async t => {
+  const f = await fixture(t)
+  f.original(id => ({ id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }) as any)
+  f.originalArtifact('old invalid')
+  f.replacementArtifactError(new Error('accepted result lost'))
+  const repair = { actionId: 'bulk-repair-lost-result', isResultUsable: (candidate: string) => candidate === srt }
+  await assert.rejects(f.run('Chapter_01', { pipelineRepair: repair } as any), /accepted result lost/)
+  const before = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  const key = before.sections['Chapter_01.srt'].idempotencyKey
+  assert.equal(f.confirmations.length, 1)
+
+  f.replacementArtifactError(null)
+  assert.equal((await f.run('Chapter_01', { pipelineRepair: repair } as any)).srt, srt)
+  const after = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  assert.equal(after.sections['Chapter_01.srt'].idempotencyKey, key)
+  assert.equal(f.confirmations.length, 1)
+})
+
+test('a later explicit bulk repair action may replace one failed prior repair once', async t => {
+  const f = await fixture(t)
+  f.original(id => ({ id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }) as any)
+  f.originalArtifact('old invalid')
+  f.replacement(id => failed(id, { settled_credits: 3, released_credits: 0 }))
+  const first = { actionId: 'bulk-repair-first', isResultUsable: (candidate: string) => candidate === srt }
+  await assert.rejects(f.run('Chapter_01', { pipelineRepair: first } as any), /one fresh pipeline repair request failed/)
+  assert.equal(f.confirmations.length, 1)
+
+  const firstLedger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  const firstTaskId = firstLedger.sections['Chapter_01.srt'].taskId
+  f.replacement(id => {
+    if (id === firstTaskId) return failed(id, { settled_credits: 3, released_credits: 0 })
+    return { id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` } as any
+  })
+  const second = { actionId: 'bulk-repair-second', isResultUsable: (candidate: string) => candidate === srt }
+  assert.equal((await f.run('Chapter_01', { pipelineRepair: second } as any)).srt, srt)
+  assert.equal(f.confirmations.length, 2)
+  const ledger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  assert.equal(ledger.sections['Chapter_01.srt'].pipelineRepairActionId, second.actionId)
+})
+
+test('a missing source consumes one action-scoped fresh request before a terminal result, then a later action may retry it', async t => {
+  const f = await fixture(t)
+  await f.clearOriginal()
+  f.replacement(id => failed(id, { settled_credits: 3, released_credits: 0 }))
+  const first = { actionId: 'bulk-repair-missing-first', isResultUsable: (candidate: string) => candidate === srt }
+  await assert.rejects(f.run('Chapter_01', { pipelineRepair: first } as any), /one fresh pipeline repair request failed/)
+  assert.equal(f.confirmations.length, 1)
+  const before = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  const key = before.sections['Chapter_01.srt'].idempotencyKey
+  assert.equal(before.sections['Chapter_01.srt'].pipelineRepairActionId, first.actionId)
+
+  await assert.rejects(f.run('Chapter_01', { pipelineRepair: first } as any), /one fresh pipeline repair request failed/)
+  assert.equal(f.confirmations.length, 1, 'the same action reconnects its failed task instead of buying another request')
+  assert.equal(JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8')).sections['Chapter_01.srt'].idempotencyKey, key)
+
+  const firstTaskId = before.sections['Chapter_01.srt'].taskId
+  f.replacement(id => id === firstTaskId
+    ? failed(id, { settled_credits: 3, released_credits: 0 })
+    : ({ id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` } as any))
+  const second = { actionId: 'bulk-repair-missing-second', isResultUsable: (candidate: string) => candidate === srt }
+  assert.equal((await f.run('Chapter_01', { pipelineRepair: second } as any)).srt, srt)
+  assert.equal(f.confirmations.length, 2, 'a distinct explicit action may make its one new request')
+})
+
+test('a missing source with an invalid first result does not mint a second request for the same action', async t => {
+  const f = await fixture(t)
+  await f.clearOriginal()
+  f.replacementArtifact('still invalid')
+  const repair = { actionId: 'bulk-repair-missing-invalid', isResultUsable: (candidate: string) => candidate === srt }
+  await assert.rejects(f.run('Chapter_01', { pipelineRepair: repair } as any), /still invalid after its one fresh repair request/)
+  assert.equal(f.confirmations.length, 1)
+  const before = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  const key = before.sections['Chapter_01.srt'].idempotencyKey
+
+  await assert.rejects(f.run('Chapter_01', { pipelineRepair: repair } as any), /still invalid after its one fresh repair request/)
+  assert.equal(f.confirmations.length, 1)
+  assert.equal(JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8')).sections['Chapter_01.srt'].idempotencyKey, key)
 })
 
 test('whole-track accepted task recovers after transport and artifact download failures with no fresh POST', async t => {
