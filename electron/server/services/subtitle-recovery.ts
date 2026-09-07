@@ -41,6 +41,8 @@ interface Section {
   identityVerified: boolean
   confirmStarted?: boolean
   freeRetries: number
+  /** Server-owned deliberate action, stable across queue-created successors. */
+  generationActionId?: string
   /** One deliberate Pipeline repair action may mint one fresh section key. */
   pipelineRepairActionId?: string
   pipelineRepairOriginal?: { taskId: string; idempotencyKey: string }
@@ -84,6 +86,7 @@ async function readLedger(file: string): Promise<Ledger> {
         || (s.sourceAudioHash !== undefined && !text(s.sourceAudioHash))
         || !Number.isSafeInteger(s.freeRetries) || s.freeRetries < 0
         || (s.confirmStarted !== undefined && typeof s.confirmStarted !== 'boolean')
+        || (s.generationActionId !== undefined && !text(s.generationActionId))
         || (s.pipelineRepairActionId !== undefined && !text(s.pipelineRepairActionId))
         || (s.pipelineRepairOriginal !== undefined && (!text(s.pipelineRepairActionId)
           || !text(s.pipelineRepairOriginal.taskId) || !text(s.pipelineRepairOriginal.idempotencyKey)))
@@ -127,6 +130,8 @@ export interface SubtitleRecoveryInput {
   audioHash: string
   apiKey: string
   force: boolean
+  /** Server-stamped deliberate fresh action. No marker means ordinary recovery. */
+  generationActionId?: string
   /** A pipeline-stamped action may replace one proved-unusable result once. */
   pipelineRepair?: { actionId: string; isResultUsable: (srt: string) => boolean }
   /** Only the explicit manual purchase route supplies this, never pipeline defaults. */
@@ -205,13 +210,15 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
     })
     let prior: Section | undefined
     const pipelineActionId = input.pipelineRepair?.actionId.trim() || ''
+    const generationActionId = input.generationActionId?.trim() || ''
     let current = await change(ledger => {
       const saved = ledger.sections[manifestKey]
       prior = saved
       ledger.activePlanId ||= String(job.params.subtitle_recovery_plan_id || job.job_id)
-      if (input.force && saved && saved.ownerJobId !== job.job_id) ledger.activePlanId = job.job_id
+      const sameExplicitAction = !!generationActionId && saved?.generationActionId === generationActionId
+      if (input.force && saved && !sameExplicitAction && saved.ownerJobId !== job.job_id) ledger.activePlanId = job.job_id
       if (saved && saved.inputHash === input.inputHash
-        && (!input.force || saved.ownerJobId === job.job_id)) return saved
+        && (!input.force || sameExplicitAction || saved.ownerJobId === job.job_id)) return saved
       return null
     })
     let freshCurrent = false
@@ -223,7 +230,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
       const key = reuse?.idempotency_key || buildGenStudioTranscriptionIdempotencyKey({
         requestIdentity: !reuse && pipelineActionId
           ? `${input.request.requestIdentity}:pipeline-repair:${pipelineActionId}:${section}`
-          : input.force && (saved || prior) ? `${input.request.requestIdentity}:manual-rerun:${job.job_id}` : input.request.requestIdentity,
+          : input.force ? `${input.request.requestIdentity}:manual-rerun:${generationActionId || job.job_id}` : input.request.requestIdentity,
         fileSha256: input.audioHash.replace(/^sha256:/, ''), modelId: input.request.modelId,
         language: input.request.language, wordTimestamps: input.request.wordTimestamps,
       })
@@ -235,6 +242,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         identityVerified: !reuse || (!!reuse.idempotency_key && reuse.input_hash === input.inputHash),
         // A legacy key with no task is an ambiguous submission, not fresh authority.
         confirmStarted: !!reuse?.idempotency_key && !reuse.task_id,
+        ...(generationActionId ? { generationActionId } : {}),
         // A missing source has no earlier provider task to recover. Its first
         // deliberate Pipeline request is therefore the one action-scoped fresh
         // attempt, persisted before any confirm POST.

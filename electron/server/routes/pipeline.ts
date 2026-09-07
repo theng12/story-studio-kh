@@ -1338,7 +1338,7 @@ router.get('/projects/:slug/pipeline/pending-approvals', async (req, res) => {
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-function parseBatchRequest(body: any): { episodeIds: string[]; steps: BatchStep[]; force: boolean; repairMissing: boolean; actionId: string } {
+function parseBatchRequest(body: any): { episodeIds: string[]; steps: BatchStep[]; force: boolean; repairMissing: boolean; actionId: string; operationId: string } {
   const episodeIds = Array.isArray(body?.episode_ids) ? body.episode_ids.filter((x: any) => typeof x === 'string' && x) : []
   const stepsRaw: any[] = Array.isArray(body?.steps) ? body.steps : []
   const steps = stepsRaw.filter((s): s is BatchStep => VALID_STEPS.includes(s))
@@ -1348,13 +1348,20 @@ function parseBatchRequest(body: any): { episodeIds: string[]; steps: BatchStep[
     force: body?.force === true,
     repairMissing: body?.repair_missing === true,
     actionId: typeof body?.action_id === 'string' ? body.action_id.trim() : '',
+    operationId: typeof body?.operation_id === 'string' ? body.operation_id.trim() : '',
   }
 }
 
 function repairRequestError(request: ReturnType<typeof parseBatchRequest>): string | null {
-  if (!request.repairMissing) return request.actionId ? 'action_id is only valid with repair_missing' : null
-  if (!UUID_V4.test(request.actionId)) return 'repair_missing requires a valid action_id UUID'
-  if (request.force) return 'repair_missing cannot be combined with force'
+  if (request.repairMissing) {
+    if (request.operationId) return 'operation_id cannot be combined with repair_missing'
+    if (!UUID_V4.test(request.actionId)) return 'repair_missing requires a valid action_id UUID'
+    if (request.force) return 'repair_missing cannot be combined with force'
+    return null
+  }
+  if (request.actionId) return 'action_id is only valid with repair_missing'
+  if (request.force && !UUID_V4.test(request.operationId)) return 'force requires a valid operation_id UUID'
+  if (!request.force && request.operationId) return 'operation_id is only valid with force'
   return null
 }
 
@@ -1482,7 +1489,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const parsed = parseBatchRequest(req.body)
-  const { episodeIds: episode_ids, steps: requestedSteps, force, repairMissing, actionId } = parsed
+  const { episodeIds: episode_ids, steps: requestedSteps, force, repairMissing, actionId, operationId } = parsed
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
   // `force: true` disables per-step idempotency skipping — every selected
@@ -1555,7 +1562,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     }
   }
 
-  const repairFingerprint = repairMissing ? pipelineRepairFingerprint({
+  const actionFingerprint = repairMissing || force ? pipelineRepairFingerprint({
     slug,
     episode_ids: [...new Set(episode_ids)].sort(),
     steps,
@@ -1567,14 +1574,18 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     introduction_chat_model: preflight.introductionChatModel,
     script_chat_model: preflight.scriptSideChatModel,
   }) : ''
-  const batch_id = repairMissing ? actionId : randomUUID()
-  const existingRepairJobs = repairMissing
-    ? (await jq.getJobs(slug)).filter(job => job.params?.pipeline_repair?.action_id === actionId)
+  const batch_id = repairMissing ? actionId : force ? operationId : randomUUID()
+  const existingActionJobs = repairMissing || force
+    ? (await jq.getJobs(slug)).filter(job => repairMissing
+      ? job.params?.pipeline_repair?.action_id === actionId
+      : job.params?.generation_action?.id === operationId)
     : []
-  if (existingRepairJobs.some(job => job.params?.pipeline_repair_request_fingerprint !== repairFingerprint)) {
-    return res.status(409).json({ detail: 'This repair action_id already belongs to different episodes, stages, or resolved settings.' })
+  if (existingActionJobs.some(job => repairMissing
+    ? job.params?.pipeline_repair_request_fingerprint !== actionFingerprint
+    : job.params?.generation_action_fingerprint !== actionFingerprint)) {
+    return res.status(409).json({ detail: 'This action id already belongs to different episodes, stages, or resolved settings.' })
   }
-  const existingRepairByEpisode = new Map(existingRepairJobs.map(job => [job.episode_id, job]))
+  const existingActionByEpisode = new Map(existingActionJobs.map(job => [job.episode_id, job]))
   const enqueued: Array<{ episode_id: string; job_id: string; type: JobType }> = []
   const reused: Array<{ episode_id: string; job_id: string; type: JobType }> = []
   const skipped: Array<{ episode_id: string; reason: string }> = []
@@ -1595,9 +1606,9 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       skipped.push({ episode_id: episodeId, reason: 'Not found among accepted ideas' })
       continue
     }
-    const existingRepair = existingRepairByEpisode.get(episodeId)
-    if (existingRepair) {
-      reused.push({ episode_id: episodeId, job_id: existingRepair.job_id, type: existingRepair.type })
+    const existingAction = existingActionByEpisode.get(episodeId)
+    if (existingAction) {
+      reused.push({ episode_id: episodeId, job_id: existingAction.job_id, type: existingAction.type })
       continue
     }
 
@@ -1775,7 +1786,16 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
 
     if (repairMissing) {
       for (const link of chain) {
-        link.params = applyPipelineRepairParams(link.params, actionId, repairFingerprint)
+        link.params = applyPipelineRepairParams(link.params, actionId, actionFingerprint)
+      }
+    } else if (force) {
+      for (const link of chain) {
+        link.params = {
+          ...link.params,
+          force: true,
+          generation_action: { id: operationId, kind: 'fresh' },
+          generation_action_fingerprint: actionFingerprint,
+        }
       }
     }
 
@@ -1858,6 +1878,7 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   const parsed = parseBatchRequest(req.body)
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
-  if (!parsed.repairMissing) return runBatch(req, res)
-  return withLock(`pipeline-repair:${req.params.slug}:${parsed.actionId}`, () => runBatch(req, res))
+  if (parsed.repairMissing) return withLock(`pipeline-repair:${req.params.slug}:${parsed.actionId}`, () => runBatch(req, res))
+  if (parsed.force) return withLock(`pipeline-force:${req.params.slug}:${parsed.operationId}`, () => runBatch(req, res))
+  return runBatch(req, res)
 })

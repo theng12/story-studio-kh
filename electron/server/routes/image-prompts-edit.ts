@@ -14,10 +14,11 @@
 
 import path from 'path'
 import { existsSync } from 'fs'
+import fs from 'fs/promises'
 import { Router } from 'express'
 import { z } from 'zod'
 import { validateBody } from '../lib/validate.js'
-import { callAi, callAiWithRetry } from '../lib/ai-client.js'
+import { callAiWithRetry } from '../lib/ai-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
 import * as pm from '../services/project-manager.js'
@@ -28,11 +29,34 @@ import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { enforceThumbnailPromptElements } from '../generators/image-prompts.js'
 import { buildPromptCharCapInstruction, parsePromptCharCap } from '../services/prompt-char-cap.js'
 import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
+import { freshActionFingerprint, readOperationId } from '../lib/fresh-generation-action.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { singleImagePromptOutputContract } from '../lib/story-output-contracts.js'
 
 export const router = Router()
 
+interface PromptRegenerationResult {
+  number: number
+  title: string
+  prompt: string
+  model_notice?: string
+}
+
+interface PromptRegenerationAction {
+  fingerprint: string
+  source_fingerprint: string
+  published_fingerprint?: string
+  status: 'pending' | 'completed'
+  result?: PromptRegenerationResult
+}
+
+interface PromptRegenerationActions {
+  schema_version: 1
+  actions: Record<string, PromptRegenerationAction>
+}
+
 const RegenerateSchema = z.object({
+  operation_id: z.string().uuid(),
   kind: z.enum(['scene', 'thumbnail']),
   number: z.number().int().min(1).max(999),
   /** LLM model. Defaults to gpt-4o (matches the bulk generator's default). */
@@ -74,6 +98,13 @@ router.post(
   async (req, res) => {
     const { slug, episodeId } = req.params
     const { kind, number } = req.body as { kind: 'scene' | 'thumbnail'; number: number }
+    let operationId: string
+    return withLock(`image-prompt-row:${slug}:${episodeId}:${kind}:${number}`, async () => {
+    try {
+      operationId = readOperationId(req.body, true)!
+    } catch (error) {
+      return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
+    }
     const titleParam = (req.body.title as string | undefined) || (req.query.title as string) || ''
     const requestedModel = typeof req.body.model === 'string' ? req.body.model.trim() : ''
 
@@ -154,59 +185,205 @@ router.post(
         reword: req.body.reword === true,
       })
 
-      const apiKeys = {
-        anthropic_api_key: config.anthropic_api_key,
-        openai_api_key: config.openai_api_key,
-        kie_api_key: config.kie_api_key,
-      }
-      const raw = await callAiWithRetry(model, '', llmPrompt, apiKeys, false, {
+      const actionPath = path.join(path.dirname(writePath), '.prompt-regeneration-actions.json')
+      const actionFingerprint = freshActionFingerprint({
         slug,
-        // The prompt asks for `{ "title": ..., "prompt": ... }` and the reader
-        // parses it, so JSON is declared. `parseSinglePromptResponse` keeps its
-        // plain-text fallback, but it is no longer the thing standing between a
-        // prose answer and a scene prompt that is really an essay.
-        outputContract: singleImagePromptOutputContract(),
+        episode_id: episodeId,
+        kind,
+        number,
+        model,
+        title: titleParam,
+        current_title: req.body.current_title,
+        current_prompt: req.body.current_prompt,
+        notes: req.body.notes,
+        style_tag: req.body.style_tag,
+        aspect_ratio: req.body.aspect_ratio,
+        headline_mode: req.body.headline_mode,
+        prompt_char_cap: req.body.prompt_char_cap,
+        reword: req.body.reword === true,
       })
-      const next = parseSinglePromptResponse(raw, target)
-      if (!next.prompt || next.prompt.trim().length < 10) {
-        return res.status(502).json({ detail: 'LLM returned an empty or too-short prompt' })
+      const sourceFingerprint = promptRowFingerprint(target.title, target.prompt)
+      const action = await beginPromptRegenerationAction(actionPath, operationId, actionFingerprint, sourceFingerprint)
+      if (action === 'mismatch') {
+        return res.status(409).json({ detail: 'operation_id was already used for a different prompt regeneration request.' })
+      }
+      if (action === 'stale') {
+        return res.status(409).json({ detail: 'This prompt changed while the regeneration action was in progress. The newer saved edit was kept.' })
       }
 
-      // Thumbnail prompts always keep the ratio and a ready-to-use in-image
-      // title, exactly like the bulk generator.
-      if (kind === 'thumbnail') {
-        next.prompt = enforceThumbnailPromptElements(next.prompt, {
-          aspectRatio: (req.body.aspect_ratio as string | undefined) || '16:9',
-          title: req.body.headline_mode === 'curiosity-hook' ? next.title || currentTitle : titleParam || currentTitle,
-          headlineMode: req.body.headline_mode as 'episode-title' | 'curiosity-hook' | undefined,
+      let result = action.result
+      if (!result) {
+        const apiKeys = {
+          anthropic_api_key: config.anthropic_api_key,
+          openai_api_key: config.openai_api_key,
+          kie_api_key: config.kie_api_key,
+        }
+        const raw = await callAiWithRetry(model, '', llmPrompt, apiKeys, false, {
+          slug,
+          requestIdentity: `${slug}:fresh:${operationId}:${kind}-${number}`,
+          // The prompt asks for `{ "title": ..., "prompt": ... }` and the reader
+          // parses it, so JSON is declared. `parseSinglePromptResponse` keeps its
+          // plain-text fallback, but it is no longer the thing standing between a
+          // prose answer and a scene prompt that is really an essay.
+          outputContract: singleImagePromptOutputContract(),
         })
+        const next = parseSinglePromptResponse(raw, target)
+        if (!next.prompt || next.prompt.trim().length < 10) {
+          return res.status(502).json({ detail: 'LLM returned an empty or too-short prompt' })
+        }
+
+        // Thumbnail prompts always keep the ratio and a ready-to-use in-image
+        // title, exactly like the bulk generator.
+        if (kind === 'thumbnail') {
+          next.prompt = enforceThumbnailPromptElements(next.prompt, {
+            aspectRatio: (req.body.aspect_ratio as string | undefined) || '16:9',
+            title: req.body.headline_mode === 'curiosity-hook' ? next.title || currentTitle : titleParam || currentTitle,
+            headlineMode: req.body.headline_mode as 'episode-title' | 'curiosity-hook' | undefined,
+          })
+        }
+
+        result = {
+          number: target.number,
+          title: next.title || target.title,
+          prompt: next.prompt,
+          ...(modelNotice ? { model_notice: modelNotice } : {}),
+        }
+        // Record the provider result before publishing the document. A retry
+        // after a crash can apply this exact answer without another paid call.
+        await completePromptRegenerationAction(actionPath, operationId, actionFingerprint, result)
       }
 
       // Replace the entry in-place. Title + prompt update; number stays.
-      const updatedList = list.map((p, i) => (i === targetIdx
-        ? { number: target.number, title: next.title || target.title, prompt: next.prompt }
-        : p
-      ))
-
-      // Re-serialise to the same markdown format the bulk generator uses,
-      // writing as .md (upgrades a legacy .docx-only episode on save).
-      const serialised = serialiseList(kind, updatedList)
-      await buildImagePromptsDocx(serialised, episodeId, project.name || episodeId, writePath)
-      _clearImagePromptsParseCache()
-
-      res.json({
-        number: target.number,
-        title: next.title || target.title,
-        prompt: next.prompt,
-        // Synchronous route with no job log — the substitution travels with
-        // the result rather than being dropped.
-        ...(modelNotice ? { model_notice: modelNotice } : {}),
+      // Re-read only while publishing. Different rows may generate in
+      // parallel; this short file lock merges each answer into the latest
+      // document instead of letting an older whole-document snapshot erase a
+      // newer edit to another row.
+      const publication = await withLock(writePath, async () => {
+        _clearImagePromptsParseCache()
+        const latest = await parseImagePromptsDocx(resolveReadPath(promptsConstant))
+        const latestList = kind === 'scene' ? latest.scenes : latest.thumbnails
+        const latestTarget = latestList.findIndex(prompt => prompt.number === number)
+        if (latestTarget < 0) throw new Error(`${kind} ${number} was removed while it was being regenerated.`)
+        const current = latestList[latestTarget]!
+        const currentFingerprint = promptRowFingerprint(current.title, current.prompt)
+        const resultFingerprint = promptRowFingerprint(result!.title, result!.prompt)
+        if (currentFingerprint !== action.sourceFingerprint
+          && currentFingerprint !== action.publishedFingerprint
+          && currentFingerprint !== resultFingerprint) return null
+        const updatedList = latestList.map((prompt, index) => (index === latestTarget
+          ? { number: prompt.number, title: result!.title || prompt.title, prompt: result!.prompt }
+          : prompt
+        ))
+        const serialised = serialiseList(kind, updatedList)
+        await buildImagePromptsDocx(serialised, episodeId, project.name || episodeId, writePath)
+        _clearImagePromptsParseCache()
+        const persisted = await parseImagePromptsDocx(resolveReadPath(promptsConstant))
+        const persistedRow = (kind === 'scene' ? persisted.scenes : persisted.thumbnails)
+          .find(prompt => prompt.number === number)
+        if (!persistedRow) throw new Error(`${kind} ${number} was not present after regeneration was saved.`)
+        return promptRowFingerprint(persistedRow.title, persistedRow.prompt)
       })
+      if (!publication) {
+        return res.status(409).json({ detail: 'This prompt changed while regeneration was running. The newer saved edit was kept.' })
+      }
+      await markPromptRegenerationPublished(actionPath, operationId, actionFingerprint, publication)
+
+      res.json({ ...result, ...(action.result ? { reused: true } : {}) })
     } catch (e: any) {
       res.status(500).json({ detail: e?.message || 'Failed to regenerate prompt' })
     }
+    })
   },
 )
+
+async function readPromptRegenerationActions(filePath: string): Promise<PromptRegenerationActions> {
+  try {
+    const value = JSON.parse(await fs.readFile(filePath, 'utf8')) as Partial<PromptRegenerationActions>
+    if (value.schema_version !== 1 || !value.actions || typeof value.actions !== 'object' || Array.isArray(value.actions)) {
+      throw new Error('invalid prompt regeneration action record')
+    }
+    return value as PromptRegenerationActions
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { schema_version: 1, actions: {} }
+    throw error
+  }
+}
+
+async function beginPromptRegenerationAction(
+  filePath: string,
+  operationId: string,
+  fingerprint: string,
+  sourceFingerprint: string,
+): Promise<{
+  result: PromptRegenerationResult | null
+  sourceFingerprint: string
+  publishedFingerprint?: string
+} | 'mismatch' | 'stale'> {
+  return withLock(filePath, async () => {
+    const ledger = await readPromptRegenerationActions(filePath)
+    const existing = ledger.actions[operationId]
+    if (existing) {
+      if (existing.fingerprint !== fingerprint) return 'mismatch'
+      const resultMatchesCurrent = existing.status === 'completed' && existing.result
+        ? promptRowFingerprint(existing.result.title, existing.result.prompt) === sourceFingerprint
+        : false
+      if (existing.source_fingerprint !== sourceFingerprint
+        && existing.published_fingerprint !== sourceFingerprint
+        && !resultMatchesCurrent) return 'stale'
+      return {
+        result: existing.status === 'completed' && existing.result ? existing.result : null,
+        sourceFingerprint: existing.source_fingerprint,
+        publishedFingerprint: existing.published_fingerprint,
+      }
+    }
+    ledger.actions[operationId] = { fingerprint, source_fingerprint: sourceFingerprint, status: 'pending' }
+    await writeJsonAtomic(filePath, ledger)
+    return { result: null, sourceFingerprint, publishedFingerprint: undefined }
+  })
+}
+
+async function markPromptRegenerationPublished(
+  filePath: string,
+  operationId: string,
+  fingerprint: string,
+  publishedFingerprint: string,
+): Promise<void> {
+  await withLock(filePath, async () => {
+    const ledger = await readPromptRegenerationActions(filePath)
+    const existing = ledger.actions[operationId]
+    if (!existing || existing.fingerprint !== fingerprint || existing.status !== 'completed') {
+      throw new Error('Prompt regeneration action changed while its document update was being saved.')
+    }
+    existing.published_fingerprint = publishedFingerprint
+    await writeJsonAtomic(filePath, ledger)
+  })
+}
+
+async function completePromptRegenerationAction(
+  filePath: string,
+  operationId: string,
+  fingerprint: string,
+  result: PromptRegenerationResult,
+): Promise<void> {
+  await withLock(filePath, async () => {
+    const ledger = await readPromptRegenerationActions(filePath)
+    const existing = ledger.actions[operationId]
+    if (!existing || existing.fingerprint !== fingerprint) {
+      throw new Error('Prompt regeneration action changed while its result was being saved.')
+    }
+    ledger.actions[operationId] = {
+      fingerprint,
+      source_fingerprint: existing.source_fingerprint,
+      status: 'completed',
+      result,
+    }
+    await writeJsonAtomic(filePath, ledger)
+  })
+}
+
+function promptRowFingerprint(title: string, prompt: string): string {
+  return freshActionFingerprint({ title, prompt })
+}
 
 router.put(
   '/projects/:slug/episodes/:episodeId/image-prompts/item',

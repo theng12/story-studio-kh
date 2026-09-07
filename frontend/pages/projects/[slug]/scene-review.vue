@@ -625,6 +625,7 @@ const slug = computed(() => route.params.slug as string)
 // not the LLM ModelSelector that used to be here.
 const { config } = useProject()
 const { get, post, put } = useApi()
+const freshSceneImageAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { updateEpisode: updateCachedEpisode, revalidateAfterMutation } = useEpisodes(slug)
@@ -1198,23 +1199,35 @@ async function generateOne(scene: ReviewScene): Promise<void> {
   regeneratingId.value = scene.id
   try {
     if (isContinuity.value) {
-      await post(`/projects/${slug.value}/scene-review/${episodeId.value}/continuity-render`, {
+      const payload = {
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
         single_scene_id: scene.id,
         force: !!scene.image_filename,
         auto_approve_generated: autoApproveGenerated.value,
         ...genStudioImageBody.value,
+      }
+      const operationId = payload.force ? freshSceneImageAction.begin(payload, `continuity:${scene.id}`) : null
+      await post(`/projects/${slug.value}/scene-review/${episodeId.value}/continuity-render`, {
+        ...payload,
+        ...(operationId ? { operation_id: operationId } : {}),
       })
+      if (operationId) freshSceneImageAction.complete(operationId)
       success(`${scene.image_filename ? 'Regeneration' : 'Generation'} queued for scene ${scene.scene_index} — it'll update above.`)
     } else {
-      await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-image`, {
+      const payload = {
         scene_id: scene.id,
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
         auto_approve_generated: autoApproveGenerated.value,
         ...genStudioImageBody.value,
+      }
+      const operationId = freshSceneImageAction.begin(payload)
+      await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-image`, {
+        ...payload,
+        operation_id: operationId,
       })
+      freshSceneImageAction.complete(operationId)
       success(`Queued scene ${scene.scene_index} — watch the Jobs panel`)
       await pollUntilImageReady(scene.id, ep)
     }

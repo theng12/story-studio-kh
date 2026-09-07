@@ -167,6 +167,38 @@ void test('audio generation honors selected-model fanout and independent New ver
     await generateAudio(regenerateJob)
     assert.notEqual(await fs.readFile(originalPath, 'utf8'), 'old audio')
     assert.equal(service.providerSubmissionCount('tts'), 1)
+
+    const sameActionRetry: any = {
+      ...regenerateJob,
+      job_id: 'audio-regenerate-retry-EP003',
+      output_lines: [],
+      params: {
+        ...regenerateJob.params,
+        generation_action: { id: 'audio-regenerate-action-one', kind: 'fresh' },
+      },
+    }
+    regenerateJob.params.generation_action = { id: 'audio-regenerate-action-one', kind: 'fresh' }
+    service.reset()
+    service.ttsModels = [ttsModel('model-versioned', 3)]
+    clearGenStudioCatalogCache()
+    service.queueScenario('tts', {})
+    await generateAudio(regenerateJob)
+    assert.equal(service.providerSubmissionCount('tts'), 1)
+    await generateAudio(sameActionRetry)
+    assert.equal(service.providerSubmissionCount('tts'), 1, 'Jobs Retry must reuse the explicit action identity')
+
+    const laterAction: any = {
+      ...sameActionRetry,
+      job_id: 'audio-regenerate-later-EP003',
+      output_lines: [],
+      params: {
+        ...sameActionRetry.params,
+        generation_action: { id: 'audio-regenerate-action-two', kind: 'fresh' },
+      },
+    }
+    service.queueScenario('tts', {})
+    await generateAudio(laterAction)
+    assert.equal(service.providerSubmissionCount('tts'), 2, 'a second explicit action is intentionally distinct')
   } finally {
     clearGenStudioCatalogCache()
     if (previousOverride === undefined) delete process.env.STORY_STUDIO_TTS_CONCURRENCY

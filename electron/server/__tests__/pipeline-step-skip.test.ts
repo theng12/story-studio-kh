@@ -379,15 +379,32 @@ describe('run-batch — step skip behaviour', () => {
     await fs.mkdir(metaDir, { recursive: true })
     await fs.writeFile(path.join(metaDir, 'description.txt'), 'stub')
 
+    const operationId = 'c4d3b0a8-1a8f-4ef0-9e51-1fd3d7ab7101'
     const res = await request(app)
       .post(`/api/projects/${slug}/pipeline/run-batch`)
-      .send({ episode_ids: [episodeId], steps: ['metadata'], force: true })
+      .send({ episode_ids: [episodeId], steps: ['metadata'], force: true, operation_id: operationId })
 
     assert.equal(res.status, 201)
     assert.equal(res.body.enqueued, 1, 'force re-runs even completed steps')
     assert.equal(res.body.total_jobs_planned, 1)
     assert.equal((res.body.steps_skipped_as_done || []).length, 0)
     assert.equal(res.body.force, true)
+    const jq = await import('../services/job-queue.js')
+    const queued = jq.getJob(res.body.jobs[0].job_id)
+    assert.deepEqual(queued?.params.generation_action, { id: operationId, kind: 'fresh' })
+    assert.equal(queued?.params.force, true)
+
+    const replay = await request(app)
+      .post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['metadata'], force: true, operation_id: operationId })
+    assert.equal(replay.status, 201)
+    assert.equal(replay.body.enqueued, 0)
+    assert.equal(replay.body.reused, 1)
+
+    const changed = await request(app)
+      .post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['audio'], force: true, operation_id: operationId })
+    assert.equal(changed.status, 400, 'preflight can reject missing prerequisites before action fingerprint comparison')
   })
 
   test('step with no existing output queues normally', async () => {

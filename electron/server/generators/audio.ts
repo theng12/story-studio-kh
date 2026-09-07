@@ -74,6 +74,20 @@ export function resolveAudioProvider(
 const TERMINAL_TTS_TASK_STATES: ReadonlySet<string> = new Set(['failed', 'artifact_expired'])
 
 /**
+ * A deliberate browser action receives this marker only from the route. Its
+ * ID survives a queue retry, unlike the queue record's own ID. Keep accepting
+ * pre-marker jobs below so an interrupted older job retains its prior recovery
+ * behaviour.
+ */
+function freshGenerationActionId(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const action = value as { id?: unknown; kind?: unknown }
+  return action.kind === 'fresh' && typeof action.id === 'string' && action.id.trim()
+    ? action.id.trim()
+    : undefined
+}
+
+/**
  * An accepted GenStudio task can be safely reconnected after a restart or a
  * lost network response. A terminal provider failure cannot: its idempotency
  * key intentionally resolves to the same failed GenStudio job forever.
@@ -228,6 +242,9 @@ export async function resolveAudioDir(projectSlug: string, narrationPath: string
 export async function generateAudio(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as GenerateAudioRequest
+  const generationActionId = freshGenerationActionId((req as GenerateAudioRequest & {
+    generation_action?: unknown
+  }).generation_action)
 
   // No silent defaults (v1.0.210+): a voice MUST be explicitly chosen.
   // The Audio tab requires a pick before Generate, and pipeline runs carry
@@ -790,7 +807,7 @@ export async function generateAudio(job: Job): Promise<void> {
     // Ordinary retries retain unfinished accepted work; terminal provider
     // failures receive a separate manual-retry identity.
     let submissionIdentity = explicitRegeneration
-      ? `${requestIdentity}:regenerate:${job.job_id}`
+      ? `${requestIdentity}:regenerate:${generationActionId || job.job_id}`
       : terminalFailure
       ? `${requestIdentity}:manual-retry:${job.job_id}`
       : requestIdentity

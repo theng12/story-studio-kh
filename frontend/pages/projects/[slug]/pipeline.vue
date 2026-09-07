@@ -1711,6 +1711,7 @@ const preflighting = ref(false)
 const showConfirm = ref(false)
 const repairMode = ref(false)
 const repairActionId = ref('')
+const runActionId = ref('')
 const preflightSummary = ref('')
 // Force re-run: opt-in to regenerate every selected step even if its
 // output already exists on disk. Off by default so routine batch runs
@@ -1732,6 +1733,7 @@ function closeConfirm(force = false): void {
   showConfirm.value = false
   repairMode.value = false
   repairActionId.value = ''
+  runActionId.value = ''
 }
 
 function openRunConfirm(): void { void openConfirm(false) }
@@ -1741,6 +1743,7 @@ async function openConfirm(repair: boolean) {
   if (!canRun.value) return
   repairMode.value = repair
   if (repair && !repairActionId.value) repairActionId.value = crypto.randomUUID()
+  if (!repair && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
   preflighting.value = true
   preflightSummary.value = ''
   try {
@@ -1749,6 +1752,7 @@ async function openConfirm(repair: boolean) {
       steps: checkedStepsOrdered.value.map(s => s.id),
       force: repair ? false : forceRerun.value,
       ...(repair ? { repair_missing: true, action_id: repairActionId.value } : {}),
+      ...(!repair && forceRerun.value ? { operation_id: runActionId.value || crypto.randomUUID() } : {}),
     }
     const result = await post<any>(`/projects/${slug.value}/pipeline/preflight`, body)
     const estimated = Number(result?.estimated_bytes || 0)
@@ -1768,11 +1772,13 @@ async function submit() {
   if (!canRun.value) return
   submitting.value = true
   try {
+    if (!repairMode.value && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
     const body = {
       episode_ids: [...selectedEpisodes],
       steps: checkedStepsOrdered.value.map(s => s.id),
       force: repairMode.value ? false : forceRerun.value,
       ...(repairMode.value ? { repair_missing: true, action_id: repairActionId.value } : {}),
+      ...(!repairMode.value && forceRerun.value ? { operation_id: runActionId.value } : {}),
     }
     const r = await post<any>(`/projects/${slug.value}/pipeline/run-batch`, body)
     const completedRepair = repairMode.value

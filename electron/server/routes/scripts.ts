@@ -36,8 +36,58 @@ import {
   inspectYouTubeFinalizationStatus,
 } from '../services/youtube-metadata-finalizer.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import {
+  findFreshActionJob,
+  readOperationId,
+  readOptionalOperationId,
+  stampFreshGenerationAction,
+} from '../lib/fresh-generation-action.js'
 
 export const router = Router()
+
+async function prepareExplicitScriptAction(
+  slug: string,
+  body: Record<string, any>,
+  mode: 'required' | 'optional',
+): Promise<{ params: Record<string, any>; previous?: any; conflict: boolean }> {
+  const operationId = mode === 'required'
+    ? readOperationId(body, true)
+    : readOptionalOperationId(body)
+  if (!operationId) {
+    const params = { ...body }
+    delete params.operation_id
+    delete params.generation_action
+    return { params, conflict: false }
+  }
+  const params = stampFreshGenerationAction(body, operationId)
+  const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+  return {
+    params,
+    previous,
+    conflict: !!previous && previous.params.generation_action_fingerprint !== params.generation_action_fingerprint,
+  }
+}
+
+async function withExplicitActionReplay(
+  slug: string,
+  params: Record<string, any>,
+  res: any,
+  conflictDetail: string,
+  enqueue: () => Promise<any>,
+): Promise<any> {
+  const operationId = params.generation_action?.id
+  if (!operationId) return enqueue()
+  return withLock(`fresh-script:${slug}:${operationId}`, async () => {
+    const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+    if (previous) {
+      if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
+        return res.status(409).json({ detail: conflictDetail })
+      }
+      return res.status(200).json({ ...previous, reused: true })
+    }
+    return enqueue()
+  })
+}
 
 // Legacy `POST /generate/script` (the coupled chapters+intro flow) was
 // removed in M1 — there's now exactly one way to generate the two halves
@@ -93,18 +143,28 @@ router.post('/projects/:slug/generate/outline-only', validateBody(GenerateScript
     return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
   }
 
-  if (jq.isDuplicate(slug, req.body.episode_id, 'outline_only')) {
-    return res.status(409).json({ detail: `Outline build already queued/running for ${req.body.episode_id}` })
+  let action
+  try {
+    action = await prepareExplicitScriptAction(slug, req.body, req.body.force === true ? 'required' : 'optional')
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
+  if (action.conflict) return res.status(409).json({ detail: 'This operation_id already belongs to a different outline request.' })
+  if (action.previous) return res.status(200).json({ ...action.previous, reused: true })
 
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'outline_only',
-    episode_id: req.body.episode_id,
-    title: req.body.title,
-    params: req.body,
+  return withExplicitActionReplay(slug, action.params, res, 'This operation_id already belongs to a different outline request.', async () => {
+    if (jq.isDuplicate(slug, req.body.episode_id, 'outline_only')) {
+      return res.status(409).json({ detail: `Outline build already queued/running for ${req.body.episode_id}` })
+    }
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'outline_only',
+      episode_id: req.body.episode_id,
+      title: req.body.title,
+      params: action.params,
+    })
+    return res.status(201).json(job)
   })
-  res.status(201).json(job)
 })
 
 router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
@@ -528,6 +588,15 @@ router.post('/projects/:slug/generate/chapter-only', validateBody(GenerateChapte
     return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
   }
 
+  let action
+  try {
+    action = await prepareExplicitScriptAction(slug, req.body, 'required')
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
+  }
+  if (action.conflict) return res.status(409).json({ detail: 'This operation_id already belongs to a different chapter request.' })
+  if (action.previous) return res.status(200).json({ ...action.previous, reused: true })
+
   // Dedupe per (episode, chapter) — two clicks on the SAME chapter's
   // regenerate button shouldn't enqueue twice, but the user can queue
   // multiple DIFFERENT chapters in a row (they run back-to-back). The
@@ -535,21 +604,22 @@ router.post('/projects/:slug/generate/chapter-only', validateBody(GenerateChapte
   // ch.5 dedupe while ch.5 + ch.7 both enqueue.
   const requestedChapter = Number(req.body.chapter_number)
   const sameChapter = (params: any) => Number(params?.chapter_number) === requestedChapter
-  if (jq.isDuplicate(slug, req.body.episode_id, 'chapter-only', sameChapter)) {
-    return res.status(409).json({
-      detail: `Chapter ${requestedChapter} regen is already queued for ${req.body.episode_id}`,
+  return withExplicitActionReplay(slug, action.params, res, 'This operation_id already belongs to a different chapter request.', async () => {
+    if (jq.isDuplicate(slug, req.body.episode_id, 'chapter-only', sameChapter)) {
+      return res.status(409).json({
+        detail: `Chapter ${requestedChapter} regen is already queued for ${req.body.episode_id}`,
+      })
+    }
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'chapter-only',
+      episode_id: req.body.episode_id,
+      title: req.body.title,
+      params: action.params,
+      dedupeParams: sameChapter,
     })
-  }
-
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'chapter-only',
-    episode_id: req.body.episode_id,
-    title: req.body.title,
-    params: req.body,
-    dedupeParams: sameChapter,
+    return res.status(201).json(job)
   })
-  res.status(201).json(job)
 })
 
 // Generate introduction only (requires script to exist)
@@ -561,10 +631,6 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
   const config = await pm.getConfig(slug)
   if (!(await hasAnyTextProviderKey(config))) {
     return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
-  }
-
-  if (jq.isDuplicate(slug, req.body.episode_id, 'introduction-only')) {
-    return res.status(409).json({ detail: `Introduction generation already queued/running for ${req.body.episode_id}` })
   }
 
   // The caller names an episode; the server works out the rest.
@@ -620,14 +686,28 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
     }
   }
 
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'introduction-only',
-    episode_id: req.body.episode_id,
-    title,
-    params: { ...req.body, title, model },
+  let action
+  try {
+    action = await prepareExplicitScriptAction(slug, { ...req.body, title, model }, 'optional')
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
+  }
+  if (action.conflict) return res.status(409).json({ detail: 'This operation_id already belongs to a different introduction request.' })
+  if (action.previous) return res.status(200).json({ ...action.previous, reused: true })
+
+  return withExplicitActionReplay(slug, action.params, res, 'This operation_id already belongs to a different introduction request.', async () => {
+    if (jq.isDuplicate(slug, req.body.episode_id, 'introduction-only')) {
+      return res.status(409).json({ detail: `Introduction generation already queued/running for ${req.body.episode_id}` })
+    }
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'introduction-only',
+      episode_id: req.body.episode_id,
+      title,
+      params: action.params,
+    })
+    return res.status(201).json(job)
   })
-  res.status(201).json(job)
 })
 
 // ── Get script content for preview ──
@@ -963,25 +1043,30 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
     return res.status(410).json({ detail: 'Legacy Scene Prompts generation is retired. Generate visual prompts in Scene Plan.' })
   }
 
-  if (jq.isDuplicate(slug, episode_id, 'image_prompts')) {
-    return res.status(409).json({
-      detail: `Image-prompts generation already queued/running for ${episode_id}`,
-    })
+  let action
+  try {
+    action = await prepareExplicitScriptAction(slug, { ...req.body, mode: req.body.mode || 'thumbnails' }, req.body.force === true ? 'required' : 'optional')
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
+  if (action.conflict) return res.status(409).json({ detail: 'This operation_id already belongs to a different thumbnail prompt request.' })
+  if (action.previous) return res.status(200).json({ ...action.previous, reused: true })
 
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'image_prompts',
-    episode_id,
-    title: title || '',
-    // The executor reads params straight off this object — see
-    // ImagePromptsParams in generators/image-prompts.ts. Pass the body
-    // through verbatim so any field the form sends (style_tag, aspect_
-    // ratio, thumb_*, mode, character_ids) flows untouched.
-    params: { ...req.body, mode: req.body.mode || 'thumbnails' },
+  return withExplicitActionReplay(slug, action.params, res, 'This operation_id already belongs to a different thumbnail prompt request.', async () => {
+    if (jq.isDuplicate(slug, episode_id, 'image_prompts')) {
+      return res.status(409).json({
+        detail: `Image-prompts generation already queued/running for ${episode_id}`,
+      })
+    }
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'image_prompts',
+      episode_id,
+      title: title || '',
+      params: action.params,
+    })
+    return res.status(201).json(job)
   })
-
-  res.status(201).json(job)
 })
 
 // ── Save reviewed prompts to .docx ──

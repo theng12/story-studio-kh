@@ -139,7 +139,7 @@
                     :aria-label="`${chapterHasSrt(s.slug) ? 'Regenerate' : 'Generate'} ${s.label} subtitles`"
                     :title="canTranscribe ? `Starts a fresh GenStudio request for ${s.label} only.` : transcribeDisabledReason"
                     @click="retranscribeChapter(s.slug)"
-                  >{{ chapterHasSrt(s.slug) ? 'Regenerate this chapter' : 'Generate this chapter' }}</button>
+                  >{{ subtitleActionLabel(s.slug, chapterHasSrt(s.slug) ? 'Regenerate this chapter' : 'Generate this chapter') }}</button>
                 </div>
               </li>
             </ul>
@@ -208,9 +208,12 @@
 
         <div class="mt-2">
           <button class="btn btn-sm btn-primary" :disabled="!canTranscribe" @click="transcribe">
-            {{ transcribeJobActive ? 'Queued — check the Jobs panel' : (coverage.done && !force ? 'Transcribe missing chapters' : 'Transcribe chapters') }}
+            {{ transcribeJobActive ? 'Queued — check the Jobs panel' : subtitleActionLabel(null, coverage.done && !force ? 'Transcribe missing chapters' : 'Transcribe chapters') }}
           </button>
           <span v-if="transcribeJobActive" class="text-muted text-xs ml-1">Running… progress shows in Jobs / the bell.</span>
+          <p v-if="subtitleRetryPending" class="text-muted text-xs mt-1" role="status">
+            The previous submission was not confirmed. Retry submission with the same chapter scope, or change the scope to start a new action.
+          </p>
         </div>
       </WorkspaceSection>
 
@@ -446,6 +449,8 @@ const route = useRoute()
 const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, post, del } = useApi()
+const freshSubtitleAction = useFreshGenerationAction()
+const subtitleRetryPending = freshSubtitleAction.hasPending
 const { success, error: showError, info: showInfo } = useToast()
 const { jobs } = useJobs()
 const { project, episodesRoot } = useProject()
@@ -763,20 +768,36 @@ async function stitchSubtitles(): Promise<void> {
   }
 }
 
+function subtitleRequestPayload(sectionSlug?: string): Record<string, any> {
+  return {
+    per_chapter: true,
+    engine: 'genstudio',
+    model: genstudioModel.value,
+    ...transcriptionLanguageRequestFields(language.value, genstudioSelectedModel.value),
+    force: sectionSlug ? true : force.value,
+    ...(sectionSlug ? { sections: [sectionSlug] } : {}),
+  }
+}
+
+function subtitleActionLabel(sectionSlug: string | null, label: string): string {
+  const payload = subtitleRequestPayload(sectionSlug || undefined)
+  return payload.force && freshSubtitleAction.isRetry(payload, sectionSlug ? `section:${sectionSlug}` : 'bulk') ? 'Retry submission' : label
+}
+
 async function transcribe(): Promise<void> {
   if (!canTranscribe.value) return
   transcribing.value = true
+  const payload = subtitleRequestPayload()
+  const operationId = payload.force ? freshSubtitleAction.begin(payload, 'bulk') : null
+  if (operationId) payload.operation_id = operationId
   try {
-    await post(`/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`, {
-      per_chapter: true,
-      engine: 'genstudio',
-      model: genstudioModel.value,
-      ...transcriptionLanguageRequestFields(language.value, genstudioSelectedModel.value),
-      force: force.value,
-    })
+    await post(`/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`, payload)
+    if (operationId) freshSubtitleAction.complete(operationId)
     showInfo('Per-chapter transcription queued — progress shows in Jobs / the bell.')
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Could not start transcription')
+    showError(e?.data?.detail || e?.message || (operationId
+      ? 'The submission was not confirmed. Retry submission to continue this same transcription action.'
+      : 'Could not start transcription'))
   } finally {
     transcribing.value = false
   }
@@ -793,17 +814,12 @@ async function transcribe(): Promise<void> {
 async function retranscribeChapter(sectionSlug: string): Promise<void> {
   if (!canTranscribe.value || transcribing.value) return
   transcribing.value = true
+  const payload = subtitleRequestPayload(sectionSlug)
+  const operationId = freshSubtitleAction.begin(payload, `section:${sectionSlug}`)
+  payload.operation_id = operationId
   try {
-    await post(`/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`, {
-      per_chapter: true,
-      engine: 'genstudio',
-      model: genstudioModel.value,
-      ...transcriptionLanguageRequestFields(language.value, genstudioSelectedModel.value),
-      // An explicit re-run: overwrite the existing SRT, and ask GenStudio for a
-      // fresh transcription rather than replaying the stored one.
-      force: true,
-      sections: [sectionSlug],
-    })
+    await post(`/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`, payload)
+    freshSubtitleAction.complete(operationId)
     showInfo(`Fresh transcription for ${sectionSlug} queued — progress shows in Jobs / the bell.`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Could not start re-transcription')

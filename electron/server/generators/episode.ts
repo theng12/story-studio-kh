@@ -42,6 +42,7 @@ import { castPromptBlock, castImagePromptBlock } from '../lib/character-prompt-b
 import type { GenerateScriptRequest, Job, Format, NarratorStyle, Character } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
+import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 
 // v1.0.166 — fuseFormatWithPattern() removed with the Pattern system.
 // Title shaping happens at idea-time via the Ideas page's title_template
@@ -995,7 +996,13 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
   try {
     const chapterText = await callAiWithRetry(req.model, sysPrompt, chapterPrompt, apiKeys, true,
       // Long: a full chapter of narration.
-      { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'long' })
+      {
+        slug: project_slug,
+        jobId: job.job_id,
+        signal: controller.signal,
+        outputBudget: 'long',
+        requestIdentity: freshGenerationRequestIdentity(job, `chapter-${chapterNumber}`),
+      })
 
     // Parse out the title from the heading the model produced. Fall back
     // to a synthesised title if the model omitted it.
@@ -1177,7 +1184,13 @@ Do not add a heading, preface, explanation, divider, or separator.`
   try {
     const introText = await callAiWithRetry(req.model, sysPrompt, introPrompt, apiKeys, true,
       // Long: a full introduction section of narration.
-      { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'long' })
+      {
+        slug: project_slug,
+        jobId: job.job_id,
+        signal: controller.signal,
+        outputBudget: 'long',
+        requestIdentity: freshGenerationRequestIdentity(job, 'introduction'),
+      })
     const cleanedIntro = cleanGeneratedIntroduction(introText)
     if (!cleanedIntro) throw new Error('Introduction generation returned no usable text.')
     const wordCount = cleanedIntro.split(/\s+/).length

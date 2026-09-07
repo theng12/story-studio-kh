@@ -58,6 +58,7 @@ import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity } from '.
 import { allowedSubtitleCueGapSec, resolveScenePlanPacing, type ScenePlanPacing } from '../services/scene-plan-pacing.js'
 import { resolveTranscriptSrt, describeTranscriptCorrection } from '../services/subtitle-correction.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import { auditScenePromptCompletion, checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import {
@@ -1204,7 +1205,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             jobId: `${job.job_id}:${input.requestLabel}`,
             requestIdentity: explicitPaidRepair
               ? `${job.project_slug}:${episode_id}:scene-plan:${stage}:paid-auto-repair:${job.job_id}:${input.requestLabel}`
-              : `${job.project_slug}:${episode_id}:scene-plan:${stage}:${input.requestLabel}`,
+              : freshGenerationRequestIdentity(job, `scene-plan-${stage}-${input.requestLabel}`)
+                ?? `${job.project_slug}:${episode_id}:scene-plan:${stage}:${input.requestLabel}`,
             ...(input.recoverByIdempotencyKey ? {
               recoverByIdempotencyKey: true,
               idempotencyKey: input.recoverByIdempotencyKey,
@@ -1606,6 +1608,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         ? (target.visual_prompt ?? '')
         : undefined,
       apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
+      request_identity: freshGenerationRequestIdentity(job, `visual-prompt-${target.id}`),
       slug: job.project_slug,
     })
     if (!newPrompt || !newPrompt.trim()) {
@@ -1666,6 +1669,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       custom_instructions: params.custom_instructions,
       apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
       slug: job.project_slug,
+      request_identity: freshGenerationRequestIdentity(job, `motion-prompt-${target.id}`),
     })
     if (!newMotion || !newMotion.trim()) {
       throw new Error('Model returned an empty motion prompt. Try a stronger model or fill it in manually.')

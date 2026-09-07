@@ -404,6 +404,7 @@ const emit = defineEmits<{
 }>()
 
 const { get, post, put } = useApi()
+const freshOutlineChapterAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 const { jobs } = useJobs()
 
@@ -1020,8 +1021,7 @@ async function regenerateOne(n: number): Promise<void> {
     ? Math.round(entryOverride)
     : props.form?.words_per_chapter
 
-  try {
-    await post(`/projects/${props.projectSlug}/generate/chapter-only`, {
+  const payload = {
       episode_id: props.episodeId,
       title: props.title || '',
       chapter_number: n,
@@ -1031,12 +1031,16 @@ async function regenerateOne(n: number): Promise<void> {
       chapters: props.form?.chapters,
       total_words: props.form?.total_words,
       words_per_chapter: wordTarget,
-    })
+  }
+  const operationId = freshOutlineChapterAction.begin(payload, `chapter:${n}`)
+  try {
+    await post(`/projects/${props.projectSlug}/generate/chapter-only`, { ...payload, operation_id: operationId })
+    freshOutlineChapterAction.complete(operationId)
     success(entryOverride
       ? `Chapter ${n} regenerate queued at ${wordTarget} words`
       : `Chapter ${n} regenerate queued`)
   } catch (e: any) {
-    showError(e?.data?.detail || `Failed to queue chapter ${n} regen`)
+    showError(e?.data?.detail || `Chapter ${n} submission was not confirmed. Retry submission to continue the same action.`)
   } finally {
     // Clear THIS chapter's in-flight flag so its button re-enables. Other
     // chapters in flight stay flagged. Reassign the Set so Vue tracks the

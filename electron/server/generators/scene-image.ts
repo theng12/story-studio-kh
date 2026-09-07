@@ -112,6 +112,8 @@ interface SceneImageGenerateParams {
   width?: number
   height?: number
   seed?: number
+  /** Server-stamped deliberate re-roll identity; survives queue Retry. */
+  generation_action?: { id?: string; kind?: string }
   auto_approve_generated?: boolean
 }
 
@@ -183,7 +185,8 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${scene_id}.png`)
-  const requestIdentity = `${job.project_slug}:${episode_id}:scene:${scene_id}:image`
+  const actionId = params.generation_action?.kind === 'fresh' ? params.generation_action.id : ''
+  const requestIdentity = `${job.project_slug}:${episode_id}:scene:${scene_id}:image${actionId ? `:fresh:${actionId}` : ''}`
   const submittedAt = new Date().toISOString()
   const inputHash = hashInput(scene.visual_prompt)
   const seed = modelConfig.supports_seed === false ? undefined : params.seed

@@ -146,6 +146,7 @@ const props = defineProps<{
 }>()
 
 const { get, post, put } = useApi()
+const freshPromptAction = useFreshGenerationAction()
 const { success, error: showError, show: showToast } = useToast()
 
 const showScenes = computed(() => (props.pool ?? 'all') !== 'thumbnails')
@@ -236,27 +237,33 @@ async function regenerateOne(
   if (busy.value.has(key)) return
   busy.value = new Set([...busy.value, key])
   errors.value = { ...errors.value, [key]: '' }
+  const request = {
+    kind, number,
+    title: props.title,
+    model: props.model,
+    current_title: payload.title,
+    current_prompt: payload.prompt,
+    notes: payload.notes,
+    headline_mode: kind === 'thumbnail' ? props.thumbnailHeadlineMode : undefined,
+    prompt_char_cap: (kind === 'scene' ? props.scenePromptCap : props.thumbnailPromptCap) || undefined,
+    ...(payload.reword ? { reword: true } : {}),
+  }
+  const operationId = freshPromptAction.begin(request, key)
   try {
     const data = await post<{ number: number; title: string; prompt: string; model_notice?: string }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/image-prompts/regenerate`,
       {
-        kind, number,
-        title: props.title,
-        model: props.model,
-        current_title: payload.title,
-        current_prompt: payload.prompt,
-        notes: payload.notes,
-        headline_mode: kind === 'thumbnail' ? props.thumbnailHeadlineMode : undefined,
+        ...request,
         // The same ceiling the row's counter is measured against, so a rewrite
         // is written under the limit rather than back over it. Null/0 → omitted
         // → no limit is in force and the writer is left unconstrained.
-        prompt_char_cap: (kind === 'scene' ? props.scenePromptCap : props.thumbnailPromptCap) || undefined,
+        operation_id: operationId,
         // Set only by the row's explicit "Reword" button — asks for a different
         // angle on the same idea with the difficult-subjects guidance applied.
         // Never inferred from a failure.
-        ...(payload.reword ? { reword: true } : {}),
       },
     )
+    freshPromptAction.complete(operationId)
     // Patch the in-memory list so the card reflects the new prompt
     // without a full reload.
     const list = kind === 'scene' ? scenes : thumbnails

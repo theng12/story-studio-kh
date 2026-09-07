@@ -104,7 +104,12 @@ async function regenerate(n: number) {
   })
   return request(app)
     .post(`/api/projects/${slug}/episodes/${EPISODE_ID}/image-prompts/regenerate`)
-    .send({ kind: 'thumbnail', number: 1, title: TITLE })
+    .send({
+      operation_id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+      kind: 'thumbnail',
+      number: 1,
+      title: TITLE,
+    })
 }
 
 describe('image-prompts-edit registers both routes at module load', () => {

@@ -250,7 +250,11 @@ test('images.ts reuses the retry-scope chain and progress machinery instead of i
   // (`resolveImageRetryScope`, already exercised by
   // genstudio-image-retry-identity.test.ts for the manual/cross-run case),
   // not a forked `nextImageRouteRetryIdentity`.
-  assert.match(source, /resolveImageRetryScope\(failedEntry, previous\.baseScope\)/)
+  // Explicit force actions keep their caller-owned scope; every other retry
+  // goes through the same resolver. The route-exhaustion path must call that
+  // shared policy instead of growing a second local scope derivation.
+  assert.match(source, /const actionScope = \(entry: TaskManifestEntry \| null \| undefined, baseScope: string\): string => \(\s*force && generationActionId \? baseScope : resolveImageRetryScope\(entry, baseScope\)\.scope/)
+  assert.match(source, /const scope = actionScope\(failedEntry, previous\.baseScope\)/)
   assert.doesNotMatch(source, /nextImageRouteRetryIdentity/)
 
   // Live per-item state, published on every transition including the wait.

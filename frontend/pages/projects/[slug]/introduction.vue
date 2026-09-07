@@ -350,6 +350,7 @@ type SegmentsResponse = {
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
 const { get, put, post } = useApi()
+const freshIntroductionAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 
 const episodeId = ref('')
@@ -575,8 +576,14 @@ async function save(): Promise<void> {
 async function generateForEpisode(): Promise<void> {
   if (!episodeId.value || previewSaving.value) return
   generating.value = true
+  const payload = { episode_id: episodeId.value }
+  const operationId = freshIntroductionAction.begin(payload)
   try {
-    await post(`/projects/${slug.value}/generate/introduction-only`, { episode_id: episodeId.value })
+    await post(`/projects/${slug.value}/generate/introduction-only`, {
+      ...payload,
+      operation_id: operationId,
+    })
+    freshIntroductionAction.complete(operationId)
     // No refresh-key bump here, deliberately. This POST only ENQUEUES — its
     // own toast says so. Bumping now reloads the panel at the one moment
     // there is nothing new on disk to find, and worse, replaces a previously
@@ -586,7 +593,7 @@ async function generateForEpisode(): Promise<void> {
     success('Queued. The preview updates itself when it finishes.')
   } catch (cause: any) {
     showError(cause?.data?.detail
-      || 'Could not queue the opening. The episode\'s chapters have to exist first.')
+      || 'The submission was not confirmed. Retry submission to continue this same opening action.')
   } finally {
     generating.value = false
   }

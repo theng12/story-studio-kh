@@ -74,6 +74,8 @@ export interface TranscribeSubtitlesRequest {
    * false so verified chapter work is preserved across retries.
    */
   force?: boolean
+  /** Server-stamped identity for one deliberate fresh action. */
+  generation_action?: { id: string; kind: 'fresh' }
   /**
    * v1.0.216+ — Per-chapter mode for the audio-paced pipeline. Instead of one
    * SRT off the merged audio, transcribe each chapter's clean narration audio
@@ -465,6 +467,10 @@ async function transcribePerChapter(
   const repairActionId = typeof req.pipeline_repair?.action_id === 'string'
     ? req.pipeline_repair.action_id.trim()
     : ''
+  const generationActionId = req.generation_action?.kind === 'fresh'
+    && typeof req.generation_action.id === 'string' && req.generation_action.id.trim()
+    ? req.generation_action.id.trim()
+    : undefined
   const force = repairActionId ? false : req.force === true
   const repairSections = new Set<string>()
   if (repairActionId) {
@@ -556,6 +562,7 @@ async function transcribePerChapter(
       const result = await runSubtitleTranscription({
         job, outDir, section: sec.slug, manifestKey, inputHash: currentInputHash,
         audioHash: currentAudioHash, apiKey: genstudio.apiKey, force,
+        generationActionId,
         ...(repairSection ? {
           pipelineRepair: { actionId: repairActionId, isResultUsable: isPipelineRepairTranscriptUsable },
         } : {}),

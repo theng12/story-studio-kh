@@ -594,6 +594,7 @@ definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
+const freshImagesAction = useFreshGenerationAction()
 const { config } = useProject()
 const {
   models: genStudioImageModels,
@@ -1682,6 +1683,8 @@ function generationParams(forceOverride?: boolean) {
 async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image generation queued!') {
   const params = generationParams(forceOverride)
   if (!await confirmGeneration(slug.value, getConfirmationType(), params)) return
+  const operationId = params.force ? freshImagesAction.begin(params) : null
+  if (operationId) params.operation_id = operationId
 
   submitting.value = true
   if (form.mode === 'thumbs') thumbImageGenerating.value = true
@@ -1689,6 +1692,7 @@ async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image g
 
   try {
     await post(`/projects/${slug.value}/generate/images`, params)
+    if (operationId) freshImagesAction.complete(operationId)
     success(queuedMessage)
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to queue image generation')

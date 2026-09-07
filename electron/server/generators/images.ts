@@ -601,6 +601,13 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     return marker > 0 ? saved.slice(0, marker) : fallback
   }
   const force = req.force || false
+  const generationAction = (req as { generation_action?: { id?: unknown; kind?: unknown } }).generation_action
+  const generationActionId = generationAction?.kind === 'fresh' && typeof generationAction.id === 'string'
+    ? generationAction.id
+    : ''
+  const actionScope = (entry: TaskManifestEntry | null | undefined, baseScope: string): string => (
+    force && generationActionId ? baseScope : resolveImageRetryScope(entry, baseScope).scope
+  )
   const errors: string[] = []
   // Read the per-folder task manifests once at the top so we can attempt
   // free recovery (existing-task poll) before issuing any fresh submit.
@@ -703,12 +710,12 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     prompt: string,
     paid?: { selector: PaidImageOutputSelector; references: ReturnType<typeof capturePaidImageReferenceIdentity>; outputPath: string },
   ): Promise<DurableImageAttempt> {
-    const baseScope = force ? `force:${job.job_id}` : 'default'
+    const baseScope = force ? `force:${generationActionId || job.job_id}` : 'default'
     const entry = manifest.tasks[filename] || null
     const retryEntry = entry?.request_scope?.includes(':selector:')
       ? { ...entry, request_scope: logicalPaidScope(entry, baseScope) }
       : entry
-    let logicalScope = resolveImageRetryScope(retryEntry, baseScope).scope
+    let logicalScope = actionScope(retryEntry, baseScope)
     let identity = paid ? buildPaidImageOriginalIdentity({
       prompt, selector: paid.selector, references: paid.references.inputs, baseScope: logicalScope,
     }) : null
@@ -740,7 +747,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       const carriedRetry = carried.request_scope?.includes(':selector:')
         ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }
         : carried
-      logicalScope = resolveImageRetryScope(carriedRetry, baseScope).scope
+      logicalScope = actionScope(carriedRetry, baseScope)
       identity = paid ? buildPaidImageOriginalIdentity({
         prompt, selector: paid.selector, references: paid.references.inputs, baseScope: logicalScope,
       }) : null
@@ -792,7 +799,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       operation: 'image',
       last_state: 'failed',
     }
-    const scope = resolveImageRetryScope(failedEntry, previous.baseScope).scope
+    const scope = actionScope(failedEntry, previous.baseScope)
     return {
       recovery: { kind: 'no-saved-job' },
       scope,
@@ -1142,7 +1149,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (attemptNum === 1) {
             const currentManifest = await readManifest(thumbDir).catch(() => thumbManifest)
             const existing = currentManifest.tasks[filename] || null
-            const baseScope = force ? `force:${job.job_id}` : 'default'
+            const baseScope = force ? `force:${generationActionId || job.job_id}` : 'default'
             const durablePermission = existing
               ? await jq.getPaidImageReplacementSubmitPermission(job, filename, thumbDir, filename, existing)
               : null

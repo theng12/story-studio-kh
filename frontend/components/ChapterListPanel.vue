@@ -139,6 +139,7 @@ const props = defineProps<{
 }>()
 
 const { get, post } = useApi()
+const freshChapterAction = useFreshGenerationAction()
 const { jobs } = useJobs()
 const { success, error: showError } = useToast()
 
@@ -274,24 +275,30 @@ async function regenerate(num: number) {
     ? Math.round(inlineOverride)
     : props.form?.words_per_chapter
   regenInFlight.value = new Set([...regenInFlight.value, num])
+  const payload = {
+    episode_id: props.episodeId,
+    title: props.title || '',
+    chapter_number: num,
+    model: props.form?.model,
+    style: props.form?.style,
+    length: props.form?.length,
+    chapters: props.form?.chapters,
+    total_words: props.form?.total_words,
+    words_per_chapter: wordTarget,
+  }
+  const operationId = freshChapterAction.begin(payload, `chapter:${num}`)
   try {
     await post(`/projects/${props.projectSlug}/generate/chapter-only`, {
-      episode_id: props.episodeId,
-      title: props.title || '',
-      chapter_number: num,
-      model: props.form?.model,
-      style: props.form?.style,
-      length: props.form?.length,
-      chapters: props.form?.chapters,
-      total_words: props.form?.total_words,
-      words_per_chapter: wordTarget,
+      ...payload,
+      operation_id: operationId,
     })
+    freshChapterAction.complete(operationId)
     success(inlineOverride
       ? `Chapter ${num} regenerate queued at ${wordTarget} words`
       : `Chapter ${num} regenerate queued`,
     )
   } catch (e: any) {
-    showError(e?.data?.detail || `Failed to queue chapter ${num} regen`)
+    showError(e?.data?.detail || `Chapter ${num} submission was not confirmed. Retry submission to continue the same action.`)
     // Clear THIS chapter's in-flight on error. Success path leaves it set;
     // the relevantJobsSignal watcher clears it when the job lands terminal.
     const next = new Set(regenInFlight.value)

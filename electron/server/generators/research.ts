@@ -38,6 +38,7 @@ import {
 import { getConfig } from '../services/project-manager.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { canonicalHttpUrl, canonicalHttpUrls, sanitizeResearchOutputUrls } from '../services/research/urls.js'
+import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 
 // Re-exported for back-compat with importers that referenced these here.
 export { RESEARCH_JSON_FILENAME, RESEARCH_MD_FILENAME } from '../lib/research-paths.js'
@@ -99,6 +100,7 @@ export async function runResearchJob(job: Job): Promise<void> {
     max_sources: params.max_sources,
     model: params.model,
     mode,
+    request_identity: freshGenerationRequestIdentity(job, 'research'),
     ...(mode === 'web-search'
       ? {
           web_search: {

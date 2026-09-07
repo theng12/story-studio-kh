@@ -16,6 +16,7 @@ import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
+import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
 import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
@@ -325,6 +326,7 @@ export async function generateMetadata(job: Job): Promise<void> {
         const raw = await callAiWithRetry(model, '', extractPrompt, aiCreds(config), false,
           {
             slug: project_slug, jobId: job.job_id, signal: controller.signal,
+            requestIdentity: freshGenerationRequestIdentity(job, 'metadata-template'),
             // Every requested placeholder is required and non-empty in the
             // contract: these values are substituted straight into a YouTube
             // title and description, where a blank is invisible until it is
@@ -362,7 +364,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false,
         // Standard: a full YouTube description (up to ~5,000 characters).
         // Titles and tags below stay short-form on purpose.
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'standard' })
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'standard', requestIdentity: freshGenerationRequestIdentity(job, 'metadata-description') })
       // The whole prompt is the source: it carries his story context, his
       // title, his custom section labels AND the niche's own voice rules — so
       // the prayer channel's deliberate single 🙏 survives, because the
@@ -468,7 +470,7 @@ Requirements:
 - One per line. No numbering, quotes, or commentary.${await noEmojiDirective()}`
       const titlePromptWithAvoidance = await prependAvoidanceToPrompt(project_slug, 'titles', titlePrompt, episode_id)
       const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false,
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal, requestIdentity: freshGenerationRequestIdentity(job, 'metadata-titles') })
       // v1.4.84 — drop the model's own document furniture BEFORE the slice.
       //
       // The prompt asks for titles "one per line, no numbering, quotes, or
@@ -536,7 +538,7 @@ Requirements:
 - Mix of broad and episode-specific keywords.${broadKeywordsLine}
 - One per line, no numbering or commentary.${await noEmojiDirective()}`
       const tagRaw = await callAiWithRetry(model, '', tagPrompt, aiCreds(config), false,
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal, requestIdentity: freshGenerationRequestIdentity(job, 'metadata-tags') })
       tags = await applyEmojiPolicyToAll(
         tagRaw.split('\n')
           .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())

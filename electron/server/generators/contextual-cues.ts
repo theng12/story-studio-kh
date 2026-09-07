@@ -8,6 +8,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
+import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { getConfig } from '../services/project-manager.js'
 import { checkpointJobState, isCancelled, isPauseRequested, throwIfPauseRequested } from '../services/job-queue.js'
@@ -279,7 +280,11 @@ export async function generateContextualCues(job: Job): Promise<void> {
 
   const prior = await readContextualCueTimeline(planPath)
   const protectedCues = prior?.cues.filter(cue => cue.status !== 'proposed') || []
-  const fingerprint = contextualCueProgressFingerprint(plan, settings)
+  const baseFingerprint = contextualCueProgressFingerprint(plan, settings)
+  const actionId = job.params?.generation_action?.kind === 'fresh'
+    ? job.params.generation_action.id
+    : ''
+  const fingerprint = actionId ? `${baseFingerprint}:fresh:${actionId}` : baseFingerprint
   const existingProgress = await readContextualCueProgress(planPath)
   const saved = existingProgress?.fingerprint === fingerprint ? existingProgress : null
   if (existingProgress && !saved) await removeContextualCueProgress(planPath)
@@ -361,7 +366,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
           'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.' + await noEmojiDirective(),
           cueUserPrompt,
           {}, false,
-          { slug: job.project_slug, jobId: job.job_id, requestIdentity: `${job.project_slug}:${episodeId}:contextual-cues:${fingerprint}:batch-${index}:scope-${progress.retry_scopes?.[String(index)] || 'initial'}`, outputBudget: 'standard', outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
+          { slug: job.project_slug, jobId: job.job_id, requestIdentity: freshGenerationRequestIdentity(job, `contextual-cues-${fingerprint}-batch-${index}-scope-${progress.retry_scopes?.[String(index)] || 'initial'}`) ?? `${job.project_slug}:${episodeId}:contextual-cues:${fingerprint}:batch-${index}:scope-${progress.retry_scopes?.[String(index)] || 'initial'}`, outputBudget: 'standard', outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
         )
         // Cleaned HERE, at the proposal, and never in the cue-save route: by
         // the time a cue comes back from the review screen it may be something

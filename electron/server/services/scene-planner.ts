@@ -1657,6 +1657,7 @@ export async function generateVisualPromptOnly(opts: {
    *  caller (per-run override, else the project default) via
    *  resolveAvoidLegibleText in lib/image-content-guidance.ts. */
   avoid_legible_text?: boolean
+  request_identity?: string
 }): Promise<string> {
   const detail = DETAIL_SPECS[opts.detail_level ?? 4] || DETAIL_SPECS[4]!
   const sysParts: string[] = [
@@ -1734,7 +1735,10 @@ export async function generateVisualPromptOnly(opts: {
   userParts.push('Write the visual scene description (single paragraph, no quotes):')
   const user = userParts.join('\n\n')
 
-  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, { slug: opts.slug })
+  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, {
+    slug: opts.slug,
+    requestIdentity: opts.request_identity,
+  })
   // Defensive clean-up: even with explicit instructions, models sometimes
   // wrap the output in quotes, code fences, or add a "Description:" prefix.
   // Strip those so the user sees clean prose in the editor.
@@ -1769,6 +1773,7 @@ export async function generateMotionPromptOnly(opts: {
   custom_instructions?: string
   apiKeys: Record<string, string | undefined>
   slug?: string
+  request_identity?: string
 }): Promise<string> {
   const spec = MOTION_SPECS[opts.motion_level ?? 2] || MOTION_SPECS[2]!
   const sysParts: string[] = [
@@ -1796,7 +1801,10 @@ export async function generateMotionPromptOnly(opts: {
   userParts.push('Write the motion instruction (one or two short sentences, no quotes):')
   const user = userParts.join('\n\n')
 
-  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, { slug: opts.slug })
+  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, {
+    slug: opts.slug,
+    requestIdentity: opts.request_identity,
+  })
   let cleaned = (raw || '').trim()
   cleaned = cleaned.replace(/^```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
   cleaned = cleaned.replace(/^(motion\s*prompt|motion\s*instruction|motion|camera|animation)\s*[:\-]\s*/i, '').trim()

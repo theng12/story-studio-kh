@@ -7,7 +7,7 @@ import { createReadStream, existsSync, statSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
-import { enqueue, enqueueEpisodeRecoveryOnce, isDuplicate, loadAuthoritativeJob, subtitleFinalizerJobId } from '../services/job-queue.js'
+import { enqueue, enqueueEpisodeRecoveryOnce, getJobs, isDuplicate, loadAuthoritativeJob, subtitleFinalizerJobId } from '../services/job-queue.js'
 import { withLock } from '../lib/atomic-store.js'
 import { subtitlePurchaseParams } from '../services/subtitle-recovery.js'
 import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } from '../generators/video.js'
@@ -49,6 +49,7 @@ import { inspectSubtitleText, type SubtitleQualityReport } from '../lib/subtitle
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { inspectExistingTranscriptSource } from '../services/subtitle-correction.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
@@ -1236,35 +1237,51 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
   } catch (error: any) {
     return res.status(400).json({ detail: error?.message || 'Select a published transcription language before continuing.' })
   }
-  if (isDuplicate(slug, episodeId, 'subtitles_transcribe')) {
-    return res.status(409).json({ detail: `Transcription already running for ${episodeId}` })
+  const deliberateFresh = req.body?.force === true
+  let operationId: string | null
+  try {
+    operationId = readOperationId(req.body, deliberateFresh)
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
-
-  const job = await enqueue({
-    project_slug: slug,
-    type: 'subtitles_transcribe',
+  const params = {
     episode_id: episodeId,
-    title: `Transcribe subtitles (${episodeId})`,
-    params: {
+    language: requestedLanguage,
+    model: selectedModel.id,
+    audio_path: req.body?.audio_path,
+    force: deliberateFresh,
+    per_chapter: req.body?.per_chapter === true,
+    sections: Array.isArray(req.body?.sections)
+      ? (req.body.sections as unknown[]).filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+      : undefined,
+    engine: 'genstudio',
+  }
+  const queuedParams: Record<string, any> = operationId ? stampFreshGenerationAction(params, operationId) : params
+  const enqueueSubtitles = async () => {
+    if (operationId) {
+      const previous = findFreshActionJob(await getJobs(slug), operationId)
+      if (previous) {
+        if (previous.params.generation_action_fingerprint !== queuedParams.generation_action_fingerprint) {
+          return res.status(409).json({ detail: 'This operation_id already belongs to a different subtitle request.' })
+        }
+        return res.status(200).json({ ...previous, reused: true })
+      }
+    }
+    if (isDuplicate(slug, episodeId, 'subtitles_transcribe')) {
+      return res.status(409).json({ detail: `Transcription already running for ${episodeId}` })
+    }
+
+    const job = await enqueue({
+      project_slug: slug,
+      type: 'subtitles_transcribe',
       episode_id: episodeId,
-      language: requestedLanguage,
-      model: selectedModel.id,
-      audio_path: req.body?.audio_path,
-      // When true, re-run even if the SRT exists. Default false: the generator
-      // skips when the SRT is already on disk to avoid recompute.
-      force: req.body?.force === true,
-      // v1.0.216+ — per-chapter mode: transcribe each chapter's clean
-      // narration into {code}_{slug}.srt (what Scene Plan's stitcher consumes).
-      per_chapter: req.body?.per_chapter === true,
-      // v1.2.2 — optional chapter allow-list, so one corrupt chapter can be
-      // re-transcribed without re-paying for the rest of the episode.
-      sections: Array.isArray(req.body?.sections)
-        ? (req.body.sections as unknown[]).filter((s): s is string => typeof s === 'string' && s.trim() !== '')
-        : undefined,
-      engine: 'genstudio',
-    },
-  })
-  res.status(201).json(job)
+      title: `Transcribe subtitles (${episodeId})`,
+      params: queuedParams,
+    })
+    return res.status(201).json(job)
+  }
+  if (operationId) return withLock(`fresh-subtitles:${slug}:${operationId}`, enqueueSubtitles)
+  return enqueueSubtitles()
 })
 
 /** v1.0.135+ — Delete a single subtitle file from an episode's

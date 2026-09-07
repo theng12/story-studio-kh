@@ -666,6 +666,7 @@ watch(scriptsTab, (v) => {
 // on the next tick when navigation has fully settled.
 const panelsReady = ref(false)
 const { post, patch } = useApi()
+const freshScriptAction = useFreshGenerationAction()
 const { success, info: showInfo, error: showError } = useToast()
 // v1.0.72+: with chunked-always, every script flows through outline +
 // expansion regardless of size. This threshold no longer gates which
@@ -1795,11 +1796,14 @@ async function submitOutline(): Promise<boolean> {
   }
 
   if (!await confirmGeneration(slug.value, 'script', params)) return false
+  const operationId = form.force ? freshScriptAction.begin(params) : null
+  if (operationId) params.operation_id = operationId
 
   submitting.value = true
   scriptGenerating.value = true
   try {
     const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/outline-only`, params)
+    if (operationId) freshScriptAction.complete(operationId)
     success('Outline build queued — review when it finishes!')
     const ok = await waitForJob(job.job_id)
     if (ok) outlineRefreshKey.value++
@@ -1856,10 +1860,15 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
     model: form.model,
   }
   if (opts.confirm !== false && !await confirmGeneration(slug.value, 'introduction', params)) return false
+  const operationId = freshScriptAction.begin(params)
 
   submitting.value = true
   try {
-    const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/introduction-only`, params)
+    const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/introduction-only`, {
+      ...params,
+      operation_id: operationId,
+    })
+    freshScriptAction.complete(operationId)
     success('Introduction generation queued!')
     return await waitForJob(job.job_id)
   } catch (e: any) {

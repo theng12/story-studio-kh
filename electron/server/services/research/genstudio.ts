@@ -49,6 +49,7 @@ class GenStudioResearchAdapter implements ResearchAdapter {
       // contract; the model-knowledge adapter now declares the same one.
       outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
       outputBudget: 'long',
+      requestIdentity: opts.request_identity,
     }).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       throw new Error(`GenStudio research failed: ${message}`)

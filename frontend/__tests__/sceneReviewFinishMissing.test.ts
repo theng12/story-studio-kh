@@ -22,8 +22,10 @@ async function loadSceneReview(): Promise<Component> {
   const { descriptor } = parse(source, { filename: pagePath })
   const script = compileScript(descriptor, { id: 'scene-review-finish-missing' })
   const vueUrl = await import.meta.resolve('vue')
+  const freshActionUrl = await import.meta.resolve('../composables/useFreshGenerationAction.ts')
   const support = `
     import { computed, defineComponent as _defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, unref } from ${JSON.stringify(vueUrl)}
+    import { useFreshGenerationAction } from ${JSON.stringify(freshActionUrl)}
     const watch = () => () => undefined
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined

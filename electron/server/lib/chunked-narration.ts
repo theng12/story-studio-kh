@@ -49,6 +49,7 @@ import path from 'path'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
 import { callAi, callAiWithRetry, parseStructuredJson } from './ai-client.js'
+import { freshGenerationRequestIdentity } from './fresh-generation-action.js'
 import { GenStudioChatIncompleteError, GenStudioChatProductUnavailableError, isGenStudioInsufficientCredits } from './genstudio-client.js'
 import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration.js'
 import { outlineOutputContract } from './story-output-contracts.js'
@@ -1132,9 +1133,9 @@ async function buildOutline(
           allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
         }
       : {}),
-    requestIdentity: job.genstudio_chat_retry_scope
+    requestIdentity: freshGenerationRequestIdentity(job, 'outline') ?? (job.genstudio_chat_retry_scope
       ? `${job.project_slug}:manual-retry:${job.genstudio_chat_retry_scope}`
-      : undefined,
+      : undefined),
   }
   // v1.4.36 — the target is a FLOOR, not a cap. See `outlineOutputContract` and
   // the owner's ruling recorded on `OUTLINE_HEADROOM_KEY`: an outline that
@@ -1349,9 +1350,9 @@ async function expandNarrativeSequential(
       // Only queue-level manual Retry can stamp this server-owned scope after
       // a known terminal GenStudio chat job. Normal runs and paused/resumed
       // jobs leave it absent so lost-response recovery replays the same key.
-      requestIdentity: job.genstudio_chat_retry_scope
+      requestIdentity: freshGenerationRequestIdentity(job, `chapters-${firstN}-${lastN}`) ?? (job.genstudio_chat_retry_scope
         ? `${job.project_slug}:manual-retry:${job.genstudio_chat_retry_scope}`
-        : undefined,
+        : undefined),
       recoverByIdempotencyKey: job.genstudio_chat_recovery === true
         && job.genstudio_chat_recovery_purpose !== 'narrative-repair',
       allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
@@ -1617,9 +1618,9 @@ async function expandListicleParallel(
           outputBudget: batchOutputBudget(batch, params.wordsPerChapter),
           // See narrative expansion above: this exists only for a deliberate
           // replacement after terminal GenStudio evidence, never for resume.
-          requestIdentity: job.genstudio_chat_retry_scope
+          requestIdentity: freshGenerationRequestIdentity(job, `chapters-${firstN}-${lastN}`) ?? (job.genstudio_chat_retry_scope
             ? `${job.project_slug}:manual-retry:${job.genstudio_chat_retry_scope}`
-            : undefined,
+            : undefined),
           recoverByIdempotencyKey: job.genstudio_chat_recovery === true,
           allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
         }

@@ -14,8 +14,10 @@ async function loadPageScript(): Promise<Component> {
   const { descriptor } = parse(source, { filename: pagePath })
   const script = compileScript(descriptor, { id: 'subtitles-initial-load' })
   const vueUrl = await import.meta.resolve('vue')
+  const freshActionUrl = await import.meta.resolve('../composables/useFreshGenerationAction.ts')
   const support = `
     import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, ref, unref, watch } from ${JSON.stringify(vueUrl)}
+    import { useFreshGenerationAction } from ${JSON.stringify(freshActionUrl)}
     const DEFAULT_TRANSCRIPTION_LANGUAGE = 'en'
     const defaultTranscriptionLanguage = () => 'en'
     const isTranscriptionLanguageUsable = () => true

@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.124 — 2026-09-07
+
+- **Explicit Regenerate actions now create fresh work once and recover reliably.** A deliberate click carries one durable action identity through a lost response, Jobs Retry, and restart; a later click receives a new identity. Normal Generate and missing-output recovery keep their existing behavior.
+- **Regeneration keeps its exact scope.** Audio, subtitles, scripts, openings, prompts, research, images, music, and Pipeline force runs preserve the selected model and item scope; a replay with changed details is refused instead of silently changing the active request.
+- **Pipeline Force reaches each selected stage.** Forced batch work no longer drops its regenerate intent between chained stages, while Repair Missing remains its separate bounded recovery action.
+
 ## v1.4.123
 
 - Audio Generator now uses direct chapter actions and a persistent selection bar: generate missing audio, regenerate selected chapters, or create a separate version without conflicting mode switches.

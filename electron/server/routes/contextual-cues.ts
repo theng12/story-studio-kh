@@ -20,6 +20,8 @@ import {
   writeContextualCueTimeline,
 } from '../services/contextual-cues.js'
 import type { ContextualCue, ContextualCueTimeline, JobType, ScenePlan } from '../models/types.js'
+import { withLock } from '../lib/atomic-store.js'
+import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 export const router = Router()
 
@@ -70,19 +72,33 @@ router.post('/projects/:slug/contextual-cues/:episodeId/propose', async (req, re
   const config = normalizeContextualCueConfig((await pm.getConfig(slug))?.contextual_cues)
   if (!config.enabled) return res.status(409).json({ detail: 'Enable Contextual Cues for this project before proposing cues.' })
   try { await loadPlan(slug, episodeId) } catch (error: any) { return res.status(409).json({ detail: error?.message || 'Scene Plan is required.' }) }
-  if (jq.isDuplicate(slug, episodeId, 'contextual_cues' as JobType)) {
-    return res.status(409).json({ detail: `Contextual Cues is already running for ${episodeId}.` })
-  }
   const settings = normalizeContextualCueProposalSettings(req.body)
   if (!settings.model) return res.status(409).json({ detail: 'Choose a live GenStudio model in Contextual Cues before proposing cues.' })
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'contextual_cues' as JobType,
-    episode_id: episodeId,
-    title: `Propose contextual cues — ${episodeId}`,
-    params: { episode_id: episodeId, ...settings },
+  let operationId: string
+  try { operationId = readOperationId(req.body, true)! } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
+  }
+  const params = stampFreshGenerationAction({ episode_id: episodeId, ...settings }, operationId)
+  return withLock(`fresh-contextual-cues:${slug}:${operationId}`, async () => {
+    const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+    if (previous) {
+      if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
+        return res.status(409).json({ detail: 'This operation_id already belongs to a different contextual-cue request.' })
+      }
+      return res.status(200).json({ ...previous, reused: true })
+    }
+    if (jq.isDuplicate(slug, episodeId, 'contextual_cues' as JobType)) {
+      return res.status(409).json({ detail: `Contextual Cues is already running for ${episodeId}.` })
+    }
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'contextual_cues' as JobType,
+      episode_id: episodeId,
+      title: `Propose contextual cues — ${episodeId}`,
+      params,
+    })
+    return res.status(201).json(job)
   })
-  res.status(201).json(job)
 })
 
 router.put('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
