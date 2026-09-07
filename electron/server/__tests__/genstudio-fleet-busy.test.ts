@@ -163,6 +163,11 @@ describe('the rule itself', () => {
       job({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 20, released_credits: 0 }))), false)
   })
 
+  test('exhausted failover is not the shared no-worker fleet-busy case', () => {
+    assert.equal(isFleetBusyFailure(new GenStudioTranscriptionTerminalFailureError(
+      job({ failure_code: 'SITE_FAILOVER_EXHAUSTED' }))), false)
+  })
+
   test('requires a complete zero-settled, fully released triad', () => {
     const code = 'SITE_PLACEMENT_EXHAUSTED'
     const cases = [

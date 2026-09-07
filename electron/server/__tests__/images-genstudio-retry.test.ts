@@ -155,12 +155,15 @@ test('the generator waits under the owner\'s control and resubmits under a deriv
   // were the half of this file most likely to be fixed and forgotten.
   assert.equal(source.match(/imageRetryPlan\(e, attemptNum\)/g)?.length, 2)
 
-  // Cancel and pause are the file's own mechanisms, checked before the wait
-  // and again after it — a five-minute fleet wait must not run on through a
-  // stop the owner already pressed. The wait itself aborts on cancel via the
-  // existing `cancelController`, which is why only pause needs re-checking.
+  // Cancel and pause are the file's own mechanisms, checked before and after
+  // both waits. Scenes keep their fleet-only guard; paid thumbnails extend the
+  // same stoppable guard to the one released-failover retry.
   assert.match(source, /!jq\.isCancelled\(job\.job_id\)\s*\n\s*&& !\(fleetBusy && jq\.isPauseRequested\(job\.job_id\)\)/)
-  assert.equal(source.match(/if \(fleetBusy && jq\.isPauseRequested\(job\.job_id\)\) \{/g)?.length, 2)
+  assert.match(source, /const stoppableRetry = fleetBusy \|\| releasedFailoverRetry/)
+  assert.match(source, /!jq\.isCancelled\(job\.job_id\)\s*\n\s*&& !\(stoppableRetry && jq\.isPauseRequested\(job\.job_id\)\)/)
+  assert.equal(source.match(/if \(fleetBusy && jq\.isPauseRequested\(job\.job_id\)\) \{/g)?.length, 1)
+  assert.equal(source.match(/if \(stoppableRetry && jq\.isPauseRequested\(job\.job_id\)\) \{/g)?.length, 1)
+  assert.equal(source.match(/await waitUnlessStopped\(/g)?.length, 2)
   assert.equal(source.match(/await delayUnlessAborted\(waitMs, cancelController\.signal\)/g)?.length, 2)
 
   // IDENTITY. A settled-failed job can never be reopened, so each attempt needs
