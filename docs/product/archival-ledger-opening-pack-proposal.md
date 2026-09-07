@@ -1,6 +1,6 @@
 # Opening Content Pack Proposal: Archival Ledger
 
-Status: owner-approved direction and commercial ruling; final field-exact GenStudio quote contract remains pending before archive stocking.
+Status: closed on 2026-09-07. The kit sells in the Content Store at its 1.0.2 release (1,200 credits list, 90% operator discount to 2026-12-31); 1.0.3 cannot ship because Channel Kits were closed on 2026-09-01. By owner ruling the eight components also sell standalone at 300 credits with the same discount, and all eight are stocked and published (formula 1.0.1, five topic packs 1.0.1, style 1.0.0, thumbnail 1.0.0). The GenStudio quote contract was confirmed field-exact against Story's cached-quote schema the same day; see `_handoffs/2026-09-07_historical-wars-1.0.2-and-archival-ledger-delivery.md`.
 
 ## Store promise
 
