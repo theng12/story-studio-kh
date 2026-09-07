@@ -1769,7 +1769,7 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
   try {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_id, SCENE_PLAN_FILENAME)
-    await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
+    await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
     const planPath = await resolveScenePlanPath(slug, episode_id, paths.episode_dir)
     if (!existsSync(planPath)) throw new Error('No Scene Plan timeline was found.')
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan

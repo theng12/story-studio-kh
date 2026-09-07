@@ -50,6 +50,7 @@ import path from 'path'
 import { readStitchPlan, stitchSubtitles, type StitchResult } from '../services/subtitle-stitcher.js'
 import { verifyWrittenSubtitleTimeline } from '../services/scene-timeline-integrity.js'
 import { resolveEpisodeIntroLeadIn, type EpisodeIntroLeadIn } from './intro-lead-in.js'
+import { hashSubtitleAudioSources, inspectSubtitleSourceFreshness } from '../services/subtitle-completion.js'
 
 /** Millisecond precision, so float noise never reads as a changed input. */
 const roundMs = (n: number): number => Math.round((Number(n) || 0) * 1000) / 1000
@@ -61,6 +62,8 @@ export interface StitchSignatureSection {
   source_srt: string | null
   /** sha256 of that file's bytes, or null when there is no file. */
   sha256: string | null
+  /** sha256 of the active audio bytes, when the assembly sidecar names them. */
+  source_audio_sha256?: string | null
 }
 
 export interface StitchInputSignature {
@@ -121,6 +124,9 @@ export function decideRestitch(
     } else if (was.sha256 !== now.sha256) {
       changed.push(`${slug}'s transcript was edited`)
     }
+    if (was.source_audio_sha256 !== now.source_audio_sha256) {
+      changed.push(`${slug}'s active audio changed`)
+    }
     if (roundMs(was.duration_sec) !== roundMs(now.duration_sec)) {
       changed.push(`${slug}'s audio length changed (${roundMs(was.duration_sec)}s → ${roundMs(now.duration_sec)}s)`)
     }
@@ -160,6 +166,8 @@ export interface EnsureStitchedOptions {
   subtitlesDir: string
   mergedAudioDir: string
   episodeCode: string
+  /** Active chapter audio. Omitted only by legacy/test callers without a source manifest. */
+  audioDir?: string
   /** Re-stitch even when the fingerprint matches — the manual "Re-stitch" button. */
   force?: boolean
 }
@@ -195,6 +203,16 @@ export async function ensureStitchedSubtitle(
   // Only now is the lead-in relevant — and only now can an unmeasurable one
   // block anything. An episode that never needed a stitch is never stopped by a
   // number it does not use.
+  if (opts.audioDir) {
+    const freshness = await inspectSubtitleSourceFreshness(episodeDir, opts.audioDir, subtitlesDir, code)
+    if (freshness.stale_sections.length) {
+      throw new SubtitleStitchBlocked(
+        `Video Assembly is blocked: ${code}'s subtitles need updating for ${freshness.stale_sections.join(', ')} because the active audio changed. `
+        + 'Re-transcribe the listed chapter, then retry.',
+      )
+    }
+  }
+
   const leadIn: EpisodeIntroLeadIn = await resolveEpisodeIntroLeadIn(episodeDir, mergedAudioDir, code)
   if (leadIn.status === 'unmeasurable') {
     throw new SubtitleStitchBlocked(
@@ -207,14 +225,35 @@ export async function ensureStitchedSubtitle(
     )
   }
 
+  let sourceBySlug = new Map<string, string[]>()
+  if (opts.audioDir) {
+    try {
+      const sidecar = JSON.parse(await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf8')) as {
+        sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }>
+      }
+      for (const section of sidecar.sections || []) {
+        if (typeof section.slug !== 'string' || !section.slug.trim()) continue
+        const listed = Array.isArray(section.source_files)
+          ? section.source_files.filter((name): name is string => typeof name === 'string' && path.basename(name) === name)
+          : []
+        const fallback = typeof section.source_file === 'string' && path.basename(section.source_file) === section.source_file
+          ? [section.source_file]
+          : []
+        const files = listed.length ? listed : fallback
+        if (files.length) sourceBySlug.set(section.slug.toLowerCase(), files.map(name => path.join(opts.audioDir!, name)))
+      }
+    } catch { /* Legacy sidecars have no active source identity. */ }
+  }
   const sections: StitchSignatureSection[] = []
   for (const [i, sec] of plan.sections.entries()) {
     const file = plan.matched[i]?.source_srt || null
+    const sources = sourceBySlug.get(sec.slug.toLowerCase()) || []
     sections.push({
       slug: sec.slug,
       duration_sec: roundMs(sec.duration_s),
       source_srt: file,
       sha256: file ? await sha256File(path.join(subtitlesDir, file)) : null,
+      ...(sources.length ? { source_audio_sha256: await hashSubtitleAudioSources(sources) } : {}),
     })
   }
   const current: StitchInputSignature = {

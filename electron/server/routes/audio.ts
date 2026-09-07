@@ -15,6 +15,8 @@ import {
 } from '../lib/genstudio-client.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
+import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
+import { inspectSubtitleSourceFreshness } from '../services/subtitle-completion.js'
 
 export const router = Router()
 
@@ -528,6 +530,18 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
       return true
     }
 
+    let staleSubtitleSections = new Set<string>()
+    try {
+      const paths = await resolveEpisodePathsByCodeWithSidecar(req.params.slug, req.params.code, 'audio_chapters.json')
+      const freshness = await inspectSubtitleSourceFreshness(
+        paths.episode_dir,
+        paths.audio_dir,
+        paths.subtitles_dir,
+        req.params.code,
+      )
+      staleSubtitleSections = new Set(freshness.stale_sections.map(section => section.toLowerCase()))
+    } catch { /* status remains available when no assembled subtitle source exists */ }
+
     const sections = await Promise.all(
       Array.from(bySlug.values()).map(async s => ({
         ...s,
@@ -539,6 +553,7 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
         // Purely informational. Front-end shows a "⚠ stale" pill so the
         // user can choose to regenerate; we do NOT auto-delete.
         audio_stale: await isSectionStale(s.slug),
+        subtitles_stale: staleSubtitleSections.has(s.slug.toLowerCase()),
       })),
     )
 

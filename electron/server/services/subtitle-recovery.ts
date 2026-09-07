@@ -31,6 +31,8 @@ interface Section {
   planId: string
   ownerJobId: string
   inputHash: string
+  /** Bytes of the active chapter audio that produced the saved SRT. */
+  sourceAudioHash?: string
   outputPath: string
   idempotencyKey: string
   taskId: string
@@ -79,6 +81,7 @@ async function readLedger(file: string): Promise<Ledger> {
       || Object.values(parsed.sections).some(s => !s || ![s.section, s.planId, s.ownerJobId, s.inputHash,
         s.outputPath, s.idempotencyKey, s.submittedAt, s.state].every(text)
         || !parsed.plans[s.planId] || typeof s.taskId !== 'string' || typeof s.identityVerified !== 'boolean'
+        || (s.sourceAudioHash !== undefined && !text(s.sourceAudioHash))
         || !Number.isSafeInteger(s.freeRetries) || s.freeRetries < 0
         || (s.confirmStarted !== undefined && typeof s.confirmStarted !== 'boolean')
         || (s.pipelineRepairActionId !== undefined && !text(s.pipelineRepairActionId))
@@ -129,6 +132,44 @@ export interface SubtitleRecoveryInput {
   /** Only the explicit manual purchase route supplies this, never pipeline defaults. */
   manualCreditCeiling?: number
   request: GenStudioTranscriptionRequest
+}
+
+/**
+ * Freshness evidence is deliberately separate from recovery authority: old
+ * ledgers without it remain recoverable, but cannot claim their SRT matches
+ * newly written audio.
+ */
+export async function readSubtitleSourceAudioHashes(outDir: string): Promise<Record<string, string>> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(path.join(outDir, '.subtitle-recovery.json'), 'utf8')) as {
+      sections?: Record<string, { sourceAudioHash?: unknown }>
+    }
+    const hashes: Record<string, string> = {}
+    for (const [filename, section] of Object.entries(parsed.sections || {})) {
+      if (typeof section?.sourceAudioHash === 'string' && section.sourceAudioHash.trim()) {
+        hashes[filename] = section.sourceAudioHash
+      }
+    }
+    return hashes
+  } catch {
+    return {}
+  }
+}
+
+/** Stamp only after the caller has atomically saved a usable SRT. */
+export async function recordSubtitleSourceAudioHash(
+  outDir: string,
+  manifestKey: string,
+  sourceAudioHash: string,
+): Promise<void> {
+  const file = path.resolve(outDir, '.subtitle-recovery.json')
+  await withLock(file, async () => {
+    const ledger = await readLedger(file)
+    const section = ledger.sections[manifestKey]
+    if (!section) return
+    section.sourceAudioHash = sourceAudioHash
+    await writeJsonAtomic(file, ledger)
+  })
 }
 
 /** The purchase button cannot widen a failed job to the whole episode. */

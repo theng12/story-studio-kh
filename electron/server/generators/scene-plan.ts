@@ -712,7 +712,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     || params.regenerate_motion_prompt_scene_id
     || params.replan_scene_id
   )
-  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
   if (requestedStage || !isSingleSceneRepair) {
     const pipelineAutoVisual = requestedStage == null && !isSingleSceneRepair
     let stage: 'timeline' | 'visual' | 'motion' = requestedStage || 'timeline'

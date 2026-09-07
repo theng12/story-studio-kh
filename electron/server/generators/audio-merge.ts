@@ -332,6 +332,11 @@ export function compareChapterFilenames(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true })
 }
 
+/** `_vN` is an alternate saved by Audio; Audio Assembly only uses the active base source. */
+export function isActiveChapterAudioFilename(filename: string): boolean {
+  return !/_v\d+\.(?:mp3|wav|m4a)$/i.test(filename)
+}
+
 export function chapterKeyOf(filename: string, code: string): string {
   let base = filename.replace(/\.[^.]+$/, '')
   if (base.startsWith(`${code}_`)) base = base.slice(code.length + 1)
@@ -1158,8 +1163,8 @@ export async function scanEpisodeAudioAssets(
     for (const file of files) {
       if (!/\.mp3$/i.test(file)) continue
 
-      // Skip files that look like full/merged narration
-      if (/full|merged|narration_only/i.test(file)) continue
+      // Skip files that look like full/merged narration and explicit alternates.
+      if (/full|merged|narration_only/i.test(file) || !isActiveChapterAudioFilename(file)) continue
 
       const filePath = path.join(audioDir, file)
       const duration = await getAudioDuration(filePath)

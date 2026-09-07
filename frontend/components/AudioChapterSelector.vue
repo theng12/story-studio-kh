@@ -30,7 +30,7 @@
 <template>
   <div class="chapter-selector">
     <div class="cs-header">
-      <label class="cs-label">Sections to generate</label>
+      <span class="cs-label">Narration sections</span>
       <div class="cs-actions">
         <button type="button" class="btn btn-sm btn-ghost" @click="selectAll" :disabled="!sections.length">Select all</button>
         <button type="button" class="btn btn-sm btn-ghost" @click="selectNone" :disabled="!selectedSet.size">Clear</button>
@@ -81,21 +81,25 @@
         :class="[`status-${runtimeStatus(s)}`, { selected: selectedSet.has(s.slug) }]"
         :aria-selected="selectedSet.has(s.slug)"
       >
-        <label class="cs-row">
+        <div class="cs-row">
           <input
             type="checkbox"
             :checked="selectedSet.has(s.slug)"
+            :aria-label="`Select ${prettyLabel(s.label)}`"
             @change="toggle(s.slug, ($event.target as HTMLInputElement).checked)"
-            :disabled="!allowDuplicates && runtimeStatus(s) === 'generated'"
-            :title="!allowDuplicates && runtimeStatus(s) === 'generated' ? 'Already generated — enable duplicate override below to regenerate' : ''"
           />
           <span class="cs-name">{{ prettyLabel(s.label) }}</span>
           <span
             class="cs-meta"
             title="Narration characters include spaces and reflect the text prepared for TTS."
           >
-            {{ formatCount(s.word_count) }} words · {{ formatCount(s.character_count) }} chars ·
-            {{ s.present_chunks }}/{{ s.total_chunks }} chunks
+            <span>{{ formatCount(s.word_count) }} words · {{ formatCount(s.character_count) }} chars ·
+              {{ s.present_chunks }}/{{ s.total_chunks }} chunks</span>
+            <NuxtLink
+              v-if="s.subtitles_stale"
+              class="cs-downstream-warning"
+              :to="`/projects/${projectSlug}/subtitles?episode_id=${encodeURIComponent(episodeId)}&section=${encodeURIComponent(s.slug)}`"
+            >Subtitles need retranscribing</NuxtLink>
           </span>
           <span class="cs-pill" :class="`pill-${runtimeStatus(s)}`">
             {{ statusText(runtimeStatus(s)) }}
@@ -106,7 +110,7 @@
             :disabled="inlineActionDisabled(s)"
             :title="inlineActionTitle(s)"
             :aria-label="`${inlineActionLabel(s)} ${prettyLabel(s.label)} only`"
-            @click.stop.prevent="emit('generate-section', s.slug)"
+            @click.stop.prevent="emit('generate-section', { slug: s.slug, mode: inlineActionMode(s) })"
           >
             {{ isLiveStatus(runtimeStatus(s)) ? 'Queued…' : inlineActionLabel(s) }}
           </button>
@@ -122,18 +126,13 @@
             @click.stop.prevent="togglePlay(s)"
           >{{ playingSlug === s.slug ? '⏸' : '▶' }}</button>
           <span v-else class="cs-play-spacer" aria-hidden="true" />
-        </label>
+        </div>
       </li>
     </ul>
 
     <div class="cs-footer">
-      <label class="checkbox-label" style="font-size: 12px;">
-        <input type="checkbox" v-model="allowDuplicatesLocal" />
-        Allow regenerating already-generated sections
-      </label>
-      <span v-if="effectiveSelected.length" class="text-muted" style="font-size: var(--font-xs);">
-        Will queue: {{ effectiveSelected.length }} section(s)
-        <template v-if="skippedCount"> ({{ skippedCount }} skipped — already generated)</template>
+      <span class="text-muted" style="font-size: var(--font-xs);">
+        {{ effectiveSelected.length }} section{{ effectiveSelected.length === 1 ? '' : 's' }} selected
       </span>
     </div>
     <p v-if="inlineGenerateDisabled && inlineGenerateDisabledReason" class="cs-inline-reason" role="status">
@@ -158,6 +157,13 @@ interface SectionRow {
   // Surfaced as a "⚠ stale" pill so the user knows to regenerate audio
   // for it. Audio is NOT auto-deleted.
   audio_stale?: boolean
+  /** Backend-owned downstream freshness after an audio replacement. */
+  subtitles_stale?: boolean
+}
+
+interface SectionAction {
+  slug: string
+  mode: 'generate' | 'regenerate'
 }
 
 const props = withDefaults(defineProps<{
@@ -165,8 +171,6 @@ const props = withDefaults(defineProps<{
   episodeId: string
   /** Comma-joined slug list (mirrors the backend contract). */
   selected: string
-  /** When false, already-generated sections are excluded from `effective-selected`. */
-  allowDuplicates?: boolean
   /** Bump to force a refetch (e.g. after a generation finishes). */
   refreshKey?: number
   /**
@@ -182,20 +186,16 @@ const props = withDefaults(defineProps<{
   inlineGenerateDisabledReason?: string
 }>(), {
   model: '',
-  allowDuplicates: false,
   inlineGenerateDisabled: false,
   inlineGenerateDisabledReason: '',
 })
 
 const emit = defineEmits<{
   'update:selected': [value: string]
-  'update:allowDuplicates': [value: boolean]
-  'generate-section': [slug: string]
-  /**
-   * Selection AFTER duplicate-skip filtering — what should actually be sent
-   * to the backend. Pages that submit jobs read this instead of `selected`.
-   */
+  'generate-section': [request: SectionAction]
+  /** Selection resolved against the current episode rows. */
   'update:effective-selected': [slugs: string[]]
+  'update:missing-sections': [slugs: string[]]
 }>()
 
 const { get } = useApi()
@@ -204,6 +204,7 @@ const { error: showError } = useToast()
 
 const sections = ref<SectionRow[]>([])
 const loading = ref(false)
+let refreshRevision = 0
 
 // ── In-app playback ─────────────────────────────────────────────────────
 // One <audio> at a time, streamed from the new /audio-file endpoint. Lets
@@ -235,10 +236,6 @@ function togglePlay(s: SectionRow) {
 // Stop playback when the episode changes or the component unmounts.
 watch(() => props.episodeId, stopPlay)
 onBeforeUnmount(stopPlay)
-const allowDuplicatesLocal = ref(props.allowDuplicates)
-
-watch(() => props.allowDuplicates, v => { allowDuplicatesLocal.value = v })
-watch(allowDuplicatesLocal, v => emit('update:allowDuplicates', v))
 
 const selectedSet = computed(() => new Set(
   props.selected.split(',').map(s => s.trim()).filter(Boolean)
@@ -259,13 +256,13 @@ function selectAll() {
 function selectNone() { emit('update:selected', '') }
 function selectMissing() {
   const slugs = sections.value
-    .filter(s => runtimeStatus(s) !== 'generated')
+    .filter(s => s.status !== 'generated')
     .map(s => s.slug)
   emit('update:selected', slugs.join(','))
 }
 
 const hasMissing = computed(() =>
-  sections.value.some(s => runtimeStatus(s) !== 'generated')
+  sections.value.some(s => s.status !== 'generated')
 )
 
 // Runtime status overlays the on-disk status with live job state, so a
@@ -364,6 +361,12 @@ function inlineActionLabel(section: SectionRow): string {
     : 'Generate'
 }
 
+function inlineActionMode(section: SectionRow): SectionAction['mode'] {
+  return runtimeStatus(section) === 'generated' || runtimeStatus(section) === 'stale'
+    ? 'regenerate'
+    : 'generate'
+}
+
 /** Every state that means "a running job already owns this section". */
 function isLiveStatus(status: RuntimeStatus): boolean {
   return status === 'generating' || status === 'waiting' || status === 'queued'
@@ -371,16 +374,15 @@ function isLiveStatus(status: RuntimeStatus): boolean {
 
 function inlineActionDisabled(section: SectionRow): boolean {
   const status = runtimeStatus(section)
-  if (isLiveStatus(status) || props.inlineGenerateDisabled) return true
-  return status === 'generated' && !allowDuplicatesLocal.value
+  return isLiveStatus(status) || props.inlineGenerateDisabled
 }
 
 function inlineActionTitle(section: SectionRow): string {
   const status = runtimeStatus(section)
   if (status === 'generating') return 'This chapter is already queued or generating.'
   if (props.inlineGenerateDisabled) return props.inlineGenerateDisabledReason || 'Audio generation is not ready.'
-  if (status === 'generated' && !allowDuplicatesLocal.value) {
-    return 'Choose Regenerate or New version below to generate this completed chapter again.'
+  if (status === 'generated' || status === 'stale') {
+    return `Regenerate only ${prettyLabel(section.label)} and replace its active audio.`
   }
   return `Send only ${prettyLabel(section.label)} to the selected TTS provider.`
 }
@@ -396,19 +398,20 @@ function formatCount(value: number): string {
 }
 
 const effectiveSelected = computed(() => {
-  const want = sections.value.filter(s => selectedSet.value.has(s.slug))
-  if (allowDuplicatesLocal.value) return want.map(s => s.slug)
-  return want.filter(s => runtimeStatus(s) !== 'generated').map(s => s.slug)
+  return sections.value.filter(s => selectedSet.value.has(s.slug)).map(s => s.slug)
 })
-const skippedCount = computed(() =>
-  Math.max(0, selectedSet.value.size - effectiveSelected.value.length)
-)
+const missingSections = computed(() => sections.value
+  .filter(s => s.status !== 'generated')
+  .map(s => s.slug))
 
 watch(effectiveSelected, v => emit('update:effective-selected', v), { immediate: true })
+watch(missingSections, v => emit('update:missing-sections', v), { immediate: true })
 
 async function refresh() {
+  const revision = ++refreshRevision
   if (!props.episodeId) {
     sections.value = []
+    loading.value = false
     return
   }
   loading.value = true
@@ -417,12 +420,10 @@ async function refresh() {
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/audio-sections`
       + (props.model ? `?model=${encodeURIComponent(props.model)}` : '')
     )
+    if (revision !== refreshRevision) return
     sections.value = r.sections || []
-    // Sensible default: when the user lands on the page (or switches episode),
-    // pre-select every section that needs work. Empty selection = the page
-    // will fall back to "all" on submit, but pre-selecting makes the
-    // duplicate-prevention behaviour visible — generated rows show up
-    // unchecked + disabled instead of looking targeted.
+    // On landing or episode switch, pre-select each section that needs audio.
+    // The page still requires this resolved, non-empty list before submission.
     if (sections.value.length && !props.selected) {
       const missing = sections.value
         .filter(s => s.status !== 'generated')
@@ -430,9 +431,9 @@ async function refresh() {
       if (missing.length) emit('update:selected', missing.join(','))
     }
   } catch {
-    sections.value = []
+    if (revision === refreshRevision) sections.value = []
   } finally {
-    loading.value = false
+    if (revision === refreshRevision) loading.value = false
   }
 }
 
@@ -553,11 +554,21 @@ watch(() => [props.episodeId, props.refreshKey, props.model], refresh, { immedia
 }
 
 .cs-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
   color: var(--text-muted);
   font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.cs-downstream-warning {
+  color: rgb(202, 138, 4);
+  font-weight: 600;
+  text-decoration: none;
+}
+.cs-downstream-warning:hover { text-decoration: underline; }
 
 .cs-pill {
   display: inline-flex;
@@ -648,6 +659,7 @@ watch(() => [props.episodeId, props.refreshKey, props.model], refresh, { immedia
   .cs-name { grid-area: name; }
   .cs-meta {
     grid-area: meta;
+    align-items: flex-start;
     white-space: normal;
   }
   .cs-pill { grid-area: status; }

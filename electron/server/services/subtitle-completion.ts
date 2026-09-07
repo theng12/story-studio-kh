@@ -1,9 +1,11 @@
 import fs from 'fs/promises'
+import { createHash } from 'crypto'
 import path from 'path'
 import { readSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { readStitchPlan } from './subtitle-stitcher.js'
 import { allowedSubtitleCueGapSec } from './scene-plan-pacing.js'
+import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
 
 export interface SubtitleCompletion {
   complete: boolean
@@ -28,7 +30,11 @@ export interface PipelineSubtitleRepairReadiness {
 const BURNABLE = /\.(srt|ass|vtt)$/i
 
 interface AudioChapterManifest {
-  sections?: Array<{ slug?: unknown }>
+  sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }>
+}
+
+export interface SubtitleSourceFreshness {
+  stale_sections: string[]
 }
 
 interface StitchedCompletionMeta {
@@ -86,6 +92,100 @@ async function readExpectedSections(episodeDir: string): Promise<string[]> {
   } catch {
     return []
   }
+}
+
+/**
+ * Stable local source identity for one active chapter. This deliberately hashes
+ * source bytes rather than duration or mtime: a same-length replacement still
+ * needs a new transcript. Multi-part chapters retain their source-file order.
+ */
+export async function hashSubtitleAudioSources(sourceFiles: string[]): Promise<string | null> {
+  if (!sourceFiles.length) return null
+  const parts = await Promise.all(sourceFiles.map(async file => {
+    try {
+      return createHash('sha256').update(await fs.readFile(file)).digest('hex')
+    } catch {
+      return null
+    }
+  }))
+  if (parts.some(part => part === null)) return null
+  return `sha256:${createHash('sha256').update(JSON.stringify(parts)).digest('hex')}`
+}
+
+function audioFilesForSection(
+  section: { slug?: unknown; source_file?: unknown; source_files?: unknown },
+  audioDir: string,
+  code: string,
+): string[] {
+  const listed = Array.isArray(section.source_files)
+    ? section.source_files.filter((file): file is string => typeof file === 'string' && path.basename(file) === file)
+    : []
+  const source = typeof section.source_file === 'string' && path.basename(section.source_file) === section.source_file
+    ? section.source_file
+    : ''
+  const files = listed.length ? listed : source ? [source] : [
+    `${code}_${String(section.slug || '').trim()}.mp3`,
+  ]
+  return files.map(file => path.join(audioDir, file))
+}
+
+/**
+ * Compare each active chapter audio source with the hash recorded only after
+ * its SRT was successfully saved. Legacy SRTs use mtime solely as a migration
+ * fallback: an audio write newer than its SRT is stale, while an imported
+ * whole-track never enters this per-section check.
+ */
+export async function inspectSubtitleSourceFreshness(
+  episodeDir: string,
+  audioDir: string,
+  subtitlesDir: string,
+  episodeCode: string,
+): Promise<SubtitleSourceFreshness> {
+  let sidecar: AudioChapterManifest
+  try {
+    sidecar = JSON.parse(await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf8')) as AudioChapterManifest
+  } catch {
+    return { stale_sections: [] }
+  }
+  const sections = Array.isArray(sidecar.sections) ? sidecar.sections : []
+  const expected = sections
+    .map(section => typeof section.slug === 'string' ? section.slug.trim() : '')
+    .filter(Boolean)
+  if (!expected.length) return { stale_sections: [] }
+
+  const [files, recorded] = await Promise.all([
+    nonEmptySubtitleFiles(subtitlesDir),
+    readSubtitleSourceAudioHashes(subtitlesDir),
+  ])
+  const sourceSrt = new Map<string, string>()
+  for (const filename of files) {
+    const section = sectionForFile(filename, episodeCode.toUpperCase(), expected)
+    if (section && !/_stitched\./i.test(filename)) sourceSrt.set(normalize(section), filename)
+  }
+
+  const stale: string[] = []
+  for (const section of sections) {
+    const slug = typeof section.slug === 'string' ? section.slug.trim() : ''
+    if (!slug) continue
+    const srt = sourceSrt.get(normalize(slug))
+    if (!srt) continue // An intentional whole-track has no per-section source to stale.
+    const audioFiles = audioFilesForSection(section, audioDir, episodeCode.toUpperCase())
+    const savedHash = recorded[srt]
+    if (savedHash) {
+      const currentHash = await hashSubtitleAudioSources(audioFiles)
+      if (currentHash && savedHash !== currentHash) stale.push(slug)
+      continue
+    }
+    // Older SRTs have no byte identity. Do not call all old work stale; only
+    // expose the real replacement shape where the active audio is newer.
+    const [srtStat, audioStats] = await Promise.all([
+      fs.stat(path.join(subtitlesDir, srt)).catch(() => null),
+      Promise.all(audioFiles.map(file => fs.stat(file).catch(() => null))),
+    ])
+    const newestAudio = Math.max(...audioStats.map(stat => stat?.mtimeMs || 0))
+    if (srtStat && newestAudio > srtStat.mtimeMs) stale.push(slug)
+  }
+  return { stale_sections: stale }
 }
 
 async function stitchedCoverage(

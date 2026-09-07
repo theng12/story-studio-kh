@@ -119,6 +119,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/stitch-subtitles', async (req
       episodeDir: paths.episode_dir,
       subtitlesDir: paths.subtitles_dir,
       mergedAudioDir: paths.merged_audio_dir,
+      audioDir: paths.audio_dir,
       episodeCode: episodeId.toUpperCase(),
       force: true,
     })

@@ -4,6 +4,7 @@ import { findIncompleteSubtitleSections } from './subtitle-stitcher.js'
 import { stitchedSrtPath } from './subtitle-correction.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
+import { inspectSubtitleSourceFreshness } from './subtitle-completion.js'
 
 export interface SubtitleTimelineIntegrity {
   complete: boolean
@@ -142,11 +143,26 @@ export async function verifyWrittenSubtitleTimeline(
 export async function assertSubtitleTimelineComplete(
   subtitlesDir: string,
   episodeCode: string,
+  source?: { episodeDir: string; audioDir: string },
 ): Promise<void> {
   const integrity = await readSubtitleTimelineIntegrity(subtitlesDir, episodeCode)
-  if (integrity.complete) return
-  throw new Error(
-    `Subtitle timeline is incomplete: ${integrity.missing_sections.join(', ')}. `
-    + 'Complete transcription and stitch subtitles again before generating scene images.',
+  if (!integrity.complete) {
+    throw new Error(
+      `Subtitle timeline is incomplete: ${integrity.missing_sections.join(', ')}. `
+      + 'Complete transcription and stitch subtitles again before generating scene images.',
+    )
+  }
+  if (!source) return
+  const freshness = await inspectSubtitleSourceFreshness(
+    source.episodeDir,
+    source.audioDir,
+    subtitlesDir,
+    episodeCode,
   )
+  if (freshness.stale_sections.length) {
+    throw new Error(
+      `Subtitle timeline needs updating for ${freshness.stale_sections.join(', ')} because the active audio changed. `
+      + 'Re-transcribe and stitch the listed chapter before generating downstream assets.',
+    )
+  }
 }

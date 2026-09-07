@@ -16,8 +16,10 @@ import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import {
   inspectPipelineSubtitleRepairReadiness,
   inspectSubtitleCompletion,
+  hashSubtitleAudioSources,
   isPipelineRepairTranscriptUsable,
 } from '../services/subtitle-completion.js'
+import { recordSubtitleSourceAudioHash } from '../services/subtitle-recovery.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { scanEpisodeAssets } from './video.js'
 import {
@@ -417,30 +419,28 @@ async function transcribePerChapter(
 
   // Group MP3s in the audio dir by section slug: `{code}_{slug}[_partN][_vN].mp3`.
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Capture the optional `_vN` ("save as new version") suffix (group 3) so a
-  // versioned file groups under its real chapter slug AND so we keep the NEWEST
-  // file per part instead of concatenating an old + new copy of the same part.
-  const partRe = new RegExp(`^${esc(code)}_(.+?)(?:_part(\\d+))?(?:_v(\\d+))?\\.mp3$`, 'i')
+  // `_vN` files are explicit alternates, not the active chapter source. A
+  // transcript must stay attached to the base file until a later Audio Assembly
+  // deliberately selects a different source; merely saving a new version must
+  // not make existing captions look stale.
+  const partRe = new RegExp(`^${esc(code)}_(.+?)(?:_part(\\d+))?\\.mp3$`, 'i')
   let dirFiles: string[]
   try {
     dirFiles = await fs.readdir(audioDir)
   } catch {
     dirFiles = []
   }
-  const bySlug = new Map<string, { slug: string; files: Array<{ name: string; part: number; version: number }> }>()
+  const bySlug = new Map<string, { slug: string; files: Array<{ name: string; part: number }> }>()
   for (const f of dirFiles) {
+    if (/_v\d+\.mp3$/i.test(f)) continue
     const m = f.match(partRe)
     if (!m) continue
     const slug = m[1]!
     const part = m[2] ? parseInt(m[2], 10) : 1
-    const version = m[3] ? parseInt(m[3], 10) : 1
-    const g = bySlug.get(slug) || { slug, files: [] }
+    const g = bySlug.get(slug) || { slug, files: [] as Array<{ name: string; part: number }> }
     const existing = g.files.find(x => x.part === part)
-    if (existing) {
-      // Same part rendered more than once (e.g. `_v2`) — keep the newest.
-      if (version > existing.version) { existing.name = f; existing.version = version }
-    } else {
-      g.files.push({ name: f, part, version })
+    if (!existing) {
+      g.files.push({ name: f, part })
     }
     bySlug.set(slug, g)
   }
@@ -543,6 +543,10 @@ async function transcribePerChapter(
     job.output_lines.push(`Transcribing ${sec.slug} (${sec.files.length} part${sec.files.length === 1 ? '' : 's'})…`)
     try {
       const manifestKey = path.basename(outPath)
+      const sourceAudioHash = await hashSubtitleAudioSources(
+        sec.files.map(file => path.join(audioDir, file.name)),
+      )
+      if (!sourceAudioHash) throw new Error(`Could not fingerprint active audio for ${sec.slug}`)
       const currentAudioHash = await hashTranscriptionAudio(audioPath)
       const requestIdentity = `${projectSlug}:${code}:transcription:${manifestKey}`
       const currentInputHash = hashInput(JSON.stringify({
@@ -569,6 +573,7 @@ async function transcribePerChapter(
         failures.push({ slug: sec.slug, error: 'transcription returned zero usable cues' })
       } else {
         await fs.writeFile(outPath, srt, 'utf-8')
+        await recordSubtitleSourceAudioHash(outDir, manifestKey, sourceAudioHash)
         totalCues += cues
         generatedSections += 1
         job.output_lines.push(`  ✓ ${sec.slug}: ${cues} cues → ${path.basename(outPath)}`)
@@ -691,6 +696,7 @@ async function transcribePerChapter(
       episodeDir: epaths.episode_dir,
       subtitlesDir: outDir,
       mergedAudioDir: epaths.merged_audio_dir,
+      audioDir: epaths.audio_dir,
       episodeCode: code,
     })
     if (outcome.status !== 'stitched' && outcome.status !== 'fresh') {

@@ -113,7 +113,7 @@ async function validateSceneRenderRequest(
   const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
   if (!existsSync(planPath)) throw new Error('No scene_plan.json yet')
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-  await assertSubtitleTimelineComplete(paths.subtitles_dir, episodeId)
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episodeId, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
   if (validatePrompts) assertScenePromptsRenderable(plan.scenes, sceneIds)
   return { paths, plan, planPath }
 }

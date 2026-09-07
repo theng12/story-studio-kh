@@ -208,7 +208,7 @@ async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
   if (!audio.audio_assembly_ready) return { verified: unresolved, message: audio.issues.join(' ') }
   const paths = await resolveEpisodePathsByCode(plan.project_slug, plan.episode_id)
   const facts = await inspectRecoverySubtitlePrerequisites(plan, { episodeDir: paths.episode_dir, subtitlesDir: paths.subtitles_dir,
-    mergedAudioDir: paths.merged_audio_dir, episodeCode: plan.episode_id }, jobs)
+    mergedAudioDir: paths.merged_audio_dir, audioDir: paths.audio_dir, episodeCode: plan.episode_id }, jobs)
   const { verified } = facts
   if (!verified.subtitle_stitch || plan.target === 'subtitle_stitch') return facts
   const status = await computeEpisodeStatus(plan.project_slug, plan.episode_id)

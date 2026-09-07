@@ -1004,7 +1004,7 @@ export async function resolveEpisodeSubtitleFile(
    * brings the stitched transcript up to date before choosing what to burn.
    * Omitted by the ownership unit tests, which exercise selection alone.
    */
-  stitchPaths?: { episodeDir: string; mergedAudioDir: string },
+  stitchPaths?: { episodeDir: string; mergedAudioDir: string; audioDir: string },
 ): Promise<void> {
   if (!req.subtitles?.enabled) return
 
@@ -1021,6 +1021,7 @@ export async function resolveEpisodeSubtitleFile(
       episodeDir: stitchPaths.episodeDir,
       subtitlesDir,
       mergedAudioDir: stitchPaths.mergedAudioDir,
+      audioDir: stitchPaths.audioDir,
       episodeCode: episodeId.toUpperCase(),
     })
     job?.output_lines.push(describeAutoStitch(outcome, episodeId.toUpperCase()))
@@ -1207,6 +1208,7 @@ export async function prepareUnifiedVideoAssemblyInputs(
   await resolveEpisodeSubtitleFile(episodeId, cuePaths.subtitles_dir, req, job, {
     episodeDir: cuePaths.episode_dir,
     mergedAudioDir: cuePaths.merged_audio_dir,
+    audioDir: cuePaths.audio_dir,
   })
   await assertSubtitleFileBelongsToEpisode(slug, episodeId, cuePaths.episode_dir, req, job)
   const planPath = await resolveScenePlanPath(slug, episodeId, cuePaths.episode_dir)
