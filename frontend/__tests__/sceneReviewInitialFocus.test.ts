@@ -21,8 +21,10 @@ async function loadPage(): Promise<Component> {
   })
   assert.equal(template.errors.length, 0)
   const vueUrl = await import.meta.resolve('vue')
+  const freshActionUrl = await import.meta.resolve('../composables/useFreshGenerationAction.ts')
   const support = `
     import { computed, defineComponent as _defineComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from ${JSON.stringify(vueUrl)}
+    import { useFreshGenerationAction } from ${JSON.stringify(freshActionUrl)}
     const CREDIT_BASIS_LABEL = { fixed: 'Fixed' }
     const describeImageUnitCost = () => ({ basis: 'fixed', text: '' })
     const findGenStudioProduct = () => null

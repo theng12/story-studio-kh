@@ -17,6 +17,8 @@ import { unavailableLegacyModelMessage } from '../services/genstudio-model-migra
 import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
 import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { inspectSubtitleSourceFreshness } from '../services/subtitle-completion.js'
+import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { withLock } from '../lib/atomic-store.js'
 
 export const router = Router()
 
@@ -84,18 +86,41 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   } catch (error: any) {
     return res.status(502).json(humanizeBackendError(error, 'Could not verify the GenStudio KH voice catalog'))
   }
-  if (jq.isDuplicate(slug, req.body.episode_id, 'audio')) {
-    return res.status(409).json({ detail: `Audio generation already queued/running for ${req.body.episode_id}` })
+  const deliberateFresh = req.body.force === true || req.body.no_overwrite === true
+  let operationId: string | null
+  try {
+    operationId = readOperationId(req.body, deliberateFresh)
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
+  const params = operationId
+    ? stampFreshGenerationAction(req.body, operationId)
+    : (() => { const clean = { ...req.body }; delete clean.generation_action; delete clean.operation_id; return clean })()
+  const enqueueAudio = async () => {
+    if (operationId) {
+      const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+      if (previous) {
+        if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
+          return res.status(409).json({ detail: 'This operation_id already belongs to a different audio request.' })
+        }
+        return res.status(200).json({ ...previous, reused: true })
+      }
+    }
+    if (jq.isDuplicate(slug, req.body.episode_id, 'audio')) {
+      return res.status(409).json({ detail: `Audio generation already queued/running for ${req.body.episode_id}` })
+    }
 
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'audio',
-    episode_id: req.body.episode_id,
-    title: `Audio (${req.body.sections || 'all'})`,
-    params: req.body,
-  })
-  res.status(201).json(job)
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'audio',
+      episode_id: req.body.episode_id,
+      title: `Audio (${req.body.sections || 'all'})`,
+      params,
+    })
+    return res.status(201).json(job)
+  }
+  if (operationId) return withLock(`fresh-audio:${slug}:${operationId}`, enqueueAudio)
+  return enqueueAudio()
 })
 
 /** Play the stored GenStudio voice sample without submitting a billable TTS job. */

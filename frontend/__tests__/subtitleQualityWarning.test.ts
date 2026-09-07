@@ -88,8 +88,12 @@ describe('the app never edits anyone\'s subtitles', () => {
 
   test('a targeted re-transcribe re-asks and pays for one chapter only', () => {
     // force:true is what makes GenStudio produce a fresh result instead of
-    // replaying the stored one; sections narrows the charge to this chapter.
-    assert.match(subtitlesPage, /force: true,\s*\n\s*sections: \[sectionSlug\]/)
+    // replaying the stored one; sections narrows the charge to this chapter,
+    // and one retained operation id keeps an uncertain submit idempotent.
+    assert.match(subtitlesPage, /force: sectionSlug \? true : force\.value/)
+    assert.match(subtitlesPage, /\.\.\.\(sectionSlug \? \{ sections: \[sectionSlug\] \} : \{\}\)/)
+    assert.match(subtitlesPage, /const payload = subtitleRequestPayload\(sectionSlug\)[\s\S]{0,180}freshSubtitleAction\.begin\(payload, `section:\$\{sectionSlug\}`\)[\s\S]{0,100}payload\.operation_id = operationId/)
+    assert.match(subtitlesPage, /await post\([^\n]+, payload\)[\s\S]{0,100}freshSubtitleAction\.complete\(operationId\)/)
   })
 
   test('every chapter exposes the scoped fresh-generation action with honest price language', () => {

@@ -191,6 +191,7 @@ import { CREDIT_BASIS_LABEL, describeMusicUnitCost, type PricedMusicModel } from
 const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
 const { get, post, patch, del } = useApi()
+const freshMusicAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 
 interface LibraryTrack {
@@ -295,13 +296,17 @@ async function remove(track: LibraryTrack) {
 async function topUp() {
   generating.value = true
   genError.value = ''
+  const payload = { brief: brief.value, count: count.value, instrumental: instrumental.value }
+  const operationId = freshMusicAction.begin(payload)
   try {
     await post(`/projects/${slug.value}/music-library/generate`, {
-      brief: brief.value, count: count.value, instrumental: instrumental.value,
+      ...payload,
+      operation_id: operationId,
     })
+    freshMusicAction.complete(operationId)
     success(`Adding ${count.value} song(s). Watch it on the Jobs page; the library fills as they arrive.`)
   } catch (e: any) {
-    genError.value = e?.data?.detail || e?.message || 'Could not start the top-up'
+    genError.value = e?.data?.detail || e?.message || 'The submission was not confirmed. Retry submission to continue this music action.'
   } finally { generating.value = false }
 }
 

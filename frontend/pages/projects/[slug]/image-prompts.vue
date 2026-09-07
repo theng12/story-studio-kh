@@ -1057,6 +1057,7 @@ definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
+const freshImagePromptsAction = useFreshGenerationAction()
 const { styles: visualStyles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
 const { success, info: showInfo, error: showError } = useToast()
 
@@ -2394,39 +2395,47 @@ async function runGenerate(mode: PromptMode) {
   if (!form.episode_id) return
   generating.value = true
   setPromptPulse(mode, true)
+  const payload = {
+    episode_id: form.episode_id,
+    model: activeForm.value.model,
+    style_tag: activeForm.value.style_tag,
+    aspect_ratio: activeForm.value.aspect_ratio,
+    scenes_per_chapter: form.scene.scenes_per_chapter,
+    chapter_count: effectiveChapterCount.value,
+    thumb_count: form.thumbnail.thumb_count,
+    thumbnail_template_id: form.thumbnail.thumbnail_template_id || undefined,
+    thumb_title_mode: 'ai',
+    thumb_headline_mode: form.thumbnail.thumb_headline_mode,
+    thumb_text_style: form.thumbnail.thumb_text_style,
+    thumb_text_position: form.thumbnail.thumb_text_position,
+    thumb_font_style: form.thumbnail.thumb_font_style,
+    thumb_reference_style: form.thumbnail.thumb_reference_style,
+    thumb_creative_direction: form.thumbnail.thumb_creative_direction,
+    prompt_char_cap: effectivePromptCharCap.value || undefined,
+    title: selectedEpisode.value?.title || '',
+    mode,
+    character_ids: activeForm.value.character_ids,
+    fill_gaps: !activeForm.value.force,
+    force: activeForm.value.force,
+  }
+  const operationId = payload.force ? freshImagePromptsAction.begin(payload) : null
   try {
     const job: any = await post(`/projects/${slug.value}/generate/image-prompts`, {
-      episode_id: form.episode_id,
-      model: activeForm.value.model,
-      style_tag: activeForm.value.style_tag,
-      aspect_ratio: activeForm.value.aspect_ratio,
+      ...payload,
       // v1.0.87+: always multiplication. No more Custom-total mode —
       // the backend's executor multiplies scenes_per_chapter × chapter_
       // count to get the final scene count and proceeds straight into
       // chunked generation. total_scenes is no longer sent; the
       // executor still reads it as a fallback for legacy presets but
       // the form no longer surfaces it.
-      scenes_per_chapter: form.scene.scenes_per_chapter,
-      chapter_count: effectiveChapterCount.value,
-      thumb_count: form.thumbnail.thumb_count,
-      thumbnail_template_id: form.thumbnail.thumbnail_template_id || undefined,
-      thumb_title_mode: 'ai',
-      thumb_headline_mode: form.thumbnail.thumb_headline_mode,
-      thumb_text_style: form.thumbnail.thumb_text_style,
-      thumb_text_position: form.thumbnail.thumb_text_position,
-      thumb_font_style: form.thumbnail.thumb_font_style,
-      thumb_reference_style: form.thumbnail.thumb_reference_style,
-      thumb_creative_direction: form.thumbnail.thumb_creative_direction,
       // The RESOLVED ceiling. Only this page knows which image model these
       // prompts are for; 0 → undefined → no limit is sent.
-      prompt_char_cap: effectivePromptCharCap.value || undefined,
-      title: selectedEpisode.value?.title || '',
-      mode,
       // Cast for this generation. Backend resolves these via
       // character-manager and folds the descriptions into the LLM prompt
       // so every scene/thumbnail prompt actually includes them.
-      character_ids: activeForm.value.character_ids,
+      ...(operationId ? { operation_id: operationId } : {}),
     })
+    if (operationId) freshImagePromptsAction.complete(operationId)
 
     // Job is now in the queue + visible in the Jobs panel. Surface that
     // immediately so the user knows the click registered, then poll for

@@ -21,6 +21,7 @@ import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -44,6 +45,8 @@ import type { JobType, SceneClipVariantSelection, ScenePlan } from '../models/ty
 import { RENDER_STATUS_FILENAME } from '../services/scene-render-status.js'
 
 export const router = Router()
+
+const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 /**
  * v1.4.82 — drop this episode's cached status so the next episode-list read
@@ -376,28 +379,44 @@ async function enqueueContinuityRender(
     episode_id: episodeId,
     title: singleSceneId ? `Render scene — ${episodeId}` : `Scene image batch — ${episodeId}`,
     dedupeParams,
-    params: {
-      episode_id: episodeId,
-      title: typeof body.title === 'string' ? body.title : '',
-      model,
-      aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
-      resolution: typeof body.resolution === 'string' && body.resolution.trim() ? body.resolution.trim() : undefined,
-      width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
-      height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
-      seed: Number.isInteger(body.seed) ? body.seed : undefined,
-      force: body.force === true,
-      render_attempt_id: typeof body.render_attempt_id === 'string' && body.render_attempt_id.trim()
-        ? body.render_attempt_id.trim()
-        : (body.force === true ? randomUUID() : undefined),
-      single_scene_id: singleSceneId,
-      scene_ids: Array.isArray(body.scene_ids)
-        ? body.scene_ids.filter((s: any) => typeof s === 'string')
-        : undefined,
-      missing_only: body.missing_only === true,
-      auto_approve_generated: body.auto_approve_generated === true,
-      ...(opts.manualFinish ? { manual_image_finish: opts.manualFinish } : {}),
-    },
+    params: continuityRenderParams(episodeId, body, singleSceneId, Array.isArray(body.scene_ids)
+      ? body.scene_ids.filter((s: any) => typeof s === 'string')
+      : undefined, opts.manualFinish),
   })
+}
+
+function continuityRenderParams(
+  episodeId: string,
+  body: any,
+  singleSceneId: string | undefined,
+  sceneIds: string[] | undefined,
+  manualFinish?: ManualFinishMarker,
+) {
+  // A forced single-scene render is an explicit paid replacement. Its caller
+  // owns the id so a lost response can rejoin the same provider attempt.
+  // Missing-only and episode-batch recovery deliberately retain their legacy
+  // queue semantics.
+  const operationId = singleSceneId && body.force === true ? readOperationId(body, true) : null
+  const params = {
+    episode_id: episodeId,
+    title: typeof body.title === 'string' ? body.title : '',
+    model: typeof body.model === 'string' ? body.model.trim() : '',
+    aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+    resolution: typeof body.resolution === 'string' && body.resolution.trim() ? body.resolution.trim() : undefined,
+    width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
+    height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
+    seed: Number.isInteger(body.seed) ? body.seed : undefined,
+    force: body.force === true,
+    render_attempt_id: operationId || (typeof body.render_attempt_id === 'string' && body.render_attempt_id.trim()
+      ? body.render_attempt_id.trim()
+      : (body.force === true ? randomUUID() : undefined)),
+    single_scene_id: singleSceneId,
+    scene_ids: sceneIds,
+    missing_only: body.missing_only === true,
+    auto_approve_generated: body.auto_approve_generated === true,
+    ...(manualFinish ? { manual_image_finish: manualFinish } : {}),
+  }
+  return operationId ? stampFreshGenerationAction(params, operationId) : params
 }
 
 // ── POST /scene-review/:ep/generate-image ─────────────────────────────
@@ -406,34 +425,69 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
   const body = req.body || {}
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
   const model = typeof body.model === 'string' ? body.model.trim() : ''
+  const operationId = typeof body.operation_id === 'string' ? body.operation_id.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
   if (!model) return res.status(400).json({ detail: 'model is required' })
+  if (!OPERATION_ID.test(operationId)) return res.status(400).json({ detail: 'operation_id must be a UUID for an explicit image re-roll.' })
+  const sameActionRequest = (candidate: any) => candidate.type === 'scene_image_generate'
+    && candidate.episode_id === episodeId
+    && candidate.params?.generation_action?.id === operationId
+    && candidate.params?.scene_id === sceneId
+    && candidate.params?.model === model
+    && candidate.params?.aspect_ratio === (typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9')
+    && candidate.params?.resolution === (typeof body.resolution === 'string' && body.resolution.trim() ? body.resolution.trim() : undefined)
+    && candidate.params?.width === (typeof body.width === 'number' && body.width > 0 ? body.width : undefined)
+    && candidate.params?.height === (typeof body.height === 'number' && body.height > 0 ? body.height : undefined)
+    && candidate.params?.seed === (Number.isInteger(body.seed) ? body.seed : undefined)
+    && candidate.params?.auto_approve_generated === (body.auto_approve_generated === true)
 
   try {
-    await validateSceneRenderRequest(slug, episodeId, [sceneId])
-    // Per-scene dedupe — don't re-queue an in-flight regen of the same scene.
-    if (jq.isDuplicate(slug, episodeId, 'scene_image_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
-      return res.status(409).json({ detail: `Scene ${sceneId} image already generating` })
+    const actionJobs = (await jq.getJobs(slug)).filter(job =>
+      job.type === 'scene_image_generate'
+      && job.episode_id === episodeId
+      && job.params?.generation_action?.id === operationId,
+    )
+    if (actionJobs.length) {
+      const existing = actionJobs[0]!
+      if (!sameActionRequest(existing)) return res.status(409).json({ detail: 'operation_id already belongs to a different scene image request.' })
+      return res.status(201).json({ ...existing, reused: true })
     }
-
-    const job = await jq.enqueue({
-      project_slug: slug,
-      type: 'scene_image_generate' as JobType,
-      episode_id: episodeId,
-      title: `Scene ${sceneId.slice(0, 12)} image`,
-      params: {
+    await validateSceneRenderRequest(slug, episodeId, [sceneId])
+    let job: Awaited<ReturnType<typeof jq.enqueue>>
+    try {
+      job = await jq.enqueue({
+        project_slug: slug,
+        type: 'scene_image_generate' as JobType,
         episode_id: episodeId,
-        title: typeof body.title === 'string' ? body.title : '',
-        scene_id: sceneId,
-        model,
-        aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
-        resolution: typeof body.resolution === 'string' && body.resolution.trim() ? body.resolution.trim() : undefined,
-        width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
-        height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
+        title: `Scene ${sceneId.slice(0, 12)} image`,
+        dedupeParams: (params: any) => params?.scene_id === sceneId,
+        params: {
+          episode_id: episodeId,
+          title: typeof body.title === 'string' ? body.title : '',
+          scene_id: sceneId,
+          model,
+          aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+          resolution: typeof body.resolution === 'string' && body.resolution.trim() ? body.resolution.trim() : undefined,
+          width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
+          height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
           seed: Number.isInteger(body.seed) ? body.seed : undefined,
-        auto_approve_generated: body.auto_approve_generated === true,
-      },
-    })
+          generation_action: { id: operationId, kind: 'fresh' },
+          auto_approve_generated: body.auto_approve_generated === true,
+        },
+      })
+    } catch (error) {
+      if (error instanceof jq.DuplicateJobError) {
+        const replay = (await jq.getJobs(slug)).find(candidate =>
+          candidate.type === 'scene_image_generate'
+          && candidate.episode_id === episodeId
+          && candidate.params?.generation_action?.id === operationId,
+        )
+        if (replay && sameActionRequest(replay)) return res.status(201).json({ ...replay, reused: true })
+        if (replay) return res.status(409).json({ detail: 'operation_id already belongs to a different scene image request.' })
+        return res.status(409).json({ detail: `Scene ${sceneId} image already generating` })
+      }
+      throw error
+    }
     await invalidateEpisodeStatus(slug, episodeId)
     res.status(201).json(job)
   } catch (e: any) {
@@ -764,6 +818,25 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
   const requestedSceneIds = Array.isArray(body.scene_ids)
     ? body.scene_ids.filter((s: any) => typeof s === 'string')
     : (singleSceneId ? [singleSceneId] : undefined)
+  let params: ReturnType<typeof continuityRenderParams>
+  try {
+    params = continuityRenderParams(episodeId, body, singleSceneId, requestedSceneIds)
+  } catch (e: any) {
+    return res.status(400).json({ detail: e?.message || 'operation_id must be a valid UUID.' })
+  }
+  const actionParams = params as { generation_action?: { id?: string }; generation_action_fingerprint?: string }
+  const operationId = actionParams.generation_action?.id
+  const sameActionRequest = (candidate: any) => candidate.type === 'continuity_render'
+    && candidate.episode_id === episodeId
+    && candidate.params?.generation_action?.id === operationId
+    && candidate.params?.generation_action_fingerprint === actionParams.generation_action_fingerprint
+  if (operationId) {
+    const existing = findFreshActionJob(await jq.getJobs(slug), operationId)
+    if (existing) {
+      if (!sameActionRequest(existing)) return res.status(409).json({ detail: 'operation_id already belongs to a different continuity render request.' })
+      return res.status(201).json({ ...existing, reused: true })
+    }
+  }
   try {
     await validateSceneRenderRequest(slug, episodeId, requestedSceneIds)
   } catch (e: any) {
@@ -797,28 +870,17 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
       // serialisation point): same scene-aware predicate so concurrent route
       // hits can't both enqueue the same scene.
       dedupeParams,
-      params: {
-        episode_id: episodeId,
-        title: typeof body.title === 'string' ? body.title : '',
-        model,
-        aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
-        resolution: typeof body.resolution === 'string' && body.resolution.trim() ? body.resolution.trim() : undefined,
-        width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
-        height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
-          seed: Number.isInteger(body.seed) ? body.seed : undefined,
-        force: body.force === true,
-        render_attempt_id: typeof body.render_attempt_id === 'string' && body.render_attempt_id.trim()
-          ? body.render_attempt_id.trim()
-          : (body.force === true ? randomUUID() : undefined),
-        single_scene_id: singleSceneId,
-        scene_ids: requestedSceneIds,
-        auto_approve_generated: body.auto_approve_generated === true,
-      },
+      params,
     })
   } catch (e: any) {
     // Lost the atomic dedupe race — surface as a clean 409 (no async error
     // boundary in this app, so an unhandled throw would hang the request).
     if (e instanceof jq.DuplicateJobError) {
+      if (operationId) {
+        const replay = findFreshActionJob(await jq.getJobs(slug), operationId)
+        if (replay && sameActionRequest(replay)) return res.status(201).json({ ...replay, reused: true })
+        if (replay) return res.status(409).json({ detail: 'operation_id already belongs to a different continuity render request.' })
+      }
       if (!singleSceneId) {
         const winner = jq.getActiveBulkSceneRenderJob(slug, episodeId)
         if (winner) return res.json({ ...winner, reused: true })

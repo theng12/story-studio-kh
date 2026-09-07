@@ -1331,6 +1331,16 @@ export class MockGenStudioService {
     if (job.operation === 'music') {
       return {
         ...base,
+        model_id: job.modelId,
+        title: String(job.body.title || ''),
+        instrumental: job.body.instrumental !== false,
+        credit_cost: job.credits.final,
+        remaining_credits: 1_000 - job.credits.final,
+        price_version: 'mock-music-price-v1',
+        outputs: state === 'succeeded' ? [{
+          asset_id: `mock-music-asset-${job.id}`,
+          url: `/v1/music/jobs/${job.id}/outputs/mock-music-asset-${job.id}`,
+        }] : [],
         cancellable: !job.cancelled && (state === 'accepted' || state === 'reserved'),
         cancelled: job.cancelled,
         cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
@@ -1747,7 +1757,7 @@ export class MockGenStudioService {
         if (artifact.kind === 'image') {
           response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(ONE_PIXEL_PNG.length) })
           response.end(ONE_PIXEL_PNG)
-        } else if (artifact.kind === 'audio') {
+        } else if (artifact.kind === 'audio' || artifact.kind === 'music') {
           const wav = silentWav()
           response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': String(wav.length) })
           response.end(wav)
@@ -1816,7 +1826,7 @@ export class MockGenStudioService {
       json(response, 200, [{
         id: 'mock-voice', display_name: 'Mock Voice', language: 'en', provider: 'GenStudio mock',
         engine_id: 'mock-tts-v1', engine_name: 'Mock TTS', model_revision_id: 'mock-tts-r1',
-        model_family: 'mock', voice_tier: 'standard', generation_enabled: true,
+        model_family: 'mock', voice_tier: 'standard', catalog_status: 'published', generation_enabled: true,
       }])
       return true
     }
@@ -1862,6 +1872,19 @@ export class MockGenStudioService {
       }])
       return true
     }
+    if (pathname === '/v1/music/models') {
+      json(response, 200, [{
+        id: 'mock-music-v1', display_name: 'Mock Music', provider_name: 'GenStudio mock',
+        description: 'In-process music fixture.', coming_soon: false,
+        credits_per_request: 13, minimum_credits: 13, price_version: 'mock-music-price-v1',
+        standard_credits: 13, sale_credits: null, sale_ends_at: null, sale_disclaimer: null,
+        supports_instrumental: true, supports_vocals: true, requires_lyrics: false,
+        max_prompt_characters: 500, max_prompt_without_lyrics_characters: 500,
+        min_prompt_characters: 1, max_lyrics_characters: 0, min_lyrics_characters: 0,
+        max_title_characters: 80, outputs_per_request: 1,
+      }])
+      return true
+    }
     if (pathname === '/v1/video/models' || pathname === '/v1/videos/models') {
       json(response, 200, [{
         id: 'mock-video-v1', display_name: 'Mock Video', available: false,
@@ -1887,7 +1910,7 @@ export class MockGenStudioService {
     if (pathname === '/v1/audio/jobs') return 'tts'
     if (pathname === '/v1/audio/transcriptions') return 'transcription'
     if (pathname === '/v1/videos/generations') return 'video'
-    if (pathname === '/v1/music/jobs') return 'music'
+    if (pathname === '/v1/music/jobs' || pathname === '/v1/music/generations') return 'music'
     return null
   }
 
@@ -1946,12 +1969,13 @@ export class MockGenStudioService {
     return null
   }
 
-  private artifactJob(pathname: string): { job: MockJob; kind: 'audio' | 'image' | 'srt' | 'video' } | null {
-    const patterns: Array<[MockGenStudioOperation, 'audio' | 'image' | 'srt' | 'video', RegExp]> = [
+  private artifactJob(pathname: string): { job: MockJob; kind: 'audio' | 'image' | 'srt' | 'video' | 'music' } | null {
+    const patterns: Array<[MockGenStudioOperation, 'audio' | 'image' | 'srt' | 'video' | 'music', RegExp]> = [
       ['tts', 'audio', /^\/v1\/jobs\/([^/]+)\/audio$/],
       ['image', 'image', /^\/v1\/images\/([^/]+)\/file$/],
       ['transcription', 'srt', /^\/v1\/transcriptions\/([^/]+)\/srt$/],
       ['video', 'video', /^\/v1\/videos\/([^/]+)\/file$/],
+      ['music', 'music', /^\/v1\/music\/jobs\/([^/]+)\/outputs\/[^/]+$/],
     ]
     for (const [operation, kind, pattern] of patterns) {
       const match = pathname.match(pattern)

@@ -31,7 +31,7 @@ describe('Audio one-chapter generation', () => {
     // resolved against the selected model's published list, so a value for a
     // control this model does not publish cannot ride along on a section run.
     assert.match(audioPage, /const \{ controls: _controls, \.\.\.rest \} = form/)
-    assert.match(audioPage, /const payload: any = \{ \.\.\.rest, sections, force, no_overwrite, controls: resolvedControls\.value \}/)
+    assert.match(audioPage, /const payload: Record<string, any> = \{[\s\S]{0,180}\.\.\.rest,[\s\S]{0,100}sections: targetSections\.join\(','\),[\s\S]{0,80}force: mode !== 'generate',[\s\S]{0,80}no_overwrite: mode === 'new_version',[\s\S]{0,80}controls: resolvedControls\.value/)
   })
 
   test('shares confirmation and job guards while refusing an empty batch target', () => {
@@ -45,8 +45,8 @@ describe('Audio one-chapter generation', () => {
   test('keeps all bulk actions explicit and leaves detailed controls closed by default', () => {
     assert.match(audioPage, /:show-generate="false"/)
     assert.match(audioPage, />Generate missing/)
-    assert.match(audioPage, />Regenerate selected/)
-    assert.match(audioPage, />Create another version/)
+    assert.match(audioPage, /audioActionLabel\(effectiveSections, 'regenerate', 'Regenerate selected'\)/)
+    assert.match(audioPage, /audioActionLabel\(effectiveSections, 'new_version', 'Create another version'\)/)
     assert.match(audioPage, /<details class="audio-advanced">/)
     assert.match(audioPage, /<summary>Delivery and request controls/)
     assert.match(audioPage, /\.audio-action-bar \{[\s\S]{0,160}position: sticky/)

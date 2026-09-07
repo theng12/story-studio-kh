@@ -16,6 +16,8 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
 
+const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 // ── Status endpoint (for the per-episode integrity pill) ─────────────────
 router.get('/projects/:slug/episodes/:code/image-status', async (req, res) => {
   try {
@@ -85,6 +87,12 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
   // API key validation happens at generation time (provider-specific)
 
   const mode: string = req.body.mode || 'thumbs'
+  const { generation_action: _ignoredAction, operation_id: _ignoredOperation, ...imageParams } = req.body
+  const submittedOperationId = typeof req.body.operation_id === 'string' ? req.body.operation_id.trim() : ''
+  if (req.body.force === true && !OPERATION_ID.test(submittedOperationId)) {
+    return res.status(400).json({ detail: 'operation_id must be a UUID for an explicit image re-render.' })
+  }
+  const operationId = req.body.force === true ? submittedOperationId : ''
 
   // Use distinct job types for scene vs thumbnail images
   let jobType: JobType
@@ -111,23 +119,55 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
   const requestedThumb = req.body.thumb_number
   const sameTarget = (params: any) =>
     params?.scene_number === requestedScene && params?.thumb_number === requestedThumb
-  if (jq.isDuplicate(slug, req.body.episode_id, jobType, sameTarget)) {
-    const detail = requestedScene
-      ? `Scene ${requestedScene} render already queued/running for ${req.body.episode_id}`
-      : requestedThumb
-        ? `Thumbnail ${requestedThumb} render already queued/running for ${req.body.episode_id}`
-        : `${title} generation already queued/running for ${req.body.episode_id}`
-    return res.status(409).json({ detail })
+  const sameActionRequest = (candidate: any) => {
+    const { generation_action, ...savedParams } = candidate.params || {}
+    return candidate.type === jobType
+      && candidate.episode_id === req.body.episode_id
+      && generation_action?.id === operationId
+      && JSON.stringify(savedParams) === JSON.stringify(imageParams)
+  }
+  if (operationId) {
+    const existingAction = (await jq.getJobs(slug)).find(candidate =>
+      candidate.type === jobType
+      && candidate.episode_id === req.body.episode_id
+      && candidate.params?.generation_action?.id === operationId,
+    )
+    if (existingAction) {
+      if (!sameActionRequest(existingAction)) {
+        return res.status(409).json({ detail: 'operation_id already belongs to a different image request.' })
+      }
+      return res.status(201).json({ ...existingAction, reused: true })
+    }
   }
 
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: jobType,
-    episode_id: req.body.episode_id,
-    title,
-    params: req.body,
-    dedupeParams: sameTarget,
-  })
+  let job: Awaited<ReturnType<typeof jq.enqueue>>
+  try {
+    job = await jq.enqueue({
+      project_slug: slug,
+      type: jobType,
+      episode_id: req.body.episode_id,
+      title,
+      params: {
+        ...imageParams,
+        ...(operationId ? { generation_action: { id: operationId, kind: 'fresh' } } : {}),
+      },
+      dedupeParams: sameTarget,
+    })
+  } catch (error) {
+    if (error instanceof jq.DuplicateJobError) {
+      if (operationId) {
+        const replay = (await jq.getJobs(slug)).find(sameActionRequest)
+        if (replay) return res.status(201).json({ ...replay, reused: true })
+      }
+      const detail = requestedScene
+        ? `Scene ${requestedScene} render already queued/running for ${req.body.episode_id}`
+        : requestedThumb
+          ? `Thumbnail ${requestedThumb} render already queued/running for ${req.body.episode_id}`
+          : `${title} generation already queued/running for ${req.body.episode_id}`
+      return res.status(409).json({ detail })
+    }
+    throw error
+  }
   res.status(201).json(job)
 })
 

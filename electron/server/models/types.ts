@@ -4021,6 +4021,7 @@ export interface ResearchRunOptions {
   /** Web-mode domain filters. Only sent when the selected product advertises
    *  `supports_domain_filters`; silently dropped otherwise. */
   web_search?: ResearchWebSearchSettings
+  request_identity?: string
 }
 
 // ── Continuity-chain config (v1.0.189+ — continuity-chain pipeline) ─────

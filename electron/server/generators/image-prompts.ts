@@ -28,6 +28,7 @@ import { writePromptCompletionManifest } from '../services/prompt-completion.js'
 import { thumbnailPromptsOutputContract } from '../lib/story-output-contracts.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
+import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import {
   buildPromptCharCapInstruction,
   describeOverCapPrompts,
@@ -579,6 +580,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
         slug: projectSlug,
         jobId: job.job_id,
         signal: controller.signal,
+        requestIdentity: freshGenerationRequestIdentity(job, `thumbnail-prompts-${targetNumbers.join('-')}`),
         outputContract: thumbnailPromptsOutputContract(targetNumbers.length),
         // Standard: a structured pack of N thumbnail prompts.
         outputBudget: 'standard',

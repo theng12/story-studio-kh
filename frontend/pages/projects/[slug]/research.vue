@@ -588,6 +588,7 @@ useAppTitle('Research')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put, del } = useApi()
+const freshResearchAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { config: projectConfig } = useProject()
@@ -1252,30 +1253,30 @@ async function runResearch(): Promise<void> {
   if (!canRun.value || !selectedModel) return
   const ep = episodeId.value          // pin the episode this run belongs to
   researchingEpisode.value = ep
+  const payload = {
+    topic: form.value.topic.trim(),
+    specific_questions: form.value.specific_questions.trim() || undefined,
+    max_sources: form.value.max_sources,
+    research_mode: activeResearchMode.value,
+    model: selectedModel,
+    ...(webMode.value
+      ? { allowed_domains: form.value.allowed_domains, blocked_domains: form.value.blocked_domains }
+      : {}),
+    title: form.value.topic.trim(),
+  }
+  const operationId = freshResearchAction.begin(payload)
   try {
     // Domain filters are sent only in web mode; the backend drops them again
     // unless the SELECTED model advertises domain filters, so a filter the
     // provider would ignore never looks like it was applied.
-    await post<{ job_id: string }>(`/projects/${slug.value}/research/${ep}/run`, {
-      topic: form.value.topic.trim(),
-      specific_questions: form.value.specific_questions.trim() || undefined,
-      max_sources: form.value.max_sources,
-      research_mode: activeResearchMode.value,
-      model: selectedModel,
-      ...(webMode.value
-        ? {
-            allowed_domains: form.value.allowed_domains,
-            blocked_domains: form.value.blocked_domains,
-          }
-        : {}),
-      title: form.value.topic.trim(),  // best-effort title hint for path resolution
-    })
+    await post<{ job_id: string }>(`/projects/${slug.value}/research/${ep}/run`, { ...payload, operation_id: operationId })
+    freshResearchAction.complete(operationId)
     success('Research job queued — watch the Jobs panel for progress')
     // The job runs async; poll for completion by re-loading every 3s
     // until research.json shows up + matches the topic we just sent.
     await pollUntilLoaded(form.value.topic.trim(), ep)
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to start research')
+    showError(e?.data?.detail || e?.message || 'The submission was not confirmed. Retry submission to continue this research action.')
   } finally {
     // Only clear if a LATER run for another episode hasn't taken over.
     if (researchingEpisode.value === ep) researchingEpisode.value = null

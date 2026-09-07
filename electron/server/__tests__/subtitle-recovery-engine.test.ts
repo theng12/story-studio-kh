@@ -694,6 +694,34 @@ test('explicit re-run makes one fresh identity but restart of the same forced jo
   assert.equal(f.calls.some(c => c.includes('/old-Chapter_01')), false)
 })
 
+test('a stamped explicit action survives a successor queue job, while a new action gets one new task', async t => {
+  const f = await fixture(t)
+  const first = { ...f.job, job_id: 'explicit-action-first', params: {}, output_lines: [] }
+  const action = 'fresh-action-one'
+  assert.equal((await f.run('Chapter_01', {
+    force: true,
+    job: first,
+    generationActionId: action,
+  } as any)).srt, srt)
+  assert.equal(f.confirmations.length, 1)
+
+  const retry = { ...f.job, job_id: 'explicit-action-retry', params: {}, output_lines: [] }
+  assert.equal((await f.run('Chapter_01', {
+    force: true,
+    job: retry,
+    generationActionId: action,
+  } as any)).srt, srt)
+  assert.equal(f.confirmations.length, 1, 'Jobs Retry must reconnect the original explicit action')
+
+  const later = { ...f.job, job_id: 'explicit-action-later', params: {}, output_lines: [] }
+  assert.equal((await f.run('Chapter_01', {
+    force: true,
+    job: later,
+    generationActionId: 'fresh-action-two',
+  } as any)).srt, srt)
+  assert.equal(f.confirmations.length, 2, 'a second deliberate action owns one distinct task')
+})
+
 test('paid replacement zero-settlement retry stays free when owner turns automatic setting Off', async t => {
   const f = await fixture(t)
   await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })

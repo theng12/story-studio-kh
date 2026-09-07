@@ -38,6 +38,7 @@ import {
   type ScenePromptPackSetting,
 } from '../services/scene-prompt-batching.js'
 import { parsePromptCharCap } from '../services/prompt-char-cap.js'
+import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { normalizeCreativeDirection } from '../services/scene-creative-direction.js'
 import { clearLegacyPlannerFallbackReasons } from '../services/scene-prompt-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
@@ -295,32 +296,43 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   // it — no failure is inspected to infer it. See lib/image-content-guidance.ts.
   const rewordPrompt = body.reword_prompt === true
   const avoidLegibleText = typeof body.avoid_legible_text === 'boolean' ? body.avoid_legible_text : undefined
-
-  // Shares the scene_plan_run lane — only one job per episode at a time.
-  // The frontend bulk-regen loop polls for completion before queuing the next.
-  if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
-    return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
+  let operationId: string
+  try { operationId = readOperationId(body, true)! } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
-
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'scene_plan_run' as JobType,
+  const params = stampFreshGenerationAction({
     episode_id: episodeId,
-    title: `${rewordPrompt ? 'Reword' : 'Regen'} prompt — ${episodeId}`,
-    params: {
+    model,
+    regenerate_prompt_scene_id: sceneId,
+    reword_prompt: rewordPrompt || undefined,
+    detail_level: detailLevel,
+    style_prompt: stylePrompt || undefined,
+    custom_instructions: customInstructions || undefined,
+    creative_direction: creativeDirection,
+    prompt_char_cap: promptCharCap,
+    avoid_legible_text: avoidLegibleText,
+  }, operationId)
+
+  return withLock(`fresh-scene-prompt:${slug}:${operationId}`, async () => {
+    const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+    if (previous) {
+      if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
+        return res.status(409).json({ detail: 'This operation_id already belongs to a different scene prompt request.' })
+      }
+      return res.status(200).json({ ...previous, reused: true })
+    }
+    if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
+      return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
+    }
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'scene_plan_run' as JobType,
       episode_id: episodeId,
-      model,
-      regenerate_prompt_scene_id: sceneId,
-      reword_prompt: rewordPrompt || undefined,
-      detail_level: detailLevel,
-      style_prompt: stylePrompt || undefined,
-      custom_instructions: customInstructions || undefined,
-      creative_direction: creativeDirection,
-      prompt_char_cap: promptCharCap,
-      avoid_legible_text: avoidLegibleText,
-    },
+      title: `${rewordPrompt ? 'Reword' : 'Regen'} prompt — ${episodeId}`,
+      params,
+    })
+    return res.status(201).json(job)
   })
-  res.status(201).json(job)
 })
 
 // ── POST /scene-plan/:ep/regenerate-empty-prompts ─────────────────────
@@ -777,18 +789,31 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
   const motionLevel = typeof body.motion_level === 'number'
     ? Math.min(4, Math.max(1, Math.round(body.motion_level))) : undefined
-
-  if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
-    return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
+  let operationId: string
+  try { operationId = readOperationId(body, true)! } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'scene_plan_run' as JobType,
-    episode_id: episodeId,
-    title: `Regen motion prompt — ${episodeId}`,
-    params: { episode_id: episodeId, model, regenerate_motion_prompt_scene_id: sceneId, motion_level: motionLevel },
+  const params = stampFreshGenerationAction({ episode_id: episodeId, model, regenerate_motion_prompt_scene_id: sceneId, motion_level: motionLevel }, operationId)
+  return withLock(`fresh-motion-prompt:${slug}:${operationId}`, async () => {
+    const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+    if (previous) {
+      if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
+        return res.status(409).json({ detail: 'This operation_id already belongs to a different motion prompt request.' })
+      }
+      return res.status(200).json({ ...previous, reused: true })
+    }
+    if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
+      return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
+    }
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'scene_plan_run' as JobType,
+      episode_id: episodeId,
+      title: `Regen motion prompt — ${episodeId}`,
+      params,
+    })
+    return res.status(201).json(job)
   })
-  res.status(201).json(job)
 })
 
 // ── POST /scene-plan/:ep/regenerate-empty-motion-prompts ──────────────

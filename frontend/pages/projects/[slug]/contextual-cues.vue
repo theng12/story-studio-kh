@@ -334,6 +334,7 @@ type ProposalProgress = { total_scenes: number; total_batches: number; completed
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
+const freshCueAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 const { isJobActiveFor } = useJobs()
 const episodeId = ref('')
@@ -595,11 +596,17 @@ async function loadTimeline(): Promise<void> {
 async function propose(): Promise<void> {
   if (!episodeId.value || !config.value.enabled || !form.value.model) return
   proposing.value = true
+  const payload = { ...form.value }
+  const operationId = freshCueAction.begin(payload)
   try {
-    await post(`/projects/${slug.value}/contextual-cues/${episodeId.value}/propose`, form.value)
+    await post(`/projects/${slug.value}/contextual-cues/${episodeId.value}/propose`, {
+      ...payload,
+      operation_id: operationId,
+    })
+    freshCueAction.complete(operationId)
     success('Contextual cue proposal queued. Review the timeline when the job completes.')
     setTimeout(() => { void loadTimeline() }, 1200)
-  } catch (e: any) { showError(e?.data?.detail || 'Could not propose contextual cues') } finally { proposing.value = false }
+  } catch (e: any) { showError(e?.data?.detail || 'The submission was not confirmed. Retry submission to continue this cue action.') } finally { proposing.value = false }
 }
 // ── Saving ──────────────────────────────────────────────────────────────────
 //

@@ -68,7 +68,7 @@
         <button
           type="button"
           class="btn btn-sm btn-primary"
-          :disabled="saving || !isDirty || !canSave"
+          :disabled="busy || saving || !isDirty || !canSave"
           @click="emitSave"
         >
           <LoadingSpinner v-if="saving" size="sm" />

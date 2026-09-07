@@ -100,6 +100,7 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
       // truncation risk — web mode also has to fit its sources in.
       outputBudget: 'long',
       webSearch,
+      requestIdentity: opts.request_identity,
     }).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       throw new Error(`GenStudio web research failed: ${message}`)

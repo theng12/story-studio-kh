@@ -27,6 +27,8 @@ import type { JobType } from '../models/types.js'
 
 export const router = Router()
 
+const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 async function requireProject(slug: string): Promise<boolean> {
   return !!(await pm.getProject(slug))
 }
@@ -79,19 +81,56 @@ router.post('/projects/:slug/music-library/generate', async (req, res) => {
     const brief = String(req.body?.brief || '').trim()
     if (!brief) return res.status(400).json({ detail: 'Describe the sound you want.' })
     const count = Math.max(1, Math.min(100, Math.round(Number(req.body?.count) || 1)))
-    const job = await jq.enqueue({
-      project_slug: slug,
-      type: 'music_generate' as JobType,
-      episode_id: '',
-      title: `Music library top-up (${count} track${count === 1 ? '' : 's'})`,
-      params: {
-        brief,
-        count,
-        model: String(req.body?.model || ''),
-        planner_model: String(req.body?.planner_model || ''),
-        instrumental: req.body?.instrumental !== false,
-      },
-    })
+    const operationId = typeof req.body?.operation_id === 'string' ? req.body.operation_id.trim() : ''
+    if (!OPERATION_ID.test(operationId)) return res.status(400).json({ detail: 'operation_id must be a UUID for a music top-up.' })
+    const model = String(req.body?.model || '')
+    const plannerModel = String(req.body?.planner_model || '')
+    const instrumental = req.body?.instrumental !== false
+    const sameActionRequest = (candidate: any) => candidate.type === 'music_generate'
+      && candidate.params?.generation_action?.id === operationId
+      && candidate.params?.brief === brief
+      && candidate.params?.count === count
+      && candidate.params?.model === model
+      && candidate.params?.planner_model === plannerModel
+      && candidate.params?.instrumental === instrumental
+    const actionJobs = (await jq.getJobs(slug)).filter(job =>
+      job.type === 'music_generate'
+      && job.params?.generation_action?.id === operationId,
+    )
+    if (actionJobs.length) {
+      const existing = actionJobs[0]!
+      if (!sameActionRequest(existing)) return res.status(409).json({ detail: 'operation_id already belongs to a different music top-up.' })
+      return res.status(201).json({ ...existing, reused: true })
+    }
+    let job: Awaited<ReturnType<typeof jq.enqueue>>
+    try {
+      job = await jq.enqueue({
+        project_slug: slug,
+        type: 'music_generate' as JobType,
+        episode_id: '',
+        title: `Music library top-up (${count} track${count === 1 ? '' : 's'})`,
+        params: {
+          brief,
+          count,
+          model,
+          planner_model: plannerModel,
+          instrumental,
+          generation_action: { id: operationId, kind: 'fresh' },
+          brief_id: operationId,
+        },
+      })
+    } catch (error) {
+      if (error instanceof jq.DuplicateJobError) {
+        const replay = (await jq.getJobs(slug)).find(candidate =>
+          candidate.type === 'music_generate'
+          && candidate.params?.generation_action?.id === operationId,
+        )
+        if (replay && sameActionRequest(replay)) return res.status(201).json({ ...replay, reused: true })
+        if (replay) return res.status(409).json({ detail: 'operation_id already belongs to a different music top-up.' })
+        return res.status(409).json({ detail: 'A music top-up is already queued or running.' })
+      }
+      throw error
+    }
     res.status(201).json(job)
   } catch (e: any) {
     res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Could not start the music top-up'))

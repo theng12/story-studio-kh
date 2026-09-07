@@ -37,6 +37,8 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import { listChatModels } from '../lib/genstudio-client.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { sanitizeResearchOutputUrls } from '../services/research/urls.js'
+import { withLock } from '../lib/atomic-store.js'
+import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import {
   readResearchReview,
   readResearchTriage,
@@ -189,30 +191,42 @@ router.post('/projects/:slug/research/:episodeId/run', async (req, res) => {
   if (!topic) {
     return res.status(400).json({ detail: 'topic is required' })
   }
-
-  if (jq.isDuplicate(slug, episodeId, 'research_run' as JobType)) {
-    return res.status(409).json({ detail: `Research already running for ${episodeId}` })
+  let operationId: string
+  try { operationId = readOperationId(body, true)! } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
-
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'research_run' as JobType,
+  const params = stampFreshGenerationAction({
     episode_id: episodeId,
-    title: `Research — ${episodeId}`,
-    params: {
+    title,
+    source_provider: sourceProvider,
+    research_mode: mode,
+    topic,
+    specific_questions: specificQuestions,
+    max_sources: maxSources,
+    model,
+    ...(allowedDomains.length ? { allowed_domains: allowedDomains } : {}),
+    ...(blockedDomains.length ? { blocked_domains: blockedDomains } : {}),
+  }, operationId)
+  return withLock(`fresh-research:${slug}:${operationId}`, async () => {
+    const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+    if (previous) {
+      if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
+        return res.status(409).json({ detail: 'This operation_id already belongs to a different research request.' })
+      }
+      return res.status(200).json({ ...previous, reused: true })
+    }
+    if (jq.isDuplicate(slug, episodeId, 'research_run' as JobType)) {
+      return res.status(409).json({ detail: `Research already running for ${episodeId}` })
+    }
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'research_run' as JobType,
       episode_id: episodeId,
-      title,
-      source_provider: sourceProvider,
-      research_mode: mode,
-      topic,
-      specific_questions: specificQuestions,
-      max_sources: maxSources,
-      model,
-      ...(allowedDomains.length ? { allowed_domains: allowedDomains } : {}),
-      ...(blockedDomains.length ? { blocked_domains: blockedDomains } : {}),
-    },
+      title: `Research — ${episodeId}`,
+      params,
+    })
+    return res.status(201).json(job)
   })
-  res.status(201).json(job)
 })
 
 // ── PUT /projects/:slug/research/:episodeId ───────────────────────────

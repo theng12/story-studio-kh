@@ -988,6 +988,7 @@ useAppTitle('Scene Plan')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put, del } = useApi()
+const freshScenePromptAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { revalidate: revalidateEpisodes } = useEpisodes(slug)
@@ -2276,17 +2277,23 @@ async function regenerateScenePrompt(scene: ScenePlanEntry, opts: { reword?: boo
   regenPromptId.value = scene.id
   rewordingPrompt.value = opts.reword === true
   const previousGeneratedAt = plan.value?.generated_at || null
+  const payload = {
+    scene_id: scene.id,
+    model: form.value.model,
+    detail_level: 4,
+    prompt_char_cap: effectivePromptCharCap.value || undefined,
+    creative_direction: creativeDirectionPayload.value,
+    custom_instructions: form.value.custom_instructions.trim() || undefined,
+    avoid_legible_text: form.value.avoid_legible_text,
+    ...(opts.reword ? { reword_prompt: true } : {}),
+  }
+  const operationId = freshScenePromptAction.begin(payload, `visual:${scene.id}`)
   try {
     await post(`/projects/${slug.value}/scene-plan/${ep}/regenerate-prompt`, {
-      scene_id: scene.id,
-      model: form.value.model,
-      detail_level: 4,
-      prompt_char_cap: effectivePromptCharCap.value || undefined,
-      creative_direction: creativeDirectionPayload.value,
-      custom_instructions: form.value.custom_instructions.trim() || undefined,
-      avoid_legible_text: form.value.avoid_legible_text,
-      ...(opts.reword ? { reword_prompt: true } : {}),
+      ...payload,
+      operation_id: operationId,
     })
+    freshScenePromptAction.complete(operationId)
     success(opts.reword
       ? 'Reword queued — the same beat from a different angle; the prompt updates when it lands.'
       : 'Regen queued — watch the Jobs panel; the prompt updates when it lands.')
@@ -2332,12 +2339,18 @@ async function regenMotionPrompt(scene: ScenePlanEntry): Promise<void> {
   const ep = episodeId.value
   regenMotionId.value = scene.id
   const previousGeneratedAt = plan.value?.generated_at || null
+  const payload = {
+    scene_id: scene.id,
+    model: form.value.model,
+    motion_level: form.value.motion_level,
+  }
+  const operationId = freshScenePromptAction.begin(payload, `motion:${scene.id}`)
   try {
     await post(`/projects/${slug.value}/scene-plan/${ep}/regenerate-motion-prompt`, {
-      scene_id: scene.id,
-      model: form.value.model,
-      motion_level: form.value.motion_level,
+      ...payload,
+      operation_id: operationId,
     })
+    freshScenePromptAction.complete(operationId)
     success('Motion regen queued — the prompt updates when the job lands.')
     await pollUntilPlanLanded(ep, { previousGeneratedAt })
   } catch (e: any) {

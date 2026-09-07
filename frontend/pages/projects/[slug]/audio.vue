@@ -204,7 +204,7 @@
             :disabled="!effectiveSections.length || inlineGenerateDisabled"
             :title="effectiveSections.length ? `Replace audio for ${scopeSummary(effectiveSections)}.` : 'Select at least one section.'"
             @click="queueAudio(effectiveSections, 'regenerate')"
-          >Regenerate selected</button>
+          >{{ audioActionLabel(effectiveSections, 'regenerate', 'Regenerate selected') }}</button>
           <button
             type="button"
             class="btn btn-ghost"
@@ -218,7 +218,7 @@
                 type="button"
                 :disabled="!effectiveSections.length || inlineGenerateDisabled"
                 @click="queueAudio(effectiveSections, 'new_version')"
-              >Create another version</button>
+              >{{ audioActionLabel(effectiveSections, 'new_version', 'Create another version') }}</button>
             </div>
           </details>
         </div>
@@ -233,6 +233,9 @@
           </template>
         </p>
         <p v-if="quoteError" class="audio-quote-error" role="alert">{{ quoteError }}</p>
+        <p v-if="audioRetryPending" class="audio-quote-error" role="status">
+          The previous submission was not confirmed. Retry submission with the same scope, or change the selection to start a new action.
+        </p>
       </section>
 
       <details class="audio-advanced">
@@ -487,6 +490,8 @@ useAppTitle('Audio Generator')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
+const freshAudioAction = useFreshGenerationAction()
+const audioRetryPending = freshAudioAction.hasPending
 const { project, config, refreshConfig } = useProject()
 const {
   models: ttsModels,
@@ -1199,6 +1204,24 @@ async function submitSection(request: SectionAction) {
   await queueAudio([request.slug], request.mode)
 }
 
+function audioRequestPayload(targetSections: string[], mode: AudioActionMode): Record<string, any> {
+  const { controls: _controls, ...rest } = form
+  const payload: Record<string, any> = {
+    ...rest,
+    sections: targetSections.join(','),
+    force: mode !== 'generate',
+    no_overwrite: mode === 'new_version',
+    controls: resolvedControls.value,
+  }
+  if (!supportsSpeed.value) payload.speed = 1
+  return payload
+}
+
+function audioActionLabel(targetSections: string[], mode: AudioActionMode, label: string): string {
+  if (mode === 'generate') return label
+  return freshAudioAction.isRetry(audioRequestPayload(targetSections, mode)) ? 'Retry submission' : label
+}
+
 async function queueAudio(targetSections: string[], mode: AudioActionMode) {
   if (!targetSections.length) {
     showError('Select at least one section. No audio was queued.')
@@ -1219,13 +1242,9 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
   const sections = targetSections.join(',')
   const force = mode !== 'generate'
   const no_overwrite = mode === 'new_version'
-  const { controls: _controls, ...rest } = form
   // Controls are sent RESOLVED, never as the raw form: only names the selected
   // model publishes, every value inside the range it published for them.
-  const payload: any = { ...rest, sections, force, no_overwrite, controls: resolvedControls.value }
-  // A model that publishes no speed control gets none. Sending a pace it never
-  // advertised would be Story Studio asserting a capability GenStudio did not.
-  if (!supportsSpeed.value) payload.speed = 1
+  const payload = audioRequestPayload(targetSections, mode)
   submitting.value = true
   try {
     // A quote is shown only while it describes this exact target. Generate
@@ -1247,13 +1266,18 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
       ],
     })) return
 
+    const operationId = force || no_overwrite ? freshAudioAction.begin(payload) : null
+    if (operationId) payload.operation_id = operationId
     audioGenerating.value = true
     await post(`/projects/${slug.value}/generate/audio`, payload)
+    if (operationId) freshAudioAction.complete(operationId)
     const queuedAction = mode === 'new_version' ? 'Another version' : mode === 'regenerate' ? 'Regeneration' : 'Generation'
     success(`${queuedAction} queued for ${scopeSummary(targetSections)}.`)
   } catch (e: any) {
     console.error('[audio] queue failed:', e, 'payload:', payload)
-    showError(e.data?.detail || `Failed to queue audio generation (model=${form.model}, voice=${form.voice || 'unset'}). Check the TTS provider key in Settings.`)
+    showError(e.data?.detail || (payload.operation_id
+      ? 'The submission was not confirmed. Retry submission to continue this same audio action.'
+      : `Failed to queue audio generation (model=${form.model}, voice=${form.voice || 'unset'}). Check the TTS provider key in Settings.`))
     audioGenerating.value = false
   } finally {
     submitting.value = false

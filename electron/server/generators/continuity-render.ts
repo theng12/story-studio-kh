@@ -74,6 +74,8 @@ interface ContinuityRenderParams {
   force?: boolean
   /** Stable identity for one deliberate regeneration action and all retries. */
   render_attempt_id?: string
+  /** Server-stamped identity shared by one explicit fresh Pipeline action. */
+  generation_action?: { id: string; kind: 'fresh' }
   /** Render only this stable scene ID. */
   single_scene_id?: string
   /** Render an explicit stable-ID set in one durable batch. */
@@ -753,6 +755,28 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
           // from: the run-start snapshot to begin with, then whatever the
           // attempt that just failed actually wrote to disk.
           let savedEntry: TaskManifestEntry | null = taskManifest.tasks[filename] || null
+          const freshGenerationAction = params.generation_action?.kind === 'fresh'
+            ? params.generation_action
+            : null
+          // An episode-recovery successor may start after the original job
+          // wrote its durable queue checkpoint but before its task manifest
+          // was visible on disk. Rehydrate the same explicit action from that
+          // checkpoint; do not invent a second request identity.
+          const actionCheckpoint = freshGenerationAction
+            ? job.params?.genstudio_recovery?.assets?.[filename]
+            : undefined
+          if (!savedEntry && freshGenerationAction && actionCheckpoint?.operation === 'image' && actionCheckpoint.idempotency_key) {
+            savedEntry = {
+              provider: providerId,
+              task_id: actionCheckpoint.job_id || '',
+              submitted_at: actionCheckpoint.updated_at,
+              idempotency_key: actionCheckpoint.idempotency_key,
+              input_hash: actionCheckpoint.input_hash || '',
+              request_scope: freshGenerationAction.id,
+              operation: 'image',
+              last_state: actionCheckpoint.state,
+            }
+          }
           let attemptNum = 1
           let releasedFailoverRetryUsed = false
           for (;;) {
@@ -782,7 +806,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               const baseScope = manualFinish
                 ? `manual-finish:${manualFinish.action_id}`
                 : force
-                ? (params.render_attempt_id || job.job_id)
+                ? (params.generation_action?.id || params.render_attempt_id || job.job_id)
                 : 'missing'
               attemptBaseScope = baseScope
               const manifestEntry = savedEntry
@@ -883,9 +907,21 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               // six-day-old failed job satisfy every future Retry.
               const hashMatches = manifestEntry?.input_hash === expectedInputHash
               const hasDurableSavedIdentity = Boolean(manifestEntry?.task_id || manifestEntry?.idempotency_key)
+              const explicitFreshAction = Boolean(freshGenerationAction)
+              const freshActionId = freshGenerationAction?.id || ''
+              // A fresh click must not reclaim a prior click's artifact just
+              // because it shares the same scene file. Its own successor job,
+              // however, may rejoin the request that carries this action scope.
+              const belongsToFreshAction = Boolean(freshActionId && (
+                manifestEntry?.request_scope === freshActionId
+                || manifestEntry?.request_scope?.startsWith(`${freshActionId}:`)
+              ))
               const recoverable = submittedRecoveryEntry || (
-                !replacementScope && !isTerminalGenStudioImageTaskFailure(manifestEntry)
-                  && (manualFinish ? hasDurableSavedIdentity : hashMatches)
+                !replacementScope
+                  && (explicitFreshAction
+                    ? belongsToFreshAction && hasDurableSavedIdentity
+                    : (!isTerminalGenStudioImageTaskFailure(manifestEntry)
+                      && (manualFinish ? hasDurableSavedIdentity : hashMatches)))
                   ? manifestEntry
                   : null
               )
@@ -965,6 +1001,14 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     state: 'failed', replacement_task_id: recovery.taskId, reason: recovery.reason,
                   })
                   throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+                }
+                // A deliberate single-scene replacement is one paid attempt.
+                // Its Jobs Retry may recover its saved provider task, but a
+                // known-terminal task cannot silently promote that same click
+                // to a second billable request. The next explicit click owns a
+                // new generation_action and therefore a new provider identity.
+                if (attemptNum === 1 && belongsToFreshAction) {
+                  throw new Error('This explicit scene regeneration already used its one image request. Start a new regeneration to submit another image.')
                 }
                 // GenStudio just told us the saved job settled. Persist that
                 // outcome FIRST, then promote to a fresh identity from it, so the
@@ -1066,7 +1110,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               let result: { urls: string[]; taskId?: string; settledCredits?: number }
               if (recovery.kind === 'recovered') {
                 result = { urls: recovery.urls, taskId: recovery.taskId }
-                if (!submittedRecoveryEntry) {
+                if (!submittedRecoveryEntry && manifestEntry) {
                   const recoveredOwner: TaskManifestEntry = {
                     ...manifestEntry,
                     provider: providerId,
