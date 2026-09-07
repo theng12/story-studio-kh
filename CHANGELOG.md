@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.125 — 2026-09-08
+
+- **Narration quality checks are now an explicit project choice.** Keep them Off, flag current evidence for review, or opt into Check and repair. Uncertain, legacy, stale, or script-changed evidence stays reviewable; it never starts a replacement or blocks ordinary chapter generation.
+- **A confirmed repair keeps the current narration safe while it verifies a candidate.** Story Studio retains the original audio, uses the selected candidate only after raw alternate-ASR verification, and refreshes Audio Assembly and subtitles through the existing workflow. Candidate bytes, source map, script, quote ceiling, and action identity remain fenced across restart; a later ordinary Regenerate intentionally takes back its selected chapter.
+- **You can independently double-check active narration with an alternate ASR model.** The action quotes the exact staged active audio, preserves its quote and credit ceiling through replay or restart, and leaves active audio and subtitles unchanged whether it finds no issue, needs review, is cancelled, or needs a higher approval ceiling.
+- **Settings can display the last verified GenStudio catalogue during a short outage.** The cached display is account- and base-URL-scoped, marked stale with Retry, and is never used to authorize a paid request.
+
 ## v1.4.124 — 2026-09-07
 
 - **Explicit Regenerate actions now create fresh work once and recover reliably.** A deliberate click carries one durable action identity through a lost response, Jobs Retry, and restart; a later click receives a new identity. Normal Generate and missing-output recovery keep their existing behavior.

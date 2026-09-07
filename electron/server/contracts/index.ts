@@ -416,6 +416,10 @@ export const UpdateConfigSchema = z.object({
   active_style_preset_id: z.string().max(200).optional(),
   video_models: z.record(z.string(), z.any()).optional(),
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
+  audio_quality: z.object({
+    mode: z.enum(['off', 'flag_issues', 'check_and_repair']),
+    alternate_transcription_model: z.string().trim().min(1).max(240).optional(),
+  }).optional(),
 }).passthrough().transform((value) => {
   // Legacy Story Studio releases persisted a project-owned TTS catalog. Keep
   // accepting those payloads so old clients can save unrelated settings, but
@@ -448,6 +452,10 @@ export interface SafeProjectConfigResponse {
    * per provider) for any frontend view that hasn't migrated yet.
    */
   accounts?: Record<string, AccountSummaryResponse[]>
+  audio_quality?: {
+    mode: 'off' | 'flag_issues' | 'check_and_repair'
+    alternate_transcription_model?: string
+  }
   image_models: Record<string, any>
   voice_presets: Array<{
     name: string

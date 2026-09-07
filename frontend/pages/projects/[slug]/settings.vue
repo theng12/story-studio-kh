@@ -120,6 +120,67 @@
         <SaveIndicator v-bind="savedHintProps('guide_density')" />
       </section>
 
+      <section class="audio-quality-settings mt-3" aria-labelledby="audio-quality-settings-title">
+        <div class="settings-section-head">
+          <div>
+            <h3 id="audio-quality-settings-title">Audio quality</h3>
+            <p>Choose whether this channel checks chapter narration after subtitles exist. Normal Audio and Pipeline runs stay available in every mode.</p>
+          </div>
+          <span class="settings-section-count">{{ audioQualityModeSummary }}</span>
+        </div>
+
+        <div class="audio-quality-options" role="radiogroup" aria-label="Audio quality mode">
+          <label v-for="option in audioQualityModeOptions" :key="option.value" :class="['audio-quality-option', { active: audioQualityMode === option.value }]">
+            <input v-model="audioQualityMode" type="radio" :value="option.value" />
+            <span>
+              <strong>{{ option.label }} <small v-if="option.recommended">Recommended during calibration</small></strong>
+              <span>{{ option.description }}</span>
+            </span>
+          </label>
+        </div>
+
+        <div v-if="audioQualityMode === 'check_and_repair'" class="audio-quality-alternate">
+          <label>Alternate transcription model <span class="required" aria-hidden="true">*</span></label>
+          <ModelMenu
+            v-model="audioQualityAlternateModel"
+            :options="audioQualityModelOptions"
+            media-type="transcription"
+            title="Choose the alternate transcription model"
+            placeholder="Choose a published model…"
+            search-placeholder="Search transcription models…"
+            aria-label="Alternate transcription model"
+          />
+          <p class="text-muted text-xs mt-1">
+            You choose the alternate. It must have a different published model ID from the first transcript; a different provider name alone does not make it a distinct model.
+          </p>
+          <p v-if="audioQualityCatalogLoading" class="text-muted text-xs mt-1"><LoadingSpinner size="sm" /> Loading published transcription models…</p>
+          <p v-else-if="audioQualityCatalogError" class="text-warning text-xs mt-1">
+            {{ audioQualityCatalogError }}
+            <button type="button" class="btn btn-sm btn-ghost" @click="loadAudioQualityModels">Retry</button>
+          </p>
+          <p v-else-if="audioQualityCatalogStale" class="text-warning text-xs mt-1">
+            {{ audioQualityCatalogStaleNote }}. Showing the last available catalog for display only; refresh it before starting a paid quality check.
+            <button type="button" class="btn btn-sm btn-ghost" @click="loadAudioQualityModels">Refresh</button>
+          </p>
+        </div>
+
+        <p v-if="audioQualityMode === 'check_and_repair'" class="audio-quality-cost-note">
+          Replacement narration estimates are advisory because the current TTS contract has no hard aggregate credit ceiling. Audio requires an action-specific verification credit ceiling; transcription is quoted after candidate audio exists, and a higher quote holds that candidate for your approval.
+        </p>
+
+        <div class="audio-quality-save-row">
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="audioQualitySaving || !audioQualityDirty || !audioQualityValid"
+            @click="saveAudioQuality"
+          >{{ audioQualitySaving ? 'Saving…' : 'Save audio quality' }}</button>
+          <SaveIndicator v-bind="savedHintProps('audio_quality')" />
+          <span v-if="!audioQualityValid" class="text-warning text-xs">Choose an alternate transcription model to enable checked repair.</span>
+          <span v-if="audioQualitySaveError" class="text-error text-xs">{{ audioQualitySaveError }}</span>
+        </div>
+      </section>
+
     </div>
 
     <div v-if="activeTab === 'publishing'" class="card publishing-profile-card settings-panel mt-2">
@@ -2070,6 +2131,8 @@ import { projectSettingsSavePlan, type ProjectSettingsSaveSection } from '~/util
 // Reactive installed Content Pack catalog used by the per-project selector.
 // Project-local saved styles remain independent compatibility data.
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
+import type { AudioQualityMode } from '~/types/audio-quality'
+import { genstudioStaleNote } from '~/utils/genstudio-freshness'
 // Every Settings destination replaces content beneath the same heading. On a
 // cross-page hash arrival there is nothing lower to scroll to, and Nuxt checks
 // the hash before this client-only page mounts. Let same-page hashes use the
@@ -2090,6 +2153,19 @@ onMounted(() => { void refreshVisualStyles(); void loadCadence() })
 const { ask } = useConfirm()
 const { project, config, refreshConfig, loadProject } = useProject()
 const { success, error: showError, info } = useToast()
+const {
+  modelId: audioQualityAlternateModel,
+  options: audioQualityModelOptions,
+  loading: audioQualityCatalogLoading,
+  error: audioQualityCatalogError,
+  isStale: audioQualityCatalogStale,
+  sourceFreshness: audioQualityCatalogFreshness,
+  load: loadAudioQualityModels,
+} = useGenStudioTranscriptionModels()
+const audioQualityCatalogStaleNote = computed(() => genstudioStaleNote(
+  audioQualityCatalogStale.value,
+  audioQualityCatalogFreshness.value?.loadedAt ?? null,
+))
 // v1.4.3 — the move-this-project-to dialog and the unlink flow lived here.
 // Both are gone with the per-Mac register of folders outside the projects
 // folder. `projectLocation` below still shows where this channel sits; moving
@@ -2143,6 +2219,32 @@ const continuityModeBaseline = ref<ContinuityMode>('independent-stills')
 const formatIdBaseline = ref<string>('continuity-chain')
 const guideDensity = ref(40)
 const savingGuideDensity = ref(false)
+const audioQualityMode = ref<AudioQualityMode>('off')
+const audioQualityBaseline = ref(JSON.stringify({ mode: 'off' }))
+const audioQualityLoadedSlug = ref('')
+const audioQualitySaving = ref(false)
+const audioQualitySaveError = ref('')
+const audioQualityModeOptions: Array<{
+  value: AudioQualityMode
+  label: string
+  description: string
+  recommended?: boolean
+}> = [
+  { value: 'off', label: 'Off', description: 'Keep narration checks out of this channel.' },
+  { value: 'flag_issues', label: 'Flag issues', recommended: true, description: 'Review saved source and transcript evidence locally. No provider request or credit charge.' },
+  { value: 'check_and_repair', label: 'Check and repair', description: 'Inspect selected chapters and offer one reviewed repair when evidence supports it. May use credits.' },
+]
+const audioQualityDraft = computed(() => ({
+  mode: audioQualityMode.value,
+  ...(audioQualityAlternateModel.value ? { alternate_transcription_model: audioQualityAlternateModel.value } : {}),
+}))
+const audioQualityDirty = computed(() => JSON.stringify(audioQualityDraft.value) !== audioQualityBaseline.value)
+const audioQualityValid = computed(() => audioQualityMode.value !== 'check_and_repair' || !!audioQualityAlternateModel.value)
+const audioQualityModeSummary = computed(() => audioQualityMode.value === 'flag_issues'
+  ? 'Flag issues'
+  : audioQualityMode.value === 'check_and_repair'
+    ? 'Check & repair'
+    : 'Off')
 const formatDirty = computed(() => {
   if (formatId.value !== formatIdBaseline.value) return true
   if (continuityMode.value !== continuityModeBaseline.value) return true
@@ -2170,6 +2272,24 @@ watch(config, (value) => {
   const density = Number((value as any)?.character_density)
   if (Number.isFinite(density)) guideDensity.value = Math.max(0, Math.min(100, Math.round(density)))
 }, { immediate: true })
+
+watch([slug, config], ([projectSlug, value]) => {
+  if (!projectSlug || !value) return
+  if (audioQualityLoadedSlug.value === projectSlug && audioQualityDirty.value) return
+  const saved = (value as any).audio_quality
+  audioQualityMode.value = saved?.mode === 'flag_issues' || saved?.mode === 'check_and_repair'
+    ? saved.mode
+    : 'off'
+  audioQualityAlternateModel.value = typeof saved?.alternate_transcription_model === 'string'
+    ? saved.alternate_transcription_model
+    : ''
+  audioQualityLoadedSlug.value = projectSlug
+  audioQualityBaseline.value = JSON.stringify(audioQualityDraft.value)
+}, { immediate: true })
+
+watch(audioQualityMode, (mode) => {
+  if (mode === 'check_and_repair') void loadAudioQualityModels()
+})
 const guideDensityLabel = computed(() =>
   guideDensity.value === 0 ? 'No recurring guide'
     : guideDensity.value >= 100 ? 'Guide in every scene'
@@ -2186,6 +2306,27 @@ async function saveGuideDensity(): Promise<void> {
     showError(e?.data?.detail || 'Failed to save guide visibility')
   } finally {
     savingGuideDensity.value = false
+  }
+}
+
+async function saveAudioQuality(): Promise<void> {
+  if (!audioQualityValid.value || audioQualitySaving.value) return
+  audioQualitySaving.value = true
+  audioQualitySaveError.value = ''
+  const targetSlug = slug.value
+  const payload = audioQualityDraft.value
+  try {
+    await put(`/projects/${targetSlug}/settings/config`, { audio_quality: payload })
+    if (slug.value !== targetSlug) return
+    audioQualityBaseline.value = JSON.stringify(payload)
+    if (config.value) (config.value as any).audio_quality = payload
+    stampSaved('audio_quality')
+    success('Audio quality setting saved')
+  } catch (e: any) {
+    audioQualitySaveError.value = e?.data?.detail || e?.message || 'Could not save audio quality'
+    showError(audioQualitySaveError.value)
+  } finally {
+    if (slug.value === targetSlug) audioQualitySaving.value = false
   }
 }
 
@@ -3405,7 +3546,7 @@ const tabZones = [
     scope: 'Travels with this project',
     sections: [
       { id: 'identity', label: 'Channel identity', description: 'Series Formula and Topic Packs', keywords: 'niche formula topics custom' },
-      { id: 'production', label: 'Production defaults', description: 'Continuity and episode shape', keywords: 'guide references chapters runtime motion' },
+      { id: 'production', label: 'Production defaults', description: 'Continuity, narration quality and episode shape', keywords: 'guide references chapters runtime motion audio voice transcript quality repair' },
       { id: 'writing', label: 'Writing & style', description: 'Instructions, intros and visual style', keywords: 'standards prompts art presets' },
       { id: 'publishing', label: 'Publishing', description: 'Channel assignment, profile and cadence', keywords: 'youtube upload schedule metadata category' },
       { id: 'files', label: 'Project files & behavior', description: 'Folders, storage, numbering and confirmations', keywords: 'episodes group archive cleanup paths' },
@@ -5950,12 +6091,60 @@ async function deleteProject() {
   font-size: var(--font-xs);
   font-weight: 600;
 }
+.audio-quality-settings {
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+.audio-quality-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 14px;
+}
+.audio-quality-option {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+.audio-quality-option.active {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
+}
+.audio-quality-option input { flex: none; margin-top: 3px; accent-color: var(--accent); }
+.audio-quality-option > span { min-width: 0; }
+.audio-quality-option strong { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text-primary); font-size: var(--font-sm); }
+.audio-quality-option strong small {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: var(--font-xs);
+}
+.audio-quality-option > span > span { display: block; margin-top: 4px; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
+.audio-quality-alternate { max-width: 720px; margin-top: 14px; }
+.audio-quality-alternate > label { display: block; margin-bottom: 6px; color: var(--text-primary); font-size: var(--font-sm); font-weight: 650; }
+.audio-quality-cost-note {
+  max-width: 75ch;
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+}
+.audio-quality-save-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
 @media (max-width: 1100px) {
   .production-kit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 680px) {
   .production-kit-head { flex-direction: column; }
   .production-kit-grid { grid-template-columns: 1fr; }
+  .audio-quality-options { grid-template-columns: 1fr; }
+  .audio-quality-save-row .btn { width: 100%; justify-content: center; }
 }
 
 .channel-identity-summary {

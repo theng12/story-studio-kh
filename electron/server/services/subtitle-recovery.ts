@@ -33,6 +33,8 @@ interface Section {
   inputHash: string
   /** Bytes of the active chapter audio that produced the saved SRT. */
   sourceAudioHash?: string
+  /** Published ASR model that produced this saved raw subtitle evidence. */
+  modelId?: string
   outputPath: string
   idempotencyKey: string
   taskId: string
@@ -59,6 +61,12 @@ interface Ledger {
   activePlanId?: string
   sections: Record<string, Section>
   plans: Record<string, { attempts: Commitment[] }>
+  /**
+   * Local, already-verified candidate evidence promoted by Audio Quality.
+   * It is deliberately separate from provider task recovery: no synthetic
+   * task id may become authority for a future paid subtitle request.
+   */
+  quality_sources?: Record<string, { sourceAudioHash: string; modelId: string }>
 }
 type ManualAction = false | 'buy_missing_subtitles' | 'rerun_subtitle_section'
 
@@ -84,6 +92,7 @@ async function readLedger(file: string): Promise<Ledger> {
         s.outputPath, s.idempotencyKey, s.submittedAt, s.state].every(text)
         || !parsed.plans[s.planId] || typeof s.taskId !== 'string' || typeof s.identityVerified !== 'boolean'
         || (s.sourceAudioHash !== undefined && !text(s.sourceAudioHash))
+        || (s.modelId !== undefined && !text(s.modelId))
         || !Number.isSafeInteger(s.freeRetries) || s.freeRetries < 0
         || (s.confirmStarted !== undefined && typeof s.confirmStarted !== 'boolean')
         || (s.generationActionId !== undefined && !text(s.generationActionId))
@@ -148,6 +157,7 @@ export async function readSubtitleSourceAudioHashes(outDir: string): Promise<Rec
   try {
     const parsed = JSON.parse(await fs.readFile(path.join(outDir, '.subtitle-recovery.json'), 'utf8')) as {
       sections?: Record<string, { sourceAudioHash?: unknown }>
+      quality_sources?: Record<string, { sourceAudioHash?: unknown }>
     }
     const hashes: Record<string, string> = {}
     for (const [filename, section] of Object.entries(parsed.sections || {})) {
@@ -155,7 +165,32 @@ export async function readSubtitleSourceAudioHashes(outDir: string): Promise<Rec
         hashes[filename] = section.sourceAudioHash
       }
     }
+    for (const [filename, source] of Object.entries(parsed.quality_sources || {})) {
+      if (typeof source?.sourceAudioHash === 'string' && source.sourceAudioHash.trim()) {
+        hashes[filename] = source.sourceAudioHash
+      }
+    }
     return hashes
+  } catch {
+    return {}
+  }
+}
+
+/** Model provenance is optional for legacy subtitles and never inferred. */
+export async function readSubtitleSourceModels(outDir: string): Promise<Record<string, string>> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(path.join(outDir, '.subtitle-recovery.json'), 'utf8')) as {
+      sections?: Record<string, { modelId?: unknown }>
+      quality_sources?: Record<string, { modelId?: unknown }>
+    }
+    const models: Record<string, string> = {}
+    for (const [filename, section] of Object.entries(parsed.sections || {})) {
+      if (typeof section?.modelId === 'string' && section.modelId.trim()) models[filename] = section.modelId.trim()
+    }
+    for (const [filename, source] of Object.entries(parsed.quality_sources || {})) {
+      if (typeof source?.modelId === 'string' && source.modelId.trim()) models[filename] = source.modelId.trim()
+    }
+    return models
   } catch {
     return {}
   }
@@ -173,6 +208,31 @@ export async function recordSubtitleSourceAudioHash(
     const section = ledger.sections[manifestKey]
     if (!section) return
     section.sourceAudioHash = sourceAudioHash
+    await writeJsonAtomic(file, ledger)
+  })
+}
+
+/** Save the source bytes and published ASR model only after a usable SRT write. */
+export async function recordSubtitleSourceEvidence(
+  outDir: string,
+  manifestKey: string,
+  sourceAudioHash: string,
+  modelId: string,
+): Promise<void> {
+  const file = path.resolve(outDir, '.subtitle-recovery.json')
+  await withLock(file, async () => {
+    const ledger = await readLedger(file)
+    const section = ledger.sections[manifestKey]
+    if (section) {
+      section.sourceAudioHash = sourceAudioHash
+      section.modelId = modelId
+      // A normal provider-backed subtitle write supersedes any earlier local
+      // quality-adoption evidence for the same visible SRT filename.
+      delete ledger.quality_sources?.[manifestKey]
+    } else {
+      ledger.quality_sources ||= {}
+      ledger.quality_sources[manifestKey] = { sourceAudioHash, modelId }
+    }
     await writeJsonAtomic(file, ledger)
   })
 }
@@ -242,6 +302,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         identityVerified: !reuse || (!!reuse.idempotency_key && reuse.input_hash === input.inputHash),
         // A legacy key with no task is an ambiguous submission, not fresh authority.
         confirmStarted: !!reuse?.idempotency_key && !reuse.task_id,
+        modelId: input.request.modelId,
         ...(generationActionId ? { generationActionId } : {}),
         // A missing source has no earlier provider task to recover. Its first
         // deliberate Pipeline request is therefore the one action-scoped fresh

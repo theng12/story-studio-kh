@@ -131,6 +131,12 @@
                 <span v-if="chapterIsGarbled(s.slug)" class="garbled-tag" title="Some cues look like transcription errors — see Subtitle files below.">
                   ⚠ garbled text
                 </span>
+                <NuxtLink
+                  v-if="s.quality && s.quality.state !== 'not_checked'"
+                  :class="['audio-quality-link', `tone-${audioQualityTone(s.quality.state)}`]"
+                  :to="`/projects/${slug}/audio?episode_id=${encodeURIComponent(episodeId)}`"
+                  :title="s.quality.reason || 'Open Audio to review the source and transcript evidence.'"
+                >Audio: {{ audioQualityLabel(s.quality.state) }}</NuxtLink>
                 <div class="sub-chapter-action">
                   <button
                     :class="['btn', 'btn-xs', chapterHasSrt(s.slug) ? 'btn-secondary' : 'btn-primary']"
@@ -372,6 +378,7 @@ import {
 } from '~/utils/transcription-language'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 import { hasQualityFindings } from '~/types/subtitle-quality'
+import { audioQualityLabel, audioQualityTone, type AudioQualityEvidence } from '~/types/audio-quality'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Subtitles')
@@ -443,7 +450,7 @@ interface SubtitleStatus {
   }
   subtitles_dir: string
 }
-interface SectionRow { label: string; slug: string }
+interface SectionRow { label: string; slug: string; quality?: AudioQualityEvidence }
 
 const route = useRoute()
 const router = useRouter()
@@ -937,6 +944,21 @@ onMounted(async () => {
   font-size: var(--font-xs);
   white-space: nowrap;
 }
+.audio-quality-link {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.audio-quality-link.tone-info { color: var(--accent); }
+.audio-quality-link.tone-success { color: rgb(22, 163, 74); }
+.audio-quality-link.tone-warning { color: rgb(202, 138, 4); }
+.audio-quality-link:hover { border-color: currentColor; }
 .sub-file-quality { padding: 0 8px 10px; border-bottom: 1px solid var(--border); }
 .sub-file-quality:last-child { border-bottom: none; }
 

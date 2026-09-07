@@ -25,12 +25,12 @@ import {
 } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
-  listModelCapabilities as listGenStudioCapabilities,
-  listChatModels as listGenStudioChatModels,
-  listImageModels as listGenStudioImageModels,
-  listMusicModels as listGenStudioMusicModels,
-  listTranscriptionModels as listGenStudioTranscriptionModels,
-  listVideoModels as listGenStudioVideoModels,
+  listModelCapabilitiesSnapshot as listGenStudioCapabilities,
+  listChatModelsSnapshot as listGenStudioChatModels,
+  listImageModelsSnapshot as listGenStudioImageModels,
+  listMusicModelsSnapshot as listGenStudioMusicModels,
+  listTranscriptionModelsSnapshot as listGenStudioTranscriptionModels,
+  listVideoModelsSnapshot as listGenStudioVideoModels,
   listVoices as listGenStudioVoices,
   listTtsModelsSnapshot,
   setGenStudioVoiceSaved,
@@ -557,7 +557,7 @@ router.get('/app-settings/genstudio/tts-models', async (_req, res) => {
     // The snapshot rather than the bare list: the generator page states these
     // prices and character limits as fact, so it has to be able to say when the
     // copy behind them is one the server kept through a service interruption.
-    const snapshot = await listTtsModelsSnapshot(apiKey)
+    const snapshot = await listTtsModelsSnapshot(apiKey, { displayFallback: true })
     const models = snapshot.value
     res.json({
       freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt },
@@ -667,7 +667,8 @@ router.get('/app-settings/genstudio/models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
-    res.json({ models: await listGenStudioCapabilities(apiKey) })
+    const snapshot = await listGenStudioCapabilities(apiKey, { displayFallback: true })
+    res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load the GenStudio KH capability catalog'))
   }
@@ -677,8 +678,8 @@ router.get('/app-settings/genstudio/chat-models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
-    const models = await listGenStudioChatModels(apiKey)
-    res.json({ models })
+    const snapshot = await listGenStudioChatModels(apiKey, { displayFallback: true })
+    res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH chat models'))
   }
@@ -688,8 +689,8 @@ router.get('/app-settings/genstudio/video-models', async (_req, res) => {
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio KH API key first.' })
-    const models = await listGenStudioVideoModels(apiKey)
-    res.json({ models })
+    const snapshot = await listGenStudioVideoModels(apiKey, { displayFallback: true })
+    res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH video models'))
   }
@@ -701,8 +702,8 @@ router.get('/app-settings/genstudio/transcription-models', async (_req, res) => 
     if (!apiKey.trim()) {
       return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
     }
-    const models = await listGenStudioTranscriptionModels(apiKey)
-    res.json({ models })
+    const snapshot = await listGenStudioTranscriptionModels(apiKey, { displayFallback: true })
+    res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(
       e,
@@ -717,8 +718,8 @@ router.get('/app-settings/genstudio/image-models', async (_req, res) => {
     if (!apiKey.trim()) {
       return res.status(400).json({ detail: 'Save a GenStudio KH API key in Settings → This Mac first.' })
     }
-    const models = await listGenStudioImageModels(apiKey)
-    res.json({ models })
+    const snapshot = await listGenStudioImageModels(apiKey, { displayFallback: true })
+    res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(
       e,
@@ -731,7 +732,8 @@ router.get('/app-settings/genstudio/music-models', async (_req, res) => {
   try {
     const apiKey = await requireGenStudioKey(res)
     if (!apiKey) return
-    res.json({ models: await listGenStudioMusicModels(apiKey) })
+    const snapshot = await listGenStudioMusicModels(apiKey, { displayFallback: true })
+    res.json({ models: snapshot.value, freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt } })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH music models'))
   }

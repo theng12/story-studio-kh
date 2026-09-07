@@ -3,11 +3,12 @@
  * Generates TTS narration exclusively through GenStudio KH.
  */
 
+import { createHash } from 'node:crypto'
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
-import type { ProjectFactsCache } from '../services/utils.js'
+import { resolveEpisodePathsByCodeWithSidecar, type ProjectFactsCache } from '../services/utils.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { resolveTtsControlValues } from '../lib/tts-controls.js'
 import {
@@ -45,6 +46,12 @@ import { unavailableLegacyModelMessage } from '../services/genstudio-model-migra
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { resolveGenStudioTtsFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
+import { formatConcatFileLine, runFfmpeg } from '../lib/ffmpeg-utils.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import { correctChapterCues } from '../lib/srt-correction.js'
+import { AudioQualityVerificationCreditCeilingError, verifyAudioQualityCandidateRawTranscript } from '../services/audio-quality-transcription.js'
+import { promoteAudioQualityCandidate, readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
 import type {
   GenerateAudioRequest, Job, AudioModelConfig, JobItemAttempt,
 } from '../models/types.js'
@@ -72,6 +79,37 @@ export function resolveAudioProvider(
  * as a boolean and is normalised into `failed` before it reaches the manifest.
  */
 const TERMINAL_TTS_TASK_STATES: ReadonlySet<string> = new Set(['failed', 'artifact_expired'])
+
+/**
+ * A normal successful overwrite supersedes a previously selected retained
+ * candidate.  Versioned `no_overwrite` output intentionally does not call
+ * this: it remains an alternate until the user explicitly selects it.
+ */
+async function selectNormalAudioSources(
+  episodeDir: string,
+  audioDir: string,
+  sources: Record<string, string[]>,
+): Promise<void> {
+  const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
+  await withLock(sidecarPath, async () => {
+    let sidecar: { sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }>; [key: string]: unknown }
+    try { sidecar = JSON.parse(await fs.readFile(sidecarPath, 'utf8')) }
+    catch { return }
+    if (!Array.isArray(sidecar.sections)) return
+    for (const [slug, files] of Object.entries(sources)) {
+      if (!files.length || !(await Promise.all(files.map(async file => {
+        const stat = await fs.stat(path.join(audioDir, file)).catch(() => null)
+        return !!stat?.isFile() && stat.size > 0
+      }))).every(Boolean)) continue
+      const row = sidecar.sections.find(section => typeof section.slug === 'string'
+        && section.slug.toLowerCase() === slug.toLowerCase())
+      if (!row) continue
+      row.source_files = [...files]
+      row.source_file = files[0]!
+    }
+    await writeJsonAtomic(sidecarPath, sidecar)
+  })
+}
 
 /**
  * A deliberate browser action receives this marker only from the route. Its
@@ -239,12 +277,139 @@ export async function resolveAudioDir(projectSlug: string, narrationPath: string
   return (await findSubfolder(base, audioName)) ?? path.join(base, audioName)
 }
 
+/**
+ * Execute a paid alternate-ASR check over immutable staged copies of selected
+ * active narration. It deliberately precedes the ordinary voice/TTS path and
+ * never writes audio, subtitles, or an active source map.
+ */
+async function runActiveAudioQualityCheck(job: Job, req: GenerateAudioRequest, marker: NonNullable<GenerateAudioRequest['quality_check']>): Promise<void> {
+  const actionId = marker.action_id.trim()
+  const generationActionId = freshGenerationActionId((req as GenerateAudioRequest & { generation_action?: unknown }).generation_action)
+  if (!actionId || actionId !== generationActionId) throw new Error('The active-audio quality check has no matching server-owned action.')
+  const paths = await resolveEpisodePathsByCodeWithSidecar(job.project_slug, job.episode_id, 'audio_chapters.json')
+  const action = (await readAudioQualityProvenance(paths.episode_dir)).actions?.[actionId]
+  const active = action?.active_check
+  if (!action || !active || action.source_fingerprint !== marker.source_fingerprint || active.state !== 'checking') {
+    throw new Error('The active-audio quality check is no longer actionable.')
+  }
+  const expectedRoot = path.resolve(paths.episode_dir, '.audio-quality-checks', actionId)
+  const checkRoot = path.resolve(paths.episode_dir, active.staging_dir)
+  if (checkRoot !== expectedRoot) throw new Error('The active-audio quality check staging path is invalid.')
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac.')
+  const narrationPath = await findNarrationFile(job.project_slug, job.episode_id)
+  const { inspectAudioQualityActionScope } = await import('../services/audio-quality.js')
+  const proveScope = async () => {
+    const scope = await inspectAudioQualityActionScope({
+      episodeDir: paths.episode_dir, audioDir: paths.audio_dir, subtitlesDir: paths.subtitles_dir,
+      scriptDir: path.dirname(narrationPath), episodeCode: job.episode_id,
+    }, action.sections)
+    if (scope.scope_fingerprint !== action.scope_fingerprint || scope.source_fingerprint !== action.source_fingerprint
+      || JSON.stringify(scope.source_files) !== JSON.stringify(action.source_files)) {
+      throw new Error('The selected active audio or script changed after its quality quote. Quote again before checking.')
+    }
+    return scope
+  }
+  await proveScope()
+  const allSections = await parseNarrationDocx(narrationPath)
+  const bySlug = new Map(allSections.map(section => [section.slug.toLowerCase(), section]))
+  const outcomes: Array<{ slug: string; accepted: boolean; reason?: string }> = []
+  for (const slug of action.sections) {
+    if (jq.isCancelled(job.job_id)) {
+      job.output_lines.push('Active narration quality check was cancelled before another ASR request. Active audio and subtitles were left unchanged.')
+      return
+    }
+    const section = bySlug.get(slug.toLowerCase())
+    const quote = active.quotes[slug]
+    if (!section?.text.trim() || !quote) throw new Error(`Active-audio quality check is missing its staged ${slug} evidence.`)
+    const stagedPath = path.join(checkRoot, 'audio', `${slug.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '')}.mp3`)
+    const stagedBytes = await fs.readFile(stagedPath).catch(() => null)
+    const stagedHash = stagedBytes ? `sha256:${createHash('sha256').update(stagedBytes).digest('hex')}` : null
+    if (!stagedHash || stagedHash !== quote.audio_hash) {
+      throw new Error(`The staged active audio for ${slug} changed after its quote. No active output was modified.`)
+    }
+    let raw: Awaited<ReturnType<typeof verifyAudioQualityCandidateRawTranscript>>
+    try {
+      raw = await verifyAudioQualityCandidateRawTranscript({
+        job, actionId, section: slug, candidateAudioPath: stagedPath,
+        candidateOutDir: path.join(checkRoot, 'transcripts'), apiKey,
+        transcription: { modelId: active.model_id },
+        verification_credit_ceiling: active.credit_ceiling || marker.verification_credit_ceiling,
+        // model-drift-allow: local verification ledger begins at zero before a provider confirmation.
+        verification_committed_credits: active.committed_credits || 0,
+        preparedQuote: quote,
+        authorizeQuote: async liveQuote => {
+          await proveScope()
+          let held = false
+          await updateAudioQualityProvenance(paths.episode_dir, current => {
+            const pending = current.actions?.[actionId]?.active_check
+            if (!pending || pending.model_id !== active.model_id) throw new Error('The active-audio quality checkpoint changed while the quote was pending.')
+            const ceiling = pending.credit_ceiling || marker.verification_credit_ceiling
+            // model-drift-allow: local verification ledger begins at zero before a provider confirmation.
+            const committed = pending.committed_credits || 0
+            const cost = liveQuote.quoted_credit_cost
+            pending.quotes[slug] = { ...liveQuote, audio_hash: quote.audio_hash }
+            if (!Number.isSafeInteger(ceiling) || typeof cost !== 'number' || !Number.isFinite(cost) || cost > ceiling - committed) {
+              pending.state = 'needs_approval'
+              held = true
+              return
+            }
+            pending.committed_credits = committed + cost
+          })
+          if (held) throw new AudioQualityVerificationCreditCeilingError(liveQuote, 0)
+        },
+      })
+    } catch (error) {
+      if (error instanceof AudioQualityVerificationCreditCeilingError) {
+        await updateAudioQualityProvenance(paths.episode_dir, current => {
+          const pending = current.actions?.[actionId]?.active_check
+          if (pending) {
+            pending.state = 'needs_approval'
+            pending.quotes[slug] = { ...error.quote, audio_hash: quote.audio_hash }
+          }
+        })
+        job.result = { ...job.result, quality_check: { action_id: actionId, state: 'needs_approval', quote: error.quote } }
+        job.output_lines.push(`Active narration ASR check is held for approval: ${error.message}`)
+      }
+      throw error
+    }
+    const trust = correctChapterCues(raw.rawCues, section.text).trust
+    outcomes.push({ slug, accepted: trust.accepted, ...(trust.accepted ? {} : { reason: trust.reason }) })
+  }
+  if (jq.isCancelled(job.job_id)) {
+    job.output_lines.push('Active narration quality check was cancelled before saving its result. Active audio and subtitles were left unchanged.')
+    return
+  }
+  await proveScope()
+  await updateAudioQualityProvenance(paths.episode_dir, current => {
+    const pending = current.actions?.[actionId]?.active_check
+    if (!pending) throw new Error('The active-audio quality check changed while its result was being saved.')
+    pending.state = outcomes.every(result => result.accepted) ? 'no_issue_detected' : 'review_needed'
+  })
+  job.result = {
+    ...job.result,
+    quality_check: { action_id: actionId, state: outcomes.every(result => result.accepted) ? 'no_issue_detected' : 'review_needed', sections: outcomes },
+  }
+  job.output_lines.push(`Active narration quality check completed for ${outcomes.length} chapter(s); active audio and subtitles were left unchanged.`)
+}
+
 export async function generateAudio(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as GenerateAudioRequest
   const generationActionId = freshGenerationActionId((req as GenerateAudioRequest & {
     generation_action?: unknown
   }).generation_action)
+  const qualityCheck = req.quality_check
+  if (qualityCheck) {
+    await runActiveAudioQualityCheck(job, req, qualityCheck)
+    return
+  }
+  const qualityRepair = req.quality_repair
+  const qualityRepairActionId = qualityRepair && typeof qualityRepair.action_id === 'string'
+    ? qualityRepair.action_id.trim() : ''
+  if (qualityRepair && (!qualityRepairActionId || qualityRepairActionId !== generationActionId)) {
+    throw new Error('The staged audio-quality candidate has no matching server-owned fresh action.')
+  }
 
   // No silent defaults (v1.0.210+): a voice MUST be explicitly chosen.
   // The Audio tab requires a pick before Generate, and pipeline runs carry
@@ -373,7 +538,15 @@ export async function generateAudio(job: Job): Promise<void> {
   const narrationPath = await findNarrationFile(project_slug, episode_id)
   job.output_lines.push(`Found narration: ${path.basename(narrationPath)}`)
 
-  const audioDir = await resolveAudioDir(project_slug, narrationPath, episode_id)
+  const activeAudioDir = await resolveAudioDir(project_slug, narrationPath, episode_id)
+  const qualityPaths = qualityRepairActionId
+    ? await resolveEpisodePathsByCodeWithSidecar(project_slug, episode_id, 'audio_chapters.json')
+    : null
+  // Candidates never share the active audio folder. The path is derived from
+  // the server-stamped action id rather than accepting a client filename.
+  const audioDir = qualityPaths
+    ? path.join(qualityPaths.episode_dir, '.audio-quality-candidates', qualityRepairActionId, 'audio')
+    : activeAudioDir
   await fs.mkdir(audioDir, { recursive: true })
   // Read the per-folder task manifest once so we can attempt free recovery
   // (existing-task poll) before issuing fresh submits. Only GenAIPro records
@@ -382,6 +555,20 @@ export async function generateAudio(job: Job): Promise<void> {
   const audioManifest: Manifest = await readManifest(audioDir).catch(
     () => ({ schema_version: 1 as const, tasks: {} }),
   )
+  if (qualityRepairActionId && qualityPaths) {
+    const held = (await readAudioQualityProvenance(qualityPaths.episode_dir)).actions?.[qualityRepairActionId]
+    if (held?.state === 'needs_approval' && held.candidate?.candidate_files) {
+      const expected = Object.values(held.candidate.candidate_files).flat()
+      const missing = await Promise.all(expected.map(async file => {
+        const stat = await fs.stat(path.join(audioDir, file)).catch(() => null)
+        return stat?.isFile() && stat.size > 0 ? null : file
+      }))
+      const absent = missing.filter((file): file is string => !!file)
+      if (absent.length) {
+        throw new Error(`Held candidate bytes are missing (${absent.join(', ')}); TTS was not regenerated. Start a new quality check to create another candidate.`)
+      }
+    }
+  }
 
   const allSections = await parseNarrationDocx(narrationPath)
   job.output_lines.push(`Sections: ${allSections.length} found`)
@@ -555,7 +742,10 @@ export async function generateAudio(job: Job): Promise<void> {
           let v = 2
           while (existsSync(chunkPath.replace('.mp3', `_v${v}.mp3`))) v++
           chunkPath = chunkPath.replace('.mp3', `_v${v}.mp3`)
-        } else if (!req.force) {
+        } else if (!req.force || !!qualityRepairActionId) {
+          // A held quality candidate resumes verification from its retained
+          // staged bytes. The fresh action still protects its own provider
+          // identity; a higher verification allowance never regenerates TTS.
           job.output_lines.push(`  Skipping ${path.basename(chunkPath)} (exists)`)
           continue
         }
@@ -593,6 +783,8 @@ export async function generateAudio(job: Job): Promise<void> {
   // thing that distinguishes deliberate pacing from a wedged job.
   let completedTasks = 0
   let failedTasks = 0
+  /** Files actually written by this run; skipped legacy/base bytes never take over an active candidate. */
+  const writtenChunkPaths = new Set<string>()
   const activeTasks = new Map<string, JobItemAttempt>()
   function publishProgress(): void {
     job.progress = tasks.length
@@ -801,6 +993,10 @@ export async function generateAudio(job: Job): Promise<void> {
       ? manifestEntry
       : null
     const terminalFailure = isTerminalGenStudioTaskFailure(reusableEntry)
+    // Every forced request starts with a fresh identity. A quality candidate
+    // therefore cannot replay the old active-base TTS task on its first run.
+    // Its exception is recovery only: once its own action-scoped request was
+    // accepted and checkpointed, a restart must reclaim that exact task.
     const explicitRegeneration = req.force === true
     // Explicit Regenerate/New version work owns the current Story job's fresh
     // identity and must never adopt a successful task from an older run.
@@ -812,7 +1008,13 @@ export async function generateAudio(job: Job): Promise<void> {
       ? `${requestIdentity}:manual-retry:${job.job_id}`
       : requestIdentity
     // Only the first attempt may reclaim work a previous run left accepted.
-    let recoveryEntry = explicitRegeneration || terminalFailure ? null : reusableEntry
+    const actionOwnedRecovery = !!qualityRepairActionId
+      && reusableEntry?.idempotency_key === buildGenStudioSubmission({
+        text: task.chunkText, voiceId: effectiveVoice, modelId: genStudioModelId,
+        speed: req.speed ?? 1, controls: requestControls, maxInputCharacters: genStudioMaxCharacters,
+        requestIdentity: `${requestIdentity}:regenerate:${generationActionId || job.job_id}`,
+      }).idempotencyKey
+    let recoveryEntry = terminalFailure || (explicitRegeneration && !actionOwnedRecovery) ? null : reusableEntry
 
     activeTasks.set(chunkFilename, {
       label: task.sectionLabel,
@@ -834,6 +1036,7 @@ export async function generateAudio(job: Job): Promise<void> {
             announceRecoveryFromTerminal: terminalFailure && attempt === 1,
           })
           completedTasks++
+          writtenChunkPaths.add(task.outputPath)
           return
         } catch (e: any) {
           if (isGenStudioInsufficientCredits(e)) throw e
@@ -1006,7 +1209,7 @@ export async function generateAudio(job: Job): Promise<void> {
     const suffix = errors.length > 3 ? `; +${errors.length - 3} more` : ''
     throw new Error(`${errors.length} section(s) failed: ${preview}${suffix}`)
   }
-  if (!isCancelled()) {
+  if (!isCancelled() && !qualityRepairActionId) {
     const { getAudioStatus } = await import('../services/audio-reconciler.js')
     const status = await getAudioStatus(project_slug, episode_id)
     const selectedLabels = new Set(sections.map(section => section.label))
@@ -1021,6 +1224,271 @@ export async function generateAudio(job: Job): Promise<void> {
       retry_hint: 'Completed audio files were kept. Retry generates or recovers only the missing sections.',
     })
   }
-  job.output_lines.push(`All audio saved to: ${audioDir}`)
+  // Record enough durable, non-text provenance for a later opt-in quality
+  // check. Versioned candidates deliberately do not replace this record: they
+  // are not active audio until the quality promotion transaction says so.
+  if (!isCancelled() && !req.no_overwrite && !qualityRepairActionId) {
+    try {
+      const paths = await resolveEpisodePathsByCodeWithSidecar(project_slug, episode_id, 'audio_chapters.json')
+      const manifest = await readManifest(audioDir)
+      const updates: Array<{ slug: string; sourceFiles: string[]; sourceAudioHash: string; taskIds: Record<string, string>; idempotencyKeys: Record<string, string>; scriptHash: string }> = []
+      for (const [index, section] of sections.entries()) {
+        const parts = genStudioRequestPlan[index]!.parts
+        const sourceFiles = parts.map((_, part) => parts.length > 1
+          ? `${episode_id.toUpperCase()}_${section.slug}_part${part + 1}.mp3`
+          : `${episode_id.toUpperCase()}_${section.slug}.mp3`)
+        const sourceAudioHash = await hashSubtitleAudioSources(sourceFiles.map(file => path.join(audioDir, file)))
+        if (!sourceAudioHash) continue
+        const taskIds: Record<string, string> = {}
+        const idempotencyKeys: Record<string, string> = {}
+        for (const file of sourceFiles) {
+          const task = manifest.tasks[file]
+          if (task?.task_id) taskIds[file] = task.task_id
+          if (task?.idempotency_key) idempotencyKeys[file] = task.idempotency_key
+        }
+        updates.push({ slug: section.slug, sourceFiles, sourceAudioHash, taskIds, idempotencyKeys, scriptHash: hashInput(section.text) })
+      }
+      await updateAudioQualityProvenance(paths.episode_dir, existing => {
+        for (const update of updates) {
+          existing.chapters[update.slug] = {
+            normalized_script_hash: update.scriptHash,
+            normalization: req.fish_autopace ? 'tts-v1+expression-pacing' : 'tts-v1',
+            source_audio_hash: update.sourceAudioHash,
+            source_files: update.sourceFiles,
+            recorded_at: new Date().toISOString(),
+            tts: {
+              model_id: genStudioModelId,
+              voice_id: req.voice,
+              ...(ttsModel.provider_name ? { provider: ttsModel.provider_name } : {}),
+              ...(Object.keys(update.taskIds).length ? { task_ids: update.taskIds } : {}),
+              ...(Object.keys(update.idempotencyKeys).length ? { idempotency_keys: update.idempotencyKeys } : {}),
+            },
+          }
+        }
+      })
+      // The generated base files are now the deliberate active selection.
+      // This only moves the sidecar after every requested write succeeded;
+      // a failed replacement leaves the prior valid candidate mapping intact.
+      await selectNormalAudioSources(
+        paths.episode_dir,
+        audioDir,
+        Object.fromEntries(updates
+          // A partial ordinary recovery must not replace a selected candidate
+          // with a mix of old base and newly written bytes.  A deliberate
+          // overwrite writes every section part and is therefore eligible.
+          .filter(update => update.sourceFiles.every(file => writtenChunkPaths.has(path.join(audioDir, file))))
+          .map(update => [update.slug, update.sourceFiles])),
+      )
+    } catch {
+      // Audio bytes are already safely written. A later status call classifies
+      // missing provenance as Review needed instead of pretending it is fresh.
+      job.output_lines.push('Audio provenance could not be recorded; quality review will remain unavailable until a successful active generation.')
+    }
+  }
+  if (!isCancelled() && qualityRepairActionId && qualityPaths) {
+    const action = (await readAudioQualityProvenance(qualityPaths.episode_dir)).actions?.[qualityRepairActionId]
+    const alternateModel = action?.verification_model_id || ''
+    if (!action?.candidate || action.source_fingerprint !== qualityRepair?.source_fingerprint || !alternateModel) {
+      throw new Error('The staged audio-quality repair checkpoint is missing or no longer matches this fresh action.')
+    }
+    const candidateTranscriptDir = path.join(qualityPaths.episode_dir, '.audio-quality-candidates', qualityRepairActionId, 'transcripts')
+    const candidates: Array<{ slug: string; srt: string; modelId: string; sourceAudioHash: string; outputFile: string }> = []
+    // Freeze the exact staged part map and bytes BEFORE any ASR request.  A
+    // post-ASR hash alone would bless a candidate mutated while the provider
+    // was listening. `promoteAudioQualityCandidate` rechecks this snapshot
+    // again immediately before selecting active files.
+    const candidateFiles = Object.fromEntries(sections.map((section, index) => {
+      const parts = genStudioRequestPlan[index]!.parts
+      return [section.slug, parts.map((_, part) => parts.length > 1
+        ? `${code}_${section.slug}_part${part + 1}.mp3`
+        : `${code}_${section.slug}.mp3`)]
+    }))
+    const candidateHashes: Record<string, string> = {}
+    for (const [slug, files] of Object.entries(candidateFiles)) {
+      const hash = await hashSubtitleAudioSources(files.map(file => path.join(audioDir, file)))
+      if (!hash) throw new Error(`Candidate audio for ${slug} is missing before ASR; active audio was preserved.`)
+      candidateHashes[slug] = hash
+    }
+    await updateAudioQualityProvenance(qualityPaths.episode_dir, current => {
+      const pending = current.actions?.[qualityRepairActionId]
+      if (!pending?.candidate || pending.source_fingerprint !== qualityRepair!.source_fingerprint) throw new Error('Candidate checkpoint changed before ASR.')
+      pending.candidate.candidate_files = candidateFiles
+      pending.candidate.candidate_audio_hashes = candidateHashes
+    })
+    try {
+      for (const [index, section] of sections.entries()) {
+        if (isCancelled()) break
+        const files = genStudioRequestPlan[index]!.parts.map((_, part) => genStudioRequestPlan[index]!.parts.length > 1
+          ? `${code}_${section.slug}_part${part + 1}.mp3`
+          : `${code}_${section.slug}.mp3`)
+        let candidateAudioPath = path.join(audioDir, files[0]!)
+        let listPath: string | null = null
+        let concatPath: string | null = null
+        if (files.length > 1) {
+          listPath = path.join(candidateTranscriptDir, `${section.slug}.concat.txt`)
+          concatPath = path.join(candidateTranscriptDir, `${section.slug}.candidate.mp3`)
+          await fs.mkdir(candidateTranscriptDir, { recursive: true })
+          await fs.writeFile(listPath, files.map(file => formatConcatFileLine(path.join(audioDir, file))).join('\n') + '\n')
+          await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c:a', 'libmp3lame', '-b:a', '192k', concatPath])
+          candidateAudioPath = concatPath
+        }
+        const raw = await verifyAudioQualityCandidateRawTranscript({
+          job, actionId: qualityRepairActionId, section: section.slug,
+          candidateAudioPath, candidateOutDir: candidateTranscriptDir,
+          apiKey, transcription: { modelId: alternateModel },
+          verification_credit_ceiling: action.verification_credit_ceiling || qualityRepair!.verification_credit_ceiling,
+          // model-drift-allow: local verification ledger begins at zero before a provider confirmation.
+          verification_committed_credits: action.verification_committed_credits || 0,
+          authorizeQuote: async quote => {
+            const { inspectAudioQualityActionScope } = await import('../services/audio-quality.js')
+            const liveScope = await inspectAudioQualityActionScope({
+              episodeDir: qualityPaths.episode_dir, audioDir: qualityPaths.audio_dir,
+              subtitlesDir: qualityPaths.subtitles_dir, scriptDir: path.dirname(narrationPath), episodeCode: code,
+            }, action.sections)
+            if (liveScope.source_fingerprint !== qualityRepair!.source_fingerprint) {
+              throw new Error('The selected audio or script changed while candidate verification was pending.')
+            }
+            let remainingAllowance: number | null = null
+            await updateAudioQualityProvenance(qualityPaths.episode_dir, current => {
+              const pending = current.actions?.[qualityRepairActionId]
+              if (!pending || pending.source_fingerprint !== qualityRepair!.source_fingerprint) {
+                throw new Error('The active source changed while the candidate verification quote was pending.')
+              }
+              const ceiling = pending.verification_credit_ceiling
+              // model-drift-allow: local verification ledger begins at zero before a provider confirmation.
+              const spent = pending.verification_committed_credits || 0
+              const cost = quote.quoted_credit_cost
+              // Persist the real quote and held state before returning the
+              // ceiling error. Throwing inside this updater would skip its
+              // atomic write and strand a resumable candidate as Confirmed.
+              pending.verification_quote = quote
+              const validCeiling = typeof ceiling === 'number' && Number.isSafeInteger(ceiling)
+              if (!validCeiling || typeof cost !== 'number' || !Number.isFinite(cost) || cost > ceiling - spent) {
+                pending.state = 'needs_approval'
+                remainingAllowance = Math.max(0, (validCeiling ? ceiling : 0) - spent)
+                return
+              }
+              // Reservation is durable before the physical quote confirmation.
+              // An interrupted response is uncertain provider ownership, so it
+              // stays reserved until the recovered task gives an authority fact.
+              pending.verification_committed_credits = spent + cost
+            })
+            if (remainingAllowance !== null) {
+              throw new AudioQualityVerificationCreditCeilingError(quote, remainingAllowance)
+            }
+          },
+        })
+        const trust = correctChapterCues(raw.rawCues, section.text).trust
+        if (!trust.accepted) {
+          await updateAudioQualityProvenance(qualityPaths.episode_dir, current => {
+            const pending = current.actions?.[qualityRepairActionId]
+            if (pending) pending.state = 'still_needs_review'
+          })
+          job.result = { ...job.result, quality_repair: { action_id: qualityRepairActionId, state: 'still_needs_review', section: section.slug, reason: trust.reason } }
+          job.output_lines.push(`Candidate ${section.slug} needs review: raw ASR does not support the intended script. Active audio was preserved.`)
+          return
+        }
+        candidates.push({ slug: section.slug, srt: raw.srt, modelId: raw.modelId, sourceAudioHash: raw.audioHash, outputFile: raw.outputFile })
+        if (listPath) await fs.unlink(listPath).catch(() => undefined)
+        if (concatPath) await fs.unlink(concatPath).catch(() => undefined)
+      }
+    } catch (error) {
+      if (error instanceof AudioQualityVerificationCreditCeilingError) {
+        // Keep the action resumable even when the helper rejects its local
+        // ceiling before the shared-budget callback runs. The callback owns
+        // reservation; this catch is only the durable held-state fallback.
+        await updateAudioQualityProvenance(qualityPaths.episode_dir, current => {
+          const pending = current.actions?.[qualityRepairActionId]
+          if (pending && pending.source_fingerprint === qualityRepair!.source_fingerprint) {
+            pending.state = 'needs_approval'
+            pending.verification_quote = error.quote
+          }
+        })
+        job.result = { ...job.result, quality_repair: { action_id: qualityRepairActionId, state: 'needs_approval', quote: error.quote } }
+        job.output_lines.push(`Candidate verification is held for approval: ${error.message}`)
+      }
+      throw error
+    }
+    if (!isCancelled()) {
+      const { inspectAudioQualityActionScope } = await import('../services/audio-quality.js')
+      const finalScope = await inspectAudioQualityActionScope({
+        episodeDir: qualityPaths.episode_dir, audioDir: qualityPaths.audio_dir,
+        subtitlesDir: qualityPaths.subtitles_dir, scriptDir: path.dirname(narrationPath), episodeCode: code,
+      }, action.sections)
+      if (finalScope.source_fingerprint !== qualityRepair!.source_fingerprint) {
+        throw new Error('The selected audio or script changed before candidate promotion; active audio was preserved.')
+      }
+      await updateAudioQualityProvenance(qualityPaths.episode_dir, current => {
+        const pending = current.actions?.[qualityRepairActionId]
+        if (!pending?.candidate || pending.source_fingerprint !== qualityRepair!.source_fingerprint) {
+          throw new Error('The candidate checkpoint changed before promotion; active audio was preserved.')
+        }
+        pending.candidate.transcript_files = Object.fromEntries(candidates.map(candidate => [candidate.slug, candidate.outputFile]))
+        pending.candidate.transcript_hashes = Object.fromEntries(candidates.map(candidate => [candidate.slug, hashInput(candidate.srt)]))
+      })
+      const storedAfterAsr = (await readAudioQualityProvenance(qualityPaths.episode_dir)).actions?.[qualityRepairActionId]
+      if (!storedAfterAsr?.candidate?.candidate_files || !storedAfterAsr.candidate.candidate_audio_hashes) throw new Error('Candidate ASR snapshot was not saved.')
+      const promoted = await promoteAudioQualityCandidate({
+        episodeDir: qualityPaths.episode_dir, audioDir: qualityPaths.audio_dir, candidateAudioDir: audioDir,
+        actionId: qualityRepairActionId, episodeCode: code, sections: candidates.map(candidate => candidate.slug),
+        expectedSourceHashes: action.candidate.source_audio_hashes,
+        expectedSourceFiles: action.source_files,
+        expectedCandidateFiles: storedAfterAsr.candidate.candidate_files,
+        expectedCandidateHashes: storedAfterAsr.candidate.candidate_audio_hashes,
+      })
+      // The map is now authoritative. Existing SRT and merged timeline inputs
+      // are intentionally left in place but become stale through their saved
+      // source hashes until the local Audio Assembly/subtitle refresh below.
+      const existingRefresh = (await jq.getJobs(project_slug)).find(candidate =>
+        candidate.type === 'audio_merge' && candidate.episode_id === episode_id
+        && candidate.params?.audio_quality_refresh?.action_id === qualityRepairActionId,
+      )
+      const priorMerge = (await jq.getJobs(project_slug)).filter(candidate =>
+        candidate.type === 'audio_merge' && candidate.episode_id === episode_id && candidate.status === 'done'
+        && !candidate.params?.audio_quality_refresh,
+      ).sort((left, right) => (right.finished_at || right.created_at).localeCompare(left.finished_at || left.created_at))[0]
+      let refreshJob = existingRefresh
+      if (!refreshJob && priorMerge) {
+        refreshJob = await jq.enqueue({
+          project_slug, episode_id, type: 'audio_merge',
+          title: `Refresh audio-quality timeline (${candidates.map(candidate => candidate.slug).join(', ')})`,
+          params: {
+            ...priorMerge.params,
+            episode_id,
+            audio_quality_refresh: {
+              action_id: qualityRepairActionId,
+              source_fingerprint: qualityRepair!.source_fingerprint,
+              sections: candidates.map(candidate => candidate.slug),
+              promoted_files: promoted,
+            },
+          },
+          dedupeParams: queued => queued?.audio_quality_refresh?.action_id === qualityRepairActionId,
+        })
+      }
+      if (!priorMerge) {
+        await updateAudioQualityProvenance(qualityPaths.episode_dir, current => {
+          const pending = current.actions?.[qualityRepairActionId]
+          if (pending) pending.refresh_needed = 'Run Audio Assembly with the prior mix settings before this candidate can be marked fixed.'
+        })
+      }
+      // The candidate worker itself completed its bounded staged operation.
+      // Keep the follow-up state nested: queue-level `complete: false` would
+      // correctly turn this successfully persisted candidate into an error,
+      // hiding the actionable local refresh job from Jobs and Audio.
+      job.result = { ...job.result, quality_repair: {
+        action_id: qualityRepairActionId, state: 'candidate_ready', promoted_sections: candidates.map(candidate => candidate.slug),
+        active_files: promoted,
+        ...(refreshJob ? { refresh_job_id: refreshJob.job_id } : {}),
+        complete: false,
+        ...(priorMerge ? {} : { refresh_needed: 'Run Audio Assembly with the prior mix settings before this candidate can be marked fixed.' }),
+      } }
+      job.output_lines.push(refreshJob
+        ? `Verified candidate selected for ${candidates.length} chapter(s). Local Audio Assembly refresh queued as ${refreshJob.job_id}.`
+        : `Verified candidate selected for ${candidates.length} chapter(s). Run Audio Assembly with the prior mix settings before this repair can be marked fixed.`)
+    }
+  }
+  job.output_lines.push(qualityRepairActionId
+    ? `Staged audio-quality candidate saved to: ${audioDir}`
+    : `All audio saved to: ${audioDir}`)
   job.output_dir = audioDir
 }

@@ -1,8 +1,11 @@
+import { computed, ref } from 'vue'
 import { useApi } from './useApi.js'
 import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
+import { GENSTUDIO_CATALOG_STALE_CEILING_MS } from './useGenStudioCatalogCache.js'
 import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 import { formatCredits, unpublishedCost, type CreditDisplay } from '../utils/genstudio-credit-cost.js'
+import { normalizeGenStudioLoadedAt } from '../utils/genstudio-freshness.js'
 
 export interface GenStudioTranscriptionModel {
   id: string
@@ -80,17 +83,41 @@ export function describeTranscriptionRate(model: {
 // consumer (Subtitles, B-Roll, the account Settings diagnostics panel).
 // Selection state (`modelId` below) stays per-caller because "which model
 // is picked on this page" is not catalog data.
+interface BackendCatalogFreshness {
+  stale: boolean
+  ageMs: number
+  loadedAt: number | null
+}
+interface BackendCatalogFreshnessResponse extends Omit<BackendCatalogFreshness, 'loadedAt'> {
+  loadedAt: string | number | null
+}
+
+const backendFreshness = ref<BackendCatalogFreshness | null>(null)
 const catalogCache = createGenStudioCatalogCache<GenStudioTranscriptionModel[]>({
   empty: [],
   fetcher: async () => {
     const { get } = useApi()
-    const response = await get<{ models?: GenStudioTranscriptionModel[] }>(
+    const response = await get<{
+      models?: GenStudioTranscriptionModel[]
+      freshness?: BackendCatalogFreshnessResponse
+    }>(
       '/app-settings/genstudio/transcription-models',
       { cache: 'no-store' },
     )
+    backendFreshness.value = response.freshness
+      ? { ...response.freshness, loadedAt: normalizeGenStudioLoadedAt(response.freshness.loadedAt) }
+      : null
     return Array.isArray(response.models) ? response.models : []
   },
 })
+const sourceIsStale = computed(() => backendFreshness.value?.stale === true)
+const sourceIsExpired = computed(() => sourceIsStale.value
+  && (backendFreshness.value?.ageMs || 0) > GENSTUDIO_CATALOG_STALE_CEILING_MS)
+const catalogIsStale = computed(() => sourceIsStale.value || catalogCache.isStale.value)
+const catalogIsExpired = computed(() => sourceIsExpired.value || catalogCache.isExpired.value)
+const catalogIsUsable = computed(() => !catalogCache.loading.value
+  && catalogCache.isUsable.value && !catalogIsStale.value && !catalogIsExpired.value)
+const catalogLoadedAt = computed(() => backendFreshness.value?.loadedAt ?? catalogCache.lastFetchedAt.value)
 
 /** Shared live transcription catalog state for Subtitles and B-Roll. */
 export function useGenStudioTranscriptionModels() {
@@ -100,7 +127,9 @@ export function useGenStudioTranscriptionModels() {
   const selectedModel = computed(() =>
     models.value.find(model => model.id === modelId.value),
   )
-  const ready = computed(() => selectedModel.value?.available === true && selectedModel.value?.locked !== true)
+  const ready = computed(() => catalogIsUsable.value
+    && selectedModel.value?.available === true
+    && selectedModel.value?.locked !== true)
   const options = computed(() => models.value.map((model) => {
     const rate = describeTranscriptionRate(model)
     return {
@@ -121,9 +150,14 @@ export function useGenStudioTranscriptionModels() {
       description: model.qualification_only
         ? 'Available for qualified accounts.'
         : 'Available for transcription.',
-      disabled: !model.available || model.locked === true,
-      disabledReason: genStudioModelLockReason(model) || (model.available ? undefined : 'This transcription model is temporarily unavailable.'),
+      disabled: !catalogIsUsable.value || !model.available || model.locked === true,
+      disabledReason: catalogCache.loading.value
+        ? 'Refreshing the current GenStudio catalog before new work can start.'
+        : catalogIsStale.value
+          ? 'Last-known catalog only. Refresh GenStudio before starting paid transcription.'
+          : genStudioModelLockReason(model) || (model.available ? undefined : 'This transcription model is temporarily unavailable.'),
       badges: [
+        ...(catalogIsStale.value ? [{ label: 'last known', tone: 'warning' as const }] : []),
         ...(!model.available ? [{ label: 'unavailable', tone: 'warning' as const }] : []),
         ...(model.qualification_only
           ? [{ label: 'qualification', tone: 'info' as const }]
@@ -134,15 +168,22 @@ export function useGenStudioTranscriptionModels() {
   }))
 
   async function load(): Promise<void> {
-    await catalogCache.refresh()
-    const selected = selectLiveGenStudioModel(modelId.value, models.value)
+    // This is also the explicit Retry boundary. Always re-read GenStudio so a
+    // changed account/base URL or retired model cannot ride the client TTL.
+    // Existing rows may remain visible while it resolves, but isUsable/options
+    // are disabled for the duration and never authorize paid work.
+    await catalogCache.refresh(true)
+    const selected = catalogIsUsable.value ? selectLiveGenStudioModel(modelId.value, models.value) : null
     if (selected && selected.id !== modelId.value) modelId.value = selected.id
   }
 
   const error = computed(() => {
     if (catalogCache.error.value) return catalogCache.error.value
-    if (catalogCache.isExpired.value) {
+    if (catalogIsExpired.value) {
       return 'The transcription model catalog is too old to trust — refresh before starting new work.'
+    }
+    if (catalogIsStale.value) {
+      return 'Showing the last-known transcription catalog. Refresh GenStudio before starting new work.'
     }
     if (catalogCache.loaded.value && !models.value.length) {
       return 'No transcription models are available right now.'
@@ -158,10 +199,11 @@ export function useGenStudioTranscriptionModels() {
     loading: catalogCache.loading,
     error,
     ready,
-    lastFetchedAt: catalogCache.lastFetchedAt,
-    isStale: catalogCache.isStale,
-    isExpired: catalogCache.isExpired,
-    isUsable: catalogCache.isUsable,
+    lastFetchedAt: catalogLoadedAt,
+    isStale: catalogIsStale,
+    isExpired: catalogIsExpired,
+    isUsable: catalogIsUsable,
+    sourceFreshness: backendFreshness,
     load,
   }
 }
@@ -173,5 +215,11 @@ export function useGenStudioTranscriptionModels() {
  * without owning a `modelId`.
  */
 export function useGenStudioTranscriptionCatalog() {
-  return catalogCache
+  return {
+    ...catalogCache,
+    lastFetchedAt: catalogLoadedAt,
+    isStale: catalogIsStale,
+    isExpired: catalogIsExpired,
+    isUsable: catalogIsUsable,
+  }
 }

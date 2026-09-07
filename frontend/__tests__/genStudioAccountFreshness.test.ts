@@ -71,5 +71,7 @@ test('the audio generator marks its published figures when they are stale', () =
   assert.match(page, /genstudioStaleNote\(ttsModelsStale\.value, ttsModelsLoadedAt\.value\)/)
   // Beside the rate/minimum line AND the cost block, the two places this page
   // states GenStudio's own figures as fact.
-  assert.equal((page.match(/v-if="ttsCatalogStaleNote"/g) || []).length, 2)
+  assert.equal((page.match(/<em v-if="ttsCatalogStaleNote" class="freshness-badge"/g) || []).length, 2)
+  assert.match(page, /\{\{ ttsCatalogStaleNote \}\} · display only\./)
+  assert.match(page, /@click="loadTtsModels">Retry/)
 })

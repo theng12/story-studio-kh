@@ -25,6 +25,10 @@
     <!-- A published capability, stated as the model's, not Story Studio's. -->
     <p v-if="referenceUnsupportedNotice" class="notice notice-limit">{{ referenceUnsupportedNotice }}</p>
     <p v-if="seedNotice" class="notice notice-limit">{{ seedNotice }}</p>
+    <p v-if="catalogStaleNote" class="notice notice-stale" role="status">
+      {{ catalogStaleNote }} · display only. Refresh before starting new image work.
+      <button type="button" class="btn btn-sm btn-ghost" :disabled="loading" @click="refresh(true)">Retry</button>
+    </p>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
   </div>
 </template>
@@ -33,6 +37,7 @@
 import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
 import { CREDIT_BASIS_LABEL, describeImageModelRate, describeImageUnitCost } from '../utils/genstudio-credit-cost.js'
 import { defaultOutputOption } from '../utils/genstudio-output-options.js'
+import { genstudioStaleNote } from '../utils/genstudio-freshness.js'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -47,7 +52,8 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{ 'update:modelValue': [modelId: string] }>()
-const { models, loading, error, refresh } = useGenStudioImageModels()
+const { models, loading, error, isStale, isUsable, lastFetchedAt, refresh } = useGenStudioImageModels()
+const catalogStaleNote = computed(() => genstudioStaleNote(isStale.value, lastFetchedAt.value))
 
 const options = computed(() => {
   const visibleModels = props.imageMode === 'img2img'
@@ -62,11 +68,13 @@ const options = computed(() => {
       provider: model.provider_name || '',
       price: rate.text,
       priceTitle: rate.title,
-      disabled: !model.available || model.locked === true,
-      disabledReason: genStudioModelLockReason(model) || (!model.available
-        ? 'This model is currently unavailable in GenStudio.'
-        : ''),
-      badges: [],
+      disabled: !isUsable.value || !model.available || model.locked === true,
+      disabledReason: !isUsable.value
+        ? 'Last-known catalog only. Refresh GenStudio before starting new image work.'
+        : genStudioModelLockReason(model) || (!model.available
+          ? 'This model is currently unavailable in GenStudio.'
+          : ''),
+      badges: !isUsable.value ? [{ label: 'last known', tone: 'warning' as const }] : [],
       costTier: model.cost_tier,
     }
   })
@@ -145,13 +153,14 @@ const seedNotice = computed(() => {
 })
 
 function select(modelId: string): void {
+  if (!isUsable.value) return
   const selected = models.value.find(model => model.id === modelId)
   if (!selected?.available || (props.imageMode === 'img2img' && (!selected.supports_reference_images || selected.max_reference_images < 1 || !selected.chargeable))) return
   emit('update:modelValue', modelId)
 }
 
 function syncLiveSelection(): void {
-  if (!models.value.length) return
+  if (!isUsable.value || !models.value.length) return
   const candidates = props.imageMode === 'img2img'
     ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1 && model.chargeable)
     : models.value
@@ -162,7 +171,7 @@ function syncLiveSelection(): void {
 watch([models, () => props.modelValue, () => props.imageMode], syncLiveSelection, { deep: true, immediate: true })
 
 onMounted(() => {
-  void refresh()
+  void refresh(true)
 })
 </script>
 
@@ -172,5 +181,6 @@ onMounted(() => {
 .notice-cost { color: var(--text); }
 .notice-cost.basis-unpublished { color: var(--warning, #d97706); }
 .notice-cost.basis-free { color: var(--success, #16a34a); }
+.notice-stale { color: var(--warning, #d97706); }
 .notice-error { color: var(--danger, #dc2626); }
 </style>

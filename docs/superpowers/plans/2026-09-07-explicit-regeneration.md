@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Express, Vue 3/Nuxt, Node test runner.
 
-**Spec:** `/build/pinokio/_handoffs/2026-09-07_generator-regenerate-semantics-audit.md`
+**Spec:** `<owner-home>/pinokio/_handoffs/2026-09-07_generator-regenerate-semantics-audit.md`
 
 ## Global Constraints
 
@@ -91,7 +91,7 @@
 ### Task 5: Final focused verification and review
 
 **Files:**
-- Update: `/build/pinokio/_handoffs/2026-09-07_generator-regenerate-semantics-audit.md`
+- Update: `<owner-home>/pinokio/_handoffs/2026-09-07_generator-regenerate-semantics-audit.md`
 
 - [x] Run the coordinated focused backend/frontend tests only when the single lane is free.
 - [x] Run type checks requested by the coordinator; do not start the full suite.
@@ -101,8 +101,8 @@
 
 ## Evidence and remaining boundary
 
-- Focused backend aggregate: `node scripts/testing/run-backend-tests.mjs --only explicit-chat-regeneration --only pipeline-explicit-regeneration --only pipeline-step-skip --only audio-subtitle-explicit-regeneration --only explicit-regeneration-actions` — exit 0, 39 tests and 4 suites passed (5 files), recorded in `/build/pinokio/_handoffs/logs/story-release-1.4.124/explicit-regeneration-focused-attempt4.log`.
+- Focused backend aggregate: `node scripts/testing/run-backend-tests.mjs --only explicit-chat-regeneration --only pipeline-explicit-regeneration --only pipeline-step-skip --only audio-subtitle-explicit-regeneration --only explicit-regeneration-actions` — exit 0, 39 tests and 4 suites passed (5 files), recorded in `<owner-home>/pinokio/_handoffs/logs/story-release-1.4.124/explicit-regeneration-focused-attempt4.log`.
 - Targeted cleanup rerun: `node scripts/testing/run-backend-tests.mjs --only pipeline-explicit-regeneration` — exit 0, 1/1 passed; the fixture awaits job persistence before cleanup.
-- Type checks: Electron and frontend each exited 0; frontend evidence is `/build/pinokio/_handoffs/logs/story-release-1.4.124/explicit-regeneration-typecheck-frontend-final2.exit`.
+- Type checks: Electron and frontend each exited 0; frontend evidence is `<owner-home>/pinokio/_handoffs/logs/story-release-1.4.124/explicit-regeneration-typecheck-frontend-final2.exit`.
 - Motion Review / image-to-video remains owner-paused and intentionally unchanged.
 - Full `npm run verify`, independent final review, integration, and canonical-main packaging are release steps, not yet claimed here.

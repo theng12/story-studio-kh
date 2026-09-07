@@ -101,6 +101,11 @@
               :to="`/projects/${projectSlug}/subtitles?episode_id=${encodeURIComponent(episodeId)}&section=${encodeURIComponent(s.slug)}`"
             >Subtitles need retranscribing</NuxtLink>
           </span>
+          <span
+            v-if="qualityMode !== 'off' && s.quality"
+            class="cs-quality-pill"
+            :data-tone="audioQualityTone(displayQualityState(s.quality))"
+          >{{ audioQualityLabel(displayQualityState(s.quality)) }}</span>
           <span class="cs-pill" :class="`pill-${runtimeStatus(s)}`">
             {{ statusText(runtimeStatus(s)) }}
           </span>
@@ -127,6 +132,114 @@
           >{{ playingSlug === s.slug ? '⏸' : '▶' }}</button>
           <span v-else class="cs-play-spacer" aria-hidden="true" />
         </div>
+        <details
+          v-if="qualityMode !== 'off' && s.quality && (s.quality.state !== 'not_checked' || s.quality.reason_code || s.quality.repair)"
+          class="cs-quality-review"
+        >
+          <summary>
+            <span>{{ qualitySummary(s.quality) }}</span>
+            <small>Review evidence</small>
+          </summary>
+          <div class="cs-quality-evidence">
+            <dl>
+              <div>
+                <dt>Source</dt>
+                <dd>{{ provenanceLabel(s.quality) }}</dd>
+              </div>
+              <div>
+                <dt>Transcript</dt>
+                <dd>{{ s.quality.transcript_fresh ? 'Current for this audio' : 'Missing or stale' }}</dd>
+              </div>
+              <div v-if="s.quality.review?.start_sec !== undefined">
+                <dt>Time</dt>
+                <dd>{{ qualityTimeRange(s.quality) }}</dd>
+              </div>
+              <div v-if="s.quality.inspected_at">
+                <dt>Checked</dt>
+                <dd>{{ formatCheckedAt(s.quality.inspected_at) }}</dd>
+              </div>
+              <div v-if="s.quality.receipt?.model_id || s.quality.receipt?.provider_name">
+                <dt>Narration receipt</dt>
+                <dd>{{ receiptLabel(s.quality) }}</dd>
+              </div>
+              <div v-if="s.quality.repair?.candidate">
+                <dt>Repair candidate</dt>
+                <dd>{{ s.quality.repair.candidate.model_id }} · {{ s.quality.repair.candidate.voice_id }}</dd>
+              </div>
+              <div v-if="s.quality.repair?.verification">
+                <dt>Verification allowance</dt>
+                <dd>{{ verificationSummary(s.quality) }}</dd>
+              </div>
+              <div v-if="s.quality.active_check">
+                <dt>Alternate transcript check</dt>
+                <dd>{{ activeCheckSummary(s.quality) }}</dd>
+              </div>
+            </dl>
+            <blockquote v-if="s.quality.review?.excerpt">
+              <span>Transcript excerpt</span>
+              “{{ s.quality.review.excerpt }}”
+            </blockquote>
+            <blockquote v-if="s.quality.review?.script_excerpt">
+              <span>Script excerpt</span>
+              “{{ s.quality.review.script_excerpt }}”
+            </blockquote>
+            <p v-if="s.quality.repair?.state === 'needs_approval'" class="cs-quality-approval" role="status">
+              The candidate audio is saved. Approving its exact verification quote resumes this action without generating the narration again.
+            </p>
+            <p v-else-if="s.quality.repair?.refresh_needed" class="cs-quality-approval" role="status">
+              Candidate audio passed its check. Run Audio Assembly with the intended mix settings before this repair can be marked fixed.
+            </p>
+            <div class="cs-quality-actions">
+              <button
+                v-if="s.present_chunks > 0"
+                type="button"
+                class="btn btn-sm btn-secondary"
+                @click="togglePlay(s, s.quality.review?.start_sec)"
+              >{{ playingSlug === s.slug ? 'Stop audio' : 'Play audio' }}</button>
+              <NuxtLink
+                class="btn btn-sm btn-secondary"
+                :to="`/projects/${projectSlug}/scripts?episode_id=${encodeURIComponent(episodeId)}`"
+              >View script</NuxtLink>
+              <button
+                type="button"
+                class="btn btn-sm btn-primary"
+                :disabled="inlineActionDisabled(s)"
+                @click="emit('generate-section', { slug: s.slug, mode: 'regenerate' })"
+              >Regenerate audio</button>
+              <NuxtLink
+                class="btn btn-sm btn-secondary"
+                :to="`/projects/${projectSlug}/subtitles?episode_id=${encodeURIComponent(episodeId)}&section=${encodeURIComponent(s.slug)}`"
+              >Re-transcribe</NuxtLink>
+              <NuxtLink
+                v-if="s.quality.repair?.refresh_needed"
+                class="btn btn-sm btn-primary"
+                :to="`/projects/${projectSlug}/audio-merge?episode_id=${encodeURIComponent(episodeId)}`"
+              >Run Audio Assembly</NuxtLink>
+              <button
+                v-if="canDoubleCheck(s.quality)"
+                type="button"
+                class="btn btn-sm btn-secondary"
+                :disabled="qualityApprovalDisabled || s.quality.active_check?.state === 'checking'"
+                @click="emit('double-check-quality', { slug: s.slug, quality: s.quality })"
+              >{{ activeCheckActionLabel(s.quality) }}</button>
+              <button
+                v-if="s.quality.repair?.state === 'needs_approval'"
+                type="button"
+                class="btn btn-sm btn-primary"
+                :disabled="qualityApprovalDisabled"
+                title="Review the exact verification quote and choose the new ceiling."
+                @click="emit('approve-quality', { slug: s.slug, quality: s.quality })"
+              >{{ approvalLabel(s.quality) }}</button>
+              <button
+                v-else-if="s.quality.repair?.state !== 'candidate_ready'"
+                type="button"
+                class="btn btn-sm btn-ghost"
+                :disabled="qualityActionDisabled"
+                @click="emit('check-quality', s.slug)"
+              >{{ qualityMode === 'check_and_repair' ? 'Check & repair' : 'Check again' }}</button>
+            </div>
+          </div>
+        </details>
       </li>
     </ul>
 
@@ -143,6 +256,13 @@
 
 <script setup lang="ts">
 import type { Job } from '~/composables/useJobs'
+import {
+  audioQualityLabel,
+  audioQualityTone,
+  type AudioQualityEvidence,
+  type AudioQualityMode,
+  type AudioQualityState,
+} from '~/types/audio-quality'
 
 interface SectionRow {
   label: string
@@ -159,6 +279,8 @@ interface SectionRow {
   audio_stale?: boolean
   /** Backend-owned downstream freshness after an audio replacement. */
   subtitles_stale?: boolean
+  /** Optional project-scoped quality evidence for the active audio mapping. */
+  quality?: AudioQualityEvidence
 }
 
 interface SectionAction {
@@ -184,10 +306,16 @@ const props = withDefaults(defineProps<{
   inlineGenerateDisabled?: boolean
   /** Explains a disabled inline action without duplicating parent validation. */
   inlineGenerateDisabledReason?: string
+  qualityMode?: AudioQualityMode
+  qualityActionDisabled?: boolean
+  qualityApprovalDisabled?: boolean
 }>(), {
   model: '',
   inlineGenerateDisabled: false,
   inlineGenerateDisabledReason: '',
+  qualityMode: 'off',
+  qualityActionDisabled: false,
+  qualityApprovalDisabled: false,
 })
 
 const emit = defineEmits<{
@@ -196,6 +324,9 @@ const emit = defineEmits<{
   /** Selection resolved against the current episode rows. */
   'update:effective-selected': [slugs: string[]]
   'update:missing-sections': [slugs: string[]]
+  'check-quality': [slug: string]
+  'approve-quality': [request: { slug: string; quality: AudioQualityEvidence }]
+  'double-check-quality': [request: { slug: string; quality: AudioQualityEvidence }]
 }>()
 
 const { get } = useApi()
@@ -217,7 +348,7 @@ function stopPlay() {
   playingSlug.value = null
 }
 
-function togglePlay(s: SectionRow) {
+function togglePlay(s: SectionRow, startSeconds?: number) {
   if (playingSlug.value === s.slug) { stopPlay(); return }
   stopPlay()
   // Relative /api URL — same origin as the SPA, so cookies (server mode) ride
@@ -226,11 +357,133 @@ function togglePlay(s: SectionRow) {
   const el = new Audio(url)
   audioEl = el
   playingSlug.value = s.slug
+  if (typeof startSeconds === 'number' && Number.isFinite(startSeconds) && startSeconds > 0) {
+    const seekToEvidence = () => { el.currentTime = startSeconds }
+    if (el.readyState >= 1) seekToEvidence()
+    else el.addEventListener('loadedmetadata', seekToEvidence, { once: true })
+  }
   el.addEventListener('ended', () => { if (audioEl === el) stopPlay() })
   el.addEventListener('error', () => {
     if (audioEl === el) { stopPlay(); showError("Couldn't play this section's audio.") }
   })
   el.play().catch(() => { if (audioEl === el) stopPlay() })
+}
+
+function qualitySummary(quality: AudioQualityEvidence): string {
+  if (quality.repair?.state === 'needs_approval') {
+    const quote = quality.repair.verification?.quoted_credit_cost
+    return quote === undefined
+      ? 'The verification quote needs your approval.'
+      : `Verification is quoted at ${quote.toLocaleString()} credit${quote === 1 ? '' : 's'} and needs approval.`
+  }
+  if (quality.active_check?.state === 'checking') return 'The alternate transcript check is running on the active audio.'
+  if (quality.active_check?.state === 'no_issue_detected') return 'No issue was detected by the two-model transcript check.'
+  if (quality.active_check?.state === 'review_needed') return 'The two-model transcript check still needs your review.'
+  if (quality.active_check?.state === 'needs_approval') return 'The updated alternate transcript quote needs your approval.'
+  if (quality.active_check?.state === 'quoted') return 'The alternate transcript check is quoted and waiting for approval.'
+  if (quality.reason) return quality.reason
+  const knownReason: Record<string, string> = {
+    provenance_missing: 'Source receipt unavailable. This audio is not yet verified.',
+    subtitle_stale: 'The saved transcript belongs to an older audio source.',
+    subtitle_missing: 'A chapter transcript is needed before this audio can be checked.',
+    active_source_changed: 'The active audio changed after its saved quality evidence.',
+    script_changed: 'The script changed after this audio was generated.',
+    raw_alignment_inconclusive: 'The saved transcript does not match the current script closely enough to decide why.',
+    fresh_alignment_accepted: 'Saved source and transcript evidence found no mismatch.',
+  }
+  if (quality.reason_code && knownReason[quality.reason_code]) return knownReason[quality.reason_code]
+  if (quality.provenance === 'legacy') return 'Source receipt unavailable. This audio is not yet verified.'
+  if (quality.provenance === 'script_changed') return 'The script changed after this audio was generated.'
+  if (!quality.transcript_fresh) return 'A current transcript is needed before this audio can be checked.'
+  return audioQualityLabel(quality.state)
+}
+
+function displayQualityState(quality: AudioQualityEvidence): AudioQualityState {
+  if (quality.repair?.state === 'fixed') return 'fixed'
+  if (quality.repair?.state === 'still_needs_review') return 'still_needs_review'
+  if (quality.repair?.state === 'candidate_ready') return 'repairing'
+  if (quality.repair?.state === 'needs_approval') return 'review_needed'
+  if (quality.active_check?.state === 'checking') return 'checking'
+  if (quality.active_check?.state === 'no_issue_detected') return 'no_issue_detected'
+  if (quality.active_check?.state === 'review_needed') return 'still_needs_review'
+  if (quality.active_check?.state === 'needs_approval') return 'review_needed'
+  if (quality.active_check?.state === 'quoted') return 'review_needed'
+  return quality.state
+}
+
+function verificationSummary(quality: AudioQualityEvidence): string {
+  const verification = quality.repair?.verification
+  if (!verification) return ''
+  const used = verification.committed_credits.toLocaleString()
+  const ceiling = verification.credit_ceiling.toLocaleString()
+  const quote = verification.quoted_credit_cost
+  return quote === undefined
+    ? `${used} of ${ceiling} credits committed`
+    : `${quote.toLocaleString()} credits quoted · ${used} of ${ceiling} committed`
+}
+
+function approvalLabel(quality: AudioQualityEvidence): string {
+  const quote = quality.repair?.verification?.quoted_credit_cost
+  return quote === undefined
+    ? 'Review verification quote'
+    : `Approve verification · ${quote.toLocaleString()} credits`
+}
+
+function canDoubleCheck(quality: AudioQualityEvidence): boolean {
+  const state = quality.active_check?.state
+  return props.qualityMode === 'check_and_repair'
+    && quality.provenance === 'known'
+    && quality.transcript_fresh
+    && (state ? ['quoted', 'checking', 'needs_approval'].includes(state) : quality.state === 'review_needed')
+}
+
+function activeCheckActionLabel(quality: AudioQualityEvidence): string {
+  if (quality.active_check?.state === 'checking') return 'Double-checking transcript…'
+  if (quality.active_check?.state === 'needs_approval') return 'Review updated double-check quote'
+  if (quality.active_check?.state === 'quoted') return 'Review double-check quote'
+  return 'Double-check transcript · may use credits'
+}
+
+function activeCheckSummary(quality: AudioQualityEvidence): string {
+  const check = quality.active_check
+  if (!check) return ''
+  if (check.state === 'checking') return `Checking with ${check.model_id}`
+  if (check.state === 'no_issue_detected') return `No issue detected by ${check.model_id}`
+  if (check.state === 'review_needed') return `Two-model check still needs review · ${check.model_id}`
+  const quotes = Object.values(check.verification.quotes)
+  const total = quotes.every(quote => typeof quote.quoted_credit_cost === 'number')
+    ? quotes.reduce((sum, quote) => sum + Number(quote.quoted_credit_cost), 0)
+    : null
+  return total === null ? `Quote ready · ${check.model_id}` : `Quote ready · ${total.toLocaleString()} credits · ${check.model_id}`
+}
+
+function provenanceLabel(quality: AudioQualityEvidence): string {
+  if (quality.provenance === 'known') return 'Matches saved generation evidence'
+  if (quality.provenance === 'script_changed') return 'Script changed after generation'
+  return 'Source receipt unavailable'
+}
+
+function qualityTimeRange(quality: AudioQualityEvidence): string {
+  const start = quality.review?.start_sec
+  const end = quality.review?.end_sec
+  if (start === undefined) return ''
+  return end === undefined ? formatClock(start) : `${formatClock(start)}–${formatClock(end)}`
+}
+
+function formatClock(seconds: number): string {
+  const safe = Math.max(0, Math.floor(seconds))
+  return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, '0')}`
+}
+
+function formatCheckedAt(value: string): string {
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : value
+}
+
+function receiptLabel(quality: AudioQualityEvidence): string {
+  return [quality.receipt?.model_id, quality.receipt?.provider_name, quality.receipt?.voice_id]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 // Stop playback when the episode changes or the component unmounts.
@@ -494,13 +747,77 @@ watch(() => [props.episodeId, props.refreshKey, props.model], refresh, { immedia
 
 .cs-row {
   display: grid;
-  grid-template-columns: auto 1fr auto auto auto auto;
+  grid-template-columns: auto 1fr auto auto auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
   cursor: pointer;
   font-size: 13px;
 }
+.cs-quality-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 650;
+  white-space: nowrap;
+}
+.cs-quality-pill[data-tone="info"] { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); color: var(--accent); }
+.cs-quality-pill[data-tone="success"] { border-color: rgba(34, 197, 94, .35); color: rgb(22, 163, 74); }
+.cs-quality-pill[data-tone="warning"] { border-color: rgba(234, 179, 8, .4); color: rgb(202, 138, 4); }
+.cs-quality-review {
+  margin: 0 12px 10px 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+.cs-quality-review > summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 1.35;
+}
+.cs-quality-review > summary span { min-width: 0; overflow-wrap: anywhere; }
+.cs-quality-review > summary small { flex: none; color: var(--accent); font-weight: 650; }
+.cs-quality-evidence { padding: 2px 10px 10px; }
+.cs-quality-evidence dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 8px 0;
+}
+.cs-quality-evidence dl div { min-width: 0; }
+.cs-quality-evidence dt { color: var(--text-muted); font-size: var(--font-xs); }
+.cs-quality-evidence dd { margin: 2px 0 0; color: var(--text-primary); font-size: var(--font-sm); overflow-wrap: anywhere; }
+.cs-quality-evidence blockquote {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+.cs-quality-evidence blockquote span { display: block; margin-bottom: 3px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 650; }
+.cs-quality-approval {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 7%, var(--bg-secondary));
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  line-height: 1.45;
+}
+.cs-quality-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .cs-row input[type="checkbox"] { margin: 0; }
 
 .cs-generate {
@@ -653,7 +970,7 @@ watch(() => [props.episodeId, props.refreshKey, props.model], refresh, { immedia
     grid-template-columns: auto minmax(0, 1fr) auto auto;
     grid-template-areas:
       "check name status generate"
-      "check meta play play";
+      "check meta quality play";
   }
   .cs-row > input[type="checkbox"] { grid-area: check; }
   .cs-name { grid-area: name; }
@@ -663,11 +980,28 @@ watch(() => [props.episodeId, props.refreshKey, props.model], refresh, { immedia
     white-space: normal;
   }
   .cs-pill { grid-area: status; }
+  .cs-quality-pill { grid-area: quality; justify-self: end; }
   .cs-generate { grid-area: generate; }
   .cs-play,
   .cs-play-spacer {
     grid-area: play;
     justify-self: end;
   }
+}
+@media (max-width: 560px) {
+  .chapter-selector { padding: 10px; }
+  .cs-actions { width: 100%; overflow-x: auto; }
+  .cs-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "check name status"
+      "check meta quality"
+      "check generate play";
+  }
+  .cs-generate { justify-self: start; }
+  .cs-quality-review { margin-left: 10px; }
+  .cs-quality-review > summary { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .cs-quality-evidence dl { grid-template-columns: 1fr; }
+  .cs-quality-actions .btn { flex: 1 1 132px; justify-content: center; }
 }
 </style>

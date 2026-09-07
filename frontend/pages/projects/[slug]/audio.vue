@@ -105,6 +105,11 @@
             <span v-if="modelRate.notice"> {{ modelRate.notice }}</span>
             <template v-if="selectedTtsModel.supports_voice_cloning"> Supports voice cloning.</template>
             <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
+            <button v-if="ttsCatalogStaleNote" type="button" class="btn btn-sm btn-ghost" :disabled="ttsModelsLoading" @click="loadTtsModels">Retry</button>
+          </p>
+          <p v-else-if="ttsCatalogStaleNote" class="text-warning text-xs hint-line" role="status">
+            {{ ttsCatalogStaleNote }} · display only.
+            <button type="button" class="btn btn-sm btn-ghost" :disabled="ttsModelsLoading" @click="loadTtsModels">Retry</button>
           </p>
         </div>
       </div>
@@ -116,7 +121,7 @@
             v-model="form.voice"
             :project-slug="slug"
             :audio-model-provider="currentAudioProvider"
-            :tts-model-id="form.model"
+            :tts-model-id="selectedTtsModelEligible ? form.model : ''"
             :tts-model-name="selectedTtsModel?.display_name || ''"
             :tts-model-provider-id="selectedTtsModel?.provider_id || ''"
             :tts-model-description="selectedTtsModel?.description || ''"
@@ -162,13 +167,168 @@
         :episode-id="form.episode_id"
         v-model:selected="form.sections"
         :model="form.model"
-        :refresh-key="audioStatus.total"
+        :refresh-key="audioStatus.total + sectionRefreshKey"
         :inline-generate-disabled="inlineGenerateDisabled"
         :inline-generate-disabled-reason="inlineGenerateDisabledReason"
+        :quality-mode="audioQualityMode"
+        :quality-action-disabled="qualitySectionActionDisabled"
+        :quality-approval-disabled="qualityHeldApprovalDisabled"
         @update:effective-selected="onEffectiveSelectionChange"
         @update:missing-sections="onMissingSectionsChange"
         @generate-section="submitSection"
+        @check-quality="checkQualitySection"
+        @approve-quality="approveHeldQualityRepair"
+        @double-check-quality="quoteActiveAudioCheck"
       />
+
+      <section v-if="form.episode_id" class="audio-quality-overview" aria-labelledby="audio-quality-title">
+        <div>
+          <div class="audio-quality-heading">
+            <h3 id="audio-quality-title">Audio quality</h3>
+            <span class="audio-quality-mode">{{ audioQualityModeLabel }}</span>
+          </div>
+          <p>{{ audioQualityModeDescription }}</p>
+          <p v-if="audioQualityMode === 'check_and_repair' && audioQualityAlternateModelName" class="audio-quality-model">
+            Alternate transcription check: <strong>{{ audioQualityAlternateModelName }}</strong>
+          </p>
+          <p v-if="qualityTranscriptionCatalogNote" class="audio-quality-catalog-warning" role="status">
+            {{ qualityTranscriptionCatalogNote }} · display only.
+            <button type="button" class="btn btn-sm btn-ghost" @click="loadTranscriptionModels">Retry</button>
+          </p>
+          <p v-else-if="transcriptionCatalogError" class="audio-quality-catalog-warning" role="status">
+            {{ transcriptionCatalogError }}
+            <button type="button" class="btn btn-sm btn-ghost" @click="loadTranscriptionModels">Retry</button>
+          </p>
+          <label v-if="audioQualityMode === 'check_and_repair'" class="audio-quality-ceiling">
+            <span>Verification credit ceiling</span>
+            <input
+              v-model.number="qualityVerificationCreditCeiling"
+              class="input input-sm"
+              type="number"
+              min="1"
+              step="1"
+              inputmode="numeric"
+              placeholder="Enter credits"
+            />
+            <small>
+              Action-specific. Verification is quoted only after candidate audio exists; a higher quote holds the candidate for your approval.
+            </small>
+          </label>
+        </div>
+        <div class="audio-quality-overview-actions">
+          <NuxtLink :to="`/projects/${slug}/settings#production`" class="btn btn-sm btn-secondary">Change setting</NuxtLink>
+          <button
+            v-if="audioQualityMode !== 'off'"
+            type="button"
+            class="btn btn-sm btn-primary"
+            :disabled="qualityActionDisabled"
+            @click="runAudioQualityCheck(effectiveSections)"
+          >{{ audioQualityActionLabel }}</button>
+        </div>
+        <p v-if="qualityActionError" class="audio-quality-error" role="alert">{{ qualityActionError }}</p>
+        <p v-if="qualityActionPending" class="audio-quality-retry" role="status">
+          The previous quality submission was not confirmed. Retry with the same scope, or change the selection or narration controls to start a new action.
+        </p>
+      </section>
+
+      <Modal
+        :visible="heldQualityApproval !== null"
+        size="sm"
+        labelledby="quality-approval-title"
+        :close-on-backdrop="!qualitySubmitting"
+        :close-on-escape="!qualitySubmitting"
+        @close="closeHeldQualityApproval"
+      >
+        <form v-if="heldQualityApproval" class="quality-approval-dialog" @submit.prevent="submitHeldQualityApproval">
+          <h3 id="quality-approval-title">Review verification for {{ heldQualityApproval.label }}</h3>
+          <p>
+            The saved candidate is ready. The additional verification quote is
+            <strong>{{ heldQualityApproval.quote.toLocaleString() }} credit{{ heldQualityApproval.quote === 1 ? '' : 's' }}</strong>
+            <template v-if="heldQualityApproval.priceVersion"> · {{ heldQualityApproval.priceVersion }}</template>.
+          </p>
+          <dl class="quality-approval-facts">
+            <div><dt>Candidate</dt><dd>{{ heldQualityApproval.candidate.model_id }} · {{ heldQualityApproval.candidate.voice_id }}</dd></div>
+            <div><dt>Already committed</dt><dd>{{ heldQualityApproval.committedCredits.toLocaleString() }} credits</dd></div>
+            <div><dt>Current ceiling</dt><dd>{{ heldQualityApproval.currentCeiling.toLocaleString() }} credits</dd></div>
+          </dl>
+          <label class="quality-approval-ceiling">
+            <span>New action total ceiling</span>
+            <input
+              v-model.number="heldQualityApprovalCeiling"
+              class="input"
+              type="number"
+              :min="heldQualityRequiredCeiling"
+              step="1"
+              inputmode="numeric"
+              required
+              @input="qualityActionError = ''"
+            />
+            <small>
+              At least {{ heldQualityRequiredCeiling.toLocaleString() }} credits. This is the total ceiling for this saved repair action, including credits already committed.
+            </small>
+          </label>
+          <p class="quality-approval-note">
+            The candidate audio is reused. Approving verification does not generate the narration again.
+          </p>
+          <p v-if="qualityActionError" class="audio-quality-error" role="alert">{{ qualityActionError }}</p>
+          <div class="quality-approval-actions">
+            <button type="button" class="btn btn-secondary" :disabled="qualitySubmitting" @click="closeHeldQualityApproval">Cancel</button>
+            <button type="submit" class="btn btn-primary" :disabled="qualitySubmitting || heldQualityApprovalInvalid">
+              {{ heldQualityApprovalButtonLabel }}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        :visible="activeCheckApproval !== null"
+        size="sm"
+        labelledby="active-check-approval-title"
+        :close-on-backdrop="!qualitySubmitting"
+        :close-on-escape="!qualitySubmitting"
+        @close="closeActiveCheckApproval"
+      >
+        <form v-if="activeCheckApproval" class="quality-approval-dialog" @submit.prevent="submitActiveAudioCheck">
+          <h3 id="active-check-approval-title">Double-check {{ activeCheckApproval.label }}?</h3>
+          <p>
+            A published alternate transcription model will check the current active audio. This stores raw review evidence only; it does not regenerate audio or replace subtitles.
+          </p>
+          <dl class="quality-approval-facts">
+            <div><dt>Alternate model</dt><dd>{{ activeCheckApproval.modelId }}</dd></div>
+            <div v-for="section in activeCheckApproval.sections" :key="section.slug">
+              <dt>{{ section.slug.replaceAll('_', ' ') }} · whole chapter</dt>
+              <dd>{{ activeCheckQuoteLabel(section.quote.quoted_credit_cost, section.quote.price_version) }}</dd>
+            </div>
+            <div><dt>Exact quoted total</dt><dd>{{ activeCheckExactTotalLabel }}</dd></div>
+          </dl>
+          <label class="quality-approval-ceiling">
+            <span>Verification credit ceiling</span>
+            <input
+              v-model.number="activeCheckApprovalCeiling"
+              class="input"
+              type="number"
+              :min="activeCheckRequiredCeiling"
+              step="1"
+              inputmode="numeric"
+              required
+              @input="qualityActionError = ''"
+            />
+            <small>
+              Action-specific. At least {{ activeCheckRequiredCeiling.toLocaleString() }} credits for this exact quote; unused allowance is not a charge.
+            </small>
+          </label>
+          <p v-if="activeCheckExactTotal === null" class="audio-quality-error" role="alert">
+            GenStudio did not return an exact total. Retry the quote before approving paid work.
+          </p>
+          <p v-if="qualityActionError" class="audio-quality-error" role="alert">{{ qualityActionError }}</p>
+          <div class="quality-approval-actions">
+            <button type="button" class="btn btn-secondary" :disabled="qualitySubmitting" @click="closeActiveCheckApproval">Cancel</button>
+            <button type="submit" class="btn btn-primary" :disabled="qualitySubmitting || activeCheckApprovalInvalid">
+              {{ activeCheckApprovalButtonLabel }}
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       <section v-if="form.episode_id" class="audio-action-bar" aria-label="Audio selection and actions">
         <div class="audio-action-context">
@@ -484,14 +644,19 @@ import {
   resolveTtsControlValues,
   type GenStudioTtsControl,
 } from '~/utils/tts-controls'
+import type { AudioQualityActiveCheckQuote, AudioQualityCandidateQuote, AudioQualityEvidence, AudioQualityMode, AudioQualityPlan } from '~/types/audio-quality'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Generator')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
+const { ask } = useConfirm()
 const freshAudioAction = useFreshGenerationAction()
 const audioRetryPending = freshAudioAction.hasPending
+const freshQualityAction = useFreshGenerationAction()
+const qualityActionPending = freshQualityAction.hasPending
+const activeQualityCheckAction = useFreshGenerationAction()
 const { project, config, refreshConfig } = useProject()
 const {
   models: ttsModels,
@@ -502,6 +667,18 @@ const {
   loadModels: loadTtsModels,
   quoteNarration,
 } = useGenStudioVoices()
+const {
+  models: transcriptionModels,
+  error: transcriptionCatalogError,
+  isStale: transcriptionCatalogStale,
+  isUsable: transcriptionCatalogUsable,
+  sourceFreshness: transcriptionCatalogFreshness,
+  load: loadTranscriptionModels,
+} = useGenStudioTranscriptionModels()
+const qualityTranscriptionCatalogNote = computed(() => genstudioStaleNote(
+  transcriptionCatalogStale.value,
+  transcriptionCatalogFreshness.value?.loadedAt ?? null,
+))
 
 /**
  * Every published figure on this page — the rate, the minimum, the per-request
@@ -534,10 +711,13 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
       `Up to ${model.maximum_input_characters.toLocaleString()} characters per request`,
     ].join(' · '),
     description: model.description,
-    disabled: !model.generation_enabled || model.locked === true,
-    disabledReason: genStudioModelLockReason(model) || (model.generation_enabled ? '' : 'GenStudio has generation turned off for this model.'),
+    disabled: ttsModelsStale.value || !model.generation_enabled || model.locked === true,
+    disabledReason: ttsModelsStale.value
+      ? 'Last-known catalog only. Refresh GenStudio before starting new narration work.'
+      : genStudioModelLockReason(model) || (model.generation_enabled ? '' : 'GenStudio has generation turned off for this model.'),
     badges: [
       ...(model.supports_voice_cloning ? [{ label: 'Voice cloning', tone: 'info' as const }] : []),
+      ...(ttsModelsStale.value ? [{ label: 'last known', tone: 'warning' as const }] : []),
       ...(model.locked ? [{ label: 'Locked', tone: 'warning' as const }] : []),
       ...(!model.generation_enabled ? [{ label: 'Unavailable', tone: 'paid' as const }] : []),
     ],
@@ -548,6 +728,9 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
 /** The one model every published figure on this page is read from. */
 const selectedTtsModel = computed<GenStudioTtsModel | null>(() =>
   ttsModels.value.find(model => model.id === form.model) || null)
+const selectedTtsModelEligible = computed(() => !ttsModelsStale.value
+  && selectedTtsModel.value?.generation_enabled === true
+  && selectedTtsModel.value.locked !== true)
 
 // v1.0.157 — `currentAudioProvider` computed + the cross-source voice
 // reset watcher moved BELOW the `form = reactive({...})` declaration
@@ -764,6 +947,7 @@ interface SectionAction { slug: string; mode: 'generate' | 'regenerate' }
 // their exact target without a global mode or an implicit "all" fallback.
 const effectiveSections = ref<string[]>([])
 const missingSections = ref<string[]>([])
+const sectionRefreshKey = ref(0)
 function onEffectiveSelectionChange(slugs: string[]) {
   effectiveSections.value = slugs
 }
@@ -776,6 +960,437 @@ const selectionCountLabel = computed(() => {
 })
 function scopeSummary(slugs: string[]): string {
   return slugs.map(slug => slug.replaceAll('_', ' ')).join(', ')
+}
+
+const audioQualityMode = computed<AudioQualityMode>(() => {
+  const mode = (config.value as any)?.audio_quality?.mode
+  return mode === 'flag_issues' || mode === 'check_and_repair' ? mode : 'off'
+})
+const audioQualityAlternateModelId = computed(() =>
+  String((config.value as any)?.audio_quality?.alternate_transcription_model || ''))
+const audioQualityAlternateModelName = computed(() => {
+  const id = audioQualityAlternateModelId.value
+  if (!id) return ''
+  return transcriptionModels.value.find(model => model.id === id)?.display_name || id
+})
+const audioQualityModeLabel = computed(() => audioQualityMode.value === 'flag_issues'
+  ? 'Flag issues'
+  : audioQualityMode.value === 'check_and_repair'
+    ? 'Check & repair'
+    : 'Off')
+const audioQualityModeDescription = computed(() => {
+  if (audioQualityMode.value === 'flag_issues') {
+    return 'Checks saved source and transcript evidence locally. It does not start provider work or spend credits.'
+  }
+  if (audioQualityMode.value === 'check_and_repair') {
+    return 'Checks selected chapters, then shows an advisory narration estimate before a repair can start. Verification is quoted after candidate audio exists.'
+  }
+  return 'Quality checks are optional. Normal generation and chapter regeneration remain available.'
+})
+
+watch(audioQualityMode, (mode) => {
+  if (mode === 'check_and_repair') void loadTranscriptionModels()
+}, { immediate: true })
+
+const qualitySubmitting = ref(false)
+const qualityActionError = ref('')
+const qualityApprovedActionId = ref('')
+const qualityHeldApprovalKey = ref('')
+const qualityHeldApprovalActionId = ref('')
+const qualityVerificationCreditCeiling = ref<number | ''>('')
+interface HeldQualityApproval {
+  projectSlug: string
+  episodeId: string
+  slug: string
+  label: string
+  actionId: string
+  sourceFingerprint: string
+  quote: number
+  priceVersion: string
+  committedCredits: number
+  currentCeiling: number
+  candidate: { model_id: string; voice_id: string }
+}
+const heldQualityApproval = ref<HeldQualityApproval | null>(null)
+const heldQualityApprovalCeiling = ref<number | ''>('')
+interface ActiveCheckApproval {
+  projectSlug: string
+  episodeId: string
+  label: string
+  actionId: string
+  sourceFingerprint: string
+  modelId: string
+  sections: AudioQualityActiveCheckQuote['sections']
+  totalQuotedCredits: number | null
+}
+const activeCheckApproval = ref<ActiveCheckApproval | null>(null)
+const activeCheckApprovalCeiling = ref<number | ''>('')
+const activeCheckApprovedKey = ref('')
+const activeCheckApprovedActionId = ref('')
+const qualityVerificationCeilingValid = computed(() =>
+  Number.isInteger(qualityVerificationCreditCeiling.value)
+  && Number(qualityVerificationCreditCeiling.value) > 0)
+const selectedAlternateTranscriptionModel = computed(() =>
+  transcriptionModels.value.find(model => model.id === audioQualityAlternateModelId.value))
+const qualityRepairSelectionUnavailable = computed(() => {
+  if (audioQualityMode.value !== 'check_and_repair') return false
+  const alternate = selectedAlternateTranscriptionModel.value
+  return !audioQualityAlternateModelId.value
+    || !transcriptionCatalogUsable.value
+    || !alternate
+    || !alternate.available
+    || alternate.locked === true
+})
+const qualitySectionActionDisabled = computed(() =>
+  qualitySubmitting.value
+  || audioQualityMode.value === 'off'
+  || qualityRepairSelectionUnavailable.value
+  || (audioQualityMode.value === 'check_and_repair'
+    && (!selectedTtsModelEligible.value || !selectedVoiceCompatible.value))
+  || (audioQualityMode.value === 'check_and_repair' && !qualityVerificationCeilingValid.value))
+const qualityHeldApprovalDisabled = computed(() =>
+  qualitySubmitting.value
+  || audioQualityMode.value !== 'check_and_repair'
+  || qualityRepairSelectionUnavailable.value)
+const qualityActionDisabled = computed(() =>
+  qualitySectionActionDisabled.value || !effectiveSections.value.length)
+const heldQualityRequiredCeiling = computed(() => {
+  const approval = heldQualityApproval.value
+  return approval
+    ? Math.max(approval.currentCeiling + 1, approval.committedCredits + approval.quote)
+    : 1
+})
+const heldQualityApprovalInvalid = computed(() =>
+  !Number.isSafeInteger(Number(heldQualityApprovalCeiling.value))
+  || Number(heldQualityApprovalCeiling.value) < heldQualityRequiredCeiling.value)
+const heldQualityApprovalKey = computed(() => {
+  const approval = heldQualityApproval.value
+  if (!approval || heldQualityApprovalInvalid.value) return ''
+  return JSON.stringify({
+    action: approval.actionId,
+    ceiling: Number(heldQualityApprovalCeiling.value),
+    quote: approval.quote,
+    price_version: approval.priceVersion,
+  })
+})
+const heldQualityApprovalButtonLabel = computed(() => {
+  if (qualitySubmitting.value) return 'Submitting…'
+  if (heldQualityApprovalKey.value && qualityHeldApprovalKey.value === heldQualityApprovalKey.value) {
+    return 'Retry submission'
+  }
+  const quote = heldQualityApproval.value?.quote
+  return quote === undefined ? 'Approve verification' : `Approve +${quote.toLocaleString()} credits`
+})
+const activeCheckExactTotal = computed(() => activeCheckApproval.value?.totalQuotedCredits ?? null)
+const activeCheckRequiredCeiling = computed(() => Math.max(1, Math.ceil(activeCheckExactTotal.value || 0)))
+const activeCheckApprovalInvalid = computed(() => activeCheckExactTotal.value === null
+  || !Number.isSafeInteger(Number(activeCheckApprovalCeiling.value))
+  || Number(activeCheckApprovalCeiling.value) < activeCheckRequiredCeiling.value)
+const activeCheckApprovalKey = computed(() => {
+  const approval = activeCheckApproval.value
+  if (!approval || activeCheckApprovalInvalid.value) return ''
+  return JSON.stringify({ action: approval.actionId, ceiling: Number(activeCheckApprovalCeiling.value) })
+})
+const activeCheckExactTotalLabel = computed(() => activeCheckExactTotal.value === null
+  ? 'Unavailable'
+  : `${activeCheckExactTotal.value.toLocaleString()} credit${activeCheckExactTotal.value === 1 ? '' : 's'}`)
+const activeCheckApprovalButtonLabel = computed(() => {
+  if (qualitySubmitting.value) return 'Submitting…'
+  if (activeCheckApprovalKey.value && activeCheckApprovedKey.value === activeCheckApprovalKey.value) {
+    return 'Retry submission'
+  }
+  return activeCheckExactTotal.value === null
+    ? 'Retry quote'
+    : `Approve ${activeCheckExactTotalLabel.value}`
+})
+const qualityCandidateAudio = computed(() => ({
+  model: form.model,
+  voice: form.voice,
+  ...(supportsSpeed.value ? { speed: form.speed } : {}),
+  ...(Object.keys(resolvedControls.value).length ? { controls: resolvedControls.value } : {}),
+}))
+const audioQualityRequestScope = (sections: string[]) => ({
+  episode_id: form.episode_id,
+  mode: audioQualityMode.value,
+  sections: [...sections].sort(),
+  ...(audioQualityMode.value === 'check_and_repair' ? { candidate_audio: qualityCandidateAudio.value } : {}),
+  ...(audioQualityMode.value === 'check_and_repair'
+    ? { verification_credit_ceiling: Number(qualityVerificationCreditCeiling.value) }
+    : {}),
+})
+const audioQualityActionLabel = computed(() => {
+  if (qualitySubmitting.value) return 'Checking…'
+  if (!effectiveSections.value.length) return 'Select chapters to check'
+  if (audioQualityMode.value === 'check_and_repair'
+    && (!selectedTtsModelEligible.value || !selectedVoiceCompatible.value)) return 'Choose a current model and voice'
+  if (audioQualityMode.value === 'check_and_repair' && !qualityVerificationCeilingValid.value) {
+    return 'Enter verification ceiling'
+  }
+  if (freshQualityAction.isRetry(audioQualityRequestScope(effectiveSections.value), 'quality')) {
+    return qualityApprovedActionId.value ? 'Retry repair submission' : 'Retry quality check'
+  }
+  return audioQualityMode.value === 'check_and_repair' ? 'Check selected & review repair' : 'Check selected'
+})
+
+function candidateTtsQuoteLabel(quote: AudioQualityCandidateQuote | undefined): string {
+  if (!quote) return 'No advisory total was returned; the current published rate still applies'
+  if (quote.quotable && typeof quote.total_credits === 'number') {
+    const requests = quote.part_count ? ` across ${quote.part_count} request${quote.part_count === 1 ? '' : 's'}` : ''
+    return `${formatCredits(quote.total_credits)}${requests}`
+  }
+  return quote.unavailable_detail || 'An advisory total is unavailable for this model'
+}
+
+function activeCheckQuoteLabel(credits: number | undefined, priceVersion?: string): string {
+  if (typeof credits !== 'number') return 'Exact price unavailable'
+  return `${credits.toLocaleString()} credit${credits === 1 ? '' : 's'}${priceVersion ? ` · ${priceVersion}` : ''}`
+}
+
+function activeCheckTotal(plan: AudioQualityActiveCheckQuote): number | null {
+  if (typeof plan.total_quoted_credits === 'number' && Number.isFinite(plan.total_quoted_credits)) {
+    return plan.total_quoted_credits
+  }
+  if (!plan.sections.length || plan.sections.some(section => typeof section.quote.quoted_credit_cost !== 'number')) return null
+  return plan.sections.reduce((total, section) => total + Number(section.quote.quoted_credit_cost), 0)
+}
+
+async function quoteActiveAudioCheck(request: { slug: string; quality: AudioQualityEvidence }): Promise<void> {
+  if (qualitySubmitting.value || qualityRepairSelectionUnavailable.value) return
+  const existing = request.quality.active_check
+  const sections = existing && ['quoted', 'needs_approval'].includes(existing.state) ? existing.sections : [request.slug]
+  const scope = { episode_id: form.episode_id, sections: [...sections].sort(), kind: 'active-audio-transcript-check' }
+  const operationId = existing && ['quoted', 'needs_approval'].includes(existing.state)
+    ? existing.action_id
+    : activeQualityCheckAction.begin(scope, 'active-audio-transcript-check')
+  qualitySubmitting.value = true
+  qualityActionError.value = ''
+  try {
+    const plan = await post<AudioQualityActiveCheckQuote>(
+      `/projects/${slug.value}/episodes/${form.episode_id}/audio-quality/active-check/quote`,
+      { operation_id: operationId, sections },
+    )
+    const total = activeCheckTotal(plan)
+    activeCheckApproval.value = {
+      projectSlug: slug.value,
+      episodeId: form.episode_id,
+      label: scopeSummary(plan.sections.map(section => section.slug)),
+      actionId: plan.action_id,
+      sourceFingerprint: plan.source_fingerprint,
+      modelId: plan.model_id,
+      sections: plan.sections,
+      totalQuotedCredits: total,
+    }
+    const samePendingAction = activeCheckApprovedActionId.value === plan.action_id && activeCheckApprovedKey.value !== ''
+    if (!samePendingAction) {
+      activeCheckApprovedKey.value = ''
+      activeCheckApprovedActionId.value = ''
+      activeCheckApprovalCeiling.value = total === null ? '' : Math.max(1, Math.ceil(total))
+    }
+    sectionRefreshKey.value++
+  } catch (e: any) {
+    qualityActionError.value = e?.data?.detail || e?.message || 'The double-check quote was not confirmed.'
+    showError(qualityActionError.value)
+  } finally {
+    qualitySubmitting.value = false
+  }
+}
+
+function closeActiveCheckApproval(): void {
+  if (qualitySubmitting.value) return
+  activeCheckApproval.value = null
+  qualityActionError.value = ''
+}
+
+async function submitActiveAudioCheck(): Promise<void> {
+  const approval = activeCheckApproval.value
+  const approvalKey = activeCheckApprovalKey.value
+  if (!approval || !approvalKey || activeCheckApprovalInvalid.value) return
+  activeCheckApprovedKey.value = approvalKey
+  activeCheckApprovedActionId.value = approval.actionId
+  qualitySubmitting.value = true
+  qualityActionError.value = ''
+  try {
+    await post(`/projects/${approval.projectSlug}/episodes/${approval.episodeId}/audio-quality/active-check/confirm`, {
+      operation_id: approval.actionId,
+      source_fingerprint: approval.sourceFingerprint,
+      verification_credit_ceiling: Number(activeCheckApprovalCeiling.value),
+    })
+    activeQualityCheckAction.complete(approval.actionId)
+    activeCheckApprovedKey.value = ''
+    activeCheckApprovedActionId.value = ''
+    activeCheckApproval.value = null
+    sectionRefreshKey.value++
+    success(`Transcript double-check queued for ${approval.label}. Active audio and subtitles stay unchanged.`)
+  } catch (e: any) {
+    qualityActionError.value = e?.data?.detail || e?.message || 'The double-check submission was not confirmed.'
+    showError(qualityActionError.value)
+  } finally {
+    qualitySubmitting.value = false
+  }
+}
+
+async function checkQualitySection(section: string): Promise<void> {
+  await runAudioQualityCheck([section])
+}
+
+async function approveHeldQualityRepair(request: { slug: string; quality: AudioQualityEvidence }): Promise<void> {
+  const repair = request.quality.repair
+  const verification = repair?.verification
+  const candidate = repair?.candidate
+  const quote = verification?.quoted_credit_cost
+  const sourceFingerprint = repair?.source_fingerprint
+  if (repair?.state !== 'needs_approval' || !verification || !candidate || quote === undefined || !sourceFingerprint) {
+    showError('Refresh this chapter before approving its verification quote.')
+    return
+  }
+  heldQualityApproval.value = {
+    projectSlug: slug.value,
+    episodeId: form.episode_id,
+    slug: request.slug,
+    label: scopeSummary(repair.sections),
+    actionId: repair.action_id,
+    sourceFingerprint,
+    quote,
+    priceVersion: verification.price_version || '',
+    committedCredits: verification.committed_credits,
+    currentCeiling: verification.credit_ceiling,
+    candidate,
+  }
+  const samePendingAction = qualityHeldApprovalActionId.value === repair.action_id
+    && qualityHeldApprovalKey.value !== ''
+  if (!samePendingAction) {
+    qualityHeldApprovalKey.value = ''
+    qualityHeldApprovalActionId.value = ''
+    heldQualityApprovalCeiling.value = Math.max(
+      verification.credit_ceiling + 1,
+      verification.committed_credits + quote,
+    )
+  }
+  qualityActionError.value = ''
+}
+
+function closeHeldQualityApproval(): void {
+  if (qualitySubmitting.value) return
+  heldQualityApproval.value = null
+  qualityActionError.value = ''
+}
+
+async function submitHeldQualityApproval(): Promise<void> {
+  const approval = heldQualityApproval.value
+  const approvalKey = heldQualityApprovalKey.value
+  if (!approval || !approvalKey || heldQualityApprovalInvalid.value) return
+  const ceiling = Number(heldQualityApprovalCeiling.value)
+  qualityHeldApprovalKey.value = approvalKey
+  qualityHeldApprovalActionId.value = approval.actionId
+  qualitySubmitting.value = true
+  qualityActionError.value = ''
+  try {
+    await post(`/projects/${approval.projectSlug}/episodes/${approval.episodeId}/audio-quality/confirm`, {
+      operation_id: approval.actionId,
+      source_fingerprint: approval.sourceFingerprint,
+      confirm_repair: true,
+      verification_credit_ceiling: ceiling,
+      candidate_audio: { model: approval.candidate.model_id, voice: approval.candidate.voice_id },
+    })
+    qualityHeldApprovalKey.value = ''
+    qualityHeldApprovalActionId.value = ''
+    heldQualityApproval.value = null
+    sectionRefreshKey.value++
+    success(`Verification resumed for ${approval.label}. The saved candidate was reused.`)
+  } catch (e: any) {
+    qualityActionError.value = e?.data?.detail || e?.message || 'The verification approval was not confirmed.'
+    showError(qualityActionError.value)
+  } finally {
+    qualitySubmitting.value = false
+  }
+}
+
+async function runAudioQualityCheck(targetSections: string[]): Promise<void> {
+  if (!form.episode_id || !targetSections.length || qualitySubmitting.value || audioQualityMode.value === 'off') return
+  if (qualityRepairSelectionUnavailable.value) {
+    showError('Refresh the catalog and choose an available alternate transcription model in Project Settings before checking and repairing audio.')
+    return
+  }
+  const scope = audioQualityRequestScope(targetSections)
+  const operationId = freshQualityAction.begin(scope, 'quality')
+  if (qualityApprovedActionId.value && qualityApprovedActionId.value !== operationId) {
+    qualityApprovedActionId.value = ''
+  }
+  qualitySubmitting.value = true
+  qualityActionError.value = ''
+  try {
+    const plan = await post<AudioQualityPlan>(
+      `/projects/${slug.value}/episodes/${form.episode_id}/audio-quality/check`,
+      {
+        operation_id: operationId,
+        sections: targetSections,
+        ...(audioQualityMode.value === 'check_and_repair'
+          ? { candidate_audio: qualityCandidateAudio.value }
+          : {}),
+      },
+    )
+    sectionRefreshKey.value++
+    if (audioQualityMode.value === 'flag_issues' || !plan.repair?.eligible) {
+      freshQualityAction.complete(operationId)
+      showInfo(audioQualityMode.value === 'flag_issues'
+        ? 'Saved audio evidence checked. Review any flagged chapters below.'
+        : 'Check finished. No automatic repair was eligible; review the chapter evidence below.')
+      return
+    }
+
+    const repair = plan.repair
+    if (!selectedTtsModel.value || !selectedVoice.value || !selectedVoiceCompatible.value) {
+      freshQualityAction.complete(operationId)
+      showError('The check found a possible audio issue. Choose the narration model and voice to review a repair.')
+      return
+    }
+    if (!repair.source_fingerprint) {
+      freshQualityAction.complete(operationId)
+      throw new Error('The quality check did not return a source fingerprint. No repair was started.')
+    }
+    const details = [
+      `Scope: ${scopeSummary(targetSections)}`,
+      `Alternate transcription: ${audioQualityAlternateModelName.value || repair.alternate_model_id || 'Not selected'}`,
+      repair.transcription?.required
+        ? `Verification transcription: quoted after candidate audio is ready. This action authorizes up to ${Number(qualityVerificationCreditCeiling.value).toLocaleString()} credits; a higher quote holds the candidate for your approval.`
+        : 'Transcription: current saved evidence will be reused',
+      repair.candidate_tts?.required
+        ? `Narration estimate: ${candidateTtsQuoteLabel(repair.candidate_tts.advisory_quote)} (advisory)`
+        : 'Narration: no replacement candidate needed',
+      ...(repair.requires_source_confirmation
+        ? ['The saved script, active audio mapping, or transcript evidence changed. Confirm that the current chapter source is intended for this action.']
+        : []),
+    ]
+    if (qualityApprovedActionId.value !== operationId) {
+      const confirmed = await ask({
+        title: `Repair ${scopeSummary(targetSections)}?`,
+        message: details.join('\n'),
+        confirmLabel: 'Start checked repair',
+      })
+      if (!confirmed) {
+        freshQualityAction.cancel('quality')
+        qualityApprovedActionId.value = ''
+        return
+      }
+      qualityApprovedActionId.value = operationId
+    }
+    await post(`/projects/${slug.value}/episodes/${form.episode_id}/audio-quality/confirm`, {
+      operation_id: operationId,
+      source_fingerprint: repair.source_fingerprint,
+      confirm_repair: true,
+      verification_credit_ceiling: Number(qualityVerificationCreditCeiling.value),
+      candidate_audio: qualityCandidateAudio.value,
+    })
+    freshQualityAction.complete(operationId)
+    qualityApprovedActionId.value = ''
+    sectionRefreshKey.value++
+    success(`Checked repair queued for ${scopeSummary(targetSections)}. Current audio stays active until a candidate passes review.`)
+  } catch (e: any) {
+    qualityActionError.value = e?.data?.detail || e?.message || 'The quality submission was not confirmed.'
+    showError(qualityActionError.value)
+  } finally {
+    qualitySubmitting.value = false
+  }
 }
 
 // ── Quote ──────────────────────────────────────────────────────────────
@@ -916,7 +1531,17 @@ const audioJobActiveForEpisode = computed(() => {
 
 // Defensive — clear `submitting` on episode swap.
 watch(() => form.episode_id, (newEp, oldEp) => {
-  if (newEp !== oldEp) submitting.value = false
+  if (newEp !== oldEp) {
+    submitting.value = false
+    heldQualityApproval.value = null
+    heldQualityApprovalCeiling.value = ''
+    qualityHeldApprovalKey.value = ''
+    qualityHeldApprovalActionId.value = ''
+    activeCheckApproval.value = null
+    activeCheckApprovalCeiling.value = ''
+    activeCheckApprovedKey.value = ''
+    activeCheckApprovedActionId.value = ''
+  }
 })
 
 // Audio generation parses the narration .docx to know what sections to
@@ -965,6 +1590,7 @@ const scriptGateReason = computed(() => {
 })
 const inlineGenerateDisabled = computed(() =>
   !scriptReady.value
+  || !selectedTtsModelEligible.value
   || !form.voice
   || !selectedVoiceCompatible.value
   || submitting.value
@@ -972,6 +1598,7 @@ const inlineGenerateDisabled = computed(() =>
 )
 const inlineGenerateDisabledReason = computed(() => {
   if (!scriptReady.value) return scriptGateReason.value || 'Generate the script first.'
+  if (!selectedTtsModelEligible.value) return 'Refresh and choose a current voice model first.'
   if (!form.voice) return 'Pick a voice first.'
   if (!selectedVoiceCompatible.value) return 'Pick a voice this model can currently generate with.'
   if (submitting.value) return 'The audio request is being queued.'
@@ -1235,6 +1862,10 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
     showError('Pick a voice first — audio generation needs an explicit voice (no default).')
     return
   }
+  if (!selectedTtsModelEligible.value) {
+    showError('Refresh GenStudio and choose a current voice model before starting narration work.')
+    return
+  }
   if (!selectedVoiceCompatible.value) {
     showError('GenStudio cannot currently generate with the selected voice. Pick another from the voice list.')
     return
@@ -1383,6 +2014,61 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
   box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
   backdrop-filter: blur(12px);
 }
+.audio-quality-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 18px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+.audio-quality-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.audio-quality-heading h3 { margin: 0; font-size: var(--font-md); }
+.audio-quality-mode {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-weight: 650;
+}
+.audio-quality-overview p { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; }
+.audio-quality-overview .audio-quality-model { color: var(--text-muted); font-size: var(--font-xs); }
+.audio-quality-overview .audio-quality-catalog-warning { color: var(--warning); font-size: var(--font-xs); }
+.audio-quality-ceiling {
+  display: grid;
+  grid-template-columns: minmax(148px, auto) minmax(120px, 180px);
+  align-items: center;
+  gap: 5px 10px;
+  margin-top: 10px;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+}
+.audio-quality-ceiling .input { width: 100%; }
+.audio-quality-ceiling small {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.audio-quality-overview-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.audio-quality-error,
+.audio-quality-retry { grid-column: 1 / -1; margin: 0 !important; }
+.audio-quality-error { color: var(--error) !important; }
+.audio-quality-retry { color: var(--text-muted) !important; }
+.quality-approval-dialog h3 { margin: 0 0 8px; font-size: var(--font-lg); }
+.quality-approval-dialog > p { margin: 0 0 14px; color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.5; }
+.quality-approval-facts { display: grid; gap: 8px; margin: 0 0 16px; }
+.quality-approval-facts div { display: flex; justify-content: space-between; gap: 16px; }
+.quality-approval-facts dt { color: var(--text-muted); font-size: var(--font-xs); }
+.quality-approval-facts dd { margin: 0; color: var(--text-primary); font-size: var(--font-xs); font-weight: 600; text-align: right; }
+.quality-approval-ceiling { display: grid; gap: 6px; color: var(--text-primary); font-size: var(--font-sm); font-weight: 600; }
+.quality-approval-ceiling .input { width: 100%; }
+.quality-approval-ceiling small { color: var(--text-muted); font-weight: 400; line-height: 1.45; }
+.quality-approval-dialog .quality-approval-note { margin-top: 14px; }
+.quality-approval-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .audio-action-context {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1492,6 +2178,14 @@ async function queueAudio(targetSections: string[], mode: AudioActionMode) {
 }
 
 @media (max-width: 720px) {
+  .audio-quality-overview { grid-template-columns: 1fr; }
+  .audio-quality-overview-actions { justify-content: stretch; }
+  .audio-quality-overview-actions .btn { flex: 1 1 140px; justify-content: center; }
+  .audio-quality-ceiling { grid-template-columns: 1fr; }
+  .quality-approval-facts div { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .quality-approval-facts dd { text-align: left; }
+  .quality-approval-actions { align-items: stretch; flex-direction: column-reverse; }
+  .quality-approval-actions .btn { justify-content: center; width: 100%; }
   .audio-action-bar { bottom: 6px; padding: 9px; }
   .audio-action-context { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .audio-context-item:nth-child(2) { border-right: 0; }
