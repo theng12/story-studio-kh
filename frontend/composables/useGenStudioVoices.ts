@@ -235,26 +235,37 @@ export function useGenStudioVoices() {
   const voicesModelId = ref<string | null>(null)
 
   const libraries = ref<GenStudioVoiceLibrary[]>([])
+  let modelLoadRevision = 0
 
   async function loadModels(): Promise<void> {
+    const revision = ++modelLoadRevision
     modelsLoading.value = true
     modelsError.value = ''
+    // A key/base-URL change can make every previous row belong to another
+    // account. Keep the saved id in the form, but clear its old catalog facts
+    // until this fresh display-only read resolves.
+    models.value = []
+    modelsLoaded.value = false
+    modelsStale.value = false
+    modelsLoadedAt.value = null
     try {
       const data = await get<{
         models?: GenStudioTtsModel[]
         freshness?: { stale?: boolean; ageMs?: number }
       }>('/app-settings/genstudio/tts-models', { cache: 'no-store' })
+      if (revision !== modelLoadRevision) return
       models.value = Array.isArray(data.models) ? data.models : []
       modelsStale.value = data.freshness?.stale === true
       modelsLoadedAt.value = Date.now() - (Number.isFinite(data.freshness?.ageMs) ? data.freshness!.ageMs as number : 0)
       modelsLoaded.value = true
     } catch (error: any) {
+      if (revision !== modelLoadRevision) return
       models.value = []
       modelsStale.value = false
       modelsLoadedAt.value = null
       modelsError.value = error?.data?.detail || error?.message || 'The GenStudio KH voice model catalogue is unavailable.'
     } finally {
-      modelsLoading.value = false
+      if (revision === modelLoadRevision) modelsLoading.value = false
     }
   }
 

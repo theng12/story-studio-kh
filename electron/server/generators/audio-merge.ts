@@ -17,7 +17,7 @@ import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
-import { resolveSubfolderNames } from '../services/utils.js'
+import { resolveSubfolderNames, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import { runFfmpeg, getAudioDuration, formatConcatFileLine, appendCappedTail } from '../lib/ffmpeg-utils.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
@@ -31,6 +31,11 @@ import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { requireChapterAudioReady } from '../services/audio-workflow-readiness.js'
+import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
+import { recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
+import { ensureStitchedSubtitle } from '../lib/subtitle-autostitch.js'
+import { parseSrt } from '../lib/subtitle-builder.js'
+import { readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
 import {
   buildMergedAudioOpeningRecord,
   type MergedAudioIntroRecord,
@@ -348,6 +353,207 @@ export function chapterKeyOf(filename: string, code: string): string {
   return base
 }
 
+/**
+ * Finish the local half of an audio-quality repair after the selected candidate
+ * has been assembled with the episode's original mix settings.  Candidate raw
+ * ASR is copied only after every selected staged transcript parses; provider
+ * work is intentionally absent from this successor.
+ */
+async function refreshAudioQualityTimeline(input: {
+  job: Job
+  projectSlug: string
+  episodeId: string
+  episodeDir: string
+  audioDir: string
+  mergedAudioDir: string
+}): Promise<void> {
+  const marker = (input.job.params as AudioMergeRequest).audio_quality_refresh
+    || await pendingSelectedQualityRefresh(input)
+  if (!marker) return
+  const actionId = typeof marker.action_id === 'string' ? marker.action_id : ''
+  const sourceFingerprint = typeof marker.source_fingerprint === 'string' ? marker.source_fingerprint : ''
+  const sections = Array.isArray(marker.sections) ? [...new Set(marker.sections.filter(section => typeof section === 'string' && section.trim()))] : []
+  if (!actionId || !sourceFingerprint || !sections.length) throw new Error('Audio-quality refresh has no valid action scope.')
+
+  const saved = await readAudioQualityProvenance(input.episodeDir)
+  const action = saved.actions?.[actionId]
+  if (!action?.candidate || action.source_fingerprint !== sourceFingerprint
+    || !action.verification_model_id || action.state === 'cancelled') {
+    throw new Error('Audio-quality refresh no longer matches its verified candidate action.')
+  }
+  if (marker.promoted_files && sections.some(section =>
+    JSON.stringify(marker.promoted_files?.[section] || []) !== JSON.stringify(action.candidate?.promoted_files?.[section] || []))) {
+    throw new Error('Audio-quality refresh no longer matches the verified candidate file map.')
+  }
+  const candidateRoot = path.resolve(input.episodeDir, action.candidate.staging_dir, 'transcripts')
+  const expectedRoot = path.resolve(input.episodeDir, '.audio-quality-candidates', actionId, 'transcripts')
+  if (candidateRoot !== expectedRoot) throw new Error('Audio-quality candidate transcript path is invalid.')
+  const { resolveSubtitlesDir } = await import('./subtitles.js')
+  const subtitlesDir = await resolveSubtitlesDir(input.projectSlug, input.episodeId)
+  await fs.mkdir(subtitlesDir, { recursive: true })
+  const { findNarrationFile } = await import('./audio.js')
+  const narration = await findNarrationFile(input.projectSlug, input.episodeId)
+  const { inspectAudioQualityActionScope, currentChapterScriptHash } = await import('../services/audio-quality.js')
+  const currentScope = await inspectAudioQualityActionScope({
+    episodeDir: input.episodeDir, audioDir: input.audioDir, subtitlesDir,
+    scriptDir: path.dirname(narration), episodeCode: input.episodeId,
+  }, action.sections)
+  if (action.script_fingerprint && currentScope.script_fingerprint !== action.script_fingerprint) {
+    throw new Error('The script or active source changed after candidate promotion; the older repair was not refreshed.')
+  }
+
+  // Validate the entire selected set before touching a current SRT.  Each raw
+  // transcript was already vetted before candidate selection; parsing again
+  // proves the staged bytes survived the queued local merge unchanged.
+  const ready: Array<{ slug: string; raw: string; target: string; sourceHash: string }> = []
+  for (const slug of sections) {
+    const transcriptFile = action.candidate.transcript_files?.[slug]
+    const transcriptHash = action.candidate.transcript_hashes?.[slug]
+    const sourceFiles = action.candidate.promoted_files?.[slug]
+    const expectedAudioHash = action.candidate.candidate_audio_hashes?.[slug]
+    if (!transcriptFile || !transcriptHash || !sourceFiles?.length || !expectedAudioHash) {
+      throw new Error(`Audio-quality refresh is missing verified ${slug} evidence.`)
+    }
+    const rawPath = path.resolve(candidateRoot, transcriptFile)
+    if (path.dirname(rawPath) !== candidateRoot) throw new Error('Audio-quality candidate transcript escaped its staging directory.')
+    const raw = await fs.readFile(rawPath, 'utf8')
+    const { hashInput } = await import('../services/task-manifest.js')
+    if (hashInput(raw) !== transcriptHash) throw new Error(`Verified raw transcript for ${slug} changed before refresh.`)
+    if (!parseSrt(raw).some(cue => cue.text.trim() && cue.end_sec > cue.start_sec)) {
+      throw new Error(`Audio-quality candidate transcript for ${slug} is no longer usable.`)
+    }
+    const sourceHash = await hashSubtitleAudioSources(sourceFiles.map(file => path.join(input.audioDir, file)))
+    if (!sourceHash || sourceHash !== expectedAudioHash) {
+      throw new Error(`Selected candidate audio for ${slug} changed before subtitle refresh.`)
+    }
+    ready.push({ slug, raw, sourceHash, target: path.join(subtitlesDir, `${input.episodeId.toUpperCase()}_${slug}.srt`) })
+  }
+
+  // A later ordinary Regenerate may have legitimately changed the selected
+  // source map while this local merge waited. Do not let the older repair
+  // overwrite its subtitle evidence merely because retained candidate files
+  // still exist on disk.
+  const sidecar = JSON.parse(await fs.readFile(path.join(input.episodeDir, 'audio_chapters.json'), 'utf8')) as { sections?: Array<{ slug?: unknown; source_files?: unknown; source_file?: unknown }> }
+  for (const section of ready) {
+    const current = sidecar.sections?.find(row => typeof row.slug === 'string' && row.slug.toLowerCase() === section.slug.toLowerCase())
+    const files = Array.isArray(current?.source_files) ? current.source_files.filter((file): file is string => typeof file === 'string')
+      : typeof current?.source_file === 'string' ? [current.source_file] : []
+    if (JSON.stringify(files) !== JSON.stringify(action.candidate.promoted_files?.[section.slug])) {
+      throw new Error(`Active ${section.slug} changed after candidate promotion; the older repair was not refreshed.`)
+    }
+  }
+
+  for (const section of ready) {
+    const temporary = `${section.target}.${actionId}.tmp`
+    await fs.writeFile(temporary, section.raw, 'utf8')
+    await fs.rename(temporary, section.target)
+    await recordSubtitleSourceEvidence(
+      subtitlesDir,
+      path.basename(section.target),
+      section.sourceHash,
+      action.verification_model_id,
+    )
+  }
+
+  const stitch = await ensureStitchedSubtitle({
+    episodeDir: input.episodeDir,
+    subtitlesDir,
+    mergedAudioDir: input.mergedAudioDir,
+    audioDir: input.audioDir,
+    episodeCode: input.episodeId,
+  })
+  if (!['stitched', 'fresh'].includes(stitch.status)) {
+    throw new Error(`Audio-quality subtitles could not be stitched: ${stitch.reason}`)
+  }
+  await updateAudioQualityProvenance(input.episodeDir, async current => {
+    const currentAction = current.actions?.[actionId]
+    if (!currentAction || currentAction.source_fingerprint !== sourceFingerprint) {
+      throw new Error('Audio-quality action changed while local refresh was finishing.')
+    }
+    // The selected candidate is now the active source. Record its actual
+    // byte map and current script hash so future status reads can distinguish
+    // this completed repair from a later ordinary Regenerate.
+    for (const section of ready) {
+      const scriptHash = await currentChapterScriptHash(path.dirname(narration), input.episodeId, section.slug)
+      if (!scriptHash) throw new Error(`The current script for ${section.slug} could not be fingerprinted during refresh.`)
+      current.chapters[section.slug] = {
+        normalized_script_hash: scriptHash,
+        normalization: 'tts-v1',
+        source_audio_hash: section.sourceHash,
+        source_files: [...(currentAction.candidate?.promoted_files?.[section.slug] || [])],
+        recorded_at: new Date().toISOString(),
+        tts: {
+          model_id: currentAction.candidate?.model_id,
+          voice_id: currentAction.candidate?.voice_id,
+        },
+      }
+    }
+    currentAction.state = 'fixed'
+    delete currentAction.refresh_needed
+  })
+  input.job.result = {
+    ...input.job.result,
+    quality_repair: { action_id: actionId, state: 'fixed', refreshed_sections: ready.map(section => section.slug), stitch: stitch.status },
+  }
+  input.job.output_lines.push(`Audio-quality refresh completed: ${ready.length} chapter transcript(s) restitched from verified candidate audio.`)
+}
+
+/**
+ * A candidate made before any saved Audio Assembly settings cannot enqueue a
+ * private successor. When the user later runs the ordinary assembly control,
+ * adopt exactly one still-selected candidate after proving its current map
+ * and script fence. This is local-only; it never promotes or submits work.
+ */
+async function pendingSelectedQualityRefresh(input: {
+  job: Job
+  projectSlug: string
+  episodeId: string
+  episodeDir: string
+  audioDir: string
+  mergedAudioDir: string
+}): Promise<NonNullable<AudioMergeRequest['audio_quality_refresh']> | null> {
+  const saved = await readAudioQualityProvenance(input.episodeDir)
+  const pending = Object.values(saved.actions || {}).filter(action =>
+    action.state === 'candidate_ready' && !!action.refresh_needed && !!action.candidate?.promoted_files)
+  if (pending.length !== 1) return null
+  const action = pending[0]!
+  let sidecar: { sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }> }
+  try {
+    sidecar = JSON.parse(await fs.readFile(path.join(input.episodeDir, 'audio_chapters.json'), 'utf8'))
+  } catch {
+    return null
+  }
+  for (const slug of action.sections) {
+    const section = sidecar.sections?.find(row => typeof row.slug === 'string' && row.slug.toLowerCase() === slug.toLowerCase())
+    const current = Array.isArray(section?.source_files) ? section.source_files.filter((file): file is string => typeof file === 'string')
+      : typeof section?.source_file === 'string' ? [section.source_file] : []
+    if (JSON.stringify(current) !== JSON.stringify(action.candidate?.promoted_files?.[slug])) return null
+  }
+  if (action.script_fingerprint) {
+    try {
+      const { findNarrationFile } = await import('./audio.js')
+      const narration = await findNarrationFile(input.projectSlug, input.episodeId)
+      const { inspectAudioQualityActionScope } = await import('../services/audio-quality.js')
+      const { resolveSubtitlesDir } = await import('./subtitles.js')
+      const subtitlesDir = await resolveSubtitlesDir(input.projectSlug, input.episodeId)
+      const scope = await inspectAudioQualityActionScope({
+        episodeDir: input.episodeDir, audioDir: input.audioDir,
+        subtitlesDir,
+        scriptDir: path.dirname(narration), episodeCode: input.episodeId,
+      }, action.sections)
+      if (scope.script_fingerprint !== action.script_fingerprint) return null
+    } catch {
+      return null
+    }
+  }
+  return {
+    action_id: action.action_id,
+    source_fingerprint: action.source_fingerprint,
+    sections: action.sections,
+    promoted_files: action.candidate!.promoted_files,
+  }
+}
+
 // ── Main Generator ────────────────────────────────────────────────────────
 
 export async function generateAudioMerge(job: Job): Promise<void> {
@@ -357,19 +563,112 @@ export async function generateAudioMerge(job: Job): Promise<void> {
 
   // Submission routes preflight this too, but Pipeline jobs can enqueue
   // internally and files may change while a job waits. Re-prove the complete
-  // expected audio set immediately before FFmpeg starts.
+  // base set immediately before FFmpeg starts. This is read-only; the selected
+  // sidecar map below remains the source authority for a promoted `_vN` file.
   const readiness = await requireChapterAudioReady(project_slug, code)
-  const scanned = await scanEpisodeAudioAssets(project_slug, code)
-  if (!scanned.chapters.length) {
+
+  // `audio_chapters.json` records the active audio map. Generic disk scanning
+  // deliberately ignores `_vN` alternates, so use the complete sidecar order
+  // whenever it selects one. That keeps ordinary reopen/assembly, playback,
+  // and subtitle consumers on the exact promoted bytes until a later ordinary
+  // successful regeneration writes a new active map.
+  let selectedVersioned: string[] = []
+  const refresh = req.audio_quality_refresh
+  const refreshActionId = typeof refresh?.action_id === 'string' ? refresh.action_id : ''
+  const resolveSidecarSelection = async (requiredRefresh: boolean): Promise<string[]> => {
+    let paths: Awaited<ReturnType<typeof resolveEpisodePathsByCodeWithSidecar>>
+    let sidecar: { sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }> }
+    try {
+      paths = await resolveEpisodePathsByCodeWithSidecar(project_slug, code, 'audio_chapters.json')
+      sidecar = JSON.parse(await fs.readFile(path.join(paths.episode_dir, 'audio_chapters.json'), 'utf8'))
+    } catch (error: any) {
+      if (requiredRefresh) {
+        throw new Error(`Audio-quality refresh cannot read its authoritative selected audio map: ${error?.message || String(error)}`)
+      }
+      return [] // Normal first assembly has no sidecar; scan base files below.
+    }
+
+    const sections = Array.isArray(sidecar.sections) ? sidecar.sections : []
+    if (!sections.length) {
+      if (requiredRefresh) throw new Error('Audio-quality refresh cannot use an empty audio_chapters.json source map.')
+      return []
+    }
+    const sourcesBySlug = new Map<string, string[]>()
+    const ordered: string[] = []
+    for (const section of sections) {
+      const slug = typeof section.slug === 'string' ? section.slug.trim() : ''
+      const listed = Array.isArray(section.source_files)
+        ? section.source_files.filter((file): file is string => typeof file === 'string' && path.basename(file) === file)
+        : []
+      const single = typeof section.source_file === 'string' && path.basename(section.source_file) === section.source_file
+        ? [section.source_file] : []
+      const files = listed.length ? listed : single
+      if (!slug || !files.length) {
+        const message = `audio_chapters.json has no valid selected source for ${slug || 'a chapter'}`
+        if (requiredRefresh) throw new Error(`Audio-quality refresh cannot resolve its authoritative selected audio map: ${message}`)
+        return []
+      }
+      if (sourcesBySlug.has(slug.toLowerCase())) {
+        const message = `audio_chapters.json repeats selected chapter ${slug}`
+        if (requiredRefresh) throw new Error(`Audio-quality refresh cannot resolve its authoritative selected audio map: ${message}`)
+        return []
+      }
+      sourcesBySlug.set(slug.toLowerCase(), files)
+      ordered.push(...files)
+    }
+
+    const expectedSections = new Set(readiness.expected_files
+      .map(filename => chapterKeyOf(filename, code).toLowerCase()))
+    const missingSections = [...expectedSections].filter(slug => !sourcesBySlug.has(slug))
+    const containsAlternate = ordered.some(file => /_v\d+\.(?:mp3|wav|m4a)$/i.test(file))
+    if (missingSections.length) {
+      const message = `audio_chapters.json is missing selected source(s) for ${missingSections.join(', ')}`
+      if (requiredRefresh || containsAlternate) {
+        throw new Error(`Audio Assembly cannot use its authoritative selected audio map: ${message}`)
+      }
+      return []
+    }
+
+    if (requiredRefresh) {
+      const action = refreshActionId
+        ? (await readAudioQualityProvenance(paths.episode_dir)).actions?.[refreshActionId]
+        : null
+      if (!action?.candidate?.promoted_files || !Array.isArray(refresh?.sections)) {
+        throw new Error('Audio-quality refresh cannot resolve its authoritative selected audio map: the server-stamped repair action or promoted file map is unavailable.')
+      }
+      for (const slug of refresh.sections) {
+        const expected = refresh.promoted_files?.[slug] || action.candidate.promoted_files[slug]
+        const selected = sourcesBySlug.get(slug.toLowerCase())
+        if (!expected?.length || JSON.stringify(selected) !== JSON.stringify(expected)) {
+          throw new Error(`Audio-quality refresh cannot resolve its authoritative selected audio map: the selected source map no longer contains the promoted ${slug} files.`)
+        }
+      }
+    } else if (!containsAlternate) {
+      return []
+    }
+
+    const candidate = ordered.map(file => path.join(paths.audio_dir, file))
+    const missing = candidate.filter(file => !existsSync(file))
+    if (missing.length) {
+      const message = `selected audio file(s) are missing: ${missing.map(file => path.basename(file)).join(', ')}`
+      if (requiredRefresh || containsAlternate) {
+        throw new Error(`Audio Assembly cannot use its authoritative selected audio map: ${message}`)
+      }
+      return []
+    }
+    return candidate
+  }
+
+  selectedVersioned = await resolveSidecarSelection(!!refresh)
+  const scanned = selectedVersioned.length ? null : await scanEpisodeAudioAssets(project_slug, code)
+  if (!selectedVersioned.length && !scanned?.chapters.length) {
     throw new Error(`Audio Assembly is blocked: no chapter audio files were found for ${code}.`)
   }
-  // Never trust a stale or user-trimmed caller list. Once coverage is proven,
-  // merge the complete ordered set currently on disk.
-  req.chapters = scanned.chapters.map(chapter => chapter.path)
+  req.chapters = selectedVersioned.length ? selectedVersioned : scanned!.chapters.map(chapter => chapter.path)
   job.output_lines.push(
     `Audio preflight passed: ${readiness.present_files.length}/${readiness.expected_files.length} required file(s) ready`,
   )
-  job.output_lines.push(`Resolved ${req.chapters.length} ordered chapter file(s) from disk`)
+  job.output_lines.push(`Resolved ${req.chapters.length} ordered chapter file(s) ${selectedVersioned.length ? 'from the verified active mapping' : 'from disk'}`)
 
   // 1. Validate chapter files exist
   const validChapters: string[] = []
@@ -813,6 +1112,15 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       missing: finalBytes > 0 && finalDuration > 0 ? [] : [path.basename(outputPath)],
       invalid: finalBytes <= 0 ? ['output file is empty'] : finalDuration <= 0 ? ['output duration could not be verified'] : [],
       retry_hint: 'The invalid output will not count as complete. Retry after checking the source chapter audio.',
+    })
+
+    // A quality candidate is not "fixed" merely because the new chapter
+    // bytes were selected.  The original mix must finish first, then its raw
+    // candidate transcript can replace only the selected SRTs and rebuild the
+    // timeline that downstream scene/video work reads.
+    await refreshAudioQualityTimeline({
+      job, projectSlug: project_slug, episodeId: code, episodeDir,
+      audioDir: path.dirname(validChapters[0]!), mergedAudioDir: mergedDir,
     })
 
     // v1.0.107+ — when the request was pre-filled from the music-pool

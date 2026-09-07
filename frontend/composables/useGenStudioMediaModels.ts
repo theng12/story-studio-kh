@@ -1,4 +1,6 @@
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
+import { GENSTUDIO_CATALOG_STALE_CEILING_MS } from './useGenStudioCatalogCache.js'
+import { normalizeGenStudioLoadedAt } from '../utils/genstudio-freshness.js'
 
 /** A `/v1/tts/models` row — the same catalogue the voice picker selects from. */
 export interface GenStudioVoiceModelInfo {
@@ -65,11 +67,25 @@ export interface GenStudioVideoModelInfo {
 // clock — a stale video catalog shouldn't hold a fresh voice fetch hostage,
 // or vice versa — but they share the exact same fresh/ceiling policy via
 // `createGenStudioCatalogCache`.
+interface BackendCatalogFreshness {
+  stale: boolean
+  ageMs: number
+  loadedAt: number | null
+}
+interface BackendCatalogFreshnessResponse extends Omit<BackendCatalogFreshness, 'loadedAt'> {
+  loadedAt: string | number | null
+}
+
+const voiceFreshness = ref<BackendCatalogFreshness | null>(null)
+const videoFreshness = ref<BackendCatalogFreshness | null>(null)
 const voiceCache = createGenStudioCatalogCache<GenStudioVoiceModelInfo[]>({
   empty: [],
   fetcher: async () => {
     const { get } = useApi()
-    const response = await get<{ models?: GenStudioVoiceModelInfo[] }>('/app-settings/genstudio/tts-models', { cache: 'no-store' })
+    const response = await get<{ models?: GenStudioVoiceModelInfo[]; freshness?: BackendCatalogFreshnessResponse }>('/app-settings/genstudio/tts-models', { cache: 'no-store' })
+    voiceFreshness.value = response.freshness
+      ? { ...response.freshness, loadedAt: normalizeGenStudioLoadedAt(response.freshness.loadedAt) }
+      : null
     return Array.isArray(response.models) ? response.models : []
   },
 })
@@ -77,7 +93,10 @@ const videoCache = createGenStudioCatalogCache<GenStudioVideoModelInfo[]>({
   empty: [],
   fetcher: async () => {
     const { get } = useApi()
-    const response = await get<{ models?: GenStudioVideoModelInfo[] }>('/app-settings/genstudio/video-models', { cache: 'no-store' })
+    const response = await get<{ models?: GenStudioVideoModelInfo[]; freshness?: BackendCatalogFreshnessResponse }>('/app-settings/genstudio/video-models', { cache: 'no-store' })
+    videoFreshness.value = response.freshness
+      ? { ...response.freshness, loadedAt: normalizeGenStudioLoadedAt(response.freshness.loadedAt) }
+      : null
     return Array.isArray(response.models) ? response.models : []
   },
 })
@@ -100,12 +119,20 @@ export function useGenStudioMediaModels() {
   const loaded = computed(() => voiceCache.loaded.value && videoCache.loaded.value)
   const error = computed(() => [voiceCache.error.value, videoCache.error.value].filter(Boolean).join(' '))
   const lastFetchedAt = computed(() => {
-    const values = [voiceCache.lastFetchedAt.value, videoCache.lastFetchedAt.value].filter((v): v is number => v !== null)
+    const values = [
+      voiceFreshness.value?.loadedAt ?? voiceCache.lastFetchedAt.value,
+      videoFreshness.value?.loadedAt ?? videoCache.lastFetchedAt.value,
+    ].filter((v): v is number => v !== null)
     return values.length ? Math.min(...values) : null
   })
-  const isStale = computed(() => voiceCache.isStale.value || videoCache.isStale.value)
-  const isExpired = computed(() => voiceCache.isExpired.value || videoCache.isExpired.value)
-  const isUsable = computed(() => voiceCache.isUsable.value && videoCache.isUsable.value)
+  const isStale = computed(() => voiceFreshness.value?.stale === true || videoFreshness.value?.stale === true
+    || voiceCache.isStale.value || videoCache.isStale.value)
+  const isExpired = computed(() => (voiceFreshness.value?.stale === true
+    && voiceFreshness.value.ageMs > GENSTUDIO_CATALOG_STALE_CEILING_MS)
+    || (videoFreshness.value?.stale === true && videoFreshness.value.ageMs > GENSTUDIO_CATALOG_STALE_CEILING_MS)
+    || voiceCache.isExpired.value || videoCache.isExpired.value)
+  const isUsable = computed(() => voiceCache.isUsable.value && videoCache.isUsable.value
+    && !isStale.value && !isExpired.value)
 
   return {
     voiceModels: voiceCache.data,

@@ -64,6 +64,10 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const { episode_id, chapters, gap_duration, normalize_volume, music, background_noise, narration_volume } = req.body
+  // This marker is emitted only by the candidate worker after its bytes and
+  // source map have been fenced.  A browser must not be able to turn an
+  // ordinary merge into a quality-repair completion path.
+  delete req.body.audio_quality_refresh
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
   try {
     await requireChapterAudioReady(slug, episode_id)

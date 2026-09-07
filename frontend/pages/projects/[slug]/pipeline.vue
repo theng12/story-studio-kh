@@ -505,6 +505,59 @@
       </div>
     </WorkspaceSection>
 
+    <WorkspaceSection
+      eyebrow="Optional post-Subtitle review"
+      title="Audio quality"
+      description="Check saved narration and transcript evidence for the selected episodes. This review is separate from Run Batch and never blocks an ordinary pipeline run."
+    >
+      <template #actions>
+        <div class="pipeline-quality-actions">
+          <NuxtLink :to="`/projects/${slug}/settings#production`" class="btn btn-sm btn-secondary">
+            Quality setting
+          </NuxtLink>
+          <button
+            type="button"
+            class="btn btn-sm btn-primary"
+            :disabled="pipelineQualityActionDisabled"
+            @click="checkSelectedAudioQuality"
+          >
+            <LoadingSpinner v-if="pipelineQualityChecking" size="sm" />
+            {{ pipelineQualityActionLabel }}
+          </button>
+        </div>
+      </template>
+
+      <div class="pipeline-quality-summary">
+        <span class="pipeline-quality-mode">{{ pipelineQualityModeLabel }}</span>
+        <p>{{ pipelineQualityDescription }}</p>
+      </div>
+      <p v-if="pipelineQualityMode === 'off'" class="text-muted text-sm mt-2">
+        Turn on Flag issues or Check and repair in Project Settings before checking a backlog.
+      </p>
+      <p v-else class="text-muted text-sm mt-2">
+        The check reads completed chapter audio and saved subtitle evidence only. It does not call a provider or spend credits.
+        Chapters that need attention open on Audio, where any repair remains a separate quoted and confirmed action.
+      </p>
+
+      <ul v-if="pipelineQualityResults.length" class="pipeline-quality-results mt-2" aria-live="polite">
+        <li
+          v-for="result in pipelineQualityResults"
+          :key="result.episode"
+          :data-tone="result.error || result.review > 0 ? 'warning' : 'success'"
+        >
+          <div>
+            <strong>{{ result.episode }}</strong>
+            <span>{{ pipelineQualityResultText(result) }}</span>
+          </div>
+          <NuxtLink
+            v-if="result.review > 0"
+            :to="`/projects/${slug}/audio?episode_id=${encodeURIComponent(result.episode)}`"
+            class="btn btn-sm btn-secondary"
+          >Review audio</NuxtLink>
+        </li>
+      </ul>
+    </WorkspaceSection>
+
     <!-- ── Blocking problems summary ────────────────────────────────────── -->
     <WorkspaceNotice v-if="blockingIssues.length" tone="warning" title="This batch is not ready to start">
       <ul class="mt-1 problems-list">
@@ -573,6 +626,7 @@
 
 <script setup lang="ts">
 import { normalizeVisualSource, type VisualSource } from '~/composables/useProjectFlow'
+import type { AudioQualityMode, AudioQualityPlan } from '~/types/audio-quality'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Pipeline')
@@ -583,6 +637,7 @@ const { get, post, patch: patchApi } = useApi()
 const { success, error: showError, info: showInfo } = useToast()
 const { ask } = useConfirm()
 const { config, refreshConfig } = useProject()
+const pipelineQualityAction = useFreshGenerationAction()
 
 // ── Active pipeline (format-aware) ──────────────────────────────────────
 // The Pipeline reads the project's effective visual source and renders only
@@ -1107,6 +1162,121 @@ function selectAll() {
 }
 function selectNone() {
   selectedEpisodes.clear()
+}
+
+interface PipelineAudioQualityResult {
+  episode: string
+  checked: number
+  review: number
+  noIssue: number
+  skipped?: string
+  error?: string
+}
+
+const pipelineQualityChecking = ref(false)
+const pipelineQualityCompleted = ref(0)
+const pipelineQualityResults = ref<PipelineAudioQualityResult[]>([])
+const pipelineQualityMode = computed<AudioQualityMode>(() => {
+  const mode = (config.value as any)?.audio_quality?.mode
+  return mode === 'flag_issues' || mode === 'check_and_repair' ? mode : 'off'
+})
+const pipelineQualityModeLabel = computed(() => pipelineQualityMode.value === 'flag_issues'
+  ? 'Flag issues'
+  : pipelineQualityMode.value === 'check_and_repair'
+    ? 'Check and repair'
+    : 'Off')
+const pipelineQualityDescription = computed(() => pipelineQualityMode.value === 'check_and_repair'
+  ? 'Find chapters that need review, then open Audio to choose the current narration model and voice before any quoted repair.'
+  : pipelineQualityMode.value === 'flag_issues'
+    ? 'Flag chapters whose saved source and transcript evidence needs review.'
+    : 'Audio quality review is disabled for this project.')
+const selectedEpisodeCodes = computed(() => [...selectedEpisodes].sort())
+const selectedEpisodeScopeKey = computed(() => selectedEpisodeCodes.value.join(','))
+const pipelineQualityHasRetry = computed(() => selectedEpisodeCodes.value.some(code =>
+  pipelineQualityAction.pending.value.has(`pipeline-quality:${code}`)))
+const pipelineQualityActionDisabled = computed(() =>
+  pipelineQualityChecking.value || pipelineQualityMode.value === 'off' || selectedEpisodes.size === 0)
+const pipelineQualityActionLabel = computed(() => {
+  if (pipelineQualityChecking.value) {
+    return `Checking ${pipelineQualityCompleted.value} of ${selectedEpisodes.size}…`
+  }
+  if (pipelineQualityMode.value === 'off') return 'Audio quality is off'
+  if (!selectedEpisodes.size) return 'Select episodes to check'
+  return pipelineQualityHasRetry.value ? 'Retry unfinished checks' : 'Check selected episodes'
+})
+
+watch(selectedEpisodeScopeKey, () => {
+  pipelineQualityResults.value = []
+})
+
+function pipelineQualityResultText(result: PipelineAudioQualityResult): string {
+  if (result.error) return result.error
+  if (result.skipped) return result.skipped
+  if (result.review) {
+    return `${result.review} of ${result.checked} checked chapter${result.checked === 1 ? '' : 's'} need review.`
+  }
+  return `${result.noIssue} checked chapter${result.noIssue === 1 ? '' : 's'} — no issue detected.`
+}
+
+async function checkSelectedAudioQuality(): Promise<void> {
+  if (pipelineQualityActionDisabled.value) return
+  const targetSlug = slug.value
+  const episodeCodes = selectedEpisodeCodes.value
+  pipelineQualityChecking.value = true
+  pipelineQualityCompleted.value = 0
+  pipelineQualityResults.value = []
+  const results: PipelineAudioQualityResult[] = []
+  try {
+    // Keep this deliberately sequential. It is a local evidence pass, not a
+    // generation batch, and each episode's retained operation remains clear.
+    for (const episode of episodeCodes) {
+      try {
+        const status = await get<{ sections?: Array<{ slug?: string; status?: string }> }>(
+          `/projects/${targetSlug}/episodes/${episode}/audio-sections`,
+        )
+        const sections = (status.sections || [])
+          .filter(section => section.status === 'generated' && typeof section.slug === 'string' && !!section.slug)
+          .map(section => section.slug!)
+        if (!sections.length) {
+          results.push({ episode, checked: 0, review: 0, noIssue: 0, skipped: 'No completed chapter audio is available to check.' })
+          continue
+        }
+        const actionTarget = `pipeline-quality:${episode}`
+        const scope = { project: targetSlug, episode, sections: [...sections].sort(), analysis_only: true }
+        const operationId = pipelineQualityAction.begin(scope, actionTarget)
+        const plan = await post<AudioQualityPlan>(
+          `/projects/${targetSlug}/episodes/${episode}/audio-quality/check`,
+          { operation_id: operationId, sections, analysis_only: true },
+        )
+        pipelineQualityAction.complete(operationId)
+        const review = plan.sections.filter(section =>
+          section.quality.state === 'review_needed' || section.quality.state === 'still_needs_review').length
+        const noIssue = plan.sections.filter(section =>
+          section.quality.state === 'no_issue_detected' || section.quality.state === 'fixed').length
+        results.push({ episode, checked: plan.sections.length, review, noIssue })
+      } catch (e: any) {
+        results.push({
+          episode,
+          checked: 0,
+          review: 0,
+          noIssue: 0,
+          error: e?.data?.detail || e?.message || 'The saved audio evidence could not be checked.',
+        })
+      } finally {
+        pipelineQualityCompleted.value++
+        if (slug.value === targetSlug) pipelineQualityResults.value = [...results]
+      }
+    }
+    if (slug.value !== targetSlug) return
+    const reviewCount = results.reduce((total, result) => total + result.review, 0)
+    const checkedCount = results.reduce((total, result) => total + result.checked, 0)
+    if (results.some(result => result.error)) showError('Some episodes could not be checked. Retry keeps the same unfinished action.')
+    else if (reviewCount) showInfo(`${reviewCount} chapter${reviewCount === 1 ? '' : 's'} need review. Open Audio from the results below.`)
+    else if (!checkedCount) showInfo('No completed chapter audio was available to check.')
+    else success('Audio quality check finished. No issue was detected in the available saved evidence.')
+  } finally {
+    pipelineQualityChecking.value = false
+  }
 }
 
 // Page-scoped variants. Identical logic to selectAll / selectAllPending
@@ -1996,6 +2166,68 @@ async function submit() {
 .ep-pill.pending { opacity: 0.4; filter: grayscale(1); }
 
 .selection-summary { padding: 4px 2px; }
+
+.pipeline-quality-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pipeline-quality-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+}
+
+.pipeline-quality-summary p { margin: 0; color: var(--text-secondary); }
+.pipeline-quality-mode {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+.pipeline-quality-results {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pipeline-quality-results li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+}
+
+.pipeline-quality-results li[data-tone='warning'] { border-color: color-mix(in srgb, var(--warning) 40%, var(--border)); }
+.pipeline-quality-results li[data-tone='success'] { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); }
+.pipeline-quality-results li > div { display: flex; gap: 8px; min-width: 0; }
+.pipeline-quality-results li span { color: var(--text-secondary); }
+
+@media (max-width: 560px) {
+  .pipeline-quality-actions,
+  .pipeline-quality-actions .btn { width: 100%; }
+  .pipeline-quality-summary { align-items: flex-start; flex-direction: column; }
+  .pipeline-quality-results li { align-items: stretch; flex-direction: column; }
+  .pipeline-quality-results li > div { flex-direction: column; gap: 3px; }
+  .pipeline-quality-results .btn { width: 100%; }
+}
 
 /* ── Episode-list toolbar (sort / filter / page-size) ───────────────── */
 .episode-toolbar {

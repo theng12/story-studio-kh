@@ -1,7 +1,12 @@
+import { computed, ref } from 'vue'
 import { useApi } from './useApi.js'
-import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
+import {
+  createGenStudioCatalogCache,
+  GENSTUDIO_CATALOG_STALE_CEILING_MS,
+} from './useGenStudioCatalogCache.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 import { findGenStudioProduct } from '../../electron/server/contracts/genstudio-product-identity'
+import { normalizeGenStudioLoadedAt } from '../utils/genstudio-freshness.js'
 
 /** One published `(resolution, aspect_ratio)` pair from the image catalog. */
 export interface GenStudioImageOutputOption {
@@ -67,11 +72,27 @@ export interface GenStudioImageModelInfo {
   lock_reason?: string
 }
 
+interface BackendCatalogFreshness {
+  stale: boolean
+  ageMs: number
+  loadedAt: number | null
+}
+interface BackendCatalogFreshnessResponse extends Omit<BackendCatalogFreshness, 'loadedAt'> {
+  loadedAt: string | number | null
+}
+
+const backendFreshness = ref<BackendCatalogFreshness | null>(null)
 const cache = createGenStudioCatalogCache<GenStudioImageModelInfo[]>({
   empty: [],
   fetcher: async () => {
     const { get } = useApi()
-    const response = await get<{ models?: GenStudioImageModelInfo[] }>('/app-settings/genstudio/image-models', { cache: 'no-store' })
+    const response = await get<{
+      models?: GenStudioImageModelInfo[]
+      freshness?: BackendCatalogFreshnessResponse
+    }>('/app-settings/genstudio/image-models', { cache: 'no-store' })
+    backendFreshness.value = response.freshness
+      ? { ...response.freshness, loadedAt: normalizeGenStudioLoadedAt(response.freshness.loadedAt) }
+      : null
     return Array.isArray(response.models) ? response.models : []
   },
 })
@@ -83,6 +104,15 @@ const cache = createGenStudioCatalogCache<GenStudioImageModelInfo[]>({
  * only cleared once it is past the hard ceiling with no successful refresh.
  */
 export function useGenStudioImageModels() {
+  const sourceIsStale = computed(() => backendFreshness.value?.stale === true)
+  const sourceIsExpired = computed(() => sourceIsStale.value
+    && (backendFreshness.value?.ageMs || 0) > GENSTUDIO_CATALOG_STALE_CEILING_MS)
+  const isStale = computed(() => sourceIsStale.value || cache.isStale.value)
+  const isExpired = computed(() => sourceIsExpired.value || cache.isExpired.value)
+  const isUsable = computed(() => !cache.loading.value
+    && cache.isUsable.value && !isStale.value && !isExpired.value)
+  const lastFetchedAt = computed(() => backendFreshness.value?.loadedAt ?? cache.lastFetchedAt.value)
+
   function find(modelId: string): GenStudioImageModelInfo | undefined {
     return findGenStudioProduct(cache.data.value, modelId)
   }
@@ -92,10 +122,11 @@ export function useGenStudioImageModels() {
     loading: cache.loading,
     loaded: cache.loaded,
     error: cache.error,
-    lastFetchedAt: cache.lastFetchedAt,
-    isStale: cache.isStale,
-    isExpired: cache.isExpired,
-    isUsable: cache.isUsable,
+    lastFetchedAt,
+    isStale,
+    isExpired,
+    isUsable,
+    sourceFreshness: backendFreshness,
     refresh: cache.refresh,
     find,
   }

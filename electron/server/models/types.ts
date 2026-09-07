@@ -1967,6 +1967,17 @@ export interface ConfirmationPreferences {
   metadata?: boolean
 }
 
+/**
+ * A customer-controlled, project-scoped narration review policy. This is
+ * deliberately separate from Audio/Subtitles presets: a preset chooses reusable
+ * request controls, while this choice authorizes an operational workflow.
+ */
+export interface AudioQualityProjectConfig {
+  mode: 'off' | 'flag_issues' | 'check_and_repair'
+  /** Published alternate transcription model selected by the customer. */
+  alternate_transcription_model?: string
+}
+
 export interface ProjectConfig {
   /** Historical project files may contain retired fields; Story ignores them. */
   [key: string]: any
@@ -2009,6 +2020,8 @@ export interface ProjectConfig {
   video_models?: Record<string, VideoModelConfig>
   video_pricing_last_updated?: string
   confirmation_preferences?: ConfirmationPreferences
+  /** Optional narration inspection/repair workflow. Missing means Off. */
+  audio_quality?: AudioQualityProjectConfig
   /** Optional, reviewed documentary annotation layer. Disabled by default. */
   contextual_cues?: ContextualCueProjectConfig
   /** Optional, reviewed sound-design layer. Disabled by default. */
@@ -2244,6 +2257,7 @@ export interface SafeProjectConfig {
   video_models?: Record<string, VideoModelConfig>
   video_pricing_last_updated?: string
   confirmation_preferences?: ConfirmationPreferences
+  audio_quality?: AudioQualityProjectConfig
   broll_pool_id?: string
   broll_lookback?: number
   /**
@@ -2269,6 +2283,7 @@ export interface UpdateConfigRequest {
   audio_models?: Record<string, AudioModelConfig>
   video_models?: Record<string, VideoModelConfig>
   confirmation_preferences?: ConfirmationPreferences
+  audio_quality?: AudioQualityProjectConfig
   active_style_preset_id?: string
   thumbnail_template_id?: string
   /**
@@ -2882,6 +2897,18 @@ export interface GenerateAudioRequest {
   use_expression?: boolean
   /** Fish Audio S2-Pro only — auto-insert pause tags at sentence/paragraph breaks. */
   fish_autopace?: boolean
+  /** Server-stamped, action-scoped staged candidate; public Audio requests never carry it. */
+  quality_repair?: {
+    action_id: string
+    source_fingerprint: string
+    verification_credit_ceiling: number
+  }
+  /** Server-only raw alternate-ASR check over selected active audio. */
+  quality_check?: {
+    action_id: string
+    source_fingerprint: string
+    verification_credit_ceiling: number
+  }
 }
 
 export interface VideoScene {
@@ -3719,6 +3746,19 @@ export interface AudioMergeRequest {
   ambient_tracks?: AmbientTrack[]
   narration_volume?: number    // 0-1, default 1.0
   write_mode?: 'overwrite' | 'new'  // how to handle an existing merged output; default 'overwrite'
+  /**
+   * Server-only follow-up after a verified audio-quality candidate is selected.
+   * Browser requests are stripped at the route boundary.  The merge keeps its
+   * original mix settings, then refreshes only the proven candidate chapters'
+   * raw subtitle evidence and stitched timeline.
+   */
+  audio_quality_refresh?: {
+    action_id: string
+    source_fingerprint: string
+    sections: string[]
+    /** Server-stamped post-promotion map; never accepted from the browser. */
+    promoted_files?: Record<string, string[]>
+  }
 }
 
 // ── AI Models ───────────────────────────────────────────────────────────────

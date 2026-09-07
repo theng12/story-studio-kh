@@ -11,6 +11,14 @@
 /** Past this age a copy stops being "old but usable" and stops being shown. */
 export const GENSTUDIO_STALE_CEILING_MS = 30 * 60_000
 
+/** Catalog routes serialize server timestamps as ISO text; UI clocks use epoch ms. */
+export function normalizeGenStudioLoadedAt(value: string | number | null | undefined): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value !== 'string' || !value.trim()) return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 /** Matches the wording the catalog settings page has always used. */
 export function formatGenStudioAge(loadedAt: number | null): string {
   if (loadedAt === null) return 'never fetched'

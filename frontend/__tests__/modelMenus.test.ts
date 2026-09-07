@@ -302,7 +302,8 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.subtitles, /:generate-label="transcribeLabel"/)
     assert.match(modelSurfaces.subtitles, /title="Import subtitles"/)
     assert.doesNotMatch(modelSurfaces.subtitles, /title="Other methods"|From chapters/)
-    assert.match(transcriptionCatalog, /disabled: !model\.available/)
+    assert.match(transcriptionCatalog, /disabled: !catalogIsUsable\.value \|\| !model\.available \|\| model\.locked === true/)
+    assert.match(transcriptionCatalog, /Last-known catalog only\. Refresh GenStudio before starting paid transcription\./)
     assert.match(transcriptionCatalog, /temporarily unavailable/)
   })
 

@@ -910,6 +910,8 @@ export async function createProject(
       audio_models: { ...DEFAULT_AUDIO_MODELS },
       video_models: { ...DEFAULT_VIDEO_MODELS },
       image_pricing_last_updated: '', audio_pricing_last_updated: '', video_pricing_last_updated: '',
+      // Operational audio-quality work is opt-in for every new channel.
+      audio_quality: { mode: 'off' },
       // v1.4.20 — the channel's publishing rhythm, chosen at creation. Only
       // written when the caller supplied one: an absent cadence must stay
       // absent rather than become a default nobody chose, because
@@ -1152,6 +1154,7 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   if (!existsSync(configPath)) return null
   const raw = await readJson(configPath)
   migrateProjectPresetFields(raw)
+  raw.audio_quality = normalizeAudioQualityConfig(raw.audio_quality)
 
   // Merge defaults into each catalog so new default entries (e.g. new
   // ElevenLabs models) surface in existing projects without forcing
@@ -1185,6 +1188,20 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   raw.genstudio_api_key = secrets.genstudio_api_key ?? ''
   raw.google_api_key = secrets.google_api_key ?? ''
   return raw
+}
+
+/**
+ * Operational narration review is project-scoped. Treat legacy, malformed,
+ * and absent values as Off rather than silently authorising inspection or paid
+ * repair when an unrelated Settings draft is saved.
+ */
+export function normalizeAudioQualityConfig(value: unknown): { mode: 'off' | 'flag_issues' | 'check_and_repair'; alternate_transcription_model?: string } {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const mode = raw.mode === 'flag_issues' || raw.mode === 'check_and_repair' ? raw.mode : 'off'
+  const alternate = typeof raw.alternate_transcription_model === 'string'
+    ? raw.alternate_transcription_model.trim()
+    : ''
+  return { mode, ...(alternate ? { alternate_transcription_model: alternate } : {}) }
 }
 
 export async function getSafeConfig(slug: string): Promise<any | null> {
@@ -1363,6 +1380,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     youtube_last_template: raw.youtube_last_template || undefined,
     script_settings: raw.script_settings || undefined,
     confirmation_preferences: raw.confirmation_preferences || undefined,
+    audio_quality: normalizeAudioQualityConfig(raw.audio_quality),
     intro_standards: raw.intro_standards || '',
     standards_presets: raw.standards_presets || [],
     intro_presets: raw.intro_presets || [],

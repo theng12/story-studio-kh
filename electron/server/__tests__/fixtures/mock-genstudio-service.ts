@@ -103,6 +103,8 @@ interface StoredScenario extends Required<Omit<MockGenStudioScenario,
 interface MockJob {
   id: string
   operation: MockGenStudioOperation
+  /** Test-only owner boundary: provider task ids are never cross-account. */
+  ownerKey: string
   idempotencyKey: string
   scenario: StoredScenario
   stateIndex: number
@@ -369,6 +371,9 @@ export class MockGenStudioService {
   }]
 
   private readonly keys = new Map<string, Set<MockGenStudioScope>>()
+  /** Test-only per-credential discovery controls; production contracts see ordinary catalog rows. */
+  private readonly transcriptionModelsByKey = new Map<string, Array<Record<string, unknown>>>()
+  private readonly accountOverviewByKey = new Map<string, Record<string, unknown>>()
   private readonly contentAccounts = new Map<string, string>()
   private readonly contentAccountCredits = new Map<string, number>()
   private readonly contentBundleComponents = new Map<string, string[]>()
@@ -485,6 +490,14 @@ export class MockGenStudioService {
 
   registerKey(key: string, scopes: Iterable<MockGenStudioScope>): void {
     this.keys.set(key, new Set(scopes))
+  }
+
+  setTranscriptionModelsForKey(key: string, models: Array<Record<string, unknown>>): void {
+    this.transcriptionModelsByKey.set(key, structuredClone(models))
+  }
+
+  setAccountOverviewForKey(key: string, overview: Record<string, unknown>): void {
+    this.accountOverviewByKey.set(key, structuredClone(overview))
   }
 
   registerContentStoreKey(
@@ -1170,11 +1183,12 @@ export class MockGenStudioService {
 
   private createOrReplay(
     operation: MockGenStudioOperation,
+    ownerKey: string,
     idempotencyKey: string,
     parsedBody: Record<string, unknown>,
     bodyText: string,
   ): { job: MockJob; replay: boolean } {
-    const identity = `${operation}:${idempotencyKey}`
+    const identity = `${ownerKey}:${operation}:${idempotencyKey}`
     const existingId = this.jobByIdempotency.get(identity)
     if (existingId) {
       const job = this.requireJob(existingId)
@@ -1197,6 +1211,7 @@ export class MockGenStudioService {
     const job: MockJob = {
       id,
       operation,
+      ownerKey,
       idempotencyKey,
       scenario,
       stateIndex: 0,
@@ -1572,8 +1587,8 @@ export class MockGenStudioService {
         return
       }
 
-      if (method === 'GET' && this.handleCatalog(url.pathname, response)) return
-      const byKeyJob = method === 'GET' ? this.lookupJobByIdempotencyKey(url.pathname) : null
+      if (method === 'GET' && this.handleCatalog(url.pathname, request, response)) return
+      const byKeyJob = method === 'GET' ? this.lookupJobByIdempotencyKey(url.pathname, this.bearerKey(request)) : null
       if (byKeyJob) {
         const job = byKeyJob
         json(response, 200, this.responseBody(job))
@@ -1583,6 +1598,10 @@ export class MockGenStudioService {
         const cancellation = this.cancellationJob(url.pathname)
         if (cancellation) {
           const { job } = cancellation
+          if (job.ownerKey !== this.bearerKey(request)) {
+            json(response, 404, { detail: 'task not found for this account' })
+            return
+          }
           const state = this.state(job)
           if (!['accepted', 'reserved'].includes(state) || job.cancelled) {
             json(response, 409, { detail: 'provider execution has already started', code: 'CANCELLATION_NOT_AVAILABLE' })
@@ -1605,7 +1624,7 @@ export class MockGenStudioService {
             return
           }
           const parsedBody = parseJson(body)
-          const { job, replay } = this.createOrReplay('chat', idempotencyKey, parsedBody, bodyText)
+          const { job, replay } = this.createOrReplay('chat', this.bearerKey(request), idempotencyKey, parsedBody, bodyText)
           if (job.scenario.dropFirstSubmitResponse && !job.responseDropped) {
             job.responseDropped = true
             response.socket?.destroy()
@@ -1677,6 +1696,7 @@ export class MockGenStudioService {
           }
           const { job, replay } = this.createOrReplay(
             'transcription',
+            this.bearerKey(request),
             idempotencyKey,
             quote.body,
             quote.bodyText,
@@ -1718,7 +1738,7 @@ export class MockGenStudioService {
             this.maxInFlightTtsSubmissions = Math.max(this.maxInFlightTtsSubmissions, this.activeTtsSubmissions)
           }
           try {
-            const { job, replay } = this.createOrReplay(operation, idempotencyKey, parsedBody, bodyText)
+            const { job, replay } = this.createOrReplay(operation, this.bearerKey(request), idempotencyKey, parsedBody, bodyText)
             if (operation === 'tts' && job.scenario.waitForConcurrentTtsSubmissions) {
               await this.waitForTtsSubmissionBarrier(job.scenario.waitForConcurrentTtsSubmissions)
             }
@@ -1746,6 +1766,10 @@ export class MockGenStudioService {
 
       const artifact = this.artifactJob(url.pathname)
       if (method === 'GET' && artifact) {
+        if (artifact.job.ownerKey !== this.bearerKey(request)) {
+          json(response, 404, { detail: 'task not found for this account' })
+          return
+        }
         if (artifact.job.scenario.artifactExpired) {
           json(response, 404, { detail: 'asset expired' })
           return
@@ -1774,6 +1798,10 @@ export class MockGenStudioService {
 
       const job = method === 'GET' ? this.lookupJob(url.pathname) : null
       if (job) {
+        if (job.ownerKey !== this.bearerKey(request)) {
+          json(response, 404, { detail: 'task not found for this account' })
+          return
+        }
         this.advance(job)
         json(response, 200, this.responseBody(job))
         return
@@ -1785,7 +1813,7 @@ export class MockGenStudioService {
     }
   }
 
-  private handleCatalog(pathname: string, response: ServerResponse): boolean {
+  private handleCatalog(pathname: string, request: IncomingMessage, response: ServerResponse): boolean {
     if (pathname === '/v1/account/overview') {
       json(response, 200, {
         credit_balance: 1_000,
@@ -1804,6 +1832,7 @@ export class MockGenStudioService {
         failed_jobs: 0,
         available_assets: 0,
         next_asset_expiration: null,
+        ...this.accountOverviewByKey.get(this.bearerKey(request)),
       })
       return true
     }
@@ -1835,7 +1864,7 @@ export class MockGenStudioService {
       return true
     }
     if (pathname === '/v1/transcription/models') {
-      json(response, 200, [{
+      json(response, 200, this.transcriptionModelsByKey.get(this.bearerKey(request)) ?? [{
         id: 'mock-whisper-v1', display_name: 'Mock Whisper', provider: 'GenStudio mock',
         language: 'multilingual', available: true, available_workers: 1, qualification_only: false,
         supported_languages: ['en'], supports_language_auto_detect: true,
@@ -1932,7 +1961,7 @@ export class MockGenStudioService {
     return null
   }
 
-  private lookupJobByIdempotencyKey(pathname: string): MockJob | null {
+  private lookupJobByIdempotencyKey(pathname: string, ownerKey: string): MockJob | null {
     const patterns: Array<[MockGenStudioOperation, RegExp]> = [
       ['chat', /^\/v1\/chat\/responses\/by-idempotency-key\/([^/]+)$/],
       ['image', /^\/v1\/images\/by-idempotency-key\/([^/]+)$/],
@@ -1944,7 +1973,7 @@ export class MockGenStudioService {
     for (const [operation, pattern] of patterns) {
       const match = pathname.match(pattern)
       if (!match) continue
-      const jobId = this.jobByIdempotency.get(`${operation}:${decodeURIComponent(match[1]!)}`)
+      const jobId = this.jobByIdempotency.get(`${ownerKey}:${operation}:${decodeURIComponent(match[1]!)}`)
       const job = jobId ? this.jobs.get(jobId) : null
       return job?.operation === operation ? job : null
     }

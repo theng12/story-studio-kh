@@ -9,7 +9,7 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
-import { getGenStudioUrl, getLanguageTimeoutMs } from '../services/app-settings.js'
+import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting } from '../services/app-settings.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
 import {
   GenStudioAdmissionPool,
@@ -1224,6 +1224,8 @@ export interface GenStudioTranscriptionRequest extends GenStudioOperationContext
   wordTimestamps?: boolean
   /** Persist and authorize the exact live quote before its charged confirmation. */
   beforeConfirm?: (quote: GenStudioTranscriptionQuote) => void | Promise<void>
+  /** A route obtained this exact quote for the same action-scoped audio bytes. */
+  preparedQuote?: GenStudioTranscriptionQuote
   /** Serialize authorization and the physical confirmation with policy mutations. */
   withConfirm?: (confirm: () => Promise<Response>) => Promise<Response>
   onState?: (state: GenStudioTranscriptionJob['state'], jobId: string) => void | Promise<void>
@@ -1235,6 +1237,33 @@ export interface GenStudioTranscriptionQuote {
   quoted_credit_cost?: number
   price_version?: string
   expires_at?: string
+}
+
+/** Quote one exact audio file without confirming provider work. */
+export async function quoteGenStudioTranscription(
+  apiKey: string,
+  request: Pick<GenStudioTranscriptionRequest, 'audioPath' | 'modelId' | 'requestIdentity' | 'idempotencyKey' | 'language' | 'wordTimestamps'>,
+): Promise<{ quote: GenStudioTranscriptionQuote; idempotencyKey: string; fileSha256: string }> {
+  const modelId = request.modelId.trim()
+  if (!modelId || !request.requestIdentity.trim()) throw new Error('A model and stable transcription identity are required for a quote.')
+  const file = await fs.readFile(request.audioPath)
+  if (!file.length || file.length > GENSTUDIO_MAX_TRANSCRIPTION_BYTES) throw new Error('Transcription audio is empty or exceeds the qualification limit.')
+  const fileSha256 = createHash('sha256').update(file).digest('hex')
+  const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioTranscriptionIdempotencyKey({
+    requestIdentity: request.requestIdentity, fileSha256, modelId, language: request.language, wordTimestamps: request.wordTimestamps,
+  })
+  const body = new FormData()
+  body.set('file', new Blob([new Uint8Array(file)], { type: transcriptionMediaType(request.audioPath) }), path.basename(request.audioPath))
+  body.set('model', modelId)
+  if (request.language) body.set('language', request.language)
+  body.set('word_timestamps', String(request.wordTimestamps === true))
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const quote = await submitJsonWithAdmission(apiKey, `${apiBase(baseUrl)}/v1/audio/transcriptions/quotes`, {
+    method: 'POST', headers: { ...authorization(apiKey), 'Idempotency-Key': idempotencyKey }, body,
+  }, {}, deadline, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS) as GenStudioTranscriptionQuote
+  if (!quote.id) throw new Error('GenStudio KH transcription quote returned no quote id.')
+  return { quote, idempotencyKey, fileSha256 }
 }
 
 export interface GenStudioSubmission {
@@ -3700,6 +3729,71 @@ export class GenStudioCatalogUnavailableError extends Error {
 
 const catalogCache = new Map<string, CatalogCacheEntry<unknown>>()
 const catalogRefreshes = new Map<string, Promise<unknown>>()
+const LAST_GOOD_CATALOG_SETTING = 'genstudio_catalog_last_good_v1'
+const LAST_GOOD_CATALOG_SCHEMA_VERSION = 1
+let lastGoodCatalogWrite = Promise.resolve()
+
+interface LastGoodCatalogEntry<T = unknown> {
+  kind: GenStudioCatalogKind
+  fetched_at: number
+  value: T
+}
+
+interface LastGoodCatalogStore {
+  schema_version: number
+  entries: Record<string, LastGoodCatalogEntry>
+}
+
+function readLastGoodCatalogStore(value: unknown): LastGoodCatalogStore {
+  if (!value || typeof value !== 'object') return { schema_version: LAST_GOOD_CATALOG_SCHEMA_VERSION, entries: {} }
+  const candidate = value as Partial<LastGoodCatalogStore>
+  if (candidate.schema_version !== LAST_GOOD_CATALOG_SCHEMA_VERSION || !candidate.entries || typeof candidate.entries !== 'object') {
+    return { schema_version: LAST_GOOD_CATALOG_SCHEMA_VERSION, entries: {} }
+  }
+  return { schema_version: LAST_GOOD_CATALOG_SCHEMA_VERSION, entries: candidate.entries }
+}
+
+function usableLastGoodCatalogEntry<T>(
+  value: unknown,
+  kind: GenStudioCatalogKind,
+  now: number,
+): LastGoodCatalogEntry<T> | null {
+  if (!value || typeof value !== 'object') return null
+  const entry = value as Partial<LastGoodCatalogEntry<T>>
+  if (entry.kind !== kind || !Array.isArray(entry.value) || !Number.isFinite(entry.fetched_at) || entry.fetched_at! > now) return null
+  if (now - entry.fetched_at! > CATALOG_STALE_MS) return null
+  return {
+    kind,
+    fetched_at: entry.fetched_at!,
+    value: entry.value,
+  }
+}
+
+async function readLastGoodCatalog<T>(key: string, kind: GenStudioCatalogKind): Promise<LastGoodCatalogEntry<T> | null> {
+  const store = readLastGoodCatalogStore(await getAppSetting(LAST_GOOD_CATALOG_SETTING))
+  return usableLastGoodCatalogEntry<T>(store.entries[key], kind, Date.now())
+}
+
+function queueLastGoodCatalogWrite<T>(
+  key: string,
+  kind: GenStudioCatalogKind,
+  value: T,
+  loadedAt: number,
+): Promise<void> {
+  const write = lastGoodCatalogWrite.then(async () => {
+    const store = readLastGoodCatalogStore(await getAppSetting(LAST_GOOD_CATALOG_SETTING))
+    // A newly successful catalogue response replaces any older entry for this
+    // account, endpoint, and modality.
+    store.entries[key] = {
+      kind,
+      fetched_at: loadedAt,
+      value,
+    }
+    await setAppSetting(LAST_GOOD_CATALOG_SETTING, store)
+  })
+  lastGoodCatalogWrite = write.catch(() => {})
+  return write
+}
 // A forced paid-work read must not share or be overwritten by an older normal
 // refresh for the same account-scoped key. The value is only a write guard;
 // cache storage remains the existing maps above.
@@ -3710,9 +3804,11 @@ function catalogCacheKey(kind: GenStudioCatalogKind | 'account-overview', baseUr
 }
 
 /**
- * Forget every cached GenStudio read, catalogues and the account overview
- * alike. Use when the account key changes — a snapshot loaded under a different
- * key must never authorise a submission, nor be shown as this account's balance.
+ * Forget process-local GenStudio reads, catalogues and the account overview
+ * alike. Durable display catalogues are intentionally retained: each uses the
+ * hashed account-and-base-URL key, so changing credentials cannot expose one
+ * account's rows to another and a process restart can still show the same
+ * account's last-known list during a short outage.
  */
 export function clearGenStudioCatalogCache(): void {
   catalogCache.clear()
@@ -3785,15 +3881,36 @@ async function cachedCatalogSnapshot<T>(
   kind: GenStudioCatalogKind,
   key: string,
   load: () => Promise<T>,
+  options: { displayFallback?: boolean; baseUrl?: string; apiKey?: string } = {},
 ): Promise<GenStudioCatalogSnapshot<T>> {
-  const { entry, freshness, now } = await cachedRemoteSnapshot(
-    key,
-    load,
-    CATALOG_FRESH_MS,
-    CATALOG_STALE_MS,
-    (ageMs, cause) => new GenStudioCatalogUnavailableError(kind, ageMs, cause),
-  )
-  return catalogSnapshot(kind, entry, freshness, now)
+  try {
+    const { entry, freshness, now } = await cachedRemoteSnapshot(
+      key,
+      load,
+      CATALOG_FRESH_MS,
+      CATALOG_STALE_MS,
+      (ageMs, cause) => new GenStudioCatalogUnavailableError(kind, ageMs, cause),
+    )
+    if (freshness === 'live' && options.baseUrl && options.apiKey) {
+      // This copy only improves the next short outage. A settings-disk fault
+      // must never turn a verified live catalogue into a failed display read.
+      void queueLastGoodCatalogWrite(key, kind, entry.value, entry.loadedAt).catch(() => {})
+    }
+    return catalogSnapshot(kind, entry, freshness, now)
+  } catch (error) {
+    // Authentication/scope failures are never display fallbacks: a stale list
+    // must not remain visible after an account loses entitlement.
+    if (!options.displayFallback || (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403))) throw error
+    const fallback = await readLastGoodCatalog<T>(key, kind).catch(() => null)
+    if (!fallback) throw error
+    const now = Date.now()
+    return catalogSnapshot(kind, {
+      value: fallback.value,
+      loadedAt: fallback.fetched_at,
+      freshUntil: fallback.fetched_at,
+      staleUntil: fallback.fetched_at + CATALOG_STALE_MS,
+    }, 'stale', now)
+  }
 }
 
 /**
@@ -3874,12 +3991,13 @@ async function forceLiveCatalogSnapshot<T>(
   kind: GenStudioCatalogKind,
   key: string,
   load: () => Promise<T>,
+  options: { baseUrl?: string; apiKey?: string } = {},
 ): Promise<GenStudioCatalogSnapshot<T>> {
   const generation = (catalogGenerations.get(key) ?? 0) + 1
   catalogGenerations.set(key, generation)
   catalogCache.delete(key)
   catalogRefreshes.delete(key)
-  const snapshot = await cachedCatalogSnapshot(kind, key, load)
+  const snapshot = await cachedCatalogSnapshot(kind, key, load, options)
   if ((catalogGenerations.get(key) ?? 0) !== generation) {
     throw new Error(`GenStudio KH ${CATALOG_LABEL[kind]} catalogue force-live read was superseded by a newer refresh.`)
   }
@@ -3916,7 +4034,7 @@ function optionalCount(value: unknown): number | undefined {
  */
 export async function listVoicesSnapshot(
   apiKey: string,
-  options: { modelId?: string; collection?: string; search?: string } = {},
+  options: { modelId?: string; collection?: string; search?: string; displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioVoice[]>> {
   const baseUrl = await getGenStudioUrl()
   const query = new URLSearchParams()
@@ -3954,7 +4072,7 @@ export async function listVoicesSnapshot(
     tts_model_id: nullableText(value?.tts_model_id),
     tts_model_name: nullableText(value?.tts_model_name),
   })).filter((voice: GenStudioVoice) => voice.id && voice.display_name)
-  })
+  }, { displayFallback: options.displayFallback, baseUrl, apiKey })
 }
 
 export async function listVoices(
@@ -3971,6 +4089,7 @@ export async function listVoices(
  */
 export async function listTtsModelsSnapshot(
   apiKey: string,
+  options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioTtsModel[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('tts-models', catalogCacheKey('tts-models', baseUrl, apiKey), async () => {
@@ -4021,7 +4140,7 @@ export async function listTtsModelsSnapshot(
         controls: parseTtsControls(value?.controls),
       }]
     })
-  })
+  }, { ...options, baseUrl, apiKey })
 }
 
 export async function listTtsModels(apiKey: string): Promise<GenStudioTtsModel[]> {
@@ -4031,6 +4150,7 @@ export async function listTtsModels(apiKey: string): Promise<GenStudioTtsModel[]
 /** Fetch the account-visible music catalog without deriving availability or provider identity. */
 export async function listMusicModelsSnapshot(
   apiKey: string,
+  options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioMusicModel[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('music', catalogCacheKey('music', baseUrl, apiKey), async () => {
@@ -4084,7 +4204,7 @@ export async function listMusicModelsSnapshot(
         outputs_per_request: value.outputs_per_request,
       }]
     })
-  })
+  }, { ...options, baseUrl, apiKey })
 }
 
 export async function listMusicModels(apiKey: string): Promise<GenStudioMusicModel[]> {
@@ -4298,6 +4418,7 @@ export async function downloadVoicePreview(
 /** Fetch GenStudio's provider-owned capability registry without copying it into project config. */
 export async function listModelCapabilitiesSnapshot(
   apiKey: string,
+  options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioModelCapability[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('capabilities', catalogCacheKey('capabilities', baseUrl, apiKey), async () => {
@@ -4321,7 +4442,7 @@ export async function listModelCapabilitiesSnapshot(
   })).filter((model: GenStudioModelCapability) => (
     !!model.id && !!model.display_name && modalities.has(model.modality) && operations.has(model.operation)
   ))
-  })
+  }, { ...options, baseUrl, apiKey })
 }
 
 export async function listModelCapabilities(apiKey: string): Promise<GenStudioModelCapability[]> {
@@ -4368,6 +4489,7 @@ function parseRelaxedQueueHint(value: unknown): GenStudioRelaxedQueueHint | null
 
 export async function listChatModelsSnapshot(
   apiKey: string,
+  options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioChatModel[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('chat', catalogCacheKey('chat', baseUrl, apiKey), async () => {
@@ -4501,7 +4623,7 @@ export async function listChatModelsSnapshot(
       ? value.max_web_searches
       : null,
   })).filter((model: GenStudioChatModel) => model.id && model.display_name)
-  })
+  }, { ...options, baseUrl, apiKey })
 }
 
 export async function listChatModels(apiKey: string): Promise<GenStudioChatModel[]> {
@@ -4510,6 +4632,7 @@ export async function listChatModels(apiKey: string): Promise<GenStudioChatModel
 
 export async function listVideoModelsSnapshot(
   apiKey: string,
+  options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioVideoModel[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('video', catalogCacheKey('video', baseUrl, apiKey), async () => {
@@ -4568,7 +4691,7 @@ export async function listVideoModelsSnapshot(
     // catalogue never said so is inventing a capability answer.
     generates_audio: typeof value?.generates_audio === 'boolean' ? value.generates_audio : null,
   })).filter((model: GenStudioVideoModel) => model.id && model.display_name)
-  })
+  }, { ...options, baseUrl, apiKey })
 }
 
 export async function listVideoModels(apiKey: string): Promise<GenStudioVideoModel[]> {
@@ -6426,6 +6549,7 @@ export async function uploadImageSourceWithGenStudio(
 /** Fetch the account-visible transcription catalog from the GenStudio boundary. */
 export async function listTranscriptionModelsSnapshot(
   apiKey: string,
+  options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioTranscriptionModel[]>> {
   const baseUrl = await getGenStudioUrl()
   const key = catalogCacheKey('transcription', baseUrl, apiKey)
@@ -6468,7 +6592,7 @@ export async function listTranscriptionModelsSnapshot(
       price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
       ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
     })).filter((model: GenStudioTranscriptionModel) => model.id && model.display_name)
-  })
+  }, { ...options, baseUrl, apiKey })
 }
 
 export async function listTranscriptionModels(
@@ -6589,10 +6713,11 @@ async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Pr
 /** Fetch the account-visible image catalog owned by GenStudio. */
 export async function listImageModelsSnapshot(
   apiKey: string,
+  options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioImageModel[]>> {
   const baseUrl = await getGenStudioUrl()
   const key = catalogCacheKey('image', baseUrl, apiKey)
-  return cachedCatalogSnapshot('image', key, () => loadImageModelsFromGenStudio(baseUrl, apiKey))
+  return cachedCatalogSnapshot('image', key, () => loadImageModelsFromGenStudio(baseUrl, apiKey), { ...options, baseUrl, apiKey })
 }
 
 /**
@@ -6604,7 +6729,7 @@ export async function listImageModelsForceLive(
 ): Promise<GenStudioCatalogSnapshot<GenStudioImageModel[]>> {
   const baseUrl = await getGenStudioUrl()
   const key = catalogCacheKey('image', baseUrl, apiKey)
-  return forceLiveCatalogSnapshot('image', key, () => loadImageModelsFromGenStudio(baseUrl, apiKey))
+  return forceLiveCatalogSnapshot('image', key, () => loadImageModelsFromGenStudio(baseUrl, apiKey), { baseUrl, apiKey })
 }
 
 export async function listImageModels(apiKey: string): Promise<GenStudioImageModel[]> {
@@ -7398,7 +7523,7 @@ async function transcribeWithGenStudioAdmitted(
   // A quote carries `expires_at`. When a saved idempotency key outlives its
   // quote, the quote/confirm exchange fails permanently — surface that as a
   // typed outcome so the caller retires the key instead of matching wording.
-  const quote = await submitJsonWithAdmission(
+  const quote = request.preparedQuote || await submitJsonWithAdmission(
     apiKey,
     `${apiBase(baseUrl)}/v1/audio/transcriptions/quotes`,
     {

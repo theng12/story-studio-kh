@@ -19,7 +19,7 @@ import {
   hashSubtitleAudioSources,
   isPipelineRepairTranscriptUsable,
 } from '../services/subtitle-completion.js'
-import { recordSubtitleSourceAudioHash } from '../services/subtitle-recovery.js'
+import { recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { scanEpisodeAssets } from './video.js'
 import {
@@ -580,7 +580,7 @@ async function transcribePerChapter(
         failures.push({ slug: sec.slug, error: 'transcription returned zero usable cues' })
       } else {
         await fs.writeFile(outPath, srt, 'utf-8')
-        await recordSubtitleSourceAudioHash(outDir, manifestKey, sourceAudioHash)
+        await recordSubtitleSourceEvidence(outDir, manifestKey, sourceAudioHash, result.modelId)
         totalCues += cues
         generatedSections += 1
         job.output_lines.push(`  ✓ ${sec.slug}: ${cues} cues → ${path.basename(outPath)}`)
