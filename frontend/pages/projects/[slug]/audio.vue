@@ -25,11 +25,7 @@
       v-model:episode-id="form.episode_id"
       filter-field="audio"
       generate-label="Generate Audio"
-      loading-label="Queuing…"
-      :generate-loading="submitting || audioJobActiveForEpisode"
-      :generate-disabled="!form.episode_id || !scriptReady || !form.voice || !selectedVoiceCompatible"
-      :generate-status="audioJobActiveForEpisode ? audioJobStatusText : (scriptGateReason || (!form.voice ? 'Pick a voice first — there is no default.' : (!selectedVoiceCompatible ? 'This voice cannot be generated with right now.' : '')))"
-      @generate="submit"
+      :show-generate="false"
     >
       <template #actions>
         <EpisodeImportButton
@@ -157,24 +153,91 @@
         </p>
       </div>
 
-      <!-- Section selector replaces the old free-text "Sections" input.
-           Status pills + duplicate prevention live inside the component.
-           `allow-duplicates` is now derived from `generation_mode` instead
-           of being its own toggle (M6 unification). -->
+      <!-- Chapter selection stays independent from the action. Selecting a
+           completed row never requires a hidden mode switch; each action below
+           states whether it fills a gap, replaces audio, or keeps a version. -->
       <AudioChapterSelector
         v-if="form.episode_id"
         :project-slug="slug"
         :episode-id="form.episode_id"
         v-model:selected="form.sections"
         :model="form.model"
-        :allow-duplicates="form.generation_mode !== 'skip'"
         :refresh-key="audioStatus.total"
         :inline-generate-disabled="inlineGenerateDisabled"
         :inline-generate-disabled-reason="inlineGenerateDisabledReason"
         @update:effective-selected="onEffectiveSelectionChange"
+        @update:missing-sections="onMissingSectionsChange"
         @generate-section="submitSection"
       />
 
+      <section v-if="form.episode_id" class="audio-action-bar" aria-label="Audio selection and actions">
+        <div class="audio-action-context">
+          <span class="audio-context-item">
+            <small>Model</small>
+            <strong>{{ selectedTtsModel?.display_name || 'Choose a model' }}</strong>
+          </span>
+          <span class="audio-context-item">
+            <small>Voice</small>
+            <strong>{{ selectedVoice?.display_name || 'Choose a voice' }}</strong>
+          </span>
+          <span class="audio-context-item">
+            <small>Selection</small>
+            <strong>{{ selectionCountLabel }}</strong>
+          </span>
+          <span class="audio-context-item">
+            <small>{{ quotedCost ? 'Selected quote' : 'Rate' }}</small>
+            <strong>{{ quotedCost?.text || modelRate.text }}</strong>
+          </span>
+        </div>
+
+        <div class="audio-action-controls">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="!missingSections.length || inlineGenerateDisabled"
+            :title="missingSections.length ? `Generate ${scopeSummary(missingSections)} without replacing completed audio.` : 'Every section already has audio.'"
+            @click="queueAudio(missingSections, 'generate')"
+          >Generate missing<span v-if="missingSections.length"> ({{ missingSections.length }})</span></button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="!effectiveSections.length || inlineGenerateDisabled"
+            :title="effectiveSections.length ? `Replace audio for ${scopeSummary(effectiveSections)}.` : 'Select at least one section.'"
+            @click="queueAudio(effectiveSections, 'regenerate')"
+          >Regenerate selected</button>
+          <button
+            type="button"
+            class="btn btn-ghost"
+            :disabled="!quoteEligible || quoting"
+            @click="refreshQuote"
+          >{{ quoting ? 'Quoting…' : 'Get quote' }}</button>
+          <details class="audio-more">
+            <summary class="btn btn-secondary" aria-label="More audio actions">More</summary>
+            <div class="audio-more-menu">
+              <button
+                type="button"
+                :disabled="!effectiveSections.length || inlineGenerateDisabled"
+                @click="queueAudio(effectiveSections, 'new_version')"
+              >Create another version</button>
+            </div>
+          </details>
+        </div>
+
+        <p class="audio-scope-summary" role="status">
+          <template v-if="effectiveSections.length">
+            Selected: <strong>{{ scopeSummary(effectiveSections) }}</strong>.
+            Regenerate replaces their active audio; Create another version keeps it.
+          </template>
+          <template v-else>
+            No sections selected. Choose rows before regenerating or creating another version.
+          </template>
+        </p>
+        <p v-if="quoteError" class="audio-quote-error" role="alert">{{ quoteError }}</p>
+      </section>
+
+      <details class="audio-advanced">
+        <summary>Delivery and request controls <span>{{ advancedSummary }}</span></summary>
+        <div class="audio-advanced-body">
       <div class="grid-3">
         <!-- GenStudio publishes `supports_speed` per model. A model that does
              not take a speed control does not get one. -->
@@ -322,37 +385,8 @@
           :audio-model="form.model"
         />
       </div>
-
-      <!-- Generation Mode (M6): single tri-state replaces the previous
-           pair of `force` + `no_overwrite` checkboxes. The form still
-           sends those booleans to the backend (translated at submit
-           time) so generators/audio.ts is unchanged. -->
-      <div class="form-group mb-2">
-        <label>Generation Mode</label>
-        <div class="generation-mode-row">
-          <label class="generation-mode-option">
-            <input type="radio" value="skip" v-model="form.generation_mode" />
-            <div>
-              <strong>Skip existing</strong>
-              <span class="text-muted">Don't regenerate sections that already have audio on disk.</span>
-            </div>
-          </label>
-          <label class="generation-mode-option">
-            <input type="radio" value="regenerate" v-model="form.generation_mode" />
-            <div>
-              <strong>Regenerate</strong>
-              <span class="text-muted">Overwrite existing chunks in place.</span>
-            </div>
-          </label>
-          <label class="generation-mode-option">
-            <input type="radio" value="new_version" v-model="form.generation_mode" />
-            <div>
-              <strong>New version</strong>
-              <span class="text-muted">Keep previous chunks; write fresh ones as _v2, _v3…</span>
-            </div>
-          </label>
         </div>
-      </div>
+      </details>
 
     </div>
 
@@ -535,8 +569,7 @@ const form = reactive({
   model: '',
   voice: null as string | null,
   // Empty by default — AudioChapterSelector auto-fills with missing sections
-  // once an episode is picked. submit() falls back to 'all' if nothing is
-  // selected, preserving the original one-click flow.
+  // once an episode is picked. Every action rejects an empty target.
   sections: '',
   speed: 0.93,
   /**
@@ -546,10 +579,6 @@ const form = reactive({
    * catalogue read and wiped to the new model's defaults on a model change.
    */
   controls: {} as Record<string, number | boolean | string>,
-  // Unified Generation Mode (M6). Submit translates this into the backend's
-  // existing { force, no_overwrite } pair. Default 'skip' matches the old
-  // default behaviour (force=false, no_overwrite=false).
-  generation_mode: 'skip' as 'skip' | 'regenerate' | 'new_version',
   // Fish Audio S2-Pro only — render the saved expressive (tagged) narration.
   use_expression: false,
   // Kept empty until the GenStudio-only expression surface selects a live
@@ -566,7 +595,7 @@ const form = reactive({
 // left out of the allowlist. A restored voice that's incompatible with the
 // restored model is reconciled by VoicePicker on load.
 useRememberedForm('audio', slug, form, {
-  include: ['model', 'voice', 'speed', 'controls', 'generation_mode', 'fish_autopace', 'expression_model'],
+  include: ['model', 'voice', 'speed', 'controls', 'fish_autopace', 'expression_model'],
   // The control names are the catalogue's, not ours, so the saved map is
   // restored whole rather than merged key-by-key against a declared shape —
   // there is no declared shape. What comes back is reconciled against the
@@ -672,6 +701,13 @@ const chunkSizeTooltip = computed(() => resolvedChunkCap.value
 
 /** GenStudio publishes whether a model takes a speed control. Gate on it. */
 const supportsSpeed = computed(() => selectedTtsModel.value?.supports_speed === true)
+const advancedSummary = computed(() => {
+  const speed = supportsSpeed.value ? `${form.speed.toFixed(2)}× speed` : 'Model-set speed'
+  const boundary = plannedRequestCap.value
+    ? `${plannedRequestCap.value.toLocaleString()} chars per request`
+    : 'Request boundary unavailable'
+  return `${speed} · ${boundary}`
+})
 
 // ── Published model controls ───────────────────────────────────────────
 // Everything the selected model takes beyond text/voice/speed is published in
@@ -715,13 +751,26 @@ watch([() => selectedTtsModel.value?.id, publishedControls], ([modelId]) => {
     : resolveTtsControlValues(publishedControls.value, form.controls)
 }, { immediate: true })
 
-// Effective section list = what the AudioChapterSelector says to actually
-// queue (selection minus already-generated when duplicate override is off).
-// We submit this instead of `form.sections` so the duplicate-prevention
-// promise the UI makes is honoured at the request boundary.
+type AudioActionMode = 'generate' | 'regenerate' | 'new_version'
+interface SectionAction { slug: string; mode: 'generate' | 'regenerate' }
+
+// The selector owns the disk-aware rows; the page owns the action. Keeping
+// these lists separate lets Generate missing and Regenerate selected state
+// their exact target without a global mode or an implicit "all" fallback.
 const effectiveSections = ref<string[]>([])
+const missingSections = ref<string[]>([])
 function onEffectiveSelectionChange(slugs: string[]) {
   effectiveSections.value = slugs
+}
+function onMissingSectionsChange(slugs: string[]) {
+  missingSections.value = slugs
+}
+const selectionCountLabel = computed(() => {
+  const count = effectiveSections.value.length
+  return count ? `${count} section${count === 1 ? '' : 's'}` : 'None selected'
+})
+function scopeSummary(slugs: string[]): string {
+  return slugs.map(slug => slug.replaceAll('_', ' ')).join(', ')
 }
 
 // ── Quote ──────────────────────────────────────────────────────────────
@@ -742,7 +791,12 @@ const quotedParts = computed(() => narrationQuote.value?.quotable ? narrationQuo
 const quotedCost = computed(() =>
   quotedParts.value.length ? describeQuotedTotal(quotedParts.value, 'this narration') : null)
 const quoteEligible = computed(() =>
-  !!selectedTtsModel.value && !!form.voice && selectedVoice.value?.quote_enabled !== false)
+  !!selectedTtsModel.value
+  && !!form.voice
+  && selectedVoice.value?.quote_enabled !== false
+  && effectiveSections.value.length > 0)
+const quoteScopeKey = ref('')
+let quoteRevision = 0
 
 /**
  * Why there is no quote, in GenStudio's own terms.
@@ -783,28 +837,36 @@ const quoteUnavailableNote = computed(() => {
 
 async function refreshQuote() {
   narrationQuote.value = null
+  quoteScopeKey.value = ''
   quoteError.value = ''
   if (!quoteEligible.value || !form.episode_id) return
+  const sections = [...effectiveSections.value]
+  const revision = ++quoteRevision
   quoting.value = true
   try {
     // Quote exactly what Generate would send: this episode, this model, this
     // voice, this speed, these sections. The split happens where generation's
     // split happens, so the parts priced are the parts billed.
-    narrationQuote.value = await quoteNarration(slug.value, form.episode_id, {
+    const quote = await quoteNarration(slug.value, form.episode_id, {
       model: form.model,
       voice: form.voice!,
-      sections: effectiveSections.value.length ? effectiveSections.value.join(',') : 'all',
-      // Exactly what submit() sends: a model publishing no speed control is
+      sections: sections.join(','),
+      // Exactly what queueAudio() sends: a model publishing no speed control is
       // generated at 1, so it must be quoted at 1 too.
       speed: supportsSpeed.value ? form.speed : 1,
       // GenStudio prices controls, so the quote has to carry the same ones
       // generation will. Resolved against the published list, like the job.
       controls: resolvedControls.value,
     })
+    if (revision !== quoteRevision) return
+    narrationQuote.value = quote
+    quoteScopeKey.value = sections.join(',')
   } catch (e: any) {
-    quoteError.value = e?.data?.detail || e?.message || 'GenStudio could not quote this narration.'
+    if (revision === quoteRevision) {
+      quoteError.value = e?.data?.detail || e?.message || 'GenStudio could not quote this narration.'
+    }
   } finally {
-    quoting.value = false
+    if (revision === quoteRevision) quoting.value = false
   }
 }
 // A quote belongs to one exact (model, voice, speed, controls, episode,
@@ -818,7 +880,10 @@ watch([
   () => form.episode_id,
   effectiveSections,
 ], () => {
+  quoteRevision++
+  quoting.value = false
   narrationQuote.value = null
+  quoteScopeKey.value = ''
   quoteError.value = ''
 })
 
@@ -842,33 +907,6 @@ const audioJobActiveForEpisode = computed(() => {
     j.type === 'audio' &&
     (j.status === 'queued' || j.status === 'running'),
   )
-})
-
-/** The running audio job for this episode, if there is one. */
-const audioJobForEpisode = computed(() => jobs.value.find((j: any) =>
-  j.episode_id === form.episode_id &&
-  j.project_slug === slug.value &&
-  j.type === 'audio' &&
-  (j.status === 'queued' || j.status === 'running'),
-))
-
-/**
- * The one line the button shows while a run is in flight.
- *
- * "Generating audio for TN0024…" is true of a run that is one minute in and
- * of one that has been wedged for twenty. Naming the section and the count
- * makes the difference visible without opening the Jobs page.
- */
-const audioJobStatusText = computed(() => {
-  const progress = audioJobForEpisode.value?.item_progress
-  if (!progress?.total) return `Generating audio for ${form.episode_id}…`
-  const count = `${progress.completed} of ${progress.total}`
-  const waiting = progress.active.find((a: any) => a.state === 'waiting_retry')
-  if (waiting) return `${waiting.label} — provider busy, retrying (${count} done)`
-  const running = progress.active[0]
-  return running
-    ? `${running.label} — generating (${count} done)`
-    : `Generating audio for ${form.episode_id} (${count} done)…`
 })
 
 // Defensive — clear `submitting` on episode swap.
@@ -1152,19 +1190,21 @@ watch(() => form.episode_id, (v) => {
   repairResult.value = null
   form.sections = ''
   effectiveSections.value = []
+  missingSections.value = []
   if (v) refreshAudioStatus()
 }, { immediate: true })
 
 // ── Main generation ────────────────────────────────────────────────────
-async function submit() {
-  await queueAudio()
+async function submitSection(request: SectionAction) {
+  await queueAudio([request.slug], request.mode)
 }
 
-async function submitSection(sectionSlug: string) {
-  await queueAudio(sectionSlug)
-}
-
-async function queueAudio(sectionOverride?: string) {
+async function queueAudio(targetSections: string[], mode: AudioActionMode) {
+  if (!targetSections.length) {
+    showError('Select at least one section. No audio was queued.')
+    return
+  }
+  if (submitting.value || audioJobActiveForEpisode.value) return
   // A voice MUST be explicitly picked — there is no default. This guards the
   // programmatic path; the Generate button is also disabled until a voice is
   // set. Prevents the silent "generated with the default voice" failure mode.
@@ -1176,41 +1216,41 @@ async function queueAudio(sectionOverride?: string) {
     showError('GenStudio cannot currently generate with the selected voice. Pick another from the voice list.')
     return
   }
-  // Build the actual payload. If the user picked specific sections in the
-  // selector, we send them as the comma-joined `sections` string the backend
-  // already understands. If nothing is selected and they hit Generate, treat
-  // that as "all" so the original one-click flow still works.
-  const sections = sectionOverride || (effectiveSections.value.length
-    ? effectiveSections.value.join(',')
-    : 'all')
-
-  // Translate the unified `generation_mode` into the backend's existing
-  // (force, no_overwrite) booleans. Backend untouched — generators/audio.ts
-  // still reads these two flags.
-  const force = form.generation_mode !== 'skip'
-  const no_overwrite = form.generation_mode === 'new_version'
-  const { generation_mode: _gm, controls: _controls, ...rest } = form
+  const sections = targetSections.join(',')
+  const force = mode !== 'generate'
+  const no_overwrite = mode === 'new_version'
+  const { controls: _controls, ...rest } = form
   // Controls are sent RESOLVED, never as the raw form: only names the selected
   // model publishes, every value inside the range it published for them.
   const payload: any = { ...rest, sections, force, no_overwrite, controls: resolvedControls.value }
   // A model that publishes no speed control gets none. Sending a pace it never
   // advertised would be Story Studio asserting a capability GenStudio did not.
   if (!supportsSpeed.value) payload.speed = 1
-  if (!sectionOverride && form.episode_id && effectiveSections.value.length === 0 && form.sections) {
-    // User selected items but every one was filtered out as already-generated.
-    showError('Every selected section already has audio. Switch Generation Mode to "Regenerate" or "New version" to overwrite, or pick different sections.')
-    return
-  }
-
-  if (!await confirmGeneration(slug.value, 'audio', payload)) return
-
   submitting.value = true
-  audioGenerating.value = true
   try {
+    // A quote is shown only while it describes this exact target. Generate
+    // missing can legitimately differ from the checked selection.
+    if (quoteScopeKey.value !== sections) {
+      narrationQuote.value = null
+      quoteScopeKey.value = ''
+    }
+    const action = mode === 'new_version' ? 'Create another version of'
+      : mode === 'regenerate' ? 'Regenerate'
+      : 'Generate'
+    const exactQuote = quoteScopeKey.value === sections ? quotedCost.value : null
+    if (!await confirmGeneration(slug.value, 'audio', payload, {
+      action: `${action} ${scopeSummary(targetSections)}?`,
+      details: [
+        { label: 'Model', value: selectedTtsModel.value?.display_name || 'Unavailable' },
+        { label: 'Voice', value: selectedVoice.value?.display_name || 'Unavailable' },
+        { label: exactQuote ? 'Exact quote' : 'Published rate', value: exactQuote?.text || modelRate.value.text },
+      ],
+    })) return
+
+    audioGenerating.value = true
     await post(`/projects/${slug.value}/generate/audio`, payload)
-    success(sectionOverride
-      ? `${sectionOverride.replaceAll('_', ' ')} queued by itself.`
-      : `Audio generation queued for ${sections === 'all' ? 'all sections' : effectiveSections.value.length + ' section(s)'}`)
+    const queuedAction = mode === 'new_version' ? 'Another version' : mode === 'regenerate' ? 'Regeneration' : 'Generation'
+    success(`${queuedAction} queued for ${scopeSummary(targetSections)}.`)
   } catch (e: any) {
     console.error('[audio] queue failed:', e, 'payload:', payload)
     showError(e.data?.detail || `Failed to queue audio generation (model=${form.model}, voice=${form.voice || 'unset'}). Check the TTS provider key in Settings.`)
@@ -1302,34 +1342,146 @@ async function queueAudio(sectionOverride?: string) {
 .required { color: var(--error); margin-left: 2px; }
 .field-hint { color: var(--text-muted); font-size: var(--font-xs); font-weight: 400; margin-left: 4px; }
 
-/* Generation Mode (M6) — three-up radio cards. Stacks on narrow viewports. */
-.generation-mode-row {
+/* The action stays with the selection while the longer delivery controls
+   scroll. It reuses the page palette and native buttons, so it reads as the
+   working footer for this card rather than a second toolbar. */
+.audio-action-bar {
+  position: sticky;
+  bottom: 10px;
+  z-index: 4;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 4px;
-}
-@media (max-width: 720px) {
-  .generation-mode-row { grid-template-columns: 1fr; }
-}
-.generation-mode-option {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
+  gap: 9px;
+  margin-top: 12px;
   padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(12px);
+}
+.audio-action-context {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.audio-context-item {
+  min-width: 0;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+}
+.audio-context-item:last-child { border-right: 0; }
+.audio-context-item small,
+.audio-context-item strong { display: block; }
+.audio-context-item small {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.audio-context-item strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.audio-action-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.audio-action-controls .btn { min-height: 34px; }
+.audio-scope-summary,
+.audio-quote-error {
+  margin: 0;
+  font-size: var(--font-xs);
+  line-height: 1.4;
+}
+.audio-scope-summary { color: var(--text-muted); }
+.audio-quote-error { color: var(--error); }
+.audio-more { position: relative; }
+.audio-more > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.audio-more > summary::-webkit-details-marker { display: none; }
+.audio-more[open] > summary {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.audio-more-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 6;
+  min-width: 220px;
+  padding: 5px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, .24);
+}
+.audio-more-menu button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
   cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
+  font: inherit;
+  text-align: left;
 }
-.generation-mode-option:has(input:checked) {
-  border-color: var(--accent);
-  background: rgba(96, 165, 250, 0.08);
+.audio-more-menu button:hover:not(:disabled),
+.audio-more-menu button:focus-visible { background: var(--accent-dim); }
+.audio-more-menu button:disabled { cursor: not-allowed; opacity: .45; }
+
+.audio-advanced {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
 }
-.generation-mode-option input { margin-top: 2px; }
-.generation-mode-option strong { display: block; font-size: 13px; color: var(--text-primary); }
-.generation-mode-option .text-muted { display: block; font-size: var(--font-xs); color: var(--text-muted); margin-top: 2px; }
+.audio-advanced > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+}
+.audio-advanced > summary span {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 400;
+  text-align: right;
+}
+.audio-advanced-body {
+  padding: 4px 13px 13px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 720px) {
+  .audio-action-bar { bottom: 6px; padding: 9px; }
+  .audio-action-context { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .audio-context-item:nth-child(2) { border-right: 0; }
+  .audio-action-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .audio-action-controls .btn,
+  .audio-more,
+  .audio-more > summary { width: 100%; }
+  .audio-more-menu { left: 0; right: auto; }
+  .audio-advanced > summary { flex-direction: column; gap: 3px; }
+  .audio-advanced > summary span { text-align: left; }
+}
 
 .integrity-pill {
   display: inline-flex;

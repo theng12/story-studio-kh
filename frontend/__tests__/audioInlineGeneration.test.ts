@@ -9,30 +9,81 @@ function source(path: string): string {
 
 const audioPage = source('../pages/projects/[slug]/audio.vue')
 const chapterSelector = source('../components/AudioChapterSelector.vue')
+const confirmation = source('../composables/useConfirmation.ts')
+const confirmationDialog = source('../components/GenerationConfirmationDialog.vue')
 
 describe('Audio one-chapter generation', () => {
   test('exposes an explicit inline action for every chapter row', () => {
-    assert.match(chapterSelector, /'generate-section': \[slug: string\]/)
-    assert.match(chapterSelector, /emit\('generate-section', s\.slug\)/)
+    assert.match(chapterSelector, /'generate-section': \[request: SectionAction\]/)
+    assert.match(chapterSelector, /emit\('generate-section', \{ slug: s\.slug, mode: inlineActionMode\(s\) \}\)/)
     assert.match(chapterSelector, /Send only .* to the selected TTS provider/)
+    assert.doesNotMatch(chapterSelector, /Allow regenerating already-generated sections/)
+    assert.doesNotMatch(chapterSelector, /:disabled="!allowDuplicates/)
   })
 
-  test('submits the requested chapter instead of the batch selection', () => {
+  test('submits the requested chapter with action-owned overwrite semantics', () => {
     assert.match(audioPage, /@generate-section="submitSection"/)
-    assert.match(audioPage, /async function submitSection\(sectionSlug: string\)/)
-    assert.match(audioPage, /await queueAudio\(sectionSlug\)/)
-    assert.match(audioPage, /const sections = sectionOverride \|\| \(effectiveSections\.value\.length/)
+    assert.match(audioPage, /async function submitSection\(request: SectionAction\)/)
+    assert.match(audioPage, /await queueAudio\(\[request\.slug\], request\.mode\)/)
+    assert.match(audioPage, /const force = mode !== 'generate'/)
+    assert.match(audioPage, /const no_overwrite = mode === 'new_version'/)
     // `controls` is the ONE field the raw form does not supply: it is sent
     // resolved against the selected model's published list, so a value for a
     // control this model does not publish cannot ride along on a section run.
-    assert.match(audioPage, /const \{ generation_mode: _gm, controls: _controls, \.\.\.rest \} = form/)
+    assert.match(audioPage, /const \{ controls: _controls, \.\.\.rest \} = form/)
     assert.match(audioPage, /const payload: any = \{ \.\.\.rest, sections, force, no_overwrite, controls: resolvedControls\.value \}/)
   })
 
-  test('shares normal validation and prevents duplicate episode audio jobs', () => {
-    assert.match(audioPage, /async function queueAudio\(sectionOverride\?: string\)/)
-    assert.match(audioPage, /if \(!await confirmGeneration\(slug\.value, 'audio', payload\)\) return/)
+  test('shares confirmation and job guards while refusing an empty batch target', () => {
+    assert.match(audioPage, /async function queueAudio\(targetSections: string\[\], mode: AudioActionMode\)/)
+    assert.match(audioPage, /if \(!targetSections\.length\)/)
+    assert.doesNotMatch(audioPage, /: 'all'/)
+    assert.match(audioPage, /if \(!await confirmGeneration\(slug\.value, 'audio', payload, \{/)
     assert.match(audioPage, /audioJobActiveForEpisode\.value/)
-    assert.match(chapterSelector, /status === 'generated' && !allowDuplicatesLocal\.value/)
+  })
+
+  test('keeps all bulk actions explicit and leaves detailed controls closed by default', () => {
+    assert.match(audioPage, /:show-generate="false"/)
+    assert.match(audioPage, />Generate missing/)
+    assert.match(audioPage, />Regenerate selected/)
+    assert.match(audioPage, />Create another version/)
+    assert.match(audioPage, /<details class="audio-advanced">/)
+    assert.match(audioPage, /<summary>Delivery and request controls/)
+    assert.match(audioPage, /\.audio-action-bar \{[\s\S]{0,160}position: sticky/)
+    assert.match(audioPage, /@media \(max-width: 720px\)/)
+    assert.doesNotMatch(audioPage, /generation_mode/)
+  })
+
+  test('quotes the selected scope and invalidates old responses and mismatched actions', () => {
+    assert.match(audioPage, /sections: sections\.join\(','\)/)
+    assert.match(audioPage, /const revision = \+\+quoteRevision/)
+    assert.match(audioPage, /if \(revision !== quoteRevision\) return/)
+    assert.match(audioPage, /if \(quoteScopeKey\.value !== sections\)/)
+    assert.match(audioPage, /@click="queueAudio\(missingSections, 'generate'\)"/)
+    assert.match(audioPage, /@click="queueAudio\(effectiveSections, 'regenerate'\)"/)
+    assert.match(audioPage, /quotedCost \? 'Selected quote' : 'Rate'/)
+  })
+
+  test('the existing confirmation names the exact action, scope, voice, model, and applicable price', () => {
+    assert.match(confirmation, /context\?: GenerationConfirmationContext/)
+    assert.match(confirmation, /state\.details = context\?\.details \|\| \[\]/)
+    assert.match(confirmationDialog, /state\.action \|\| `Start \$\{state\.typeLabel\}\?`/)
+    assert.match(confirmationDialog, /v-for="detail in state\.details"/)
+    assert.match(audioPage, /action: `\$\{action\} \$\{scopeSummary\(targetSections\)\}\?`/)
+    assert.match(audioPage, /label: 'Model'.*selectedTtsModel\.value\?\.display_name/)
+    assert.match(audioPage, /label: 'Voice'.*selectedVoice\.value\?\.display_name/)
+    assert.match(audioPage, /label: exactQuote \? 'Exact quote' : 'Published rate'/)
+  })
+
+  test('drops old episode targets and ignores late section responses', () => {
+    assert.match(audioPage, /effectiveSections\.value = \[\][\s\S]{0,80}missingSections\.value = \[\]/)
+    assert.match(chapterSelector, /const revision = \+\+refreshRevision/)
+    assert.match(chapterSelector, /if \(revision !== refreshRevision\) return/)
+  })
+
+  test('surfaces downstream subtitle freshness supplied by the backend', () => {
+    assert.match(chapterSelector, /subtitles_stale\?: boolean/)
+    assert.match(chapterSelector, /v-if="s\.subtitles_stale"/)
+    assert.match(chapterSelector, /Subtitles need retranscribing/)
   })
 })

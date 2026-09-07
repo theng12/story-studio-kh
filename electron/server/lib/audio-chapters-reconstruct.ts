@@ -25,7 +25,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { getAudioDuration } from './ffmpeg-utils.js'
-import { chapterKeyOf, compareChapterFilenames } from '../generators/audio-merge.js'
+import { chapterKeyOf, compareChapterFilenames, isActiveChapterAudioFilename } from '../generators/audio-merge.js'
 
 const AUDIO_RE = /\.(mp3|wav|m4a)$/i
 /** Gap used when the merged file is missing so we can't derive the real one. */
@@ -118,7 +118,7 @@ export async function reconstructAudioChapters(opts: {
   const { audioDir, mergedAudioDir, episodeCode } = opts
   if (!existsSync(audioDir)) return null
   const names = (await fs.readdir(audioDir))
-    .filter(f => AUDIO_RE.test(f) && !f.startsWith('.') && !f.startsWith('.tmp_'))
+    .filter(f => AUDIO_RE.test(f) && !f.startsWith('.') && !f.startsWith('.tmp_') && isActiveChapterAudioFilename(f))
     .sort(compareChapterFilenames)
   if (!names.length) return null
 

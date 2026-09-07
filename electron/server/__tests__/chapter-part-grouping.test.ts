@@ -15,9 +15,10 @@ import assert from 'node:assert/strict'
 
 let chapterKeyOf: (filename: string, code: string) => string
 let compareChapterFilenames: (a: string, b: string) => number
+let isActiveChapterAudioFilename: (filename: string) => boolean
 
 before(async () => {
-  ;({ chapterKeyOf, compareChapterFilenames } = await import('../generators/audio-merge.js'))
+  ;({ chapterKeyOf, compareChapterFilenames, isActiveChapterAudioFilename } = await import('../generators/audio-merge.js'))
 })
 
 describe('chapterKeyOf — collapse part/version suffixes to the chapter slug', () => {
@@ -45,6 +46,13 @@ describe('chapterKeyOf — collapse part/version suffixes to the chapter slug', 
     assert.equal(a, b)
     assert.equal(a, 'Chapter_03')
   })
+})
+
+test('recognizes only the base chapter audio as active for Audio Assembly', () => {
+  assert.equal(isActiveChapterAudioFilename('EP0001_Chapter_01.mp3'), true)
+  assert.equal(isActiveChapterAudioFilename('EP0001_Chapter_01_part2.mp3'), true)
+  assert.equal(isActiveChapterAudioFilename('EP0001_Chapter_01_v2.mp3'), false)
+  assert.equal(isActiveChapterAudioFilename('EP0001_Chapter_01_part2_v3.mp3'), false)
 })
 
 describe('compareChapterFilenames — natural sort for the Audio Assembly list', () => {

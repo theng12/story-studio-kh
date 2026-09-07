@@ -47,7 +47,7 @@ import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
 import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
 import { allowedSubtitleCueGapSec } from './scene-plan-pacing.js'
-import { inspectSubtitleCompletion } from './subtitle-completion.js'
+import { inspectSubtitleCompletion, inspectSubtitleSourceFreshness } from './subtitle-completion.js'
 import { inspectExistingTranscriptSource } from './subtitle-correction.js'
 import { inspectPromptCompletion } from './prompt-completion.js'
 import { inspectMetadataCompletion } from './metadata-completion.js'
@@ -549,6 +549,37 @@ export interface AudioMergeStatus {
   dir?: string
 }
 
+/** A changed active chapter invalidates the assembled track even at the same duration. */
+async function mergedAudioSourcesAreCurrent(
+  episodeDir: string,
+  audioDir: string,
+  mergedPath: string,
+): Promise<boolean> {
+  try {
+    const sidecar = JSON.parse(await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf8')) as {
+      sections?: Array<{ source_file?: unknown; source_files?: unknown }>
+    }
+    const names = (sidecar.sections || []).flatMap(section => {
+      const listed = Array.isArray(section.source_files)
+        ? section.source_files.filter((file): file is string => typeof file === 'string' && path.basename(file) === file)
+        : []
+      if (listed.length) return listed
+      return typeof section.source_file === 'string' && path.basename(section.source_file) === section.source_file
+        ? [section.source_file]
+        : []
+    })
+    if (!names.length) return true
+    const [merged, sources] = await Promise.all([
+      fs.stat(mergedPath),
+      Promise.all(names.map(name => fs.stat(path.join(audioDir, name)).catch(() => null))),
+    ])
+    return sources.every(source => source && source.mtimeMs <= merged.mtimeMs)
+  } catch {
+    // Existing/legacy sidecars remain readable; absence is not stale evidence.
+    return true
+  }
+}
+
 /**
  * Is there a `{code}_merged_audio(_v{N})?.mp3` file with content?
  * We consider "any version" as present — users generate v2+ when doing
@@ -580,7 +611,8 @@ export async function getAudioMergeStatus(
   // directory the same linked-aware way, and falls back to the defaults on an
   // unreadable file exactly as the hand-rolled version did — so this is the
   // same answer, reached through the shared cached path.
-  const subfolder = (await resolveSubfolderNames(slug, code, cache)).merged_audio
+  const subfolders = await resolveSubfolderNames(slug, code, cache)
+  const subfolder = subfolders.merged_audio
 
   // Scan with/without decorative prefixes (✅, ✔️, etc.) for flexibility.
   const entries = await safeReaddir(epDir)
@@ -615,6 +647,10 @@ export async function getAudioMergeStatus(
         && Number(completion?.duration_sec) > 0
       if (!verified) return { present: false, file: best.file, dir: mergedDir }
     } catch { return { present: false, file: best.file, dir: mergedDir } }
+  }
+  const audioDir = await resolveEpisodeSubfolderDir(slug, code, 'audio', epDir, subfolders.audio, false)
+  if (!await mergedAudioSourcesAreCurrent(epDir, audioDir, path.join(mergedDir, best.file))) {
+    return { present: false, file: best.file, dir: mergedDir }
   }
   return { present: true, file: best.file, dir: mergedDir }
 }
@@ -1117,6 +1153,17 @@ export async function computeEpisodeStatus(
         code,
       )
       status.subtitles = completion.complete
+      if (status.subtitles && completion.mode === 'per-section') {
+        const freshness = await inspectSubtitleSourceFreshness(
+          subtitlePaths.episode_dir,
+          subtitlePaths.audio_dir,
+          subtitlePaths.subtitles_dir,
+          code,
+        )
+        // A transcript can exist and still describe superseded narration. Keep
+        // it on disk as evidence, but leave Pipeline's subtitle step pending.
+        if (freshness.stale_sections.length) status.subtitles = false
+      }
       const stitched = path.join(subtitlePaths.subtitles_dir, `${code.toUpperCase()}_stitched.srt`)
       // Per-chapter sources only become a usable Pipeline prerequisite once
       // their shared timeline is written and verified. An intentional imported

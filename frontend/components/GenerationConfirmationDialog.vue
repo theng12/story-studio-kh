@@ -13,7 +13,14 @@
     </div>
 
     <div class="modal-body">
-      <p class="action-copy">Start {{ state.typeLabel }}?</p>
+      <p class="action-copy">{{ state.action || `Start ${state.typeLabel}?` }}</p>
+
+      <dl v-if="state.details.length" class="action-details">
+        <div v-for="detail in state.details" :key="detail.label" class="action-detail">
+          <dt>{{ detail.label }}</dt>
+          <dd>{{ detail.value }}</dd>
+        </div>
+      </dl>
 
       <label class="skip-checkbox">
         <input v-model="skipFuture" type="checkbox" />
@@ -65,6 +72,18 @@ function onConfirm() {
 
 .modal-body { padding: 20px; }
 .action-copy { margin: 0 0 16px; color: var(--text-secondary); font-size: 14px; }
+.action-details {
+  display: grid;
+  gap: 6px;
+  margin: -6px 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+}
+.action-detail { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 10px; }
+.action-detail dt { color: var(--text-muted); font-size: var(--font-xs); }
+.action-detail dd { margin: 0; color: var(--text-primary); font-size: var(--font-xs); overflow-wrap: anywhere; }
 
 .skip-checkbox {
   display: flex; align-items: center; gap: 8px;

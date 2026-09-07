@@ -2,13 +2,22 @@ interface ConfirmationState {
   visible: boolean
   type: string
   typeLabel: string
+  action: string
+  details: Array<{ label: string; value: string }>
   resolve: ((value: boolean) => void) | null
+}
+
+interface GenerationConfirmationContext {
+  action: string
+  details?: Array<{ label: string; value: string }>
 }
 
 const state = reactive<ConfirmationState>({
   visible: false,
   type: '',
   typeLabel: '',
+  action: '',
+  details: [],
   resolve: null,
 })
 
@@ -43,6 +52,7 @@ export function useConfirmation() {
     slug: string,
     type: string,
     _params: Record<string, any>,
+    context?: GenerationConfirmationContext,
   ): Promise<boolean> {
     if (!shouldConfirm(type)) return true
 
@@ -51,6 +61,8 @@ export function useConfirmation() {
     state.visible = true
     state.type = type
     state.typeLabel = TYPE_LABELS[type] || type
+    state.action = context?.action || ''
+    state.details = context?.details || []
 
     // Wait for user to confirm or cancel
     return new Promise<boolean>((resolve) => {
@@ -66,12 +78,16 @@ export function useConfirmation() {
     state.visible = false
     state.resolve?.(true)
     state.resolve = null
+    state.action = ''
+    state.details = []
   }
 
   function cancel() {
     state.visible = false
     state.resolve?.(false)
     state.resolve = null
+    state.action = ''
+    state.details = []
   }
 
   async function saveSkipPreference(type: string) {

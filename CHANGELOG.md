@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.123
+
+- Audio Generator now uses direct chapter actions and a persistent selection bar: generate missing audio, regenerate selected chapters, or create a separate version without conflicting mode switches.
+- Model, voice, chapter scope and quotes stay visible; detailed delivery controls are expandable. Episode changes discard outdated selections and quotes.
+- Regenerated chapter audio now marks its older subtitles as needing an update. New transcripts record source audio fingerprints, and downstream timing checks reject known stale captions.
+- Alternate audio versions stay separate from the active chapter during transcription and Audio Assembly.
+
 ## v1.4.122 — 2026-09-07
 
 - **Pipeline Repair can restore selected subtitle gaps without redoing completed chapters.** The optional action keeps good outputs, reconnects to saved transcription tasks first, and allows one scoped fresh request per affected chapter at the live price when a recovered source remains unusable or known terminal/expired evidence cannot recover. Its action identity remains stable across restart; active or unconfirmed ownership stays protected from replacement.

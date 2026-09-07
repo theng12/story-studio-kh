@@ -130,7 +130,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
 
   // Load + locate the scene by id.
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id)
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
   assertScenePromptsRenderable(plan.scenes, [scene_id])
   const scene = plan.scenes.find(s => s.id === scene_id)
   if (!scene) throw new Error(`Scene ${scene_id} not in scene_plan.json (was it deleted?)`)

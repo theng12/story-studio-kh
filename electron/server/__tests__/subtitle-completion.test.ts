@@ -3,7 +3,12 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
-import { inspectPipelineSubtitleRepairReadiness, inspectSubtitleCompletion } from '../services/subtitle-completion.js'
+import {
+  hashSubtitleAudioSources,
+  inspectPipelineSubtitleRepairReadiness,
+  inspectSubtitleCompletion,
+  inspectSubtitleSourceFreshness,
+} from '../services/subtitle-completion.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 
@@ -15,11 +20,13 @@ async function fixture(sections = ['Introduction', 'Chapter_01', 'Chapter_02']) 
   const episodeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'subtitle-completion-'))
   roots.push(episodeDir)
   const subtitlesDir = path.join(episodeDir, `${CODE} - 09 Subtitles Output`)
+  const audioDir = path.join(episodeDir, `${CODE} - 07 Audio Assets`)
   await fs.mkdir(subtitlesDir)
+  await fs.mkdir(audioDir)
   await fs.writeFile(path.join(episodeDir, 'audio_chapters.json'), JSON.stringify({
     sections: sections.map(slug => ({ slug })),
   }))
-  return { episodeDir, subtitlesDir }
+  return { episodeDir, subtitlesDir, audioDir }
 }
 
 afterEach(async () => {
@@ -147,5 +154,79 @@ describe('subtitle completion', () => {
     const readiness = await inspectPipelineSubtitleRepairReadiness(dirs.episodeDir, dirs.subtitlesDir, CODE)
     assert.deepEqual(readiness.affected_sections, ['Chapter_02'])
     assert.deepEqual(readiness.completed_sections, ['Chapter_01'])
+  })
+
+  test('marks only a transcript whose active audio bytes changed as stale', async () => {
+    const dirs = await fixture(['Chapter_01', 'Chapter_02'])
+    const first = path.join(dirs.audioDir, `${CODE}_Chapter_01.mp3`)
+    const second = path.join(dirs.audioDir, `${CODE}_Chapter_02.mp3`)
+    await fs.writeFile(first, 'audio-a')
+    await fs.writeFile(second, 'audio-b')
+    await fs.writeFile(path.join(dirs.episodeDir, 'audio_chapters.json'), JSON.stringify({
+      sections: [
+        { slug: 'Chapter_01', source_file: `${CODE}_Chapter_01.mp3` },
+        { slug: 'Chapter_02', source_file: `${CODE}_Chapter_02.mp3` },
+      ],
+    }))
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_Chapter_01.srt`), SRT)
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_Chapter_02.srt`), SRT)
+    await fs.writeFile(path.join(dirs.subtitlesDir, '.subtitle-recovery.json'), JSON.stringify({
+      version: 1,
+      sections: {
+        [`${CODE}_Chapter_01.srt`]: { sourceAudioHash: await hashSubtitleAudioSources([first]) },
+        [`${CODE}_Chapter_02.srt`]: { sourceAudioHash: await hashSubtitleAudioSources([second]) },
+      },
+      plans: {},
+    }))
+
+    assert.deepEqual(
+      (await inspectSubtitleSourceFreshness(dirs.episodeDir, dirs.audioDir, dirs.subtitlesDir, CODE)).stale_sections,
+      [],
+    )
+
+    // Identical duration cannot establish freshness. The new bytes must.
+    await fs.writeFile(second, 'audio-c')
+    assert.deepEqual(
+      (await inspectSubtitleSourceFreshness(dirs.episodeDir, dirs.audioDir, dirs.subtitlesDir, CODE)).stale_sections,
+      ['Chapter_02'],
+    )
+
+    // Successful re-transcription records the new active bytes and clears only
+    // that chapter's stale status; the untouched Chapter_01 remains current.
+    await fs.writeFile(path.join(dirs.subtitlesDir, '.subtitle-recovery.json'), JSON.stringify({
+      version: 1,
+      sections: {
+        [`${CODE}_Chapter_01.srt`]: { sourceAudioHash: await hashSubtitleAudioSources([first]) },
+        [`${CODE}_Chapter_02.srt`]: { sourceAudioHash: await hashSubtitleAudioSources([second]) },
+      },
+      plans: {},
+    }))
+    assert.deepEqual(
+      (await inspectSubtitleSourceFreshness(dirs.episodeDir, dirs.audioDir, dirs.subtitlesDir, CODE)).stale_sections,
+      [],
+    )
+  })
+
+  test('keeps the active transcript fresh when an unselected audio version is saved', async () => {
+    const dirs = await fixture(['Chapter_01'])
+    const active = path.join(dirs.audioDir, `${CODE}_Chapter_01.mp3`)
+    await fs.writeFile(active, 'active-audio')
+    await fs.writeFile(path.join(dirs.episodeDir, 'audio_chapters.json'), JSON.stringify({
+      sections: [{ slug: 'Chapter_01', source_file: `${CODE}_Chapter_01.mp3` }],
+    }))
+    await fs.writeFile(path.join(dirs.subtitlesDir, `${CODE}_Chapter_01.srt`), SRT)
+    await fs.writeFile(path.join(dirs.subtitlesDir, '.subtitle-recovery.json'), JSON.stringify({
+      version: 1,
+      sections: {
+        [`${CODE}_Chapter_01.srt`]: { sourceAudioHash: await hashSubtitleAudioSources([active]) },
+      },
+      plans: {},
+    }))
+    await fs.writeFile(path.join(dirs.audioDir, `${CODE}_Chapter_01_v2.mp3`), 'alternate-audio')
+
+    assert.deepEqual(
+      (await inspectSubtitleSourceFreshness(dirs.episodeDir, dirs.audioDir, dirs.subtitlesDir, CODE)).stale_sections,
+      [],
+    )
   })
 })

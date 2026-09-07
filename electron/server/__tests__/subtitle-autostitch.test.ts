@@ -26,6 +26,8 @@
  */
 
 import { describe, test } from 'node:test'
+import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
+import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
@@ -180,6 +182,62 @@ describe('bringing an episode\'s stitch up to date', () => {
       const outcome = await ensureStitchedSubtitle({ episodeDir, subtitlesDir, mergedAudioDir: mergedDir, episodeCode: CODE })
       assert.equal(outcome.status, 'not-applicable')
       assert.match(outcome.reason, /nothing to stitch/)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('blocks direct assembly when a known active audio source changed at the same duration', async () => {
+    const { root, episodeDir, subtitlesDir, mergedDir } = await makeEpisode({
+      chapters: [{ slug: 'chapter_1', duration_s: 60, srt: '1\n00:00:00,000 --> 00:00:04,000\nThe grain dole ran dry.\n' }],
+    })
+    try {
+      const audioDir = path.join(episodeDir, `${CODE} - 07 Audio Assets`)
+      const source = path.join(audioDir, `${CODE}_chapter_1.mp3`)
+      await fs.mkdir(audioDir)
+      await fs.writeFile(source, 'audio-a')
+      await fs.writeFile(path.join(episodeDir, 'audio_chapters.json'), JSON.stringify({
+        gap_duration_s: 1,
+        sections: [{ slug: 'chapter_1', duration_s: 60, source_file: path.basename(source) }],
+      }))
+      await fs.writeFile(path.join(subtitlesDir, '.subtitle-recovery.json'), JSON.stringify({
+        version: 1,
+        plans: {},
+        sections: {
+          [`${CODE}_chapter_1.srt`]: { sourceAudioHash: await hashSubtitleAudioSources([source]) },
+        },
+      }))
+      await writeMergedRecord(mergedDir, 0)
+      const args = { episodeDir, subtitlesDir, mergedAudioDir: mergedDir, audioDir, episodeCode: CODE }
+      assert.equal((await ensureStitchedSubtitle(args)).status, 'stitched')
+      assert.ok(
+        (await readRecordedSignature(path.join(subtitlesDir, `${CODE}_stitched.srt`)))!.sections[0]!.source_audio_sha256,
+        'the stitch records the active audio bytes as well as its SRT bytes',
+      )
+
+      await fs.writeFile(source, 'audio-b')
+      await assert.rejects(
+        () => assertSubtitleTimelineComplete(subtitlesDir, CODE, { episodeDir, audioDir }),
+        /timeline needs updating.*chapter_1/i,
+        'every downstream prerequisite shares the source-freshness proof',
+      )
+      await assert.rejects(
+        () => ensureStitchedSubtitle(args),
+        /subtitles need updating.*chapter_1/i,
+      )
+
+      // A successful re-transcription stamps the new active bytes. Even if the
+      // provider happened to return identical SRT text, the stitch is rebuilt.
+      await fs.writeFile(path.join(subtitlesDir, '.subtitle-recovery.json'), JSON.stringify({
+        version: 1,
+        plans: {},
+        sections: {
+          [`${CODE}_chapter_1.srt`]: { sourceAudioHash: await hashSubtitleAudioSources([source]) },
+        },
+      }))
+      const refreshed = await ensureStitchedSubtitle(args)
+      assert.equal(refreshed.status, 'stitched')
+      assert.match(refreshed.reason, /active audio changed/i)
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
