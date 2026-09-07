@@ -28,10 +28,10 @@ downgrades) closed on the GenStudio side in release 1.24.26.
   product `cprod_1ae93e360d554f1c9c17c136131b91c3` reused; would create and
   publish release 1.0.2; the existing 90% discount (to 2026-12-31) is left
   exactly alone by policy.
-- **Live stocking is the owner's command.** The assistant session's
-  permission layer refused the write to the production store twice, so the
-  final step is the one command below, run from `genstudiokh/apps/cloud-api`
-  on the control Mac. It is idempotent and prints the release id.
+- **Stocked live on 2026-09-07 at 12:25 ICT** (the owner ran the command
+  below after the assistant session's permission layer refused it):
+  release 1.0.2 published, 149,440 bytes, digest `725e4c5f3d25…`, now the
+  current release; 1.0.0 stays published and immutable.
 
   ```bash
   cd ~/Developer/genstudiokh/apps/cloud-api && STUDIO_DATABASE_URL=postgresql://$(id -un)@127.0.0.1:5432/genstudiokh STUDIO_OBJECT_STORAGE_BACKEND=filesystem STUDIO_OBJECT_STORAGE_LOCAL_PATH=$PWD/.local/objects .venv/bin/python -m app.tools.stock_pack $HOME/Developer/_handoffs/artifacts/historical-wars-1.0.2-2026-09-07
@@ -56,15 +56,22 @@ downgrades) closed on the GenStudio side in release 1.24.26.
   exactly the Archival Ledger shape (2,000 list, 90% operator discount,
   owned-component deduction) against a mock of that schema. Nothing on either
   side needs a code change.
-- **The kit cannot be stocked as a kit.** `ship-pack` refuses
-  `com.storystudio.pack.kit.archival-ledger` 1.0.3: "Channel Kit shipping and
-  stocking are terminally closed" (Story commit `17b4f990`, 2026-09-01, with
-  registry and shipper tests). That ruling post-dates the August proposal's
-  2,000-credit bundle price.
-- **What can ship today:** the eight authored components build cleanly in a
-  dry run (formula 1.0.1, five topic packs 1.0.1, style 1.0.0, thumbnail
-  1.0.0). Under the standing policy each would list at 300 credits with the
-  90% launch discount for a year, the way the six sleep-history packs did on
-  2026-09-06. That is a product-shape and price decision for the owner, not
-  something this delivery assumes; the proposal's status line should be
-  updated by whoever makes it.
+- **The kit is already on sale, at 1.0.2.** The store holds
+  `com.storystudio.pack.kit.archival-ledger` 1.0.0/1.0.1/1.0.2 (published
+  16–25 August, 1,200 credits list, 90% off to 2026-12-31). Its 1.0.3
+  successor cannot ship: `ship-pack` refuses it with "Channel Kit shipping
+  and stocking are terminally closed" (Story commit `17b4f990`, 2026-09-01,
+  with registry and shipper tests). The proposal's 2,000-credit price was
+  never applied; 1,200 is the policy price for a kit.
+- **Owner ruling, 2026-09-07 afternoon:** "archival ledger, yes sell it. we
+  made it. we spend time, why are we storing it? sell it at 300 with 90%
+  off." All eight components were built from Story `main` (`d59ce8a0`) into
+  `~/Developer/_handoffs/artifacts/archival-ledger-components-2026-09-07/`
+  and stocked with `stock_pack` at 12:5x ICT: the formula 1.0.1, style 1.0.0
+  and thumbnail 1.0.0 were already on the shelf with matching digests; the
+  five topic packs gained their 1.0.1 releases (Empires, Trade & Extraction;
+  Infrastructure, Commodities & Corporate Power; Money, Debt & Financial
+  Institutions; States, Revolutions & Collapse; Wars, Treaties & World
+  Order, the Archival Ledger one, a separate identity from the free starter). Every product lists at 300
+  credits with the existing 90% discount (to 2026-12-31), 30 credits to the
+  shopper. The proposal's status line now says so.
