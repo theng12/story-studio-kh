@@ -10,5 +10,5 @@
     "sku": "com.storystudio.sku.topic.historical-wars-treaties-world-order",
     "family": "com.storystudio.family.topic.historical-wars-treaties-world-order"
   },
-  "changelog": "Removed a stale compatible_formula_ids reference to the retired com.storystudio.formula.hidden-mechanics-history formula. No customer-visible content changed."
+  "changelog": "Removed a stale compatible-formula reference to the retired hidden-mechanics-history formula. No customer-visible content changed."
 }
