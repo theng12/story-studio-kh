@@ -403,7 +403,15 @@ test('the shipped Production Looks packs still pass their gates and match what w
   })
 
   assert.deepEqual(result.refusals, [])
-  assert.equal(result.packs.length, 6)
+  // Twelve, not six: the 2026-09-08 preview backfill gave each of the six a
+  // 1.0.1 successor in a sibling directory, and the selector is a glob over
+  // that directory. Both generations must pass the same gates — the successor
+  // is what a buyer now acquires, and the predecessor is still on the shelf.
+  assert.equal(result.packs.length, 12)
+  assert.deepEqual(
+    [...new Set(result.packs.map(pack => pack.version))].sort(),
+    ['1.0.0', '1.0.1'],
+  )
   for (const pack of result.packs) {
     assert.equal(pack.gates.registry_status, 'authored')
     assert.equal(pack.gates.registry_integrity, 'PASS')

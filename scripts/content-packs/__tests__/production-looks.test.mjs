@@ -78,13 +78,27 @@ const STYLES = {
 }
 
 const slugs = Object.keys(STYLES).sort()
+/**
+ * The 2026-09-08 style preview backfill gave each of the six a 1.0.1 successor
+ * carrying the owner's three previews rather than one. The bump is a new
+ * sibling directory, so this file now describes two generations: the 1.0.0
+ * trees below, frozen exactly as they were, and the `-v1.0.1` trees checked in
+ * `SUCCESSOR_VERSION`'s own test. Both are pinned, because the migrated hero
+ * bytes have to survive the copy unchanged and the assertion that proves it is
+ * worth nothing if it only ever looks at the directory nobody edits.
+ */
+const SUCCESSOR_VERSION = '1.0.1'
+const successorDirectories = slugs.map(slug => `${slug}-v${SUCCESSOR_VERSION}`)
 const parseJson = async path => JSON.parse(await readFile(path, 'utf8'))
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 
-test('production looks contain exactly the six receipt-authorized source trees', async () => {
+test('production looks contain exactly the six receipt-authorized source trees and their successors', async () => {
   const styleRoot = new URL('style/', ROOT)
   const entries = await readdir(styleRoot, { withFileTypes: true })
-  assert.deepEqual(entries.filter(entry => entry.isDirectory()).map(entry => entry.name).sort(), slugs)
+  assert.deepEqual(
+    entries.filter(entry => entry.isDirectory()).map(entry => entry.name).sort(),
+    [...slugs, ...successorDirectories].sort(),
+  )
 
   const registry = await parseJson(REGISTRY)
   assert.ok(registry.revision >= 43, `registry revision ${registry.revision} predates the production-looks reservation`)
@@ -172,6 +186,74 @@ test('production look previews preserve approved bytes and complete provenance e
 })
 
 /**
+ * The 1.0.1 successors from the 2026-09-08 preview backfill.
+ *
+ * WHAT THIS HAS TO CATCH. The hero bytes in these six are owner-approved
+ * migrations, and the bump copied them into a new directory. A copy is exactly
+ * the operation that silently re-encodes, so the hero digest is asserted again
+ * here against the same constant the 1.0.0 test uses — if the two ever diverge,
+ * the migration approval no longer covers what ships. The other half is that
+ * the successor actually gained the two previews it was bumped for, at the
+ * contract size, above the floor, and declared hero-first.
+ */
+test('every production look successor carries three previews and an unchanged migrated hero', async () => {
+  const registry = await parseJson(REGISTRY)
+
+  for (const slug of slugs) {
+    const expected = STYLES[slug]
+    const directory = `${slug}-v${SUCCESSOR_VERSION}`
+    const sourceRoot = new URL(`style/${directory}/`, ROOT)
+    const sourcePath = `content-packs/production-looks/style/${directory}`
+
+    assert.deepEqual((await readdir(sourceRoot)).sort(), ['assets', 'content', 'pack.json'])
+    assert.deepEqual(
+      (await readdir(new URL('assets/', sourceRoot))).sort(),
+      [`${slug}-face.webp`, `${slug}-scene.webp`, `${slug}.webp`],
+    )
+
+    const manifest = await parseJson(new URL('pack.json', sourceRoot))
+    assert.equal(manifest.pack_id, `com.storystudio.pack.style.${slug}`)
+    assert.equal(manifest.version, SUCCESSOR_VERSION)
+    assert.equal(manifest.min_app_version, '{{MIN_APP_VERSION}}')
+    assert.equal(manifest.lifecycle, 'active')
+    assert.ok(manifest.changelog, `${slug} successor must say what the bump changed`)
+
+    const style = await parseJson(new URL('content/visual-style.json', sourceRoot))
+    assert.equal(style.id, `com.storystudio.style.${slug}`)
+    assert.equal(style.style_bible, expected.style_bible)
+    assert.equal(style.negative_prompt, expected.negative_prompt)
+    assert.deepEqual(style.preview_assets, [
+      `assets/${slug}.webp`,
+      `assets/${slug}-scene.webp`,
+      `assets/${slug}-face.webp`,
+    ])
+
+    // The hero is the approved migration. A bump may not re-encode it.
+    const hero = await readFile(join(process.cwd(), sourcePath, 'assets', `${slug}.webp`))
+    assert.equal(hero.length, expected.bytes)
+    assert.equal(sha256(hero), expected.sha256)
+
+    for (const preview of style.preview_assets) {
+      const bytes = await readFile(join(process.cwd(), sourcePath, preview))
+      assert.ok(bytes.length > 20 * 1024, `${sourcePath}/${preview} is under the 20 KB floor`)
+      assert.deepEqual(
+        await sharp(bytes).metadata().then(({ format, width, height }) => ({ format, width, height })),
+        { format: 'webp', width: 1672, height: 941 },
+      )
+    }
+
+    const record = registry.records.find(candidate =>
+      candidate.pack_id === manifest.pack_id && candidate.version === SUCCESSOR_VERSION)
+    assert.ok(record, `${slug} ${SUCCESSOR_VERSION} must have a registry record`)
+    assert.equal(record.item_id, style.id)
+    assert.equal(record.kind, 'visual-style')
+    assert.equal(record.status, 'authored')
+    assert.equal(record.source_path, sourcePath)
+    assert.equal(record.min_app_version_status, 'release-bound')
+  }
+})
+
+/**
  * These six are sold. A third-party product mark in the text a customer reads
  * or searches is a commercial exposure, not a wording preference.
  *
@@ -191,8 +273,11 @@ test('production look previews preserve approved bytes and complete provenance e
 // same literal on the same day; the shared module is where the two agreed to meet.
 
 test('no sold Production Look carries a third-party product mark in customer-visible text', async () => {
-  for (const slug of slugs) {
-    const style = await parseJson(new URL(`style/${slug}/content/visual-style.json`, ROOT))
+  // Both generations. A successor is the surface a buyer actually acquires, so
+  // sweeping only the 1.0.0 tree would leave the shipped text unguarded.
+  for (const directory of [...slugs, ...successorDirectories]) {
+    const slug = directory
+    const style = await parseJson(new URL(`style/${directory}/content/visual-style.json`, ROOT))
 
     // Everything the customer can read or search.
     const surfaces = [
@@ -281,11 +366,15 @@ test('no sold Production Look carries a third-party product mark in any identifi
   const records = registry.records.filter(record => record.receipt_ref === RECEIPT)
   assert.equal(records.length, 6)
 
-  for (const slug of slugs) {
-    const sourceRoot = new URL(`style/${slug}/`, ROOT)
+  // Both generations again, for the same reason, and because the backfill
+  // introduced two new asset filenames per pack that nothing else pins.
+  for (const directory of [...slugs, ...successorDirectories]) {
+    const slug = directory
+    const sourceRoot = new URL(`style/${directory}/`, ROOT)
     const manifest = await parseJson(new URL('pack.json', sourceRoot))
     const style = await parseJson(new URL('content/visual-style.json', sourceRoot))
-    const record = records.find(candidate => candidate.pack_id === manifest.pack_id)
+    const record = registry.records.find(candidate =>
+      candidate.pack_id === manifest.pack_id && candidate.version === manifest.version)
     assert.ok(record, `${slug} must have a registry record to check`)
 
     // Every name a customer can see, be handed as a file, or find on disk.

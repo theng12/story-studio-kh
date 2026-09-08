@@ -1,0 +1,25 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.oil-painting-classical",
+  "name": "Oil Painting Classical",
+  "description": "Old-master oil painting — rich impasto, chiaroscuro lighting, museum-canvas depth.",
+  "category": "Illustration",
+  "tags": [
+    "oil",
+    "classical",
+    "old master",
+    "museum",
+    "baroque"
+  ],
+  "style_bible": "classical oil painting, old-master technique, visible impasto brushwork, rich layered glazes, deep chiaroscuro lighting, warm earthen palette with deep shadows, canvas texture, dramatic single light source, baroque atmosphere, painterly edges, museum-quality depth",
+  "negative_prompt": "flat vector, pixel art, cartoon, neon colours, 3D CGI render, hard digital edges, lowres, modern clip-art, text, watermark",
+  "preview_assets": [
+    "assets/oil-painting-classical.webp",
+    "assets/oil-painting-classical-scene.webp",
+    "assets/oil-painting-classical-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.human-behavior-explained"
+  ]
+}

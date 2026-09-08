@@ -1,5 +1,5 @@
 {
-  "revision": 195,
+  "revision": 219,
   "batches": [
     {
       "revision": 2,
@@ -4406,6 +4406,526 @@
           }
         ]
       }
+    },
+    {
+      "revision": 196,
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "request": {
+        "expected_revision": 195,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "proposal_ref": "content-packs/PREVIEW-BACKFILL-2026-09-08.md#the-registry-transition-the-assets-task-must-perform",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.cinematic-photoreal",
+            "item_id": "com.storystudio.style.cinematic-photoreal",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/free-starters/style/cinematic-photoreal-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.cinematic-photoreal",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.cinematic-photoreal",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.flat-vector-explainer",
+            "item_id": "com.storystudio.style.flat-vector-explainer",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/free-starters/style/flat-vector-explainer-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.flat-vector-explainer",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.flat-vector-explainer",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.hand-drawn-editorial-diagram",
+            "item_id": "com.storystudio.style.hand-drawn-editorial-diagram",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/free-starters/style/hand-drawn-editorial-diagram-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.hand-drawn-editorial-diagram",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.hand-drawn-editorial-diagram",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.minimal-stick-figure-explainer",
+            "item_id": "com.storystudio.style.minimal-stick-figure-explainer",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.minimal-stick-figure-explainer",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.minimal-stick-figure-explainer",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.paleo-documentary-tableau",
+            "item_id": "com.storystudio.style.paleo-documentary-tableau",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/free-starters/style/paleo-documentary-tableau-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.paleo-documentary-tableau",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.paleo-documentary-tableau",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+            "item_id": "com.storystudio.style.prehistoric-stick-cartoon",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.prehistoric-stick-cartoon",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.prehistoric-stick-cartoon",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.sepia-ink-wash",
+            "item_id": "com.storystudio.style.sepia-ink-wash",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/free-starters/style/sepia-ink-wash-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.sepia-ink-wash",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.sepia-ink-wash",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+            "item_id": "com.storystudio.style.watercolor-storybook",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/free-starters/style/watercolor-storybook-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.watercolor-storybook",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.watercolor-storybook",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.waxy-outline-cartoon",
+            "item_id": "com.storystudio.style.waxy-outline-cartoon",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/free-starters/style/waxy-outline-cartoon-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.waxy-outline-cartoon",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.waxy-outline-cartoon",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.dreamlike-luminous-sleep-illustration",
+            "item_id": "com.storystudio.style.dreamlike-luminous-sleep-illustration",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.dreamlike-luminous-sleep-illustration",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.dreamlike-luminous-sleep-illustration",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.hand-drawn-hardship-cartoon",
+            "item_id": "com.storystudio.style.hand-drawn-hardship-cartoon",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.hand-drawn-hardship-cartoon",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.hand-drawn-hardship-cartoon",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+            "item_id": "com.storystudio.style.impasto-psychological-animals",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.impasto-psychological-animals",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.impasto-psychological-animals",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+            "item_id": "com.storystudio.style.archival-documentary-reconstruction",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.archival-documentary-reconstruction",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.archival-documentary-reconstruction",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.anime-cel",
+            "item_id": "com.storystudio.style.anime-cel",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/production-looks/style/anime-cel-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.anime-cel",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.anime-cel",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.hand-drawn-cartoon-explainer",
+            "item_id": "com.storystudio.style.hand-drawn-cartoon-explainer",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/production-looks/style/hand-drawn-cartoon-explainer-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.hand-drawn-cartoon-explainer",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.hand-drawn-cartoon-explainer",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.pixel-art-story",
+            "item_id": "com.storystudio.style.pixel-art-story",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/production-looks/style/pixel-art-story-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.pixel-art-story",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.pixel-art-story",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.retro-paint-fantasy",
+            "item_id": "com.storystudio.style.retro-paint-fantasy",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/production-looks/style/retro-paint-fantasy-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.retro-paint-fantasy",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.retro-paint-fantasy",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.studio-catalog-realism",
+            "item_id": "com.storystudio.style.studio-catalog-realism",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/production-looks/style/studio-catalog-realism-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.studio-catalog-realism",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.studio-catalog-realism",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.whiteboard-doodle-explainer",
+            "item_id": "com.storystudio.style.whiteboard-doodle-explainer",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/production-looks/style/whiteboard-doodle-explainer-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.whiteboard-doodle-explainer",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.whiteboard-doodle-explainer",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+            "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.pastel-surreal-psychological-collage",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.old-master-still-life",
+            "item_id": "com.storystudio.style.old-master-still-life",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/sleep-history/style/old-master-still-life-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.old-master-still-life",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.old-master-still-life",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.chinese-ink-wash-storytelling",
+            "item_id": "com.storystudio.style.chinese-ink-wash-storytelling",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/storytelling-looks/style/chinese-ink-wash-storytelling-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.chinese-ink-wash-storytelling",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.chinese-ink-wash-storytelling",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+            "item_id": "com.storystudio.style.oil-painting-classical",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/symbolic-psychology-studio/style/oil-painting-classical-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.oil-painting-classical",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.oil-painting-classical",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -7124,6 +7644,397 @@
         "receipt_ref": "authoring:ada3557c18e5d2448acef9340b5472a0e6eee39da2de7f3b70c3f2121931713f",
         "pack_id": "com.storystudio.pack.style.scratchy-editorial-poster",
         "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 197,
+      "transition_ref": "lifecycle:93e70e0d805513b87c749882cb32f3597f529af6090a26f1042629f6c8d9f80c",
+      "request": {
+        "expected_revision": 196,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.cinematic-photoreal",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 198,
+      "transition_ref": "lifecycle:8ecb0277c247ab26285c653b890dfe217011c31c2a4d01b7f47a3582aa012c81",
+      "request": {
+        "expected_revision": 197,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.flat-vector-explainer",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 199,
+      "transition_ref": "lifecycle:0a34e92799e9d1e12c29db9342feaf23f82dac5944a46a92165cab531e7d77a8",
+      "request": {
+        "expected_revision": 198,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.hand-drawn-editorial-diagram",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 200,
+      "transition_ref": "lifecycle:632961c53169517ef7ce12aa65d9f04fc70f6dee4a25bbc2d07f1247563d41bc",
+      "request": {
+        "expected_revision": 199,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.minimal-stick-figure-explainer",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 201,
+      "transition_ref": "lifecycle:602b3f238d4dfdf658a41a0c31f128ca61dcbb784be2dee77806140090a2c444",
+      "request": {
+        "expected_revision": 200,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.paleo-documentary-tableau",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 202,
+      "transition_ref": "lifecycle:77823bd835e8af797065fe99e2f48df3a334f7bc98cfb0a5b857a6f049c86908",
+      "request": {
+        "expected_revision": 201,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 203,
+      "transition_ref": "lifecycle:9edeb96a0f992a7f0bd08cac32be5b91df374f2304e72cad90a0916543b4fe3b",
+      "request": {
+        "expected_revision": 202,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.sepia-ink-wash",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 204,
+      "transition_ref": "lifecycle:3d8ea7183208d2973abf0e40882abbe0157af97055f2ae67ccaed8cf672b97a3",
+      "request": {
+        "expected_revision": 203,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 205,
+      "transition_ref": "lifecycle:ae3491131248ee6d8c4b372681f6441f13573564cf31d7ab07b027d3434f39a6",
+      "request": {
+        "expected_revision": 204,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.waxy-outline-cartoon",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 206,
+      "transition_ref": "lifecycle:e57a6c7641b49938368c9820af6bb15f0f95b60434f7273a1e83d67b6ac73556",
+      "request": {
+        "expected_revision": 205,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.dreamlike-luminous-sleep-illustration",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 207,
+      "transition_ref": "lifecycle:5f3503944d3fa8dca8f1ae35fc67fbf2c0d4f371e6c4915c7b3723fb68cbf807",
+      "request": {
+        "expected_revision": 206,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.hand-drawn-hardship-cartoon",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 208,
+      "transition_ref": "lifecycle:18c69a317e9867a0a70ce89256415ea8d160edb0685a04c53d0c558f590703ce",
+      "request": {
+        "expected_revision": 207,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 209,
+      "transition_ref": "lifecycle:f10e3f885ffb454fa090a01b33ec161346b5d53ed6003ebc4e318d748a1144e8",
+      "request": {
+        "expected_revision": 208,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 210,
+      "transition_ref": "lifecycle:927bc0343ef92b36c93bd9fc7de7e715a9327a956d97359095af168dde74eb90",
+      "request": {
+        "expected_revision": 209,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.anime-cel",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 211,
+      "transition_ref": "lifecycle:c9e29e973a58d2febaef6a495853a225d2b372817474a3b209267e2484514709",
+      "request": {
+        "expected_revision": 210,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.hand-drawn-cartoon-explainer",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 212,
+      "transition_ref": "lifecycle:efd102937733d7e1213f07e50e3402e5d548cfc17fd91f2878d736dabc9fed70",
+      "request": {
+        "expected_revision": 211,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.pixel-art-story",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 213,
+      "transition_ref": "lifecycle:49870aece061968f9d753d15e3ea895de40df2494aaa7e61d07ab6d2b2a30f3b",
+      "request": {
+        "expected_revision": 212,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.retro-paint-fantasy",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 214,
+      "transition_ref": "lifecycle:b9493aa3abe95fd9eff3b374067ca039b56e4b21a92ef3a52314d5020ad1c33c",
+      "request": {
+        "expected_revision": 213,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.studio-catalog-realism",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 215,
+      "transition_ref": "lifecycle:39e0b1869f1a7d7b8f04926380730b3104bdbbe8a2284e7f1d0c8c30292fc09f",
+      "request": {
+        "expected_revision": 214,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.whiteboard-doodle-explainer",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 216,
+      "transition_ref": "lifecycle:29feff73bd4b7beeb08d0f3b049c3b1369ccf13209124c2d8f642ee9b507c8a3",
+      "request": {
+        "expected_revision": 215,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 217,
+      "transition_ref": "lifecycle:285ae7aa4f1a5815df171aa4ea3a0c503b2b582b5c902d0211c303f554bfc144",
+      "request": {
+        "expected_revision": 216,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.old-master-still-life",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 218,
+      "transition_ref": "lifecycle:6edbbd23e49cb8cf6f5bccbae83bb66717eb96b67faa695449288695bfec5ebe",
+      "request": {
+        "expected_revision": 217,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.chinese-ink-wash-storytelling",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 219,
+      "transition_ref": "lifecycle:60e7cba15fb8c191ab46039d304e62a19ea1fcd44136357da7a230cc3ec811c9",
+      "request": {
+        "expected_revision": 218,
+        "coordinator": {
+          "task": "style-preview-backfill-2026-09-08",
+          "branch": "content/style-preview-backfill-2026-09-08"
+        },
+        "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+        "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+        "version": "1.0.1",
         "changes": {
           "status": "authored"
         }
@@ -12738,6 +13649,535 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.scratchy-editorial-poster",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.cinematic-photoreal",
+      "item_id": "com.storystudio.style.cinematic-photoreal",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/cinematic-photoreal-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.cinematic-photoreal",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.cinematic-photoreal",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.flat-vector-explainer",
+      "item_id": "com.storystudio.style.flat-vector-explainer",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/flat-vector-explainer-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.flat-vector-explainer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.flat-vector-explainer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.hand-drawn-editorial-diagram",
+      "item_id": "com.storystudio.style.hand-drawn-editorial-diagram",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/hand-drawn-editorial-diagram-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.hand-drawn-editorial-diagram",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.hand-drawn-editorial-diagram",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.minimal-stick-figure-explainer",
+      "item_id": "com.storystudio.style.minimal-stick-figure-explainer",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.minimal-stick-figure-explainer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.minimal-stick-figure-explainer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.paleo-documentary-tableau",
+      "item_id": "com.storystudio.style.paleo-documentary-tableau",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/paleo-documentary-tableau-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.paleo-documentary-tableau",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.paleo-documentary-tableau",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+      "item_id": "com.storystudio.style.prehistoric-stick-cartoon",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.prehistoric-stick-cartoon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.prehistoric-stick-cartoon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.sepia-ink-wash",
+      "item_id": "com.storystudio.style.sepia-ink-wash",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/sepia-ink-wash-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.sepia-ink-wash",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.sepia-ink-wash",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+      "item_id": "com.storystudio.style.watercolor-storybook",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/watercolor-storybook-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.watercolor-storybook",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.watercolor-storybook",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.waxy-outline-cartoon",
+      "item_id": "com.storystudio.style.waxy-outline-cartoon",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/waxy-outline-cartoon-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.waxy-outline-cartoon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.waxy-outline-cartoon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.dreamlike-luminous-sleep-illustration",
+      "item_id": "com.storystudio.style.dreamlike-luminous-sleep-illustration",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.dreamlike-luminous-sleep-illustration",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.dreamlike-luminous-sleep-illustration",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.hand-drawn-hardship-cartoon",
+      "item_id": "com.storystudio.style.hand-drawn-hardship-cartoon",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.hand-drawn-hardship-cartoon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.hand-drawn-hardship-cartoon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+      "item_id": "com.storystudio.style.impasto-psychological-animals",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.impasto-psychological-animals",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.impasto-psychological-animals",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+      "item_id": "com.storystudio.style.archival-documentary-reconstruction",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.archival-documentary-reconstruction",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.archival-documentary-reconstruction",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.anime-cel",
+      "item_id": "com.storystudio.style.anime-cel",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/production-looks/style/anime-cel-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.anime-cel",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.anime-cel",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.hand-drawn-cartoon-explainer",
+      "item_id": "com.storystudio.style.hand-drawn-cartoon-explainer",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/production-looks/style/hand-drawn-cartoon-explainer-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.hand-drawn-cartoon-explainer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.hand-drawn-cartoon-explainer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.pixel-art-story",
+      "item_id": "com.storystudio.style.pixel-art-story",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/production-looks/style/pixel-art-story-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.pixel-art-story",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.pixel-art-story",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.retro-paint-fantasy",
+      "item_id": "com.storystudio.style.retro-paint-fantasy",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/production-looks/style/retro-paint-fantasy-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.retro-paint-fantasy",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.retro-paint-fantasy",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.studio-catalog-realism",
+      "item_id": "com.storystudio.style.studio-catalog-realism",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/production-looks/style/studio-catalog-realism-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.studio-catalog-realism",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.studio-catalog-realism",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.whiteboard-doodle-explainer",
+      "item_id": "com.storystudio.style.whiteboard-doodle-explainer",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/production-looks/style/whiteboard-doodle-explainer-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.whiteboard-doodle-explainer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.whiteboard-doodle-explainer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+      "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.pastel-surreal-psychological-collage",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.old-master-still-life",
+      "item_id": "com.storystudio.style.old-master-still-life",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/sleep-history/style/old-master-still-life-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.old-master-still-life",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.old-master-still-life",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.chinese-ink-wash-storytelling",
+      "item_id": "com.storystudio.style.chinese-ink-wash-storytelling",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/storytelling-looks/style/chinese-ink-wash-storytelling-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.chinese-ink-wash-storytelling",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.chinese-ink-wash-storytelling",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
+      "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+      "item_id": "com.storystudio.style.oil-painting-classical",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/symbolic-psychology-studio/style/oil-painting-classical-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.oil-painting-classical",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.oil-painting-classical",
           "status": "proposed"
         }
       }

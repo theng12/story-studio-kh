@@ -133,6 +133,27 @@ function reservationRecord(kind, slug) {
   }
 }
 
+/**
+ * A Visual Style pack_id whose lineage is still a single 1.0.0 record.
+ *
+ * These two tests reserve a 1.0.1 successor against the REAL registry, so they
+ * need a pack that has no successor yet. They named `cinematic-photoreal`
+ * outright until the 2026-09-08 preview backfill gave it — and eight of its
+ * neighbours — a real 1.0.1, at which point the fixture reservation collided
+ * with a shipped record. Picking the leaf by shape rather than by name keeps
+ * the test true the next time a pack is bumped.
+ */
+function stableStyleLeaf(records) {
+  const lineages = new Map()
+  for (const record of records.filter((candidate) => candidate.kind === 'visual-style')) {
+    lineages.set(record.pack_id, [...(lineages.get(record.pack_id) ?? []), record])
+  }
+  const leaf = [...lineages.values()]
+    .find((lineage) => lineage.length === 1 && lineage[0].version === '1.0.0')
+  assert.ok(leaf, 'the registry must contain a Visual Style still on a single 1.0.0 record')
+  return leaf[0]
+}
+
 function successorReservation(record, expectedRevision, version = '1.0.1') {
   const { receipt_ref, ...requestRecord } = structuredClone(record)
   return {
@@ -220,7 +241,7 @@ test('reserves a stable leaf successor without changing its historical version o
   t.after(() => rm(root, { recursive: true, force: true }))
   const copy = join(root, 'content-packs', 'authoring-registry.json')
   const before = JSON.parse(await readFile(copy, 'utf8'))
-  const original = before.records.find((record) => record.pack_id === 'com.storystudio.pack.style.cinematic-photoreal')
+  const original = stableStyleLeaf(before.records)
   const request = successorReservation(original, before.revision)
 
   const result = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
@@ -274,7 +295,7 @@ test('keeps versioned identity lineages exclusive and exact without mutating fai
   t.after(() => rm(root, { recursive: true, force: true }))
   const copy = join(root, 'content-packs', 'authoring-registry.json')
   const registry = JSON.parse(await readFile(copy, 'utf8'))
-  const original = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.style.cinematic-photoreal')
+  const original = stableStyleLeaf(registry.records)
   const accepted = successorReservation(original, registry.revision)
   const successor = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: accepted })
   const before = await readFile(copy)

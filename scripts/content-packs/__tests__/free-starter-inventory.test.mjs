@@ -264,8 +264,15 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
     'content-packs/free-starters/kit/history-explained-v1.0.1/pack.json',
     'content-packs/free-starters/kit/human-behavior-v1.0.1/pack.json',
     'content-packs/free-starters/kit/sleep-journeys-v1.0.1/pack.json',
+    'content-packs/free-starters/style/cinematic-photoreal-v1.0.1/pack.json',
+    'content-packs/free-starters/style/flat-vector-explainer-v1.0.1/pack.json',
+    'content-packs/free-starters/style/hand-drawn-editorial-diagram-v1.0.1/pack.json',
     'content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.1/pack.json',
+    'content-packs/free-starters/style/paleo-documentary-tableau-v1.0.1/pack.json',
     'content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.1/pack.json',
+    'content-packs/free-starters/style/sepia-ink-wash-v1.0.1/pack.json',
+    'content-packs/free-starters/style/watercolor-storybook-v1.0.1/pack.json',
+    'content-packs/free-starters/style/waxy-outline-cartoon-v1.0.1/pack.json',
     'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.1/pack.json',
     'content-packs/free-starters/thumbnail/documentary-label-tableau-v1.0.1/pack.json',
     'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1/pack.json',
@@ -283,7 +290,9 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
   // The `-v1.0.1` list above cannot see a second successor, so the 1.0.2 roots were
   // going unpinned entirely. Five Formulas are the 2026-08-28 mark scrub: those
   // packs were already past 1.0.0, so their scrubbed successor is 1.0.2. History
-  // Explained 1.0.2 is the separate free compatibility successor.
+  // Explained 1.0.2 is the separate free compatibility successor. The two Style
+  // 1.0.2 roots are the 2026-09-08 preview backfill landing on the two Styles
+  // that were already past 1.0.0 when it ran.
   const secondSuccessors = packSources.filter(({ relative }) => /-v1\.0\.2\/pack\.json$/.test(relative))
   assert.deepEqual(secondSuccessors.map(({ relative }) => relative).sort(), [
     'content-packs/free-starters/formula/ancient-humans-v1.0.2/pack.json',
@@ -296,6 +305,8 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
     'content-packs/free-starters/kit/calm-mind-v1.0.2/pack.json',
     'content-packs/free-starters/kit/human-behavior-v1.0.2/pack.json',
     'content-packs/free-starters/kit/sleep-journeys-v1.0.2/pack.json',
+    'content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.2/pack.json',
+    'content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.2/pack.json',
     'content-packs/free-starters/topic/habits-momentum-v1.0.2/pack.json',
     'content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.2/pack.json',
   ])

@@ -25,3 +25,16 @@ Six previews for two standalone Content Packs: one Visual Style preview (`com.st
 | --- | --- |
 | `gen-sleep-history-previews-1-0002.png` (`9efade5b13a654471b5c7287e73ab13285f6252278308a299ddfeddfa065a4b0`) | style candidate (bread, knife, salt bowl): equally on-contract; not retained because one preview is declared |
 | `gen-sleep-history-previews-1-0007.png` (`bc2d236475e0b365384348e412f8db0a0bccff8f5af4791c63f37458d21d5206`) | thumbnail candidate (Cinnamon): on-contract and legible; not retained to keep the set at five |
+
+## Style preview backfill — 2026-09-08
+
+The owner's rule of 2026-09-08 is three previews per Visual Style — the hero, a quiet wide scene with no figure in it, and the hardest case the style can legally be asked for. This collection's Visual Style shipped with one preview, so 2 new previews were rendered and the pack moved to a new `<slug>-v<version>` sibling directory, leaving the directory it shipped from in place. The existing hero bytes were copied into the new directory unchanged.
+
+The full render record — run ids, job ids, prompt digests, the conversion applied and the review of every image — is in `content-packs/PREVIEW-BACKFILL-2026-09-08.md`. The rows below are this collection's accepted bytes.
+
+| Style item | New pack version | Accepted asset | SHA-256 | Bytes | Dimensions | Decode |
+| --- | --- | --- | --- | ---: | --- | --- |
+| `com.storystudio.style.old-master-still-life` | 1.0.1 | `content-packs/sleep-history/style/old-master-still-life-v1.0.1/assets/old-master-still-life-scene.webp` | `766c05cc99149c1c79754b88851233c9e87f85bd4323df18271070083168ed43` | 260298 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.old-master-still-life` | 1.0.1 | `content-packs/sleep-history/style/old-master-still-life-v1.0.1/assets/old-master-still-life-face.webp` | `85f01cbde05a52302c39f9cffea8da76ba87d1b66a0345abf6b6c6f9db715497` | 249306 | 1672x941 | WebP decode passed |
+
+Each of these was rendered by GenStudio `gpt-image-2` through the Story Studio Image Pool in the `pack-previews` project, one variant, `16:9`, `2K`, `reference_images: []`, 29 credits each — 58 credits for this collection. Every file decodes as a 1672×941 WebP above the 20,480-byte floor and carries no text of any kind.

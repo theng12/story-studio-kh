@@ -1,0 +1,25 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.minimal-stick-figure-explainer",
+  "name": "Minimal Stick-Figure Explainer",
+  "description": "Polished stick-figure storytelling with expressive faces, generous white space, and restrained color accents.",
+  "category": "Explainer",
+  "tags": [
+    "stick figure",
+    "minimal",
+    "editorial",
+    "white space",
+    "diagram"
+  ],
+  "style_bible": "polished minimalist 2D stick-figure editorial explainer, smooth thick black outlines with consistent line weight, round white faces with simple highly expressive eyes eyebrows and mouths, clean line bodies and limbs, icon-like props and visual metaphors, pure white background, generous negative space, one instantly readable idea per frame, simple diagram-like staging, sparse environmental cues, mostly black-and-white artwork with restrained flat muted color accents, red for urgency or emphasis, warm yellow for discovery or success, subdued blue and green for context, subtle light-gray grounding shadows only, crisp professional explainer-video illustration, clear at thumbnail size, no texture and no realistic lighting",
+  "negative_prompt": "photorealism, 3D render, painterly brushwork, whiteboard marker texture, rough sketching, scratchy lines, realistic anatomy, cinematic lighting, gradients, detailed scenery, cluttered background, dense colors, complex perspective, illegible text, random letters, watermark",
+  "preview_assets": [
+    "assets/minimal-stick-figure-explainer.webp",
+    "assets/minimal-stick-figure-explainer-scene.webp",
+    "assets/minimal-stick-figure-explainer-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.human-behavior-explained"
+  ]
+}

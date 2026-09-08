@@ -28,3 +28,16 @@ invent or display license terms before GenStudio publishes them. Accordingly,
 this record makes no ownership, redistribution, or customer-license claim.
 Any stock or publication decision requires the operator-published product and
 license evidence; it is outside this source review.
+
+## Style preview backfill — 2026-09-08
+
+The owner's rule of 2026-09-08 is three previews per Visual Style — the hero, a quiet wide scene with no figure in it, and the hardest case the style can legally be asked for. This collection's Visual Style shipped with one preview, so 2 new previews were rendered and the pack moved to a new `<slug>-v<version>` sibling directory, leaving the directory it shipped from in place. The existing hero bytes were copied into the new directory unchanged.
+
+The full render record — run ids, job ids, prompt digests, the conversion applied and the review of every image — is in `content-packs/PREVIEW-BACKFILL-2026-09-08.md`. The rows below are this collection's accepted bytes.
+
+| Style item | New pack version | Accepted asset | SHA-256 | Bytes | Dimensions | Decode |
+| --- | --- | --- | --- | ---: | --- | --- |
+| `com.storystudio.style.archival-documentary-reconstruction` | 1.0.1 | `content-packs/paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.1/assets/archival-documentary-reconstruction-scene.webp` | `d4afa4decbffe3ef931f44a21596712c6a5ab459fa074adfc219a1e610f4a2d4` | 151372 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.archival-documentary-reconstruction` | 1.0.1 | `content-packs/paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.1/assets/archival-documentary-reconstruction-face.webp` | `c9ab47c62d55d647c4898639c8946ae68392d92bf151be6d8047e457122e6b2e` | 219212 | 1672x941 | WebP decode passed |
+
+Each of these was rendered by GenStudio `gpt-image-2` through the Story Studio Image Pool in the `pack-previews` project, one variant, `16:9`, `2K`, `reference_images: []`, 29 credits each — 58 credits for this collection. Every file decodes as a 1672×941 WebP above the 20,480-byte floor and carries no text of any kind.
