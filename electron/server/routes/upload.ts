@@ -1317,12 +1317,31 @@ router.post('/projects/:slug/upload/plans', async (req, res) => {
     const slug = req.params.slug
     const body = req.body || {}
     const { name, platform, account_id, schedule, defaults, id } = body
-    if (!name || typeof name !== 'string') return res.status(400).json({ detail: 'name required' })
     if (!readPlatform(platform)) return res.status(400).json({ detail: 'platform required' })
-    if (!account_id || typeof account_id !== 'string') return res.status(400).json({ detail: 'account_id required' })
-    if (!schedule || typeof schedule !== 'object') return res.status(400).json({ detail: 'schedule required' })
-    if (!defaults || typeof defaults !== 'object') return res.status(400).json({ detail: 'defaults required' })
-    const plan = await plans.upsertPlan(slug, { id, name, platform, account_id, schedule, defaults })
+    const validationError = plans.validateUploadPlanDraft(body)
+    if (validationError) return res.status(400).json({ detail: validationError })
+
+    const normalizedName = name.trim()
+    const normalizedAccountId = account_id.trim()
+    const existing = id ? await plans.getPlan(slug, id) : null
+    if (id && !existing) return res.status(404).json({ detail: 'Plan not found' })
+    if (existing && (existing.account_id !== normalizedAccountId || existing.platform !== platform)) {
+      return res.status(409).json({ detail: 'An existing plan cannot be retargeted to another account or platform' })
+    }
+    // YouTube plans may only be saved while their account is represented by
+    // the project's current channel assignment. This keeps a channel switch
+    // from allowing an old plan to be edited behind the editor's back.
+    if (platform === 'youtube' && !(await resolveYouTubeAccountId(slug, normalizedAccountId))) {
+      return res.status(409).json({ detail: 'account_id must match the project YouTube account' })
+    }
+    const plan = await plans.upsertPlan(slug, {
+      id,
+      name: normalizedName,
+      platform,
+      account_id: normalizedAccountId,
+      schedule,
+      defaults,
+    })
     res.json({ plan })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save plan'))
@@ -1345,6 +1364,9 @@ router.put('/projects/:slug/upload/plans/:id/active', async (req, res) => {
     const slug = req.params.slug
     const plan = await plans.getPlan(slug, req.params.id)
     if (!plan) return res.status(404).json({ detail: 'Plan not found' })
+    if (plan.platform === 'youtube' && !(await resolveYouTubeAccountId(slug, plan.account_id))) {
+      return res.status(409).json({ detail: 'Plan account no longer matches the project YouTube account' })
+    }
     await plans.setActivePlanId(slug, plan.platform, plan.account_id, plan.id)
     res.json({ ok: true })
   } catch (e: any) {

@@ -255,14 +255,16 @@
                 Set the rhythm once and each finished episode takes the next free slot on its own.
                 <template v-if="cadenceHasPlan">
                   This channel already has an upload plan, so that plan is what actually schedules —
-                  edit it in Upload Center. What you set here seeds any new account you connect.
+                  edit it using Manage upload plans below. What you set here seeds any new account you connect.
                 </template>
                 <template v-else>
-                  This becomes the channel's upload plan the moment you connect a YouTube account.
+                  This seeds a plan when you connect YouTube. If the channel is already connected, create or choose its plan below.
                 </template>
               </p>
             </div>
           </div>
+
+          <NuxtLink :to="`/projects/${slug}/upload/plans`" class="btn btn-ghost btn-sm mb-3">Manage upload plans</NuxtLink>
 
           <div v-if="cadenceLoaded" class="cadence-body">
             <div class="cadence-days">

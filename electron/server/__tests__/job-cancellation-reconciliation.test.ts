@@ -507,13 +507,23 @@ test('an unavailable provider leaves a stale transcription absence eligible for 
 
   const original = globalThis.fetch
   let attempts = 0
+  let rejectBootCheck: ((reason?: unknown) => void) | undefined
   globalThis.fetch = async () => {
     attempts++
+    if (attempts === 1) {
+      return new Promise<Response>((_resolve, reject) => { rejectBootCheck = reject })
+    }
     throw new TypeError('provider unavailable')
   }
   try {
     await jq.getJobs(project.slug)
-    await waitFor(() => jq.getJob('stale-transcription-unavailable')?.history_evidence_check?.state === 'unreachable')
+    await waitFor(() => Boolean(rejectBootCheck))
+    // Start the manual read while boot's provider check is still in flight.
+    // It must wait for that check, then make its own request rather than
+    // returning the boot result as if the manual action had run.
+    const manualRecheck = jq.recheckJobProviderStatus(project.slug, persisted.job_id)
+    rejectBootCheck!(new TypeError('provider unavailable'))
+    await manualRecheck
     const afterBoot = jq.getJob('stale-transcription-unavailable')!
     assert.equal(afterBoot.genstudio_jobs?.[0]?.transcription_absence_verified_at, undefined)
     assert.equal(jq.removeTerminalJob(project.slug, afterBoot.job_id), false, 'an unverified absence must not be removed from history')
@@ -522,7 +532,6 @@ test('an unavailable provider leaves a stale transcription absence eligible for 
     assert.match(publicJob.control?.reason || '', /cannot confirm whether that request was created or charged/)
     assert.ok(afterBoot.output_lines.some(line => line.includes('earlier no-record transcription result') && line.includes('created or charged')))
 
-    await jq.recheckJobProviderStatus(project.slug, afterBoot.job_id)
     assert.equal(attempts, 2, 'manual recheck must remain available after an unreachable boot refresh')
     assert.equal(jq.getJob('stale-transcription-unavailable')?.history_evidence_check?.state, 'unreachable')
   } finally {
