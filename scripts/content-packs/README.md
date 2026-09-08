@@ -44,6 +44,33 @@ ID, family, and SKU stay burned forever; it cannot be authored, stocked, or give
 This is pre-sale identity closure, not archive retirement. Customer archives keep their existing
 `active`, `retired`, and `replaced` lifecycle values; `withdrawn` never appears inside an archive.
 
+An **authored** record transitions once to `retired` when the product is discontinued and its
+source directory leaves this repository. Retirement is the post-sale mirror of withdrawal: also
+terminal, also burning the `pack_id` against any later reservation, and it requires a `reason`
+string that is written into the lifecycle journal — once the source is gone, that sentence is the
+only surviving explanation of why. Retirement changes nothing a customer already installed; their
+archives keep working under their own manifest lifecycle.
+
+Retirement is two moves, and the registry refuses to hold either half alone: an `authored` record
+must have its source directory, a `retired` one must not. So retire the record, then delete the
+directory, one record at a time. A repository left between the two fails `validate`.
+
+```json
+{
+  "expected_revision": 234,
+  "coordinator": { "task": "content-pack-authoring", "branch": "content/kits-retired" },
+  "receipt_ref": "authoring:<sha256>",
+  "pack_id": "com.storystudio.pack.kit.example",
+  "version": "1.0.0",
+  "changes": { "status": "retired" },
+  "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+}
+```
+
+Genesis records carry a `baseline:<pack_id>@<version>` receipt instead of an authoring receipt.
+They have no batch to replay, so retirement is the only lifecycle event they accept; a baseline
+transition carrying anything else is refused.
+
 ```json
 {
   "expected_revision": 2,
@@ -59,10 +86,11 @@ This is pre-sale identity closure, not archive retirement. Customer archives kee
 ```
 
 Generic discovery reconciles every `pack.json` source below `content-packs/`, including future
-catalog waves, while explicitly excluding only the retired source-only
-`content-packs/archival-ledger` monolith. Canonical forward-slash repository paths are mandatory;
-aliases, absolute paths, backslashes, symlinks, cycles, coordinators in creative dependency closure,
-and unregistered authored sources fail closed.
+catalog waves. `content-packs/archival-ledger` — the retired source-only monolith, deleted
+2026-09-08 once its content sold as the six split packs under `content-packs/paid/archival-ledger`
+— stays refused as a `source_path` so it cannot be reintroduced. Canonical forward-slash repository
+paths are mandatory; aliases, absolute paths, backslashes, symlinks, cycles, coordinators in
+creative dependency closure, and unregistered authored sources fail closed.
 
 Canonical migration copies of all five authoring skill packages live under
 `developer-migration/codex-skills/`. Install or verify them on a new computer with:
@@ -92,19 +120,17 @@ WebP files. Symlinks, scripts, SVG, HTML, CSS, fonts, and extra files are reject
 complete manifest, and signs its canonical JSON bytes. The pack, key, entitlement, bundle, and
 document IDs must fall within the stated publisher namespace; in-pack paths are not namespace IDs.
 
-## Legacy bundle-only coordination packs
+## Channel Kits are gone
 
-Channel Kits remain supported for backward compatibility, but they are retired from new authoring
-and merchandising. Do not create, extend, reserve, price, or stock a Channel Kit. Only exact
-authored registry identities may use historical rebuild support; arbitrary or unregistered Kit
-fixtures cannot build. Every new product is an independently purchasable, mix-and-matchable
-Content Pack.
+Owner ruling 2026-09-08: *"no channel kit at all or anymore. we don't do that."* All eleven Kit
+products are retired in the store, every Kit registry record is `retired`, and every Kit source
+directory was deleted from this repository. Do not create, extend, reserve, price, stock, or
+rebuild one. Every product is an independently purchasable, mix-and-matchable Content Pack; what a
+Kit used to bundle is sold as its four components.
 
-An existing legacy Channel Kit may coordinate exactly one Formula, Topic Pack, Style, and Thumbnail
-Recipe from exact external dependencies. This is the only source shape permitted without `content/`:
-it must contain just `pack.json`, derive empty `items` and `files`, declare one Channel Kit, and
-carry no in-pack content or assets. Every component must be external and every dependency must
-be used by an exact component reference.
+The `channel-kit` item kind stays in the signed archive schema, and only there: Kits customers
+already installed must keep parsing. Nothing in this repository builds one any more, because the
+builder requires an *authored* registry identity and no Kit record is authored.
 
 For a release build, the two whole-value placeholders below may be resolved only with explicit
 `buildContentPack()` arguments. The builder does not expand templates in any other field.
@@ -118,9 +144,9 @@ For a release build, the two whole-value placeholders below may be resolved only
 
 ```js
 await buildContentPack({
-  sourceDirectory: './free-starter-kit',
+  sourceDirectory: './content-packs/free-starters/style/watercolor-storybook',
   privateKeyPath: './keys/publisher.private.pem',
-  outputPath: './dist/free-starter-1.0.0.sspack',
+  outputPath: './dist/style-watercolor-storybook-1.0.0.sspack',
   keyId: 'com.storystudio.key.primary',
   minAppVersion: '1.0.0',
 })
@@ -200,31 +226,18 @@ content and assets.
 
 ### Release-parameterized sources
 
-`content-packs/archival-ledger` is a source-only historical parity reference for Archival Ledger.
-Never sign or stock that retired monolith. Its former combined Formula, Topic, Style, and Recipe
-content must remain a review reference only; the publisher rejects it before an archive is made.
-
-For historical recovery or compatibility validation, build each independently signed component
-source, then the existing Channel Kit coordinator that references their exact versions. Do not use
-this path for new products. These release-parameterized sources deliberately use `{{MIN_APP_VERSION}}`:
-final integrators—not pack authors—choose the shared Story Studio release version and pass that
-identical value to each build.
+Some sources deliberately use `{{MIN_APP_VERSION}}`: final integrators—not pack authors—choose the
+shared Story Studio release version and pass that identical value to each build.
 
 ```bash
 npm run content-pack:build -- ./content-packs/paid/archival-ledger/formula/archival-ledger \
   --private-key ./keys/component.private.pem \
   --min-app-version "$FINAL_STORY_STUDIO_RELEASE_VERSION" \
   --output ./dist/formula-archival-ledger-1.0.0.sspack
-
-npm run content-pack:build -- ./content-packs/paid/archival-ledger/kit/archival-ledger \
-  --private-key ./keys/component.private.pem \
-  --min-app-version "$FINAL_STORY_STUDIO_RELEASE_VERSION" \
-  --output ./dist/kit-archival-ledger-1.0.0.sspack
 ```
 
-The same component path pattern applies to all eight component roots under
-`content-packs/paid/archival-ledger/{formula,topic,style,thumbnail}/`, with the coordinator at
-`content-packs/paid/archival-ledger/kit/archival-ledger`. The builder refuses a
+The same pattern applies to every component root under
+`content-packs/paid/archival-ledger/{formula,topic,style,thumbnail}/`. The builder refuses a
 release-parameterized source without that explicit value, and refuses this override for ordinary
 sources. Set it only after the combined runtime release that contains the pack's schema, adapter,
 thumbnail, and planner support has an agreed version.
@@ -263,7 +276,7 @@ npm run content-pack:validate -- ./dist/formula-ancient-humans-1.0.0.sspack \
 
 This proves the bounded archive, manifest, documents, hashes, assets, and dependency shape. At
 installation time Story separately requires GenStudio's signed receipt to bind these exact bytes
-to the release, entitlement family, publisher, version, minimum Story version, and kit closure.
+to the release, entitlement family, publisher, version, minimum Story version, and dependency closure.
 
 Publisher-signed validation requires the intended key identity and an explicit public-key PEM. It
 reports only the verified pack ID, version, archive SHA-256, and byte count:

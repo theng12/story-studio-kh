@@ -1,137 +1,7 @@
 {
-  "generated": "2026-09-08T14:55:39.116Z",
-  "count": 207,
+  "generated": "2026-09-08T15:11:35.979Z",
+  "count": 186,
   "items": [
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.a-life-as",
-      "name": "A Life As",
-      "collection_dir": "free-starters/kit/a-life-as-v1.0.4",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.4",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.archival-ledger",
-      "name": "Archival Ledger",
-      "collection_dir": "archival-ledger",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 8 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.0",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.archival-ledger",
-      "name": "Archival Ledger",
-      "collection_dir": "paid/archival-ledger/kit/archival-ledger-v1.0.3",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.3",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.build-momentum",
-      "name": "Build Momentum",
-      "collection_dir": "free-starters/kit/build-momentum-v1.0.2",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.2",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.business-explained",
-      "name": "Business Explained",
-      "collection_dir": "free-starters/kit/business-explained-v1.0.1",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.1",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.calm-mind",
-      "name": "Calm Mind",
-      "collection_dir": "free-starters/kit/calm-mind-v1.0.2",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.2",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.deep-time",
-      "name": "Deep Time",
-      "collection_dir": "free-starters/kit/deep-time-v1.0.3",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.3",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.first-humans",
-      "name": "First Humans",
-      "collection_dir": "free-starters/kit/first-humans-v1.0.4",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.4",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.history-explained",
-      "name": "History Explained",
-      "collection_dir": "free-starters/kit/history-explained-v1.0.1",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.1",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.human-behavior",
-      "name": "Human Behavior",
-      "collection_dir": "free-starters/kit/human-behavior-v1.0.2",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.2",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.sleep-journeys",
-      "name": "Sleep Journeys",
-      "collection_dir": "free-starters/kit/sleep-journeys-v1.0.2",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.2",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.symbolic-psychology-studio",
-      "name": "Symbolic Psychology Studio",
-      "collection_dir": "symbolic-psychology-studio/kit/symbolic-psychology-studio",
-      "axis": "series-formula+topic-pack+thumbnail-recipe+visual-style",
-      "description": "Bundles 6 components: series-formula, topic-pack, thumbnail-recipe, visual-style.",
-      "version": "1.0.0",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "channel-kit",
-      "id": "com.storystudio.bundle.wild-worlds",
-      "name": "Wild Worlds",
-      "collection_dir": "free-starters/kit/wild-worlds-v1.0.3",
-      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
-      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
-      "version": "1.0.3",
-      "lifecycle": "active"
-    },
     {
       "kind": "lettering-style",
       "id": "com.storystudio.lettering.antique-wood-type-poster-serif",
@@ -736,16 +606,6 @@
       "kind": "series-formula",
       "id": "com.storystudio.formula.archival-ledger",
       "name": "Archival Ledger",
-      "collection_dir": "archival-ledger",
-      "axis": "Evidence & systems",
-      "description": "Long-form historical documentaries that reconstruct how major outcomes came about: the institutions, material pressures…",
-      "version": "1.0.0",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "series-formula",
-      "id": "com.storystudio.formula.archival-ledger",
-      "name": "Archival Ledger",
       "collection_dir": "paid/archival-ledger/formula/archival-ledger",
       "axis": "Evidence & systems",
       "description": "Long-form historical documentaries that reconstruct how major outcomes came about: the institutions, material pressures…",
@@ -939,16 +799,6 @@
       "collection_dir": "free-starters/thumbnail/annotated-business-board",
       "axis": "Explainer",
       "description": "A clean hand-drawn economics explainer: one unmistakable business or location in the center, surrounded by a small visu…",
-      "version": "1.0.0",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "thumbnail-recipe",
-      "id": "com.storystudio.thumbnail.archival-map-investigation",
-      "name": "Archival Map Investigation",
-      "collection_dir": "archival-ledger",
-      "axis": "History",
-      "description": "A historical investigation cover: an original period portrait or key artifact, a marked parchment map, and one archival…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1286,30 +1136,10 @@
       "kind": "topic-pack",
       "id": "com.storystudio.topic.archival-ledger.empires-trade-extraction",
       "name": "Empires, Trade & Extraction",
-      "collection_dir": "archival-ledger",
-      "axis": "empires, colonial history, trade, extraction, global history",
-      "description": "Imperial expansion, colonial rule, chartered companies, trade routes, commodity systems, forced labor, and resistance t…",
-      "version": "1.0.0",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "topic-pack",
-      "id": "com.storystudio.topic.archival-ledger.empires-trade-extraction",
-      "name": "Empires, Trade & Extraction",
       "collection_dir": "paid/archival-ledger/topic/empires-trade-extraction-v1.0.1",
       "axis": "empires, colonial history, trade, extraction, global history",
       "description": "Imperial expansion, colonial rule, chartered companies, trade routes, commodity systems, forced labor, and resistance t…",
       "version": "1.0.1",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "topic-pack",
-      "id": "com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power",
-      "name": "Infrastructure, Commodities & Corporate Power",
-      "collection_dir": "archival-ledger",
-      "axis": "infrastructure history, commodity history, corporate power, industrial history, technology and power",
-      "description": "Railways, canals, energy, food, communications, industrial systems, corporations, and the material networks that reshap…",
-      "version": "1.0.0",
       "lifecycle": "active"
     },
     {
@@ -1326,16 +1156,6 @@
       "kind": "topic-pack",
       "id": "com.storystudio.topic.archival-ledger.money-debt-financial-institutions",
       "name": "Money, Debt & Financial Institutions",
-      "collection_dir": "archival-ledger",
-      "axis": "financial history, money, debt, banking, economic crises",
-      "description": "Currency, banking, public debt, taxation, credit systems, financial panics, depressions, and the institutions that orga…",
-      "version": "1.0.0",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "topic-pack",
-      "id": "com.storystudio.topic.archival-ledger.money-debt-financial-institutions",
-      "name": "Money, Debt & Financial Institutions",
       "collection_dir": "paid/archival-ledger/topic/money-debt-financial-institutions-v1.0.1",
       "axis": "financial history, money, debt, banking, economic crises",
       "description": "Currency, banking, public debt, taxation, credit systems, financial panics, depressions, and the institutions that orga…",
@@ -1346,30 +1166,10 @@
       "kind": "topic-pack",
       "id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse",
       "name": "States, Revolutions & Collapse",
-      "collection_dir": "archival-ledger",
-      "axis": "states, revolutions, collapse, civil wars, political change",
-      "description": "State formation and breakdown, revolutions, civil wars, reforms, independence movements, and constitutional turning poi…",
-      "version": "1.0.0",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "topic-pack",
-      "id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse",
-      "name": "States, Revolutions & Collapse",
       "collection_dir": "paid/archival-ledger/topic/states-revolutions-collapse-v1.0.1",
       "axis": "states, revolutions, collapse, civil wars, political change",
       "description": "State formation and breakdown, revolutions, civil wars, reforms, independence movements, and constitutional turning poi…",
       "version": "1.0.1",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "topic-pack",
-      "id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order",
-      "name": "Wars, Treaties & World Order",
-      "collection_dir": "archival-ledger",
-      "axis": "war history, diplomacy, treaties, world order, geopolitics",
-      "description": "Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.",
-      "version": "1.0.0",
       "lifecycle": "active"
     },
     {
@@ -1565,11 +1365,11 @@
     {
       "kind": "topic-pack",
       "id": "com.storystudio.topic.lost-voyages",
-      "name": "Lost Voyages",
-      "collection_dir": "lost-voyage/topic/lost-voyages",
+      "name": "Shipwrecks, Pirates and the Age of Sail",
+      "collection_dir": "lost-voyage/topic/lost-voyages-v1.0.1",
       "axis": "maritime history, sea history, sleep history",
       "description": "Fifty maritime subjects, each with twenty materially distinct episode slots, for calm long-form compilations told one s…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
@@ -1730,16 +1530,6 @@
       "axis": "Digital",
       "description": "Modern anime cel-shading — clean lineart, flat cel light, expressive and vivid.",
       "version": "1.0.1",
-      "lifecycle": "active"
-    },
-    {
-      "kind": "visual-style",
-      "id": "com.storystudio.style.archival-documentary-reconstruction",
-      "name": "Archival Documentary Reconstruction",
-      "collection_dir": "archival-ledger",
-      "axis": "Realistic",
-      "description": "Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document…",
-      "version": "1.0.0",
       "lifecycle": "active"
     },
     {

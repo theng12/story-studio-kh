@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, readdir, readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -62,10 +62,6 @@ function receiptRequestFor(registry, receipt, packId) {
   const record = batch.request.records.find(candidate => candidate.pack_id === packId && candidate.version === '1.0.0')
   assert.ok(record, `${receipt} must reserve ${packId}@1.0.0`)
   return record
-}
-
-function closurePairs(entries) {
-  return entries.map(({ pack_id, version }) => [pack_id, version])
 }
 
 test('promotion receipts: the original Editorial and Impasto reservations are the only path to authored sources', async () => {
@@ -153,21 +149,27 @@ test('Formula v1.0.1 promotion is one receipt-bound reserved-to-authored transit
   assert.notEqual(kit.receipt_ref, LEAF_SUCCESSOR_RECEIPT)
 })
 
-test('kit closure: the coordinator is a pack-only exact six-node closure', async () => {
-  assert.deepEqual(await readdir(KIT_ROOT), ['pack.json'])
-  const manifest = await readJson(join(KIT_ROOT, 'pack.json'))
-  const dependencies = CLOSURE.map(([pack_id, version]) => ({ pack_id, version }))
-  const components = CLOSURE.map(([pack_id, version, item_id, kind]) => ({ pack_id, version, item_id, kind }))
-
-  assert.deepEqual(manifest.dependencies, dependencies)
-  assert.equal(manifest.bundles?.length, 1)
-  assert.equal(manifest.bundles[0].id, 'com.storystudio.bundle.symbolic-psychology-studio')
-  assert.equal(manifest.bundles[0].kind, 'channel-kit')
-  assert.equal(manifest.bundles[0].name, 'Symbolic Psychology Studio')
-  assert.deepEqual(manifest.bundles[0].components, components)
-  assert.deepEqual(closurePairs(manifest.dependencies), closurePairs(manifest.bundles[0].components))
-
+// The Kit v1.0.0 coordinator source used to be read here to prove its six-node
+// closure. Owner ruling 2026-09-08 discontinued Channel Kits: the record is
+// retired and the directory is deleted, so what this asserts now is the
+// closure's disappearance and the fact that its six creative leaves — which
+// were always separately purchasable — are untouched by it.
+test('the retired coordinator leaves its six creative leaves standing', async () => {
   const registry = await readJson(REGISTRY_PATH)
+  const kit = recordVersionFor(registry, 'com.storystudio.pack.kit.symbolic-psychology-studio', '1.0.0')
+  assert.equal(kit.status, 'retired')
+  await assert.rejects(access(KIT_ROOT), { code: 'ENOENT' })
+  const retirements = registry.transitions.filter(transition => (
+    transition.request.pack_id === kit.pack_id
+    && transition.request.version === kit.version
+    && transition.request.changes.status === 'retired'
+  ))
+  assert.equal(retirements.length, 1)
+  assert.equal(retirements[0].request.reason, 'Owner ruling 2026-09-08: channel kits discontinued; components sold individually')
+  for (const [packId] of CLOSURE) {
+    assert.equal(recordFor(registry, packId).status, 'authored', `${packId} remains an authored creative leaf`)
+  }
+
   const oil = recordFor(registry, CLOSURE[5][0])
   assert.equal(oil.status, 'authored')
   assert.match(oil.receipt_ref, /^authoring:[a-f0-9]{64}$/)

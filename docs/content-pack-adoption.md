@@ -163,7 +163,7 @@ stocking tool needs so that no human is asked a question:
 | --- | --- |
 | `file`, `sha256`, `bytes` | the archive and its identity |
 | `pack_id`, `version`, `publisher_id` | who and what |
-| `kind` | `visual-style`, `topic-pack`, `channel-kit`, … |
+| `kind` | `visual-style`, `topic-pack`, `lettering-style`, … (`channel-kit` still parses for installed archives but is never authored) |
 | `title` | the customer-visible name, read out of the shipped bytes |
 | `entitlement_family`, `entitlement_sku` | what the purchase grants |
 | `min_story_version` | the app floor this archive requires |
@@ -197,9 +197,10 @@ artifacts; stocking is a separate, deliberate act.
 
 **Who decides:** the owner. This stage is not automated and should not be.
 
-Standing policy as of 2026-08-25: **every pack is 300 credits**, discounted 90%
-until year end. Kits are exactly four pieces — one of each kind — at 1200 credits;
-a fifth piece is split out and sold separately at 300. Nothing is free.
+Standing policy as of 2026-09-08: **every pack is 300 credits**, discounted 90%
+for a year from stocking. Nothing is free. There are no Channel Kits — owner
+ruling 2026-09-08, *"no channel kit at all or anymore. we don't do that."* — so
+what a Kit used to bundle is four separate 300-credit packs.
 
 Margin floors and any exemption to them are the owner's call and are audited
 separately. If a price question comes up during shipping, the answer is to ship

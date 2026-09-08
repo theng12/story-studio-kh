@@ -69,25 +69,6 @@ const registry = {
     sourceId: slug,
     sourcePath: migrated ? `electron/server/thumbnail-templates/${slug}.json` : null,
   })),
-  kits: [
-    ['wild-worlds', 'natural-world-explained', 'natural-world-animals', 'waxy-outline-cartoon', 'curiosity-question-cartoon'],
-    ['first-humans', 'ancient-humans', 'ancient-humans-survival', 'prehistoric-stick-cartoon', 'prehistoric-discovery'],
-    ['deep-time', 'deep-time-documentary', 'deep-time-earth-systems', 'paleo-documentary-tableau', 'documentary-label-tableau'],
-    ['business-explained', 'economics-of', 'economics-businesses', 'hand-drawn-editorial-diagram', 'annotated-business-board'],
-    ['human-behavior', 'human-behavior-explained', 'human-behavior-social-dynamics', 'minimal-stick-figure-explainer', 'centered-hero-headline'],
-    ['history-explained', 'history-explained', 'historical-wars-treaties-world-order', 'sepia-ink-wash', 'documentary-label-tableau'],
-    ['a-life-as', 'pov-your-life-as', 'pov-historical-occupations', 'cinematic-photoreal', 'portrait-block-right'],
-    ['calm-mind', 'guided-mindfulness', 'everyday-calm', 'watercolor-storybook', 'centered-hero-headline'],
-    ['build-momentum', 'practical-motivation', 'habits-momentum', 'flat-vector-explainer', 'annotated-business-board'],
-    ['sleep-journeys', 'sleep-story', 'night-journeys', 'watercolor-storybook', 'dreamscape-story-window'],
-  ].map(([slug, formula, topic, style, recipe]) => ({
-    id: `com.storystudio.bundle.${slug}`,
-    packId: `com.storystudio.pack.kit.${slug}`,
-    formulaPackId: `com.storystudio.pack.formula.${formula}`,
-    topicPackId: `com.storystudio.pack.topic.${topic}`,
-    stylePackId: `com.storystudio.pack.style.${style}`,
-    recipePackId: `com.storystudio.pack.thumbnail.${recipe}`,
-  })),
 }
 
 function sha256(bytes) {
@@ -129,12 +110,11 @@ function assertPackDeclaredPreview(records, ownerId, sourcePath) {
   return record
 }
 
-test('free Starter Channel Kit registry freezes approved identities, source mappings, and preview provenance', async () => {
+test('free Starter registry freezes approved identities, source mappings, and preview provenance', async () => {
   assert.equal(registry.formulas.length, 10)
   assert.equal(registry.topics.length, 10)
   assert.equal(registry.styles.length, 9)
   assert.equal(registry.recipes.length, 7)
-  assert.equal(registry.kits.length, 10)
   assert.equal(new Set(registry.styles.map(row => row.packId)).size, 9)
   assert.equal(new Set(registry.recipes.map(row => row.packId)).size, 7)
 
@@ -221,8 +201,12 @@ test('declared preview redirects cannot cross a Style or Recipe provenance ident
   )
 })
 
-test('free Starter Channel Kit sources preserve 47 lineages and every versioned successor', async () => {
-  const sourceRoots = ['formula', 'topic', 'style', 'thumbnail', 'kit']
+// Owner ruling 2026-09-08 discontinued Channel Kits: the ten `kit/` coordinator
+// lineages and their thirteen versioned successor directories are gone, and the
+// 47 lineages this test used to count are the 37 creative ones that remain. The
+// four components each Kit used to coordinate are all still here and still sold.
+test('free Starter sources preserve 37 lineages and every versioned successor', async () => {
+  const sourceRoots = ['formula', 'topic', 'style', 'thumbnail']
   const packSources = []
   for (const root of sourceRoots) {
     const directory = new URL(`../../../content-packs/free-starters/${root}/`, import.meta.url)
@@ -233,7 +217,7 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
       packSources.push({ relative, source })
     }
   }
-  assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 47)
+  assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 37)
   assert.equal(
     new Set(packSources.map(row => `${row.source.pack_id}@${row.source.version}`)).size,
     packSources.length,
@@ -256,14 +240,6 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
     'content-packs/free-starters/formula/history-explained-v1.0.1/pack.json',
     'content-packs/free-starters/formula/human-behavior-explained-v1.0.1/pack.json',
     'content-packs/free-starters/formula/practical-motivation-v1.0.1/pack.json',
-    'content-packs/free-starters/kit/a-life-as-v1.0.1/pack.json',
-    'content-packs/free-starters/kit/build-momentum-v1.0.1/pack.json',
-    'content-packs/free-starters/kit/business-explained-v1.0.1/pack.json',
-    'content-packs/free-starters/kit/calm-mind-v1.0.1/pack.json',
-    'content-packs/free-starters/kit/first-humans-v1.0.1/pack.json',
-    'content-packs/free-starters/kit/history-explained-v1.0.1/pack.json',
-    'content-packs/free-starters/kit/human-behavior-v1.0.1/pack.json',
-    'content-packs/free-starters/kit/sleep-journeys-v1.0.1/pack.json',
     'content-packs/free-starters/style/cinematic-photoreal-v1.0.1/pack.json',
     'content-packs/free-starters/style/flat-vector-explainer-v1.0.1/pack.json',
     'content-packs/free-starters/style/hand-drawn-editorial-diagram-v1.0.1/pack.json',
@@ -301,10 +277,6 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
     'content-packs/free-starters/formula/human-behavior-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/natural-world-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/pov-your-life-as-v1.0.2/pack.json',
-    'content-packs/free-starters/kit/build-momentum-v1.0.2/pack.json',
-    'content-packs/free-starters/kit/calm-mind-v1.0.2/pack.json',
-    'content-packs/free-starters/kit/human-behavior-v1.0.2/pack.json',
-    'content-packs/free-starters/kit/sleep-journeys-v1.0.2/pack.json',
     'content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.2/pack.json',
     'content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.2/pack.json',
     'content-packs/free-starters/topic/habits-momentum-v1.0.2/pack.json',

@@ -75,11 +75,12 @@ const BACKFILLED = [
 }))
 
 /**
- * The Archival Ledger style is listed twice in the catalogue index — once under
- * the retired source monolith and once under its live `paid/` pack. The
- * registry validator refuses any source path under the monolith by name, so the
- * backfill registered it from `paid/` and left the monolith alone. Pinned here
- * because "we picked the right one of two identical-looking directories" is the
+ * The Archival Ledger style was listed twice in the catalogue index when this
+ * backfill ran — once under the retired source monolith and once under its live
+ * `paid/` pack. The registry validator refuses any source path under the
+ * monolith by name, so the backfill registered it from `paid/` and left the
+ * monolith alone. The monolith itself was deleted on 2026-09-08, but the guard
+ * stays: "we picked the right one of two identical-looking directories" is the
  * kind of decision that is invisible six months later.
  */
 const RETIRED_SOURCE_ROOT = 'content-packs/archival-ledger'

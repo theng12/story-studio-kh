@@ -12,15 +12,18 @@ const WAVE = new URL('../../../content-packs/free-starters/', import.meta.url)
 const BLOCKED_PREHISTORIC_PREVIEW = new URL('../../../content-packs/free-starters/thumbnail/prehistoric-discovery/assets/prehistoric-discovery.webp', import.meta.url)
 const RELEASE = { keyId: 'com.storystudio.key.test', minAppVersion: '1.0.0' }
 
-const kits = [
-  ['wild-worlds', 'Wild Worlds', '10 starting subjects', 'Instinct → Ecosystem', 'natural-world-explained', 'natural-world-animals', 'waxy-outline-cartoon', 'curiosity-question-cartoon'],
-  ['first-humans', 'First Humans', '20 survival problems', 'Constraint → Adaptation', 'ancient-humans', 'ancient-humans-survival', 'prehistoric-stick-cartoon', 'prehistoric-discovery'],
-  ['deep-time', 'Deep Time', '30 Earth systems', 'Planet → Transformation', 'deep-time-documentary', 'deep-time-earth-systems', 'paleo-documentary-tableau', 'documentary-label-tableau'],
-].map(([slug, name, count, transformation, formula, topic, style, recipe]) => ({
-  slug, name, count, transformation,
-  packId: `com.storystudio.pack.kit.${slug}`,
-  bundleId: `com.storystudio.bundle.${slug}`,
-  dependencies: [
+// Wave one shipped three Channel Kits, each coordinating one Formula, Topic,
+// Style, and Recipe. Owner ruling 2026-09-08 discontinued Channel Kits and
+// deleted every Kit source; the twelve components below are still authored,
+// still built here, and now sold one at a time. The grouping survives only to
+// say which Formula reads which Topic.
+const channels = [
+  ['wild-worlds', 'natural-world-explained', 'natural-world-animals', 'waxy-outline-cartoon', 'curiosity-question-cartoon'],
+  ['first-humans', 'ancient-humans', 'ancient-humans-survival', 'prehistoric-stick-cartoon', 'prehistoric-discovery'],
+  ['deep-time', 'deep-time-documentary', 'deep-time-earth-systems', 'paleo-documentary-tableau', 'documentary-label-tableau'],
+].map(([slug, formula, topic, style, recipe]) => ({
+  slug,
+  components: [
     ['formula', formula, 'series-formula'],
     ['topic', topic, 'topic-pack'],
     ['style', style, 'visual-style'],
@@ -55,7 +58,7 @@ function sourceDirectory(url) {
   return decodeURIComponent(url.pathname)
 }
 
-test('wave one has the exact source identities, advertisements, enriched topic dimensions, and external Kit closures', async () => {
+test('wave one has the exact source identities, advertisements, and enriched topic dimensions', async () => {
   const sourceTopics = await Promise.all(topics.map(async row => ({ ...row, document: await readJson(row.path) })))
   assert.deepEqual(Object.fromEntries(sourceTopics.map(row => [row.document.id, row.document.subjects.length])), {
     'com.storystudio.topic.natural-world-animals': 10,
@@ -74,34 +77,21 @@ test('wave one has the exact source identities, advertisements, enriched topic d
     assert.ok(document.idea_axes.some(axis => axis.id === 'evidence-lens'))
   }
 
-  for (const kit of kits) {
-    const manifest = await readJson(new URL(`kit/${kit.slug}/pack.json`, WAVE))
-    assert.equal(manifest.pack_id, kit.packId)
-    // Patch releases are how a correction reaches a customer, so freeze the closure's
-    // shape and membership rather than the component patch numbers.
-    assert.match(manifest.version, /^1\.0\.\d+$/)
-    assert.equal('items' in manifest, false)
-    assert.equal('files' in manifest, false)
-    assert.deepEqual(manifest.dependencies.map(row => row.pack_id), kit.dependencies.map(row => row.packId))
-    for (const dependency of manifest.dependencies) assert.match(dependency.version, /^1\.0\.\d+$/)
-    assert.equal(manifest.bundles.length, 1)
-    const [bundle] = manifest.bundles
-    assert.equal(bundle.id, kit.bundleId)
-    assert.equal(bundle.kind, 'channel-kit')
-    assert.equal(bundle.name, kit.name)
-    assert.deepEqual(
-      bundle.components.map(({ pack_id, item_id, kind }) => ({ pack_id, item_id, kind })),
-      kit.dependencies.map(row => ({ pack_id: row.packId, item_id: row.itemId, kind: row.kind })),
-    )
-    // A Channel Kit is exactly four components, one of each kind, and its bundle must
-    // pin precisely what its dependency closure declares.
-    assert.equal(bundle.components.length, 4)
-    assert.equal(new Set(bundle.components.map(row => row.kind)).size, 4)
-    assert.deepEqual(
-      bundle.components.map(({ pack_id, version }) => ({ pack_id, version })),
-      manifest.dependencies.map(({ pack_id, version }) => ({ pack_id, version })),
-    )
-    assert.equal(manifest.changelog, `${kit.count} / ${kit.transformation}`)
+  // Every component sells on its own now, so each one must be a standalone
+  // source: its own creative document, and no bundle or dependency closure
+  // pointing at a coordinator that no longer exists.
+  for (const channel of channels) {
+    for (const component of channel.components) {
+      const { manifest, document } = await sourceFor(component.kindSlug, component.componentSlug)
+      assert.equal(manifest.pack_id, component.packId)
+      assert.match(manifest.version, /^1\.0\.\d+$/)
+      assert.equal('items' in manifest, false)
+      assert.equal('files' in manifest, false)
+      assert.equal(manifest.bundles, undefined)
+      assert.deepEqual(manifest.dependencies ?? [], [])
+      assert.equal(document.id, component.itemId)
+      assert.equal(document.kind, component.kind)
+    }
   }
 })
 
@@ -137,7 +127,7 @@ test('offline assignments cover each advertised Topic deterministically with mea
   unregister()
 
   for (const topic of topics) {
-    const formulaSlug = kits.find(kit => kit.dependencies.some(component => component.componentSlug === topic.slug))?.dependencies[0].componentSlug
+    const formulaSlug = channels.find(channel => channel.components.some(component => component.componentSlug === topic.slug))?.components[0].componentSlug
     const { document: formula } = await sourceFor('formula', formulaSlug)
     const sourceTopic = await readJson(topic.path)
     const niche = contentPackDocumentToNiche(formula)
@@ -180,10 +170,7 @@ test('approved preview bytes are copied unchanged and all unblocked sources buil
   for (const [relativePath, hash] of Object.entries(approvedCopies)) {
     assert.equal(createHash('sha256').update(await readFile(new URL(relativePath, WAVE))).digest('hex'), hash)
   }
-  const unblocked = [
-    ...kits.flatMap(kit => kit.dependencies.map(component => [component.kindSlug, component.componentSlug])),
-    ...kits.map(kit => ['kit', kit.slug]),
-  ]
+  const unblocked = channels.flatMap(channel => channel.components.map(component => [component.kindSlug, component.componentSlug]))
   for (const [kind, slug] of unblocked) {
     const source = sourceDirectory(new URL(`${kind}/${slug}/`, WAVE))
     const first = join(temporary, `${kind}-${slug}-first.sspack`)

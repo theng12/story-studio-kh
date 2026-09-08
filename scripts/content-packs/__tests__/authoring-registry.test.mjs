@@ -28,7 +28,7 @@ async function registrySnapshot(path) {
   }
 }
 
-test('reconciles authored, reserved, and withdrawn records with every supported identity shape', async () => {
+test('reconciles authored, reserved, withdrawn, and retired records with every supported identity shape', async () => {
   const { validateAuthoringRegistry } = await import(registryModule)
   const result = await validateAuthoringRegistry({ registryPath, repositoryRoot })
 
@@ -36,7 +36,7 @@ test('reconciles authored, reserved, and withdrawn records with every supported 
   assert.ok(result.records.length >= 55, `registry shrank to ${result.records.length} records`)
   assert.ok(result.records.some((record) => record.status === 'authored'))
   for (const record of result.records) {
-    assert.ok(['authored', 'reserved', 'withdrawn'].includes(record.status))
+    assert.ok(['authored', 'reserved', 'withdrawn', 'retired'].includes(record.status))
     const shapes = [record.item_id, record.item_ids, record.bundle_id]
       .filter((value) => value !== undefined)
     assert.equal(shapes.length, 1, `${record.pack_id}@${record.version} carries ${shapes.length} identity shapes`)
@@ -564,45 +564,147 @@ test('discovers an unregistered future catalog source but excludes the retired s
   )
 })
 
-test('reconciles exact bundle component item IDs and kinds', async (t) => {
+// Two tests used to tamper with a real Channel Kit source — `free-starters/kit/
+// deep-time` — to prove the coordinator reconciliation rejects a mismatched
+// bundle component and a Kit disguised as creative content. Owner ruling
+// 2026-09-08 discontinued Channel Kits and deleted every Kit source, so there
+// is no Kit manifest left to tamper with and no authored Kit record for the
+// reconciler to reach. The guard that matters now is upstream of all of that:
+// no Kit may be authored, on disk, or reachable at all.
+test('every Channel Kit is terminally closed, journaled with the ruling, and gone from the tree', async () => {
   const { validateAuthoringRegistry } = await import(registryModule)
-  const root = await temporaryRepository()
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const copy = join(root, 'content-packs', 'authoring-registry.json')
-  const manifestPath = join(root, 'content-packs', 'free-starters', 'kit', 'deep-time', 'pack.json')
-  const original = JSON.parse(await readFile(manifestPath, 'utf8'))
-  const cases = [
-    ['item_id', (manifest) => { manifest.bundles[0].components[0].item_id = 'com.storystudio.formula.tampered' }],
-    ['kind', (manifest) => { manifest.bundles[0].components[0].kind = 'topic-pack' }],
-  ]
-  for (const [label, mutate] of cases) {
-    const manifest = structuredClone(original)
-    mutate(manifest)
-    await writeFile(manifestPath, JSON.stringify(manifest), 'utf8')
-    await assert.rejects(
-      validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root }),
-      new RegExp(`bundle component.*${label}|${label}.*bundle component`, 'i'),
+  const result = await validateAuthoringRegistry({ registryPath, repositoryRoot })
+  const kits = result.records.filter((record) => record.kind === 'channel-kit')
+
+  assert.ok(kits.length >= 30, `expected the historical Channel Kit records to survive as history, saw ${kits.length}`)
+  assert.deepEqual([...new Set(kits.map((record) => record.status))].sort(), ['retired', 'withdrawn'])
+
+  const retirements = new Map(result.transitions
+    .filter((transition) => transition.request.changes.status === 'retired')
+    .map((transition) => [`${transition.request.pack_id}@${transition.request.version}`, transition.request.reason]))
+  for (const record of kits.filter((candidate) => candidate.status === 'retired')) {
+    assert.equal(
+      retirements.get(`${record.pack_id}@${record.version}`),
+      'Owner ruling 2026-09-08: channel kits discontinued; components sold individually',
+      `${record.pack_id}@${record.version} was retired without the ruling that retired it`,
     )
+  }
+
+  for (const record of kits) {
+    await assert.rejects(realpath(join(repositoryRoot, record.source_path)), { code: 'ENOENT' },
+      `${record.source_path} must not exist for a ${record.status} Channel Kit`)
   }
 })
 
-test('rejects a registered Channel Kit disguised as creative content when its bundle is removed', async (t) => {
-  const { validateAuthoringRegistry } = await import(registryModule)
+// Retirement is deliberately two moves — retire the record, then delete the
+// directory — because a single transition cannot both require the source (to
+// read it) and forbid it. The registry refuses to hold either half on its own,
+// so the half-finished repository is what has to fail, and it fails loudly at
+// the next `validate` rather than quietly at the next release.
+test('a retirement that leaves its source directory behind fails the next validate', async (t) => {
+  const { transitionAuthoringRecord, validateAuthoringRegistry } = await import(registryModule)
   const root = await temporaryRepository()
   t.after(() => rm(root, { recursive: true, force: true }))
   const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const current = await validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
+  const target = current.records.find((record) => record.status === 'authored' && record.kind === 'visual-style')
 
-  const kitRoot = join(root, 'content-packs', 'free-starters', 'kit', 'deep-time')
-  const kitManifestPath = join(kitRoot, 'pack.json')
-  const kitManifest = JSON.parse(await readFile(kitManifestPath, 'utf8'))
-  delete kitManifest.bundles
-  await writeFile(kitManifestPath, JSON.stringify(kitManifest), 'utf8')
-  await mkdir(join(kitRoot, 'content'))
-  await writeFile(join(kitRoot, 'content', 'fake-channel-kit.json'), JSON.stringify({ kind: 'channel-kit' }), 'utf8')
+  await transitionAuthoringRecord({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: {
+      expected_revision: current.revision,
+      coordinator: { task: 'content-pack-authoring', branch: 'test' },
+      receipt_ref: target.receipt_ref,
+      pack_id: target.pack_id,
+      version: target.version,
+      changes: { status: 'retired' },
+      reason: 'test retirement, source deleted next',
+    },
+  })
   await assert.rejects(
     validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root }),
-    /channel kit|coordinator.*bundle|bundle-only/i,
+    /retired source path must not exist/i,
   )
+
+  await rm(join(root, target.source_path), { recursive: true })
+  const after = await validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
+  assert.equal(after.records.find((record) => record.pack_id === target.pack_id
+    && record.version === target.version).status, 'retired')
+})
+
+test('a retired record is terminal and burns its pack_id against any later reservation', async (t) => {
+  const { reserveAuthoringBatch, transitionAuthoringRecord, validateAuthoringRegistry } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const current = await validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
+  const target = current.records.find((record) => record.status === 'authored' && record.kind === 'visual-style')
+  const retire = (expected_revision) => ({
+    expected_revision,
+    coordinator: { task: 'content-pack-authoring', branch: 'test' },
+    receipt_ref: target.receipt_ref,
+    pack_id: target.pack_id,
+    version: target.version,
+    changes: { status: 'retired' },
+    reason: 'test retirement',
+  })
+
+  const { revision } = await transitionAuthoringRecord({ registryPath: copy, repositoryRoot: root, request: retire(current.revision) })
+  await rm(join(root, target.source_path), { recursive: true })
+  await assert.rejects(
+    transitionAuthoringRecord({ registryPath: copy, repositoryRoot: root, request: retire(revision) }),
+    /retired records are terminal/i,
+  )
+
+  const successor = { ...target, version: '9.9.9', source_path: `${target.source_path}-v9.9.9` }
+  delete successor.receipt_ref
+  successor.status = 'reserved'
+  successor.stocking_proposal = {
+    family: { id: target.stocking_proposal.family.id, status: 'proposed' },
+    sku: { id: target.stocking_proposal.sku.id, status: 'proposed' },
+  }
+  await assert.rejects(reserveAuthoringBatch({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: {
+      expected_revision: revision,
+      coordinator: { task: 'content-pack-authoring', branch: 'test' },
+      proposal_ref: 'test',
+      records: [successor],
+    },
+  }), /retired pack_id .* may not gain reservation/i)
+})
+
+test('refuses a retirement with no reason, and a reason on anything but a retirement', async (t) => {
+  const { transitionAuthoringRecord, validateAuthoringRegistry } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const before = await readFile(copy)
+  const current = await validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
+  // A genesis `baseline:` record accepts retirement and nothing else, so the
+  // reason rules are exercised on a receipt-bound record.
+  const target = current.records.find((record) => record.status === 'authored'
+    && record.kind === 'visual-style' && record.receipt_ref.startsWith('authoring:'))
+  const base = {
+    expected_revision: current.revision,
+    coordinator: { task: 'content-pack-authoring', branch: 'test' },
+    receipt_ref: target.receipt_ref,
+    pack_id: target.pack_id,
+    version: target.version,
+  }
+
+  await assert.rejects(transitionAuthoringRecord({
+    registryPath: copy, repositoryRoot: root, request: { ...base, changes: { status: 'retired' } },
+  }), /retirement must state a reason/i)
+  await assert.rejects(transitionAuthoringRecord({
+    registryPath: copy, repositoryRoot: root, request: { ...base, changes: { status: 'authored' }, reason: 'not a retirement' },
+  }), /reason is only allowed when retiring/i)
+  await assert.rejects(transitionAuthoringRecord({
+    registryPath: copy, repositoryRoot: root, request: { ...base, changes: { status: 'retired' }, reason: '   ' },
+  }), /reason must be non-empty after trimming/i)
+  assert.deepEqual(await readFile(copy), before)
 })
 
 test('rejects a registered creative pack disguised as a bundle when its content is removed', async (t) => {

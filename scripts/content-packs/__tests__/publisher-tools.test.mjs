@@ -254,13 +254,19 @@ test('buildContentPack rejects a min app version override for ordinary sources w
   assert.deepEqual(await readFile(sentinelOutput), sentinel)
 })
 
-test('buildContentPack refuses arbitrary Channel Kits and rebuilds only an exact authored historical identity', async (t) => {
+// This test used to end by rebuilding `free-starters/kit/deep-time`, the one
+// path that let an exact authored historical Kit identity through. Owner ruling
+// 2026-09-08 discontinued Channel Kits: every Kit record is retired, every Kit
+// source is deleted, and the authored-identity gate now closes on all of them.
+// So the assertion is simply stronger than it was — no Channel Kit builds, not
+// an arbitrary one and not a real historical one either.
+test('buildContentPack refuses every Channel Kit, arbitrary or historical', async (t) => {
   const fixture = await makeFixture()
   t.after(() => rm(fixture.root, { recursive: true, force: true }))
   const source = await writeBundleOnlySource(fixture.root)
   const output = join(fixture.root, 'bundle-only.sspack')
   const repeatOutput = join(fixture.root, 'bundle-only-repeat.sspack')
-  const { buildContentPack, validateContentPack } = await import('../lib.mjs')
+  const { buildContentPack } = await import('../lib.mjs')
 
   await assert.rejects(
     buildContentPack({ sourceDirectory: source, privateKeyPath: fixture.privateKeyPath, outputPath: output }),
@@ -287,46 +293,27 @@ test('buildContentPack refuses arbitrary Channel Kits and rebuilds only an exact
     }),
     /historical Channel Kit|read-only/i,
   )
-  const historicalSource = join(new URL('../../..', import.meta.url).pathname, 'content-packs/free-starters/kit/deep-time')
-  const result = await buildContentPack({
-    sourceDirectory: historicalSource,
-    privateKeyPath: fixture.privateKeyPath,
-    outputPath: output,
-    minAppVersion: '1.0.0',
-    keyId: 'com.storystudio.key.free-starter',
+  // A source claiming a real, once-authored Kit identity is refused too, now
+  // that the record behind it is retired.
+  const historicalSource = await writeBundleOnlySource(join(fixture.root, 'historical'), {
+    config: {
+      pack_id: 'com.storystudio.pack.kit.deep-time',
+      version: '1.0.2',
+      entitlement: { sku: 'com.storystudio.sku.kit.deep-time', family: 'com.storystudio.family.kit.deep-time' },
+    },
   })
-  await buildContentPack({
-    sourceDirectory: historicalSource,
-    privateKeyPath: fixture.privateKeyPath,
-    outputPath: repeatOutput,
-    minAppVersion: '1.0.0',
-    keyId: 'com.storystudio.key.free-starter',
-  })
-  assert.equal(result.packId, 'com.storystudio.pack.kit.deep-time')
-  assert.deepEqual(await readFile(repeatOutput), await readFile(output))
-  const archive = await JSZip.loadAsync(await readFile(output))
-  const signedManifest = JSON.parse(await archive.file('manifest.json').async('text'))
-  assert.equal(signedManifest.key_id, 'com.storystudio.key.free-starter')
-  assert.equal(signedManifest.min_app_version, '1.0.0')
-  assert.deepEqual(signedManifest.bundles[0].components.map(component => component.kind), ['series-formula', 'topic-pack', 'visual-style', 'thumbnail-recipe'])
-  await validateContentPack({
-    archivePath: output,
-    keyId: 'com.storystudio.key.free-starter',
-    publisherId: 'com.storystudio',
-    publicKeyPath: fixture.publicKeyPath,
-  })
-  const wrongPublicKeyPath = join(fixture.root, 'wrong-publisher-public.pem')
-  const { publicKey: wrongPublicKey } = generateKeyPairSync('ed25519')
-  await writeFile(wrongPublicKeyPath, wrongPublicKey.export({ type: 'spki', format: 'pem' }))
   await assert.rejects(
-    validateContentPack({
-      archivePath: output,
+    buildContentPack({
+      sourceDirectory: historicalSource,
+      privateKeyPath: fixture.privateKeyPath,
+      outputPath: repeatOutput,
+      minAppVersion: '1.0.0',
       keyId: 'com.storystudio.key.free-starter',
-      publisherId: 'com.storystudio',
-      publicKeyPath: wrongPublicKeyPath,
     }),
-    /signature/i,
+    /historical Channel Kit|read-only/i,
   )
+  await assert.rejects(readFile(repeatOutput), /ENOENT/)
+  await assert.rejects(readFile(output), /ENOENT/)
 })
 
 test('buildContentPack rejects reordered or unequal bundle-only dependency/component closures', async (t) => {

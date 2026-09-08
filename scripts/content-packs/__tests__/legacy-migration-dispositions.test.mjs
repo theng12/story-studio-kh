@@ -133,7 +133,10 @@ test('legacy migration ledger closes every real inventory key exactly once witho
     ['runtime-metadata', new Set(BUILT_IN_METADATA_FORMULA_IDS)],
   ])
 
-  const authoredKits = registry.records.filter(record => record.kind === 'channel-kit' && record.status === 'authored')
+  // Owner ruling 2026-09-08 discontinued Channel Kits. Every Kit that was ever
+  // authored is now `retired` with its source deleted, and the ledger still owes
+  // each one a disposition — that is the whole point of a closure ledger.
+  const retiredKits = registry.records.filter(record => record.kind === 'channel-kit' && record.status === 'retired')
   const expectedKeys = new Set([
     ...niches.map(entry => `niche:${entry.id}`),
     ...topics.map(entry => `topic:${entry.id}`),
@@ -148,7 +151,7 @@ test('legacy migration ledger closes every real inventory key exactly once witho
     ...BUILT_IN_METADATA_FORMULA_IDS.map(id => `metadata:${id}`),
     ...[...PROMOTED_PREPARED_PRODUCTS].map(identity => `prepared:${identity}`),
     ...[...WITHDRAWN_RESERVATIONS].map(identity => `reservation:${identity}`),
-    ...authoredKits.map(record => `kit:${record.pack_id}@${record.version}`),
+    ...retiredKits.map(record => `kit:${record.pack_id}@${record.version}`),
     'compatibility-successor:com.storystudio.pack.formula.history-explained@1.0.2',
   ])
 
@@ -170,6 +173,7 @@ test('legacy migration ledger closes every real inventory key exactly once witho
       assert.equal(record.status, entry.target.status, `${entry.legacy_key} terminal registry status drifted`)
       if (entry.target.source_path) assert.equal(record.source_path, entry.target.source_path)
       if (entry.disposition === 'withdrawn-pre-sale') assert.equal(entry.target.status, 'withdrawn')
+      else if (entry.disposition === 'historical-read-only') assert.equal(entry.target.status, 'retired')
       else assert.equal(entry.target.status, 'authored')
       continue
     }
@@ -232,8 +236,13 @@ test('legacy migration ledger closes every real inventory key exactly once witho
 
   exactSet(
     ledger.dispositions.filter(entry => entry.disposition === 'historical-read-only').map(entry => entry.legacy_key),
-    authoredKits.map(record => `kit:${record.pack_id}@${record.version}`),
-    'every authored historical Kit version must remain read-only and no Kit may re-enter standalone authoring',
+    retiredKits.map(record => `kit:${record.pack_id}@${record.version}`),
+    'every historical Kit version must stay closed and no Kit may re-enter standalone authoring',
+  )
+  assert.deepEqual(
+    registry.records.filter(record => record.kind === 'channel-kit' && record.status === 'authored'),
+    [],
+    'no Channel Kit may be authored again',
   )
   assert.deepEqual(registry.records.filter(record => record.status === 'reserved'), [], 'no unexplained reserved registry row may remain')
 })

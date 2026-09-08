@@ -576,16 +576,22 @@ test('approved Starter shelf names and promise counts remain exact', async () =>
     assert.equal(formula.kind, 'series-formula')
     assert.equal(formula.name, name)
   }
-  for (const [slug, name, promise] of [
-    ['a-life-as', 'A Life As…', '25 historical occupations / Role → Reality'],
-    ['history-explained', 'History Explained', '25 conflicts and settlements / Event → Consequence'],
-    ['calm-mind', 'Calm Mind', '15 everyday practices / Pause → Presence'],
-    ['build-momentum', 'Build Momentum', '15 habit challenges / Friction → Action'],
-    ['sleep-journeys', 'Sleep Journeys', '15 night journeys / Setting → Rest'],
-  ]) {
-    const manifest = JSON.parse(await readFile(resolve(FREE_STARTERS, 'kit', slug, 'pack.json'), 'utf8'))
-    assert.equal(manifest.bundles[0]?.name, name)
-    assert.equal(manifest.changelog, promise)
+  // These five promises used to be read off a Channel Kit's `changelog`, in the
+  // form "<subject count> <noun> / <transformation>". Owner ruling 2026-09-08
+  // discontinued Channel Kits and deleted their sources, so the same two facts
+  // are read from the two packs that actually carry them: the Topic Pack owns
+  // the count, the Series Formula owns the transformation.
+  for (const [formulaSlug, topicSlug, subjects, promise] of [
+    ['pov-your-life-as', 'pov-historical-occupations', 25, 'Role → Reality'],
+    ['history-explained', 'historical-wars-treaties-world-order', 25, 'Event → Consequence'],
+    ['guided-mindfulness', 'everyday-calm', 15, 'Pause → Presence'],
+    ['practical-motivation', 'habits-momentum', 15, 'Friction → Action'],
+    ['sleep-story', 'night-journeys', 15, 'Setting → Rest'],
+  ] as const) {
+    const formula = await sourceJson('formula', formulaSlug)
+    assert.equal(formula.channel_promise, promise)
+    const topic = await sourceJson('topic', topicSlug)
+    assert.equal((topic.subjects as unknown[]).length, subjects)
   }
 })
 

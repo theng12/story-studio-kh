@@ -273,3 +273,38 @@ test('the provenance record states the route that generated the previews and why
   const prompts = provenance.match(/^## Prompt \d+ — /gm) ?? []
   assert.equal(prompts.length, Object.keys(PREVIEW_CONTRACT).length)
 })
+
+// Owner ruling 2026-09-08: "names describe content, never a reference channel."
+// "Lost Voyages" named the channel, so 1.0.1 renames the shelf entry to
+// "Shipwrecks, Pirates and the Age of Sail". A rename is still a new published
+// version, so 1.0.0 stays exactly where it is and the successor must differ from
+// it by the name and the manifest version alone — every subject, axis, and line
+// of prose byte-identical, and the same pack, item, family, and SKU identity.
+test('the Topic Pack successor renames the shelf entry and changes nothing else', async () => {
+  const [predecessorManifest, successorManifest] = await Promise.all([
+    json(join(ROOT, 'topic/lost-voyages/pack.json')),
+    json(join(ROOT, 'topic/lost-voyages-v1.0.1/pack.json')),
+  ])
+  const [predecessor, successor] = await Promise.all([
+    json(join(ROOT, 'topic/lost-voyages/content/topic-pack.json')),
+    json(join(ROOT, 'topic/lost-voyages-v1.0.1/content/topic-pack.json')),
+  ])
+
+  assert.equal(predecessorManifest.version, '1.0.0')
+  assert.equal(successorManifest.version, '1.0.1')
+  assert.equal(successorManifest.pack_id, predecessorManifest.pack_id)
+  assert.deepEqual(successorManifest.entitlement, predecessorManifest.entitlement)
+  assert.match(successorManifest.changelog, /Shipwrecks, Pirates and the Age of Sail/)
+
+  assert.equal(predecessor.name, 'Lost Voyages')
+  assert.equal(successor.name, 'Shipwrecks, Pirates and the Age of Sail')
+  assert.equal(successor.id, predecessor.id)
+  assert.deepEqual({ ...successor, name: undefined }, { ...predecessor, name: undefined })
+
+  const registry = JSON.parse(await readFile(REGISTRY, 'utf8'))
+  const records = registry.records.filter(record => record.pack_id === 'com.storystudio.pack.topic.lost-voyages')
+  assert.deepEqual(records.map(record => [record.version, record.status, record.source_path]).sort(), [
+    ['1.0.0', 'authored', 'content-packs/lost-voyage/topic/lost-voyages'],
+    ['1.0.1', 'authored', 'content-packs/lost-voyage/topic/lost-voyages-v1.0.1'],
+  ])
+})
