@@ -295,3 +295,66 @@ test('the provenance record states why nothing was generated and how to generate
   const prompts = provenance.match(/^## Prompt \d+ — /gm) ?? []
   assert.equal(prompts.length, Object.keys(PREVIEW_CONTRACT).length)
 })
+
+/**
+ * 1.0.1 of the Entire Story Titles formula, authored 2026-09-08 alongside the
+ * Gory Cartoon History and Baroque Myth collections. Its own reservation batch
+ * (revision 222), its own receipt, one lifecycle promotion (revision 230).
+ *
+ * The version exists for exactly one reason: some entire-story episodes run to
+ * seven hours, and 1.0.0's write-up told the narrator to target a hundred and
+ * twenty to two hundred and ten minutes. The runtime guidance is widened to a
+ * hundred and twenty to four hundred and twenty, and the one description line
+ * that repeated the old span is widened with it so the two cannot disagree.
+ * Everything else is byte-identical, and the test below is what keeps it so.
+ */
+test('the widened Entire Story Titles version is registered as a sibling of 1.0.0', async () => {
+  const registry = await json(REGISTRY)
+  const packId = 'com.storystudio.pack.metadata-formula.entire-story-titles'
+  const itemId = 'com.storystudio.metadata-formula.entire-story-titles'
+  const base = registry.records.find(r => r.pack_id === packId && r.version === '1.0.0')
+  const next = registry.records.find(r => r.pack_id === packId && r.version === '1.0.1')
+  assert.ok(next, '1.0.1 must be registered')
+  assert.equal(next.receipt_ref, 'authoring:d55de68f3aae6509f7bfd2d882ca3e5f8ad36d2ce7a403df17c190d132753535')
+  assert.equal(next.status, 'authored')
+  assert.equal(next.kind, 'metadata-formula')
+  assert.deepEqual(next.item_ids, [itemId])
+  assert.equal(next.source_path, 'content-packs/golden-epic/metadata-formula/entire-story-titles-v1.0.1')
+  assert.deepEqual(next.dependencies, [])
+  // A new version keeps the lineage: same item set, same family, same SKU.
+  assert.deepEqual(next.stocking_proposal, base.stocking_proposal)
+
+  const manifest = await json(join(ROOT, 'metadata-formula/entire-story-titles-v1.0.1/pack.json'))
+  assert.equal(manifest.version, '1.0.1')
+  assert.equal(manifest.pack_id, packId)
+  assert.equal(manifest.key_id, '{{KEY_ID}}')
+  assert.equal(manifest.min_app_version, '{{MIN_APP_VERSION}}')
+  assert.match(manifest.changelog, /four hundred and twenty minutes/)
+})
+
+test('1.0.1 widens the runtime guidance to seven hours and changes nothing else', async () => {
+  const before = await json(join(ROOT, 'metadata-formula/entire-story-titles/content/entire-story-titles.json'))
+  const after = await json(join(ROOT, 'metadata-formula/entire-story-titles-v1.0.1/content/entire-story-titles.json'))
+
+  // The widening itself.
+  const beforeRuntime = before.description_plan.sections.find(s => s.id === 'runtime')
+  const afterRuntime = after.description_plan.sections.find(s => s.id === 'runtime')
+  assert.match(beforeRuntime.instruction, /one hundred and twenty to two hundred and ten minutes/)
+  assert.match(afterRuntime.instruction, /one hundred and twenty to four hundred and twenty minutes/)
+  assert.doesNotMatch(afterRuntime.instruction, /two hundred and ten/)
+  // The description repeated the old span; it is widened with it, because a
+  // formula that promises three and a half hours and instructs seven is broken.
+  assert.match(before.description, /two to three and a half hours/)
+  assert.match(after.description, /two hours to seven/)
+  assert.doesNotMatch(after.description, /three and a half hours/)
+
+  // Everything else is identical, field for field.
+  assert.deepEqual(
+    { ...after, description: null, description_plan: null },
+    { ...before, description: null, description_plan: null },
+    '1.0.1 changes only the description and the description plan',
+  )
+  const strip = plan => ({ ...plan, sections: plan.sections.map(s => s.id === 'runtime' ? { ...s, instruction: null } : s) })
+  assert.deepEqual(strip(after.description_plan), strip(before.description_plan),
+    'inside the description plan, only the runtime instruction changed')
+})

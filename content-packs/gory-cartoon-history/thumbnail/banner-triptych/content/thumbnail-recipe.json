@@ -1,0 +1,77 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.banner-triptych",
+  "name": "Banner Triptych",
+  "description": "One fixed frame for a listicle: a white heavy-sans title banded full width across the top, and three equal vertical panels beneath it, each holding exactly one subject drawn in the active style. A Timeline Bar variant adds a red era timeline under the panels so a viewer can see the span the list covers.",
+  "layout": "annotated-collage",
+  "category": "Listicle",
+  "tags": [
+    "listicle",
+    "countdown",
+    "top ten",
+    "triptych",
+    "three panels",
+    "banner title",
+    "heavy sans",
+    "thick outline",
+    "era timeline",
+    "obscure history",
+    "cartoon",
+    "high contrast"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build the frame in two fixed parts and never move them.\n\nThe banner. A horizontal band runs across the very top of the sixteen by nine canvas, edge to edge, and carries the title in heavy sans capitals filled solid white and cut with a thick dark outline, set as one line at the largest size the band allows with a clear margin at both ends. The band behind the letters is a flat block of a single saturated colour with a straight lower edge. Nothing from the panels crosses that edge, no second line of copy is added above, below or inside the band, and the letters never overlap each other.\n\nThe triptych. Everything below the banner is divided into three vertical panels of exactly equal width, separated by two straight vertical gutters of the same flat colour as the band. The three panels are co-equal — there is no hero panel, no centre anchor, no panel larger or brighter than the others — and each panel holds exactly one subject, drawn whole or cropped at the chest, centred in its own panel, against a plain flat backdrop in a colour that differs from its two neighbours so the three read apart at card size. The three subjects belong to one list and are visibly different from each other in silhouette; a viewer should be able to count three things without reading anything. Each subject carries the reaction the active style gives it and no more than one small prop or gag; nothing spills from one panel into another and nothing sits in a gutter.\n\nThe variant. In the Timeline Bar variant a straight red horizontal bar runs the full width of the frame beneath the three panels, occupying a shallow strip along the bottom edge, with three small round markers on it — one under each panel — and one very short era label in small dark capitals set beneath each marker. The three labels run left to right in chronological order: an ancient date, a middle era, and the present. They are the only text in the frame besides the banner, they never wrap to a second line, and the bar carries no arrowhead, no numerals other than the labels themselves, and no tick marks between the markers. In the base variant the bar is absent entirely and the panels run to the bottom edge.\n\nThe active Visual Style remains the final authority for medium, palette, line, shading and how a face is drawn; this recipe controls only the banner, the three equal panels, the crop, the optional timeline bar and the text.",
+  "composition_rules": [
+    "The title runs as a single line of heavy sans capitals filled solid white and cut with a thick dark outline, inside a full-width band across the very top of the frame, with nothing crossing the band and no second line of copy anywhere near it.",
+    "Everything below the banner is three vertical panels of exactly equal width separated by two straight gutters; no panel is larger, brighter, closer or more central than the other two.",
+    "Each panel holds exactly one subject on a plain flat backdrop, and each of the three backdrops is a different colour so the panels read apart at card size.",
+    "The three subjects belong to one list and differ visibly in silhouette, so a viewer counts three things before reading a word.",
+    "Nothing crosses a gutter: no subject, prop, splat, shadow or piece of text may span two panels or sit inside a gutter.",
+    "In the Timeline Bar variant a straight red horizontal bar runs the full width beneath the panels with exactly three round markers, one under each panel, and one very short era label in small dark capitals beneath each marker, running left to right as an ancient date, a middle era, and the present.",
+    "The era labels and the banner are the only text permitted in the frame; the base variant carries the banner alone and no bar at all.",
+    "Vary the three subjects, the backdrop colours, the band colour and the banner line between episodes; keep the banner, the three equal panels, the crop and the bar geometry fixed."
+  ],
+  "required_elements": [
+    "A full-width banner across the top carrying the title in heavy sans capitals, filled solid white and cut with a thick dark outline",
+    "Three vertical panels of exactly equal width beneath the banner, separated by two straight gutters",
+    "Exactly one subject in each panel, on a plain flat backdrop that differs in colour from both neighbouring panels",
+    "Three visibly different silhouettes, so the frame reads as a list of three before any word is read",
+    "In the Timeline Bar variant, a straight red horizontal bar under the panels with three markers and three very short era labels in small dark capitals"
+  ],
+  "avoid_elements": [
+    "A channel wordmark, logo, badge, ribbon, numeral bug, subscribe mark, or border anywhere in the frame beyond the banner itself",
+    "A second line of copy, a subtitle, a date line, or any caption other than the banner and the three era labels",
+    "A hero panel, a centre anchor, an enlarged middle panel, unequal panel widths, or a diagonal or overlapping panel edge",
+    "More than one subject in a panel, a crowd, or any element that crosses a gutter",
+    "A detailed or scenic backdrop behind a subject, a photographic ground, or two panels sharing one backdrop colour",
+    "Arrows, circles, red rings, emoji, price tags, or reaction marks stuck over the picture",
+    "Realistic injury, wet tissue, a body treated as horror, suffering, or any figure shown in real distress",
+    "A named or recognisable living individual, a real official's likeness, a real agency insignia, or an invented insignia presented as genuine",
+    "Post-render typography compositing, watermarks, or copied trade dress"
+  ],
+  "headline_mode": "curiosity-hook",
+  "headline_guidance": "Write the banner line as two or three words in capitals, and no more. Take the strangest concrete noun the episode actually contains and put it in the line, then let the strangeness do the pulling: no question mark, no exclamation, no countdown numeral, no word telling the viewer how to feel, and no claim stated as fact that the episode only reports as a claim. Two words is the default and three is the ceiling, because the band is one line and the letters must survive at card size. Because a row of these sits together on a channel page, prefer the same grammatical shape down a series so the banners read as a set. Separately, in the Timeline Bar variant, write the three era labels as one or two words each in small capitals: an ancient date, a middle era, and the present, in that order. Fail closed on misspelling, on clipping at either edge of the band, on a banner that wraps to a second line, and on any text beyond the banner and the three labels.",
+  "default_text_style": "a flat band of solid saturated colour running the full width of the top edge, the capitals inside it filled solid white and cut with a thick hard outline in a near-black or deep contrasting colour, with no bevel, no gradient, no drop shadow and no glow",
+  "default_font_style": "extra-heavy geometric sans-serif capitals wearing a thick contrasting outline, closed compact counters, tight even spacing, maximum weight and clarity — the Bold Outline Pop lettering shape, set on one line at the largest size the band allows",
+  "default_text_position": "top",
+  "headline_formats": [
+    "{ADJECTIVE} {THINGS}",
+    "THE {SUPERLATIVE} {THINGS}",
+    "{NUMBER} {THINGS}",
+    "YOUR LIFE AS {ROLE}",
+    "{THINGS} RANKED"
+  ],
+  "visual_style_guidance": "This recipe is built for a drawn, flat, hard-outlined look of the kind the Bold Gory Cartoon style ships, and it needs four things from whatever style is active. First, a heavy black outline, because three panels at card size are three silhouettes and nothing else holds them apart. Second, flat saturated fill, so a plain backdrop can be one colour and still separate its subject cleanly; a style that renders scenery or atmosphere fills the panel with detail the frame has no room for. Third, a hard cel shadow rather than a soft one, so the subject sits on its backdrop instead of dissolving into it inside a panel one third of the frame wide. Fourth, expression carried in the face and the pose rather than in lighting, because at this size a panel is read in about a third of a second.\n\nA style that works in soft gradients, muted or pastel colour, photographic ground, painterly texture, or heavy scenery will break this recipe: the three panels stop reading as three, the white banner loses its contrast against whatever ends up behind the band, and the era labels in the variant become unreadable. A style that refuses figures entirely can still run the base variant with objects in the panels, but it cannot carry the reaction the frame is built to sell.",
+  "preview_assets": [
+    "assets/banner-triptych-1.webp",
+    "assets/banner-triptych-2.webp",
+    "assets/banner-triptych-3.webp",
+    "assets/banner-triptych-4.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.counted-explainer",
+    "com.storystudio.formula.pov-your-life-as"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.spaced-light-serif-edition-label",
+  "name": "Spaced Light Serif with Edition Label",
+  "description": "Thin, widely-tracked white serif capitals on a dark band, with one tiny line of small capitals above them carrying an edition or series tag. Quiet, wide, and unmistakably a set.",
+  "axis": "font",
+  "phrase": "a title set in thin light-weight serif capitals, fine hairline serifs and low stroke contrast, in clean white and tracked very wide so the letters sit apart with generous air between them, centred on one line across a flat dark band; directly above the title, one much smaller line of the same serif in small capitals, tracked wider still and set at roughly a quarter of the title's height in a dimmed white, carrying a short edition or series tag; both lines flat and matte with no outline, no bevel, no gradient, no drop shadow and no glow",
+  "preview_assets": [
+    "assets/spaced-light-serif-edition-label.webp"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.bold-gory-cartoon",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Bold Gory Cartoon visual style: thick black outlines, flat saturated fills, exaggerated shock and disgust faces, and comic-book gore played for laughs, one subject per panel on a plain backdrop.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.bold-gory-cartoon",
+    "family": "com.storystudio.family.style.bold-gory-cartoon"
+  },
+  "dependencies": []
+}

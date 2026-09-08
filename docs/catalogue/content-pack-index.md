@@ -7,14 +7,16 @@ One line per pack item, deduped to the highest version per `pack_id`. Format:
 
 `- <id> | <name> | <collection dir> | <category/tags or axis> | <description> | v<version> <lifecycle>`
 
-Totals — 200 items. Visual styles: 34, Lettering styles: 47, Thumbnail recipes: 31, Series formulas: 20, Metadata formulas: 10, Topic packs: 45, Channel kits: 13.
+Totals — 207 items. Visual styles: 36, Lettering styles: 48, Thumbnail recipes: 32, Series formulas: 20, Metadata formulas: 11, Topic packs: 47, Channel kits: 13.
 
-## Visual styles (34)
+## Visual styles (36)
 
 - com.storystudio.style.academic-classical-oil | Academic Classical Oil | royal-history/style/academic-classical-oil | Illustration | The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped… | v1.0.0 active
 - com.storystudio.style.anime-cel | Anime Cel | production-looks/style/anime-cel-v1.0.1 | Digital | Modern anime cel-shading — clean lineart, flat cel light, expressive and vivid. | v1.0.1 active
 - com.storystudio.style.archival-documentary-reconstruction | Archival Documentary Reconstruction | archival-ledger | Realistic | Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document… | v1.0.0 active
 - com.storystudio.style.archival-documentary-reconstruction | Archival Documentary Reconstruction | paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.1 | Realistic | Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document… | v1.0.1 active
+- com.storystudio.style.baroque-mythological-sky | Baroque Mythological Sky | baroque-myth/style/baroque-mythological-sky | Illustration | Gods and heroes carried on banks of cloud in the high-baroque manner — long diagonal compositions, drapery billowing in… | v1.0.0 active
+- com.storystudio.style.bold-gory-cartoon | Bold Gory Cartoon | gory-cartoon-history/style/bold-gory-cartoon | Illustration | Thick black outlines and flat saturated fills, one subject per panel on a plain coloured backdrop, faces pushed all the… | v1.0.0 active
 - com.storystudio.style.chinese-ink-wash-storytelling | Chinese Ink-Wash Storytelling | storytelling-looks/style/chinese-ink-wash-storytelling-v1.0.1 | Illustration | Monochrome brush-and-wash storytelling with calligraphic contours, wet blooms, dry-brush texture, and spacious rice-pap… | v1.0.1 active
 - com.storystudio.style.cinematic-photoreal | Cinematic Photoreal | free-starters/style/cinematic-photoreal-v1.0.1 | Realistic | Filmic photoreal look — shallow depth of field, golden-hour light, graded like a movie still. | v1.0.1 active
 - com.storystudio.style.comic-pulp-mystery | Comic Pulp Mystery | sleep-theories/style/comic-pulp-mystery | Illustration | Graphic-novel cel shading with heavy black outlines and one object glowing at the centre of the frame — saturated teal… | v1.0.0 active
@@ -46,7 +48,7 @@ Totals — 200 items. Visual styles: 34, Lettering styles: 47, Thumbnail recipes
 - com.storystudio.style.waxy-outline-cartoon | Waxy Outline Cartoon | free-starters/style/waxy-outline-cartoon-v1.0.1 | Explainer | Bold curiosity-cartoon art with waxy imperfect outlines, saturated flats, and instantly readable reactions. | v1.0.1 active
 - com.storystudio.style.whiteboard-doodle-explainer | Whiteboard Doodle Explainer | production-looks/style/whiteboard-doodle-explainer-v1.0.1 | Explainer | Hand-drawn whiteboard doodles — stick figures, big expressive faces, one idea per frame. | v1.0.1 active
 
-## Lettering styles (47)
+## Lettering styles (48)
 
 - com.storystudio.lettering.antique-wood-type-poster-serif | Antique Wood-Type Poster Serif | lost-voyage/lettering/antique-wood-type-poster-serif | font | Heavy condensed wood-type capitals from a nineteenth-century poster, stacked and printed slightly worn. | v1.0.0 active
 - com.storystudio.lettering.bevelled-gold-cinematic-serif | Bevelled Gold Cinematic Serif | golden-epic/lettering/bevelled-gold-cinematic-serif | font | Bevelled metallic gold serif capitals with a subtle chrome edge, carrying a small spaced small-cap tagline between two… | v1.0.0 active
@@ -89,6 +91,7 @@ Totals — 200 items. Visual styles: 34, Lettering styles: 47, Thumbnail recipes
 - com.storystudio.lettering.seventies-bubble | Seventies Bubble | paid/lettering/arcade | font | Inflated 1970s bubble letters, rounded and crowding into each other. | v1.0.0 active
 - com.storystudio.lettering.shadow-swallow | Shadow Swallow | paid/lettering/dread | font | Letters whose lower halves are eaten by darkness — you read the tops and your eye finishes the rest. | v1.0.0 active
 - com.storystudio.lettering.soft-vellum | Soft Vellum | paid/lettering/calm | text | Warm cream vellum with a faint translucent glow coming through the letters. | v1.0.0 active
+- com.storystudio.lettering.spaced-light-serif-edition-label | Spaced Light Serif with Edition Label | baroque-myth/lettering/spaced-light-serif-edition-label | font | Thin, widely-tracked white serif capitals on a dark band, with one tiny line of small capitals above them carrying an e… | v1.0.0 active
 - com.storystudio.lettering.sticker-cut | Sticker Cut | paid/lettering/explainer | text | Die-cut sticker treatment: a thick white border all the way round and a small offset shadow. | v1.0.0 active
 - com.storystudio.lettering.surveillance-timecode | Surveillance Timecode | paid/lettering/investigation | font | The rigid monospaced characters burned into the corner of a camera recording — thin, evenly spaced, faintly aliased. | v1.0.0 active
 - com.storystudio.lettering.vhs-tracking | VHS Tracking | paid/lettering/arcade | text | Chroma-shifted colour fringing with a tracking tear ripping across the middle of the word. | v1.0.0 active
@@ -96,12 +99,13 @@ Totals — 200 items. Visual styles: 34, Lettering styles: 47, Thumbnail recipes
 - com.storystudio.lettering.weathered-brush-stamp | Weathered Brush Stamp | lost-voyage/lettering/weathered-brush-stamp | text | Distressed hand-brushed capitals, stamped in thick paint and left rough at the edges. | v1.0.0 active
 - com.storystudio.lettering.wet-ink-drip | Wet Ink Drip | paid/lettering/dread | text | Glossy black ink still wet, running slowly down from the baseline. | v1.0.0 active
 
-## Thumbnail recipes (31)
+## Thumbnail recipes (32)
 
 - com.storystudio.thumbnail.animal-hardship-annotation | Animal Hardship Annotation | free-starters/thumbnail/animal-hardship-annotation | Natural world | A direct 16:9 animal explainer cover pairing one expressive animal with one restrained hand-drawn hardship note. | v1.0.1 active
 - com.storystudio.thumbnail.annotated-business-board | Annotated Business Board | free-starters/thumbnail/annotated-business-board | Explainer | A clean hand-drawn economics explainer: one unmistakable business or location in the center, surrounded by a small visu… | v1.0.0 active
 - com.storystudio.thumbnail.archival-map-investigation | Archival Map Investigation | archival-ledger | History | A historical investigation cover: an original period portrait or key artifact, a marked parchment map, and one archival… | v1.0.0 active
 - com.storystudio.thumbnail.archival-map-investigation | Archival Map Investigation | paid/archival-ledger/thumbnail/archival-map-investigation | History | A historical investigation cover: an original period portrait or key artifact, a marked parchment map, and one archival… | v1.0.0 active
+- com.storystudio.thumbnail.banner-triptych | Banner Triptych | gory-cartoon-history/thumbnail/banner-triptych | Listicle | One fixed frame for a listicle: a white heavy-sans title banded full width across the top, and three equal vertical pan… | v1.0.0 active
 - com.storystudio.thumbnail.before-after-proof-panel | Before/After Proof Panel | thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel | Explainer | A truthful temporal comparison of one subject's baseline and credible observed outcome. | v1.0.0 active
 - com.storystudio.thumbnail.centered-hero-headline | Centered Hero Headline | free-starters/thumbnail/centered-hero-headline | Explainer | Full-canvas dim overlay (~50% strength) with one big centered all-caps headline. No subtitle banner, no accent rule. Wo… | v1.0.0 active
 - com.storystudio.thumbnail.curiosity-question-cartoon | Curiosity Question Cartoon | free-starters/thumbnail/curiosity-question-cartoon-v1.0.1 | Explainer | A bright, simple cartoon moment with one main subject, one revealing contrast, and a short model-rendered curiosity hoo… | v1.0.1 active
@@ -153,20 +157,21 @@ Totals — 200 items. Visual styles: 34, Lettering styles: 47, Thumbnail recipes
 - com.storystudio.formula.sleep-history-compilation | Sleep History Compilation | sleep-history/formula/sleep-history-compilation | Calm documentary | Long, calm compilations of true histories — ten to twenty independent chapters per video, each the slow story of one fo… | v1.0.0 active
 - com.storystudio.formula.sleep-story | Sleep Story | free-starters/formula/sleep-story | Calm stories | Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories wit… | v1.0.0 active
 
-## Metadata formulas (10)
+## Metadata formulas (11)
 
 - com.storystudio.metadata-formula.chronology | Chronology | paid/metadata-formulas/editorial | Dated era markers as headers, a short paragraph under each. | The episode's subject laid out in time. Era or date markers become the headers and each carries a short paragraph, so a… | v1.0.0 active
 - com.storystudio.metadata-formula.contrarian-reveal-titles | Contrarian Reveal Titles | midnight-archives/metadata-formula/contrarian-reveal-titles | Contradiction opening, corrections list, chapter list, stat… | The write-up shape for a dark-history episode that opens by contradicting what the viewer already believes. Three fixed… | v1.0.0 active
 - com.storystudio.metadata-formula.documentary-for-sleep-titles | Documentary for Sleep Titles | royal-history/metadata-formula/documentary-for-sleep-titles | Named opening, life chapters, stated runtime, listening not… | The write-up shape for a long, calm biography of one ruler, meant to be fallen asleep to. One fixed three-part title pa… | v1.0.0 active
-- com.storystudio.metadata-formula.entire-story-titles | Entire Story Titles | golden-epic/metadata-formula/entire-story-titles | Whole-arc opening, era sections, stated runtime, listening… | The write-up shape for an episode that tells one whole civilisation or one whole life from beginning to end in a single… | v1.0.0 active
+- com.storystudio.metadata-formula.entire-story-titles | Entire Story Titles | golden-epic/metadata-formula/entire-story-titles-v1.0.1 | Whole-arc opening, era sections, stated runtime, listening… | The write-up shape for an episode that tells one whole civilisation or one whole life from beginning to end in a single… | v1.0.1 active
 - com.storystudio.metadata-formula.history-for-sleep-titles | History for Sleep Titles | lost-voyage/metadata-formula/history-for-sleep-titles | Plain opening, chapter list, stated runtime, listening note… | The write-up shape for a very long, calm history episode meant to be fallen asleep to. Two fixed title patterns carry t… | v1.0.0 active
 - com.storystudio.metadata-formula.numbered-index | Numbered Index | paid/metadata-formulas/editorial | A numbered one-line index of what is covered, then one fram… | A numbered index of everything covered, one line each, then a single paragraph of framing. Scannable in two seconds. Un… | v1.0.0 active
+- com.storystudio.metadata-formula.obscure-history-listicle-titles | Obscure History Listicle Titles | gory-cartoon-history/metadata-formula/obscure-history-listicle-titles | List opening, entry index, stated runtime by mode, listenin… | The write-up shape for an episode built out of self-contained obscure-history entries. Three fixed title patterns name… | v1.0.0 active
 - com.storystudio.metadata-formula.problem-and-fix | Problem and Fix | paid/metadata-formulas/editorial | Problem, cost, proposal, evidence — four headed blocks that… | Four headed blocks that argue rather than describe: the problem, what it costs, what the episode proposes, and what bac… | v1.0.0 active
 - com.storystudio.metadata-formula.questions-and-answers | Questions and Answers | paid/metadata-formulas/editorial | Every section is a question header with a short answer bene… | The whole description is the questions a viewer arrives with, each one a header and each answered in two or three sente… | v1.0.0 active
 - com.storystudio.metadata-formula.quote-led | Quote Led | paid/metadata-formulas/editorial | A pulled quote first, then commentary, context, and attribu… | Opens on a line pulled from the episode itself, then earns it. A quote, a paragraph of commentary, the context that mak… | v1.0.0 active
 - com.storystudio.metadata-formula.signed-note | Signed Note | paid/metadata-formulas/editorial | A short first-person note to the viewer, signed off at the… | The description as a short note from the person who made it, in first person, ending in a sign-off. No headers, no bloc… | v1.0.0 active
 
-## Topic packs (45)
+## Topic packs (47)
 
 - com.storystudio.topic.ancient-humans-environments | Environments & Climate | legacy-niche-conversion/topic/ancient-humans-environments | - | How prehistoric people adapted routines and bodies to radically different landscapes. | v1.0.0 active
 - com.storystudio.topic.ancient-humans-social-life | Social Life & Belief | legacy-niche-conversion/topic/ancient-humans-social-life | - | Family, cooperation, conflict, ritual, identity, and daily rhythms in small communities. | v1.0.0 active
@@ -195,6 +200,7 @@ Totals — 200 items. Visual styles: 34, Lettering styles: 47, Thumbnail recipes
 - com.storystudio.topic.everyday-calm | Everyday Calm | free-starters/topic/everyday-calm-v1.0.1 | mindfulness, everyday calm, gentle practice | Fifty ordinary moments that can hold a brief, optional practice of attention. | v1.0.1 active
 - com.storystudio.topic.everyday-object-histories | Everyday Object Histories | sleep-history/topic/everyday-object-histories-v1.0.1 | object history, material culture, everyday history | Fifty ordinary household objects, each with twenty materially distinct chapter angles, for long compilations that tell… | v1.0.1 active
 - com.storystudio.topic.food-histories | Food Histories | sleep-history/topic/food-histories | food history, culinary history, everyday history | Fifty foods, each with twenty materially distinct episode slots, for calm long-form compilations that tell the true his… | v1.0.0 active
+- com.storystudio.topic.gods-heroes-and-epics | Gods, Heroes and Epics | baroque-myth/topic/gods-heroes-and-epics | world mythology, gods and heroes told entire, sleep compilation | Fifty whole stories, each told entire: every myth of a single deity, a hero's complete life, or one epic from its first… | v1.0.0 active
 - com.storystudio.topic.habits-momentum | Habits & Momentum | free-starters/topic/habits-momentum-v1.0.2 | habits, momentum, practical motivation | Fifty mechanisms of behaviour change - starting, cues and environment, sustaining, relapse, measurement, identity, and… | v1.0.2 active
 - com.storystudio.topic.historical-wars-treaties-world-order | Wars, Treaties & World Order | free-starters/topic/historical-wars-treaties-world-order-v1.0.2 | war history, diplomacy, treaties, world order, geopolitics | Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order. | v1.0.2 active
 - com.storystudio.topic.human-behavior-social-dynamics | Social Dynamics & Boundaries | free-starters/topic/human-behavior-social-dynamics-v1.0.1 | psychology, relationships, social dynamics | Evidence-aware relationship patterns, status, manipulation, trust, conflict, boundaries, and group behavior. | v1.0.1 active
@@ -206,6 +212,7 @@ Totals — 200 items. Visual styles: 34, Lettering styles: 47, Thumbnail recipes
 - com.storystudio.topic.natural-world-insects | Insects & Arthropods | legacy-niche-conversion/topic/natural-world-insects | - | Insects, arachnids, crustaceans, social colonies, metamorphosis, and extreme small-animal adaptations. | v1.0.0 active
 - com.storystudio.topic.natural-world-plants | Plants & Botanical Survival | legacy-niche-conversion/topic/natural-world-plants | - | Plants, pollination, roots, reproduction, chemical defenses, and adaptations to difficult habitats. | v1.0.0 active
 - com.storystudio.topic.night-journeys | Night Journeys | free-starters/topic/night-journeys-v1.0.1 | sleep story, bedtime story, night journey | Fifty low-arousal night-story settings where one gentle character completes twenty distinct, quiet tasks or journeys. | v1.0.1 active
+- com.storystudio.topic.obscure-history-horrors | Obscure History Horrors | gory-cartoon-history/topic/obscure-history-horrors | obscure history, grim history listicle, sleep compilation | Fifty list categories of obscure and grim history — folklore creatures, the deadliest weapons, warriors, diseases and d… | v1.0.0 active
 - com.storystudio.topic.pastoral-daily-reflection | Daily Scripture Reflection | legacy-niche-conversion/topic/pastoral-daily-reflection | devotional, scripture, reflection | Short passage-led devotional reflections with one grounded practice for daily life. | v1.0.0 active
 - com.storystudio.topic.pastoral-expository-teaching | Expository Scripture Teaching | legacy-niche-conversion/topic/pastoral-expository-teaching | preaching, scripture, teaching | Longer text-led teaching that traces a passage's argument before making one pastoral application. | v1.0.0 active
 - com.storystudio.topic.pov-criminal-hierarchies | Criminal Hierarchies | legacy-niche-conversion/topic/pov-criminal-hierarchies | crime, hierarchy, outlaws | Roles and ladders inside organized crime, smuggling, piracy, and outlaw networks examined through institutional evidenc… | v1.0.0 active

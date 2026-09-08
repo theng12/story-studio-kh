@@ -1,5 +1,5 @@
 {
-  "revision": 219,
+  "revision": 230,
   "batches": [
     {
       "revision": 2,
@@ -4926,6 +4926,230 @@
           }
         ]
       }
+    },
+    {
+      "revision": 220,
+      "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+      "request": {
+        "expected_revision": 219,
+        "coordinator": {
+          "task": "gory-cartoon-history-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "proposal_ref": "proposal:gory-cartoon-history-obscure-history-listicle-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.bold-gory-cartoon",
+            "item_id": "com.storystudio.style.bold-gory-cartoon",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/gory-cartoon-history/style/bold-gory-cartoon",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.bold-gory-cartoon",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.bold-gory-cartoon",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.banner-triptych",
+            "item_id": "com.storystudio.thumbnail.banner-triptych",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/gory-cartoon-history/thumbnail/banner-triptych",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.banner-triptych",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.banner-triptych",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.obscure-history-horrors",
+            "item_id": "com.storystudio.topic.obscure-history-horrors",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/gory-cartoon-history/topic/obscure-history-horrors",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.obscure-history-horrors",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.obscure-history-horrors",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.obscure-history-listicle-titles",
+            "item_ids": [
+              "com.storystudio.metadata-formula.obscure-history-listicle-titles"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/gory-cartoon-history/metadata-formula/obscure-history-listicle-titles",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.obscure-history-listicle-titles",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.obscure-history-listicle-titles",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 221,
+      "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+      "request": {
+        "expected_revision": 220,
+        "coordinator": {
+          "task": "baroque-myth-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "proposal_ref": "proposal:baroque-myth-gods-heroes-and-epics-sleep-compilation-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.baroque-mythological-sky",
+            "item_id": "com.storystudio.style.baroque-mythological-sky",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/baroque-myth/style/baroque-mythological-sky",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.baroque-mythological-sky",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.baroque-mythological-sky",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.spaced-light-serif-edition-label",
+            "item_ids": [
+              "com.storystudio.lettering.spaced-light-serif-edition-label"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/baroque-myth/lettering/spaced-light-serif-edition-label",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.spaced-light-serif-edition-label",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.spaced-light-serif-edition-label",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.gods-heroes-and-epics",
+            "item_id": "com.storystudio.topic.gods-heroes-and-epics",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/baroque-myth/topic/gods-heroes-and-epics",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.gods-heroes-and-epics",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.gods-heroes-and-epics",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 222,
+      "receipt_ref": "authoring:d55de68f3aae6509f7bfd2d882ca3e5f8ad36d2ce7a403df17c190d132753535",
+      "request": {
+        "expected_revision": 221,
+        "coordinator": {
+          "task": "entire-story-titles-runtime-widening-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "proposal_ref": "proposal:entire-story-titles-runtime-120-to-420-minutes-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.entire-story-titles",
+            "item_ids": [
+              "com.storystudio.metadata-formula.entire-story-titles"
+            ],
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/golden-epic/metadata-formula/entire-story-titles-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.entire-story-titles",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.entire-story-titles",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -8034,6 +8258,142 @@
         },
         "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
         "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 223,
+      "transition_ref": "lifecycle:eaf884a5832e5a17a677233027f11ad79d2002c957778ab8f9de9c99eb025e86",
+      "request": {
+        "expected_revision": 222,
+        "coordinator": {
+          "task": "gory-cartoon-history-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+        "pack_id": "com.storystudio.pack.style.bold-gory-cartoon",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 224,
+      "transition_ref": "lifecycle:d3e0b910c76c5731ddb762d527596c1f78c4fc4f818d271ac639260b5102999e",
+      "request": {
+        "expected_revision": 223,
+        "coordinator": {
+          "task": "gory-cartoon-history-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+        "pack_id": "com.storystudio.pack.thumbnail.banner-triptych",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 225,
+      "transition_ref": "lifecycle:2c302afa383d0a2a96327ff2635e00e0144e35523141035d0c808142baeb0bcb",
+      "request": {
+        "expected_revision": 224,
+        "coordinator": {
+          "task": "gory-cartoon-history-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+        "pack_id": "com.storystudio.pack.topic.obscure-history-horrors",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 226,
+      "transition_ref": "lifecycle:2827f5958998d889ae4d69fee80879775e26015340517409abf42ccfbdcb9a5c",
+      "request": {
+        "expected_revision": 225,
+        "coordinator": {
+          "task": "gory-cartoon-history-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+        "pack_id": "com.storystudio.pack.metadata-formula.obscure-history-listicle-titles",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 227,
+      "transition_ref": "lifecycle:69cc8da9eccf6ff5ad65324b074f5ed7f331246075ee35bb7f0e11872f13f9e5",
+      "request": {
+        "expected_revision": 226,
+        "coordinator": {
+          "task": "baroque-myth-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+        "pack_id": "com.storystudio.pack.style.baroque-mythological-sky",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 228,
+      "transition_ref": "lifecycle:b745931ab9dd2f51aca02d22383de6713143d5077210e597d95bf57c9e1270a4",
+      "request": {
+        "expected_revision": 227,
+        "coordinator": {
+          "task": "baroque-myth-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+        "pack_id": "com.storystudio.pack.lettering.spaced-light-serif-edition-label",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 229,
+      "transition_ref": "lifecycle:1eb5700570b8c96bb1b7395c0f9c1410dc078c859786e8b1a60d4b9c81b5189d",
+      "request": {
+        "expected_revision": 228,
+        "coordinator": {
+          "task": "baroque-myth-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+        "pack_id": "com.storystudio.pack.topic.gods-heroes-and-epics",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 230,
+      "transition_ref": "lifecycle:16d10bb338965b32c4958f4f7eb33fc3ed3e754fc305fbc450450419ab03f714",
+      "request": {
+        "expected_revision": 229,
+        "coordinator": {
+          "task": "entire-story-titles-runtime-widening-2026-09-08",
+          "branch": "content/two-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:d55de68f3aae6509f7bfd2d882ca3e5f8ad36d2ce7a403df17c190d132753535",
+        "pack_id": "com.storystudio.pack.metadata-formula.entire-story-titles",
         "version": "1.0.1",
         "changes": {
           "status": "authored"
@@ -14178,6 +14538,196 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.oil-painting-classical",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+      "pack_id": "com.storystudio.pack.style.bold-gory-cartoon",
+      "item_id": "com.storystudio.style.bold-gory-cartoon",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/gory-cartoon-history/style/bold-gory-cartoon",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.bold-gory-cartoon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.bold-gory-cartoon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+      "pack_id": "com.storystudio.pack.thumbnail.banner-triptych",
+      "item_id": "com.storystudio.thumbnail.banner-triptych",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/gory-cartoon-history/thumbnail/banner-triptych",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.banner-triptych",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.banner-triptych",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+      "pack_id": "com.storystudio.pack.topic.obscure-history-horrors",
+      "item_id": "com.storystudio.topic.obscure-history-horrors",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/gory-cartoon-history/topic/obscure-history-horrors",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.obscure-history-horrors",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.obscure-history-horrors",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+      "pack_id": "com.storystudio.pack.metadata-formula.obscure-history-listicle-titles",
+      "item_ids": [
+        "com.storystudio.metadata-formula.obscure-history-listicle-titles"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/gory-cartoon-history/metadata-formula/obscure-history-listicle-titles",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.obscure-history-listicle-titles",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.obscure-history-listicle-titles",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+      "pack_id": "com.storystudio.pack.style.baroque-mythological-sky",
+      "item_id": "com.storystudio.style.baroque-mythological-sky",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/baroque-myth/style/baroque-mythological-sky",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.baroque-mythological-sky",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.baroque-mythological-sky",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+      "pack_id": "com.storystudio.pack.lettering.spaced-light-serif-edition-label",
+      "item_ids": [
+        "com.storystudio.lettering.spaced-light-serif-edition-label"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/baroque-myth/lettering/spaced-light-serif-edition-label",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.spaced-light-serif-edition-label",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.spaced-light-serif-edition-label",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+      "pack_id": "com.storystudio.pack.topic.gods-heroes-and-epics",
+      "item_id": "com.storystudio.topic.gods-heroes-and-epics",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/baroque-myth/topic/gods-heroes-and-epics",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.gods-heroes-and-epics",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.gods-heroes-and-epics",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d55de68f3aae6509f7bfd2d882ca3e5f8ad36d2ce7a403df17c190d132753535",
+      "pack_id": "com.storystudio.pack.metadata-formula.entire-story-titles",
+      "item_ids": [
+        "com.storystudio.metadata-formula.entire-story-titles"
+      ],
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/golden-epic/metadata-formula/entire-story-titles-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.entire-story-titles",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.entire-story-titles",
           "status": "proposed"
         }
       }
