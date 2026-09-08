@@ -4,13 +4,18 @@
  * number of minutes. One reservation batch (revision 266), one receipt, three
  * lifecycle promotions (revisions 269-271).
  *
- * Two of the three declare preview assets that DO NOT EXIST YET: this control
- * Mac does not perform production image generation, and the owner authorisation
- * of 2026-09-08 named that day's run ids rather than this pass. Nothing was
- * fabricated and nothing was stubbed, so this file pins the honest state
- * instead: every declared preview path is named by the collection's
- * PREVIEW-PROVENANCE.md, and any preview byte that HAS landed must meet the
- * contract.
+ * Two of the three declare preview assets, and all seven of them now EXIST:
+ * they were rendered on 2026-09-09 under an explicit owner authorisation
+ * through GenStudio `gpt-image-2`, converted, and committed. So the preview
+ * assertions are no longer conditional — every declared preview must be on
+ * disk, must decode to its exact contract, and must have its digest and byte
+ * count recorded in the collection's PREVIEW-PROVENANCE.md.
+ *
+ * The fourth recipe preview was rendered TWICE: the first return put a real
+ * national flag (France) above the middle bird, which this collection's own
+ * acceptance rules reject outright, so it was thrown away and re-rendered from
+ * the same unchanged prompt. That rejection is pinned below, because the flags
+ * variant is exactly where a later re-run will drift the same way.
  *
  * The three-preview rule for Visual Styles and the four-preview rule for
  * Thumbnail Recipes, both set by the owner on 2026-09-08, are asserted here so
@@ -241,7 +246,7 @@ test('the metadata formula fixes two title shapes and a fifteen-to-twenty-two-mi
   assert.ok(!builtinIds.includes(doc.id), `${doc.id} shadows a built-in`)
 })
 
-test('every declared preview is named by the provenance record, and any that exists meets the contract', async () => {
+test('every declared preview exists, meets the contract, and is accounted for by the provenance record', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   const declared = new Set()
   for (const p of PACKS) {
@@ -256,7 +261,7 @@ test('every declared preview is named by the provenance record, and any that exi
     assert.ok(provenance.includes(rel.split('/').pop()), `provenance must name ${rel}`)
     assert.ok(provenance.includes(`${width}x${height}`), `provenance must state ${width}x${height}`)
     const path = join(ROOT, rel)
-    if (!await exists(path)) continue
+    assert.ok(await exists(path), `${rel} is declared by a pack and must be committed`)
     const buf = await readFile(path)
     assert.ok(buf.byteLength > 20 * 1024, `${rel} must exceed the 20 KB floor`)
     const meta = await sharp(buf).metadata()
@@ -268,7 +273,7 @@ test('every declared preview is named by the provenance record, and any that exi
   }
 })
 
-test('the provenance record states why nothing was generated, how to generate it, and what to refuse', async () => {
+test('the provenance record states under what authorisation these were rendered, how, and what to refuse', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   for (const evidence of [
     'image-pool/generate',
@@ -276,6 +281,16 @@ test('the provenance record states why nothing was generated, how to generate it
     'does not perform production image generation',
     'cartoon-animal-explainer-previews-1',
     'gpt-image-2',
+  ]) {
+    assert.ok(provenance.includes(evidence), `provenance must record ${evidence}`)
+  }
+  // The rejected first return of the fourth recipe preview, and the re-render
+  // that replaced it. Without this a later reader sees only the committed file
+  // and repeats the flag drift the next time the flags variant is re-run.
+  for (const evidence of [
+    'cartoon-animal-explainer-previews-1-retry4',
+    'real national flag',
+    'The rejected first return, kept as history',
   ]) {
     assert.ok(provenance.includes(evidence), `provenance must record ${evidence}`)
   }
