@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.ornate-fantasy-metal-serif",
+  "name": "Ornate Fantasy Metal Serif",
+  "description": "Engraved gold and bronze capitals with a scale-like grain through the stems and small curling flourishes on the terminals, with a widely spaced small-cap tagline held beneath between two thin rules — the title face for myth, legend and long fantasy compilations.",
+  "axis": "font",
+  "phrase": "tall ornate serif capitals cut as engraved metal in warm gold and dark bronze, the stems carrying a fine scale-like grain and a bevelled highlight running along every upper edge, the serifs sharp and the terminals drawn out into small curling flourishes, set on one or two lines of equal width, with a short tagline beneath in widely letter-spaced small capitals of the same metal, held between two thin horizontal rules that run no further than the tagline itself, and with no drop shadow, no outer glow, no gradient wash behind the letters and no gemstone or crown ornament added to any letter",
+  "preview_assets": [
+    "assets/ornate-fantasy-metal-serif.webp"
+  ]
+}

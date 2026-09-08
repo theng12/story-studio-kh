@@ -1,5 +1,5 @@
 {
-  "revision": 185,
+  "revision": 195,
   "batches": [
     {
       "revision": 2,
@@ -4208,6 +4208,204 @@
           }
         ]
       }
+    },
+    {
+      "revision": 186,
+      "receipt_ref": "authoring:f6542ed393e3498de1d862ba66945c22f8c5359975b487e5a3ba6fbffdaca90d",
+      "request": {
+        "expected_revision": 185,
+        "coordinator": {
+          "task": "timeless-dreams-2026-09-08",
+          "branch": "content/three-small-collections-2026-09-08"
+        },
+        "proposal_ref": "proposal:timeless-dreams-world-legends-sleep-compilation-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.legends-across-every-civilisation",
+            "item_id": "com.storystudio.topic.legends-across-every-civilisation",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/timeless-dreams/topic/legends-across-every-civilisation",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.legends-across-every-civilisation",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.legends-across-every-civilisation",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.ornate-fantasy-metal-serif",
+            "item_ids": [
+              "com.storystudio.lettering.ornate-fantasy-metal-serif"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/timeless-dreams/lettering/ornate-fantasy-metal-serif",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.ornate-fantasy-metal-serif",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.ornate-fantasy-metal-serif",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 187,
+      "receipt_ref": "authoring:518be23c26cdafcff37523241d765233e5bc217a88a466e921b427cb6eca0fd0",
+      "request": {
+        "expected_revision": 186,
+        "coordinator": {
+          "task": "sleep-theories-2026-09-08",
+          "branch": "content/three-small-collections-2026-09-08"
+        },
+        "proposal_ref": "proposal:sleep-theories-mystery-channel-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.comic-pulp-mystery",
+            "item_id": "com.storystudio.style.comic-pulp-mystery",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/sleep-theories/style/comic-pulp-mystery",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.comic-pulp-mystery",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.comic-pulp-mystery",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.series-banner-investigator-mystery-object",
+            "item_id": "com.storystudio.thumbnail.series-banner-investigator-mystery-object",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/sleep-theories/thumbnail/series-banner-investigator-mystery-object",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.series-banner-investigator-mystery-object",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.series-banner-investigator-mystery-object",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.mysteries-and-cover-ups",
+            "item_id": "com.storystudio.topic.mysteries-and-cover-ups",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/sleep-theories/topic/mysteries-and-cover-ups",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.mysteries-and-cover-ups",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.mysteries-and-cover-ups",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 188,
+      "receipt_ref": "authoring:ada3557c18e5d2448acef9340b5472a0e6eee39da2de7f3b70c3f2121931713f",
+      "request": {
+        "expected_revision": 187,
+        "coordinator": {
+          "task": "standalone-looks-2026-09-08",
+          "branch": "content/three-small-collections-2026-09-08"
+        },
+        "proposal_ref": "proposal:standalone-looks-two-channel-free-styles-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.inked-fable-cartoon",
+            "item_id": "com.storystudio.style.inked-fable-cartoon",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/standalone-looks/style/inked-fable-cartoon",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.inked-fable-cartoon",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.inked-fable-cartoon",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.scratchy-editorial-poster",
+            "item_id": "com.storystudio.style.scratchy-editorial-poster",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/standalone-looks/style/scratchy-editorial-poster",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.scratchy-editorial-poster",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.scratchy-editorial-poster",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -6806,6 +7004,125 @@
         },
         "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
         "pack_id": "com.storystudio.pack.metadata-formula.contrarian-reveal-titles",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 189,
+      "transition_ref": "lifecycle:6873e68e5e808fd7985578ff4fc34eb3678627a5beb0ad8f8185b16d41437376",
+      "request": {
+        "expected_revision": 188,
+        "coordinator": {
+          "task": "timeless-dreams-2026-09-08",
+          "branch": "content/three-small-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:f6542ed393e3498de1d862ba66945c22f8c5359975b487e5a3ba6fbffdaca90d",
+        "pack_id": "com.storystudio.pack.topic.legends-across-every-civilisation",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 190,
+      "transition_ref": "lifecycle:2d6e6630810506e6c2f56901565d15cfe27b2b4e3ddf6b4f174048653274f065",
+      "request": {
+        "expected_revision": 189,
+        "coordinator": {
+          "task": "timeless-dreams-2026-09-08",
+          "branch": "content/three-small-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:f6542ed393e3498de1d862ba66945c22f8c5359975b487e5a3ba6fbffdaca90d",
+        "pack_id": "com.storystudio.pack.lettering.ornate-fantasy-metal-serif",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 191,
+      "transition_ref": "lifecycle:1bd8528cc275cf9c405653813d51ef5f6a9016f7960de12f5294455d31680588",
+      "request": {
+        "expected_revision": 190,
+        "coordinator": {
+          "task": "sleep-theories-2026-09-08",
+          "branch": "content/three-small-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:518be23c26cdafcff37523241d765233e5bc217a88a466e921b427cb6eca0fd0",
+        "pack_id": "com.storystudio.pack.style.comic-pulp-mystery",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 192,
+      "transition_ref": "lifecycle:ef63ba0043022f6d6065c413f6a5b20b3b7c3a6a6f0bce429526c5a00f008f62",
+      "request": {
+        "expected_revision": 191,
+        "coordinator": {
+          "task": "sleep-theories-2026-09-08",
+          "branch": "content/three-small-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:518be23c26cdafcff37523241d765233e5bc217a88a466e921b427cb6eca0fd0",
+        "pack_id": "com.storystudio.pack.thumbnail.series-banner-investigator-mystery-object",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 193,
+      "transition_ref": "lifecycle:1851805525b2f510d079dbf45568589c14f4ff04ca7353a209f2edc1caaacc2d",
+      "request": {
+        "expected_revision": 192,
+        "coordinator": {
+          "task": "sleep-theories-2026-09-08",
+          "branch": "content/three-small-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:518be23c26cdafcff37523241d765233e5bc217a88a466e921b427cb6eca0fd0",
+        "pack_id": "com.storystudio.pack.topic.mysteries-and-cover-ups",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 194,
+      "transition_ref": "lifecycle:5b7b265e883288fbbfaee4e8c127ad2ef3af2d1b28f3890682a1828cf76cf9f1",
+      "request": {
+        "expected_revision": 193,
+        "coordinator": {
+          "task": "standalone-looks-2026-09-08",
+          "branch": "content/three-small-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:ada3557c18e5d2448acef9340b5472a0e6eee39da2de7f3b70c3f2121931713f",
+        "pack_id": "com.storystudio.pack.style.inked-fable-cartoon",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 195,
+      "transition_ref": "lifecycle:f91128aa08707a59c39a28aea51cec714f785e6eaffffc6d2ebd30b6e7845d44",
+      "request": {
+        "expected_revision": 194,
+        "coordinator": {
+          "task": "standalone-looks-2026-09-08",
+          "branch": "content/three-small-collections-2026-09-08"
+        },
+        "receipt_ref": "authoring:ada3557c18e5d2448acef9340b5472a0e6eee39da2de7f3b70c3f2121931713f",
+        "pack_id": "com.storystudio.pack.style.scratchy-editorial-poster",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -12258,6 +12575,169 @@
         },
         "sku": {
           "id": "com.storystudio.sku.metadata-formula.contrarian-reveal-titles",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:f6542ed393e3498de1d862ba66945c22f8c5359975b487e5a3ba6fbffdaca90d",
+      "pack_id": "com.storystudio.pack.topic.legends-across-every-civilisation",
+      "item_id": "com.storystudio.topic.legends-across-every-civilisation",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/timeless-dreams/topic/legends-across-every-civilisation",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.legends-across-every-civilisation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.legends-across-every-civilisation",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:f6542ed393e3498de1d862ba66945c22f8c5359975b487e5a3ba6fbffdaca90d",
+      "pack_id": "com.storystudio.pack.lettering.ornate-fantasy-metal-serif",
+      "item_ids": [
+        "com.storystudio.lettering.ornate-fantasy-metal-serif"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/timeless-dreams/lettering/ornate-fantasy-metal-serif",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.ornate-fantasy-metal-serif",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.ornate-fantasy-metal-serif",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:518be23c26cdafcff37523241d765233e5bc217a88a466e921b427cb6eca0fd0",
+      "pack_id": "com.storystudio.pack.style.comic-pulp-mystery",
+      "item_id": "com.storystudio.style.comic-pulp-mystery",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/sleep-theories/style/comic-pulp-mystery",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.comic-pulp-mystery",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.comic-pulp-mystery",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:518be23c26cdafcff37523241d765233e5bc217a88a466e921b427cb6eca0fd0",
+      "pack_id": "com.storystudio.pack.thumbnail.series-banner-investigator-mystery-object",
+      "item_id": "com.storystudio.thumbnail.series-banner-investigator-mystery-object",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/sleep-theories/thumbnail/series-banner-investigator-mystery-object",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.series-banner-investigator-mystery-object",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.series-banner-investigator-mystery-object",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:518be23c26cdafcff37523241d765233e5bc217a88a466e921b427cb6eca0fd0",
+      "pack_id": "com.storystudio.pack.topic.mysteries-and-cover-ups",
+      "item_id": "com.storystudio.topic.mysteries-and-cover-ups",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/sleep-theories/topic/mysteries-and-cover-ups",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.mysteries-and-cover-ups",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.mysteries-and-cover-ups",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ada3557c18e5d2448acef9340b5472a0e6eee39da2de7f3b70c3f2121931713f",
+      "pack_id": "com.storystudio.pack.style.inked-fable-cartoon",
+      "item_id": "com.storystudio.style.inked-fable-cartoon",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/standalone-looks/style/inked-fable-cartoon",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.inked-fable-cartoon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.inked-fable-cartoon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ada3557c18e5d2448acef9340b5472a0e6eee39da2de7f3b70c3f2121931713f",
+      "pack_id": "com.storystudio.pack.style.scratchy-editorial-poster",
+      "item_id": "com.storystudio.style.scratchy-editorial-poster",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/standalone-looks/style/scratchy-editorial-poster",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.scratchy-editorial-poster",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.scratchy-editorial-poster",
           "status": "proposed"
         }
       }
