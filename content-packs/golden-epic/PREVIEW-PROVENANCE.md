@@ -1,6 +1,8 @@
 # Golden Epic preview provenance
 
-Eight previews are declared by three of this collection's five standalone Content Packs. **None of them exist yet.** This file records why, exactly what must be run to produce them, and the prompt text prepared for each, so the render is a keyed operator's single step rather than a re-authoring pass.
+Eight previews are declared by three of this collection's five standalone Content Packs. **All eight now exist, and all eight passed review.** Job `69cf46dc` ran to completion on 2026-09-08 under the owner's authorisation for the whole preview programme; every returned original was accepted, nothing was re-rendered, and the accepted bytes, their digests and the conversion applied to each are in "Retained bytes" at the end of this file. All five packs build, sign and pass `validateContentPack` under an ephemeral authoring key.
+
+The sections below are kept as they were written rather than rewritten in hindsight. What changed is stated in place, in "The 2026-09-08 render".
 
 The two packs that declare no raster assets — `com.storystudio.topic.empires-and-civilisations-entire` and `com.storystudio.metadata-formula.entire-story-titles` — are complete: both build deterministically, sign, and pass `validateContentPack` under an ephemeral authoring key. The other three are **blocked on previews only**; their documents already validate against the signed Content Pack schema.
 
@@ -14,11 +16,60 @@ The owner's rule, set on 2026-09-08 and applied to Royal History first, carries 
 
 The lettering pack keeps the shipped house standard of one to four swatches; this collection declares one swatch, at the 1024x576 figure the paid lettering packs already use. The Thumbnail Recipe declares four, as the Lost Voyage and Royal History recipes did, so that both portrait sides are shown twice and all three tagline styles appear.
 
-## Why nothing was rendered in this pass
+## Why nothing was rendered in the authoring pass (kept as written)
 
-`docs/VISUAL_STYLE_CONTENT_PACK_FORMAT.md` and the `story-studio-visual-style-adoption` skill both state that this control Mac verifies preview handoffs and does not perform production image generation, and that previews come only from owner-supplied original bytes or a production-preview handoff. The 2026-09-06 sleep-history pass rendered its six previews under an explicit owner authorisation given in chat for that pass only. No such authorisation exists for this pass, so nothing was generated, nothing was substituted, and no placeholder bytes were written that would let a pack pass validation dishonestly.
+`docs/VISUAL_STYLE_CONTENT_PACK_FORMAT.md` and the `story-studio-visual-style-adoption` skill both state that this control Mac verifies preview handoffs and does not perform production image generation, and that previews come only from owner-supplied original bytes or a production-preview handoff. The 2026-09-06 sleep-history pass rendered its six previews under an explicit owner authorisation given in chat for that pass only. No such authorisation existed when this collection was authored, so nothing was generated, nothing was substituted, and no placeholder bytes were written that would let a pack pass validation dishonestly. The authorisation covering this render arrived on 2026-09-08; what happened then is the section above.
 
-## The exact command a keyed operator must run
+## The 2026-09-08 render: authorised, submitted, run, reviewed
+
+The owner authorised the whole preview programme in chat on 2026-09-08 — about 112 renders across every
+collection — and ruled that images are made with `gpt-image-2` and no other product. This collection is
+8 of them. The catalogue was checked live before anything was spent, and the product was confirmed
+offered for the `pack-previews` project rather than assumed.
+
+### The product, confirmed live before spending
+
+| Field | Value |
+| --- | --- |
+| Product id / handle | `gpt-image-2` ("GPT Image 2", OpenAI, GenStudio cloud) |
+| Availability | `available: true`, `chargeable: true`, `locked: false`, no admission permit required |
+| Catalogue freshness | `stale: false` at the moment of submission — Story Studio refuses to spend against a product it cannot currently verify |
+| Operations | `text-to-image`, `image-to-image` — this pass used **text-to-image only** |
+| Chosen output row | **2K · 16:9 · 2560×1440**, `price_version` `price_img_0251_d908a58de1e58151dbccb23e` |
+| Price | **29 credits per image**; 8 images = **232 credits** |
+| Default row not used | 1K · 16:9 · 1280×720 at 20 credits |
+
+The 2K row was chosen over the cheaper default deliberately, on the same reasoning the Lost Voyage pass
+recorded: 2560×1440 **downscales** to the 1672×941 and 1024×576 contracts, where 1280×720 would have to be
+**upscaled** 1.31×. Every acceptance test here turns on correctly spelled title text and fine serifs staying
+legible at card size, and upscaling softens exactly that.
+
+### The submission
+
+One request, one job, no retries and no re-renders:
+
+```
+POST /api/projects/pack-previews/image-pool/generate
+{ "pool_id": "pack-previews", "model": "gpt-image-2", "aspect_ratio": "16:9",
+  "resolution": "2K", "variants": 1, "run_id": "golden-epic-previews-1",
+  "prompts": [ ...the eight prompts below, in order... ], "reference_images": [] }
+```
+
+Job **`69cf46dc`** returned `8/8` and dropped `gen-golden-epic-previews-1-0001.png` … `-0008.png` into the Pack
+Previews image pool in prompt order. The prompts recorded below are byte-identical to `params.prompts` on
+the executed job, in the same order, which is what makes the file-to-prompt mapping in "Retained bytes" a
+fact rather than an assumption.
+
+### Review
+
+Every returned original was decoded and looked at against its own prompt and the style bible of the pack it
+advertises: lettering swatches for correct spelling and unclipped letterforms, style and scene previews for
+stray text, and every file for logos, watermarks, UI and copied composition. **8 of 8 were accepted.**
+Nothing was re-rendered and no slot was left unfilled. Two observations that did not rise to a rejection are
+recorded against their rows in "Retained bytes" rather than left out, so a later reader sees what a reviewer
+saw — a capitals-versus-small-capitals variance across the four recipe titles.
+
+## The exact command a keyed operator ran
 
 Same route the sleep-history previews used: the Image Pool generator inside a running Story Studio app, in a project whose configured image product is the GenStudio text-to-image lane for `gpt-image-2`. Eight prompts, one variant each, aspect `16:9`, `reference_images: []` (text-only, no reference asset, no image-to-image, no compositing, no post-render typography — the lettering and title text is drawn by the image model, as the lettering and recipe contracts require).
 
@@ -90,6 +141,13 @@ The 1024x576 lettering figure matches the swatches already shipped by the paid l
 
 | Runtime source asset | Returned original | Conversion and deterministic proof | Accepted WebP | Title, prompt, route |
 | --- | --- | --- | --- | --- |
-| _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| `content-packs/golden-epic/style/golden-epic-poster/assets/golden-epic-poster-hero.webp` | `gen-golden-epic-previews-1-0001.png`; original `efc3206f089884280ce6f7373e6fb179c1d7230ebb53b4a6f078afb5728a9bc4` (5573249 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `28b7c145996945ddbe979a603973b754e98caa143faa4108c7f7ab1905033e7d`; 326854 bytes; 1672x941 WebP decode passed | no text (style preview, hero); prompt 1 sha256 `cbfd1760396807ce4fa469b4791dc652216a891935249f8acdd7f58c7f2e452a`; GenStudio `gpt-image-2` via Story Studio Image Pool job `69cf46dc`, 29 credits, `reference_images: []`. |
+| `content-packs/golden-epic/style/golden-epic-poster/assets/golden-epic-poster-scene.webp` | `gen-golden-epic-previews-1-0002.png`; original `09d7d7ec989ce35ba82f3281838c76c69825c9a4975467a44079da37c1392d4e` (5519845 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `470e7af082d0777f13163bc66a8967f18ffed4dda7a781404f09a17fbb892ae4`; 282846 bytes; 1672x941 WebP decode passed | no text (style preview, quiet wide scene, no figure); prompt 2 sha256 `c69eb39ff98a5c530b349fa9b1ee8dcc6d1cb9635c2e6b1cef6484c0eadd6f45`; GenStudio `gpt-image-2` via Story Studio Image Pool job `69cf46dc`, 29 credits, `reference_images: []`. |
+| `content-packs/golden-epic/style/golden-epic-poster/assets/golden-epic-poster-face.webp` | `gen-golden-epic-previews-1-0003.png`; original `05b6860e0a8811bce2528c289631c1d4a5ee4a4ef89773b8f95e98b5008dd910` (4679731 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `d51ca0a44c2e7c8e18bf459f4dfded7a68da655deda6c95235de1faf8135760b`; 221888 bytes; 1672x941 WebP decode passed | no text (style preview, hardest case, backlit shadow-side face); prompt 3 sha256 `f151799d917ae5945dbad925548632c73e97887f94a915cc3df1cf29d69a80b1`; GenStudio `gpt-image-2` via Story Studio Image Pool job `69cf46dc`, 29 credits, `reference_images: []`. |
+| `content-packs/golden-epic/lettering/bevelled-gold-cinematic-serif/assets/bevelled-gold-cinematic-serif.webp` | `gen-golden-epic-previews-1-0004.png`; original `c6dff8885420031c731dfdd9a023a70631654c2868aec0805bd08080fe49715e` (5728334 B PNG, 2560x1440) | Whole-image resize(1024×576, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `89e1c057a01e25fca56813088c0c9d5c81ab2e0c8ee7d9da539f3b59f5e5ebac`; 43682 bytes; 1024x576 WebP decode passed | GOLDEN EPIC / THE ENTIRE STORY (2 lines); prompt 4 sha256 `d583cb13da190e208e5ebc2b06ab656f97695870b36f2358667f541965457edb`; GenStudio `gpt-image-2` via Story Studio Image Pool job `69cf46dc`, 29 credits, `reference_images: []`. |
+| `content-packs/golden-epic/thumbnail/regalia-portrait-title-quadrant/assets/regalia-portrait-title-quadrant-1.webp` | `gen-golden-epic-previews-1-0005.png`; original `4320496348d210a0e813e145aaff03c9f50bbd4a24d398a0bddc0031ce0b4741` (5844733 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `c31fe07f02a4de16a5b769a008231a31650651ecbf5c04bc8e56d74235a45cd4`; 397578 bytes; 1672x941 WebP decode passed | CARTHAGE / SIX HUNDRED YEARS BY SEA; prompt 5 sha256 `278bf6141a5869484626c938376f0eecf0ac4586b9b167c1d54c7a977e9513d1`; GenStudio `gpt-image-2` via Story Studio Image Pool job `69cf46dc`, 29 credits, `reference_images: []`. |
+| `content-packs/golden-epic/thumbnail/regalia-portrait-title-quadrant/assets/regalia-portrait-title-quadrant-2.webp` | `gen-golden-epic-previews-1-0006.png`; original `f644430f7ca332ea9536e3368dc69a7509d2bf9c21277e0335bce9e323b982f6` (5869214 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `7af02ff4c42a1785f6bb76f0eaff2d9ba5ca34ce9fd7c2cd38fe0f014ac44cac`; 445572 bytes; 1672x941 WebP decode passed | THE TEMPLE KINGS / THE EMPIRE THAT BUILT ON WATER; prompt 6 sha256 `4fdf5ec025d9ecc682f917e10eb27eea4cbf14b8554f624ca6fd5cdc503a5195`; GenStudio `gpt-image-2` via Story Studio Image Pool job `69cf46dc`, 29 credits, `reference_images: []`. |
+| `content-packs/golden-epic/thumbnail/regalia-portrait-title-quadrant/assets/regalia-portrait-title-quadrant-3.webp` | `gen-golden-epic-previews-1-0007.png`; original `37a15b961b289cec64b38f64b6620e5a45848e977f8cc96d68f69c4e1f527d4d` (5519597 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `4a45f014a178d96e9540d0bdf1810a6fd8b754da4337730f6469ab21afb023d1`; 340394 bytes; 1672x941 WebP decode passed | THE STEPPE CONQUEROR / THE CONQUEROR WHO NEVER LOST A FIELD; prompt 7 sha256 `f3ce584a9ad1be329617429a77c2c85f7afae3b483d72d45599b7e5d7bbcda10`; GenStudio `gpt-image-2` via Story Studio Image Pool job `69cf46dc`, 29 credits, `reference_images: []`. Letterform note: this title and prompt 8 render as capitals-and-small-capitals rather than the uniform capitals of prompts 5 and 6. Both are capitals and both are correctly spelled, so both were accepted; the variance is recorded so a later pass can decide whether the recipe should pin one treatment. |
+| `content-packs/golden-epic/thumbnail/regalia-portrait-title-quadrant/assets/regalia-portrait-title-quadrant-4.webp` | `gen-golden-epic-previews-1-0008.png`; original `be46e27913f6a54d6f536c072ee40624bc4b6dceb97c8589aa4585532b8e78d8` (5943948 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `249736cd00549e2e7107e2dec6591fbc0b2d2e048321298a00e8bf40d8b13311`; 400504 bytes; 1672x941 WebP decode passed | THE GOLD ROAD KINGS / FOUR HUNDRED YEARS; prompt 8 sha256 `4f079a25b15e0fc33cc3479fd29905710d475d963163d25aacfdd72da4f2d6d9`; GenStudio `gpt-image-2` via Story Studio Image Pool job `69cf46dc`, 29 credits, `reference_images: []`. |
 
-Fill one row per file when the bytes land, in the same form the sleep-history record uses: original digest and byte count, the exact conversion applied and its paired-encode proof, the accepted digest, byte count, dimensions and decode result, and the route, job id and credits spent. Do not enter a row for a file that has not been decoded and independently reviewed at card size for spelling, legibility, absence of logos, watermarks and UI, and absence of any copied composition.
+One row per file, in the same form the sleep-history and Lost Voyage records use: original digest and byte count, the exact conversion applied and its paired-encode proof, the accepted digest, byte count, dimensions and decode result, and the route, job id and credits spent. Every row above is for a file that was decoded and reviewed at card size for spelling, legibility, absence of logos, watermarks and UI, and absence of any copied composition.
