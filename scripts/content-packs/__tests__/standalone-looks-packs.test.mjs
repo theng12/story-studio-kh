@@ -17,12 +17,12 @@
  * count in PREVIEW-PROVENANCE.md. A preview that goes missing now fails the
  * suite instead of being skipped.
  *
- * The third look, Flat Colour Stick Scenes, declares three previews that DO NOT
- * EXIST YET: the 2026-09-08 authorisation named that day's run ids rather than
- * this pass, so nothing was generated and nothing was stubbed. Its three paths
- * must be named by PREVIEW-PROVENANCE.md under the run id
- * `standalone-looks-previews-2`, and any byte that HAS landed must meet the
- * contract.
+ * The third look, Flat Colour Stick Scenes, was rendered on 2026-09-09 under a
+ * second owner authorisation, through the same `gpt-image-2` lane, under the
+ * run id `standalone-looks-previews-2`. All three of its previews landed on the
+ * first submission and are committed, so its assertions are no longer
+ * conditional either: all nine previews in this collection must now exist,
+ * decode to contract, and carry their digests in PREVIEW-PROVENANCE.md.
  *
  * The three-preview rule for Visual Styles, set by the owner on 2026-09-08 and
  * applied to Royal History first, is asserted here too, so a later edit cannot
@@ -42,7 +42,7 @@ const FIRST_PASS_RECEIPT = 'authoring:ada3557c18e5d2448acef9340b5472a0e6eee39da2
 const SECOND_PASS_RECEIPT = 'authoring:ebd1b5e09ab64e5b5f921bd6a8630358bcb69c8efb2fbcbf5739418e740c0754'
 /** Rendered on 2026-09-08; their previews must be on disk. */
 const RENDERED_SLUGS = ['inked-fable-cartoon', 'scratchy-editorial-poster']
-/** Authored 2026-09-09; its previews are pending and must not be faked. */
+/** Authored 2026-09-09; rendered 2026-09-09 under `standalone-looks-previews-2`. */
 const PENDING_SLUGS = ['flat-colour-stick-scenes']
 const SLUGS = [...RENDERED_SLUGS, ...PENDING_SLUGS]
 const RECEIPTS = Object.fromEntries([
@@ -206,12 +206,11 @@ test('the six previews rendered on 2026-09-08 are still present and still accoun
   }
 })
 
-test('the third look is preview-pending, and nothing was stubbed in place of its bytes', async () => {
+test('the third look\'s three previews landed on 2026-09-09 and are accounted for', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   for (const [rel, size] of Object.entries(PENDING_PREVIEWS)) {
-    // Not required to exist — but if a byte HAS landed it must be a real
-    // preview at contract size with its digest recorded, never a placeholder.
-    if (!await exists(join(ROOT, rel))) continue
+    assert.ok(await exists(join(ROOT, rel)),
+      `${rel} is declared by the third look and must be committed`)
     await assertPreview(rel, size, provenance)
   }
 })

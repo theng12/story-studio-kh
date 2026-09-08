@@ -4,13 +4,18 @@
  * around an ordinary house. One reservation batch (revision 268), one receipt,
  * five lifecycle promotions (revisions 273-277).
  *
- * Two of the five declare preview assets that DO NOT EXIST YET: this control
- * Mac does not perform production image generation, and the owner authorisation
- * of 2026-09-08 named that day's run ids rather than this pass. Nothing was
- * fabricated and nothing was stubbed, so this file pins the honest state
- * instead: every declared preview path is named by the collection's
- * PREVIEW-PROVENANCE.md, and any preview byte that HAS landed must meet the
- * contract.
+ * Two of the five declare preview assets, and all seven of them now EXIST:
+ * they were rendered on 2026-09-09 under an explicit owner authorisation
+ * through GenStudio `gpt-image-2`, converted, and committed. So the preview
+ * assertions are no longer conditional — every declared preview must be on
+ * disk, must decode to its exact contract, and must have its digest and byte
+ * count recorded in the collection's PREVIEW-PROVENANCE.md.
+ *
+ * The hardest-case style preview was rendered TWICE: the first return drew the
+ * jumping spider with six eyes where the prompt and this collection's own
+ * anatomy rule both demand exactly eight, so it was thrown away and re-rendered
+ * from the same unchanged prompt. Anatomy is the product in this collection,
+ * and that rejection is pinned below so a later re-run is held to the count.
  *
  * The two Topic Packs are the bulk of the collection and are held to the house
  * standard — fifty subjects, twenty slots each, a thousand complete tuples with
@@ -342,7 +347,7 @@ test('no topic line is shared between the two packs or with any other authored c
   }
 })
 
-test('every declared preview is named by the provenance record, and any that exists meets the contract', async () => {
+test('every declared preview exists, meets the contract, and is accounted for by the provenance record', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   const declared = new Set()
   for (const p of PACKS) {
@@ -357,7 +362,7 @@ test('every declared preview is named by the provenance record, and any that exi
     assert.ok(provenance.includes(rel.split('/').pop()), `provenance must name ${rel}`)
     assert.ok(provenance.includes(`${width}x${height}`), `provenance must state ${width}x${height}`)
     const path = join(ROOT, rel)
-    if (!await exists(path)) continue
+    assert.ok(await exists(path), `${rel} is declared by a pack and must be committed`)
     const buf = await readFile(path)
     assert.ok(buf.byteLength > 20 * 1024, `${rel} must exceed the 20 KB floor`)
     const meta = await sharp(buf).metadata()
@@ -369,7 +374,7 @@ test('every declared preview is named by the provenance record, and any that exi
   }
 })
 
-test('the provenance record states why nothing was generated, how to generate it, and what to refuse', async () => {
+test('the provenance record states under what authorisation these were rendered, how, and what to refuse', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   for (const evidence of [
     'image-pool/generate',
@@ -388,6 +393,17 @@ test('the provenance record states why nothing was generated, how to generate it
   assert.match(provenance, /Anatomy is the product here/)
   assert.match(provenance, /dim, lamplit, vignetted or set against a dark ground/)
   assert.match(provenance, /spelled exactly as written/)
+  // The rejected first return of the hardest-case preview, and the re-render
+  // that replaced it. Anatomy is the product here, so the eye count that failed
+  // is recorded rather than quietly overwritten.
+  for (const evidence of [
+    'backyard-naturalist-previews-1-retry2',
+    'backyard-naturalist-previews-1-fix3',
+    'four pairs and eight eyes in total and no more',
+    'The rejected first returns, kept as history',
+  ]) {
+    assert.ok(provenance.includes(evidence), `provenance must record ${evidence}`)
+  }
   // One run id, and its body stays inside the seven-prompt ceiling.
   const prompts = provenance.match(/^## Prompt \d+ — /gm) ?? []
   assert.equal(prompts.length, Object.keys(PREVIEW_CONTRACT).length)
