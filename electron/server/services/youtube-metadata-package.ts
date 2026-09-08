@@ -14,6 +14,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import path from 'node:path'
 
 import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
 import * as pm from './project-manager.js'
@@ -34,6 +35,8 @@ export interface YouTubeMetadataPackage {
   status: VideoStatus
   modifications: YouTubeMetadataModification[]
   warnings: string[]
+  /** Resolved local thumbnail for this request. Not part of the video insert payload. */
+  thumbnail_filename?: string | null
   /** Exactly what `acceptYouTubeOperation` persists, so equality is checkable. */
   final_payload: { snippet_json: string; status_json: string; source_sha256: string }
 }
@@ -153,7 +156,7 @@ export async function buildYouTubeMetadataPackage(input: {
   category_id?: string | number
   mark_as_ai_generated: boolean
   fallback_title?: string
-  thumbnail_filename?: string
+  thumbnail_filename?: string | null
 }): Promise<YouTubeMetadataPackage> {
   const meta = await resolveUploadMetadata({
     slug: input.project_slug,
@@ -203,6 +206,9 @@ export async function buildYouTubeMetadataPackage(input: {
     status,
     modifications,
     warnings,
+    ...(meta.thumbnailPath
+      ? { thumbnail_filename: path.basename(meta.thumbnailPath) }
+      : input.thumbnail_filename === null ? { thumbnail_filename: null } : {}),
     final_payload: {
       snippet_json: JSON.stringify(snippet),
       status_json: JSON.stringify(status),

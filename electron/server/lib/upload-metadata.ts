@@ -39,7 +39,8 @@ export interface ResolveUploadMetadataInput {
   /** Platform id, for future per-platform override routing. */
   platform?: 'youtube' | 'tiktok' | 'facebook'
   /** Exact episode thumbnail chosen for this operation. Never accepts a path. */
-  thumbnail_filename?: string
+  /** `null` explicitly selects no thumbnail; undefined keeps legacy auto-pick. */
+  thumbnail_filename?: string | null
 }
 
 export interface UploadThumbnailOption {
@@ -206,8 +207,10 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
   let thumbnailPath = ''
   try {
     const options = await listUploadThumbnails(input)
-    const requested = (input.thumbnail_filename || '').trim()
-    if (requested) {
+    const requested = typeof input.thumbnail_filename === 'string' ? input.thumbnail_filename.trim() : ''
+    if (input.thumbnail_filename === null) {
+      thumbnailPath = ''
+    } else if (requested) {
       // The API accepts a filename, never a path. This blocks traversal and
       // ensures an upload can only use media owned by this episode.
       const safeFilename = validateUploadThumbnailFilename(requested)
@@ -222,7 +225,7 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
   } catch (error) {
     // Explicit choices are a completion contract: never silently replace the
     // user's selection. Legacy automatic resolution remains best-effort.
-    if (input.thumbnail_filename) throw error
+    if (input.thumbnail_filename !== undefined) throw error
   }
 
   return {
