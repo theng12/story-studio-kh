@@ -991,6 +991,33 @@ describe('Content Store commerce routes', () => {
     }).expect(413)
   })
 
+  test('keeps the 16 KiB body cap on Store routes only, not on the routers mounted after it', async () => {
+    // routes/index.ts mounts this router bare on `/api` with ~30 siblings after
+    // it. A path-less `router.use` guard here therefore runs for EVERY later
+    // `/api` request, and every one of those routers silently inherited the
+    // Store's 16 KiB cap — answering a large but perfectly legitimate payload
+    // with a Content Store error about a Content Store limit. Found 2026-09-08
+    // when a 16.9 KiB `POST /api/projects/:slug/image-pool/generate` carrying 13
+    // image prompts came back CONTENT_STORE_REQUEST_TOO_LARGE.
+    const instance = express()
+    instance.use(express.json({ limit: '10mb' }))
+    instance.use('/api', contentStoreRouter)
+    const sibling = express.Router()
+    sibling.post('/projects/:slug/image-pool/generate', (req, res) => {
+      res.status(201).json({ prompts: (req.body?.prompts || []).length })
+    })
+    instance.use('/api', sibling)
+
+    const big = { prompts: Array.from({ length: 13 }, () => 'x'.repeat(1_400)) }
+    const passed = await request(instance)
+      .post('/api/projects/pack-previews/image-pool/generate').send(big).expect(201)
+    assert.equal(passed.body.prompts, 13)
+
+    // The Store's own routes keep the cap.
+    await request(instance).post('/api/content-store/quotes')
+      .send({ product_id: 'cprod_a', release_id: null, padding: 'x'.repeat(20_000) }).expect(413)
+  })
+
   test('keeps the financial service independent from installer, lifecycle, queue, and admission modules', async () => {
     const serviceSource = await fs.readFile(new URL('../services/content-store.ts', import.meta.url), 'utf8')
     const routeSource = await fs.readFile(new URL('../routes/content-store.ts', import.meta.url), 'utf8')
