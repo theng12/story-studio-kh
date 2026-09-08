@@ -304,7 +304,7 @@ describe('Upload Center Publish', () => {
     assert.equal(posted?.body.thumbnail_filename, 'EP0001_Thumb01_v1.png')
     assert.match(mounted.confirms[0].message, /EP0001_Thumb01_v1\.png/)
     assert.equal(
-      dialog.querySelector('a')?.getAttribute('href'),
+      dialog.querySelector('a[href*="images?tab=thumbnails"]')?.getAttribute('href'),
       '/projects/demo-project/images?tab=thumbnails&episode_id=EP0001',
     )
     mounted.destroy()
@@ -1534,6 +1534,14 @@ describe('Upload Center Publish', () => {
 })
 
 describe('Upload Center Publish boundaries', () => {
+  test('links every planning entry point to the actual plan editor', () => {
+    const shell = readFileSync(new URL('../pages/projects/[slug]/upload.vue', import.meta.url), 'utf8')
+    const settings = readFileSync(new URL('../pages/projects/[slug]/settings.vue', import.meta.url), 'utf8')
+    assert.match(shell, /upload\/plans/)
+    assert.match(settings, /upload\/plans/)
+    assert.match(source, /upload\/plans`[\s\S]*Manage upload plans/)
+    assert.doesNotMatch(source, /Create or activate one in Settings/)
+  })
   test('the only path to another upload is the confirmed exact-video association removal', () => {
     assert.match(source, /\/youtube\/episodes\/\$\{encodeURIComponent\(ep\.episode_code\)\}\/forget-upload/)
     assert.match(source, /confirm: true[\s\S]*expected_channel_id: expectedChannelId[\s\S]*expected_video_id: expectedVideoId/)

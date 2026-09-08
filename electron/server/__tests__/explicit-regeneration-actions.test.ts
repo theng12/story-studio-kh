@@ -195,22 +195,32 @@ void test('image and music routes retain one paid provider request per operation
       params?.single_scene_id === 'scene-001',
     ), { label: 'terminal continuity action to release its active queue slot', timeoutMs: 10_000 })
 
-    const continuityRetry = await request(app).post(`/api/projects/${project.slug}/jobs/${continuityFirst.body.job_id}/retry`)
-    assert.equal(continuityRetry.status, 202, JSON.stringify(continuityRetry.body))
-    const continuityRecoveryJobId = continuityRetry.body.plan.steps.continuity_render.job_id
-    assert.notEqual(continuityRecoveryJobId, continuityFirst.body.job_id,
-      'episode recovery creates a successor queue record only after preserving the paid action identity')
-    assert.equal(continuityRetry.body.plan.steps.continuity_render.params.generation_action.id, continuityAction,
-      'episode recovery preserves the explicit provider action identity')
-    await terminal(continuityRecoveryJobId, 'continuity Jobs Retry to settle')
-    assert.equal(service.providerSubmissionCount('image'), continuityBefore + 1,
-      `continuity Jobs Retry replayed the original provider key: ${JSON.stringify({
-        submissions: service.submissions.filter(row => row.operation === 'image').slice(-3),
-        job: jq.getJob(continuityRecoveryJobId),
-      })}`)
-    await waitFor(() => !jq.isDuplicate(project.slug, episodeId, 'continuity_render', (params: any) =>
-      params?.single_scene_id === 'scene-001',
-    ), { label: 'retried continuity action to release its active queue slot', timeoutMs: 10_000 })
+    const releasedJobIds = new Set<string>()
+    const stopObservingPumps = jq._observeQueuePumpsForTesting((_type, releasedJobId) => {
+      if (releasedJobId) releasedJobIds.add(releasedJobId)
+    })
+    try {
+      // Register before retrying: a fast mocked executor may release its slot
+      // before the HTTP response hands this test the successor id.
+      const continuityRetry = await request(app).post(`/api/projects/${project.slug}/jobs/${continuityFirst.body.job_id}/retry`)
+      assert.equal(continuityRetry.status, 202, JSON.stringify(continuityRetry.body))
+      const continuityRecoveryJobId = continuityRetry.body.plan.steps.continuity_render.job_id
+      assert.notEqual(continuityRecoveryJobId, continuityFirst.body.job_id,
+        'episode recovery creates a successor queue record only after preserving the paid action identity')
+      assert.equal(continuityRetry.body.plan.steps.continuity_render.params.generation_action.id, continuityAction,
+        'episode recovery preserves the explicit provider action identity')
+      await terminal(continuityRecoveryJobId, 'continuity Jobs Retry to settle')
+      assert.equal(service.providerSubmissionCount('image'), continuityBefore + 1,
+        `continuity Jobs Retry replayed the original provider key: ${JSON.stringify({
+          submissions: service.submissions.filter(row => row.operation === 'image').slice(-3),
+          job: jq.getJob(continuityRecoveryJobId),
+        })}`)
+      await waitFor(() => releasedJobIds.has(continuityRecoveryJobId), {
+        label: 'retried continuity action to release its shared image slot', timeoutMs: 10_000,
+      })
+    } finally {
+      stopObservingPumps()
+    }
 
     service.queueScenario('image', { states: ['accepted', 'succeeded'] })
     const continuityNew = await request(app).post(`/api/projects/${project.slug}/scene-review/${episodeId}/continuity-render`).send(

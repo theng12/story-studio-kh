@@ -262,6 +262,7 @@
           >
             Use the next date from this channel’s upload plan
           </button>
+          <NuxtLink :to="`/projects/${slug}/upload/plans`" class="inline-action">Manage upload plans</NuxtLink>
           <p v-if="timingError" class="row-result err" role="alert">{{ timingError }}</p>
           <p v-else-if="timingDirty" class="hint" role="status">Review this timing choice to rebuild the exact YouTube payload before continuing.</p>
         </section>
@@ -932,7 +933,7 @@ async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promi
     if (!actionIsCurrent(action)) return null
     const planId = listed.active?.[`youtube:registry:${channelId}`]
     const plan = listed.plans.find(candidate => candidate.id === planId)
-    if (!plan) throw new Error('This channel does not have an active upload plan. Create or activate one in Settings → Publishing.')
+    if (!plan) throw new Error('This channel does not have an active upload plan. Create or activate one in Upload Center → Upload plans.')
     const previewResult = await post<{ assignments: PlanAssignment[]; skipped_existing: string[] }>(
       `/projects/${action.slug}/youtube/plan/preview`,
       { plan_id: plan.id, expected_channel_id: channelId, episode_codes: episodeCodes },

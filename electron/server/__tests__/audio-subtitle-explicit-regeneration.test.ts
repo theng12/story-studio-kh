@@ -16,9 +16,14 @@ void test('audio and subtitles route replay and Jobs Retry keep one provider req
   const isolated = await useTempDataDir()
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   const service = await startMockGenStudioService()
+  let stopObservingPumps: (() => void) | null = null
   try {
     const app = (await import('../app.js')).app
     const jq = await import('../services/job-queue.js')
+    const releasedJobIds = new Set<string>()
+    stopObservingPumps = jq._observeQueuePumpsForTesting((_type, releasedJobId) => {
+      if (releasedJobId) releasedJobIds.add(releasedJobId)
+    })
     const pm = await import('../services/project-manager.js')
     const ideas = await import('../services/idea-manager.js')
     const settings = await import('../services/app-settings.js')
@@ -40,10 +45,25 @@ void test('audio and subtitles route replay and Jobs Retry keep one provider req
     await Promise.all([paths.script_dir, paths.audio_dir, paths.merged_audio_dir, paths.subtitles_dir].map(dir => fs.mkdir(dir, { recursive: true })))
     await fs.writeFile(paths.narration_docx, '# Narration\n\n## Chapter 01: Fixture\n\nA short line for the mock audio request.\n')
 
-    const terminal = async (jobId: string, label: string) => waitFor(() => {
-      const status = jq.getJob(jobId)?.status
-      return status === 'done' || status === 'error' || status === 'cancelled'
-    }, { label, timeoutMs: 10_000 })
+    const terminal = async (jobId: string, label: string) => {
+      try {
+        await waitFor(() => {
+          const status = jq.getJob(jobId)?.status
+          return (status === 'done' || status === 'error' || status === 'cancelled')
+            && releasedJobIds.has(jobId)
+        }, { label, timeoutMs: 10_000 })
+      } catch (error) {
+        const job = jq.getJob(jobId)
+        const diagnostics = JSON.stringify({
+          status: job?.status ?? null,
+          error: job?.error ?? null,
+          output_tail: Array.isArray(job?.output_lines) ? job.output_lines.slice(-5) : [],
+          release_observed: releasedJobIds.has(jobId),
+        })
+        if (error instanceof Error) error.message = `${error.message}; queue=${diagnostics}`
+        throw error
+      }
+    }
     const jobId = (response: request.Response) => String(response.body.job_id || response.body.job?.job_id || '')
     const sameJob = (a: request.Response, b: request.Response, label: string) => {
       assert.ok([200, 201].includes(a.status), `${label}: ${JSON.stringify(a.body)}`)
@@ -128,13 +148,6 @@ void test('audio and subtitles route replay and Jobs Retry keep one provider req
     assert.equal(subtitleNew.status, 201, JSON.stringify(subtitleNew.body))
     await terminal(jobId(subtitleNew), 'second subtitle action to settle')
     assert.equal(service.providerSubmissionCount('transcription'), 2, 'a later subtitle action made one intentionally fresh POST')
-    // Queue status flips before the pump releases its active slot. Wait for
-    // that release so this next independent route call does not test a
-    // scheduler micro-race instead of ordinary unmarked recovery.
-    await waitFor(() => !jq.isDuplicate(project.slug, episodeId, 'subtitles_transcribe'), {
-      label: 'subtitle queue slot to release', timeoutMs: 2_000,
-    })
-
     const subtitleOrdinary = await request(app).post(`/api/projects/${project.slug}/video-editor/subtitles/transcribe/${episodeId}`)
       .send(subtitleBody(undefined, false))
     assert.equal(subtitleOrdinary.status, 201, JSON.stringify(subtitleOrdinary.body))
@@ -142,6 +155,7 @@ void test('audio and subtitles route replay and Jobs Retry keep one provider req
     assert.equal(service.providerSubmissionCount('transcription'), 2, 'ordinary subtitle recovery kept its current output')
     assert.equal(jq.getJob(jobId(subtitleOrdinary))?.params.generation_action, undefined, 'ordinary subtitle recovery stays unmarked')
   } finally {
+    stopObservingPumps?.()
     const jq = await import('../services/job-queue.js').catch(() => null)
     await jq?._waitForJobPersistenceForTesting()
     await service.close()

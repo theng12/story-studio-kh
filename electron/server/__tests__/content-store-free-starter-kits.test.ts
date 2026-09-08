@@ -60,10 +60,12 @@ type SourcePack = {
   kind: 'series_formula' | 'topic_pack' | 'visual_style' | 'thumbnail_recipe' | 'niche_bundle'
 }
 
+type CatalogPack = Omit<SourcePack, 'source'>
+
 async function starterSources(): Promise<SourcePack[]> {
   const baselineByPackId = new Map<string, SourcePack>()
   const kinds = {
-    formula: 'series_formula', topic: 'topic_pack', style: 'visual_style', thumbnail: 'thumbnail_recipe', kit: 'niche_bundle',
+    formula: 'series_formula', topic: 'topic_pack', style: 'visual_style', thumbnail: 'thumbnail_recipe',
   } as const
   for (const [folder, kind] of Object.entries(kinds)) {
     for (const name of (await fs.readdir(path.join(STARTERS, folder))).sort()) {
@@ -80,7 +82,52 @@ async function starterSources(): Promise<SourcePack[]> {
   return [...baselineByPackId.values()]
 }
 
-function sourceProduct(source: SourcePack): Record<string, unknown> {
+function legacyStarterKits(): CatalogPack[] {
+  const kit = (
+    slug: string,
+    name: string,
+    changelog: string,
+    components: Array<{ pack_id: string; item_id: string; kind: string }>,
+  ): CatalogPack => ({
+    kind: 'niche_bundle',
+    pack: {
+      pack_format: 1,
+      pack_id: `com.storystudio.pack.kit.${slug}`,
+      publisher_id: 'com.storystudio',
+      version: '1.0.0',
+      min_app_version: '1.0.0',
+      lifecycle: 'active',
+      changelog,
+      entitlement: {
+        sku: `com.storystudio.sku.kit.${slug}`,
+        family: `com.storystudio.family.kit.${slug}`,
+      },
+      dependencies: components.map(({ pack_id }) => ({ pack_id, version: '1.0.0' })),
+      bundles: [{
+        id: `com.storystudio.bundle.${slug}`,
+        kind: 'channel-kit',
+        name,
+        components: components.map(component => ({ ...component, version: '1.0.0' })),
+      }],
+    },
+  })
+  return [
+    kit('calm-mind', 'Calm Mind', '15 everyday practices / Pause → Presence', [
+      { pack_id: 'com.storystudio.pack.formula.guided-mindfulness', item_id: 'com.storystudio.formula.guided-mindfulness', kind: 'series-formula' },
+      { pack_id: 'com.storystudio.pack.topic.everyday-calm', item_id: 'com.storystudio.topic.everyday-calm', kind: 'topic-pack' },
+      { pack_id: 'com.storystudio.pack.style.watercolor-storybook', item_id: 'com.storystudio.style.watercolor-storybook', kind: 'visual-style' },
+      { pack_id: 'com.storystudio.pack.thumbnail.centered-hero-headline', item_id: 'com.storystudio.thumbnail.centered-hero-headline', kind: 'thumbnail-recipe' },
+    ]),
+    kit('sleep-journeys', 'Sleep Journeys', '15 night journeys / Setting → Rest', [
+      { pack_id: 'com.storystudio.pack.formula.sleep-story', item_id: 'com.storystudio.formula.sleep-story', kind: 'series-formula' },
+      { pack_id: 'com.storystudio.pack.topic.night-journeys', item_id: 'com.storystudio.topic.night-journeys', kind: 'topic-pack' },
+      { pack_id: 'com.storystudio.pack.style.watercolor-storybook', item_id: 'com.storystudio.style.watercolor-storybook', kind: 'visual-style' },
+      { pack_id: 'com.storystudio.pack.thumbnail.dreamscape-story-window', item_id: 'com.storystudio.thumbnail.dreamscape-story-window', kind: 'thumbnail-recipe' },
+    ]),
+  ]
+}
+
+function sourceProduct(source: CatalogPack, { retired = false }: { retired?: boolean } = {}): Record<string, unknown> {
   const pack = source.pack
   return {
     product_id: `starter-${pack.pack_id.slice('com.storystudio.pack.'.length)}`,
@@ -93,7 +140,7 @@ function sourceProduct(source: SourcePack): Record<string, unknown> {
     credit_price: 0,
     free: true,
     owned: false,
-    retired: false,
+    retired,
     successor_product_id: null,
     current_release: {
       release_id: `release-${pack.pack_id.slice('com.storystudio.pack.'.length)}`,
@@ -136,6 +183,19 @@ async function asStoreDeliveryArchive(bytes: Uint8Array): Promise<Uint8Array> {
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
 }
 
+/** Historical Channel Kits are delivery artefacts, never publishable sources. */
+async function legacyKitDeliveryArchive(pack: Record<string, any>): Promise<Uint8Array> {
+  const { key_id: _keyId, ...manifest } = pack
+  const zip = new JSZip()
+  zip.file('manifest.json', JSON.stringify({
+    ...manifest,
+    items: [],
+    files: [],
+    delivery_profile: 'genstudio-store-receipt-v1',
+  }))
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
+}
+
 /** Test-only packaged resource seam: delivery keeps its production trust lookup. */
 async function installTestFirstPartyTrust(tempDir: string, publicKeyPem: string): Promise<() => void> {
   const resourcesPath = path.join(tempDir, 'packaged-resources')
@@ -170,7 +230,7 @@ async function sourceDocumentId(source: SourcePack): Promise<string> {
   return String(JSON.parse(await fs.readFile(path.join(content, files[0]!), 'utf8')).id)
 }
 
-test('free Starter Kits claim, restore, install, and remain usable without a credit balance or network', async () => {
+test('free Starter sources claim and restore; historical Kits install and remain usable without a credit balance or network', async () => {
   const temporary = await useTempDataDir()
   cleanup = temporary.cleanup
   mock = await startMockGenStudioService()
@@ -183,17 +243,19 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
   await setApiKey('genstudio', KEY)
 
   const sources = await starterSources()
-  // An exact count on purpose: every source here ships FREE, so a source
-  // appearing without anyone noticing is a pricing change nobody made. 55c675dd
-  // restored the Animal Hardship Annotation source and took this to 47; its
-  // message said the assertion had been updated, but the commit never touched
-  // this file, so the suite has been red since 2026-08-25. Move this number
-  // deliberately, together with the source that moved it.
-  assert.equal(sources.length, 47)
-  const products = sources.map(sourceProduct)
+  // An exact count on purpose: every current source here ships FREE, so a
+  // source appearing without anyone noticing is a pricing change nobody made.
+  // Channel Kits were retired in PR82 and are represented below only as
+  // already-owned historical delivery records.
+  assert.equal(sources.length, 37)
+  const legacyKits = legacyStarterKits()
+  const products = [
+    ...sources.map(source => sourceProduct(source)),
+    ...legacyKits.map(kit => sourceProduct(kit, { retired: true })),
+  ]
   mock.contentProducts = products
   const productsByPackId = new Map(products.map(product => [String((product.current_release as Record<string, unknown>).pack_id), product]))
-  for (const kit of sources.filter(source => source.kind === 'niche_bundle')) {
+  for (const kit of legacyKits) {
     const product = productsByPackId.get(kit.pack.pack_id)!
     const componentProductIds = kit.pack.dependencies.map((dependency: { pack_id: string }) =>
       productsByPackId.get(dependency.pack_id)!.product_id as string)
@@ -220,8 +282,8 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
   await fs.writeFile(projectPath, `${JSON.stringify(initialProject, null, 2)}\n`)
 
   const local = app()
-  const kitProducts = products.filter(product => product.kind === 'niche_bundle')
-  for (const product of kitProducts) {
+  const freeStarterProducts = products.filter(product => product.retired !== true)
+  for (const product of freeStarterProducts) {
     const quote = await request(local).post('/api/content-store/quotes').send({ product_id: product.product_id, release_id: null }).expect(201)
     assert.equal(quote.body.quoted_credits, 0)
     const claimed = await request(local).post(`/api/content-store/quotes/${quote.body.quote_id}/purchase`).send({}).expect(200)
@@ -229,11 +291,23 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
     assert.equal(claimed.body.ownership, 'owned_not_installed')
   }
   assert.equal(mock.totalCreditsCharged, 0)
-  assert.equal(mock.contentPurchaseCharges.length, 10)
-  assert.deepEqual(mock.contentPurchaseCharges, Array(10).fill(0))
+  assert.equal(mock.contentPurchaseCharges.length, freeStarterProducts.length)
+  assert.deepEqual(mock.contentPurchaseCharges, Array(freeStarterProducts.length).fill(0))
   assert.equal(new Set(mock.grantedFamilies).size, mock.grantedFamilies.length)
   assert.equal(mock.familyGrantCount('com.storystudio.family.style.watercolor-storybook'), 1)
   assert.equal(mock.familyGrantCount('com.storystudio.family.thumbnail.centered-hero-headline'), 1)
+
+  // Create exact historical purchase receipts while these fixtures are still
+  // publishable, then retire them before any current-product behavior. A
+  // seeded root-only receipt would not match its four exact closure pins.
+  const historicalKitProducts = legacyKits.map(kit => productsByPackId.get(kit.pack.pack_id)!)
+  for (const product of historicalKitProducts) product.retired = false
+  for (const product of historicalKitProducts) {
+    const quote = await request(local).post('/api/content-store/quotes').send({ product_id: product.product_id, release_id: null }).expect(201)
+    assert.equal(quote.body.quoted_credits, 0)
+    await request(local).post(`/api/content-store/quotes/${quote.body.quote_id}/purchase`).send({}).expect(200)
+  }
+  for (const product of historicalKitProducts) product.retired = true
 
   const owned = await request(local).get('/api/content-store').expect(200)
   assert.ok(owned.body.account.owned.every((entry: { installState: string }) => entry.installState !== 'installed_current'))
@@ -241,9 +315,9 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
   const restored = await request(local).post('/api/content-store/restore').send({}).expect(200)
   assert.equal(restored.body.account.accountId, ACCOUNT)
   const restoredReceipts = await getGenStudioContentReceipts(ROTATED_KEY)
-  assert.equal(restoredReceipts.purchaseReceipts.length, 10)
-  assert.deepEqual(restoredReceipts.purchaseReceipts.map(receipt => receipt.creditsCharged), Array(10).fill(0))
-  assert.equal(new Set(restoredReceipts.purchaseReceipts.map(receipt => receipt.purchaseId)).size, 10)
+  assert.equal(restoredReceipts.purchaseReceipts.length, freeStarterProducts.length + legacyKits.length)
+  assert.deepEqual(restoredReceipts.purchaseReceipts.map(receipt => receipt.creditsCharged), Array(freeStarterProducts.length + legacyKits.length).fill(0))
+  assert.equal(new Set(restoredReceipts.purchaseReceipts.map(receipt => receipt.purchaseId)).size, freeStarterProducts.length + legacyKits.length)
   assert.deepEqual(
     restoredReceipts.entitlements.map(entitlement => entitlement.entitlementFamily).sort(),
     restored.body.account.owned.map((entry: { entitlementFamily: string }) => entry.entitlementFamily).sort(),
@@ -266,9 +340,7 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
     publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
   }])
   const selectedPackIds = new Set([
-    'com.storystudio.pack.kit.calm-mind', 'com.storystudio.pack.kit.sleep-journeys',
-    ...sources.find(source => source.pack.pack_id === 'com.storystudio.pack.kit.calm-mind')!.pack.dependencies.map((row: { pack_id: string }) => row.pack_id),
-    ...sources.find(source => source.pack.pack_id === 'com.storystudio.pack.kit.sleep-journeys')!.pack.dependencies.map((row: { pack_id: string }) => row.pack_id),
+    ...legacyKits.flatMap(kit => [kit.pack.pack_id, ...kit.pack.dependencies.map((row: { pack_id: string }) => row.pack_id)]),
   ])
   // @ts-expect-error The deterministic publisher is JavaScript-only test tooling.
   const { buildContentPack } = await import('../../../scripts/content-packs/lib.mjs')
@@ -281,6 +353,13 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
     mock.setContentArchive(
       String((product.current_release as Record<string, unknown>).release_id),
       await asStoreDeliveryArchive(await fs.readFile(archivePath)),
+    )
+  }
+  for (const kit of legacyKits) {
+    const product = productsByPackId.get(kit.pack.pack_id)!
+    mock.setContentArchive(
+      String((product.current_release as Record<string, unknown>).release_id),
+      await legacyKitDeliveryArchive(kit.pack),
     )
   }
   const calmFamily = String(productsByPackId.get('com.storystudio.pack.kit.calm-mind')!.entitlement_family)
@@ -331,7 +410,8 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
   assert.equal(state.packs['com.storystudio.pack.kit.sleep-journeys']?.active_version, '1.0.0')
 
   const starterProject = await projectManager.createProject({ name: 'Starter closure available offline' })
-  const calmClosure = ['com.storystudio.pack.kit.calm-mind', ...sources.find(source => source.pack.pack_id === 'com.storystudio.pack.kit.calm-mind')!.pack.dependencies.map((row: { pack_id: string }) => row.pack_id)]
+  const calmKit = legacyKits.find(kit => kit.pack.pack_id === 'com.storystudio.pack.kit.calm-mind')!
+  const calmClosure = [calmKit.pack.pack_id, ...calmKit.pack.dependencies.map((row: { pack_id: string }) => row.pack_id)]
   for (const packId of calmClosure) {
     const release = productsByPackId.get(packId)!.current_release as Record<string, unknown>
     await setProjectContentPin(starterProject.slug, {

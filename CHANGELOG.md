@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.131
+
+- Restore Upload Center’s Upload plans editor: create, edit and activate channel-specific weekly or monthly schedules, with timezone and date bounds.
+- Link Settings and upload review directly to the plan editor. Saving a plan stays separate from assigning episode dates and scheduling on YouTube.
+- Validate plan inputs before saving and preserve existing plan defaults and channel identity.
+- Keep a manual provider-status recheck effective when a startup check is still finishing.
+
 ## v1.4.130 — 2026-09-08
 
 - **Recovered subtitles stop looking unfinished.** Jobs distinguishes the original failed attempt from verified later recovery, keeps its credit history, and removes obsolete missing-section retry prompts.

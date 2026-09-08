@@ -761,7 +761,7 @@ function scheduleCancellationReconciliation(jobId: string): void {
 // asking to be cancelled, so it never issues a control POST — it only asks
 // what the current state is, writes the answer into the stored evidence, and
 // lets the gate decide again.
-const historyEvidenceRefreshing = new Set<string>()
+const historyEvidenceRefreshing = new Map<string, Promise<void>>()
 
 function isFinishedStatus(status: Job['status']): boolean {
   return status === 'done' || status === 'error' || status === 'cancelled'
@@ -782,10 +782,13 @@ function needsHistoryEvidenceRefresh(job: Job): boolean {
 }
 
 async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> {
-  if (historyEvidenceRefreshing.has(jobId)) return
+  const inFlight = historyEvidenceRefreshing.get(jobId)
+  if (inFlight) return inFlight
   const job = jobs.get(jobId)
   if (!job || !needsHistoryEvidenceRefresh(job)) return
-  historyEvidenceRefreshing.add(jobId)
+  let settled!: () => void
+  const waiter = new Promise<void>(resolve => { settled = resolve })
+  historyEvidenceRefreshing.set(jobId, waiter)
   const previous = job.history_evidence_check?.state
   try {
     job.history_evidence_check = { state: 'checking', at: new Date().toISOString() }
@@ -840,6 +843,7 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
     }
   } finally {
     historyEvidenceRefreshing.delete(jobId)
+    settled()
   }
 }
 
@@ -873,7 +877,15 @@ export async function recheckJobProviderStatus(projectSlug: string, jobId: strin
   if (!job || job.project_slug !== projectSlug) {
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
   }
-  if (!needsHistoryEvidenceRefresh(job)) return serializeJob(job)
+  // Boot refresh publishes an intermediate `unreachable` result before its
+  // persistence finishes. A manual check in that window must wait, then issue
+  // its own provider read instead of returning as if it had checked.
+  await historyEvidenceRefreshing.get(jobId)
+  const current = jobs.get(jobId)
+  if (!current || current.project_slug !== projectSlug) {
+    throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+  }
+  if (!needsHistoryEvidenceRefresh(current)) return serializeJob(current)
   await refreshFinishedJobProviderEvidence(jobId)
   return serializeJob(jobs.get(jobId) || job)
 }
@@ -996,10 +1008,10 @@ interface QueueState {
   executor: JobExecutor | null
 }
 
-let queuePumpObserverForTesting: ((type: JobType) => void) | null = null
+let queuePumpObserverForTesting: ((type: JobType, releasedJobId?: string) => void) | null = null
 
-/** Test-only observation of queue admission attempts; returns its own cleanup. */
-export function _observeQueuePumpsForTesting(observer: (type: JobType) => void): () => void {
+/** Test-only observation of queue admission attempts and grouped-slot releases. */
+export function _observeQueuePumpsForTesting(observer: (type: JobType, releasedJobId?: string) => void): () => void {
   const previous = queuePumpObserverForTesting
   queuePumpObserverForTesting = observer
   return () => {
@@ -2909,7 +2921,7 @@ function releaseSlot(type: JobType, job: Job): void {
   if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
     if (group === IMAGE_EPISODE_GROUP) activeImageEpisodeJobIds.delete(job.job_id)
     groupActive[group] = Math.max(0, (groupActive[group] || 0) - 1)
-    if (group === IMAGE_EPISODE_GROUP) queuePumpObserverForTesting?.(type)
+    queuePumpObserverForTesting?.(type, job.job_id)
     pumpGroup(group)
     if (group === IMAGE_EPISODE_GROUP) noteAdaptiveImageTailEvent()
   } else {

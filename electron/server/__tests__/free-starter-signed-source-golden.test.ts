@@ -589,9 +589,11 @@ test('approved Starter shelf names and promise counts remain exact', async () =>
     ['sleep-story', 'night-journeys', 15, 'Setting → Rest'],
   ] as const) {
     const formula = await sourceJson('formula', formulaSlug)
+    assert.ok(formula.kind === 'series-formula')
     assert.equal(formula.channel_promise, promise)
     const topic = await sourceJson('topic', topicSlug)
-    assert.equal((topic.subjects as unknown[]).length, subjects)
+    assert.ok(topic.kind === 'topic-pack')
+    assert.equal(topic.subjects.length, subjects)
   }
 })
 

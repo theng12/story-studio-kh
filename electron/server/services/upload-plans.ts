@@ -59,6 +59,87 @@ export interface UploadPlan {
   updated_at: string
 }
 
+function isRecord(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isOptionalValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== ''
+}
+
+function isValidCalendarDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(`${value}T00:00:00.000Z`)
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
+/**
+ * Validate the persisted plan shape before accepting a user supplied save.
+ *
+ * `computeSlots` intentionally has recovery defaults for old config files, so
+ * it is not suitable as an input validator. Keep this check at the save
+ * boundary while allowing legacy records to remain readable.
+ */
+export function validateUploadPlanDraft(value: unknown): string | null {
+  if (!isRecord(value)) return 'plan body required'
+  if (typeof value.id !== 'undefined' && (typeof value.id !== 'string' || !value.id.trim())) {
+    return 'id must be a non-empty string'
+  }
+  if (typeof value.name !== 'string' || !value.name.trim()) return 'name required'
+  if (typeof value.account_id !== 'string' || !value.account_id.trim()) return 'account_id required'
+  if (!isRecord(value.schedule)) return 'schedule required'
+  if (!isRecord(value.defaults)) return 'defaults required'
+
+  const schedule = value.schedule
+  if (!Array.isArray(schedule.weekdays)) return 'schedule.weekdays must be an array'
+  if (!schedule.weekdays.every((day: unknown) =>
+    typeof day === 'number' && Number.isInteger(day) && day >= 0 && day <= 6)) {
+    return 'schedule.weekdays must contain integers from 0 to 6'
+  }
+  if (typeof schedule.time_local !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(schedule.time_local)) {
+    return 'schedule.time_local must be a valid 24-hour HH:MM time'
+  }
+  if (typeof schedule.timezone !== 'string' || !isValidTimezone(schedule.timezone)) {
+    return 'schedule.timezone must be a valid IANA timezone'
+  }
+
+  const hasMonthlyDay = isOptionalValue(schedule.monthly_day)
+  if (hasMonthlyDay && (!Number.isInteger(schedule.monthly_day) || schedule.monthly_day < 1 || schedule.monthly_day > 31)) {
+    return 'schedule.monthly_day must be an integer from 1 to 31'
+  }
+  if (schedule.weekdays.length === 0 && !hasMonthlyDay) {
+    return 'schedule requires weekdays or monthly_day'
+  }
+  if (isOptionalValue(schedule.interval_weeks)
+    && (!Number.isInteger(schedule.interval_weeks) || schedule.interval_weeks < 1)) {
+    return 'schedule.interval_weeks must be an integer of at least 1'
+  }
+  if (isOptionalValue(schedule.start_date) && !isValidCalendarDate(schedule.start_date)) {
+    return 'schedule.start_date must be a valid YYYY-MM-DD date'
+  }
+  if (isOptionalValue(schedule.end_date) && !isValidCalendarDate(schedule.end_date)) {
+    return 'schedule.end_date must be a valid YYYY-MM-DD date'
+  }
+  if (isValidCalendarDate(schedule.start_date) && isValidCalendarDate(schedule.end_date)
+    && schedule.end_date < schedule.start_date) {
+    return 'schedule.end_date must be on or after start_date'
+  }
+
+  const defaults = value.defaults
+  if (defaults.privacy_status !== 'private'
+    && defaults.privacy_status !== 'unlisted'
+    && defaults.privacy_status !== 'public') {
+    return 'defaults.privacy_status must be private, unlisted, or public'
+  }
+  if (typeof defaults.language !== 'undefined' && typeof defaults.language !== 'string') {
+    return 'defaults.language must be a string'
+  }
+  if (typeof defaults.made_for_kids !== 'undefined' && typeof defaults.made_for_kids !== 'boolean') {
+    return 'defaults.made_for_kids must be a boolean'
+  }
+  return null
+}
+
 /**
  * Normalize a user selection into stable production order. Checkbox Sets
  * preserve click order, which must never decide which episode receives the

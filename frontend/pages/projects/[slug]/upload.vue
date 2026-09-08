@@ -17,6 +17,9 @@
       <NuxtLink :to="`/projects/${slug}/upload/publish`" class="uc-area" active-class="active">
         Publish
       </NuxtLink>
+      <NuxtLink :to="`/projects/${slug}/upload/plans`" class="uc-area" active-class="active">
+        Upload plans
+      </NuxtLink>
       <NuxtLink :to="`/projects/${slug}/upload/library`" class="uc-area" active-class="active">
         Library
       </NuxtLink>

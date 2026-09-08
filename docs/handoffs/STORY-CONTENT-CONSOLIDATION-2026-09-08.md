@@ -96,7 +96,7 @@ These are recorded prior-release IDs, not new IDs or live checks performed by GP
 | Release | 4/4 | 36 | 36 | 0 | 0 |
 | Content packs | 36/36 | 313 | 311 | 2 optional external-evidence checks | 0 |
 
-Total: 6,844 tests, 6,842 passed, two skipped, zero failed. Configured production projects remained byte-identical. Log: `/build/pinokio/_handoffs/logs/story-content-consolidation-2026-09-08/story-upload130-content-final-verify.log`. The test run includes all executable/content changes; later main `60a84450`/`d73cd7ea` and final evidence additions are documentation only.
+Total: 6,844 tests, 6,842 passed, two skipped, zero failed. Configured production projects remained byte-identical. Log: `<owner-home>/pinokio/_handoffs/logs/story-content-consolidation-2026-09-08/story-upload130-content-final-verify.log`. The test run includes all executable/content changes; later main `60a84450`/`d73cd7ea` and final evidence additions are documentation only.
 
 ## Ready for GenStudio publication — exact local Store artifacts
 
@@ -104,7 +104,7 @@ Status: **ready-for-owner-stocking**. Both standalone candidates are complete an
 
 Official local `npm run content-pack:ship` completed with exit **0** from source commit `b9af3b16f5f9829d75989164e836970d09ceea50`. Each archive was built twice identically, passed the forbidden-mark scan, and passed `genstudio-store-receipt-v1` validation. No signing key or live Store call was used. The archive files and machine-readable `manifest.json` are retained here:
 
-`/build/Developer/_handoffs/artifacts/topic-corrections-2026-09-08`
+`<owner-home>/Developer/_handoffs/artifacts/topic-corrections-2026-09-08`
 
 | File | Bytes | SHA-256 |
 |---|---:|---|
