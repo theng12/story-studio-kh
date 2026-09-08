@@ -5,13 +5,16 @@
  * minutes, and settles the contradiction inside itself. One reservation batch
  * (revision 177), one receipt, eight lifecycle promotions (revisions 178-185).
  *
- * Six of the eight declare preview assets that DO NOT EXIST YET: this control
- * Mac does not perform production image generation, and no owner authorisation
- * was given for this pass. Nothing was fabricated and nothing was stubbed, so
- * this file pins the honest state instead: every declared preview path is named
- * by the collection's PREVIEW-PROVENANCE.md, and any preview byte that HAS
- * landed must meet the contract. The day the previews are rendered, the
- * assertions below start checking them without being edited.
+ * Six of the eight declare preview assets. They did not exist when this file
+ * was first written — this control Mac does not perform production image
+ * generation, and no owner authorisation had been given — so nothing was
+ * fabricated and nothing was stubbed. The authorisation arrived on 2026-09-08
+ * and all thirteen were rendered by two Image Pool jobs, `bae07584` (prompts
+ * 1-7) and `3eb8e9eb` (prompts 8-13), split because a single request exceeded
+ * a body cap since fixed. All thirteen are now present, so the assertions below
+ * require every declared preview to exist, to decode to its contract, and to
+ * carry its own digest and byte count in PREVIEW-PROVENANCE.md. A preview that
+ * goes missing now fails the suite instead of being skipped.
  *
  * The three-preview rule for Visual Styles, set by the owner on 2026-09-08 and
  * applied to Royal History first, is asserted here too, so a later edit cannot
@@ -292,7 +295,7 @@ test('the metadata formula fixes three contrarian title shapes and a 35-95 minut
   assert.ok(!builtinIds.includes(doc.id), `${doc.id} shadows a built-in`)
 })
 
-test('every declared preview is named by the provenance record, and any that exists meets the contract', async () => {
+test('every declared preview exists, meets the contract, and carries its byte evidence in the provenance record', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   // Collect what the documents actually declare, so a new preview added to a
   // document cannot escape this check by not being listed above.
@@ -309,7 +312,7 @@ test('every declared preview is named by the provenance record, and any that exi
     assert.ok(provenance.includes(rel.split('/').pop()), `provenance must name ${rel}`)
     assert.ok(provenance.includes(`${width}x${height}`), `provenance must state ${width}x${height}`)
     const path = join(ROOT, rel)
-    if (!await exists(path)) continue
+    assert.ok(await exists(path), `${rel} must exist: all thirteen previews landed on 2026-09-08`)
     const buf = await readFile(path)
     assert.ok(buf.byteLength > 20 * 1024, `${rel} must exceed the 20 KB floor`)
     const meta = await sharp(buf).metadata()
@@ -322,14 +325,17 @@ test('every declared preview is named by the provenance record, and any that exi
   }
 })
 
-test('the provenance record states why nothing was generated and how to generate it', async () => {
+test('the provenance record states why the render was held, how it was run, and which two jobs ran it', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   for (const evidence of [
     'image-pool/generate',
     'reference_images: []',
     'does not perform production image generation',
     'midnight-archives-previews-1',
+    'midnight-archives-previews-1b',
     'gpt-image-2',
+    'bae07584',
+    '3eb8e9eb',
   ]) {
     assert.ok(provenance.includes(evidence), `provenance must record ${evidence}`)
   }
