@@ -44,7 +44,7 @@
  */
 
 import { createHash } from 'crypto'
-import { createReadStream, existsSync } from 'fs'
+import { constants as fsConstants, createReadStream, existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from './project-manager.js'
@@ -53,10 +53,11 @@ import { resolveEpisodePaths } from './utils.js'
 import { writeAtomic } from '../lib/sync-safe.js'
 import {
   youtubeRetentionEvidenceFor,
-  youtubeRetentionProofForFile,
+  youtubeArchiveProofForFile,
   readYouTubeRetentionStores,
   type YouTubeRetentionEvidence,
 } from './youtube-remote-video.js'
+import { withFinalVideoPathLock } from './final-video-lock.js'
 
 const VIDEO_EXT = /\.(mp4|mov|mkv|webm|m4v)$/i
 /**
@@ -336,7 +337,7 @@ export async function previewArchiveSweep(
         })
         continue
       }
-      const proof = await youtubeRetentionProofForFile(hit.evidence, full)
+      const proof = await youtubeArchiveProofForFile(hit.evidence, full)
       if (!proof.usable || !proof.video_id) {
         candidates.push({
           ...base,
@@ -514,30 +515,64 @@ export async function runArchiveSweep(opts: ArchiveRunOptions): Promise<ArchiveR
         continue
       }
 
-      await fs.copyFile(candidate.source_path, target)
+      // Keep a concurrent Video Assembly promotion from replacing the source
+      // after this copy is checked but before its pathname is removed. Re-read
+      // the receipt inside this same lock: a same-size new render that arrives
+      // after preview must not inherit the approved file's YouTube identity.
+      const move = await withFinalVideoPathLock(candidate.source_path, async () => {
+        const { records, state } = await readYouTubeRetentionStores(candidate.slug!)
+        const evidence = await youtubeRetentionEvidenceFor(
+          candidate.slug!, candidate.code, candidate.title || '', records, state,
+        )
+        const freshProof = await youtubeArchiveProofForFile(evidence, candidate.source_path)
+        if (!freshProof.usable || freshProof.video_id !== candidate.youtube_video_id) {
+          return {
+            skipped: `the approved YouTube receipt changed before this copy started; ${candidate.filename} was left in place`,
+          }
+        }
 
-      // Verify BEFORE removing. Size catches a truncated copy; the hash catches
-      // silent corruption, which is the failure a big cross-volume copy actually
-      // has. Both, because size alone would pass a corrupted file of the right
-      // length.
-      const targetStat = await fs.stat(target)
-      if (targetStat.size !== candidate.bytes) {
-        throw new Error(`copy is ${targetStat.size} bytes but the original is ${candidate.bytes}`)
-      }
-      const [sourceHash, targetHash] = await Promise.all([
-        sha256Of(candidate.source_path),
-        sha256Of(target),
-      ])
-      if (sourceHash !== targetHash) {
-        throw new Error('the copy does not match the original (checksum differs)')
-      }
+        try {
+          await fs.copyFile(candidate.source_path, target, fsConstants.COPYFILE_EXCL)
+        } catch (error: any) {
+          if (error?.code === 'EEXIST') {
+            return { skipped: `a file named ${candidate.filename} is already in the archive folder` }
+          }
+          throw error
+        }
 
-      // Breadcrumb first, removal second. If the process dies between them the
-      // worst case is a record pointing at a file that also still exists — an
-      // over-report, not a lost video.
-      const breadcrumbWarning = await writeArchiveBreadcrumb(candidate, target, sourceHash)
-      if (breadcrumbWarning) result.warnings.push(breadcrumbWarning)
-      await fs.rm(candidate.source_path, { force: true })
+        // Verify BEFORE removing. Size catches a truncated copy; the hash catches
+        // silent corruption, which is the failure a big cross-volume copy actually
+        // has. Both, because size alone would pass a corrupted file of the right
+        // length.
+        const targetStat = await fs.stat(target)
+        if (targetStat.size !== candidate.bytes) {
+          throw new Error(`copy is ${targetStat.size} bytes but the original is ${candidate.bytes}`)
+        }
+        const [sourceHash, targetHash] = await Promise.all([
+          sha256Of(candidate.source_path),
+          sha256Of(target),
+        ])
+        if (sourceHash !== targetHash) {
+          throw new Error('the copy does not match the original (checksum differs)')
+        }
+
+        // Breadcrumb first, removal second. If the process dies between them the
+        // worst case is a record pointing at a file that also still exists — an
+        // over-report, not a lost video.
+        const breadcrumbWarning = await writeArchiveBreadcrumb(candidate, target, sourceHash)
+        await fs.rm(candidate.source_path, { force: true })
+        return { sourceHash, breadcrumbWarning }
+      })
+      if (typeof move.skipped === 'string') {
+        result.skipped.push({
+          source_path: candidate.source_path,
+          code: candidate.code,
+          reason: move.skipped,
+          reason_code: 'not_uploaded',
+        })
+        continue
+      }
+      if (move.breadcrumbWarning) result.warnings.push(move.breadcrumbWarning)
 
       result.moved.push({
         code: candidate.code,

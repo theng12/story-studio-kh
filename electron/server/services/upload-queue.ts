@@ -20,6 +20,7 @@ import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { resolveEpisodePaths } from './utils.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { withFinalVideoImportSelectionLock, withFinalVideoPathLock } from './final-video-lock.js'
 
 /**
  * Reject filenames that contain path separators or traversal tokens.
@@ -320,10 +321,6 @@ export async function scanEpisodeImports(slug: string, code: string): Promise<Ep
   const moved: Array<{ from: string; to: string }> = []
   const skipped: string[] = []
 
-  // Pre-scan the video_dir to figure out the starting version number so
-  // multiple drops in one scan don't all land on the same filename.
-  const existingVersions = await readExistingFinalVersions(paths.video_dir, code)
-
   for (const entry of entries) {
     if (!entry.isFile()) continue
     const ext = path.extname(entry.name).toLowerCase()
@@ -332,17 +329,7 @@ export async function scanEpisodeImports(slug: string, code: string): Promise<Ep
       continue
     }
     const fromPath = path.join(importedFolder, entry.name)
-    const toPath = pickNextFinalPath(paths.video_dir, code, ext, existingVersions)
-    await fsp.rename(fromPath, toPath).catch(async (e: any) => {
-      // Cross-device rename fallback (iCloud / NAS / Dropbox sometimes
-      // fail with EXDEV). Copy + unlink preserves intent, just slower.
-      if (e?.code === 'EXDEV') {
-        await fsp.copyFile(fromPath, toPath)
-        await fsp.rm(fromPath, { force: true })
-        return
-      }
-      throw e
-    })
+    const toPath = await moveImportToNextFinal(paths.video_dir, code, ext, fromPath)
     moved.push({ from: fromPath, to: toPath })
   }
 
@@ -353,6 +340,34 @@ export async function scanEpisodeImports(slug: string, code: string): Promise<Ep
     moved,
     skipped,
   }
+}
+
+
+async function moveImportToNextFinal(videoDir: string, code: string, ext: string, fromPath: string): Promise<string> {
+  return withFinalVideoImportSelectionLock(videoDir, code, ext, async () => {
+    // A renderer can publish a canonical final after this import starts. Pick
+    // and re-check while holding the selected target's lock so this import
+    // never replaces that render from a stale directory listing.
+    while (true) {
+      const target = pickNextFinalPath(videoDir, code, ext, await readExistingFinalVersions(videoDir, code))
+      const outcome = await withFinalVideoPathLock(target, async () => {
+        const currentTarget = pickNextFinalPath(videoDir, code, ext, await readExistingFinalVersions(videoDir, code))
+        if (currentTarget !== target) return null
+        await fsp.rename(fromPath, target).catch(async (error: any) => {
+          // Cross-device rename fallback (iCloud / NAS / Dropbox sometimes
+          // fail with EXDEV). Copy + unlink preserves intent, just slower.
+          if (error?.code === 'EXDEV') {
+            await fsp.copyFile(fromPath, target)
+            await fsp.rm(fromPath, { force: true })
+            return
+          }
+          throw error
+        })
+        return target
+      })
+      if (outcome) return outcome
+    }
+  })
 }
 
 async function readExistingFinalVersions(videoDir: string, code: string): Promise<Set<string>> {

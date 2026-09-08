@@ -143,6 +143,35 @@ describe('asset-importer', () => {
     assert.equal(r.items[0].destination, dest)
   })
 
+  test('a final renderer appearing between selection and mutation keeps canonical while the import versions itself', async () => {
+    const src = await makeSource('external-final.mp4', 'imported-final')
+    const canonical = path.join(epDirOf().videoDir, `${CODE}_final_video.mp4`)
+    const originalStat = fs.stat
+    let rendererPublished = false
+    ;(fs as any).stat = async (target: string) => {
+      if (!rendererPublished && target === canonical) {
+        rendererPublished = true
+        await fs.mkdir(path.dirname(canonical), { recursive: true })
+        await fs.writeFile(canonical, 'rendered-final')
+        const missing = Object.assign(new Error('not found before renderer promotion'), { code: 'ENOENT' })
+        throw missing
+      }
+      return originalStat(target)
+    }
+    try {
+      const result = await importer.importAssets(SLUG, CODE,
+        [{ type: 'final', source_path: src }], { mode: 'copy' })
+      const versioned = path.join(epDirOf().videoDir, `${CODE}_final_video_v2.mp4`)
+      assert.equal(rendererPublished, true)
+      assert.equal(result.items[0].destination, versioned)
+      assert.equal(result.items[0].status, 'renamed-copied')
+      assert.equal(await fs.readFile(canonical, 'utf8'), 'rendered-final')
+      assert.equal(await fs.readFile(versioned, 'utf8'), 'imported-final')
+    } finally {
+      ;(fs as any).stat = originalStat
+    }
+  })
+
   test('merged: maps to {merged_audio_dir}/{code}_merged_audio.mp3', async () => {
     const src = await makeSource('mix.wav', 'wav-bytes')
     const r = await importer.importAssets(SLUG, CODE,

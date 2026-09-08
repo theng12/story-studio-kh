@@ -40,9 +40,9 @@
 import { listYouTubeOperations } from './youtube-operation-store.js'
 import { readSidecarStrict } from './upload-sidecar.js'
 import type { ProjectFactsCache } from './utils.js'
-import { readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
+import { isYouTubeVideoRemoved, readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
-import { resolveYouTubeSourceRevision } from './youtube-source-video.js'
+import { isContentSha256Revision, resolveYouTubeSourceRevision } from './youtube-source-video.js'
 import { stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
@@ -92,7 +92,7 @@ export function operationPublicationFacts(record: YouTubeOperationRecordV1): {
 export interface YouTubeRetentionEvidence {
   /** Accepted provider identities remain useful for operational counts, but do not authorize deleting a local master. */
   accepted_operations: Array<Pick<YouTubeOperationRecordV1, 'video_id' | 'channel_id' | 'lifecycle'>>
-  ready_operations: Array<Pick<YouTubeOperationRecordV1, 'video_id' | 'source_revision' | 'channel_id'>>
+  ready_operations: Array<Pick<YouTubeOperationRecordV1, 'operation_id' | 'video_id' | 'source_revision' | 'channel_id'>>
   reconcile_link?: { video_id: string; channel_id: string; linked_at: string }
   legacy_sidecar?: { video_id: string; channel_id?: string; uploaded_at?: string }
   /** An unfinished/failed record or unreadable receipt means local data stays. */
@@ -121,7 +121,7 @@ export function usableYouTubeRemoteEvidence(
 
 export async function readYouTubeRetentionStores(slug: string): Promise<{
   records: YouTubeOperationRecordV1[]
-  state: Pick<YouTubeProjectPublishingStateV1, 'episode_video_links'>
+  state: Pick<YouTubeProjectPublishingStateV1, 'episode_video_links' | 'removed_videos'>
 }> {
   const projectDir = getProjectDir(slug)
   if (!projectDir) throw new Error(`Project ${slug} not found`)
@@ -141,12 +141,14 @@ export async function youtubeRetentionEvidenceFor(
   episodeCode: string,
   title: string,
   records?: YouTubeOperationRecordV1[],
-  state?: Pick<YouTubeProjectPublishingStateV1, 'episode_video_links'>,
+  state?: Pick<YouTubeProjectPublishingStateV1, 'episode_video_links' | 'removed_videos'>,
   cache?: ProjectFactsCache,
 ): Promise<YouTubeRetentionEvidence> {
   const stores = records && state ? null : await readYouTubeRetentionStores(slug)
   const all = records ?? stores!.records
-  const episodeRecords = all.filter(record => record.episode_code === episodeCode)
+  const publishing = state ?? stores!.state
+  const episodeRecords = all.filter(record => record.episode_code === episodeCode
+    && !isYouTubeVideoRemoved(publishing, episodeCode, record.channel_id, record.video_id))
   const accepted = episodeRecords.filter(record => !!record.video_id?.trim())
     .map(record => ({
       video_id: record.video_id!,
@@ -155,6 +157,7 @@ export async function youtubeRetentionEvidenceFor(
     }))
   const ready = episodeRecords.filter(record => record.lifecycle === 'ready' && !!record.video_id?.trim())
     .map(record => ({
+      operation_id: record.operation_id,
       video_id: record.video_id!,
       source_revision: record.source_revision,
       channel_id: record.channel_id,
@@ -164,12 +167,12 @@ export async function youtubeRetentionEvidenceFor(
     result.protected_reason = 'upload evidence is unfinished or not usable'
   }
 
-  const publishing = state ?? stores!.state
   const link = publishing.episode_video_links[episodeCode]
   // Upload links are written at provider acceptance, before processing can
   // prove the remote copy usable. Only an independent owner reconciliation
   // decision can authorize retention without a ready operation.
-  if (link?.video_id?.trim() && link.source === 'reconcile') {
+  if (link?.video_id?.trim() && link.source === 'reconcile'
+    && !isYouTubeVideoRemoved(publishing, episodeCode, link.channel_id, link.video_id)) {
     result.reconcile_link = {
       video_id: link.video_id.trim(),
       channel_id: link.channel_id,
@@ -179,7 +182,8 @@ export async function youtubeRetentionEvidenceFor(
 
   try {
     const sidecar = await readSidecarStrict(slug, episodeCode, 'youtube', cache)
-    if (sidecar?.video_id?.trim() && !sidecar.deleted_at) {
+    if (sidecar?.video_id?.trim() && !sidecar.deleted_at
+      && !isYouTubeVideoRemoved(publishing, episodeCode, sidecar.channel_id, sidecar.video_id)) {
       result.legacy_sidecar = {
         video_id: sidecar.video_id.trim(),
         ...(sidecar.channel_id ? { channel_id: sidecar.channel_id } : {}),
@@ -195,17 +199,51 @@ export async function youtubeRetentionEvidenceFor(
 export async function youtubeRetentionProofForFile(
   evidence: YouTubeRetentionEvidence,
   filePath: string,
+): Promise<{ usable: boolean; source_revision?: string; operation_id?: string; video_id?: string; channel_id?: string; reason?: string }> {
+  const revision = await resolveYouTubeSourceRevision(filePath)
+  const matching = evidence.ready_operations.find(record =>
+    isContentSha256Revision(record.source_revision) && record.source_revision === revision)
+  if (matching) {
+    return {
+      usable: true,
+      source_revision: revision,
+      operation_id: matching.operation_id,
+      video_id: matching.video_id,
+      channel_id: matching.channel_id,
+    }
+  }
+
+  const hasEvidence = evidence.ready_operations.length > 0
+    || !!evidence.reconcile_link || !!evidence.legacy_sidecar || !!evidence.protected_reason
+  return {
+    usable: false,
+    reason: hasEvidence
+      ? evidence.protected_reason
+        || 'the recorded YouTube upload has no matching content SHA-256 for this local final'
+      : 'the episode has no usable YouTube evidence',
+  }
+}
+
+/**
+ * Archive moves preserve an exact second copy before removing the source, so
+ * historical receipts remain usable only when the source did not change after
+ * their recorded upload/reconciliation time. Final cleanup intentionally does
+ * not call this: deletion requires a current content-hash operation instead.
+ */
+export async function youtubeArchiveProofForFile(
+  evidence: YouTubeRetentionEvidence,
+  filePath: string,
 ): Promise<{ usable: boolean; video_id?: string; reason?: string }> {
   const revision = await resolveYouTubeSourceRevision(filePath)
-  const matching = evidence.ready_operations.filter(record => record.source_revision === revision)
-  if (matching.length) return { usable: true, video_id: matching[0]!.video_id }
+  const matching = evidence.ready_operations.find(record =>
+    isContentSha256Revision(record.source_revision) && record.source_revision === revision)
+  if (matching) return { usable: true, video_id: matching.video_id }
 
   const info = await stat(filePath)
   const notNewerThan = (iso: string | undefined): boolean => {
     const timestamp = iso ? Date.parse(iso) : NaN
-    // ISO receipts carry millisecond precision while some filesystems report
-    // finer-grained mtimes. Values inside the same millisecond are equal for
-    // the durable format and must not be misclassified as a newer render.
+    // Durable receipts carry milliseconds while a filesystem can report a
+    // finer mtime; values inside that same receipt millisecond are equal.
     return Number.isFinite(timestamp) && Math.floor(info.mtimeMs) <= timestamp
   }
   if (evidence.reconcile_link
@@ -225,7 +263,7 @@ export async function youtubeRetentionProofForFile(
     usable: false,
     reason: hasEvidence
       ? evidence.protected_reason
-        || 'the canonical upload for that video is not ready for cleanup, or the local final is newer than the usable YouTube evidence'
+        || 'the canonical upload is not ready, or this local export is newer than its usable YouTube receipt'
       : 'the episode has no usable YouTube evidence',
   }
 }
@@ -252,14 +290,17 @@ export async function remoteVideoFor(
   // Both hoisted by a sweeping caller. `state` in particular is read under a
   // lock, so reading it per episode serialised a batch that was meant to run in
   // parallel — removing one N+1 had introduced another.
-  state?: { episode_video_links: Record<string, { channel_id: string, video_id: string }> },
+  state?: Pick<YouTubeProjectPublishingStateV1, 'episode_video_links' | 'removed_videos'>,
   cache?: ProjectFactsCache,
 ): Promise<RemoteVideo | null> {
+  const links = state ?? await readYouTubeProjectPublishingState(slug)
+
   // 1. The durable operation record. Ours, channel-scoped, richest.
   const all = records ?? await listYouTubeOperations(slug)
   const record = all.find(entry => entry.episode_code === episodeCode
     && entry.channel_id === channelId
-    && (!!entry.video_id?.trim() || OPEN_LIFECYCLES.includes(entry.lifecycle)))
+    && (!!entry.video_id?.trim() || OPEN_LIFECYCLES.includes(entry.lifecycle))
+    && !isYouTubeVideoRemoved(links, episodeCode, entry.channel_id, entry.video_id))
   if (record) {
     return {
       video_id: record.video_id?.trim() || '',
@@ -277,9 +318,9 @@ export async function remoteVideoFor(
   //    linked a channel video to an episode in Reconcile was then told by
   //    Publish that the episode had never been uploaded, and offered to upload
   //    it: a second public video of the same episode.
-  const links = state ?? await readYouTubeProjectPublishingState(slug)
   const link = links.episode_video_links[episodeCode]
-  if (link?.video_id?.trim() && link.channel_id === channelId) {
+  if (link?.video_id?.trim() && link.channel_id === channelId
+    && !isYouTubeVideoRemoved(links, episodeCode, link.channel_id, link.video_id)) {
     return { video_id: link.video_id.trim(), source: 'reconcile_link', channel_id: link.channel_id }
   }
 
@@ -315,10 +356,11 @@ export async function remoteVideoFor(
       + `(${(cause as Error)?.message || 'unreadable'})`,
     )
   }
-  // A tombstoned sidecar means the video was REMOVED upstream — the field's own
-  // documentation says bulk actions skip these rows precisely so a takedown is
-  // not re-uploaded. It is therefore uploadable again, not "already on YouTube":
-  // treating it as published locked Upload out forever with no way to reset.
+  // A tombstone alone is only a local observation. In particular, the reachable
+  // sync path stamps `sync_404` for a missing provider response, which can mean
+  // a private video this token cannot see. It must never authorize a duplicate
+  // upload. An owner-confirmed removal receipt is authoritative; the one legacy
+  // exception is an explicitly manual same-channel mark.
   // `channel_id` is REQUIRED by the type and not guaranteed on disk — the
   // history importer has a dedicated `missing_channel_id` escalation for
   // exactly this. `=== channelId` therefore read a sidecar that cannot say
@@ -326,18 +368,12 @@ export async function remoteVideoFor(
   // duplicate. When it cannot say, refuse: a wrongly-refused upload is a
   // message, a wrongly-allowed one is a second video nobody can un-publish.
   if (sidecar?.video_id?.trim()) {
-    // A tombstone means the video was removed upstream. On a sidecar that NAMES
-    // this channel that makes the episode uploadable again — the whole point of
-    // the field. Anywhere else it does not: there is one `youtube_upload.json`
-    // per episode, so uploading here would overwrite the only local record of
-    // what happened over there, tombstone included.
-    //
-    // Note the EXPLICIT `=== channelId` rather than the `sameChannel` shorthand
-    // used below. A sidecar with no `channel_id` cannot say where its video
-    // lived, so it must not get the uploadable answer either — same rule as the
-    // live case, same reason (the history importer's `missing_channel_id`
-    // escalation exists because that field is not guaranteed on disk).
-    if (sidecar.channel_id === channelId && sidecar.deleted_at) return null
+    if (isYouTubeVideoRemoved(links, episodeCode, sidecar.channel_id || channelId, sidecar.video_id)) return null
+    // Do not widen old `takedown`/unknown markers into re-upload authority:
+    // they were not a verified current-channel deletion. A sidecar with no
+    // channel also cannot establish where its video was manually removed.
+    if (sidecar.deleted_at && sidecar.deleted_reason === 'manual'
+      && !!sidecar.channel_id && sidecar.channel_id === channelId) return null
     // A sidecar naming a DIFFERENT channel is still a refusal, not a null.
     //
     // This was the fourth instance of tell 13: the predicate returned null for
@@ -354,7 +390,7 @@ export async function remoteVideoFor(
       // Missing `channel_id` is treated as THIS channel: the field is required
       // by the type and never validated on disk, so "cannot say" must not read
       // as "somewhere else, go ahead".
-      ...(sidecar.channel_id && sidecar.channel_id !== channelId ? { other_channel: true } : {}),
+      ...(channelId && sidecar.channel_id && sidecar.channel_id !== channelId ? { other_channel: true } : {}),
     }
   }
   return null

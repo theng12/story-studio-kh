@@ -9,20 +9,25 @@
  *     also flips status.video_assembly to true
  *   - storage-audit: per-category byte breakdown is correct + uploaded
  *     badge mirrors the sidecar
- *   - cleanupFinalVideoForEpisode: refuses without uploaded sidecar
- *     unless force=true; deletes when uploaded
- *   - bulk all_uploaded: cleans uploaded ones, skips non-uploaded
+ *   - cleanupFinalVideoForEpisode: deletes only a freshly verified exact
+ *     content-hash render on the current YouTube channel
+ *   - bulk all_uploaded: considers current hash receipts and skips unverified
  */
 
-import { test, describe, before, after, beforeEach } from 'node:test'
+import { test, describe, before, after, afterEach, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 import { setAppSetting } from '../services/app-settings.js'
+import { withFinalVideoPathLock } from '../services/final-video-lock.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
+import {
+  __resetYouTubeTransportForTests,
+  __setYouTubeTransportForTests,
+} from '../lib/youtube-client.js'
 
 let pm: typeof import('../services/project-manager.js')
 let im: typeof import('../services/idea-manager.js')
@@ -140,6 +145,30 @@ async function writeCanonicalOperation(
   })
 }
 
+function mockPublicationDetails(input: {
+  code: string
+  uploadStatus?: string
+  channelId?: string
+  missing?: boolean
+  onCall?: () => Promise<void>
+}): () => number {
+  let calls = 0
+  __setYouTubeTransportForTests((async (request, init) => {
+    calls++
+    assert.equal(init?.method || 'GET', 'GET')
+    assert.match(String(request), /youtube\/v3\/videos\?.*processingDetails/)
+    await input.onCall?.()
+    return new Response(JSON.stringify({
+      items: input.missing ? [] : [{
+        id: `canonical-${input.code}`,
+        status: { uploadStatus: input.uploadStatus || 'processed', privacyStatus: 'private' },
+        snippet: { channelId: input.channelId ?? CHANNEL, title: TITLE, description: '', tags: [] },
+      }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch)
+  return () => calls
+}
+
 describe('storage cleanup + sidecar detection + external root', () => {
   before(async () => {
     tmp = await useTempDataDir()
@@ -157,6 +186,8 @@ describe('storage cleanup + sidecar detection + external root', () => {
   })
 
   after(async () => { await tmp.cleanup() })
+
+  afterEach(() => { __resetYouTubeTransportForTests() })
 
   beforeEach(async () => {
     await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
@@ -227,7 +258,7 @@ describe('storage cleanup + sidecar detection + external root', () => {
     assert.equal(ep4.bytes_final_video, 5_000_000)
     assert.equal(ep5.bytes_final_video, 1_000_000)
     assert.equal(ep4.uploaded_to_youtube, true, 'TN0004 has sidecar')
-    assert.equal(ep4.cleanup_eligible, true, 'the sidecar was written after this exact final')
+    assert.equal(ep4.cleanup_eligible, false, 'a historical sidecar has no content-hash receipt')
     assert.equal(ep5.uploaded_to_youtube, false, 'TN0005 has no sidecar')
     assert.equal(ep5.cleanup_eligible, false)
     assert.equal(ep4.youtube_video_id, 'vid-TN0004')
@@ -259,51 +290,50 @@ describe('storage cleanup + sidecar detection + external root', () => {
     assert.match((caught as Error).message, /not confirmed as the uploaded render/)
   })
 
-  test('cleanup deletes when uploaded', async () => {
+  test('a legacy sidecar cannot authorize cleanup, even when a caller sends force', async () => {
     const seed = await seedAcceptedEpisode('TN0008', 3_000_000)
     await writeUploadedSidecar('TN0008')
-    const r = await storageAudit.cleanupFinalVideoForEpisode(SLUG, 'TN0008')
-    assert.equal(r.deleted_count, 1)
-    assert.equal(r.bytes_freed, 3_000_000)
-    assert.equal(existsSync(seed.final_path), false, 'file removed')
+    await assert.rejects(
+      storageAudit.cleanupFinalVideoForEpisode(SLUG, 'TN0008', { force: true }),
+      (error: any) => error?.statusCode === 412,
+    )
+    assert.equal(existsSync(seed.final_path), true, 'the historical receipt remains visible but cannot delete bytes')
   })
 
-  test('cleanup with force:true bypasses the sidecar guard', async () => {
-    const seed = await seedAcceptedEpisode('TN0009', 1_500_000)
-    const r = await storageAudit.cleanupFinalVideoForEpisode(SLUG, 'TN0009', { force: true })
-    assert.equal(r.deleted_count, 1)
-    assert.equal(existsSync(seed.final_path), false)
-  })
-
-  test('cleanup accepts a ready canonical operation only for the exact uploaded render', async () => {
+  test('cleanup deletes only after a fresh processed current-channel response for the exact content hash', async () => {
     const seed = await seedAcceptedEpisode('TN0016', 2048)
     await writeCanonicalOperation(seed.code, seed.final_path)
+    const calls = mockPublicationDetails({ code: seed.code })
     const result = await storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code)
     assert.equal(result.deleted_count, 1)
+    assert.equal(calls(), 1, 'one fresh provider read proves this exact remote video is processed')
     assert.equal(existsSync(seed.final_path), false)
     cacheMod.episodeStatusCache.clear()
     assert.equal((await assetStatus.computeEpisodeStatus(SLUG, seed.code)).video_assembly, true)
   })
 
-  test('cleanup preserves a newer render even when an older canonical operation is ready', async () => {
+  test('same name, size, and mtime with different bytes cannot inherit a canonical receipt', async () => {
     const seed = await seedAcceptedEpisode('TN0017', 2048)
     await writeCanonicalOperation(seed.code, seed.final_path)
-    await fs.writeFile(seed.final_path, Buffer.alloc(4096))
+    const original = await fs.stat(seed.final_path)
+    await fs.writeFile(seed.final_path, Buffer.alloc(2048, 1))
+    await fs.utimes(seed.final_path, original.atime, original.mtime)
+    const calls = mockPublicationDetails({ code: seed.code })
     await assert.rejects(
       storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code),
-      (error: any) => error?.statusCode === 412 && /newer|uploaded render/.test(error.message),
+      (error: any) => error?.statusCode === 412 && /content SHA-256/.test(error.message),
     )
-    assert.equal((await fs.stat(seed.final_path)).size, 4096)
+    assert.equal(calls(), 0, 'a hash mismatch never spends a provider read')
+    assert.deepEqual(await fs.readFile(seed.final_path), Buffer.alloc(2048, 1))
   })
 
-  test('a ready same-video operation may use its later timestamped receipt fallback', async () => {
+  test('a stale ready receipt is refused when YouTube no longer returns the exact video', async () => {
     const seed = await seedAcceptedEpisode('TN0021', 2048)
     await writeCanonicalOperation(seed.code, seed.final_path)
-    await fs.writeFile(seed.final_path, Buffer.alloc(4096))
-    await writeUploadedSidecar(seed.code, `canonical-${seed.code}`)
-
-    const result = await storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code)
-    assert.equal(result.deleted_count, 1)
+    const calls = mockPublicationDetails({ code: seed.code, missing: true })
+    await assert.rejects(storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code), (error: any) => error?.statusCode === 412)
+    assert.equal(calls(), 1)
+    assert.equal(existsSync(seed.final_path), true)
   })
 
   test('a failed accepted operation never authorizes ordinary cleanup', async () => {
@@ -323,15 +353,13 @@ describe('storage cleanup + sidecar detection + external root', () => {
     assert.equal((await assetStatus.computeEpisodeStatus(SLUG, seed.code)).video_assembly, false)
   })
 
-  test('an unrelated failed retry does not invalidate a different historical remote copy', async () => {
+  test('a failed operation and a historical sidecar both remain insufficient for cleanup', async () => {
     const seed = await seedAcceptedEpisode('TN0020', 2048)
     await writeUploadedSidecar(seed.code, `historical-${seed.code}`)
     await writeCanonicalOperation(seed.code, seed.final_path, 'failed')
 
-    const result = await storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code)
-    assert.equal(result.deleted_count, 1)
-    cacheMod.episodeStatusCache.clear()
-    assert.equal((await assetStatus.computeEpisodeStatus(SLUG, seed.code)).video_assembly, true)
+    await assert.rejects(storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code), (error: any) => error?.statusCode === 412)
+    assert.equal(existsSync(seed.final_path), true)
   })
 
   test('a legacy sidecar cannot authorize deleting a final rendered after its upload', async () => {
@@ -347,12 +375,118 @@ describe('storage cleanup + sidecar detection + external root', () => {
     assert.equal((await fs.stat(seed.final_path)).size, 4096)
   })
 
+  test('a current content hash still refuses a remote video that is processing', async () => {
+    const seed = await seedAcceptedEpisode('TN0022', 2048)
+    await writeCanonicalOperation(seed.code, seed.final_path)
+    const calls = mockPublicationDetails({ code: seed.code, uploadStatus: 'uploaded' })
+    await assert.rejects(storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code), (error: any) => error?.statusCode === 412)
+    assert.equal(calls(), 1)
+    assert.equal(existsSync(seed.final_path), true)
+  })
+
+  test('a processed response from another channel cannot delete the local final', async () => {
+    const seed = await seedAcceptedEpisode('TN0023', 2048)
+    await writeCanonicalOperation(seed.code, seed.final_path)
+    const calls = mockPublicationDetails({ code: seed.code, channelId: 'UC-other-channel' })
+    await assert.rejects(storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code), (error: any) => error?.statusCode === 412)
+    assert.equal(calls(), 1)
+    assert.equal(existsSync(seed.final_path), true)
+  })
+
+  test('a final replaced during fresh verification is not removed', async () => {
+    const seed = await seedAcceptedEpisode('TN0024', 2048)
+    await writeCanonicalOperation(seed.code, seed.final_path)
+    mockPublicationDetails({
+      code: seed.code,
+      onCall: async () => { await fs.writeFile(seed.final_path, Buffer.alloc(2048, 2)) },
+    })
+    await assert.rejects(
+      storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code),
+      (error: any) => error?.statusCode === 412,
+    )
+    assert.deepEqual(await fs.readFile(seed.final_path), Buffer.alloc(2048, 2))
+  })
+
+  test('a locked final promotion wins over cleanup after remote verification', async () => {
+    const seed = await seedAcceptedEpisode('TN0026', 2048)
+    await writeCanonicalOperation(seed.code, seed.final_path)
+    const replacement = `${seed.final_path}.replacement`
+    const replacementBytes = Buffer.alloc(2048, 6)
+    await fs.writeFile(replacement, replacementBytes)
+    let providerRead!: () => void
+    const providerReadPromise = new Promise<void>(resolve => { providerRead = resolve })
+    mockPublicationDetails({ code: seed.code, onCall: async () => { providerRead() } })
+
+    let cleanup!: Promise<unknown>
+    await withFinalVideoPathLock(seed.final_path, async () => {
+      cleanup = storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code)
+      await providerReadPromise
+      await fs.rename(replacement, seed.final_path)
+    })
+
+    await assert.rejects(cleanup, (error: any) => error?.statusCode === 412)
+    assert.deepEqual(await fs.readFile(seed.final_path), replacementBytes)
+  })
+
+  for (const versioned of [false, true]) for (const identical of [false, true]) {
+    test(`${versioned ? 'versioned final' : 'canonical final'} migration ${identical ? 'removes the source only after matching destination bytes' : 'preserves same-size different renders at both locations'}`, async () => {
+      const seed = await seedAcceptedEpisode(`TN00${30 + Number(identical) + Number(versioned) * 2}`, 2048)
+      if (versioned) {
+        const versionedPath = seed.final_path.replace('_final_video.mp4', '_final_video_v2.mp4')
+        await fs.rename(seed.final_path, versionedPath)
+        seed.final_path = versionedPath
+      }
+      const mediaRoot = path.join(tmp.dir, `external-migration-${seed.code}`)
+      await fs.mkdir(mediaRoot, { recursive: true })
+      const projectFile = path.join(pm.projectsRoot(), SLUG, 'project.json')
+      const project = JSON.parse(await fs.readFile(projectFile, 'utf8'))
+      await fs.writeFile(projectFile, JSON.stringify({ ...project, media_root: mediaRoot }))
+      const { resolveEpisodePaths } = await import('../services/utils.js')
+      const destPaths = await resolveEpisodePaths(SLUG, seed.code, TITLE)
+      const destination = path.join(destPaths.video_dir, path.basename(seed.final_path))
+      assert.notEqual(destination, seed.final_path)
+      await fs.mkdir(destPaths.video_dir, { recursive: true })
+      const destinationBytes = Buffer.alloc(2048, identical ? 0 : 8)
+      await fs.writeFile(destination, destinationBytes)
+
+      const result = await storageAudit.migrateMediaToExternal(SLUG)
+
+      assert.deepEqual(await fs.readFile(destination), destinationBytes)
+      assert.equal(existsSync(seed.final_path), !identical)
+      assert.equal(result.files_moved, identical ? 1 : 0)
+      if (identical) assert.deepEqual(result.errors, [])
+      else assert.match(result.errors[0]?.reason || '', /different final.*both files were kept/)
+    })
+  }
+
+  test('a changed external final refuses the whole episode before either final is deleted', async () => {
+    const seed = await seedAcceptedEpisode('TN0025', 2048)
+    await setAppSetting('library_root', path.join(tmp.dir, 'library-exact-cleanup'))
+    const externalDir = await externalStore.ensureExternalFinalVideoDir(SLUG, seed.code, TITLE)
+    assert.ok(externalDir)
+    const externalFinal = path.join(externalDir!, `${seed.code}_final_video.mp4`)
+    await fs.copyFile(seed.final_path, externalFinal)
+    await writeCanonicalOperation(seed.code, seed.final_path)
+    mockPublicationDetails({
+      code: seed.code,
+      onCall: async () => { await fs.writeFile(externalFinal, Buffer.alloc(2048, 3)) },
+    })
+
+    await assert.rejects(
+      storageAudit.cleanupFinalVideoForEpisode(SLUG, seed.code),
+      (error: any) => error?.statusCode === 412,
+    )
+    assert.equal(existsSync(seed.final_path), true, 'the project-tree final must not be partially cleared')
+    assert.deepEqual(await fs.readFile(externalFinal), Buffer.alloc(2048, 3))
+  })
+
   test('cleanup leaves per-scene clips intact (only final-video targeted)', async () => {
     const seed = await seedAcceptedEpisode('TN0010', 1_000_000)
     const videoDir = path.dirname(seed.final_path)
     const clipPath = path.join(videoDir, 'TN0010_Scene01_v1.mp4')
     await fs.writeFile(clipPath, Buffer.alloc(2_000_000))
-    await writeUploadedSidecar('TN0010')
+    await writeCanonicalOperation(seed.code, seed.final_path)
+    mockPublicationDetails({ code: seed.code })
     const r = await storageAudit.cleanupFinalVideoForEpisode(SLUG, 'TN0010')
     assert.equal(r.deleted_count, 1, 'only the final, not the clip')
     assert.equal(existsSync(clipPath), true, 'per-scene clip survived')
@@ -361,28 +495,26 @@ describe('storage cleanup + sidecar detection + external root', () => {
 
   // ── bulk cleanup ──────────────────────────────────────────────────
 
-  test('bulk all_uploaded: cleans uploaded ones, skips non-uploaded', async () => {
+  test('bulk all_uploaded selects only current content-hash candidates', async () => {
     await seedAcceptedEpisode('TN0011', 1_000_000)  // not uploaded
-    await seedAcceptedEpisode('TN0012', 2_000_000)  // uploaded
-    await seedAcceptedEpisode('TN0013', 3_000_000)  // uploaded
-    await writeUploadedSidecar('TN0012')
-    await writeUploadedSidecar('TN0013')
+    const uploaded = await seedAcceptedEpisode('TN0012', 2_000_000)
+    await writeCanonicalOperation(uploaded.code, uploaded.final_path)
+    mockPublicationDetails({ code: uploaded.code })
     const r = await storageAudit.bulkCleanupFinalVideos(SLUG, { all_uploaded: true })
-    assert.equal(r.deleted_count, 2)
-    assert.equal(r.bytes_freed, 5_000_000)
-    // TN0011 wasn't even in the target list (all_uploaded filter
-    // excluded it before cleanup ran), so skipped_count is 0.
+    assert.equal(r.deleted_count, 1)
+    assert.equal(r.bytes_freed, 2_000_000)
+    assert.equal(existsSync(uploaded.final_path), false)
   })
 
   test('bulk with explicit codes: per-episode safety guard fires for non-uploaded', async () => {
     await seedAcceptedEpisode('TN0014', 1_000_000)  // not uploaded
-    await seedAcceptedEpisode('TN0015', 2_000_000)  // uploaded
+    await seedAcceptedEpisode('TN0015', 2_000_000)  // historical receipt only
     await writeUploadedSidecar('TN0015')
     const r = await storageAudit.bulkCleanupFinalVideos(SLUG, {
       episode_codes: ['TN0014', 'TN0015'],
     })
-    assert.equal(r.deleted_count, 1, 'only the uploaded one deletes')
-    assert.equal(r.skipped_count, 1, 'the non-uploaded one is skipped (412)')
+    assert.equal(r.deleted_count, 0, 'legacy receipts cannot authorize deletion')
+    assert.equal(r.skipped_count, 2, 'each unverified final is skipped (412)')
     const skipItem = r.items.find(i => i.episode_code === 'TN0014')
     assert.ok(skipItem)
     assert.equal(skipItem!.status, 'skipped')

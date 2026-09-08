@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
-import { createApp, defineComponent, h, nextTick, reactive, type Component } from 'vue'
+import { createApp, defineComponent, h, nextTick, reactive, ref, type Component } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 
@@ -24,6 +24,7 @@ async function loadPage(): Promise<Component> {
     const useApi = () => globalThis.__ucApi
     const useRoute = () => globalThis.__ucRoute
     const useConfirm = () => ({ ask: async (o) => globalThis.__ucConfirm(o) })
+    const useJobs = () => ({ jobs: globalThis.__ucJobsRef, jobsStale: globalThis.__ucJobsStaleRef })
   `
   const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const out = await transform(code, { loader: 'ts', format: 'esm' })
@@ -57,9 +58,16 @@ async function mount(input: {
   confirmOverride?: (options: any) => Promise<boolean>
   initialSlug?: string
   getOverride?: (path: string) => Promise<any> | any
+  postOverride?: (path: string, body: any) => Promise<any> | any
+  jobs?: any[]
+  jobsStale?: boolean
+  plans?: any
+  planPreview?: any
+  planApply?: any
+  scheduleResponse?: any
 }): Promise<{
   el: HTMLElement; text: () => string; calls: Recorded[]
-  confirms: any[]; setSlug: (slug: string) => Promise<void>; destroy: () => void
+  confirms: any[]; setSlug: (slug: string) => Promise<void>; setJobs: (jobs: any[]) => Promise<void>; destroy: () => void
 }> {
   const calls: Recorded[] = []
   const confirms: any[] = []
@@ -71,6 +79,9 @@ async function mount(input: {
   }
   const routeState = reactive({ params: { slug: input.initialSlug ?? 'demo-project' } })
   ;(globalThis as any).__ucRoute = routeState
+  const jobsRef = ref(input.jobs ?? [])
+  ;(globalThis as any).__ucJobsRef = jobsRef
+  ;(globalThis as any).__ucJobsStaleRef = ref(input.jobsStale ?? false)
   ;(globalThis as any).__ucApi = {
     get: async (path: string) => {
       calls.push({ method: 'GET', path })
@@ -112,11 +123,16 @@ async function mount(input: {
           },
         },
       }
+      if (path.endsWith('/upload/plans')) return input.plans ?? { plans: [], active: {} }
       throw new Error(`unexpected GET ${path}`)
     },
     post: async (path: string, body: any) => {
       calls.push({ method: 'POST', path, body })
-      if (path.endsWith('/preview')) {
+      if (input.postOverride) {
+        const overridden = await input.postOverride(path, body)
+        if (overridden !== undefined) return overridden
+      }
+      if (path.endsWith('/youtube/preview')) {
         previewCalls += 1
         if (input.previewFailAfter !== undefined && previewCalls > input.previewFailAfter) {
           throw new Error('preview exploded')
@@ -124,6 +140,9 @@ async function mount(input: {
         if (input.previewOverride) return input.previewOverride(body)
         return input.preview
       }
+      if (path.endsWith('/youtube/plan/preview')) return input.planPreview
+      if (path.endsWith('/youtube/plan/apply')) return input.planApply
+      if (/\/youtube\/episodes\/[^/]+\/schedule$/.test(path)) return input.scheduleResponse
       if (path.endsWith('/refresh')) return input.refresh
       if (path.endsWith('/youtube/upload')) {
         if (input.uploadError) throw input.uploadError
@@ -145,11 +164,25 @@ async function mount(input: {
     props: { to: String },
     setup(props, { slots }) { return () => h('a', { href: props.to }, slots.default?.()) },
   }))
+  app.component('ProgressBar', defineComponent({
+    props: {
+      progress: Number, bytesDone: Number, bytesTotal: Number, speedBps: Number,
+      etaSeconds: Number, indeterminate: Boolean, label: String,
+    },
+    setup(props) {
+      return () => h('div', {
+        role: 'progressbar',
+        'aria-label': props.label,
+        'aria-valuenow': props.indeterminate ? undefined : props.progress,
+      }, `${props.label || ''} ${props.progress ?? ''}% ${props.bytesDone ?? ''}/${props.bytesTotal ?? ''}`)
+    },
+  }))
   app.mount(el)
   for (let i = 0; i < 6; i++) await nextTick()
   return {
     el, text: () => el.textContent || '', calls, confirms,
     setSlug: async (nextSlug: string) => { routeState.params.slug = nextSlug; for (let i = 0; i < 4; i++) await nextTick() },
+    setJobs: async (nextJobs: any[]) => { jobsRef.value = nextJobs; for (let i = 0; i < 6; i++) await nextTick() },
     destroy: () => { app.unmount(); el.remove() },
   }
 }
@@ -181,6 +214,8 @@ describe('Upload Center Publish', () => {
     const mounted = await mount({ operations: [READY_OP] })
     assert.equal(mounted.calls.some(c => c.path.includes('/refresh')), false)
     assert.match(mounted.text(), /Nothing here checks on its own/)
+    assert.match(mounted.text(), /YouTube checked .*cleanup verifies again/)
+    assert.doesNotMatch(mounted.text(), /safe to clear/i)
     mounted.destroy()
   })
 
@@ -364,6 +399,8 @@ describe('Upload Center Publish', () => {
   }
   const PREVIEWED = {
     package_revision: 'pack-42',
+    source_sha256: 'metadata-source-42',
+    source: { filename: 'EP0001_final_video.mp4', revision: 'video-source-42' },
     snippet: { title: 'The Lighthouse at Dawn', description: 'd', tags: [], categoryId: '24' },
     status: { privacyStatus: 'private', containsSyntheticMedia: true },
     modifications: [], warnings: [],
@@ -397,10 +434,202 @@ describe('Upload Center Publish', () => {
 
     const posted = mounted.calls.find(c => c.path.endsWith('/youtube/upload'))
     assert.ok(posted, 'the click reaches the route')
-    assert.deepEqual(posted!.body, { episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x', expected_package_revision: 'pack-42', thumbnail_filename: null })
+    assert.deepEqual(posted!.body, {
+      episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x',
+      expected_package_revision: 'pack-42', expected_source_revision: 'video-source-42',
+      thumbnail_filename: null, privacy_status: 'private',
+    })
     assert.match(mounted.confirms[0].message, /Ch \(UC-x\)/)
 
     assert.match(mounted.text(), /Uploading EP0001 to UC-x/)
+    mounted.destroy()
+  })
+
+  test('a future planned date is the default and stays inside exact preview and upload confirmation', async () => {
+    const publishAt = '2099-09-10T09:00:00.000Z'
+    const mounted = await mount({
+      episodes: [{ ...NEVER_UPLOADED, plan: { scheduled_at: publishAt, timezone: 'Asia/Phnom_Penh' } }],
+      previewOverride: (body) => ({
+        ...PREVIEWED,
+        status: { ...PREVIEWED.status, ...(body.publish_at ? { publishAt: body.publish_at } : {}) },
+      }),
+    })
+
+    const upload = await previewThen(mounted)
+    const previewCall = mounted.calls.find(call => call.path.endsWith('/youtube/preview'))!
+    assert.deepEqual(previewCall.body, { episode_code: 'EP0001', privacy_status: 'private', publish_at: publishAt })
+    assert.equal((mounted.el.querySelector('input[value="planned"]') as HTMLInputElement).checked, true)
+    assert.match(mounted.text(), new RegExp(publishAt.replaceAll('.', '\\.')))
+
+    upload.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    assert.match(mounted.confirms[0].message, new RegExp(publishAt.replaceAll('.', '\\.')))
+    assert.deepEqual(mounted.calls.find(call => call.path.endsWith('/youtube/upload'))?.body, {
+      episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x', expected_package_revision: 'pack-42',
+      expected_source_revision: 'video-source-42', thumbnail_filename: null, privacy_status: 'private', publish_at: publishAt,
+    })
+    mounted.destroy()
+  })
+
+  test('a past planned date is never converted into an immediate public upload', async () => {
+    const mounted = await mount({
+      episodes: [{ ...NEVER_UPLOADED, plan: { scheduled_at: '2020-01-01T00:00:00.000Z', timezone: 'UTC' } }],
+      preview: PREVIEWED,
+    })
+    await previewThen(mounted)
+    assert.deepEqual(mounted.calls.find(call => call.path.endsWith('/youtube/preview'))?.body, {
+      episode_code: 'EP0001', privacy_status: 'private',
+    })
+    assert.equal((mounted.el.querySelector('input[value="private"]') as HTMLInputElement).checked, true)
+    assert.match(mounted.text(), /No future planned date is saved/)
+
+    ;(mounted.el.querySelector('input[value="custom"]') as HTMLInputElement).click()
+    await nextTick()
+    const field = mounted.el.querySelector('input[type="datetime-local"]') as HTMLInputElement
+    field.value = '2020-01-01T00:00'
+    field.dispatchEvent(new Event('input'))
+    await nextTick()
+    const previewsBefore = mounted.calls.filter(call => call.path.endsWith('/youtube/preview')).length
+    ;([...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Review this time')) as HTMLButtonElement).click()
+    await nextTick()
+    assert.match(mounted.text(), /will not turn a past schedule into an immediate publish/)
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/preview')).length, previewsBefore)
+    mounted.destroy()
+  })
+
+  test('a custom local time must be reviewed, then its exact ISO is confirmed and submitted', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      previewOverride: (body) => ({
+        ...PREVIEWED,
+        status: { ...PREVIEWED.status, ...(body.publish_at ? { publishAt: body.publish_at } : {}) },
+      }),
+    })
+    await previewThen(mounted)
+    const custom = mounted.el.querySelector('input[value="custom"]') as HTMLInputElement
+    custom.click()
+    custom.dispatchEvent(new Event('change'))
+    await nextTick()
+    assert.match(mounted.text(), /Review this timing choice/)
+
+    const localValue = '2099-10-11T08:30'
+    const exactIso = new Date(localValue).toISOString()
+    const field = mounted.el.querySelector('input[type="datetime-local"]') as HTMLInputElement
+    field.value = localValue
+    field.dispatchEvent(new Event('input'))
+    await nextTick()
+    const review = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Review this time'))!
+    review.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/preview')).at(-1)?.body.publish_at, exactIso)
+
+    const upload = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Upload to YouTube'))!
+    upload.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    assert.match(mounted.confirms[0].message, new RegExp(exactIso.replaceAll('.', '\\.')))
+    assert.equal(mounted.calls.find(call => call.path.endsWith('/youtube/upload'))?.body.publish_at, exactIso)
+    mounted.destroy()
+  })
+
+  test('plans unscheduled videos locally through preview and freshness-fenced apply only after confirmation', async () => {
+    const assignments = [
+      { episode_code: 'EP0001', publishAt: '2099-11-01T09:00:00.000Z' },
+      { episode_code: 'EP0002', publishAt: '2099-11-03T09:00:00.000Z' },
+    ]
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED, { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Second' }],
+      plans: {
+        plans: [{ id: 'plan-1', name: 'Weekdays', platform: 'youtube', account_id: 'registry:UC-x', schedule: { timezone: 'Asia/Phnom_Penh' } }],
+        active: { 'youtube:registry:UC-x': 'plan-1' },
+      },
+      planPreview: { assignments, skipped_existing: [], latest_existing_claim: null },
+      planApply: { assignments, skipped_existing: [], latest_existing_claim: null },
+    })
+    assert.equal(mounted.calls.some(call => call.path.includes('/youtube/plan/')), false, 'mount is read-only')
+    const plan = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Plan unscheduled videos (2)'))!
+    plan.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    const previewCall = mounted.calls.find(call => call.path.endsWith('/youtube/plan/preview'))!
+    assert.deepEqual(previewCall.body, {
+      plan_id: 'plan-1', expected_channel_id: 'UC-x', episode_codes: ['EP0001', 'EP0002'],
+    })
+    const applyCall = mounted.calls.find(call => call.path.endsWith('/youtube/plan/apply'))!
+    assert.deepEqual(applyCall.body, {
+      plan_id: 'plan-1', expected_channel_id: 'UC-x', episode_codes: ['EP0001', 'EP0002'],
+      confirm: true, expected_assignments: assignments,
+    })
+    assert.equal(mounted.calls.some(call => call.path.endsWith('/youtube/upload')), false)
+    assert.match(mounted.confirms[0].message, /local planned dates/)
+    assert.match(mounted.text(), /YouTube has not been changed/)
+    mounted.destroy()
+  })
+
+  test('checks unknown remote visibility only after confirmation, then schedules by episode without reuploading', async () => {
+    const publishAt = '2099-12-05T08:00:00.000Z'
+    const mounted = await mount({
+      episodes: [{
+        episode_code: 'EP0042', title: 'Already private', has_video: true,
+        has_remote_video: true, remote_video_id: 'video-42',
+        can_schedule_existing: true,
+        operation: { operation_id: 'op-42', episode_code: 'EP0042', lifecycle: 'ready', video_id: 'video-42' },
+        local: { render: { state: 'ready' }, upload: { state: 'succeeded' } },
+        publication: { state: 'uploaded' },
+        plan: { scheduled_at: publishAt, timezone: 'UTC' },
+      }],
+      previewOverride: (body) => ({
+        ...PREVIEWED,
+        status: { ...PREVIEWED.status, ...(body.publish_at ? { publishAt: body.publish_at } : {}) },
+      }),
+      scheduleResponse: { episode_code: 'EP0042', video_id: 'video-42', privacy_status: 'private', scheduled_at: publishAt },
+    })
+    const open = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Schedule publication')!
+    open.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.match(mounted.text(), /has not confirmed this video’s visibility/)
+    const schedule = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Schedule on YouTube')!
+    schedule.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+
+    const call = mounted.calls.find(item => item.path.endsWith('/youtube/episodes/EP0042/schedule'))!
+    assert.deepEqual(call.body, { confirm: true, expected_channel_id: 'UC-x', publish_at: publishAt })
+    assert.equal(mounted.calls.some(item => item.path.endsWith('/youtube/upload')), false)
+    assert.match(mounted.confirms[0].message, /does not upload the video again/)
+    mounted.destroy()
+  })
+
+  test('shows live local upload transfer progress with a Jobs link', async () => {
+    const mounted = await mount({
+      episodes: [{
+        ...NEVER_UPLOADED,
+        local: { render: { state: 'ready' }, upload: { state: 'running', job_id: 'job-42' } },
+      }],
+      jobs: [{ job_id: 'job-42', status: 'running', type: 'youtube_upload', progress: 38, bytes_done: 380, bytes_total: 1000, speed_bps: 20, eta_seconds: 31 }],
+    })
+    const progress = mounted.el.querySelector('[role="progressbar"]')!
+    assert.equal(progress.getAttribute('aria-valuenow'), '38')
+    assert.equal(progress.getAttribute('aria-label'), 'Uploading to YouTube')
+    assert.equal([...mounted.el.querySelectorAll('a')].find(link => link.textContent!.includes('View in Jobs'))?.getAttribute('href'), '/projects/demo-project/jobs')
+    mounted.destroy()
+  })
+
+  test('refreshes provider-free publishable state when a known upload job finishes', async () => {
+    const episode = {
+      ...NEVER_UPLOADED,
+      local: { render: { state: 'ready' }, upload: { state: 'running', job_id: 'job-42' } },
+    }
+    const running = { job_id: 'job-42', status: 'running', type: 'youtube_upload', progress: 90 }
+    const mounted = await mount({ episodes: [episode], jobs: [running] })
+    const before = mounted.calls.filter(call => call.path.endsWith('/youtube/publishable')).length
+
+    await mounted.setJobs([{ ...running, status: 'done', progress: 100 }])
+
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/publishable')).length, before + 1)
+    assert.match(mounted.text(), /Uploaded/)
+    assert.equal(mounted.el.querySelector('[role="progressbar"]'), null)
+    assert.equal(mounted.calls.some(call => call.path.includes('/refresh')), false)
     mounted.destroy()
   })
 
@@ -639,6 +868,229 @@ describe('Upload Center Publish', () => {
     await nextTick()
     const rows = [...mounted.el.querySelectorAll('[data-episode-code]')]
     assert.equal(rows[0]?.getAttribute('data-episode-code'), 'EP0001')
+    mounted.destroy()
+  })
+
+  test('selects only visible episodes that are ready for this connected channel', async () => {
+    const mounted = await mount({
+      episodes: [
+        { ...NEVER_UPLOADED, episode_code: 'EP0003', title: 'Visible and ready' },
+        { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Also ready' },
+        { episode_code: 'EP0001', title: 'Missing render', has_video: false, local: { render: { state: 'missing' }, upload: { state: 'none' } }, publication: { state: 'unpublished' } },
+      ],
+      preview: PREVIEWED,
+    })
+    const search = mounted.el.querySelector<HTMLInputElement>('input[aria-label="Filter episodes by code or title"]')!
+    search.value = 'EP0003'
+    search.dispatchEvent(new Event('input'))
+    await nextTick()
+
+    const selectVisible = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select visible eligible'))!
+    assert.match(selectVisible.textContent || '', /\(1\)/)
+    selectVisible.click()
+    await nextTick()
+
+    assert.equal(mounted.el.querySelectorAll<HTMLInputElement>('.episode-select input:checked').length, 1)
+    assert.match(
+      [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+        .find(button => button.textContent!.includes('Review selected uploads'))?.textContent || '',
+      /\(1\)/,
+    )
+    mounted.destroy()
+  })
+
+  test('bulk review shows exact files thumbnails metadata channel and timing, then queues each reviewed fence once', async () => {
+    const plannedAt = '2099-10-11T02:30:00.000Z'
+    const mounted = await mount({
+      episodes: [
+        { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Private upload' },
+        { ...NEVER_UPLOADED, episode_code: 'EP0001', title: 'Planned upload', plan: { scheduled_at: plannedAt, timezone: 'Asia/Phnom_Penh' } },
+      ],
+      previewOverride: (body) => ({
+        ...PREVIEWED,
+        package_revision: `package-${body.episode_code}`,
+        source: { filename: `${body.episode_code}_final_video.mp4`, revision: `source-${body.episode_code}` },
+        snippet: {
+          ...PREVIEWED.snippet,
+          title: `YouTube title ${body.episode_code}`,
+          description: `Exact description for ${body.episode_code}`,
+          tags: [`tag-${body.episode_code}`, 'shared-tag'],
+        },
+        status: { ...PREVIEWED.status, ...(body.publish_at ? { publishAt: body.publish_at } : {}) },
+        thumbnail: {
+          state: 'selected', filename: `${body.episode_code}_Thumb01.png`, url: `/api/${body.episode_code}.png`,
+          options: [{ filename: `${body.episode_code}_Thumb01.png`, url: `/api/${body.episode_code}.png` }],
+        },
+      }),
+    })
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+    await nextTick()
+    const review = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Review selected uploads'))!
+    review.focus()
+    review.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+
+    const dialog = mounted.el.querySelector('[aria-labelledby="bulk-upload-review-title"]')!
+    assert.equal(document.activeElement?.id, 'bulk-upload-review-title', 'keyboard focus moves into the bulk review')
+    assert.match(dialog.textContent || '', /EP0001_final_video\.mp4/)
+    assert.match(dialog.textContent || '', /EP0002_Thumb01\.png/)
+    assert.match(dialog.textContent || '', /YouTube title EP0001/)
+    assert.match(dialog.textContent || '', /Ch · UC-x/)
+    assert.match(dialog.textContent || '', new RegExp(plannedAt.replaceAll('.', '\\.')))
+    assert.match(dialog.textContent || '', /Asia\/Phnom_Penh/)
+    assert.match(dialog.textContent || '', /Keep private/)
+    assert.doesNotMatch(dialog.textContent || '', /Reviewed version|package-EP0001/)
+
+    const metadataReview = [...dialog.querySelectorAll<HTMLDetailsElement>('details')]
+      .find(details => details.querySelector('summary')?.textContent?.includes('Review metadata'))!
+    metadataReview.open = true
+    metadataReview.dispatchEvent(new Event('toggle'))
+    await nextTick()
+    assert.match(metadataReview.textContent || '', /Exact description for EP0001/)
+    assert.match(metadataReview.textContent || '', /tag-EP0001, shared-tag/)
+
+    const thumbnails = [...dialog.querySelectorAll<HTMLImageElement>('.bulk-thumbnail img')]
+    assert.equal(thumbnails.length, 2)
+    thumbnails.forEach(image => image.dispatchEvent(new Event('load')))
+    await nextTick()
+
+    const queue = [...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Queue reviewed uploads'))!
+    assert.match(queue.textContent || '', /\(2\)/)
+    queue.click()
+    for (let i = 0; i < 14; i++) await nextTick()
+
+    const uploads = mounted.calls.filter(call => call.path.endsWith('/youtube/upload'))
+    assert.deepEqual(uploads.map(call => call.body), [
+      {
+        episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x',
+        expected_package_revision: 'package-EP0001', expected_source_revision: 'source-EP0001',
+        thumbnail_filename: 'EP0001_Thumb01.png', privacy_status: 'private', publish_at: plannedAt,
+      },
+      {
+        episode_code: 'EP0002', confirm: true, expected_channel_id: 'UC-x',
+        expected_package_revision: 'package-EP0002', expected_source_revision: 'source-EP0002',
+        thumbnail_filename: 'EP0002_Thumb01.png', privacy_status: 'private',
+      },
+    ])
+    assert.equal(mounted.confirms.length, 0, 'the exact bulk review has one explicit queue action, not a second generic dialog')
+    assert.match(dialog.textContent || '', /Queued/)
+    ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.trim() === 'Close')!.click()
+    await nextTick()
+    assert.equal(document.activeElement?.id, 'upload-list-title', 'closing after queue returns focus to the stable upload list heading')
+    mounted.destroy()
+  })
+
+  test('a broken thumbnail preview keeps that bulk row out of the upload queue', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: {
+        ...PREVIEWED,
+        thumbnail: {
+          state: 'selected', filename: 'EP0001_Thumb01.png', url: '/api/broken-thumbnail.png',
+          options: [{ filename: 'EP0001_Thumb01.png', url: '/api/broken-thumbnail.png' }],
+        },
+      },
+    })
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+    await nextTick()
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Review selected uploads'))!.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+
+    const dialog = mounted.el.querySelector('[aria-labelledby="bulk-upload-review-title"]')!
+    dialog.querySelector<HTMLImageElement>('.bulk-thumbnail img')!.dispatchEvent(new Event('error'))
+    await nextTick()
+
+    assert.match(dialog.textContent || '', /Needs attention/)
+    assert.match(dialog.textContent || '', /thumbnail is selected, but its preview is unavailable/i)
+    const queue = [...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Queue reviewed uploads'))!
+    assert.match(queue.textContent || '', /\(0\)/)
+    assert.equal(queue.disabled, true)
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 0)
+    mounted.destroy()
+  })
+
+  test('bulk preview and queue failures stay on their own rows and never retry automatically', async () => {
+    let uploadAttempts = 0
+    const mounted = await mount({
+      episodes: [
+        { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Preview refusal' },
+        { ...NEVER_UPLOADED, episode_code: 'EP0001', title: 'Queue refusal' },
+      ],
+      previewFailAfter: 1,
+      preview: PREVIEWED,
+      postOverride: (path) => {
+        if (path.endsWith('/youtube/upload')) {
+          uploadAttempts += 1
+          throw Object.assign(new Error('file changed after review'), { data: { detail: 'The rendered video changed after review.' } })
+        }
+      },
+    })
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+    await nextTick()
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Review selected uploads'))!.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+    assert.match(mounted.text(), /preview exploded/)
+
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Queue reviewed uploads'))!.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+    assert.equal(uploadAttempts, 1)
+    assert.match(mounted.text(), /rendered video changed after review/)
+    mounted.destroy()
+  })
+
+  test('stop queueing finishes the current request and leaves later reviewed rows ready to continue', async () => {
+    let uploadAttempts = 0
+    let finishFirstUpload!: (value: { job_id: string; channel_id: string }) => void
+    const firstUpload = new Promise<{ job_id: string; channel_id: string }>((resolve) => { finishFirstUpload = resolve })
+    const mounted = await mount({
+      episodes: [
+        { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Second reviewed upload' },
+        { ...NEVER_UPLOADED, episode_code: 'EP0001', title: 'First reviewed upload' },
+      ],
+      preview: PREVIEWED,
+      postOverride: (path) => {
+        if (!path.endsWith('/youtube/upload')) return undefined
+        uploadAttempts += 1
+        return uploadAttempts === 1 ? firstUpload : { job_id: `job-${uploadAttempts}`, channel_id: 'UC-x' }
+      },
+    })
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+    await nextTick()
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Review selected uploads'))!.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+
+    const dialog = mounted.el.querySelector('[aria-labelledby="bulk-upload-review-title"]')!
+    ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Queue reviewed uploads'))!.click()
+    await nextTick()
+    const stop = [...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.trim() === 'Stop queueing')!
+    assert.equal(stop.disabled, false)
+    stop.click()
+    await nextTick()
+    assert.match(dialog.textContent || '', /Stopping after current/)
+
+    finishFirstUpload({ job_id: 'job-1', channel_id: 'UC-x' })
+    for (let i = 0; i < 12; i++) await nextTick()
+
+    assert.equal(uploadAttempts, 1, 'stopping does not start the next reviewed admission')
+    assert.match(dialog.textContent || '', /Already queued uploads continue/)
+    assert.match(dialog.textContent || '', /Queue reviewed uploads \(1\)/)
+    assert.equal([...dialog.querySelectorAll('.state-text')].filter(node => node.textContent?.trim() === 'Queued').length, 1)
+    assert.equal([...dialog.querySelectorAll('.state-text')].filter(node => node.textContent?.trim() === 'Reviewed').length, 1)
     mounted.destroy()
   })
 
@@ -959,9 +1411,63 @@ describe('Upload Center Publish', () => {
 
   test('a project whose channel is not connected gets the reason, never the button', async () => {
     const mounted = await mount({ episodes: [NEVER_UPLOADED], preview: PREVIEWED, channelStatus: null })
+    assert.match(mounted.text(), /No YouTube channel assigned/)
+    assert.match(mounted.text(), /ready locally/)
     const upload = await previewThen(mounted)
     assert.equal(upload, undefined, 'no button to press')
     assert.match(mounted.text(), /no assigned YouTube channel/)
+    const ready = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Ready to upload'))!
+    assert.match(ready.textContent || '', /0/, 'local readiness alone is not readiness for a missing channel')
+    assert.ok([...mounted.el.querySelectorAll<HTMLAnchorElement>('a')]
+      .some(link => link.textContent!.includes('Assign channel') && link.href.includes('/settings#youtube')))
+    mounted.destroy()
+  })
+
+  test('removing a deleted operation association is explicit, fenced, and never claims to delete on YouTube', async () => {
+    const mounted = await mount({
+      operations: [READY_OP],
+      postOverride: (path) => path.endsWith('/forget-upload')
+        ? { episode_code: 'EP0001', video_id: 'vid-1', association_removed: true }
+        : undefined,
+    })
+    const forget = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('I deleted this video on YouTube'))!
+    forget.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+
+    assert.match(mounted.confirms[0].message, /only after you deleted vid-1 on YouTube and verified it is gone/i)
+    assert.match(mounted.confirms[0].message, /will not check or delete anything on YouTube/i)
+    const call = mounted.calls.find(entry => entry.path.endsWith('/youtube/episodes/EP0001/forget-upload'))!
+    assert.deepEqual(call.body, {
+      confirm: true,
+      expected_channel_id: 'UC-x',
+      expected_video_id: 'vid-1',
+    })
+    assert.match(mounted.text(), /YouTube was not changed/)
+    mounted.destroy()
+  })
+
+  test('a legacy remote id can reach the same exact association-removal boundary', async () => {
+    const mounted = await mount({
+      episodes: [{
+        episode_code: 'EP0007', title: 'Legacy upload', has_video: true,
+        has_remote_video: true, remote_video_id: 'legacy-video-77', remote_source: 'legacy_sidecar',
+        blocked_reason: 'EP0007 is already on YouTube as legacy-video-77.',
+      }],
+      postOverride: (path) => path.endsWith('/forget-upload')
+        ? { episode_code: 'EP0007', video_id: 'legacy-video-77', association_removed: true }
+        : undefined,
+    })
+    const forget = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('I deleted this video on YouTube'))!
+    assert.ok(forget)
+    forget.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    assert.deepEqual(
+      mounted.calls.find(entry => entry.path.endsWith('/youtube/episodes/EP0007/forget-upload'))?.body,
+      { confirm: true, expected_channel_id: 'UC-x', expected_video_id: 'legacy-video-77' },
+    )
     mounted.destroy()
   })
 
@@ -1028,8 +1534,10 @@ describe('Upload Center Publish', () => {
 })
 
 describe('Upload Center Publish boundaries', () => {
-  test('offers no retry that could re-upload an accepted video', () => {
-    assert.doesNotMatch(source, /re-?upload|retryUpload|uploadAgain/i)
+  test('the only path to another upload is the confirmed exact-video association removal', () => {
+    assert.match(source, /\/youtube\/episodes\/\$\{encodeURIComponent\(ep\.episode_code\)\}\/forget-upload/)
+    assert.match(source, /confirm: true[\s\S]*expected_channel_id: expectedChannelId[\s\S]*expected_video_id: expectedVideoId/)
+    assert.doesNotMatch(source, /retryUpload|uploadAgain/i)
   })
 
   test('has no retired automatic-upload control or qualification request', () => {

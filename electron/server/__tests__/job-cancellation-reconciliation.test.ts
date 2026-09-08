@@ -287,6 +287,290 @@ test('reconciles pending Chat and Music evidence by the saved key without genera
   }
 })
 
+test('reconciles pending transcription evidence by the confirm key, with a legacy base-key fallback', async () => {
+  const original = globalThis.fetch
+  const requests: Array<{ method: string; path: string }> = []
+  globalThis.fetch = async (input, init) => {
+    const request = { method: (init?.method || 'GET').toUpperCase(), path: new URL(String(input)).pathname }
+    requests.push(request)
+    if (request.path.endsWith('/current-transcription-confirm')) {
+      return Response.json({ id: 'current-transcription-job', state: 'running', dispatch_state: 'dispatched', cancellable: false })
+    }
+    if (request.path.endsWith('/legacy-transcription-confirm')) return Response.json({ detail: 'not found' }, { status: 404 })
+    if (request.path.endsWith('/legacy-transcription')) {
+      return Response.json({ id: 'legacy-transcription-job', state: 'running', dispatch_state: 'dispatched', cancellable: false })
+    }
+    return Response.json({ detail: 'unexpected request' }, { status: 500 })
+  }
+  try {
+    for (const [key, expected, paths] of [
+      ['current-transcription', 'current-transcription-job', ['/v1/transcriptions/by-idempotency-key/current-transcription-confirm']],
+      ['legacy-transcription', 'legacy-transcription-job', [
+        '/v1/transcriptions/by-idempotency-key/legacy-transcription-confirm',
+        '/v1/transcriptions/by-idempotency-key/legacy-transcription',
+      ]],
+    ] as const) {
+      requests.length = 0
+      const input = job('unknown')
+      input.genstudio_jobs = [{
+        id: `pending:${key}`, operation: 'audio.transcription', state: 'submitting', updated_at: new Date().toISOString(),
+        request: { method: 'POST', path: '/v1/audio/transcriptions/quotes', captured_at: '2026-09-08T00:00:00.000Z', idempotency_key: key },
+      }]
+      input.remote_cancellations = {}
+
+      const result = await reconcilePendingJobCancellation(input, 'test-key')
+
+      assert.equal(result.kind, 'pending')
+      assert.equal(result.absent.length, 0)
+      assert.equal(result.providerJobs[0]?.job.id, expected)
+      assert.deepEqual(requests, paths.map(path => ({ method: 'GET', path })))
+    }
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('rechecks a cached pending transcription absence through its confirmation key without re-reading other terminal absences', async () => {
+  const original = globalThis.fetch
+  const requests: Array<{ method: string; path: string }> = []
+  globalThis.fetch = async (input, init) => {
+    const request = { method: (init?.method || 'GET').toUpperCase(), path: new URL(String(input)).pathname }
+    requests.push(request)
+    if (request.path === '/v1/transcriptions/by-idempotency-key/stale-transcription-confirm') {
+      return Response.json({ id: 'recovered-transcription-job', state: 'succeeded', dispatch_state: 'dispatched', cancellable: false })
+    }
+    return Response.json({ detail: 'unexpected request' }, { status: 500 })
+  }
+  try {
+    const input = job('unknown')
+    input.genstudio_jobs = [{
+      id: 'pending:stale-transcription', operation: 'audio.transcription', state: 'not_created', updated_at: new Date().toISOString(),
+      request: { method: 'POST', path: '/v1/audio/transcriptions/quotes', captured_at: '2026-09-08T00:00:00.000Z', idempotency_key: 'stale-transcription' },
+    }, {
+      id: 'pending:stale-music', operation: 'music.generation', state: 'not_created', updated_at: new Date().toISOString(),
+      request: { method: 'POST', path: '/v1/music/jobs', captured_at: '2026-09-08T00:00:00.000Z', idempotency_key: 'stale-music' },
+    }]
+    input.remote_cancellations = {}
+
+    const result = await reconcilePendingJobCancellation(input, 'test-key')
+
+    assert.equal(result.kind, 'failed')
+    assert.deepEqual(requests, [{ method: 'GET', path: '/v1/transcriptions/by-idempotency-key/stale-transcription-confirm' }])
+    assert.deepEqual(result.absent, [{ operation: 'music.generation', evidence_id: 'pending:stale-music' }])
+    assert.equal(result.providerJobs.find(item => item.evidence_id === 'pending:stale-transcription')?.job.id, 'recovered-transcription-job')
+    assert.equal(result.providerJobs.find(item => item.evidence_id === 'pending:stale-music')?.job.state, 'not_created')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('a dual transcription 404 stamps the absence so future reconciliation does not poll it again', async () => {
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async input => {
+    requests.push(new URL(String(input)).pathname)
+    return Response.json({ detail: 'not found' }, { status: 404 })
+  }
+  try {
+    const input = job('unknown')
+    input.genstudio_jobs = [{
+      id: 'pending:verified-absence', operation: 'audio.transcription', state: 'submitting', updated_at: new Date().toISOString(),
+      request: { method: 'POST', path: '/v1/audio/transcriptions/quotes', captured_at: '2026-09-08T00:00:00.000Z', idempotency_key: 'verified-absence' },
+    }]
+    input.remote_cancellations = {}
+
+    const first = await reconcilePendingJobCancellation(input, 'test-key')
+
+    assert.equal(first.kind, 'failed')
+    assert.deepEqual(requests, [
+      '/v1/transcriptions/by-idempotency-key/verified-absence-confirm',
+      '/v1/transcriptions/by-idempotency-key/verified-absence',
+    ])
+    const verified = first.providerJobs[0]?.job.transcription_absence_verified_at
+    assert.ok(verified)
+
+    input.genstudio_jobs[0] = { ...input.genstudio_jobs[0]!, state: 'not_created', transcription_absence_verified_at: verified }
+    requests.length = 0
+    const second = await reconcilePendingJobCancellation(input, 'test-key')
+
+    assert.equal(second.kind, 'failed')
+    assert.deepEqual(requests, [])
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('boot and manual recheck replace a stale transcription absence without retaining synthetic provider fields', async () => {
+  const { setApiKey } = await import('../services/app-secrets-store.js')
+  await setApiKey('genstudio', 'reconcile-test-key')
+  const project = await pm.createProject({ name: 'Stale transcription absence' })
+  const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+  const persisted = job('unknown')
+  persisted.project_slug = project.slug
+  persisted.job_id = 'stale-transcription-boot'
+  persisted.type = 'subtitles_transcribe'
+  persisted.status = 'error'
+  persisted.finished_at = new Date().toISOString()
+  persisted.local_execution_complete = true
+  persisted.remote_cancellations = {}
+  persisted.output_lines = ['GenStudio has no record of audio.transcription pending:stale-transcription-boot. That request was never created, so nothing was generated and nothing was charged for it.']
+  persisted.genstudio_jobs = [{
+    id: 'pending:stale-transcription-boot', operation: 'audio.transcription', state: 'not_created', updated_at: new Date().toISOString(),
+    cancelled: false, cancellable: false, cancellation_requested: false,
+    failure_code: 'NOT_CREATED', cancellation_note: 'synthetic absence',
+    reserved_credits: 0, settled_credits: 0, released_credits: 0,
+    request: { method: 'POST', path: '/v1/audio/transcriptions/quotes', captured_at: '2026-09-08T00:00:00.000Z', idempotency_key: 'stale-transcription-boot' },
+  }]
+  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [persisted] }))
+
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async input => {
+    const request = new URL(String(input)).pathname
+    requests.push(request)
+    if (request === '/v1/transcriptions/by-idempotency-key/stale-transcription-boot-confirm') {
+      return Response.json({ id: 'recovered-transcription-boot', state: 'succeeded', dispatch_state: 'dispatched' })
+    }
+    return Response.json({ detail: 'unexpected request' }, { status: 500 })
+  }
+  try {
+    await jq.getJobs(project.slug)
+    await waitFor(() => jq.getJob('stale-transcription-boot')?.genstudio_jobs?.[0]?.id === 'recovered-transcription-boot')
+
+    const recovered = jq.getJob('stale-transcription-boot')!
+    const entry = recovered.genstudio_jobs?.[0]!
+    assert.deepEqual(requests, ['/v1/transcriptions/by-idempotency-key/stale-transcription-boot-confirm'])
+    assert.equal(entry.state, 'succeeded')
+    for (const field of ['cancelled', 'cancellable', 'cancellation_requested', 'failure_code', 'cancellation_note', 'reserved_credits', 'settled_credits', 'released_credits'] as const) {
+      assert.equal(Object.hasOwn(entry, field), false, `${field} must not retain a synthetic absence value`)
+    }
+    assert.ok(recovered.output_lines.some(line => line.includes('corrected its earlier no-record result')))
+
+    requests.length = 0
+    await jq.recheckJobProviderStatus(project.slug, recovered.job_id)
+    assert.deepEqual(requests, [], 'the corrected receipt is terminal and does not need another manual provider read')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('boot reconciles a running stale transcription absence before interrupted-job terminalization', async () => {
+  const { setApiKey } = await import('../services/app-secrets-store.js')
+  await setApiKey('genstudio', 'reconcile-test-key')
+  const project = await pm.createProject({ name: 'Running stale transcription absence' })
+  const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+  const persisted = job('unknown')
+  persisted.project_slug = project.slug
+  persisted.job_id = 'running-stale-transcription'
+  persisted.type = 'subtitles_transcribe'
+  persisted.status = 'running'
+  persisted.finished_at = null
+  persisted.remote_cancellations = {}
+  persisted.genstudio_jobs = [{
+    id: 'pending:running-stale-transcription', operation: 'audio.transcription', state: 'not_created', updated_at: new Date().toISOString(),
+    request: { method: 'POST', path: '/v1/audio/transcriptions/quotes', captured_at: '2026-09-08T00:00:00.000Z', idempotency_key: 'running-stale-transcription' },
+  }]
+  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [persisted] }))
+
+  const original = globalThis.fetch
+  globalThis.fetch = async input => {
+    assert.equal(new URL(String(input)).pathname, '/v1/transcriptions/by-idempotency-key/running-stale-transcription-confirm')
+    return Response.json({ id: 'running-stale-transcription-provider', state: 'succeeded', dispatch_state: 'dispatched' })
+  }
+  try {
+    await jq.getJobs(project.slug)
+    await waitFor(() => jq.getJob('running-stale-transcription')?.genstudio_jobs?.[0]?.id === 'running-stale-transcription-provider')
+    assert.doesNotMatch(jq.getJob('running-stale-transcription')?.error || '', /Interrupted by app restart/)
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('an unavailable provider leaves a stale transcription absence eligible for a later manual recheck', async () => {
+  const { setApiKey } = await import('../services/app-secrets-store.js')
+  await setApiKey('genstudio', 'reconcile-test-key')
+  const project = await pm.createProject({ name: 'Unavailable stale transcription absence' })
+  const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+  const persisted = job('unknown')
+  persisted.project_slug = project.slug
+  persisted.job_id = 'stale-transcription-unavailable'
+  persisted.type = 'subtitles_transcribe'
+  persisted.status = 'error'
+  persisted.finished_at = new Date().toISOString()
+  persisted.local_execution_complete = true
+  persisted.remote_cancellations = {}
+  persisted.genstudio_jobs = [{
+    id: 'pending:stale-transcription-unavailable', operation: 'audio.transcription', state: 'not_created', updated_at: new Date().toISOString(),
+    request: { method: 'POST', path: '/v1/audio/transcriptions/quotes', captured_at: '2026-09-08T00:00:00.000Z', idempotency_key: 'stale-transcription-unavailable' },
+  }]
+  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [persisted] }))
+
+  const original = globalThis.fetch
+  let attempts = 0
+  globalThis.fetch = async () => {
+    attempts++
+    throw new TypeError('provider unavailable')
+  }
+  try {
+    await jq.getJobs(project.slug)
+    await waitFor(() => jq.getJob('stale-transcription-unavailable')?.history_evidence_check?.state === 'unreachable')
+    const afterBoot = jq.getJob('stale-transcription-unavailable')!
+    assert.equal(afterBoot.genstudio_jobs?.[0]?.transcription_absence_verified_at, undefined)
+    assert.equal(jq.removeTerminalJob(project.slug, afterBoot.job_id), false, 'an unverified absence must not be removed from history')
+    const publicJob = jq.getPublicJob(afterBoot.job_id)!
+    assert.equal(publicJob.control?.action, 'recheck-provider-status')
+    assert.match(publicJob.control?.reason || '', /cannot confirm whether that request was created or charged/)
+    assert.ok(afterBoot.output_lines.some(line => line.includes('earlier no-record transcription result') && line.includes('created or charged')))
+
+    await jq.recheckJobProviderStatus(project.slug, afterBoot.job_id)
+    assert.equal(attempts, 2, 'manual recheck must remain available after an unreachable boot refresh')
+    assert.equal(jq.getJob('stale-transcription-unavailable')?.history_evidence_check?.state, 'unreachable')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('boot persists a verified transcription absence and does not poll it again', async () => {
+  const { setApiKey } = await import('../services/app-secrets-store.js')
+  await setApiKey('genstudio', 'reconcile-test-key')
+  const project = await pm.createProject({ name: 'Verified transcription absence' })
+  const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+  const persisted = job('unknown')
+  persisted.project_slug = project.slug
+  persisted.job_id = 'verified-transcription-absence'
+  persisted.type = 'subtitles_transcribe'
+  persisted.status = 'error'
+  persisted.finished_at = new Date().toISOString()
+  persisted.local_execution_complete = true
+  persisted.remote_cancellations = {}
+  persisted.genstudio_jobs = [{
+    id: 'pending:verified-transcription-absence', operation: 'audio.transcription', state: 'not_created', updated_at: new Date().toISOString(),
+    request: { method: 'POST', path: '/v1/audio/transcriptions/quotes', captured_at: '2026-09-08T00:00:00.000Z', idempotency_key: 'verified-transcription-absence' },
+  }]
+  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [persisted] }))
+
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async input => {
+    requests.push(new URL(String(input)).pathname)
+    return Response.json({ detail: 'not found' }, { status: 404 })
+  }
+  try {
+    await jq.getJobs(project.slug)
+    await waitFor(() => Boolean(jq.getJob('verified-transcription-absence')?.genstudio_jobs?.[0]?.transcription_absence_verified_at))
+    assert.deepEqual(requests, [
+      '/v1/transcriptions/by-idempotency-key/verified-transcription-absence-confirm',
+      '/v1/transcriptions/by-idempotency-key/verified-transcription-absence',
+    ])
+
+    requests.length = 0
+    await jq.recheckJobProviderStatus(project.slug, 'verified-transcription-absence')
+    assert.deepEqual(requests, [], 'the verified dual-404 receipt is cached terminal evidence')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
 /**
  * REWRITTEN, NOT DELETED — v1.2.8.
  *

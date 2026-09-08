@@ -18,14 +18,7 @@ export type YouTubeOperationHandle = {
   revision: number
 }
 
-/**
- * A cheap, stable identity for the rendered source.
- *
- * ponytail: name+size+mtime, not a content hash — hashing a multi-gigabyte
- * render on every upload would cost minutes for a value only used to tell two
- * renders apart. Switch to a content hash if a case appears where two
- * different renders can share all three.
- */
+/** A versioned SHA-256 identity for the exact rendered source. */
 export async function resolveSourceRevision(filePath: string): Promise<string> {
   return resolveYouTubeSourceRevision(filePath)
 }

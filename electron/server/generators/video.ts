@@ -16,6 +16,7 @@ import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { checkpointJobState, trackChild } from '../services/job-queue.js'
+import { withFinalVideoPathLock } from '../services/final-video-lock.js'
 import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 // v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
 // folder-resolver (this file used to carry private copies; the ✅-prefix
@@ -115,9 +116,11 @@ async function selfHealFinalPromotion(
   if (path.basename(currentPath) === finalName && fileExistsNonEmpty(currentPath)) return currentPath
   if (!fileExistsNonEmpty(currentPath)) return currentPath
   try {
-    await fs.copyFile(currentPath, projectTreeFinalPath)
-    if (!fileExistsNonEmpty(projectTreeFinalPath)) throw new Error('copied file is empty')
-    await fs.rm(currentPath, { force: true })
+    await withFinalVideoPathLock(projectTreeFinalPath, async () => {
+      await fs.copyFile(currentPath, projectTreeFinalPath)
+      if (!fileExistsNonEmpty(projectTreeFinalPath)) throw new Error('copied file is empty')
+      await fs.rm(currentPath, { force: true })
+    })
     job.output_lines.push(`Self-healed final promotion → ${finalName} (project tree)`)
     return projectTreeFinalPath
   } catch (error: any) {
@@ -1702,20 +1705,22 @@ export async function generateVideo(job: Job): Promise<void> {
       }
       let compResolvedPath = compOutputFile
       try {
-        await fs.rename(compOutputFile, compFinalPath)
+        await withFinalVideoPathLock(compFinalPath, () => fs.rename(compOutputFile, compFinalPath))
         compResolvedPath = compFinalPath
         job.output_lines.push(`Renamed to: ${compFinalName}`)
       } catch (e: any) {
         if (e?.code === 'EXDEV' && compFinalPath !== compProjectTreeFinalPath) {
           try {
-            await fs.copyFile(compOutputFile, compFinalPath)
-            await fs.rm(compOutputFile, { force: true })
+            await withFinalVideoPathLock(compFinalPath, async () => {
+              await fs.copyFile(compOutputFile, compFinalPath)
+              await fs.rm(compOutputFile, { force: true })
+            })
             compResolvedPath = compFinalPath
             job.output_lines.push(`Copied to external (cross-device): ${compFinalName}`)
           } catch (copyErr: any) {
             job.output_lines.push(`Warning: external copy failed (${copyErr.message || copyErr}); falling back to project tree`)
             try {
-              await fs.rename(compOutputFile, compProjectTreeFinalPath)
+              await withFinalVideoPathLock(compProjectTreeFinalPath, () => fs.rename(compOutputFile, compProjectTreeFinalPath))
               compResolvedPath = compProjectTreeFinalPath
               job.output_lines.push(`Renamed to: ${compFinalName} (project tree fallback)`)
             } catch (fallbackErr: any) {
@@ -2451,7 +2456,7 @@ export async function generateVideo(job: Job): Promise<void> {
 
     let resolvedOutputPath = outputFile
     try {
-      await fs.rename(outputFile, finalPath)
+      await withFinalVideoPathLock(finalPath, () => fs.rename(outputFile, finalPath))
       resolvedOutputPath = finalPath
       job.output_lines.push(`Renamed to: ${finalName}`)
     } catch (e: any) {
@@ -2460,8 +2465,10 @@ export async function generateVideo(job: Job): Promise<void> {
       // final at their chosen location.
       if (e?.code === 'EXDEV' && finalPath !== projectTreeFinalPath) {
         try {
-          await fs.copyFile(outputFile, finalPath)
-          await fs.rm(outputFile, { force: true })
+          await withFinalVideoPathLock(finalPath, async () => {
+            await fs.copyFile(outputFile, finalPath)
+            await fs.rm(outputFile, { force: true })
+          })
           resolvedOutputPath = finalPath
           job.output_lines.push(`Copied to external (cross-device): ${finalName}`)
         } catch (copyErr: any) {
@@ -2469,7 +2476,7 @@ export async function generateVideo(job: Job): Promise<void> {
           // we don't lose the file the user just spent compute on.
           job.output_lines.push(`Warning: external copy failed (${copyErr.message || copyErr}); falling back to project tree`)
           try {
-            await fs.rename(outputFile, projectTreeFinalPath)
+            await withFinalVideoPathLock(projectTreeFinalPath, () => fs.rename(outputFile, projectTreeFinalPath))
             resolvedOutputPath = projectTreeFinalPath
             job.output_lines.push(`Renamed to: ${finalName} (project tree fallback)`)
           } catch (fallbackErr: any) {

@@ -27,9 +27,11 @@ import { buildYouTubeMetadataPackage, resolveYouTubeUploadSettings } from '../se
 import { resolveSourceRevision } from '../services/youtube-operation-recorder.js'
 
 let cleanup: (() => Promise<void>) | undefined
+const reviewedParamsBySlug = new Map<string, Record<string, unknown>>()
 
 afterEach(async () => {
   __resetYouTubeTransportForTests()
+  reviewedParamsBySlug.clear()
   await cleanup?.()
   cleanup = undefined
 })
@@ -58,7 +60,25 @@ async function setUp(assign: boolean): Promise<{ slug: string; accountId: string
     title: 'A Real Episode Title', description: 'A real description.', tags: ['alpha', 'beta'],
   }))
   await fs.mkdir(paths.video_dir, { recursive: true })
-  await fs.writeFile(path.join(paths.video_dir, `${CODE}_final_video.mp4`), tinyVideoBytes())
+  const sourcePath = path.join(paths.video_dir, `${CODE}_final_video.mp4`)
+  await fs.writeFile(sourcePath, tinyVideoBytes())
+
+  const settings = await resolveYouTubeUploadSettings(slug)
+  const approved = await buildYouTubeMetadataPackage({
+    project_slug: slug,
+    episode_code: CODE,
+    privacy_status: 'private',
+    mark_as_ai_generated: settings.mark_as_ai_generated,
+    ...(settings.category_id !== undefined ? { category_id: settings.category_id } : {}),
+    fallback_title: TITLE,
+  })
+  reviewedParamsBySlug.set(slug, {
+    expected_channel_id: CHANNEL,
+    expected_source_revision: await resolveSourceRevision(sourcePath),
+    expected_package_revision: approved.package_revision,
+    approved_final_payload: approved.final_payload,
+    approved_upload_mode: 'private',
+  })
 
   if (assign) {
     await configureYouTubeApplication({ client_id: 'generator-client', client_secret: 'generator-secret-value' })
@@ -89,7 +109,17 @@ function job(slug: string, accountId: string): any {
     project_slug: slug,
     episode_id: CODE,
     output_lines: [] as string[],
-    params: { episode_id: CODE, account_id: accountId },
+    params: { episode_id: CODE, account_id: accountId, ...(reviewedParamsBySlug.get(slug) ?? {}) },
+  }
+}
+
+async function readUploadBody(body: unknown): Promise<Buffer> {
+  const reader = (body as ReadableStream<Uint8Array>).getReader()
+  const chunks: Buffer[] = []
+  for (;;) {
+    const next = await reader.read()
+    if (next.done) return Buffer.concat(chunks)
+    chunks.push(Buffer.from(next.value))
   }
 }
 
@@ -121,6 +151,35 @@ describe('youtube upload generator', () => {
     assert.equal(log.includes(SESSION), false, 'the resumable session URL is a credential')
     assert.equal(log.includes('generator-access-token'), false)
     assert.equal(log.includes('generator-secret-value'), false)
+  })
+
+  test('hashes and uploads one pinned render when its final path is replaced mid-upload', async () => {
+    const { slug, accountId } = await setUp(true)
+    const paths = await resolveEpisodePaths(slug, CODE, TITLE)
+    const sourcePath = path.join(paths.video_dir, `${CODE}_final_video.mp4`)
+    const original = await fs.readFile(sourcePath)
+    const recordedRevision = await resolveSourceRevision(sourcePath)
+    const replacement = path.join(paths.video_dir, 'new-final.mp4')
+    await fs.writeFile(replacement, Buffer.alloc(original.length, 0x7f))
+    let uploadedBytes: Buffer | undefined
+
+    __setYouTubeTransportForTests((async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (init?.method === 'POST') {
+        await fs.rename(replacement, sourcePath)
+        return new Response('{}', { status: 200, headers: { Location: SESSION } })
+      }
+      assert.equal(url, SESSION)
+      uploadedBytes = await readUploadBody(init?.body)
+      return new Response(JSON.stringify({ id: 'pinned-render' }), { status: 200 })
+    }) as typeof fetch)
+
+    await generateYoutubeUpload(job(slug, accountId))
+
+    assert.deepEqual(uploadedBytes, original, 'the provider receives the render that was hashed')
+    const [operation] = await listYouTubeOperations(slug)
+    assert.equal(operation?.source_revision, recordedRevision)
+    assert.notEqual(await resolveSourceRevision(sourcePath), recordedRevision, 'the pathname now names the replacement')
   })
 
   test('an explicit no-thumbnail upload does not report a missing-thumbnail failure', async () => {
@@ -209,6 +268,21 @@ describe('youtube upload generator', () => {
     assert.equal(fake.calls.length, 0)
   })
 
+  test('a queued upload without a reviewed receipt refuses before probing or provider work', async () => {
+    const { slug, accountId } = await setUp(true)
+    const fake = fakeAcceptingUpload('must-not-upload')
+    __setYouTubeTransportForTests(fake.transport())
+    const running = job(slug, accountId)
+    running.params = { episode_id: CODE, account_id: accountId }
+
+    await assert.rejects(
+      generateYoutubeUpload(running),
+      /predates the required review receipt.*Review and confirm/i,
+    )
+    assert.equal(fake.calls.length, 0)
+    assert.doesNotMatch(running.output_lines.join('\n'), /Probing video with ffprobe/)
+  })
+
   test('a rendered video changed after admission is refused before provider work', async () => {
     const { slug, accountId } = await setUp(true)
     const paths = await resolveEpisodePaths(slug, CODE, TITLE)
@@ -223,8 +297,7 @@ describe('youtube upload generator', () => {
       fallback_title: TITLE,
     })
     const admittedRevision = await resolveSourceRevision(sourcePath)
-    const changedAt = new Date(Date.now() + 2_000)
-    await fs.utimes(sourcePath, changedAt, changedAt)
+    await fs.appendFile(sourcePath, Buffer.from('changed-after-admission'))
     const fake = fakeAcceptingUpload('must-not-upload')
     __setYouTubeTransportForTests(fake.transport())
     const running = job(slug, accountId)
@@ -233,6 +306,7 @@ describe('youtube upload generator', () => {
       expected_channel_id: CHANNEL,
       expected_package_revision: approved.package_revision,
       approved_final_payload: approved.final_payload,
+      approved_upload_mode: 'private',
       expected_source_revision: admittedRevision,
     }
 
@@ -293,7 +367,7 @@ describe('youtube upload generator', () => {
     assert.equal((await listYouTubeOperations(slug))[0]?.lifecycle, 'failed')
   })
 
-  test('a restart resumes the same session and operation with its original init payload', async () => {
+  test('an old queued job resumes only its exact recorded session and original init payload', async () => {
     const { slug, accountId } = await setUp(true)
     let initCount = 0
     __setYouTubeTransportForTests((async (input, init) => {
@@ -337,7 +411,9 @@ describe('youtube upload generator', () => {
       })
     }) as typeof fetch)
 
-    await generateYoutubeUpload(job(slug, accountId))
+    const legacyQueuedJob = job(slug, accountId)
+    legacyQueuedJob.params = { episode_id: CODE, account_id: accountId }
+    await generateYoutubeUpload(legacyQueuedJob)
     const completed = await listYouTubeOperations(slug)
     assert.equal(initCount, 1)
     assert.equal(probeCount, 1)
@@ -445,10 +521,10 @@ describe('the manual upload job never edits a video that is already published', 
 })
 
 describe('a fresh upload carries nothing forward from a previous video', () => {
-  test('re-uploading after a takedown does not re-tombstone the new video', async () => {
+  test('re-uploading after an explicit manual removal does not re-tombstone the new video', async () => {
     // `existing` used to be null on this path, so the spread was dead. Removing
     // the update branch made it LIVE — and the new sidecar inherited the old
-    // video's `deleted_at`, so the takedown fix produced a video that was born
+    // video's `deleted_at`, so the manual-removal path produced a video that was born
     // tombstoned: invisible to `remoteVideoFor` and immediately re-uploadable.
     const { slug, accountId } = await setUp(true)
     const { writeSidecar, readSidecarRaw } = await import('../services/upload-sidecar.js')
@@ -458,14 +534,14 @@ describe('a fresh upload carries nothing forward from a previous video', () => {
       last_sync_at: '2026-01-01T00:00:00.000Z', scheduled_for: null,
       privacy_status: 'public', title: TITLE, description: 'old description',
       tags: ['old'], thumbnail_set: true, deleted_at: '2026-02-01T00:00:00.000Z',
-      deleted_reason: 'takedown',
+      deleted_reason: 'manual',
     })
 
-    __setYouTubeTransportForTests(fakeAcceptingUpload('video-after-takedown').transport())
+    __setYouTubeTransportForTests(fakeAcceptingUpload('video-after-removal').transport())
     await generateYoutubeUpload(job(slug, accountId))
 
     const after = await readSidecarRaw(slug, CODE, TITLE, 'youtube')
-    assert.equal(after!.video_id, 'video-after-takedown')
+    assert.equal(after!.video_id, 'video-after-removal')
     assert.equal(after!.deleted_at, undefined, 'the new video is not born tombstoned')
     assert.equal(after!.deleted_reason, undefined)
     assert.equal(after!.thumbnail_set, false, 'the old video\'s thumbnail state is not claimed')
@@ -474,7 +550,24 @@ describe('a fresh upload carries nothing forward from a previous video', () => {
     // The outcome that matters: the new video is visible as published.
     const { remoteVideoFor } = await import('../services/youtube-remote-video.js')
     const seen = await remoteVideoFor(slug, CODE, TITLE, CHANNEL)
-    assert.equal(seen?.video_id, 'video-after-takedown')
+    assert.equal(seen?.video_id, 'video-after-removal')
+  })
+
+  test('an automatic sync_404 tombstone still refuses a new upload', async () => {
+    const { slug, accountId } = await setUp(true)
+    const { writeSidecar } = await import('../services/upload-sidecar.js')
+    await writeSidecar(slug, CODE, TITLE, {
+      platform: 'youtube', video_id: 'missing-for-token', account_id: accountId,
+      channel_id: CHANNEL, uploaded_at: '2026-01-01T00:00:00.000Z',
+      last_sync_at: '2026-02-01T00:00:00.000Z', scheduled_for: null,
+      privacy_status: 'private', title: TITLE, description: '', tags: [], thumbnail_set: false,
+      deleted_at: '2026-02-02T00:00:00.000Z', deleted_reason: 'sync_404',
+    })
+    const fake = fakeAcceptingUpload('must-not-upload')
+    __setYouTubeTransportForTests(fake.transport())
+
+    await assert.rejects(() => generateYoutubeUpload(job(slug, accountId)), /already on YouTube as missing-for-token/)
+    assert.equal(fake.calls.length, 0, 'an automatic missing response is not removal authorization')
   })
 
   test('uploading to a different channel refuses rather than erasing the old link', async () => {

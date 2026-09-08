@@ -1,6 +1,41 @@
 const dependentTypes = new Set(['audio_merge', 'subtitles_transcribe', 'scene_plan_run', 'contextual_cues', 'continuity_render', 'scene_images_batch'])
+const AFTER_SUBTITLES = new Set<unknown>([null, 'scene_plan_run', 'contextual_cues', 'continuity_render'])
+
+interface RecoveryDisplayJob {
+  type?: string
+  status?: string
+  params?: {
+    force?: unknown
+    generation_action?: { kind?: unknown }
+    episode_recovery_id?: unknown
+    episode_recovery?: {
+      id?: unknown
+      completed?: readonly unknown[]
+      first_unresolved?: unknown
+    }
+  }
+}
 
 export function isEpisodeRecoveryType(type: string): boolean { return dependentTypes.has(type) }
+
+/** The old attempt stays failed; this only describes its now-verified subtitle output. */
+export function isVerifiedRecoveredSubtitleJob(job: RecoveryDisplayJob): boolean {
+  if (job.type !== 'subtitles_transcribe' || job.status !== 'error' || job.params?.force === true
+    || job.params?.generation_action?.kind === 'fresh') return false
+  const recovery = job.params?.episode_recovery
+  const recoveryId = recovery?.id
+  if (typeof recoveryId !== 'string' || !recoveryId.trim()
+    || typeof job.params?.episode_recovery_id !== 'string'
+    || recoveryId !== job.params.episode_recovery_id) return false
+  return Array.isArray(recovery?.completed)
+    && recovery.completed.includes('subtitle_sections')
+    && recovery.completed.includes('subtitle_stitch')
+    && AFTER_SUBTITLES.has(recovery.first_unresolved)
+}
+
+export function jobDisplayStatus(job: RecoveryDisplayJob): string {
+  return isVerifiedRecoveredSubtitleJob(job) ? 'recovered' : String(job.status || '')
+}
 
 /** Send one episode intent; section identities and retry params remain server-owned. */
 export function groupEpisodeRecoveryRetries<T extends { job_id: string; type: string; project_slug: string; episode_id: string; status?: string }>(jobs: readonly T[]) {

@@ -27,7 +27,6 @@ import {
   completeYouTubeOperation,
   markYouTubeOperationFailedBeforeSession,
   markYouTubeOperationUploading,
-  resolveSourceRevision,
   type YouTubeOperationHandle,
 } from '../services/youtube-operation-recorder.js'
 import { listYouTubeOperations } from '../services/youtube-operation-store.js'
@@ -53,7 +52,11 @@ import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { ensureYoutubePlaylistMembership } from '../services/youtube-playlist-sync.js'
 import { describeYouTubeCredential, resolveYouTubeAccountId } from '../services/youtube-credential.js'
-import { findYouTubeSourceVideoPath } from '../services/youtube-source-video.js'
+import {
+  findYouTubeSourceVideoPath,
+  resolveYouTubeSourceRevision,
+  resolveYouTubeSourceRevisionFromHandle,
+} from '../services/youtube-source-video.js'
 
 interface YouTubeUploadParams {
   episode_id: string
@@ -85,6 +88,55 @@ interface YouTubeUploadParams {
   // rewrote live videos. If a "Replace video" feature is ever added it needs
   // its own confirmation flow, a warning that the old URL will be orphaned,
   // and an optional pre-delete — not a boolean param.
+}
+
+function hasReviewedFreshUploadParams(params: YouTubeUploadParams): boolean {
+  return !!params.expected_channel_id?.trim()
+    && !!params.expected_source_revision?.trim()
+    && !!params.expected_package_revision?.trim()
+    && !!params.approved_final_payload
+    && (params.approved_upload_mode === 'private' || params.approved_upload_mode === 'apply-plan')
+}
+
+/**
+ * An old queued job may continue only when it resumes one exact durable
+ * operation. It may not turn into a fresh upload using today's metadata.
+ */
+async function hasExactResumableRecovery(input: {
+  slug: string
+  episodeId: string
+  accountId: string
+  channelId: string
+  videoPath: string
+  operations: Awaited<ReturnType<typeof listYouTubeOperations>>
+}): Promise<boolean> {
+  const resume = await readResumeSidecar(input.slug, input.episodeId, 'youtube')
+  if (!resume) return false
+  const sourceBytes = (await fsp.stat(input.videoPath)).size
+  const usable = isSidecarUsable({
+    sidecar: resume,
+    currentFileSize: sourceBytes,
+    currentAccountId: input.accountId,
+  })
+  if (!usable.ok) return false
+  const sourceRevision = await resolveYouTubeSourceRevision(input.videoPath)
+  const sessionHash = sessionUrlHash(resume.session_url)
+  const open = input.operations.filter(record => record.episode_code === input.episodeId
+    && record.channel_id === input.channelId && !record.video_id
+    && ['preparing', 'uploading'].includes(record.lifecycle))
+  const matches = open.filter(record => record.lifecycle === 'uploading'
+    && record.source_revision === sourceRevision && !!record.final_payload
+    && (!record.resumable || (
+      record.resumable.session_url_hash === sessionHash
+      && record.resumable.source_bytes === sourceBytes
+    )))
+  if (open.length !== 1 || matches.length !== 1) return false
+  try {
+    metadataPackageFromFinalPayload(matches[0]!.final_payload!)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function generateYoutubeUpload(job: Job): Promise<void> {
@@ -142,6 +194,16 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     if (!videoPath) {
       throw new Error(`No final video file found for ${episodeId}. Run Video Assembly or drop a file into this episode's video folder (or the external final-video root if configured in Settings → Storage).`)
     }
+    if (!hasReviewedFreshUploadParams(params) && !(await hasExactResumableRecovery({
+      slug,
+      episodeId,
+      accountId,
+      channelId: account.remote_id,
+      videoPath,
+      operations,
+    }))) {
+      throw new Error('This queued upload predates the required review receipt. Review and confirm the exact video and YouTube details again; nothing was uploaded.')
+    }
     job.output_lines.push(`Source video: ${path.relative(paths.episode_dir, videoPath)}`)
 
     // ffprobe sanity check (duration / streams) — only meaningful for
@@ -168,6 +230,12 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   let uploaded: any
 
   {
+    // Hash and upload through one descriptor. Final-video promotion replaces
+    // paths atomically, but this job runs in a separate queue lane, so reopening
+    // the pathname for every chunk could otherwise send a newer render than the
+    // durable SHA-256 receipt describes.
+    const sourceHandle = await fsp.open(videoPath, 'r')
+    try {
     // Restart-safe resume: if a transient
     // sidecar from a prior interrupted run exists AND its TTL hasn't
     // expired AND file_size matches AND account_id matches, hand the
@@ -175,8 +243,8 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     // charge. Mismatches drop the sidecar so the next attempt starts
     // fresh against a usable session.
     const resumeSidecar = await readResumeSidecar(slug, episodeId, 'youtube')
-    const sourceBytes = (await fsp.stat(videoPath)).size
-    const sourceRevision = await resolveSourceRevision(videoPath)
+    const sourceBytes = (await sourceHandle.stat()).size
+    const sourceRevision = await resolveYouTubeSourceRevisionFromHandle(sourceHandle)
     if (params.expected_source_revision && sourceRevision !== params.expected_source_revision) {
       throw new Error('The rendered video changed after confirmation. Preview and confirm the upload again; nothing was uploaded.')
     }
@@ -338,6 +406,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       slug,
       accountId,
       filePath: videoPath,
+      sourceHandle,
       snippet: metadataPackage.snippet,
       status: metadataPackage.status,
       signal: abort.signal,
@@ -381,6 +450,9 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     videoId = uploaded.id
     job.progress = 85
     job.output_lines.push(`Upload complete — video id: ${videoId}`)
+    } finally {
+      await sourceHandle.close().catch(() => {})
+    }
   }
 
   if (!videoId?.trim()) throw new Error('YouTube returned success without a video id; no upload record was written.')

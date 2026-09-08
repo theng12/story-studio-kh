@@ -8,7 +8,7 @@ import {
   type GenStudioCancellationFields,
   type GenStudioJob,
 } from '../lib/genstudio-client.js'
-import { GENSTUDIO_TASK_NOT_CREATED_STATE, isNeverCreatedProviderTask } from '../lib/provider-task-state.js'
+import { GENSTUDIO_TASK_NOT_CREATED_STATE, isNeverCreatedProviderTask, shouldRecheckStoredTranscriptionAbsence } from '../lib/provider-task-state.js'
 import { idempotencyKeyFromPendingEntryId } from '../lib/genstudio-request-preview.js'
 import type { Job, JobRemoteCancellation } from '../models/types.js'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
@@ -45,9 +45,13 @@ export interface AbsentProviderTask {
   settled_credits: 0
   // model-drift-allow: as above — nothing was reserved, so there is nothing to release
   released_credits: 0
+  transcription_absence_verified_at?: string
 }
 
-export type ReconciledProviderTask = (GenStudioJob & GenStudioCancellationFields) | AbsentProviderTask
+export type ReconciledProviderTask = (
+  | (GenStudioJob & GenStudioCancellationFields)
+  | AbsentProviderTask
+) & { transcription_absence_verified_at?: string }
 
 type ReconcileEvidence = {
   records: Record<string, JobRemoteCancellation>
@@ -75,6 +79,44 @@ const REMOTE_OPERATIONS = new Set<JobRemoteCancellation['operation']>([
 
 function isRemoteOperation(value: string): value is JobRemoteCancellation['operation'] {
   return REMOTE_OPERATIONS.has(value as JobRemoteCancellation['operation'])
+}
+
+/**
+ * Transcription creates its provider task when a quote is confirmed.  The
+ * preview/quote uses the base key, while the confirmation — and therefore the
+ * task lookup identity — uses `${base}-confirm`.  Older direct transcription
+ * requests used the base key, so use it only after the current identity is
+ * authoritatively absent.
+ */
+type PendingProviderTaskLookup =
+  | { kind: 'provider'; provider: GenStudioJob & GenStudioCancellationFields }
+  | { kind: 'verified_transcription_absence' }
+
+async function getPendingProviderTaskByIdempotencyKey(
+  operation: JobRemoteCancellation['operation'],
+  baseUrl: string,
+  apiKey: string,
+  idempotencyKey: string,
+  deadline: number,
+): Promise<PendingProviderTaskLookup> {
+  if (operation !== 'audio.transcription') {
+    return { kind: 'provider', provider: await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, idempotencyKey, {}, deadline) }
+  }
+
+  const confirmKey = idempotencyKey.endsWith('-confirm')
+    ? idempotencyKey
+    : `${idempotencyKey}-confirm`
+  try {
+    return { kind: 'provider', provider: await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, confirmKey, {}, deadline) }
+  } catch (error) {
+    if (!isGenStudioTaskAbsent(error) || confirmKey === idempotencyKey) throw error
+    try {
+      return { kind: 'provider', provider: await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, idempotencyKey, {}, deadline) }
+    } catch (legacyError) {
+      if (!isGenStudioTaskAbsent(legacyError)) throw legacyError
+      return { kind: 'verified_transcription_absence' }
+    }
+  }
 }
 
 /**
@@ -137,7 +179,7 @@ function asRecord(
   }
 }
 
-function absentProviderTask(evidenceId: string): AbsentProviderTask {
+function absentProviderTask(evidenceId: string, transcriptionAbsenceVerifiedAt?: string): AbsentProviderTask {
   return {
     id: evidenceId,
     state: GENSTUDIO_TASK_NOT_CREATED_STATE,
@@ -150,6 +192,7 @@ function absentProviderTask(evidenceId: string): AbsentProviderTask {
     settled_credits: 0,
     // model-drift-allow: as above — nothing was reserved, so there is nothing to release
     released_credits: 0,
+    ...(transcriptionAbsenceVerifiedAt ? { transcription_absence_verified_at: transcriptionAbsenceVerifiedAt } : {}),
   }
 }
 
@@ -265,9 +308,13 @@ export async function reconcilePendingJobCancellation(
     const key = `${evidence.operation}:${evidenceId}`
     if (observed.has(key)) continue
     // Already recorded as never created by an earlier pass. Asking again would
-    // get the same 404 and cost a round trip per reconciliation tick.
-    if (isNeverCreatedProviderTask(evidence)) {
-      providerJobs.push({ operation: evidence.operation, evidence_id: evidenceId, job: absentProviderTask(evidenceId) })
+    // get the same 404 and cost a round trip per reconciliation tick. The one
+    // exception is a pending transcription placeholder: old reconcilers asked
+    // the quote key instead of its confirmation key and could cache a false
+    // absence. The read below repairs that evidence without a migration or a
+    // generation/control request.
+    if (isNeverCreatedProviderTask(evidence) && !shouldRecheckStoredTranscriptionAbsence(evidence)) {
+      providerJobs.push({ operation: evidence.operation, evidence_id: evidenceId, job: absentProviderTask(evidenceId, evidence.transcription_absence_verified_at) })
       observed.add(key)
       absent.push({ operation: evidence.operation, evidence_id: evidenceId })
       continue
@@ -283,14 +330,22 @@ export async function reconcilePendingJobCancellation(
       continue
     }
     try {
-      const provider = isRemoteOperation(evidence.operation)
+      const pendingLookup = isRemoteOperation(evidence.operation)
         ? pendingEvidence
-          ? await getGenStudioJobByIdempotencyKey(evidence.operation, baseUrl, apiKey, idempotencyKey!, {}, deadline)
-          : await getGenStudioCancellationStatus(evidence.operation, baseUrl, apiKey, evidenceId, {}, deadline)
+          ? await getPendingProviderTaskByIdempotencyKey(evidence.operation, baseUrl, apiKey, idempotencyKey!, deadline)
+          : { kind: 'provider' as const, provider: await getGenStudioCancellationStatus(evidence.operation, baseUrl, apiKey, evidenceId, {}, deadline) }
         : null
-      if (!provider) {
+      if (!pendingLookup) {
         return { kind: 'pending', records, providerJobs, absent, reason: `${evidence.operation} ${evidenceId} has no published read-only reconciliation path. Provider work may still settle.` }
       }
+      if (pendingLookup.kind === 'verified_transcription_absence') {
+        const verifiedAt = new Date().toISOString()
+        providerJobs.push({ operation: evidence.operation, evidence_id: evidenceId, job: absentProviderTask(evidenceId, verifiedAt) })
+        observed.add(key)
+        absent.push({ operation: evidence.operation, evidence_id: evidenceId })
+        continue
+      }
+      const provider = pendingLookup.provider
       providerJobs.push({ operation: evidence.operation, evidence_id: evidenceId, job: provider })
       observed.add(key)
     } catch (error) {

@@ -727,11 +727,8 @@
          ↻ Repair… dialog — see frontend/components/RepairAssetsDialog.vue.) -->
 
     <!-- Storage — per-episode disk usage + cleanup of uploaded final
-         videos + external-root configuration. The pain point this
-         tab solves: long-form video projects produce 5-10 GB final
-         video files that bog down iCloud sync. Once a video is on
-         YouTube (sidecar shows video_id), the local copy is
-         operationally redundant and can be deleted to reclaim disk. -->
+         videos + external-root configuration. A final is cleared only
+         after its exact local bytes and current YouTube state are verified. -->
     <details v-if="activeTab === 'maintenance' || activeTab === 'files'" :open="activeTab === 'maintenance'" class="card settings-panel settings-disclosure storage-panel mt-2">
       <summary v-if="activeTab === 'files'"><span><strong>Storage &amp; cleanup</strong><small>Episode usage, recovery data, and optional media split</small></span></summary>
       <header class="settings-section-head">
@@ -802,8 +799,8 @@
               </span>
             </div>
             <p class="overview-card-desc">
-              Safely remove uploaded final exports. Original audio, images,
-              motion clips, and project files remain untouched.
+              Verify eligible local exports before clearing them. Original audio,
+              images, motion clips, and project files remain untouched.
             </p>
           </a>
 
@@ -1093,16 +1090,14 @@
           <div>
             <h4><span class="storage-section-icon" aria-hidden="true">📊</span>Per-episode breakdown</h4>
             <p class="text-muted hint">
-              Sorted largest first. Click "Free up final" to delete the
-              local <code>{code}_final_video.*</code> files for an
-              uploaded episode (the sidecar's <code>video_id</code>
-              guards against accidental deletion of unpublished work).
+              Sorted largest first. Eligible finals can be verified before their
+              local <code>{code}_final_video.*</code> files are cleared.
             </p>
             <p class="text-muted voice-helper-line">
-              💡 The video on YouTube is the source of truth — re-render
-              from images + merged audio, or re-download from YouTube, if
-              you ever need a deleted final back. Audio + image assets are
-              never touched by Free up final.
+              💡 Before any final is cleared, Story Studio verifies its SHA-256
+              against the accepted upload and refreshes the current processed
+              video on the assigned YouTube channel. Unverified or legacy
+              receipts remain local. Audio + image assets are never touched.
             </p>
           </div>
           <div class="flex gap-2">
@@ -1112,12 +1107,12 @@
             <button
               class="btn btn-primary btn-sm"
               :disabled="!storage || bulkRunning || uploadedFinalsTotalBytes === 0"
-              :title="uploadedFinalsTotalBytes === 0 ? 'No uploaded episodes have local final videos' : `Delete ${uploadedFinalsCount} uploaded final video(s) — frees ${formatBytes(uploadedFinalsTotalBytes)}`"
+              :title="uploadedFinalsTotalBytes === 0 ? 'No verification candidates have local final videos' : `Verify and clear ${uploadedFinalsCount} local final video(s) — up to ${formatBytes(uploadedFinalsTotalBytes)}`"
               @click="runBulkCleanup"
             >
               {{ bulkRunning
-                ? 'Cleaning…'
-                : `Free uploaded finals (${formatBytes(uploadedFinalsTotalBytes)})` }}
+                ? 'Verifying…'
+                : `Verify & clear candidates (${formatBytes(uploadedFinalsTotalBytes)})` }}
             </button>
           </div>
         </div>
@@ -1160,29 +1155,27 @@
             <span class="col-clips">{{ formatBytes(row.bytes_per_scene_clips) }}</span>
             <span class="col-other">{{ formatBytes(row.bytes_audio + row.bytes_images + row.bytes_other) }}</span>
             <span class="col-status">
-              <span v-if="row.cleanup_eligible" class="upload-badge ok" :title="`Usable YouTube video ${row.youtube_video_id}`">
-                ✓ remote proof
+              <span v-if="row.cleanup_eligible" class="upload-badge ok" :title="`Candidate for fresh verification against YouTube video ${row.youtube_video_id}`">
+                ✓ verify candidate
               </span>
               <span
                 v-else-if="row.uploaded_to_youtube"
                 class="upload-badge warn"
-                :title="`${row.cleanup_reason || 'This accepted YouTube identity is not usable cleanup proof'} — video ${row.youtube_video_id}`"
+                :title="`${row.cleanup_reason || 'This receipt cannot authorize cleanup'} — video ${row.youtube_video_id}`"
               >
-                ⚠ recorded, not cleanup-safe
+                ⚠ remains local
               </span>
               <span v-else class="upload-badge none">—</span>
             </span>
             <span class="col-actions">
               <button
-                v-if="row.bytes_final_video > 0 || row.bytes_external_final_video > 0"
+                v-if="row.cleanup_eligible && (row.bytes_final_video > 0 || row.bytes_external_final_video > 0)"
                 class="btn btn-ghost btn-sm"
                 :disabled="rowCleanupRunning === row.episode_code"
-                :title="row.cleanup_eligible
-                  ? `Delete the local final video file (frees ${formatBytes(row.bytes_final_video + row.bytes_external_final_video)})`
-                  : `${row.cleanup_reason || 'This exact local render is not confirmed usable on YouTube'} — click anyway to delete (will prompt for confirmation)`"
+                :title="`Verify this local final against its current YouTube upload, then clear it (up to ${formatBytes(row.bytes_final_video + row.bytes_external_final_video)})`"
                 @click="cleanupRow(row)"
               >
-                {{ rowCleanupRunning === row.episode_code ? 'Cleaning…' : 'Free up final' }}
+                {{ rowCleanupRunning === row.episode_code ? 'Verifying…' : 'Verify & clear local video' }}
               </button>
             </span>
           </div>
@@ -1194,9 +1187,15 @@
 
       <div v-if="activeTab === 'files' && lastBulkCleanup" class="storage-result mt-2">
         <strong>Cleanup:</strong>
-        {{ lastBulkCleanup.deleted_count }} file(s) deleted, freed {{ formatBytes(lastBulkCleanup.bytes_freed) }}.
-        <span v-if="lastBulkCleanup.skipped_count">{{ lastBulkCleanup.skipped_count }} skipped (not uploaded).</span>
+        {{ lastBulkCleanup.deleted_count }} file(s) cleared after verification, freed {{ formatBytes(lastBulkCleanup.bytes_freed) }}.
+        <span v-if="lastBulkCleanup.skipped_count">{{ lastBulkCleanup.skipped_count }} kept locally (could not verify).</span>
         <span v-if="lastBulkCleanup.failed_count" class="error-text">{{ lastBulkCleanup.failed_count }} failed.</span>
+        <ul v-if="lastBulkCleanup.items.length" class="cleanup-item-results">
+          <li v-for="item in lastBulkCleanup.items" :key="`${item.episode_code}:${item.file}`">
+            <strong>{{ item.episode_code }}:</strong>
+            {{ item.status === 'deleted' ? 'cleared after verification' : (item.reason || item.status) }}
+          </li>
+        </ul>
       </div>
 
       <div v-if="activeTab === 'files'" class="storage-advanced-heading">
@@ -2792,7 +2791,7 @@ interface MediaMigrationResult {
 interface CleanupResult {
   deleted_count: number; skipped_count: number; failed_count: number
   bytes_freed: number
-  items: Array<{ episode_code: string; status: string; bytes_freed: number; reason?: string }>
+  items: Array<{ episode_code: string; file: string; status: string; bytes_freed: number; reason?: string }>
 }
 
 const storage = ref<StorageAudit | null>(null)
@@ -2863,8 +2862,8 @@ const sortedStorageRows = computed<StorageEntry[]>(() => {
   return [...storage.value.episodes].sort((a, b) => b.bytes_total - a.bytes_total)
 })
 
-// Bulk cleanup only offers finals whose exact local bytes have usable remote
-// proof. An accepted-but-failed video identity remains visible but is not safe.
+// Bulk cleanup offers only candidates with a current content-hash receipt.
+// The backend re-verifies exact bytes and current provider state before rm.
 const uploadedFinals = computed<StorageEntry[]>(() => {
   if (!storage.value) return []
   return storage.value.episodes.filter(e => e.cleanup_eligible
@@ -2979,11 +2978,11 @@ async function loadStorageAudit() {
 async function runBulkCleanup() {
   if (!storage.value || uploadedFinalsCount.value === 0) return
   const ok = await ask({
-    title: 'Delete uploaded final videos?',
-    message: `Delete ${uploadedFinalsCount.value} remotely proven final video file(s) (${formatBytes(uploadedFinalsTotalBytes.value)})?\n\n` +
-    `Each selected local render has durable usable YouTube evidence. ` +
-    `You can re-render any time from images + merged audio.`,
-    confirmLabel: `Delete ${uploadedFinalsCount.value} files`, danger: true,
+    title: 'Verify and clear local videos?',
+    message: `Verify ${uploadedFinalsCount.value} local final video file(s) (${formatBytes(uploadedFinalsTotalBytes.value)}) before clearing them?\n\n` +
+    `Story Studio will compare each file's SHA-256 with its accepted upload and refresh the current processed video on the assigned YouTube channel immediately before deletion. ` +
+    `Any file it cannot verify stays local and is reported below.`,
+    confirmLabel: `Verify & clear ${uploadedFinalsCount.value} files`, danger: true,
   })
   if (!ok) return
   bulkRunning.value = true
@@ -3002,22 +3001,12 @@ async function runBulkCleanup() {
 }
 
 async function cleanupRow(row: StorageEntry) {
-  if (!row.cleanup_eligible) {
-    const ok = await ask({
-      title: 'Delete final without usable remote proof?',
-      message: `${row.episode_code} is not confirmed as the exact render usable on YouTube. ` +
-      `${row.cleanup_reason || ''}\n\n` +
-      `Delete the local final video anyway?\n\n` +
-      `The pipeline may return to showing "video assembly missing".`,
-      confirmLabel: 'Delete anyway', danger: true,
-    })
-    if (!ok) return
-  }
+  if (!row.cleanup_eligible) return
   rowCleanupRunning.value = row.episode_code
   try {
     await post<CleanupResult>(
       `/projects/${slug.value}/storage/cleanup-final/${row.episode_code}`,
-      { force: !row.cleanup_eligible },
+      {},
     )
     await loadStorageAudit()
   } catch (e: any) {
@@ -5462,6 +5451,7 @@ async function deleteProject() {
   border-radius: var(--radius-sm); font-size: 12px;
 }
 .storage-result .error-text { color: var(--error, #e25c5c); margin-left: 4px; }
+.cleanup-item-results { margin: 6px 0 0; padding-left: 18px; }
 
 @media (max-width: 980px) {
   .notification-status-grid { grid-template-columns: 1fr; }
