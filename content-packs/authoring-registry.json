@@ -1,5 +1,5 @@
 {
-  "revision": 234,
+  "revision": 265,
   "batches": [
     {
       "revision": 2,
@@ -5222,6 +5222,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 264,
+      "receipt_ref": "authoring:73575eb864c8593ad74abca5374d969b7f9f5107787672848cf4cb0b2d516e3d",
+      "request": {
+        "expected_revision": 263,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "proposal_ref": "Owner ruling 2026-09-08: names describe content, never a reference channel",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.lost-voyages",
+            "item_id": "com.storystudio.topic.lost-voyages",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/lost-voyage/topic/lost-voyages-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.lost-voyages",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.lost-voyages",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -8505,6 +8541,545 @@
           "status": "authored"
         }
       }
+    },
+    {
+      "revision": 235,
+      "transition_ref": "lifecycle:1299a3c456d0ae428b056484db8d82108af45f91d8825d9be1ee98c2372d883a",
+      "request": {
+        "expected_revision": 234,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.a-life-as@1.0.3",
+        "pack_id": "com.storystudio.pack.kit.a-life-as",
+        "version": "1.0.3",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 236,
+      "transition_ref": "lifecycle:e385184768175a5bc5e8bf4a154ebc123151659a8b85a60020950908c3170040",
+      "request": {
+        "expected_revision": 235,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.a-life-as",
+        "version": "1.0.1",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 237,
+      "transition_ref": "lifecycle:3b0ff99bccd119ab7cb6c433e28397e97e8cb50615a7be21c17c4d233c6ef3f1",
+      "request": {
+        "expected_revision": 236,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:400ad2ffcd674898d3754f6cd093fb38daf9c7fdd2fc4b4684bd818968436918",
+        "pack_id": "com.storystudio.pack.kit.a-life-as",
+        "version": "1.0.4",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 238,
+      "transition_ref": "lifecycle:332b886fa55315641beea358520363d8ed66f1b6994f82335e821333e07d6346",
+      "request": {
+        "expected_revision": 237,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.build-momentum@1.0.0",
+        "pack_id": "com.storystudio.pack.kit.build-momentum",
+        "version": "1.0.0",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 239,
+      "transition_ref": "lifecycle:7cb195b8137496a7061ce4a2474d8b9f7f6264501a57163449fa567c734c33cf",
+      "request": {
+        "expected_revision": 238,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:15172f686bcb11064d9cdbafc75b84f4bd075844eebf7cc719333755db99b9c6",
+        "pack_id": "com.storystudio.pack.kit.build-momentum",
+        "version": "1.0.1",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 240,
+      "transition_ref": "lifecycle:89cce56443989d078361c42d05f40236b70059a8d2f6cb50fb993833e4a78472",
+      "request": {
+        "expected_revision": 239,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:d3ff9c69d0660487f3fe6d7ba1dc686b77024d978b40d5e8809248039a5edd89",
+        "pack_id": "com.storystudio.pack.kit.build-momentum",
+        "version": "1.0.2",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 241,
+      "transition_ref": "lifecycle:d7986b56d24ccea0f01811819da413b153b5dc89ffdc7b603824046b1e557b47",
+      "request": {
+        "expected_revision": 240,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.business-explained@1.0.0",
+        "pack_id": "com.storystudio.pack.kit.business-explained",
+        "version": "1.0.0",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 242,
+      "transition_ref": "lifecycle:0396562c2ac2d38e4a041f95fafb0d9cd89896d4e960aa061620c0ccd414be0c",
+      "request": {
+        "expected_revision": 241,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:400ad2ffcd674898d3754f6cd093fb38daf9c7fdd2fc4b4684bd818968436918",
+        "pack_id": "com.storystudio.pack.kit.business-explained",
+        "version": "1.0.1",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 243,
+      "transition_ref": "lifecycle:f41807f4c20aee5f5fa1ad7b1a5450f0fd1d66d36d00715be0e236c278684132",
+      "request": {
+        "expected_revision": 242,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.calm-mind@1.0.0",
+        "pack_id": "com.storystudio.pack.kit.calm-mind",
+        "version": "1.0.0",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 244,
+      "transition_ref": "lifecycle:a35c76c1437d5fc801108cf04e5a8f5d9924e6014d42548db2da22cf05d6d963",
+      "request": {
+        "expected_revision": 243,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.calm-mind",
+        "version": "1.0.1",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 245,
+      "transition_ref": "lifecycle:08e89e492c75ef58f638288fbac13ae33b9500f5d4f6eb798e918f8b95adcdde",
+      "request": {
+        "expected_revision": 244,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:400ad2ffcd674898d3754f6cd093fb38daf9c7fdd2fc4b4684bd818968436918",
+        "pack_id": "com.storystudio.pack.kit.calm-mind",
+        "version": "1.0.2",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 246,
+      "transition_ref": "lifecycle:b4fa0f4c11b51bbd2b23c3855db7032a25987367750e5997b2128a4ea609d1d8",
+      "request": {
+        "expected_revision": 245,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.deep-time@1.0.2",
+        "pack_id": "com.storystudio.pack.kit.deep-time",
+        "version": "1.0.2",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 247,
+      "transition_ref": "lifecycle:209f37a65d986c03030b22bf813810dbe3798944d05c3ced305ccc9f9474d51b",
+      "request": {
+        "expected_revision": 246,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:400ad2ffcd674898d3754f6cd093fb38daf9c7fdd2fc4b4684bd818968436918",
+        "pack_id": "com.storystudio.pack.kit.deep-time",
+        "version": "1.0.3",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 248,
+      "transition_ref": "lifecycle:c8a98be85a0bf19027d59a01b1bccfebe03ccc10b74114ebd72811509e99d1bf",
+      "request": {
+        "expected_revision": 247,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.first-humans@1.0.3",
+        "pack_id": "com.storystudio.pack.kit.first-humans",
+        "version": "1.0.3",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 249,
+      "transition_ref": "lifecycle:78196eb24393a5ea9f9afe78105b9210995aa35f86333012642d71efaf634fac",
+      "request": {
+        "expected_revision": 248,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.first-humans",
+        "version": "1.0.1",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 250,
+      "transition_ref": "lifecycle:106402699c71ea0c913cdc59d859f72ec75b9c55166b4bc2094d75210254ff6c",
+      "request": {
+        "expected_revision": 249,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:400ad2ffcd674898d3754f6cd093fb38daf9c7fdd2fc4b4684bd818968436918",
+        "pack_id": "com.storystudio.pack.kit.first-humans",
+        "version": "1.0.4",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 251,
+      "transition_ref": "lifecycle:040a7c6211a01fee27daf98ab573bb7b61240a8f14c7f973b415f2ed6c22505f",
+      "request": {
+        "expected_revision": 250,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.history-explained@1.0.0",
+        "pack_id": "com.storystudio.pack.kit.history-explained",
+        "version": "1.0.0",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 252,
+      "transition_ref": "lifecycle:f8863ab851b351e28c6490e0c60b755c59472a651122dfddc4bbc428f5c99dda",
+      "request": {
+        "expected_revision": 251,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:400ad2ffcd674898d3754f6cd093fb38daf9c7fdd2fc4b4684bd818968436918",
+        "pack_id": "com.storystudio.pack.kit.history-explained",
+        "version": "1.0.1",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 253,
+      "transition_ref": "lifecycle:66fc6d02982bd58245156636b7d7513801c4e05570647cb8c6141034550c4cd0",
+      "request": {
+        "expected_revision": 252,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.human-behavior@1.0.0",
+        "pack_id": "com.storystudio.pack.kit.human-behavior",
+        "version": "1.0.0",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 254,
+      "transition_ref": "lifecycle:6bfd109dc74b997e69326f5afc31f38a657f27ed093845c358bb321ee158a9e7",
+      "request": {
+        "expected_revision": 253,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.human-behavior",
+        "version": "1.0.1",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 255,
+      "transition_ref": "lifecycle:43b5f8e3847edd36ee62ca6228b71dfab75f85a7444a55577bf464b3aefb5fb6",
+      "request": {
+        "expected_revision": 254,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:15172f686bcb11064d9cdbafc75b84f4bd075844eebf7cc719333755db99b9c6",
+        "pack_id": "com.storystudio.pack.kit.human-behavior",
+        "version": "1.0.2",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 256,
+      "transition_ref": "lifecycle:926e03a25eda6160e1a629fab921cca1e6f8bcc030f1be38e69f9d8e445a4f3a",
+      "request": {
+        "expected_revision": 255,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.sleep-journeys@1.0.0",
+        "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+        "version": "1.0.0",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 257,
+      "transition_ref": "lifecycle:ca00eb25ebdcea7a38c790aabe0204c09ff2155032283ea3c3eca94b72560d2c",
+      "request": {
+        "expected_revision": 256,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+        "version": "1.0.1",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 258,
+      "transition_ref": "lifecycle:919fe5e5439989298f8b3e4b405b317ae4015ea6fd28c95abbc43ce0ddfac528",
+      "request": {
+        "expected_revision": 257,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:15172f686bcb11064d9cdbafc75b84f4bd075844eebf7cc719333755db99b9c6",
+        "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+        "version": "1.0.2",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 259,
+      "transition_ref": "lifecycle:d588162d15dda59b7a9afc7d0dc795aaed7c73d79ce242d39810d82f9f0229cb",
+      "request": {
+        "expected_revision": 258,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.wild-worlds@1.0.2",
+        "pack_id": "com.storystudio.pack.kit.wild-worlds",
+        "version": "1.0.2",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 260,
+      "transition_ref": "lifecycle:83e98bc3b5e81b1e6592ce725242c3fe38a080ed625628f08cdffb850b9455ef",
+      "request": {
+        "expected_revision": 259,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:15172f686bcb11064d9cdbafc75b84f4bd075844eebf7cc719333755db99b9c6",
+        "pack_id": "com.storystudio.pack.kit.wild-worlds",
+        "version": "1.0.3",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 261,
+      "transition_ref": "lifecycle:151d5705db58818b4ec13b6a9cfd44663d7a4ab3337474c00c09722dc979e7a1",
+      "request": {
+        "expected_revision": 260,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "baseline:com.storystudio.pack.kit.archival-ledger@1.0.2",
+        "pack_id": "com.storystudio.pack.kit.archival-ledger",
+        "version": "1.0.2",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 262,
+      "transition_ref": "lifecycle:f3fa383754d01c58bfc531afb49e3ab2852a58ba38e9134c38ee568342d00549",
+      "request": {
+        "expected_revision": 261,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:e8f16de4a974fcb2aff15a40eceb0690174d41b84073668fd877a7a6896453a2",
+        "pack_id": "com.storystudio.pack.kit.archival-ledger",
+        "version": "1.0.3",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 263,
+      "transition_ref": "lifecycle:2f0fbd6f148830527fc1061ee52f836998902e7886cbe22d253c3dfb10d5856d",
+      "request": {
+        "expected_revision": 262,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+        "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+        "version": "1.0.0",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner ruling 2026-09-08: channel kits discontinued; components sold individually"
+      }
+    },
+    {
+      "revision": 265,
+      "transition_ref": "lifecycle:43b9b7613fa25794ab188745c67b5d9decb34de99df5f64e89282d9bf6d6750c",
+      "request": {
+        "expected_revision": 264,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/kits-monolith-rename-2026-09-08"
+        },
+        "receipt_ref": "authoring:73575eb864c8593ad74abca5374d969b7f9f5107787672848cf4cb0b2d516e3d",
+        "pack_id": "com.storystudio.pack.topic.lost-voyages",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
     }
   ],
   "records": [
@@ -8748,7 +9323,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/a-life-as",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
@@ -8788,7 +9363,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/build-momentum",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.practical-motivation",
@@ -8828,7 +9403,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/business-explained",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.economics-of",
@@ -8868,7 +9443,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/calm-mind",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
@@ -8908,7 +9483,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/deep-time",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
@@ -8948,7 +9523,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/first-humans",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.ancient-humans",
@@ -8988,7 +9563,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/history-explained",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.history-explained",
@@ -9028,7 +9603,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/human-behavior",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
@@ -9068,7 +9643,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/sleep-journeys",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.sleep-story",
@@ -9108,7 +9683,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/wild-worlds",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.natural-world-explained",
@@ -9769,7 +10344,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/paid/archival-ledger/kit/archival-ledger",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.archival-ledger",
@@ -10246,7 +10821,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.1",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
@@ -10286,7 +10861,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/human-behavior-v1.0.1",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
@@ -10326,7 +10901,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.1",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
@@ -10366,7 +10941,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/sleep-journeys-v1.0.1",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.sleep-story",
@@ -10406,7 +10981,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/first-humans-v1.0.1",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.ancient-humans",
@@ -10469,7 +11044,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
@@ -11686,7 +12261,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/wild-worlds-v1.0.3",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.natural-world-explained",
@@ -11726,7 +12301,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/human-behavior-v1.0.2",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
@@ -11766,7 +12341,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/build-momentum-v1.0.1",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.practical-motivation",
@@ -11806,7 +12381,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/sleep-journeys-v1.0.2",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.sleep-story",
@@ -11846,7 +12421,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.2",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
@@ -11886,7 +12461,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/first-humans-v1.0.4",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.ancient-humans",
@@ -11926,7 +12501,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.4",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
@@ -11966,7 +12541,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/history-explained-v1.0.1",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.history-explained",
@@ -12006,7 +12581,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/deep-time-v1.0.3",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
@@ -12046,7 +12621,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/business-explained-v1.0.1",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.economics-of",
@@ -12109,7 +12684,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/free-starters/kit/build-momentum-v1.0.2",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.practical-motivation",
@@ -12149,7 +12724,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/paid/archival-ledger/kit/archival-ledger-v1.0.3",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.archival-ledger",
@@ -14880,6 +15455,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.metadata-formula.entire-story-titles",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:73575eb864c8593ad74abca5374d969b7f9f5107787672848cf4cb0b2d516e3d",
+      "pack_id": "com.storystudio.pack.topic.lost-voyages",
+      "item_id": "com.storystudio.topic.lost-voyages",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/lost-voyage/topic/lost-voyages-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.lost-voyages",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.lost-voyages",
           "status": "proposed"
         }
       }

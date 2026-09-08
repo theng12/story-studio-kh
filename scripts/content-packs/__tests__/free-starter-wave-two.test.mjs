@@ -9,7 +9,10 @@ import sharp from 'sharp'
 const WAVE = new URL('../../../content-packs/free-starters/', import.meta.url)
 const ROOT = new URL('../../../', import.meta.url)
 const PROVENANCE = new URL('../../../content-packs/free-starters/ASSET-PROVENANCE.md', import.meta.url)
-const kits = {
+// Wave two shipped four Channel Kits. Owner ruling 2026-09-08 discontinued
+// them and deleted every Kit source; these four groups of components are still
+// authored and now sell one at a time.
+const channels = {
   'business-explained': ['economics-of', 'economics-businesses', 'hand-drawn-editorial-diagram', 'annotated-business-board', 'Cost → Constraint'],
   'human-behavior': ['human-behavior-explained', 'human-behavior-social-dynamics', 'minimal-stick-figure-explainer', 'centered-hero-headline', 'Signal → Choice'],
   'history-explained': ['history-explained', 'historical-wars-treaties-world-order', 'sepia-ink-wash', 'documentary-label-tableau', 'Event → Consequence'],
@@ -26,12 +29,12 @@ function provenanceRecords(markdown) {
   return JSON.parse(match[1])
 }
 
-test('wave two has exact source identities, enriched Topic dimensions, promises, and Kit closures', async () => {
+test('wave two has exact source identities, enriched Topic dimensions, and promises', async () => {
   const actualCounts = []
-  for (const [kit, [formula, topic, style, recipe, promise]] of Object.entries(kits)) {
-    const [formulaDoc, topicDoc, styleDoc, recipeDoc, manifest] = await Promise.all([
+  for (const [, [formula, topic, style, recipe, promise]] of Object.entries(channels)) {
+    const [formulaDoc, topicDoc, styleDoc, recipeDoc] = await Promise.all([
       json(`formula/${formula}/content/${documentName.formula}.json`), json(`topic/${topic}/content/${documentName.topic}.json`),
-      json(`style/${style}/content/${documentName.style}.json`), json(`thumbnail/${recipe}/content/${documentName.thumbnail}.json`), json(`kit/${kit}/pack.json`),
+      json(`style/${style}/content/${documentName.style}.json`), json(`thumbnail/${recipe}/content/${documentName.thumbnail}.json`),
     ])
     actualCounts.push(topicDoc.subjects.length)
     assert.equal(formulaDoc.id, `com.storystudio.formula.${formula}`)
@@ -41,14 +44,17 @@ test('wave two has exact source identities, enriched Topic dimensions, promises,
     assert.equal(recipeDoc.id, `com.storystudio.thumbnail.${recipe}`)
     for (const field of ['episode_objects', 'time_place_scopes', 'mechanisms', 'evidence_lenses', 'exclusions', 'compatibility_rules']) assert.ok(topicDoc[field]?.length, `${topic} needs ${field}`)
     for (const axis of ['episode-object', 'time-place-scope', 'mechanism', 'evidence-lens']) assert.ok(topicDoc.idea_axes.some(row => row.id === axis), `${topic} needs ${axis}`)
-    assert.deepEqual(manifest.dependencies.map(row => row.pack_id), [
-      `com.storystudio.pack.formula.${formula}`, `com.storystudio.pack.topic.${topic}`,
-      `com.storystudio.pack.style.${style}`, `com.storystudio.pack.thumbnail.${recipe}`,
-    ])
+    // Each component stands alone: no bundle, and no dependency on the
+    // coordinator that used to sell them together.
+    for (const [kind, slug] of [['formula', formula], ['topic', topic], ['style', style], ['thumbnail', recipe]]) {
+      const manifest = await json(`${kind}/${slug}/pack.json`)
+      assert.equal(manifest.bundles, undefined)
+      assert.deepEqual(manifest.dependencies ?? [], [])
+    }
   }
   assert.deepEqual(actualCounts, subjectCounts)
-  assert.equal(kits['human-behavior'][3], 'centered-hero-headline')
-  assert.equal(kits['history-explained'][3], 'documentary-label-tableau')
+  assert.equal(channels['human-behavior'][3], 'centered-hero-headline')
+  assert.equal(channels['history-explained'][3], 'documentary-label-tableau')
 })
 
 test('wars Topic remains compatible with both the new History Formula and Hidden Mechanics History', async () => {
@@ -87,7 +93,7 @@ test('approved wave two preview bytes remain unchanged and every unblocked sourc
   }
   for (const [path, hash] of Object.entries(approved)) assert.equal(createHash('sha256').update(await readFile(new URL(path, WAVE))).digest('hex'), hash)
   const { buildContentPack, validateContentPack } = await import('../lib.mjs')
-  const unblocked = ['formula/economics-of', 'formula/human-behavior-explained', 'formula/history-explained', 'formula/pov-your-life-as', 'topic/economics-businesses', 'topic/human-behavior-social-dynamics', 'topic/historical-wars-treaties-world-order', 'topic/pov-historical-occupations', 'style/hand-drawn-editorial-diagram', 'style/minimal-stick-figure-explainer', 'style/sepia-ink-wash', 'style/cinematic-photoreal', 'thumbnail/annotated-business-board', 'thumbnail/centered-hero-headline', 'thumbnail/portrait-block-right', 'kit/business-explained', 'kit/human-behavior', 'kit/history-explained', 'kit/a-life-as']
+  const unblocked = ['formula/economics-of', 'formula/human-behavior-explained', 'formula/history-explained', 'formula/pov-your-life-as', 'topic/economics-businesses', 'topic/human-behavior-social-dynamics', 'topic/historical-wars-treaties-world-order', 'topic/pov-historical-occupations', 'style/hand-drawn-editorial-diagram', 'style/minimal-stick-figure-explainer', 'style/sepia-ink-wash', 'style/cinematic-photoreal', 'thumbnail/annotated-business-board', 'thumbnail/centered-hero-headline', 'thumbnail/portrait-block-right']
   for (const source of unblocked) {
     const first = join(temporary, `${source.replace('/', '-')}-first.sspack`)
     const second = join(temporary, `${source.replace('/', '-')}-second.sspack`)

@@ -34,7 +34,16 @@ const RECORD_FIELDS = new Set([
   'dependencies', 'stocking_proposal',
 ])
 const REQUEST_RECORD_FIELDS = new Set([...RECORD_FIELDS].filter((field) => field !== 'receipt_ref'))
-const STATUSES = new Set(['authored', 'reserved', 'withdrawn'])
+// `reserved` is an identity with no source yet; `authored` has one on disk.
+// The two terminal states differ in what they close. `withdrawn` is pre-sale
+// identity closure: a reservation that never became a source. `retired` is
+// post-sale source closure: an authored product we have stopped selling and
+// whose source directory has been removed from this repository. Both refuse a
+// source directory, both refuse further mutation, and both burn the pack_id.
+// Customer archives are untouched by either; their own lifecycle values
+// (`active`, `retired`, `replaced`) live in the manifest, not here.
+const STATUSES = new Set(['authored', 'reserved', 'withdrawn', 'retired'])
+const TERMINAL_STATUSES = new Set(['withdrawn', 'retired'])
 const PROPOSAL_STATUSES = new Set(['proposed', 'reserved', 'confirmed'])
 const MIN_APP_VERSION_STATUSES = new Set(['release-bound', 'fixed'])
 const KIND_NAMESPACES = {
@@ -286,7 +295,11 @@ function validateRecord(record, index, { request = false } = {}) {
   }
   if (!request && !AUTHORING_RECEIPT.test(validated.receipt_ref)) {
     const baseline = `baseline:${validated.pack_id}@${validated.version}`
-    if (validated.receipt_ref !== baseline || validated.status !== 'authored') fail(`${label} receipt_ref is not bound to its exact baseline identity`)
+    // A baseline record was entered at genesis as `authored`. Retirement is the
+    // one mutation it may ever undergo, and it must be journaled to get there.
+    if (validated.receipt_ref !== baseline || !['authored', 'retired'].includes(validated.status)) {
+      fail(`${label} receipt_ref is not bound to its exact baseline identity`)
+    }
   }
   return validated
 }
@@ -371,19 +384,25 @@ function receiptFor(request) {
 
 function transitionRequest(request) {
   assertBoundedJson(request, 'lifecycle transition request', MAX_REQUEST_BYTES)
-  exactFields(request, new Set(['expected_revision', 'coordinator', 'receipt_ref', 'pack_id', 'version', 'changes']), 'lifecycle transition request')
+  exactFields(request, new Set(['expected_revision', 'coordinator', 'receipt_ref', 'pack_id', 'version', 'changes', 'reason']), 'lifecycle transition request')
   if (!Number.isSafeInteger(request.expected_revision) || request.expected_revision < 1) fail('expected_revision must be a positive integer')
   exactFields(request.coordinator, new Set(['task', 'branch']), 'lifecycle transition coordinator')
   boundedString(request.coordinator.task, 'lifecycle transition coordinator task', 200)
   boundedString(request.coordinator.branch, 'lifecycle transition coordinator branch', 200)
-  if (!AUTHORING_RECEIPT.test(request.receipt_ref)) fail('lifecycle transition receipt_ref must be a valid authoring receipt')
   const packId = qualifiedId(request.pack_id, 'lifecycle transition pack_id', `${PUBLISHER_ID}.pack.`)
   const version = exactSemver(request.version, 'lifecycle transition version')
+  // Genesis records carry a `baseline:` receipt and no batch to replay, so they
+  // accept exactly one lifecycle event: retirement. Everything else about them
+  // is immutable, which is what made a baseline receipt acceptable at all.
+  const baselineReceipt = request.receipt_ref === `baseline:${packId}@${version}`
+  if (!AUTHORING_RECEIPT.test(request.receipt_ref) && !baselineReceipt) {
+    fail('lifecycle transition receipt_ref must be a valid authoring receipt, or the record\'s exact baseline receipt')
+  }
   exactFields(request.changes, new Set(['status', 'stocking_proposal']), 'lifecycle transition changes')
   if (!Object.keys(request.changes).length) fail('lifecycle transition changes must not be empty')
   const changes = {}
   if ('status' in request.changes) {
-    if (!['authored', 'withdrawn'].includes(request.changes.status)) fail('lifecycle status transition must advance reserved to authored or withdrawn')
+    if (!['authored', 'withdrawn', 'retired'].includes(request.changes.status)) fail('lifecycle status transition must advance reserved to authored or withdrawn, or authored to retired')
     changes.status = request.changes.status
   }
   if ('stocking_proposal' in request.changes) {
@@ -406,9 +425,17 @@ function transitionRequest(request) {
       }
     }
   }
-  if (changes.status === 'withdrawn' && changes.stocking_proposal) {
-    fail('withdrawal is terminal and must not change stocking proposals')
+  if (TERMINAL_STATUSES.has(changes.status) && changes.stocking_proposal) {
+    fail(`${changes.status === 'retired' ? 'retirement' : 'withdrawal'} is terminal and must not change stocking proposals`)
   }
+  // Retirement removes a shipped source from the repository, so the reason it
+  // was retired is the only surviving explanation. Record it in the journal
+  // rather than in a commit message that the registry cannot see.
+  if (baselineReceipt && !same(Object.keys(changes).sort(), ['status'])) fail('a baseline record accepts no lifecycle change but retirement')
+  if (baselineReceipt && changes.status !== 'retired') fail('a baseline record accepts no lifecycle change but retirement')
+  if (changes.status === 'retired' && !('reason' in request)) fail('retirement must state a reason')
+  if (changes.status !== 'retired' && 'reason' in request) fail('reason is only allowed when retiring a record')
+  const reason = 'reason' in request ? trimmedString(request.reason, 'lifecycle transition reason', 500) : undefined
   return {
     expected_revision: request.expected_revision,
     coordinator: { task: request.coordinator.task, branch: request.coordinator.branch },
@@ -416,6 +443,7 @@ function transitionRequest(request) {
     pack_id: packId,
     version,
     changes,
+    ...(reason ? { reason } : {}),
   }
 }
 
@@ -424,7 +452,7 @@ function transitionFor(request) {
 }
 
 function applyLifecycleTransition(record, changes, { replay = false } = {}) {
-  if (record.status === 'withdrawn') fail('withdrawn records are terminal')
+  if (TERMINAL_STATUSES.has(record.status)) fail(`${record.status} records are terminal`)
   if (record.kind === 'channel-kit' && changes.stocking_proposal && !replay) {
     fail('Channel Kit stocking-proposal changes are refused; historical Channel Kits are read-only')
   }
@@ -436,7 +464,10 @@ function applyLifecycleTransition(record, changes, { replay = false } = {}) {
     },
   }
   if ('status' in changes) {
-    if (record.status !== 'reserved' || !['authored', 'withdrawn'].includes(changes.status)) fail('lifecycle status must advance reserved to authored or withdrawn')
+    const permitted = record.status === 'reserved'
+      ? ['authored', 'withdrawn']
+      : record.status === 'authored' ? ['retired'] : []
+    if (!permitted.includes(changes.status)) fail('lifecycle status must advance reserved to authored or withdrawn, or authored to retired')
     if (record.kind === 'channel-kit' && changes.status === 'authored' && !replay) {
       fail('Channel Kit promotion is refused; historical Channel Kits are read-only')
     }
@@ -494,7 +525,14 @@ function validateRevisionEvents(revision, batches, transitions) {
   })
 }
 
-async function assertSafeSourcePath(repositoryRoot, record) {
+// `retiringSourcePath` names the one record being retired by the transition
+// that is validating this document. Retirement is a two-step move — retire the
+// record, then delete the directory — and the registry refuses to hold either
+// half on its own: an authored record must have its source, a retired one must
+// not. The single exemption is the record under the lock right now, whose
+// directory is deleted immediately after the write. Every other retired record
+// must already be gone, so a half-finished retirement fails `validate`.
+async function assertSafeSourcePath(repositoryRoot, record, { retiringSourcePath } = {}) {
   const repositoryPhysical = await realpath(repositoryRoot)
   let cursor = resolve(repositoryRoot)
   const segments = record.source_path.split('/')
@@ -512,7 +550,9 @@ async function assertSafeSourcePath(repositoryRoot, record) {
   const fromRoot = relative(repositoryPhysical, physical)
   if (!fromRoot || fromRoot === '..' || fromRoot.startsWith(`..${sep}`)) fail(`source_path must remain inside the repository: ${record.source_path}`)
   const final = await lstat(cursor)
-  if (record.status === 'withdrawn') fail(`withdrawn source path must not exist: ${record.source_path}`)
+  if (TERMINAL_STATUSES.has(record.status) && record.source_path !== retiringSourcePath) {
+    fail(`${record.status} source path must not exist: ${record.source_path}`)
+  }
   if (!final.isDirectory()) fail(`source_path must be a directory: ${record.source_path}`)
 }
 
@@ -692,6 +732,14 @@ function bindReceipts(records, batches, transitions) {
   for (const batch of [...batches].sort((left, right) => left.revision - right.revision)) {
     for (const record of batch.request.records) lifecycle.set(`${batch.receipt_ref}:${record.pack_id}@${record.version}`, record)
   }
+  // Baseline records predate the receipt journal: they were entered at genesis
+  // as `authored`, with no batch to replay them from. Seed them at that genesis
+  // status so their one permitted event — retirement — is replayed like any
+  // other, instead of being an unjournaled edit nobody checks.
+  for (const record of records) {
+    if (AUTHORING_RECEIPT.test(record.receipt_ref)) continue
+    lifecycle.set(`${record.receipt_ref}:${record.pack_id}@${record.version}`, { ...record, status: 'authored' })
+  }
   for (const transition of [...transitions].sort((left, right) => left.revision - right.revision)) {
     const request = transition.request
     const key = `${request.receipt_ref}:${request.pack_id}@${request.version}`
@@ -699,7 +747,7 @@ function bindReceipts(records, batches, transitions) {
     if (!record) fail(`lifecycle transition target is not bound to receipt ${request.receipt_ref}`)
     lifecycle.set(key, applyLifecycleTransition(record, request.changes, { replay: true }))
   }
-  for (const record of records.filter((candidate) => AUTHORING_RECEIPT.test(candidate.receipt_ref))) {
+  for (const record of records) {
     const expected = lifecycle.get(`${record.receipt_ref}:${record.pack_id}@${record.version}`)
     if (!expected || !same(mutableLifecycle(record), mutableLifecycle(expected))) {
       fail(`receipt ${record.receipt_ref} lifecycle differs from persisted mutation metadata for pack_id ${record.pack_id}`)
@@ -707,7 +755,7 @@ function bindReceipts(records, batches, transitions) {
   }
 }
 
-async function validateRegistryDocument(registry, repositoryRoot) {
+async function validateRegistryDocument(registry, repositoryRoot, { retiringSourcePath } = {}) {
   assertBoundedJson(registry, 'registry', MAX_REGISTRY_BYTES)
   exactFields(registry, new Set(['revision', 'batches', 'transitions', 'records']), 'registry')
   if (!Number.isSafeInteger(registry.revision) || registry.revision < 1) fail('revision must be a positive integer')
@@ -727,7 +775,7 @@ async function validateRegistryDocument(registry, repositoryRoot) {
   bindReceipts(records, batches, transitions)
   validateDependencyGraph(records)
   const resolvedRoot = resolve(repositoryRoot)
-  for (const record of records) await assertSafeSourcePath(resolvedRoot, record)
+  for (const record of records) await assertSafeSourcePath(resolvedRoot, record, { retiringSourcePath })
   await reconcileSources(records, resolvedRoot)
   return { revision: registry.revision, batches, transitions, records }
 }
@@ -773,11 +821,11 @@ export async function reserveAuthoringBatch({ registryPath = join(root, 'content
     const validated = await validateRegistryDocument(current, repositoryRoot)
     if (validated.revision !== accepted.expected_revision) fail(`stale expected revision ${accepted.expected_revision}; current revision is ${validated.revision}`)
     for (const record of accepted.records) {
-      const withdrawn = validated.records.find((candidate) => (
+      const closed = validated.records.find((candidate) => (
         candidate.pack_id === record.pack_id
-        && candidate.status === 'withdrawn'
+        && TERMINAL_STATUSES.has(candidate.status)
       ))
-      if (withdrawn) fail(`withdrawn pack_id ${record.pack_id} may not gain reservation ${record.version}`)
+      if (closed) fail(`${closed.status} pack_id ${record.pack_id} may not gain reservation ${record.version}`)
     }
     const receipt_ref = receiptFor(accepted)
     const records = accepted.records.map((record) => ({ receipt_ref, ...record }))
@@ -804,6 +852,7 @@ export async function transitionAuthoringRecord({ registryPath = join(root, 'con
       && record.pack_id === accepted.pack_id && record.version === accepted.version)
     if (index < 0) fail(`lifecycle transition target is not bound to receipt ${accepted.receipt_ref}`)
     const records = [...validated.records]
+    const retiringSourcePath = accepted.changes.status === 'retired' ? records[index].source_path : undefined
     records[index] = applyLifecycleTransition(records[index], accepted.changes)
     const revision = validated.revision + 1
     const transition_ref = transitionFor(accepted)
@@ -813,7 +862,7 @@ export async function transitionAuthoringRecord({ registryPath = join(root, 'con
       transitions: [...validated.transitions, { revision, transition_ref, request: accepted }],
       records,
     }
-    await validateRegistryDocument(next, repositoryRoot)
+    await validateRegistryDocument(next, repositoryRoot, { retiringSourcePath })
     await atomicWrite(registryPath, `${JSON.stringify(next, null, 2)}\n`)
     return { revision, transition_ref }
   })

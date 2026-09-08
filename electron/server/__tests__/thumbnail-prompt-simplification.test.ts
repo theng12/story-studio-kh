@@ -129,7 +129,7 @@ test('archival map investigation keeps the exact title and evidence-led safety r
 })
 
 test('signed Archival Ledger recipe keeps the archival map composition rules in its effective prompt', async () => {
-  const source = new URL('../../../content-packs/archival-ledger/content/thumbnail-recipe.json', import.meta.url)
+  const source = new URL('../../../content-packs/paid/archival-ledger/thumbnail/archival-map-investigation/content/thumbnail-recipe.json', import.meta.url)
   const legacySource = new URL('../thumbnail-templates/archival-map-investigation.json', import.meta.url)
   const document = parseContentPackDocument('thumbnail-recipe', JSON.parse(await readFile(source, 'utf8'))) as Extract<ContentPackDocument, { kind: 'thumbnail-recipe' }>
   const legacy = JSON.parse(await readFile(legacySource, 'utf8'))

@@ -7,8 +7,9 @@ const CONTENT_PACKS_DIR = new URL('content-packs/', ROOT)
 
 // The retired source-only `content-packs/archival-ledger` monolith is excluded
 // from generic pack discovery everywhere else in this tooling (see
-// scripts/content-packs/README.md's "Generic discovery" note) and is not part
-// of what ships to a customer. It is excluded here too.
+// scripts/content-packs/README.md's "Generic discovery" note) and was never
+// part of what ships to a customer. It was deleted on 2026-09-08; the exclusion
+// stays so a reintroduced copy would not quietly satisfy this guard.
 const EXCLUDED_DIR = 'content-packs/archival-ledger/'
 
 /**

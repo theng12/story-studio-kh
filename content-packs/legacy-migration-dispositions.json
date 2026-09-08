@@ -26,10 +26,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.a-life-as",
         "version": "1.0.1",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.1"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.a-life-as@1.0.3",
@@ -39,10 +39,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.a-life-as",
         "version": "1.0.3",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/a-life-as"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.a-life-as@1.0.4",
@@ -52,10 +52,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.a-life-as",
         "version": "1.0.4",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.4"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.archival-ledger@1.0.2",
@@ -65,10 +65,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.archival-ledger",
         "version": "1.0.2",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/paid/archival-ledger/kit/archival-ledger"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.archival-ledger@1.0.3",
@@ -78,10 +78,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.archival-ledger",
         "version": "1.0.3",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/paid/archival-ledger/kit/archival-ledger-v1.0.3"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.build-momentum@1.0.0",
@@ -91,10 +91,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.build-momentum",
         "version": "1.0.0",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/build-momentum"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.build-momentum@1.0.1",
@@ -104,10 +104,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.build-momentum",
         "version": "1.0.1",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/build-momentum-v1.0.1"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.build-momentum@1.0.2",
@@ -117,10 +117,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.build-momentum",
         "version": "1.0.2",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/build-momentum-v1.0.2"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.business-explained@1.0.0",
@@ -130,10 +130,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.business-explained",
         "version": "1.0.0",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/business-explained"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.business-explained@1.0.1",
@@ -143,10 +143,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.business-explained",
         "version": "1.0.1",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/business-explained-v1.0.1"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.calm-mind@1.0.0",
@@ -156,10 +156,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.calm-mind",
         "version": "1.0.0",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/calm-mind"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.calm-mind@1.0.1",
@@ -169,10 +169,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.calm-mind",
         "version": "1.0.1",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.1"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.calm-mind@1.0.2",
@@ -182,10 +182,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.calm-mind",
         "version": "1.0.2",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.2"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.deep-time@1.0.2",
@@ -195,10 +195,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.deep-time",
         "version": "1.0.2",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/deep-time"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.deep-time@1.0.3",
@@ -208,10 +208,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.deep-time",
         "version": "1.0.3",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/deep-time-v1.0.3"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.first-humans@1.0.1",
@@ -221,10 +221,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.first-humans",
         "version": "1.0.1",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/first-humans-v1.0.1"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.first-humans@1.0.3",
@@ -234,10 +234,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.first-humans",
         "version": "1.0.3",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/first-humans"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.first-humans@1.0.4",
@@ -247,10 +247,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.first-humans",
         "version": "1.0.4",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/first-humans-v1.0.4"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.history-explained@1.0.0",
@@ -260,10 +260,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.history-explained",
         "version": "1.0.0",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/history-explained"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.history-explained@1.0.1",
@@ -273,10 +273,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.history-explained",
         "version": "1.0.1",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/history-explained-v1.0.1"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.human-behavior@1.0.0",
@@ -286,10 +286,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.human-behavior",
         "version": "1.0.0",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/human-behavior"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.human-behavior@1.0.1",
@@ -299,10 +299,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.human-behavior",
         "version": "1.0.1",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/human-behavior-v1.0.1"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.human-behavior@1.0.2",
@@ -312,10 +312,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.human-behavior",
         "version": "1.0.2",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/human-behavior-v1.0.2"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.sleep-journeys@1.0.0",
@@ -325,10 +325,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.sleep-journeys",
         "version": "1.0.0",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/sleep-journeys"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.sleep-journeys@1.0.1",
@@ -338,10 +338,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.sleep-journeys",
         "version": "1.0.1",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/sleep-journeys-v1.0.1"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.sleep-journeys@1.0.2",
@@ -351,10 +351,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.sleep-journeys",
         "version": "1.0.2",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/sleep-journeys-v1.0.2"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.symbolic-psychology-studio@1.0.0",
@@ -364,10 +364,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
         "version": "1.0.0",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.wild-worlds@1.0.2",
@@ -377,10 +377,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.wild-worlds",
         "version": "1.0.2",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/wild-worlds"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "kit:com.storystudio.pack.kit.wild-worlds@1.0.3",
@@ -390,10 +390,10 @@
         "kind": "registry-record",
         "pack_id": "com.storystudio.pack.kit.wild-worlds",
         "version": "1.0.3",
-        "status": "authored",
+        "status": "retired",
         "source_path": "content-packs/free-starters/kit/wild-worlds-v1.0.3"
       },
-      "note": "Existing customer archives remain readable, installable, validatable, and exactly rebuildable; no new Kit authoring or shipping is permitted."
+      "note": "Owner ruling 2026-09-08 discontinued Channel Kits: the registry record is retired and the source directory is deleted. Archives customers already installed remain readable and installable; nothing rebuilds a Kit from this repository any more."
     },
     {
       "legacy_key": "lettering:font:bold",

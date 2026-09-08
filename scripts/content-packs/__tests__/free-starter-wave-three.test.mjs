@@ -11,7 +11,10 @@ const WAVE = new URL('../../../content-packs/free-starters/', import.meta.url)
 const PROVENANCE = new URL('../../../content-packs/free-starters/ASSET-PROVENANCE.md', import.meta.url)
 const BLOCKED_DREAMSCAPE_PREVIEW = new URL('../../../content-packs/free-starters/thumbnail/dreamscape-story-window/assets/dreamscape-story-window.webp', import.meta.url)
 const DOCUMENT_NAME = { formula: 'series-formula', topic: 'topic-pack', style: 'visual-style', thumbnail: 'thumbnail-recipe' }
-const kits = {
+// Wave three shipped three Channel Kits. Owner ruling 2026-09-08 discontinued
+// them and deleted every Kit source; these components are still authored and
+// now sell one at a time.
+const channels = {
   'calm-mind': ['guided-mindfulness', 'everyday-calm', 'watercolor-storybook', 'centered-hero-headline', 'Pause → Presence'],
   'build-momentum': ['practical-motivation', 'habits-momentum', 'flat-vector-explainer', 'annotated-business-board', 'Friction → Action'],
   'sleep-journeys': ['sleep-story', 'night-journeys', 'watercolor-storybook', 'dreamscape-story-window', 'Setting → Rest'],
@@ -36,15 +39,14 @@ async function assertApprovedPreview(record, { ownerId, assetPath, canonicalSour
   assert.deepEqual(await sharp(assetPath).metadata().then(({ format, width, height }) => ({ format, width, height })), { format: 'webp', width: 1672, height: 941 })
 }
 
-test('wave three binds the exact wellness identities, 15-subject Topics, complete axes, and Kit closures', async () => {
+test('wave three binds the exact wellness identities, 15-subject Topics, and complete axes', async () => {
   const actualCounts = []
-  for (const [kit, [formula, topic, style, recipe, promise]] of Object.entries(kits)) {
-    const [formulaDoc, topicDoc, styleDoc, recipeDoc, manifest] = await Promise.all([
+  for (const [, [formula, topic, style, recipe, promise]] of Object.entries(channels)) {
+    const [formulaDoc, topicDoc, styleDoc, recipeDoc] = await Promise.all([
       json(`formula/${formula}/content/${DOCUMENT_NAME.formula}.json`),
       json(`topic/${topic}/content/${DOCUMENT_NAME.topic}.json`),
       json(`style/${style}/content/${DOCUMENT_NAME.style}.json`),
       json(`thumbnail/${recipe}/content/${DOCUMENT_NAME.thumbnail}.json`),
-      json(`kit/${kit}/pack.json`),
     ])
     actualCounts.push(topicDoc.subjects.length)
     assert.equal(formulaDoc.id, `com.storystudio.formula.${formula}`)
@@ -57,15 +59,17 @@ test('wave three binds the exact wellness identities, 15-subject Topics, complet
     assert.equal(new Set(topicDoc.subjects.map(value => value.toLowerCase())).size, 15)
     for (const field of ['episode_objects', 'time_place_scopes', 'mechanisms', 'evidence_lenses', 'exclusions', 'compatibility_rules']) assert.ok(topicDoc[field]?.length, `${topic} needs ${field}`)
     for (const axis of ['episode-object', 'time-place-scope', 'mechanism', 'evidence-lens']) assert.ok(topicDoc.idea_axes.some(row => row.id === axis), `${topic} needs ${axis}`)
-    assert.deepEqual(manifest.dependencies.map(row => row.pack_id), [
-      `com.storystudio.pack.formula.${formula}`, `com.storystudio.pack.topic.${topic}`,
-      `com.storystudio.pack.style.${style}`, `com.storystudio.pack.thumbnail.${recipe}`,
-    ])
+    // Each component stands alone: no bundle, and no dependency on a coordinator.
+    for (const [kind, slug] of [['formula', formula], ['topic', topic], ['style', style], ['thumbnail', recipe]]) {
+      const manifest = await json(`${kind}/${slug}/pack.json`)
+      assert.equal(manifest.bundles, undefined)
+      assert.deepEqual(manifest.dependencies ?? [], [])
+    }
   }
   assert.deepEqual(actualCounts, [15, 15, 15])
-  assert.equal(kits['calm-mind'][3], 'centered-hero-headline')
-  assert.equal(kits['build-momentum'][3], 'annotated-business-board')
-  assert.equal(kits['sleep-journeys'][2], 'watercolor-storybook')
+  assert.equal(channels['calm-mind'][3], 'centered-hero-headline')
+  assert.equal(channels['build-momentum'][3], 'annotated-business-board')
+  assert.equal(channels['sleep-journeys'][2], 'watercolor-storybook')
 })
 
 test('wellness and sleep sources reject medical, coercive, and high-arousal framing', async () => {
@@ -105,15 +109,15 @@ test('offline assignments cover every new subject deterministically and safe sou
     assert.deepEqual(await sharp(sourcePath(preview)).metadata().then(({ format, width, height }) => ({ format, width, height })), { format: 'webp', width: 1672, height: 941 })
   }
 
-  for (const [kit, [formula, topic]] of Object.entries(kits)) {
+  for (const [channel, [formula, topic]] of Object.entries(channels)) {
     const [formulaDoc, topicDoc] = await Promise.all([
       json(`formula/${formula}/content/series-formula.json`),
       json(`topic/${topic}/content/topic-pack.json`),
     ])
     const niche = contentPackDocumentToNiche(formulaDoc)
     niche.activeTopicPacks = [contentPackDocumentToTopicPack(topicDoc)]
-    const first = planIdeaAssignments({ niche, count: 15, seed: `wave-three-${kit}` }).slice(0, 15)
-    const second = planIdeaAssignments({ niche, count: 15, seed: `wave-three-${kit}` }).slice(0, 15)
+    const first = planIdeaAssignments({ niche, count: 15, seed: `wave-three-${channel}` }).slice(0, 15)
+    const second = planIdeaAssignments({ niche, count: 15, seed: `wave-three-${channel}` }).slice(0, 15)
     assert.deepEqual(first, second)
     assert.equal(first.length, 15)
     assert.equal(new Set(first.map(item => item.fingerprint)).size, 15)
@@ -126,7 +130,7 @@ test('offline assignments cover every new subject deterministically and safe sou
     }
   }
 
-  const safeSources = ['formula/guided-mindfulness', 'formula/practical-motivation', 'formula/sleep-story', 'topic/everyday-calm', 'topic/habits-momentum', 'topic/night-journeys', 'style/watercolor-storybook', 'style/flat-vector-explainer', 'thumbnail/centered-hero-headline', 'thumbnail/annotated-business-board', 'thumbnail/dreamscape-story-window', 'kit/calm-mind', 'kit/build-momentum', 'kit/sleep-journeys']
+  const safeSources = ['formula/guided-mindfulness', 'formula/practical-motivation', 'formula/sleep-story', 'topic/everyday-calm', 'topic/habits-momentum', 'topic/night-journeys', 'style/watercolor-storybook', 'style/flat-vector-explainer', 'thumbnail/centered-hero-headline', 'thumbnail/annotated-business-board', 'thumbnail/dreamscape-story-window']
   for (const source of safeSources) {
     const first = join(temporary, `${source.replace('/', '-')}-first.sspack`)
     const second = join(temporary, `${source.replace('/', '-')}-second.sspack`)

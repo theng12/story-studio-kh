@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash, generateKeyPairSync } from 'node:crypto'
+import { generateKeyPairSync } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +9,6 @@ import JSZip from 'jszip'
 
 import { buildContentPack, validateContentPack } from '../lib.mjs'
 
-const REVIEWED_SOURCE = new URL('../../../content-packs/archival-ledger/', import.meta.url)
 const PAID_SOURCE = new URL('../../../content-packs/paid/archival-ledger/', import.meta.url)
 const COMPONENT_REGISTRY = new URL('../../../content-packs/paid/archival-ledger/registry.mjs', import.meta.url)
 const PREVIEW_PROVENANCE = new URL('../../../content-packs/paid/archival-ledger/PREVIEW-PROVENANCE.md', import.meta.url)
@@ -150,16 +149,6 @@ const SUCCESSORS = [
 
 const STOCKABLE = [...COMPONENTS, ...SUCCESSORS]
 
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
-  return JSON.stringify(value)
-}
-
-function canonicalHash(value) {
-  return createHash('sha256').update(canonicalJson(value)).digest('hex')
-}
-
 function sourceDirectory(component) {
   return new URL(`${component.kind}/${component.slug}/`, PAID_SOURCE)
 }
@@ -211,12 +200,14 @@ async function readComponentSource(component) {
   return { component, directory, manifest, documents, document, assetNames, assets }
 }
 
-test('Archival Ledger has eight component sources with exact reviewed content, and registers every versioned successor beside them', async () => {
+// The parity half of this test compared every split document and preview byte
+// against `content-packs/archival-ledger`, the source-only monolith the six
+// paid packs were split out of. Owner ruling 2026-09-08 deleted that monolith:
+// its content sells as the split packs, so there is no second copy left to
+// compare against and nothing here can assert one. Everything the split sources
+// owe on their own account still stands below.
+test('Archival Ledger has eight component sources, and registers every versioned successor beside them', async () => {
   const componentSources = await Promise.all(COMPONENTS.map(readComponentSource))
-  const reviewedMonolithDocuments = await Promise.all(COMPONENTS.map(component => readJson(
-    new URL(`content/${component.document}`, REVIEWED_SOURCE),
-    `reviewed ${component.document}`,
-  )))
 
   assert.equal(componentSources.every(source => source.manifest.version === source.component.version), true)
   assert.equal(componentSources.every(source => source.documents.length === 1), true)
@@ -240,23 +231,6 @@ test('Archival Ledger has eight component sources with exact reviewed content, a
   assert.equal(componentSources.filter(source => source.component.kind === 'style').every(source => source.assets.length === 1), true)
   assert.equal(componentSources.filter(source => source.component.kind === 'thumbnail').every(source => source.assets.length === 3), true)
   assert.equal(componentSources.filter(source => source.component.kind === 'topic').reduce((sum, source) => sum + source.document.subjects.length, 0), 125)
-  assert.equal(canonicalHash(componentSources.map(source => {
-    if (source.component.kind !== 'formula') return source.document
-    const { channel_promise, production_kit, ...document } = source.document
-    return document
-  })), canonicalHash(reviewedMonolithDocuments.map(document => {
-    if (document.kind !== 'series-formula') return document
-    const { channel_promise, production_kit, ...formula } = document
-    return formula
-  })))
-
-  for (const source of componentSources) {
-    for (const asset of source.assets) {
-      const sourceName = asset.path.split('/').pop()
-      const reviewedAsset = await readFile(new URL(`assets/${sourceName}`, REVIEWED_SOURCE))
-      assert.equal(createHash('sha256').update(asset.bytes).digest('hex'), createHash('sha256').update(reviewedAsset).digest('hex'))
-    }
-  }
 
   const { paidComponentRegistry } = await import(COMPONENT_REGISTRY)
   assert.deepEqual(paidComponentRegistry, STOCKABLE.map(component => ({
@@ -286,18 +260,14 @@ test('a ninth paid component source cannot be omitted from the registry', async 
   )
 })
 
-test('the standalone Formula promises formula behavior; the Channel Kit carries the whole-channel promise', async () => {
+// The Kit half of this test is gone with the Kit: owner ruling 2026-09-08
+// discontinued Channel Kits and deleted every Kit source. What survives is the
+// half that still has a product behind it — the Formula sells Formula behavior
+// and must not advertise the Topic, Style, or Thumbnail sold beside it.
+test('the standalone Formula promises formula behavior and nothing sold beside it', async () => {
   const formula = await readJson(new URL('formula/archival-ledger/content/series-formula.json', PAID_SOURCE), 'formula')
-  const kit = await readJson(new URL('kit/archival-ledger/pack.json', PAID_SOURCE), 'Channel Kit')
   assert.doesNotMatch(formula.channel_promise, /500\+|topic|visual|thumbnail|kit/i)
   assert.equal(formula.production_kit, undefined)
-  // The Kit names every kind it coordinates; the Formula names none of them.
-  // The old assertion also required "500+", which was the promise of an
-  // EIGHT-piece Kit carrying five Topic Packs. Owner ruling 2026-08-25 fixed a
-  // Kit at four pieces, one of each, so that number is no longer true of this
-  // product and asserting it would hold the copy to a claim it cannot meet.
-  for (const term of ['Formula', 'Topic', 'Style', 'Thumbnail']) assert.match(kit.changelog, new RegExp(term, 'i'))
-  assert.doesNotMatch(kit.changelog, /500\+/, 'a four-piece Kit must not carry the eight-piece episode-count promise')
 })
 
 test('legacy preview bytes have recorded provenance without an invented license claim', async () => {

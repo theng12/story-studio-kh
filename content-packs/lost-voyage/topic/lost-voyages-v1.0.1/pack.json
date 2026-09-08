@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.lost-voyages",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Renames the pack from 'Lost Voyages' to 'Shipwrecks, Pirates and the Age of Sail', so the shelf name describes what the pack covers rather than a reference channel. No subjects, axes, prose, or compatibility changed.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.lost-voyages",
+    "family": "com.storystudio.family.topic.lost-voyages"
+  },
+  "dependencies": []
+}
