@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-08T08:50:24.761Z",
-  "count": 180,
+  "generated": "2026-09-08T08:59:07.170Z",
+  "count": 185,
   "items": [
     {
       "kind": "channel-kit",
@@ -139,6 +139,16 @@
       "collection_dir": "lost-voyage/lettering/antique-wood-type-poster-serif",
       "axis": "font",
       "description": "Heavy condensed wood-type capitals from a nineteenth-century poster, stacked and printed slightly worn.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.bevelled-gold-cinematic-serif",
+      "name": "Bevelled Gold Cinematic Serif",
+      "collection_dir": "golden-epic/lettering/bevelled-gold-cinematic-serif",
+      "axis": "font",
+      "description": "Bevelled metallic gold serif capitals with a subtle chrome edge, carrying a small spaced small-cap tagline between two…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -569,6 +579,16 @@
       "collection_dir": "royal-history/metadata-formula/documentary-for-sleep-titles",
       "axis": "Named opening, life chapters, stated runtime, listening not…",
       "description": "The write-up shape for a long, calm biography of one ruler, meant to be fallen asleep to. One fixed three-part title pa…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.entire-story-titles",
+      "name": "Entire Story Titles",
+      "collection_dir": "golden-epic/metadata-formula/entire-story-titles",
+      "axis": "Whole-arc opening, era sections, stated runtime, listening…",
+      "description": "The write-up shape for an episode that tells one whole civilisation or one whole life from beginning to end in a single…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1074,6 +1094,16 @@
     },
     {
       "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.regalia-portrait-title-quadrant",
+      "name": "Regalia Portrait, Title Quadrant",
+      "collection_dir": "golden-epic/thumbnail/regalia-portrait-title-quadrant",
+      "axis": "History",
+      "description": "A full-regalia figure holds one side of the frame at three-quarter length while the title fills the opposite upper quad…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
       "id": "com.storystudio.thumbnail.route-map-one-promise",
       "name": "Route Map + One Promise",
       "collection_dir": "reusable-primitives/thumbnail/route-map-one-promise",
@@ -1340,6 +1370,16 @@
       "axis": "business, companies, ownership, operations",
       "description": "Owner-operator businesses, capital-heavy companies, venues, and modern commercial systems, examined through their real…",
       "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.empires-and-civilisations-entire",
+      "name": "Empires and Civilisations Entire",
+      "collection_dir": "golden-epic/topic/empires-and-civilisations-entire",
+      "axis": "whole civilisations, empires, sleep history, long documentary",
+      "description": "Fifty subjects — empires, dynasties, civilisations and whole lives from every era and every inhabited continent — each…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {
@@ -1619,6 +1659,16 @@
       "collection_dir": "lost-voyage/style/foggy-harbour-realism",
       "axis": "Realistic",
       "description": "The calm in-video scene look for sleep narration — near-photoreal painted quaysides in sea mist, grey-teal and slate, o…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.golden-epic-poster",
+      "name": "Golden Epic Poster",
+      "collection_dir": "golden-epic/style/golden-epic-poster",
+      "axis": "Illustration",
+      "description": "The cover look for a whole-civilisation history — a full-regalia figure at three-quarter length on one side, an entire…",
       "version": "1.0.0",
       "lifecycle": "active"
     },

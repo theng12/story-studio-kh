@@ -1,5 +1,5 @@
 {
-  "revision": 170,
+  "revision": 176,
   "batches": [
     {
       "revision": 2,
@@ -3882,6 +3882,134 @@
           }
         ]
       }
+    },
+    {
+      "revision": 171,
+      "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+      "request": {
+        "expected_revision": 170,
+        "coordinator": {
+          "task": "golden-epic-2026-09-08",
+          "branch": "content/golden-epic-2026-09-08"
+        },
+        "proposal_ref": "proposal:golden-epic-whole-civilisation-sleep-history-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.golden-epic-poster",
+            "item_id": "com.storystudio.style.golden-epic-poster",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/golden-epic/style/golden-epic-poster",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.golden-epic-poster",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.golden-epic-poster",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.bevelled-gold-cinematic-serif",
+            "item_ids": [
+              "com.storystudio.lettering.bevelled-gold-cinematic-serif"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/golden-epic/lettering/bevelled-gold-cinematic-serif",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.bevelled-gold-cinematic-serif",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.bevelled-gold-cinematic-serif",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.regalia-portrait-title-quadrant",
+            "item_id": "com.storystudio.thumbnail.regalia-portrait-title-quadrant",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/golden-epic/thumbnail/regalia-portrait-title-quadrant",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.regalia-portrait-title-quadrant",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.regalia-portrait-title-quadrant",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.empires-and-civilisations-entire",
+            "item_id": "com.storystudio.topic.empires-and-civilisations-entire",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/golden-epic/topic/empires-and-civilisations-entire",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.empires-and-civilisations-entire",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.empires-and-civilisations-entire",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.entire-story-titles",
+            "item_ids": [
+              "com.storystudio.metadata-formula.entire-story-titles"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/golden-epic/metadata-formula/entire-story-titles",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.entire-story-titles",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.entire-story-titles",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -6259,6 +6387,91 @@
         },
         "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
         "pack_id": "com.storystudio.pack.metadata-formula.documentary-for-sleep-titles",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 172,
+      "transition_ref": "lifecycle:0d50ed273ddfb19ff05c4abc8c75b73e977621c6a8a90c42a2be5c2d4b03fba6",
+      "request": {
+        "expected_revision": 171,
+        "coordinator": {
+          "task": "golden-epic-2026-09-08",
+          "branch": "content/golden-epic-2026-09-08"
+        },
+        "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+        "pack_id": "com.storystudio.pack.style.golden-epic-poster",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 173,
+      "transition_ref": "lifecycle:044b5933648a04bf71828f326d2281369ccc6aa174e9c190d3c23bd477843b3e",
+      "request": {
+        "expected_revision": 172,
+        "coordinator": {
+          "task": "golden-epic-2026-09-08",
+          "branch": "content/golden-epic-2026-09-08"
+        },
+        "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+        "pack_id": "com.storystudio.pack.lettering.bevelled-gold-cinematic-serif",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 174,
+      "transition_ref": "lifecycle:4d0dca59ea208a12ae52c7eafef0c0da3d7ea670786ecf0772f183cfe8464d64",
+      "request": {
+        "expected_revision": 173,
+        "coordinator": {
+          "task": "golden-epic-2026-09-08",
+          "branch": "content/golden-epic-2026-09-08"
+        },
+        "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+        "pack_id": "com.storystudio.pack.thumbnail.regalia-portrait-title-quadrant",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 175,
+      "transition_ref": "lifecycle:6fad69bde7a04ffe8020e849c6997cfddfed700b900c960691773af98aa8c779",
+      "request": {
+        "expected_revision": 174,
+        "coordinator": {
+          "task": "golden-epic-2026-09-08",
+          "branch": "content/golden-epic-2026-09-08"
+        },
+        "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+        "pack_id": "com.storystudio.pack.topic.empires-and-civilisations-entire",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 176,
+      "transition_ref": "lifecycle:f329a9ae2e7bd60443ca7376ef1992863e50cb175c2b6de6dc5667fe3c210e47",
+      "request": {
+        "expected_revision": 175,
+        "coordinator": {
+          "task": "golden-epic-2026-09-08",
+          "branch": "content/golden-epic-2026-09-08"
+        },
+        "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+        "pack_id": "com.storystudio.pack.metadata-formula.entire-story-titles",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -11400,6 +11613,125 @@
         },
         "sku": {
           "id": "com.storystudio.sku.metadata-formula.documentary-for-sleep-titles",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+      "pack_id": "com.storystudio.pack.style.golden-epic-poster",
+      "item_id": "com.storystudio.style.golden-epic-poster",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/golden-epic/style/golden-epic-poster",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.golden-epic-poster",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.golden-epic-poster",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+      "pack_id": "com.storystudio.pack.lettering.bevelled-gold-cinematic-serif",
+      "item_ids": [
+        "com.storystudio.lettering.bevelled-gold-cinematic-serif"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/golden-epic/lettering/bevelled-gold-cinematic-serif",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.bevelled-gold-cinematic-serif",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.bevelled-gold-cinematic-serif",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+      "pack_id": "com.storystudio.pack.thumbnail.regalia-portrait-title-quadrant",
+      "item_id": "com.storystudio.thumbnail.regalia-portrait-title-quadrant",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/golden-epic/thumbnail/regalia-portrait-title-quadrant",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.regalia-portrait-title-quadrant",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.regalia-portrait-title-quadrant",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+      "pack_id": "com.storystudio.pack.topic.empires-and-civilisations-entire",
+      "item_id": "com.storystudio.topic.empires-and-civilisations-entire",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/golden-epic/topic/empires-and-civilisations-entire",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.empires-and-civilisations-entire",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.empires-and-civilisations-entire",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
+      "pack_id": "com.storystudio.pack.metadata-formula.entire-story-titles",
+      "item_ids": [
+        "com.storystudio.metadata-formula.entire-story-titles"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/golden-epic/metadata-formula/entire-story-titles",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.entire-story-titles",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.entire-story-titles",
           "status": "proposed"
         }
       }
