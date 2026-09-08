@@ -1,6 +1,6 @@
 # Story content consolidation — 2026-09-08
 
-Status: **Content qualification and independent reviews approved; complete application verification passed. Repository integration pending.**
+Status: **Content qualification and independent reviews approved; complete application verification passed. Exact Store archives are ready for GenStudio publication. Repository integration is tracked by [PR72](https://github.com/theng12/story-studio-kh/pull/72).**
 
 Owner request: resolve the Royal History content blocker, inspect Claude’s other handoffs, and consolidate remaining work before new channel setup. Source baseline is main `864781d9` (PR79). This content correction is independently compatible with the existing runtime; the pending app v1.4.130 is required for its separate upload/subtitle fixes, not for these packs.
 
