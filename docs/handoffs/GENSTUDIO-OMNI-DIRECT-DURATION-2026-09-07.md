@@ -44,3 +44,24 @@ it intends to pay for; a duration outside the product's list is refused by
 GenStudio with no charge.
 
 Nothing on the GenStudio side is pending for this; the lane is live.
+
+## Addendum 2026-09-08 — where Story stands today (Claude)
+
+Checked the Story source on 2026-09-08:
+
+- `electron/server/generators/ai-video.ts` already forwards `duration_seconds`
+  from the request to GenStudio (`provider_params.duration_seconds`).
+- `frontend/pages/projects/[slug]/motion-review.vue` already lists the product's
+  published `(duration_seconds, resolution)` variants from
+  `frontend/composables/useGenStudioMediaModels.ts` and lets the operator pick
+  ONE variant, which is then used for every scene in the run.
+
+So duration selection exists, but only as a single choice for the whole batch.
+What the owner asked for is the per-scene version: when the selected product
+publishes per-second durations (Google direct `gemini-omni-1.1-flash`: every
+whole second 4–10), each scene's clip length should be derived from that
+scene's narration span (round to the nearest published duration, clamp to the
+list), with the per-scene credit total shown before the run. Products that
+publish only 4/6/8/10 (Kie lane) keep the current single-variant behaviour or
+snap each scene to the nearest published step. GenStudio refuses any duration
+not on the product's list, at no charge, so snapping must happen in Story.
