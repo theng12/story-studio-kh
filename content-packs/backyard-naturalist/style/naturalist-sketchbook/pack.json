@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.naturalist-sketchbook",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Naturalist Sketchbook visual style: fine cross-hatched pen-and-ink field-guide drawing under a light warm tint, one accurately drawn creature or plant on bright cream paper with generous empty space, and room for one small comic touch.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.naturalist-sketchbook",
+    "family": "com.storystudio.family.style.naturalist-sketchbook"
+  },
+  "dependencies": []
+}

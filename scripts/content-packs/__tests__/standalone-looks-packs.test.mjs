@@ -1,10 +1,10 @@
 /**
- * The Standalone Looks collection — two Visual Styles authored 2026-09-08 that
- * belong to NO channel. Both declare `compatible_formula_ids: []`, exactly as
+ * The Standalone Looks collection — three Visual Styles that belong to NO
+ * channel: two authored 2026-09-08 and a third added 2026-09-09. Both declare `compatible_formula_ids: []`, exactly as
  * the shipped Production Looks and Storytelling Looks styles do, because a look
  * sold on its own must not claim a Series Formula it was never authored
- * against. One reservation batch (revision 188), one receipt, two lifecycle
- * promotions (revisions 194-195).
+ * against. Two reservation batches (revisions 188 and 267), two receipts, three
+ * lifecycle promotions (revisions 194-195 and 272).
  *
  * Both declare preview assets. They did not exist when this file was first
  * written — this control Mac does not perform production image generation, and
@@ -12,10 +12,17 @@
  * was stubbed. The authorisation arrived on 2026-09-08 and all six were
  * rendered by two Image Pool jobs, `c55d3e01` (five of the six) and `da15eecf`
  * (the sixth, resubmitted alone after a provider submission failure on that one
- * item). All six are now present, so the assertions below require every
- * declared preview to exist, to decode to its contract, and to carry its own
- * digest and byte count in PREVIEW-PROVENANCE.md. A preview that goes missing
- * now fails the suite instead of being skipped.
+ * item). All six are now present, so the assertions below require each of those
+ * six to exist, to decode to its contract, and to carry its own digest and byte
+ * count in PREVIEW-PROVENANCE.md. A preview that goes missing now fails the
+ * suite instead of being skipped.
+ *
+ * The third look, Flat Colour Stick Scenes, declares three previews that DO NOT
+ * EXIST YET: the 2026-09-08 authorisation named that day's run ids rather than
+ * this pass, so nothing was generated and nothing was stubbed. Its three paths
+ * must be named by PREVIEW-PROVENANCE.md under the run id
+ * `standalone-looks-previews-2`, and any byte that HAS landed must meet the
+ * contract.
  *
  * The three-preview rule for Visual Styles, set by the owner on 2026-09-08 and
  * applied to Royal History first, is asserted here too, so a later edit cannot
@@ -31,14 +38,27 @@ import { markIn, meaningfulStrings } from './forbidden-marks.mjs'
 
 const ROOT = join(process.cwd(), 'content-packs/standalone-looks')
 const REGISTRY = join(process.cwd(), 'content-packs/authoring-registry.json')
-const RECEIPT = 'authoring:ada3557c18e5d2448acef9340b5472a0e6eee39da2de7f3b70c3f2121931713f'
-const SLUGS = ['inked-fable-cartoon', 'scratchy-editorial-poster']
+const FIRST_PASS_RECEIPT = 'authoring:ada3557c18e5d2448acef9340b5472a0e6eee39da2de7f3b70c3f2121931713f'
+const SECOND_PASS_RECEIPT = 'authoring:ebd1b5e09ab64e5b5f921bd6a8630358bcb69c8efb2fbcbf5739418e740c0754'
+/** Rendered on 2026-09-08; their previews must be on disk. */
+const RENDERED_SLUGS = ['inked-fable-cartoon', 'scratchy-editorial-poster']
+/** Authored 2026-09-09; its previews are pending and must not be faked. */
+const PENDING_SLUGS = ['flat-colour-stick-scenes']
+const SLUGS = [...RENDERED_SLUGS, ...PENDING_SLUGS]
+const RECEIPTS = Object.fromEntries([
+  ...RENDERED_SLUGS.map(slug => [slug, FIRST_PASS_RECEIPT]),
+  ...PENDING_SLUGS.map(slug => [slug, SECOND_PASS_RECEIPT]),
+])
 
 const PACKS = SLUGS.map(slug => ({ kind: 'visual-style', seg: 'style', slug, docs: ['visual-style.json'] }))
 
-/** Preview path (collection-relative) → required dimensions. */
-const PREVIEW_CONTRACT = Object.fromEntries(SLUGS.flatMap(slug =>
+const previewsOf = slugs => Object.fromEntries(slugs.flatMap(slug =>
   ['hero', 'scene', 'face'].map(kind => [`style/${slug}/assets/${slug}-${kind}.webp`, [1672, 941]])))
+
+/** Preview path (collection-relative) → required dimensions. */
+const PREVIEW_CONTRACT = previewsOf(SLUGS)
+const RENDERED_PREVIEWS = previewsOf(RENDERED_SLUGS)
+const PENDING_PREVIEWS = previewsOf(PENDING_SLUGS)
 
 async function json(path) { return JSON.parse(await readFile(path, 'utf8')) }
 async function exists(path) { return stat(path).then(() => true, () => false) }
@@ -50,7 +70,7 @@ test('every Standalone Looks pack is an authored, receipt-bound standalone sourc
     const itemId = `com.storystudio.${p.seg}.${p.slug}`
     const record = registry.records.find(r => r.pack_id === packId && r.version === '1.0.0')
     assert.ok(record, `${packId} must be registered`)
-    assert.equal(record.receipt_ref, RECEIPT)
+    assert.equal(record.receipt_ref, RECEIPTS[p.slug])
     assert.equal(record.status, 'authored')
     assert.equal(record.kind, p.kind)
     assert.equal(record.item_id, itemId)
@@ -88,7 +108,7 @@ test('every Standalone Looks pack is an authored, receipt-bound standalone sourc
   }
 })
 
-test('both looks are sold with no channel attached', async () => {
+test('all three looks are sold with no channel attached', async () => {
   for (const slug of SLUGS) {
     const doc = await json(join(ROOT, `style/${slug}/content/visual-style.json`))
     assert.deepEqual(doc.compatible_formula_ids, [],
@@ -96,7 +116,7 @@ test('both looks are sold with no channel attached', async () => {
   }
 })
 
-test('both looks declare three previews — hero, empty scene, and hardest case', async () => {
+test('all three looks declare three previews — hero, empty scene, and hardest case', async () => {
   for (const slug of SLUGS) {
     const doc = await json(join(ROOT, `style/${slug}/content/visual-style.json`))
     assert.deepEqual(doc.preview_assets, [
@@ -149,7 +169,19 @@ test('the poster look is two inks on white, and its lettering is texture only', 
   }
 })
 
-test('every declared preview exists, meets the contract, and carries its byte evidence in the provenance record', async () => {
+/** Decode one preview and hold it to its contract and its provenance row. */
+async function assertPreview(rel, [width, height], provenance) {
+  const buf = await readFile(join(ROOT, rel))
+  assert.ok(buf.byteLength > 20 * 1024, `${rel} must exceed the 20 KB floor`)
+  const meta = await sharp(buf).metadata()
+  assert.deepEqual({ format: meta.format, width: meta.width, height: meta.height },
+    { format: 'webp', width, height }, `${rel} must decode to the declared contract`)
+  const digest = createHash('sha256').update(buf).digest('hex')
+  assert.ok(provenance.includes(digest), `provenance must record the digest of ${rel}`)
+  assert.ok(provenance.includes(`${buf.byteLength}`), `provenance must record the byte count of ${rel}`)
+}
+
+test('every declared preview is named by the provenance record at its contract size', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   const declared = new Set()
   for (const p of PACKS) {
@@ -163,16 +195,24 @@ test('every declared preview exists, meets the contract, and carries its byte ev
   for (const [rel, [width, height]] of Object.entries(PREVIEW_CONTRACT)) {
     assert.ok(provenance.includes(rel.split('/').pop()), `provenance must name ${rel}`)
     assert.ok(provenance.includes(`${width}x${height}`), `provenance must state ${width}x${height}`)
-    const path = join(ROOT, rel)
-    assert.ok(await exists(path), `${rel} must exist: all six previews landed on 2026-09-08`)
-    const buf = await readFile(path)
-    assert.ok(buf.byteLength > 20 * 1024, `${rel} must exceed the 20 KB floor`)
-    const meta = await sharp(buf).metadata()
-    assert.deepEqual({ format: meta.format, width: meta.width, height: meta.height },
-      { format: 'webp', width, height }, `${rel} must decode to the declared contract`)
-    const digest = createHash('sha256').update(buf).digest('hex')
-    assert.ok(provenance.includes(digest), `provenance must record the digest of ${rel}`)
-    assert.ok(provenance.includes(`${buf.byteLength}`), `provenance must record the byte count of ${rel}`)
+  }
+})
+
+test('the six previews rendered on 2026-09-08 are still present and still accounted for', async () => {
+  const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
+  for (const [rel, size] of Object.entries(RENDERED_PREVIEWS)) {
+    assert.ok(await exists(join(ROOT, rel)), `${rel} must exist: all six previews landed on 2026-09-08`)
+    await assertPreview(rel, size, provenance)
+  }
+})
+
+test('the third look is preview-pending, and nothing was stubbed in place of its bytes', async () => {
+  const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
+  for (const [rel, size] of Object.entries(PENDING_PREVIEWS)) {
+    // Not required to exist — but if a byte HAS landed it must be a real
+    // preview at contract size with its digest recorded, never a placeholder.
+    if (!await exists(join(ROOT, rel))) continue
+    await assertPreview(rel, size, provenance)
   }
 })
 
@@ -184,6 +224,7 @@ test('the provenance record states why the render was held, how it was run, whic
     'does not perform production image generation',
     'standalone-looks-previews-1',
     'standalone-looks-previews-1b',
+    'standalone-looks-previews-2',
     'gpt-image-2',
     'c55d3e01',
     'da15eecf',
@@ -198,4 +239,37 @@ test('the provenance record states why the render was held, how it was run, whic
   assert.match(provenance, /must be rejected rather than committed/)
   const prompts = provenance.match(/^## Prompt \d+ — /gm) ?? []
   assert.equal(prompts.length, Object.keys(PREVIEW_CONTRACT).length)
+  const bodies = provenance.match(/^> .+$/gm) ?? []
+  assert.equal(bodies.length, prompts.length, 'every prompt has exactly one body')
+  // The second pass is its own run id with its own three-prompt body, which is
+  // what keeps it from overwriting the first pass's six files.
+  assert.ok(Buffer.byteLength(JSON.stringify(bodies.slice(RENDERED_SLUGS.length * 3))) < 16 * 1024,
+    'the second-pass request body stays under the 16 KiB cap')
+})
+
+test('the stick-figure look is rough-lined, unshaded, fully furnished, and deadpan', async () => {
+  const style = await json(join(ROOT, 'style/flat-colour-stick-scenes/content/visual-style.json'))
+  assert.equal(style.name, 'Flat Colour Stick Scenes')
+  // The six things that make this look itself, and separate it from the two
+  // shipped stick-figure explainer styles, which both work on a blank ground.
+  assert.match(style.style_bible, /round tan head, two big white eyes/i)
+  assert.match(style.style_bible, /edges are visibly rough and slightly pixel-stepped/i)
+  assert.match(style.style_bible, /one flat colour with no shading of any kind/i)
+  assert.match(style.style_bible, /never leaves a figure on a blank ground/i)
+  assert.match(style.style_bible, /Every frame is a complete coloured place/i)
+  assert.match(style.style_bible, /exactly one clear idea per frame/i)
+  // The diagram grammar is the signature: the explaining marks are objects in
+  // the world, not an overlay on top of it.
+  assert.match(style.style_bible, /objects in the scene rather than an overlay/i)
+  assert.match(style.style_bible, /prohibition circle stands in the world as a sign on a post/i)
+  // Lettering is permitted, but only as scene furniture — never as a headline.
+  assert.match(style.style_bible, /Any lettering in this style is scene detail/i)
+  assert.match(style.style_bible, /never a caption laid over the image/i)
+  // Deadpan is a contract term here, not a mood word.
+  assert.match(style.style_bible, /gentle and deadpan/i)
+  assert.match(style.style_bible, /never mug, never wink/i)
+  for (const rejected of ['shading', 'gradients', 'painterly texture', 'realistic anatomy',
+    'clean vector polish', 'photograph']) {
+    assert.ok(style.negative_prompt.includes(rejected), `negative prompt must reject ${rejected}`)
+  }
 })

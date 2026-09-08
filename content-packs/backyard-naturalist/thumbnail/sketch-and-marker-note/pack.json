@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.sketch-and-marker-note",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Sketch and Marker Note thumbnail recipe: one drawn subject on the left of a cream page, a two-to-four-word handwritten marker phrase on the right, and a hand-drawn arrow running from the phrase to the subject.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.sketch-and-marker-note",
+    "family": "com.storystudio.family.thumbnail.sketch-and-marker-note"
+  },
+  "dependencies": []
+}

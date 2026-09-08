@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.flat-cartoon-wildlife",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Flat Cartoon Wildlife visual style: thick clean outlines and flat muted fills, one calm animal per frame on a simple landscape backdrop, and a soft glow behind the subject as the only gradient in the picture.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.flat-cartoon-wildlife",
+    "family": "com.storystudio.family.style.flat-cartoon-wildlife"
+  },
+  "dependencies": []
+}

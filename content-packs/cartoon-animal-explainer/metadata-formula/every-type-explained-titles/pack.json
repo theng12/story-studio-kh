@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.metadata-formula.every-type-explained-titles",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Every Type Explained Titles description formula: two fixed title patterns that promise complete coverage of one animal group in a stated number of minutes, and a write-up that lists what is covered, states the real runtime, and says plainly where the facts come from.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.metadata-formula.every-type-explained-titles",
+    "family": "com.storystudio.family.metadata-formula.every-type-explained-titles"
+  },
+  "dependencies": []
+}

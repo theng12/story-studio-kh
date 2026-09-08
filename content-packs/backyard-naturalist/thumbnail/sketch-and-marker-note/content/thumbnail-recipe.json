@@ -1,0 +1,80 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.sketch-and-marker-note",
+  "name": "Sketch and Marker Note",
+  "description": "A page from somebody's notebook: the subject drawn on the left in the active style, two to four handwritten marker words on the right, and one hand-drawn arrow running from the words to the thing they are about.",
+  "layout": "hero",
+  "category": "Natural world",
+  "tags": [
+    "sketchbook page",
+    "cream paper",
+    "handwritten marker",
+    "short phrase",
+    "hand-drawn arrow",
+    "single subject",
+    "left subject right note",
+    "field guide",
+    "calm",
+    "sleep nature",
+    "annotation",
+    "card legibility"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build the frame in three fixed parts and never move them.\n\nThe page. The whole background is a single sheet of bright cream paper, edge to edge, with nothing printed on it — no ruling, no grid, no margin line, no torn edge, no tape, no photographic ground, no second surface behind it and no colour wash. The paper stays the lightest thing in the frame and it stays bright; there is no shadow across it, no vignette at the corners and no darkening anywhere.\n\nThe subject. One subject only, drawn in the active style, occupying the left half of the canvas and sitting a little below the vertical centre so the note has clear air above it. It is drawn whole, at rest, from the angle that identifies it, large enough to fill most of its half, and it never crosses the middle of the frame. It casts nothing, stands on nothing, and has no scenery, ground line, horizon or setting of any kind around it — it sits on the bare page exactly as a specimen drawing does. There is never a second subject, and nothing else is drawn in the left half.\n\nThe note. In the right half, set clear of the subject and roughly at the same height as it, sits a short handwritten phrase of two to four words in fat marker capitals, dark on the cream, in two or three stacked lines with the lines left-aligned to each other. Nothing sits behind it: no box, no highlight, no banner, no plate, no underline and no shadow. The phrase is the only text in the frame.\n\nThe arrow. One hand-drawn arrow, drawn in the same marker as the phrase, starts at the left edge of the phrase and travels to the subject, ending with a single simple arrowhead that points at the subject without touching or overlapping it. It curves gently rather than running dead straight, it is drawn in a single stroke, and there is exactly one of it: no second arrow, no dotted trail, no double head, no circle, no bracket and no ring around anything.\n\nThe active Visual Style remains the final authority for medium, line, hatching, tint and how the subject is drawn; this recipe controls the cream page, the left-right split, the marker phrase, the arrow and the empty space.",
+  "composition_rules": [
+    "The background is one sheet of bright cream paper across the whole frame, unruled, unmarked, undarkened, with no vignette, tape, torn edge or second surface.",
+    "Exactly one subject is drawn, in the left half of the frame, sitting slightly below the vertical centre and never crossing the middle of the canvas.",
+    "The subject has no ground line, horizon, scenery, setting, cast shadow or prop around it; it sits on the bare page as a specimen drawing does.",
+    "The handwritten phrase sits in the right half, clear of the subject, at roughly the subject's own height, in two or three left-aligned stacked lines of fat marker capitals.",
+    "The phrase is two, three or four words in total and is the only text anywhere in the frame.",
+    "Nothing sits behind or under the phrase: no box, highlight, banner, plate, underline, drop shadow or glow.",
+    "Exactly one hand-drawn arrow runs from the left edge of the phrase to the subject, in the same marker, with one simple arrowhead that points at the subject without touching or overlapping it.",
+    "The arrow curves gently and is drawn as a single stroke; there is no second arrow, dotted trail, double head, circle, bracket or ring anywhere.",
+    "At least a third of the frame is left as empty cream paper, and the emptiest region is the upper left or lower right rather than a strip at one edge.",
+    "Vary the subject, the phrase and the arrow's curve between episodes; keep the cream page, the left subject, the right note, the single arrow and the empty space fixed."
+  ],
+  "required_elements": [
+    "A bright cream paper page filling the whole frame with nothing printed on it",
+    "One subject drawn in the active style, in the left half, whole and on bare paper",
+    "A two-to-four-word handwritten marker phrase in the right half, in stacked capitals",
+    "One hand-drawn arrow from the phrase to the subject, with a single arrowhead",
+    "Generous empty cream paper across at least a third of the frame"
+  ],
+  "avoid_elements": [
+    "A channel wordmark, logo, badge, ribbon, subscribe mark, numeral bug or border anywhere in the frame",
+    "A second line of copy, a headline, a subtitle, a caption, a date line or a scale bar in addition to the phrase",
+    "A background of any kind behind the subject — scenery, horizon, ground line, colour wash, gradient, photographic ground or a second sheet",
+    "A second subject, a pair, a swarm, a crowd, a human figure, a hand, or any bare skin",
+    "A box, highlight, banner, plate, underline, drop shadow or glow behind the phrase",
+    "A second arrow, a dotted trail, a double arrowhead, a circle, a ring, a bracket or a reaction mark stuck over the picture",
+    "A darkened page, a vignette, a shadow across the paper, tape, a torn edge or a curled corner",
+    "A dead, pinned, squashed, injured or bleeding subject, or anything shown being killed",
+    "A real organisation's emblem, a corporate mark, or any invented insignia presented as a genuine one",
+    "Post-render typography compositing, watermarks, or copied trade dress"
+  ],
+  "headline_mode": "curiosity-hook",
+  "headline_guidance": "Write the note as two to four words and no more. Take the one concrete thing the episode says about this subject that a viewer does not already believe, and put it down the way somebody would scribble it in a margin: plain words, no verb if the phrase works without one, no article, no punctuation of any kind, no question mark and no exclamation. It is a note, not a headline, so it never addresses the viewer, never issues an instruction, and never tells them how to feel. Two words is the default, four is the ceiling, and the phrase must survive being read at card size in three stacked lines at most. Never promise a secret the episode does not deliver, never state as fact something the episode only reports, and never use a word about killing, danger or disgust — this frame is asking a viewer to like the subject. Because a row of these sits together on a channel page, prefer the same grammatical shape down a series so the notes read as one hand. Fail closed on a misspelling, on a phrase that clips at the right edge, on a phrase that runs to a fourth line, on a phrase that overlaps the subject or the arrow, and on any text beyond it.",
+  "default_text_style": "fat dark marker capitals written straight onto the bare cream paper, stacked on two or three left-aligned lines, with nothing behind them — no box, plate, banner, highlight, underline, outline, bevel, gradient, drop shadow or glow",
+  "default_font_style": "fat chisel-tip marker letterforms drawn in single confident strokes, blunt square stroke ends, slightly uneven thickness, heavy and immediate — the Marker Slab lettering shape, set as handwritten capitals on two or three stacked lines",
+  "default_text_position": "center",
+  "headline_formats": [
+    "{ADJECTIVE} {NOUN}",
+    "NOT {COMMON BELIEF}",
+    "{NUMBER} {THINGS}",
+    "{NOUN} {NOUN}",
+    "{VERB}S {NOUN}"
+  ],
+  "visual_style_guidance": "This recipe is built for a drawn, high-key, paper-based look of the kind the Naturalist Sketchbook style ships, and it needs four things from whatever style is active. First, a bright ground the active style will not darken, because the cream page is half the frame and a style that reaches for dusk, lamplight or a vignette turns the note grey and the arrow invisible. Second, a subject that reads whole on bare paper, since this frame gives it no setting at all to sit in. Third, drawn line rather than rendered surface, so the hand-drawn arrow and the marker phrase belong to the same object as the subject instead of looking pasted onto a picture. Fourth, restraint in the empty half: a style that fills space with texture, scenery or atmosphere will crowd out the third of the frame this recipe deliberately leaves bare.\n\nA style that works in photoreal surfaces, heavy paint, dark grounds or strong colour saturation will break this recipe: the cream stops reading as paper, the marker words lose their contrast, and the arrow stops looking hand-drawn and starts looking like an overlay. A style that renders a full environment around its subject cannot run this recipe at all, because the subject here has to stand on nothing.",
+  "preview_assets": [
+    "assets/sketch-and-marker-note-1.webp",
+    "assets/sketch-and-marker-note-2.webp",
+    "assets/sketch-and-marker-note-3.webp",
+    "assets/sketch-and-marker-note-4.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.natural-world-explained"
+  ]
+}
