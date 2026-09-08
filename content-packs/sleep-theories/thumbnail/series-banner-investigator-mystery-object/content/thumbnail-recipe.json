@@ -1,0 +1,75 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.series-banner-investigator-mystery-object",
+  "name": "Series Banner, Investigator, Mystery Object",
+  "description": "One fixed frame for a mystery series: the series name banded full width across the top, a recurring trench-coat investigator reacting in shock on the right, and one glowing tagged object on the left lighting the whole picture. No wordmark beyond the banner.",
+  "layout": "hero",
+  "category": "Mystery",
+  "tags": [
+    "mystery series",
+    "unsolved cases",
+    "cover-ups",
+    "series banner",
+    "recurring character",
+    "trench coat investigator",
+    "shock reaction",
+    "glowing object",
+    "evidence tag",
+    "night scene",
+    "rain and lightning",
+    "high contrast"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build the frame in three fixed places and never move them.\n\nThe banner. A full-width horizontal band runs across the very top of the sixteen by nine canvas, edge to edge, and carries the series name in heavy condensed sans capitals on one line. The letters are set large enough to fill the band and are cut with a thick outline in a colour that contrasts hard with whatever sits behind them, so the band survives at card size. The band itself is a flat block of colour with a straight lower edge; nothing from the picture crosses it, and no second line of copy is added above, below or inside it.\n\nThe investigator. The right third of the frame carries one recurring figure, drawn from the description rather than from a reference: a lean adult in a belted trench coat with the collar turned up and a soft-brimmed hat, seen from the chest up, three-quarters on and turned inward toward the left of the frame, always reacting in open shock at what is on the other side of the picture — eyes wide, mouth open, one hand half-raised or gripping the coat. The face stays anonymous and unremarkable; the coat, the hat, the collar and the reaction are the identity, so the same person appears to recur across a channel without any two images having to match. He is lit only by the glow coming from the left, so his outer edge falls away into the dark.\n\nThe object. The left third carries exactly one mystery object and it is the only light source in the picture: a thing pulled from the case, held or standing or hanging in the air, burning with a hot glow that throws long hard shadows across the ground and up the investigator's face. Beneath it or clipped to it sits one small tag label — a plain yellow rectangle with a punched hole and a short line of small dark capitals naming the object in one or two words, the way an evidence tag would. That tag is the only other text allowed in the frame.\n\nBetween the two, the middle of the frame stays dark, wet and busy with weather: rain in long straight streaks, standing water throwing the glow back, and one flat lightning shape behind the skyline. The active Visual Style remains the final authority for medium, palette, texture, line and lighting; this recipe controls only the banner, the three positions, the crop, the reaction and the tag.",
+  "composition_rules": [
+    "The series name runs as a single line of heavy condensed sans capitals inside a full-width band across the very top of the frame, outlined in a hard contrasting colour, with nothing crossing the band and no second line of copy anywhere near it.",
+    "The investigator occupies the right third only: chest up, three-quarters on, turned inward, in open shock, in a belted trench coat with the collar up and a soft-brimmed hat.",
+    "Draw the investigator from the written description each time rather than from a reference image, and let the coat, the hat and the reaction carry the recurrence; the face stays anonymous and never has to match between episodes.",
+    "The mystery object occupies the left third and is the only light source in the frame, throwing hard shadows rightward across the ground and up the investigator's face.",
+    "Exactly one small yellow tag label, with a punched hole and one or two words of small dark capitals, sits on or beneath the object, and it is the only text in the frame besides the banner.",
+    "The middle of the frame stays dark and weathered — rain, standing water, one flat lightning shape behind the skyline — and carries neither text nor a second figure.",
+    "Vary the object, the setting, the weather detail and the banner line between episodes; keep the banner, the three positions, the crop, the reaction and the single light source fixed."
+  ],
+  "required_elements": [
+    "A full-width banner across the top carrying the series name in heavy condensed sans capitals with a thick contrasting outline",
+    "One trench-coat investigator in the right third, chest up, turned inward, reacting in open shock",
+    "One glowing mystery object in the left third acting as the only light source in the picture",
+    "One small yellow tag label of one or two words attached to or beneath the object",
+    "A dark, rain-wet middle ground with long straight rain streaks and one flat lightning shape behind the skyline"
+  ],
+  "avoid_elements": [
+    "A channel wordmark, logo, badge, ribbon, numeral bug, subscribe mark, or border anywhere in the frame beyond the banner itself",
+    "A second line of copy, a subtitle, a date line, or any caption other than the banner and the one tag label",
+    "A second figure, a crowd, or any face other than the investigator's",
+    "A second light source, a fill light, a rim light from behind, daylight, or an evenly lit scene",
+    "A calm, thoughtful, or smiling investigator, a figure in profile, or a full-length body",
+    "A named or recognisable individual, a real official's likeness, a real agency insignia, or an invented insignia presented as genuine",
+    "Arrows, circles, red rings, emoji, price tags, or reaction marks stuck over the picture",
+    "Gore, corpses, injury, or a body shown as evidence",
+    "Post-render typography compositing, watermarks, or copied trade dress"
+  ],
+  "headline_mode": "curiosity-hook",
+  "headline_guidance": "Write the banner line as the series name for this episode: two to five words in capitals, set as one line, and read as the title of a recurring series rather than as a sentence about one case. Take the strangest concrete noun in the episode and put it in — the object, the place, the signal, the flight, the room — and let the strangeness do the pulling instead of a question or a promise. Never a question mark, never an exclamation, never a countdown number, never the word that tells the viewer how to feel, and never a claim stated as fact about something the episode only reports as a claim. Because a row of these sits together on a channel page, prefer the same grammatical shape down a series so the banner reads as a masthead. Separately, write the tag label on the object as one or two words in small capitals naming the object plainly. Fail closed on misspelling, on clipping at either edge of the banner, and on any text beyond the banner and the tag.",
+  "default_text_style": "a flat band of solid colour running the full width of the top edge, the capitals inside it filled in near white and cut with a thick hard outline in the band's contrasting colour, with no bevel, no gradient, no drop shadow and no glow",
+  "default_font_style": "heavy condensed sans-serif capitals with squared terminals and tight even spacing, set on one line at the largest size the band allows, each letter carrying a thick hard outline in a contrasting colour",
+  "default_text_position": "top",
+  "headline_formats": [
+    "THE {OBJECT} CASE",
+    "THE {PLACE} INCIDENT",
+    "SIGNAL FROM {PLACE}",
+    "THE MISSING {OBJECT}",
+    "THE {ADJECTIVE} FILE"
+  ],
+  "visual_style_guidance": "This recipe is built for a drawn, high-contrast night look with heavy black outlines and flat cel shading, of the kind the Comic Pulp Mystery style ships. It needs four things from whatever style is active. First, a genuinely dark ground, because the object's glow is the only light in the picture and the shadows it throws are what make the investigator read at card size. Second, hard edges: flat shading with a firm boundary between light and shadow keeps the figure legible where a soft-rendered style would dissolve him into the rain. Third, a saturated warm light against a cold dark, so the left third burns and the right third stays cool and reactive. Fourth, an outline heavy enough to hold a face together at thumbnail size once the glow has taken most of its value away.\n\nA style that lights its scenes evenly, fills its shadows, works in pastel or desaturated colour, renders with soft gradients, or holds a bright daylight palette will break this recipe: the banner loses its contrast, the glow stops being a light source and becomes a decoration, and the shock on the investigator's face stops being visible. A style that refuses figures entirely cannot run this recipe at all.",
+  "preview_assets": [
+    "assets/series-banner-investigator-mystery-object-1.webp",
+    "assets/series-banner-investigator-mystery-object-2.webp",
+    "assets/series-banner-investigator-mystery-object-3.webp",
+    "assets/series-banner-investigator-mystery-object-4.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation"
+  ]
+}

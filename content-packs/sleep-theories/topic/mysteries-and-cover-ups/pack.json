@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.mysteries-and-cover-ups",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of Mysteries and Cover-Ups: fifty unsolved cases, alleged cover-ups, disappearances and anomalies, each with twenty materially distinct chapter slots, written as the case and the claims.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.mysteries-and-cover-ups",
+    "family": "com.storystudio.family.topic.mysteries-and-cover-ups"
+  },
+  "dependencies": []
+}

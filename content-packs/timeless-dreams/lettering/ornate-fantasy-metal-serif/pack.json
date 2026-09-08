@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.ornate-fantasy-metal-serif",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Ornate Fantasy Metal Serif lettering style: engraved gold-bronze capitals with scale-like texture, flourished terminals and a spaced small-cap tagline between thin rules.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.ornate-fantasy-metal-serif",
+    "family": "com.storystudio.family.lettering.ornate-fantasy-metal-serif"
+  },
+  "dependencies": []
+}

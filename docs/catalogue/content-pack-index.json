@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-08T09:38:17.467Z",
-  "count": 193,
+  "generated": "2026-09-08T10:53:48.992Z",
+  "count": 200,
   "items": [
     {
       "kind": "channel-kit",
@@ -439,6 +439,16 @@
       "collection_dir": "paid/lettering/archive",
       "axis": "text",
       "description": "Fine engraved lettering on a cream enamel plaque — the caption beside the exhibit, not the exhibit.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.ornate-fantasy-metal-serif",
+      "name": "Ornate Fantasy Metal Serif",
+      "collection_dir": "timeless-dreams/lettering/ornate-fantasy-metal-serif",
+      "axis": "font",
+      "description": "Engraved gold and bronze capitals with a scale-like grain through the stems and small curling flourishes on the termina…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1174,6 +1184,16 @@
     },
     {
       "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.series-banner-investigator-mystery-object",
+      "name": "Series Banner, Investigator, Mystery Object",
+      "collection_dir": "sleep-theories/thumbnail/series-banner-investigator-mystery-object",
+      "axis": "Mystery",
+      "description": "One fixed frame for a mystery series: the series name banded full width across the top, a recurring trench-coat investi…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
       "id": "com.storystudio.thumbnail.two-option-criteria-split",
       "name": "Two-Option Criteria Split",
       "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split",
@@ -1494,11 +1514,31 @@
     },
     {
       "kind": "topic-pack",
+      "id": "com.storystudio.topic.legends-across-every-civilisation",
+      "name": "Legends Across Every Civilisation",
+      "collection_dir": "timeless-dreams/topic/legends-across-every-civilisation",
+      "axis": "world mythology, legends and creatures, sleep compilation",
+      "description": "Fifty mythical creatures and beings — dragons, giants, sea monsters, tricksters, underworld guides, sky gods, flood sur…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
       "id": "com.storystudio.topic.lost-voyages",
       "name": "Lost Voyages",
       "collection_dir": "lost-voyage/topic/lost-voyages",
       "axis": "maritime history, sea history, sleep history",
       "description": "Fifty maritime subjects, each with twenty materially distinct episode slots, for calm long-form compilations told one s…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.mysteries-and-cover-ups",
+      "name": "Mysteries and Cover-Ups",
+      "collection_dir": "sleep-theories/topic/mysteries-and-cover-ups",
+      "axis": "unsolved cases, cover-ups and disclosure, sleep compilation",
+      "description": "Fifty categories of unsolved case, alleged cover-up, lost expedition, unexplained signal, anomaly and disclosed program…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1684,6 +1724,16 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.comic-pulp-mystery",
+      "name": "Comic Pulp Mystery",
+      "collection_dir": "sleep-theories/style/comic-pulp-mystery",
+      "axis": "Illustration",
+      "description": "Graphic-novel cel shading with heavy black outlines and one object glowing at the centre of the frame — saturated teal…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.dark-regal-portrait",
       "name": "Dark Regal Portrait",
       "collection_dir": "royal-history/style/dark-regal-portrait",
@@ -1794,6 +1844,16 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.inked-fable-cartoon",
+      "name": "Inked Fable Cartoon",
+      "collection_dir": "standalone-looks/style/inked-fable-cartoon",
+      "axis": "Illustration",
+      "description": "Thick confident ink outlines and soft cel shading over textured brush fills, one warm lantern-amber key against deep sh…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.maritime-oil-painting",
       "name": "Maritime Oil Painting",
       "collection_dir": "lost-voyage/style/maritime-oil-painting",
@@ -1879,6 +1939,16 @@
       "collection_dir": "production-looks/style/retro-paint-fantasy",
       "axis": "Digital",
       "description": "Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.scratchy-editorial-poster",
+      "name": "Scratchy Editorial Poster",
+      "collection_dir": "standalone-looks/style/scratchy-editorial-poster",
+      "axis": "Editorial",
+      "description": "An editorial magazine cover drawn in scratchy pen and marker over rough blocks of colour — two inks on stark white pape…",
       "version": "1.0.0",
       "lifecycle": "active"
     },

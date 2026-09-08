@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.series-banner-investigator-mystery-object",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Series Banner, Investigator, Mystery Object recipe: a full-width series banner across the top, a recurring trench-coat investigator reacting on the right, one tagged glowing object on the left.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.series-banner-investigator-mystery-object",
+    "family": "com.storystudio.family.thumbnail.series-banner-investigator-mystery-object"
+  },
+  "dependencies": []
+}
