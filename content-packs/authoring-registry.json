@@ -1,5 +1,5 @@
 {
-  "revision": 176,
+  "revision": 185,
   "batches": [
     {
       "revision": 2,
@@ -4010,6 +4010,204 @@
           }
         ]
       }
+    },
+    {
+      "revision": 177,
+      "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+      "request": {
+        "expected_revision": 176,
+        "coordinator": {
+          "task": "midnight-archives-2026-09-08",
+          "branch": "content/midnight-archives-2026-09-08"
+        },
+        "proposal_ref": "proposal:midnight-archives-dark-history-hook-channel-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.gothic-candlelight-portrait",
+            "item_id": "com.storystudio.style.gothic-candlelight-portrait",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/midnight-archives/style/gothic-candlelight-portrait",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.gothic-candlelight-portrait",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.gothic-candlelight-portrait",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.inked-crosshatch-storybook",
+            "item_id": "com.storystudio.style.inked-crosshatch-storybook",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/midnight-archives/style/inked-crosshatch-storybook",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.inked-crosshatch-storybook",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.inked-crosshatch-storybook",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.red-glow-serif-capitals",
+            "item_ids": [
+              "com.storystudio.lettering.red-glow-serif-capitals"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/midnight-archives/lettering/red-glow-serif-capitals",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.red-glow-serif-capitals",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.red-glow-serif-capitals",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.distressed-pale-serif",
+            "item_ids": [
+              "com.storystudio.lettering.distressed-pale-serif"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/midnight-archives/lettering/distressed-pale-serif",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.distressed-pale-serif",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.distressed-pale-serif",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.dripping-paint-finish",
+            "item_ids": [
+              "com.storystudio.lettering.dripping-paint-finish"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/midnight-archives/lettering/dripping-paint-finish",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.dripping-paint-finish",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.dripping-paint-finish",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.hook-left-frightened-face-right",
+            "item_id": "com.storystudio.thumbnail.hook-left-frightened-face-right",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/midnight-archives/thumbnail/hook-left-frightened-face-right",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.hook-left-frightened-face-right",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.hook-left-frightened-face-right",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.the-real-story-is-worse",
+            "item_id": "com.storystudio.topic.the-real-story-is-worse",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/midnight-archives/topic/the-real-story-is-worse",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.the-real-story-is-worse",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.the-real-story-is-worse",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.contrarian-reveal-titles",
+            "item_ids": [
+              "com.storystudio.metadata-formula.contrarian-reveal-titles"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/midnight-archives/metadata-formula/contrarian-reveal-titles",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.contrarian-reveal-titles",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.contrarian-reveal-titles",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -6472,6 +6670,142 @@
         },
         "receipt_ref": "authoring:4fbb5e51237a152e732888baf06ecaafefd195cfbd844e37c393a73650b2ea39",
         "pack_id": "com.storystudio.pack.metadata-formula.entire-story-titles",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 178,
+      "transition_ref": "lifecycle:f4062959853de6e2949fc27a1233315b0922e7647f1bb9cc1f162b2e37118772",
+      "request": {
+        "expected_revision": 177,
+        "coordinator": {
+          "task": "midnight-archives-2026-09-08",
+          "branch": "content/midnight-archives-2026-09-08"
+        },
+        "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+        "pack_id": "com.storystudio.pack.style.gothic-candlelight-portrait",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 179,
+      "transition_ref": "lifecycle:69019c6260c4e0c33b4e36ca24802aa78c483e533d0cccd0acd69091ca764b09",
+      "request": {
+        "expected_revision": 178,
+        "coordinator": {
+          "task": "midnight-archives-2026-09-08",
+          "branch": "content/midnight-archives-2026-09-08"
+        },
+        "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+        "pack_id": "com.storystudio.pack.style.inked-crosshatch-storybook",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 180,
+      "transition_ref": "lifecycle:48561a72ffe122da7164da7a7941862951f1f509369ff8d955a5d72728516af8",
+      "request": {
+        "expected_revision": 179,
+        "coordinator": {
+          "task": "midnight-archives-2026-09-08",
+          "branch": "content/midnight-archives-2026-09-08"
+        },
+        "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+        "pack_id": "com.storystudio.pack.lettering.red-glow-serif-capitals",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 181,
+      "transition_ref": "lifecycle:2c613c37c385daad7fb36f38569bda452c9a033a8787a2710ef0892a9958b1f2",
+      "request": {
+        "expected_revision": 180,
+        "coordinator": {
+          "task": "midnight-archives-2026-09-08",
+          "branch": "content/midnight-archives-2026-09-08"
+        },
+        "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+        "pack_id": "com.storystudio.pack.lettering.distressed-pale-serif",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 182,
+      "transition_ref": "lifecycle:d8dc7a5823beba4a44c5a2a6bfdde494476b67747d04efd651beda2548d5a390",
+      "request": {
+        "expected_revision": 181,
+        "coordinator": {
+          "task": "midnight-archives-2026-09-08",
+          "branch": "content/midnight-archives-2026-09-08"
+        },
+        "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+        "pack_id": "com.storystudio.pack.lettering.dripping-paint-finish",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 183,
+      "transition_ref": "lifecycle:7d24d6f845af27bcac007d95404a9e80658f1cdcf1c3f8dabdcdc95d2cc0587f",
+      "request": {
+        "expected_revision": 182,
+        "coordinator": {
+          "task": "midnight-archives-2026-09-08",
+          "branch": "content/midnight-archives-2026-09-08"
+        },
+        "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+        "pack_id": "com.storystudio.pack.thumbnail.hook-left-frightened-face-right",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 184,
+      "transition_ref": "lifecycle:90ac1e03c2ef6763fc194eccb7756430f8f461544f2e65fe7a52dd6db5a13d84",
+      "request": {
+        "expected_revision": 183,
+        "coordinator": {
+          "task": "midnight-archives-2026-09-08",
+          "branch": "content/midnight-archives-2026-09-08"
+        },
+        "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+        "pack_id": "com.storystudio.pack.topic.the-real-story-is-worse",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 185,
+      "transition_ref": "lifecycle:8922261c01c5ed813f5d8a5013abbab0fb53216e71a70a5b23e671de497d4f40",
+      "request": {
+        "expected_revision": 184,
+        "coordinator": {
+          "task": "midnight-archives-2026-09-08",
+          "branch": "content/midnight-archives-2026-09-08"
+        },
+        "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+        "pack_id": "com.storystudio.pack.metadata-formula.contrarian-reveal-titles",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -11732,6 +12066,198 @@
         },
         "sku": {
           "id": "com.storystudio.sku.metadata-formula.entire-story-titles",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+      "pack_id": "com.storystudio.pack.style.gothic-candlelight-portrait",
+      "item_id": "com.storystudio.style.gothic-candlelight-portrait",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/midnight-archives/style/gothic-candlelight-portrait",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.gothic-candlelight-portrait",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.gothic-candlelight-portrait",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+      "pack_id": "com.storystudio.pack.style.inked-crosshatch-storybook",
+      "item_id": "com.storystudio.style.inked-crosshatch-storybook",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/midnight-archives/style/inked-crosshatch-storybook",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.inked-crosshatch-storybook",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.inked-crosshatch-storybook",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+      "pack_id": "com.storystudio.pack.lettering.red-glow-serif-capitals",
+      "item_ids": [
+        "com.storystudio.lettering.red-glow-serif-capitals"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/midnight-archives/lettering/red-glow-serif-capitals",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.red-glow-serif-capitals",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.red-glow-serif-capitals",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+      "pack_id": "com.storystudio.pack.lettering.distressed-pale-serif",
+      "item_ids": [
+        "com.storystudio.lettering.distressed-pale-serif"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/midnight-archives/lettering/distressed-pale-serif",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.distressed-pale-serif",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.distressed-pale-serif",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+      "pack_id": "com.storystudio.pack.lettering.dripping-paint-finish",
+      "item_ids": [
+        "com.storystudio.lettering.dripping-paint-finish"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/midnight-archives/lettering/dripping-paint-finish",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.dripping-paint-finish",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.dripping-paint-finish",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+      "pack_id": "com.storystudio.pack.thumbnail.hook-left-frightened-face-right",
+      "item_id": "com.storystudio.thumbnail.hook-left-frightened-face-right",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/midnight-archives/thumbnail/hook-left-frightened-face-right",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.hook-left-frightened-face-right",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.hook-left-frightened-face-right",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+      "pack_id": "com.storystudio.pack.topic.the-real-story-is-worse",
+      "item_id": "com.storystudio.topic.the-real-story-is-worse",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/midnight-archives/topic/the-real-story-is-worse",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.the-real-story-is-worse",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.the-real-story-is-worse",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bb7efb1511b882c7e01a8056c912ddf099fc4f1bbdaf0fa61dc7dea9889cf389",
+      "pack_id": "com.storystudio.pack.metadata-formula.contrarian-reveal-titles",
+      "item_ids": [
+        "com.storystudio.metadata-formula.contrarian-reveal-titles"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/midnight-archives/metadata-formula/contrarian-reveal-titles",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.contrarian-reveal-titles",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.contrarian-reveal-titles",
           "status": "proposed"
         }
       }

@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.distressed-pale-serif",
+  "name": "Distressed Pale Serif",
+  "description": "Distressed serif capitals in white or cold blue-white, edged in dark and lifted by the faintest glow — the quieter hook face, for when the picture is already loud.",
+  "axis": "font",
+  "phrase": "bold serif capitals with crisp bracketed serifs and strong thick-to-thin stroke contrast, set tight and stacked across two or three lines of equal width, filled in bone white or a cold blue-white, each letter heavily distressed with broken edges, dry gaps through the stems and small chipped flecks as if stamped on damp paper, carrying one thin dark edge of even weight all the way round and the faintest cool glow just beyond it, with no bevel, no gradient and no drop shadow",
+  "preview_assets": [
+    "assets/distressed-pale-serif.webp"
+  ]
+}

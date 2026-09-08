@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.dripping-paint-finish",
+  "name": "Dripping Paint Finish",
+  "description": "A treatment rather than a face: whatever capitals are set, they are finished in wet paint that has run, with thin drips leaving the baseline and stopping partway down.",
+  "axis": "text",
+  "phrase": "lettering finished as freshly applied wet paint in a single flat colour, the surface glossy and slightly uneven with visible brush loading, thin runs leaving the baseline of several letters and travelling straight down before thinning to a point and stopping partway, one or two drips carrying a small bead at the tip, the paint pooling very slightly where a run begins, with no outline, no bevel, no glow and no drop shadow",
+  "preview_assets": [
+    "assets/dripping-paint-finish.webp"
+  ]
+}

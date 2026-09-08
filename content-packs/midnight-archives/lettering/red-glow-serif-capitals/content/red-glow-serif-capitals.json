@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.red-glow-serif-capitals",
+  "name": "Red-Glow Serif Capitals",
+  "description": "White serif capitals cut with a red edge and a red glow burning off behind them, the letterforms slightly distressed — the hook face for dark history.",
+  "axis": "font",
+  "phrase": "bold serif capitals in clean bone white with strong thick-to-thin stroke contrast and sharp bracketed serifs, set tight and stacked across two or three lines of equal width, each letter carrying a thin hard outline in deep blood red and, behind that, a soft red glow burning outward into the dark ground, the white fill slightly distressed with fine broken edges and small chipped flecks as if printed on rough stock, with no bevel, no gradient and no drop shadow",
+  "preview_assets": [
+    "assets/red-glow-serif-capitals.webp"
+  ]
+}

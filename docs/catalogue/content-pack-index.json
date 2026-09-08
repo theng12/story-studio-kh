@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-08T08:49:22.236Z",
-  "count": 185,
+  "generated": "2026-09-08T09:35:18.689Z",
+  "count": 193,
   "items": [
     {
       "kind": "channel-kit",
@@ -274,6 +274,26 @@
     },
     {
       "kind": "lettering-style",
+      "id": "com.storystudio.lettering.distressed-pale-serif",
+      "name": "Distressed Pale Serif",
+      "collection_dir": "midnight-archives/lettering/distressed-pale-serif",
+      "axis": "font",
+      "description": "Distressed serif capitals in white or cold blue-white, edged in dark and lifted by the faintest glow — the quieter hook…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.dripping-paint-finish",
+      "name": "Dripping Paint Finish",
+      "collection_dir": "midnight-archives/lettering/dripping-paint-finish",
+      "axis": "text",
+      "description": "A treatment rather than a face: whatever capitals are set, they are finished in wet paint that has run, with thin drips…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
       "id": "com.storystudio.lettering.dusk-gradient-soft",
       "name": "Dusk Gradient",
       "collection_dir": "paid/lettering/calm",
@@ -444,6 +464,16 @@
     },
     {
       "kind": "lettering-style",
+      "id": "com.storystudio.lettering.red-glow-serif-capitals",
+      "name": "Red-Glow Serif Capitals",
+      "collection_dir": "midnight-archives/lettering/red-glow-serif-capitals",
+      "axis": "font",
+      "description": "White serif capitals cut with a red edge and a red glow burning off behind them, the letterforms slightly distressed —…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
       "id": "com.storystudio.lettering.redacted-marker",
       "name": "Redacted Marker",
       "collection_dir": "paid/lettering/investigation",
@@ -569,6 +599,16 @@
       "collection_dir": "paid/metadata-formulas/editorial",
       "axis": "Dated era markers as headers, a short paragraph under each.",
       "description": "The episode's subject laid out in time. Era or date markers become the headers and each carries a short paragraph, so a…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.contrarian-reveal-titles",
+      "name": "Contrarian Reveal Titles",
+      "collection_dir": "midnight-archives/metadata-formula/contrarian-reveal-titles",
+      "axis": "Contradiction opening, corrections list, chapter list, stat…",
+      "description": "The write-up shape for a dark-history episode that opens by contradicting what the viewer already believes. Three fixed…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -989,6 +1029,16 @@
       "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion",
       "axis": "Explainer",
       "description": "A generic or rights-cleared host visibly connected to one separate tangible result object.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.hook-left-frightened-face-right",
+      "name": "Hook Left, Frightened Face Right",
+      "collection_dir": "midnight-archives/thumbnail/hook-left-frightened-face-right",
+      "axis": "History",
+      "description": "Two variants for one dark-history channel. A: a three-to-five-word hook filling the left half of the frame, a frightene…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1563,6 +1613,16 @@
       "lifecycle": "active"
     },
     {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.the-real-story-is-worse",
+      "name": "The Real Story Is Worse",
+      "collection_dir": "midnight-archives/topic/the-real-story-is-worse",
+      "axis": "dark history, debunked legends, famous frauds",
+      "description": "Fifty dark-history subjects — the original fairy tales, the asylums, the alchemists, the secret societies, the ghost sh…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
       "kind": "visual-style",
       "id": "com.storystudio.style.academic-classical-oil",
       "name": "Academic Classical Oil",
@@ -1674,6 +1734,16 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.gothic-candlelight-portrait",
+      "name": "Gothic Candlelight Portrait",
+      "collection_dir": "midnight-archives/style/gothic-candlelight-portrait",
+      "axis": "Illustration",
+      "description": "The cover look for dark history — one face filling half the frame at the moment it understands something, lit by a sing…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.hand-drawn-cartoon-explainer",
       "name": "Hand-Drawn Cartoon Explainer",
       "collection_dir": "production-looks/style/hand-drawn-cartoon-explainer",
@@ -1709,6 +1779,16 @@
       "collection_dir": "legacy-thumbnail-restoration/style/impasto-psychological-animals",
       "axis": "Illustration",
       "description": "A melancholy editorial animal-psychology style rendered with tactile oil-paint depth and one readable human-scale actio…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.inked-crosshatch-storybook",
+      "name": "Inked Crosshatch Storybook",
+      "collection_dir": "midnight-archives/style/inked-crosshatch-storybook",
+      "axis": "Illustration",
+      "description": "The scene look for dark history — thick-line pen and ink with dense cross-hatching, the way an engraved graphic novel p…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
