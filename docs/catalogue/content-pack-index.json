@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-08T13:18:20.336Z",
-  "count": 200,
+  "generated": "2026-09-08T14:19:46.456Z",
+  "count": 207,
   "items": [
     {
       "kind": "channel-kit",
@@ -544,6 +544,16 @@
     },
     {
       "kind": "lettering-style",
+      "id": "com.storystudio.lettering.spaced-light-serif-edition-label",
+      "name": "Spaced Light Serif with Edition Label",
+      "collection_dir": "baroque-myth/lettering/spaced-light-serif-edition-label",
+      "axis": "font",
+      "description": "Thin, widely-tracked white serif capitals on a dark band, with one tiny line of small capitals above them carrying an e…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
       "id": "com.storystudio.lettering.sticker-cut",
       "name": "Sticker Cut",
       "collection_dir": "paid/lettering/explainer",
@@ -636,10 +646,10 @@
       "kind": "metadata-formula",
       "id": "com.storystudio.metadata-formula.entire-story-titles",
       "name": "Entire Story Titles",
-      "collection_dir": "golden-epic/metadata-formula/entire-story-titles",
+      "collection_dir": "golden-epic/metadata-formula/entire-story-titles-v1.0.1",
       "axis": "Whole-arc opening, era sections, stated runtime, listening…",
       "description": "The write-up shape for an episode that tells one whole civilisation or one whole life from beginning to end in a single…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
@@ -659,6 +669,16 @@
       "collection_dir": "paid/metadata-formulas/editorial",
       "axis": "A numbered one-line index of what is covered, then one fram…",
       "description": "A numbered index of everything covered, one line each, then a single paragraph of framing. Scannable in two seconds. Un…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.obscure-history-listicle-titles",
+      "name": "Obscure History Listicle Titles",
+      "collection_dir": "gory-cartoon-history/metadata-formula/obscure-history-listicle-titles",
+      "axis": "List opening, entry index, stated runtime by mode, listenin…",
+      "description": "The write-up shape for an episode built out of self-contained obscure-history entries. Three fixed title patterns name…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -939,6 +959,16 @@
       "collection_dir": "paid/archival-ledger/thumbnail/archival-map-investigation",
       "axis": "History",
       "description": "A historical investigation cover: an original period portrait or key artifact, a marked parchment map, and one archival…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.banner-triptych",
+      "name": "Banner Triptych",
+      "collection_dir": "gory-cartoon-history/thumbnail/banner-triptych",
+      "axis": "Listicle",
+      "description": "One fixed frame for a listicle: a white heavy-sans title banded full width across the top, and three equal vertical pan…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1484,6 +1514,16 @@
     },
     {
       "kind": "topic-pack",
+      "id": "com.storystudio.topic.gods-heroes-and-epics",
+      "name": "Gods, Heroes and Epics",
+      "collection_dir": "baroque-myth/topic/gods-heroes-and-epics",
+      "axis": "world mythology, gods and heroes told entire, sleep compilation",
+      "description": "Fifty whole stories, each told entire: every myth of a single deity, a hero's complete life, or one epic from its first…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
       "id": "com.storystudio.topic.habits-momentum",
       "name": "Habits & Momentum",
       "collection_dir": "free-starters/topic/habits-momentum-v1.0.2",
@@ -1594,6 +1634,16 @@
     },
     {
       "kind": "topic-pack",
+      "id": "com.storystudio.topic.obscure-history-horrors",
+      "name": "Obscure History Horrors",
+      "collection_dir": "gory-cartoon-history/topic/obscure-history-horrors",
+      "axis": "obscure history, grim history listicle, sleep compilation",
+      "description": "Fifty list categories of obscure and grim history — folklore creatures, the deadliest weapons, warriors, diseases and d…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
       "id": "com.storystudio.topic.pastoral-daily-reflection",
       "name": "Daily Scripture Reflection",
       "collection_dir": "legacy-niche-conversion/topic/pastoral-daily-reflection",
@@ -1700,6 +1750,26 @@
       "axis": "Realistic",
       "description": "Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document…",
       "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.baroque-mythological-sky",
+      "name": "Baroque Mythological Sky",
+      "collection_dir": "baroque-myth/style/baroque-mythological-sky",
+      "axis": "Illustration",
+      "description": "Gods and heroes carried on banks of cloud in the high-baroque manner — long diagonal compositions, drapery billowing in…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.bold-gory-cartoon",
+      "name": "Bold Gory Cartoon",
+      "collection_dir": "gory-cartoon-history/style/bold-gory-cartoon",
+      "axis": "Illustration",
+      "description": "Thick black outlines and flat saturated fills, one subject per panel on a plain coloured backdrop, faces pushed all the…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {

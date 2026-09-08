@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.banner-triptych",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Banner Triptych recipe: a full-width white heavy-sans banner across the top and three equal vertical panels beneath it, each holding one subject, with a Timeline Bar variant that runs a red era timeline under the panels.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.banner-triptych",
+    "family": "com.storystudio.family.thumbnail.banner-triptych"
+  },
+  "dependencies": []
+}

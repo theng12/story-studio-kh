@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.obscure-history-horrors",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of Obscure History Horrors: fifty list categories of obscure and grim history, each with twenty materially distinct entries written to work both as a ten-minute listicle item and as a two-hour compilation chapter.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.obscure-history-horrors",
+    "family": "com.storystudio.family.topic.obscure-history-horrors"
+  },
+  "dependencies": []
+}

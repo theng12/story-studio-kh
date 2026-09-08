@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.metadata-formula.obscure-history-listicle-titles",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Obscure History Listicle Titles description formula: three fixed title patterns for an obscure-history list, and one write-up that runs in either a short listicle mode or a long sleep-compilation mode from the same entries.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.metadata-formula.obscure-history-listicle-titles",
+    "family": "com.storystudio.family.metadata-formula.obscure-history-listicle-titles"
+  },
+  "dependencies": []
+}

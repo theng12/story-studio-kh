@@ -1,0 +1,97 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.obscure-history-listicle-titles",
+  "name": "Obscure History Listicle Titles",
+  "description": "The write-up shape for an episode built out of self-contained obscure-history entries. Three fixed title patterns name the list plainly, and the description below tells a reader what is in it, how many entries there are, which of the two runtimes this episode uses — a short list or a long compilation for sleep — and how to listen.",
+  "architecture": "List opening, entry index, stated runtime by mode, listening note, sources note, optional repost note, hashtags.",
+  "description_plan": {
+    "max_chars": 3400,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "opening",
+        "instruction": "Three or four sentences naming what the list collects and saying plainly how many entries are in it. Say what the entries have in common, say roughly what span of history they are drawn from, and say that each entry stands on its own so a listener can start anywhere and stop anywhere. Do not tease an entry, do not promise a worst or a final one, and do not ask the reader a question.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "entries",
+        "instruction": "List the entries in the order they appear, one per line, each a short noun phrase naming the thing itself rather than describing it. Use the plain name a reader would recognise or search for; where a thing has no plain name, use the shortest description that identifies it. No numbering, no times, no ranking language, no adjectives doing sales work, and nothing framed as a reveal.",
+        "header": {
+          "render": true,
+          "text": "What is on the list"
+        },
+        "target_chars": 900
+      },
+      {
+        "id": "runtime",
+        "instruction": "State the episode length in minutes in one sentence, then name which of the two modes this episode is in. Short list mode runs nine to fourteen minutes and gives each entry a minute or two at a normal narrating pace. Sleep compilation mode runs one hundred and twenty to one hundred and eighty minutes and gives each entry a long quiet chapter at a slower pace, with no change of subject inside a chapter. Use the actual length from the story context rather than either range, and say plainly that nothing is held back for a second part.",
+        "header": {
+          "render": true,
+          "text": "How long it runs"
+        },
+        "target_chars": 300
+      },
+      {
+        "id": "listening",
+        "instruction": "Two to four sentences on how this episode is built, written for the mode it is actually in. In short list mode, say that the entries are self-contained, that the order is not a ranking, and that a listener can skip to whichever one they came for. In sleep compilation mode, say instead that the same entries are told slowly as chapters, that the volume stays even with no sudden changes, that each chapter resolves rather than handing over, and that a listener who falls asleep in the first chapter loses nothing. Say it plainly and never as a sales point.",
+        "header": {
+          "render": true,
+          "text": "How to listen"
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "sources",
+        "instruction": "Two or three sentences naming the kinds of evidence the entries lean on — the sorts of chronicles, excavation reports, folklore collections, medical or military records, tax rolls, or later scholarship a careful narrator would use for this material. Describe source types rather than citing any specific title, author, or archive reference. State plainly which entries rest on legend rather than on record, and say when a popular version of a story is known to be wrong.",
+        "header": {
+          "render": true,
+          "text": "Where this comes from"
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "repost",
+        "instruction": "Include this section only when the story context says the episode is also released as audio on a podcast feed. When it is, write one plain sentence saying the same recording is available as a podcast episode, with no link, no platform name, and no urging. When the story context says nothing about a podcast release, emit nothing at all for this section.",
+        "header": {
+          "render": true,
+          "text": "Also as a podcast"
+        },
+        "target_chars": 120
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 110,
+    "guidance": "Use one of three shapes and rotate between them across a series. First: <Adjective> <Things> You've Never Heard Of, the adjective concrete and the things plural and countable. Second: The <Superlative> <Things> In History, used only when the episode argues the superlative. Third: Your Life (And Death) as <Role>, in that exact punctuation, for a second-person episode about one role. Title case throughout, with the plural noun as the searchable word. Never a question, never an exclamation, never a promised secret, never a count the episode lacks, never a living person."
+  },
+  "tag_plan": {
+    "count": 22,
+    "guidance": "for an obscure-history list episode, mixing the category of thing being listed, the eras and regions the entries come from, the plain names of the two or three best-known entries, the list framing, the second-person framing when the episode uses it, and the listening context for whichever runtime mode the episode is in"
+  },
+  "tone": {
+    "constraints": [
+      "No hook, no cliffhanger, no countdown to a final entry, and no teaser anywhere in the title or the description.",
+      "The order of the entries is not a ranking unless the episode actually ranks them, and the write-up never implies one that is not there.",
+      "Name historical and mythological figures plainly; never name a living person and never invent one.",
+      "Dates, spans, death tolls, and figures come from the story context and are never invented or rounded upward for effect.",
+      "Say plainly which entries rest on legend rather than record, and correct a popular version that is known to be wrong.",
+      "Describe violence, disease, and disaster briefly and factually; give the aftermath more room than the act, and never dwell on suffering.",
+      "Keep every entry self-contained, with no reference forward to a later entry and no callback to an earlier one.",
+      "No second-person urging, no call to act, and nothing that asks the listener to stay awake."
+    ]
+  }
+}
