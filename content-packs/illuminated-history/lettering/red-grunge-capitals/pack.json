@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.red-grunge-capitals",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Red Grunge Capitals lettering style: distressed red block capitals with rough broken edges and ink speckle, for episodes about revolutions and upheavals.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.red-grunge-capitals",
+    "family": "com.storystudio.family.lettering.red-grunge-capitals"
+  },
+  "dependencies": []
+}

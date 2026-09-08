@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.cream-condensed-serif-with-tagline",
+  "name": "Cream Condensed Serif with Tagline",
+  "description": "Tall condensed cream capitals set tight on one line over a hard dark drop shadow, with one small-cap tagline beneath them. Documentary rather than decorative, and built to stay legible when the ground behind it is dark and painted.",
+  "axis": "font",
+  "phrase": "a title set in tall narrow condensed serif capitals with fine bracketed serifs and moderate stroke contrast, in warm cream, tracked tight so the letters stand close together on one line, each letter carrying a hard dark drop shadow offset a little down and to the right with no blur and no glow; directly beneath the title, one much smaller line of the same serif as small capitals, at roughly a fifth of the title's height, tracked wide and set in a dimmed cream, carrying a short tagline; both lines flat and matte with no outline, no bevel, no gradient and no texture",
+  "preview_assets": [
+    "assets/cream-condensed-serif-with-tagline.webp"
+  ]
+}

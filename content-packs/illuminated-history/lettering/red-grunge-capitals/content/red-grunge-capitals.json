@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.red-grunge-capitals",
+  "name": "Red Grunge Capitals",
+  "description": "Heavy oxide-red block capitals printed badly on rough paper — broken edges, gaps eaten out of the strokes, and a fine spatter of ink around them. Made for revolutions, revolts and upheavals, where a clean serif would read as the wrong century.",
+  "axis": "font",
+  "phrase": "a title set in heavy block capitals with square slab-free stems, no serifs and very low stroke contrast, in a deep oxide red, tracked a little tight on one line, every letter distressed as though printed badly on rough paper — edges broken and ragged, small pinholes and gaps eaten out of the strokes, one side of each stem worn thinner than the other — with a fine spatter of the same red ink speckled around the letters and thinning outward; flat and matte throughout with no outline, no bevel, no gradient, no drop shadow and no glow",
+  "preview_assets": [
+    "assets/red-grunge-capitals.webp"
+  ]
+}

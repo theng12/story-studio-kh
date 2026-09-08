@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.medallion-portrait",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Medallion Portrait thumbnail recipe: a struck-metal medallion carrying a profile portrait on the right of the card, a cream serif title on the left, and a dim period scene receding behind both.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.medallion-portrait",
+    "family": "com.storystudio.family.thumbnail.medallion-portrait"
+  },
+  "dependencies": []
+}

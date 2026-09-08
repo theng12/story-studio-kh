@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-08T16:23:44.846Z",
-  "count": 195,
+  "generated": "2026-09-08T17:23:59.349Z",
+  "count": 203,
   "items": [
     {
       "kind": "lettering-style",
@@ -119,6 +119,16 @@
       "collection_dir": "royal-history/lettering/condensed-regal-serif",
       "axis": "font",
       "description": "Heavy condensed serif capitals stacked on two tight lines, the first white and the second gold, lifted off the dark by…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.cream-condensed-serif-with-tagline",
+      "name": "Cream Condensed Serif with Tagline",
+      "collection_dir": "illuminated-history/lettering/cream-condensed-serif-with-tagline",
+      "axis": "font",
+      "description": "Tall condensed cream capitals set tight on one line over a hard dark drop shadow, with one small-cap tagline beneath th…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -349,6 +359,16 @@
       "collection_dir": "midnight-archives/lettering/red-glow-serif-capitals",
       "axis": "font",
       "description": "White serif capitals cut with a red edge and a red glow burning off behind them, the letterforms slightly distressed —…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.red-grunge-capitals",
+      "name": "Red Grunge Capitals",
+      "collection_dir": "illuminated-history/lettering/red-grunge-capitals",
+      "axis": "font",
+      "description": "Heavy oxide-red block capitals printed badly on rough paper — broken edges, gaps eaten out of the strokes, and a fine s…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -924,6 +944,16 @@
     },
     {
       "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.framed-subject-with-dates",
+      "name": "Framed Subject with Dates",
+      "collection_dir": "illuminated-history/thumbnail/framed-subject-with-dates",
+      "axis": "History",
+      "description": "The subject of the episode sits inside an ornate gold frame that fills most of the card, with the title in gold serif c…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
       "id": "com.storystudio.thumbnail.hands-on-pov-moment",
       "name": "Hands-On POV Moment",
       "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment",
@@ -994,11 +1024,31 @@
     },
     {
       "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.medallion-portrait",
+      "name": "Medallion Portrait",
+      "collection_dir": "illuminated-history/thumbnail/medallion-portrait",
+      "axis": "History",
+      "description": "A struck-metal medallion holds a profile portrait on the right of the card, the title sits in cream serif capitals on t…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
       "id": "com.storystudio.thumbnail.numbered-lineup",
       "name": "Numbered Lineup",
       "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup",
       "axis": "Explainer",
       "description": "Three to five equal-status entries in a precise row or grid with correct native numerals.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.numbered-series-card",
+      "name": "Numbered Series Card",
+      "collection_dir": "illuminated-history/thumbnail/numbered-series-card",
+      "axis": "History",
+      "description": "A title runs across the top of the card with the episode's years in parentheses after it, a painted portrait holds the…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1573,6 +1623,16 @@
       "lifecycle": "active"
     },
     {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.turning-points-and-eras",
+      "name": "Turning Points and Eras",
+      "collection_dir": "illuminated-history/topic/turning-points-and-eras",
+      "axis": "turning points, eras told entire, sleep compilation",
+      "description": "Fifty whole stories from the long middle of history: the purchases and partitions that moved whole territories on paper…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
       "kind": "visual-style",
       "id": "com.storystudio.style.academic-classical-oil",
       "name": "Academic Classical Oil",
@@ -1659,6 +1719,16 @@
       "collection_dir": "royal-history/style/dark-regal-portrait",
       "axis": "Illustration",
       "description": "The cover look for royal biography — a painted portrait held at chest height under one warm source, with a castle, pala…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.dark-sepia-documentary-scene",
+      "name": "Dark Sepia Documentary Scene",
+      "collection_dir": "illuminated-history/style/dark-sepia-documentary-scene",
+      "axis": "Illustration",
+      "description": "Dark, misty, painterly period scenes held in sepia and slate and lit by exactly one warm thing inside the frame — a win…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1760,6 +1830,16 @@
       "axis": "Natural world",
       "description": "An expressive animal illustration language using uneven ink, limited flat color, and sparse annotated paper-like space.",
       "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.illuminated-frame-painting",
+      "name": "Illuminated Frame Painting",
+      "collection_dir": "illuminated-history/style/illuminated-frame-painting",
+      "axis": "Illustration",
+      "description": "A richly painted scene or portrait held inside an ornate gold filigree border with gilt corner ornaments, the way a min…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {

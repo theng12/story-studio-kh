@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.illuminated-frame-painting",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Illuminated Frame Painting visual style: a richly painted scene or portrait held inside an ornate gold filigree border with gilt corner ornaments, deep jewel colour inside the frame, and the soft varnish sheen of an old panel.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.illuminated-frame-painting",
+    "family": "com.storystudio.family.style.illuminated-frame-painting"
+  },
+  "dependencies": []
+}

@@ -1,0 +1,77 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.medallion-portrait",
+  "name": "Medallion Portrait",
+  "description": "A struck-metal medallion holds a profile portrait on the right of the card, the title sits in cream serif capitals on the left, and a dim period scene recedes behind both. The portrait is a relief in bronze or silver rather than a painting, so the card reads as a coin held up against the century it came from.",
+  "layout": "hero",
+  "category": "History",
+  "tags": [
+    "medallion",
+    "coin relief",
+    "profile portrait",
+    "struck metal",
+    "cream serif title",
+    "period scene",
+    "dim background",
+    "biography",
+    "sleep history",
+    "long documentary",
+    "calm",
+    "card legibility"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build the card in three fixed parts and keep each in its own territory.\n\nThe medallion. One circular medallion sits on the right of the card, whole and uncropped, holding between a third and two fifths of the card's height in diameter, with its centre a little above the vertical middle. It is struck metal, not paint: bronze, silver or a dull gold, with a raised rim, a shallow bevel inside the rim, and a portrait modelled as low relief so the light catches the ridges and pools in the hollows. The portrait is a strict profile, facing left across the card toward the type, cut at the base of the neck or the shoulder as a coin cuts it, with the hair, headdress or helm modelled in the same relief. The whole medallion is one metal — no colour inside it, no painted face, no enamel — and it carries a soft cast shadow onto the scene behind it, which is what tells a viewer it is an object in front of a picture rather than a circle drawn on one.\n\nThe title. The left of the card carries the type and holds nothing else. The title is set in cream serif capitals on one or two lines, the largest thing on the card after the medallion, ranged left with a clear margin from the card edge. One line of small capitals may sit directly beneath it as a tagline, at roughly a third of its height and in a dimmed cream, and there is nothing else: no third line, no rule, no plate and no box.\n\nThe scene. Behind both, one dim period scene recedes into mist — a street, a hall, a harbour, a camp, a shoreline, a workshop — kept low in contrast and low in light so that neither the metal nor the letters have to fight it. The half of the scene behind the type is the quietest part of it, with no roofline, mast, rigging, doorway or figure crossing behind a letter. Any figures in the scene are small, far off and faceless.\n\nThe active Visual Style remains the final authority for medium, palette, lighting and texture in the scene behind; this recipe controls the medallion's material, shape, size and side, the strict profile inside it, the title's side and shape, and the quiet the scene must keep behind both.",
+  "composition_rules": [
+    "Exactly one circular medallion appears, whole and uncropped, on the right of the card, between a third and two fifths of the card's height in diameter.",
+    "The medallion is struck metal in one colour — bronze, silver or dull gold — with a raised rim and a portrait modelled as low relief; it is never painted, coloured or enamelled.",
+    "The portrait inside it is a strict profile facing left across the card toward the type, cut at the neck or shoulder as a coin cuts it.",
+    "The medallion casts a soft shadow onto the scene behind it, so it reads as an object in front of a picture rather than a circle drawn on one.",
+    "The title sits on the left in cream serif capitals, ranged left, on one or two lines, with at most one small-cap tagline line beneath it and nothing else.",
+    "No line of type crosses the medallion, its rim or its shadow, and the medallion never crosses the type.",
+    "The scene behind is one dim period view held low in contrast, quietest on the side the type is on, with no architecture or figure crossing behind a letter.",
+    "Any figure in the background scene is small, far off and faceless; the medallion carries the only face on the card.",
+    "Vary the subject, the metal, the period and the scene between episodes; keep the medallion's side, its shape, the strict profile, and the title's side fixed."
+  ],
+  "required_elements": [
+    "One whole circular struck-metal medallion on the right of the card, carrying a low-relief profile portrait facing left",
+    "A cream serif title ranged left on the opposite side, with at most one small-cap tagline beneath it",
+    "A dim, low-contrast period scene receding behind both",
+    "A soft cast shadow under the medallion that separates it from the scene"
+  ],
+  "avoid_elements": [
+    "A channel wordmark, logo, badge, ribbon, subscribe mark, numeral bug or border of any kind",
+    "A painted, coloured or enamelled portrait inside the medallion, or a face turned toward the camera",
+    "A second medallion, a coin cropped by the card edge, or a stack of coins",
+    "A third line of copy, a date line inside the type block, a question mark or an exclamation mark",
+    "Architecture, rigging, masts or figures crossing behind the letters of the title",
+    "A bright, flat, evenly lit or high-contrast background that competes with the metal and the type",
+    "Arrows, circles, red rings, emoji, price tags, speech balloons or reaction marks",
+    "A recognisable modern individual, a living person, a real currency, or an invented insignia presented as genuine",
+    "Post-render typography compositing, watermarks, or copied trade dress"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Write the title as the subject's name and nothing more on the first line, in as few words as the ordinary name honestly takes, set larger than anything else in the type block. Where a second line helps, add one tagline of at most five words naming what the subject was or what they did — an office, a span, a single decision — and never a claim the episode does not support. Do not put years in this block: the medallion carries the identity and the card stays uncluttered, and a date line belongs to a different recipe. Never a question, never a number that reads as a countdown, never an exclamation, and never a tease. Because a row of these sits together on a channel page, keep the same shape down a series — name alone, or name over tagline — rather than alternating between them. Fail closed on a misspelling, on a line that clips or wraps into the medallion, on a third line, and on any text that lands on the metal.",
+  "default_text_style": "flat matte cream letters sitting directly on the dim scene with nothing behind them — no box, plate, banner, rule, outline, bevel, gradient, drop shadow or glow — and the tagline in a dimmed cream at roughly a third of the title's height",
+  "default_font_style": "tall condensed serif capitals in cream with fine bracketed serifs and moderate stroke contrast, ranged left with even tracking on one or two lines, and beneath them at most one much smaller line of the same serif as widely spaced small capitals",
+  "default_text_position": "center",
+  "headline_formats": [
+    "{SUBJECT}",
+    "{SUBJECT} / {OFFICE}",
+    "{SUBJECT} / {CLAIM}",
+    "{SUBJECT} / The Whole Story",
+    "{EVENT} / {OUTCOME}"
+  ],
+  "visual_style_guidance": "This recipe is built for a painted period look that can hold a dim, hazy background and one bright metal object in front of it — the Dark Sepia Documentary Scene style supplies exactly that scene, and the Illuminated Frame Painting style supplies the burnished metal the medallion is struck from. It needs three things from whatever style is active. First, believable struck metal, because the medallion is a relief and its whole legibility is the way one light runs along the ridges. Second, a background that stays quiet: low contrast, low light, and hazy with distance, so the cream letters and the metal rim are the only bright things on the card. Third, a style willing to keep faces far away in the scene, since the frame promises exactly one face and it is on the coin.\n\nA style that renders in flat colour, in bright even daylight, or against a white ground will break this recipe: the relief flattens into a drawn circle, the cast shadow stops meaning anything, and the cream title loses the dark it is legible on. A style that refuses human subjects cannot run this recipe at all, because the profile is the product.",
+  "preview_assets": [
+    "assets/medallion-portrait-1.webp",
+    "assets/medallion-portrait-2.webp",
+    "assets/medallion-portrait-3.webp",
+    "assets/medallion-portrait-4.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained"
+  ]
+}
