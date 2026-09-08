@@ -11,11 +11,11 @@ Owner request: resolve the Royal History content blocker, inspect Claude’s oth
 | Royal History eight standalone components | Merged through PR66; thirteen previews through PR71 | Topic correction below; no new Channel Kit |
 | Seven new collections / preview backfill | Source merged through PR78/PR79; 200 current catalogue identities | Do not duplicate these changes |
 | Content Store request-size fix | Already on main in v1.4.129 | Done; see GENSTUDIO/STORY body-limit handoff |
-| Rulers and Dynasties topic | Corrective 1.0.1 source, retaining original 1.0.0 | Finish qualification, then GenStudio production sealing/publication |
-| Legends Across Every Civilisation topic | Corrective 1.0.1 source, retaining original 1.0.0 | Finish qualification, then GenStudio production sealing/publication |
+| Rulers and Dynasties topic | Corrective 1.0.1 source, retaining original 1.0.0 | Validated Store archive ready; GenStudio catalogue publication remains |
+| Legends Across Every Civilisation topic | Corrective 1.0.1 source, retaining original 1.0.0 | Validated Store archive ready; GenStudio catalogue publication remains |
 | Provider queue position / ETA | GenStudio contract documented; Story UI work remains open | Separate Story task in [queue handoff](GENSTUDIO-PROVIDER-QUEUE-POSITION-2026-09-08.md); not a channel-setup prerequisite |
 
-The screenshot’s shelf/publication claims are not treated as proof that these new correction versions are published. No live catalogue, purchase, price, grant, entitlement, installed pack, or production project was changed here.
+Claude’s later stocking record confirms the prior 1.0.0 releases, not publication of these new 1.0.1 corrections. No live catalogue, purchase, price, grant, entitlement, installed pack, or production project was changed here.
 
 ## Separate content candidates
 
@@ -42,7 +42,7 @@ Family/SKU remain `proposed` in Story’s registry; no GenStudio confirmation ID
 - Prompt parity: no continuity contract changed; root axes are exact first-occurrence projections of their authored tuples.
 - Decoded previews: not applicable to these text-only topic successors. Existing collection previews were independently byte/dimension checked by pack tests.
 - Archives: local ephemeral Ed25519 review key only; build twice and byte-compare per pack; validate each archive separately. Key and review archives are removed after qualification. Their test-key digests are evidence, not production delivery attestations.
-- Production gates remaining: existing owner-controlled sealing profile, final signed archive/attestation, catalogue release publication and owner-approved update behavior. This handoff does not authorize Story to mutate GenStudio.
+- Production gates remaining: GenStudio catalogue release publication, receipt attestation on delivery, and owner-approved update behavior. The official keyless Store archives are qualified below. This handoff does not authorize Story to mutate GenStudio.
 
 ## Suggested Royal channel setup
 
@@ -83,7 +83,7 @@ While verification ran, main advanced to `d73cd7ea` through two documentation-on
 | Rulers and Dynasties | `cprod_ec25121b1a1346b186b055691ce23177` | `crel_7080084ca4fa40d3bfde35343a5fc91e` |
 | Legends Across Every Civilisation | `cprod_c9233e0c05994cb3ac8908ea1b8fe2ea` | `crel_1caeae065c12412f87059cb33b398ab1` |
 
-These are recorded prior-release IDs, not new IDs or live checks performed by GPT. The correction versions must update these existing products; do not create duplicate products or reset their existing prices, discounts, purchases or grants. The record also confirms the deployed Store delivery profile is keyless `genstudio-store-receipt-v1`; official `content-pack:ship` can prepare the two new local archives and manifest without production signing credentials or a network mutation. That artifact step will be recorded after committing the reviewed source.
+These are recorded prior-release IDs, not new IDs or live checks performed by GPT. The correction versions must update these existing products; do not create duplicate products or reset their existing prices, discounts, purchases or grants. The record also confirms the deployed Store delivery profile is keyless `genstudio-store-receipt-v1`; official `content-pack:ship` can prepare the two new local archives and manifest without production signing credentials or a network mutation. That artifact step is complete below from committed source.
 
 ## Complete release verification
 
@@ -97,3 +97,18 @@ These are recorded prior-release IDs, not new IDs or live checks performed by GP
 | Content packs | 36/36 | 313 | 311 | 2 optional external-evidence checks | 0 |
 
 Total: 6,844 tests, 6,842 passed, two skipped, zero failed. Configured production projects remained byte-identical. Log: `/build/pinokio/_handoffs/logs/story-content-consolidation-2026-09-08/story-upload130-content-final-verify.log`. The test run includes all executable/content changes; later main `60a84450`/`d73cd7ea` and final evidence additions are documentation only.
+
+## Ready for GenStudio publication — exact local Store artifacts
+
+Status: **ready-for-owner-stocking**. Both standalone candidates are complete and independently approved. Existing product/release IDs above refer to their prior versions. No new production release ID exists until GenStudio returns it. No new product, price, discount, purchase or grant is requested; publish the corrective versions under the existing product policy.
+
+Official local `npm run content-pack:ship` completed with exit **0** from source commit `b9af3b16f5f9829d75989164e836970d09ceea50`. Each archive was built twice identically, passed the forbidden-mark scan, and passed `genstudio-store-receipt-v1` validation. No signing key or live Store call was used. The archive files and machine-readable `manifest.json` are retained here:
+
+`/build/Developer/_handoffs/artifacts/topic-corrections-2026-09-08`
+
+| File | Bytes | SHA-256 |
+|---|---:|---|
+| `topic-legends-across-every-civilisation-1.0.1.sspack` | 162,422 | `3899e6c525a7e5d81cd9c9103e95c1e7c957a8aa8134f0c817a0733b46cdd82a` |
+| `topic-rulers-and-dynasties-1.0.1.sspack` | 195,397 | `7266f4d26d944f0a0fdbe56893a836ae1bd62093af24da4d8c218153892122f5` |
+
+The archive byte counts and digests were re-read from disk and matched the manifest. No private key exists in this artifact directory. GenStudio’s owner can consume this directory with the established stocking tool after the source is integrated. This is a catalogue update handoff, not a claim that customer installations already use 1.0.1.
