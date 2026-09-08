@@ -46,6 +46,40 @@ export const YOUTUBE_VIDEO_LIFECYCLES = [
 
 export type YouTubeVideoLifecycle = typeof YOUTUBE_VIDEO_LIFECYCLES[number]
 
+export type YouTubeLocalRenderProjection = {
+  state: 'ready' | 'missing' | 'unknown'
+  video_url?: string
+}
+
+export type YouTubeLocalUploadProjection = {
+  state: 'none' | 'queued' | 'running' | 'failed' | 'succeeded' | 'unknown'
+  job_id?: string
+  reason?: string
+}
+
+export type YouTubePublicationProjection = {
+  state: 'unpublished' | 'uploaded' | 'processing' | 'published' | 'scheduled' | 'failed' | 'rejected' | 'unknown'
+  visibility?: string
+  published_at?: string
+  scheduled_at?: string
+  last_checked_at?: string
+  reason?: string
+}
+
+export type YouTubePlanProjection = {
+  scheduled_at?: string
+  timezone?: string
+}
+
+export type YouTubeEpisodePublishableProjection = {
+  local: {
+    render: YouTubeLocalRenderProjection
+    upload: YouTubeLocalUploadProjection
+  }
+  publication: YouTubePublicationProjection
+  plan: YouTubePlanProjection
+}
+
 export const YOUTUBE_FOUNDATION_ERROR_CODES = [
   'YOUTUBE_APPLICATION_NOT_CONFIGURED',
   'YOUTUBE_APPLICATION_CHANGED',

@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.126 — 2026-09-08
+
+- **Upload Center now separates local video, upload progress, and YouTube publication.** Find episodes by status, search titles or codes, and sort by episode, status, or schedule. Locally planned dates are distinguished from confirmed YouTube schedules, with timezones shown.
+- **Preview actions open where you can see them.** Play the local video in a player, or review the exact upload details in a focused dialog. Missing videos link directly to the episode in Video Assembly.
+- **Local inventory remains useful when YouTube records cannot be read.** Unknown status is shown explicitly, while upload safeguards remain in place. Refresh the local list without querying YouTube, and keep responses and confirmations scoped to the selected project.
+
 ## v1.4.125 — 2026-09-08
 
 - **Narration quality checks are now an explicit project choice.** Keep them Off, flag current evidence for review, or opt into Check and repair. Uncertain, legacy, stale, or script-changed evidence stays reviewable; it never starts a replacement or blocks ordinary chapter generation.

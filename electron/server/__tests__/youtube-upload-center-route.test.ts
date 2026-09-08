@@ -27,12 +27,16 @@ const sidecars = await import('../services/upload-sidecar.js')
 const publishing = await import('../services/youtube-project-publishing-store.js')
 const { generateYoutubeUpload } = await import('../generators/youtube-upload.js')
 const uploadStore = await import('../services/upload-store.js')
+const uploadPlans = await import('../services/upload-plans.js')
 const { router } = await import('../routes/youtube-upload-center.js')
+const { router: videoRouter } = await import('../routes/video.js')
 await boot.cleanup()
 
 const app = express()
 app.use(express.json())
 app.use('/api', router)
+const videoApp = express()
+videoApp.use('/api', videoRouter)
 
 let cleanup: (() => Promise<void>) | undefined
 
@@ -251,6 +255,7 @@ test('no read route talks to YouTube; only the refresh route does', async () => 
 
   await request(app).get(`/api/projects/${slug}/youtube/overview`)
   await request(app).get(`/api/projects/${slug}/youtube/operations`)
+  await request(app).get(`/api/projects/${slug}/youtube/publishable`)
   await request(app).get(`/api/projects/${slug}/youtube/publishing-state`)
   await request(app).post(`/api/projects/${slug}/youtube/preview`)
     .send({ episode_code: 'EP0001', privacy_status: 'private', mark_as_ai_generated: false })
@@ -2976,6 +2981,219 @@ async function confirmedUploadBody(slug: string, episodeCode: string) {
   }
 }
 
+test('publishable projects local render, upload, publication, and plan facts without provider work', async () => {
+  // Break caught: collapsing a local schedule into "scheduled on YouTube", or
+  // omitting the playable render URL, makes two visibly different episode
+  // states indistinguishable in the all-episode listing.
+  const slug = await registryOnlyProject()
+  const rendered = await acceptedEpisode(slug)
+  const missing = await acceptedEpisode(slug)
+  const paths = await utils.resolveEpisodePaths(slug, rendered.episodeCode, rendered.title)
+  await fs.mkdir(paths.video_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.video_dir, `${rendered.episodeCode}_final_video.mp4`), tinyVideoBytes())
+
+  const scheduledAt = '2026-09-21T11:00:00.000Z'
+  const accountId = `registry:${CHANNEL}`
+  const plan = await uploadPlans.upsertPlan(slug, {
+    name: 'Center schedule', platform: 'youtube', account_id: accountId,
+    schedule: { weekdays: [1], time_local: '18:00', timezone: 'Asia/Phnom_Penh' },
+    defaults: { privacy_status: 'private' },
+  })
+  await uploadPlans.setActivePlanId(slug, 'youtube', accountId, plan.id)
+  await uploadPlans.writeItemSchedule(slug, { [rendered.episodeCode]: scheduledAt })
+
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+
+  assert.equal(listed.status, 200)
+  const ready = listed.body.episodes.find((row: any) => row.episode_code === rendered.episodeCode)
+  assert.deepEqual(ready.local.upload, { state: 'none' })
+  assert.equal(ready.local.render.state, 'ready')
+  assert.match(ready.local.render.video_url, new RegExp(`^/api/projects/${slug}/video-editor/preview-media\\?path=`))
+  assert.deepEqual(ready.publication, { state: 'unpublished' },
+    'a local plan is not remote publication evidence')
+  assert.deepEqual(ready.plan, { scheduled_at: scheduledAt, timezone: 'Asia/Phnom_Penh' })
+
+  const absent = listed.body.episodes.find((row: any) => row.episode_code === missing.episodeCode)
+  assert.deepEqual(absent.local.render, { state: 'missing' })
+  assert.deepEqual(absent.local.upload, { state: 'none' })
+  assert.deepEqual(absent.publication, { state: 'unpublished' })
+  assert.deepEqual(absent.plan, { timezone: 'Asia/Phnom_Penh' })
+  assert.equal(fake.calls.length, 0, 'listing local facts costs no YouTube quota')
+
+  const video = await request(videoApp)
+    .get(ready.local.render.video_url)
+    .set('Range', 'bytes=0-3')
+  assert.equal(video.status, 206)
+  assert.equal(video.headers['content-type'], 'video/mp4')
+  assert.equal(video.headers['accept-ranges'], 'bytes')
+  assert.equal(fake.calls.length, 0, 'streaming a local render also costs no YouTube quota')
+})
+
+test('publishable maps cached remote lifecycle and visibility without promoting private uploads', async () => {
+  // Break caught: treating every accepted upload as published erases the
+  // private/unlisted, processing, scheduled, failed, and rejected states the
+  // listing exists to distinguish.
+  const slug = await registryOnlyProject()
+  const checkedAt = '2026-09-08T12:00:00.000Z'
+  const scheduledAt = '2026-09-22T12:00:00.000Z'
+  const publishedAt = '2026-09-07T12:00:00.000Z'
+  const rows = [
+    { kind: 'published', privacy: 'public', lifecycle: 'ready', video: 'video-public', scheduled: scheduledAt },
+    { kind: 'uploaded', privacy: 'unlisted', lifecycle: 'ready', video: 'video-unlisted' },
+    { kind: 'scheduled', privacy: 'private', lifecycle: 'ready', video: 'video-scheduled', scheduled: scheduledAt },
+    { kind: 'processing', privacy: 'private', lifecycle: 'processing', video: 'video-processing' },
+    { kind: 'failed', privacy: 'private', lifecycle: 'failed', video: 'video-failed', reason: 'codec' },
+    { kind: 'rejected', privacy: 'private', lifecycle: 'rejected', video: 'video-rejected', reason: 'copyright' },
+  ] as const
+
+  const byKind = new Map<string, string>()
+  for (const expected of rows) {
+    const episode = await acceptedEpisode(slug)
+    byKind.set(expected.kind, episode.episodeCode)
+    const made = await operations.createYouTubeOperation({
+      project_slug: slug, episode_code: episode.episodeCode, channel_id: CHANNEL,
+      source_revision: `src-${expected.kind}`, metadata_revision: `meta-${expected.kind}`,
+      origin: 'manual', final_action: 'manual_upload',
+    })
+    const accepted = await operations.acceptYouTubeOperation({
+      project_slug: slug, operation_id: made.operation_id, expected_revision: made.revision,
+      channel_id: CHANNEL, video_id: expected.video, accepted_at: checkedAt,
+      final_payload: { snippet_json: '{}', status_json: '{}', source_sha256: 'a'.repeat(64) },
+    })
+    await operations.updateYouTubeOperation({
+      project_slug: slug, operation_id: made.operation_id, expected_revision: accepted.revision,
+      mutate(record) {
+        record.lifecycle = expected.lifecycle
+        record.processing = {
+          checked_at: checkedAt,
+          ...(expected.kind === 'failed' ? { failure_reason: expected.reason } : {}),
+          ...(expected.kind === 'rejected' ? { rejection_reason: expected.reason } : {}),
+        }
+        record.remote_snapshot = {
+          fetched_at: checkedAt, title: expected.kind, description: '', tags: [],
+          privacy_status: expected.privacy,
+          scheduled_for: 'scheduled' in expected ? expected.scheduled : null,
+        }
+      },
+    })
+  }
+  await publishing.recordYouTubeReconcileCache({
+    project_slug: slug, channel_id: CHANNEL, fetched_at: checkedAt,
+    remote_videos: [{ video_id: 'video-public', title: 'published', published_at: publishedAt }],
+  })
+
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  assert.equal(listed.status, 200)
+  const publication = (kind: string) => listed.body.episodes
+    .find((row: any) => row.episode_code === byKind.get(kind)).publication
+
+  assert.deepEqual(publication('published'), {
+    state: 'published', visibility: 'public', published_at: publishedAt, last_checked_at: checkedAt,
+  })
+  assert.deepEqual(publication('uploaded'), {
+    state: 'uploaded', visibility: 'unlisted', last_checked_at: checkedAt,
+  })
+  assert.deepEqual(publication('scheduled'), {
+    state: 'scheduled', visibility: 'private', scheduled_at: scheduledAt, last_checked_at: checkedAt,
+  })
+  assert.deepEqual(publication('processing'), {
+    state: 'processing', visibility: 'private', last_checked_at: checkedAt,
+  })
+  assert.deepEqual(publication('failed'), {
+    state: 'failed', visibility: 'private', last_checked_at: checkedAt, reason: 'codec',
+  })
+  assert.deepEqual(publication('rejected'), {
+    state: 'rejected', visibility: 'private', last_checked_at: checkedAt, reason: 'copyright',
+  })
+  for (const kind of byKind.keys()) {
+    assert.deepEqual(
+      listed.body.episodes.find((row: any) => row.episode_code === byKind.get(kind)).local.upload,
+      { state: 'succeeded' },
+      `provider acceptance proves the local ${kind} upload finished`,
+    )
+  }
+  assert.equal(fake.calls.length, 0, 'cached publication projection makes no provider request')
+})
+
+test('publishable pairs publication with the newest successful attempt, not an older failure', async () => {
+  // Break caught: operation indexes preserve insertion order, so `.find()`
+  // paired the first failed attempt with the later accepted remote video.
+  const slug = await registryOnlyProject()
+  const episode = await acceptedEpisode(slug)
+  const old = await operations.createYouTubeOperation({
+    project_slug: slug, episode_code: episode.episodeCode, channel_id: CHANNEL,
+    source_revision: 'old-source', metadata_revision: 'old-meta',
+    origin: 'manual', final_action: 'manual_upload',
+  })
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: old.operation_id, expected_revision: old.revision,
+    mutate(record) {
+      record.lifecycle = 'failed'
+      record.processing = { checked_at: '2026-09-01T00:00:00.000Z', failure_reason: 'connection' }
+    },
+  })
+  const recent = await operations.createYouTubeOperation({
+    project_slug: slug, episode_code: episode.episodeCode, channel_id: CHANNEL,
+    source_revision: 'new-source', metadata_revision: 'new-meta',
+    origin: 'manual', final_action: 'manual_upload',
+  })
+  const accepted = await operations.acceptYouTubeOperation({
+    project_slug: slug, operation_id: recent.operation_id, expected_revision: recent.revision,
+    channel_id: CHANNEL, video_id: 'video-new', accepted_at: '2026-09-08T00:00:00.000Z',
+    final_payload: { snippet_json: '{}', status_json: '{}', source_sha256: 'b'.repeat(64) },
+  })
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: recent.operation_id, expected_revision: accepted.revision,
+    mutate(record) {
+      record.lifecycle = 'ready'
+      record.processing = { checked_at: '2026-09-08T01:00:00.000Z', provider_status: 'processed' }
+      record.remote_snapshot = {
+        fetched_at: '2026-09-08T01:00:00.000Z', title: episode.title,
+        description: '', tags: [], privacy_status: 'public', scheduled_for: null,
+      }
+    },
+  })
+
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = listed.body.episodes.find((entry: any) => entry.episode_code === episode.episodeCode)
+  assert.equal(row.operation.operation_id, recent.operation_id)
+  assert.equal(row.operation.video_id, 'video-new')
+  assert.deepEqual(row.local.upload, { state: 'succeeded' })
+  assert.deepEqual(row.publication, {
+    state: 'published', visibility: 'public', last_checked_at: '2026-09-08T01:00:00.000Z',
+  })
+})
+
+test('publishable preserves local render facts and blocks writes when the operation store is unreadable', async () => {
+  // Break caught: catching a corrupt top-level remote store as an empty list
+  // would label the episode unpublished and make a duplicate upload available.
+  const slug = await registryOnlyProject()
+  const episode = await acceptedEpisode(slug)
+  const paths = await utils.resolveEpisodePaths(slug, episode.episodeCode, episode.title)
+  await fs.mkdir(paths.video_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.video_dir, `${episode.episodeCode}_final_video.mp4`), tinyVideoBytes())
+  const projectDir = pm.getProjectDir(slug)!
+  await fs.mkdir(path.join(projectDir, 'youtube', 'operations'), { recursive: true })
+  await fs.writeFile(path.join(projectDir, 'youtube', 'operations', 'index.json'), '{')
+
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  assert.equal(listed.status, 200, 'a broken remote store does not erase the local listing')
+  const row = listed.body.episodes[0]
+  assert.equal(row.local.render.state, 'ready')
+  assert.deepEqual(row.local.upload, {
+    state: 'unknown', reason: 'Story Studio cannot read the local upload records.',
+  })
+  assert.deepEqual(row.publication, {
+    state: 'unknown', reason: 'Story Studio cannot read the local YouTube records.',
+  })
+  assert.match(row.blocked_reason, /cannot read the local YouTube records/)
+  assert.equal('has_remote_video' in row, false, 'unknown is not guessed as absent')
+})
+
 test('Upload refuses without an explicit confirmation', async () => {
   // The two ways to get this wrong — wrong episode, wrong channel — are both
   // undoable only by deleting a public video. The confirm is the control.
@@ -3026,6 +3244,38 @@ test('Upload on a registry-only project queues the job on the registry credentia
     title: 'The Lighthouse at Dawn', description: 'A keeper counts the nights.', tags: ['x'], categoryId: '24',
   }))
   __resetYouTubeTransportForTests()
+})
+
+test('publishable keeps queued and paused local uploads distinct from remote publication', async () => {
+  const { slug, episodeCode } = await uploadReadyProject()
+  const queued = jobQueue.enqueuePreparedForTest({
+    project_slug: slug,
+    type: 'youtube_upload',
+    episode_id: episodeCode,
+    title: 'Projection fixture',
+    params: { expected_channel_id: CHANNEL },
+    // This test-only recovery seam inserts a queued job without starting the
+    // unregistered upload executor or changing the process-wide queue setting.
+    episode_recovery_job_id: `upload-center-${Date.now()}`,
+  })
+  try {
+    const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+    const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+    assert.deepEqual(row.local.upload, { state: 'queued', job_id: queued.job_id })
+    assert.deepEqual(row.publication, { state: 'unpublished' })
+    assert.match(row.blocked_reason, /queued/i, 'the listing does not offer a duplicate upload')
+
+    await jobQueue.pauseJob(queued.job_id)
+    const paused = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+    const pausedRow = paused.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+    assert.deepEqual(pausedRow.local.upload, {
+      state: 'queued', job_id: queued.job_id, reason: 'Upload job is paused.',
+    })
+    assert.deepEqual(pausedRow.publication, { state: 'unpublished' })
+  } finally {
+    await jobQueue.requestJobCancellation(slug, queued.job_id)
+    jobQueue.removeTerminalJob(slug, queued.job_id)
+  }
 })
 
 test('Upload refuses a channel changed after preview with zero enqueue or provider work', async () => {
@@ -3255,7 +3505,7 @@ test('a fresh project can be listed, previewed, uploaded, and ends up with a vid
   assert.equal(sidecar?.scheduled_for, approvedPublishAt,
     'the permanent receipt records the same schedule YouTube received')
 
-  // 7. The episode now reads as published, so the page will not offer it again.
+  // 7. The episode now has a durable remote identity, so the page will not offer it again.
   const after = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
   const row = after.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
   assert.equal(row.operation?.video_id, 'video-e2e')
@@ -3286,9 +3536,13 @@ async function legacyPublishedEpisode(slug: string): Promise<{ episodeCode: stri
   return { episodeCode, title }
 }
 
-test('an episode published by the old page reads as published, and is not offered for upload', async () => {
+test('an episode uploaded by the old page reads as uploaded, and is not offered for upload', async () => {
   const slug = await registryOnlyProject()
-  const { episodeCode } = await legacyPublishedEpisode(slug)
+  const { episodeCode, title } = await legacyPublishedEpisode(slug)
+  const legacy = await sidecars.readSidecarRaw(slug, episodeCode, title, 'youtube')
+  await sidecars.writeSidecar(slug, episodeCode, title, {
+    ...legacy!, scheduled_for: '2026-09-22T12:00:00.000Z',
+  })
 
   const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
   const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
@@ -3297,6 +3551,12 @@ test('an episode published by the old page reads as published, and is not offere
   assert.equal(row.remote_video_id, 'legacy-video-77')
   assert.equal(row.remote_source, 'legacy_sidecar', 'the row says WHICH store knew')
   assert.equal(row.operation, undefined, 'there is no operation record - that is the whole point')
+  assert.deepEqual(row.local.upload, { state: 'succeeded' },
+    'a durable remote identity never reads as "Not uploaded"')
+  assert.deepEqual(row.publication, { state: 'uploaded' },
+    'the legacy receipt proves an upload, not current visibility or a publication date')
+  assert.equal(row.plan.scheduled_at, '2026-09-22T12:00:00.000Z',
+    'the same unconfirmed sidecar date remains visible as local plan evidence')
 })
 
 test('uploading an episode the old page already published is refused, naming the video', async () => {
@@ -3420,6 +3680,8 @@ test('an episode linked in Reconcile is not offered for a second upload', async 
   assert.equal(row.has_remote_video, true)
   assert.equal(row.remote_video_id, 'reconciled-video-5')
   assert.equal(row.remote_source, 'reconcile_link')
+  assert.deepEqual(row.local.upload, { state: 'succeeded' })
+  assert.deepEqual(row.publication, { state: 'uploaded' })
 
   const res = await request(app).post(`/api/projects/${slug}/youtube/upload`)
     .send({ episode_code: episodeCode, confirm: true, expected_channel_id: CHANNEL })
@@ -3593,6 +3855,10 @@ test('a tombstoned sidecar on ANOTHER channel still refuses', async () => {
   const row = listed.body.episodes.find((e: any) => e.episode_code === episodeCode)
   assert.equal(row.has_remote_video, true)
   assert.match(row.blocked_reason, /UC-somewhere-else/)
+  assert.deepEqual(row.publication, {
+    state: 'uploaded', reason: 'This upload belongs to channel UC-somewhere-else.',
+  },
+    'a historical upload elsewhere is never presented as published or scheduled on this channel')
 
   const res = await request(app).post(`/api/projects/${slug}/youtube/upload`)
     .send({ episode_code: episodeCode, confirm: true, expected_channel_id: CHANNEL })

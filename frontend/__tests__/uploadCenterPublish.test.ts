@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
-import { createApp, defineComponent, h, nextTick, type Component } from 'vue'
+import { createApp, defineComponent, h, nextTick, reactive, type Component } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 
@@ -20,9 +20,9 @@ async function loadPage(): Promise<Component> {
   })
   const vueUrl = await import.meta.resolve('vue')
   const support = `
-    import { ref, computed, onMounted, h as __h } from ${JSON.stringify(vueUrl)}
+    import { ref, reactive, computed, watch, nextTick } from ${JSON.stringify(vueUrl)}
     const useApi = () => globalThis.__ucApi
-    const useRoute = () => ({ params: { slug: 'demo-project' } })
+    const useRoute = () => globalThis.__ucRoute
     const useConfirm = () => ({ ask: async (o) => globalThis.__ucConfirm(o) })
   `
   const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
@@ -53,26 +53,36 @@ async function mount(input: {
   uploadError?: any
   /** What the confirm dialog answers. Defaults to yes. */
   confirmAnswer?: boolean
+  confirmOverride?: (options: any) => Promise<boolean>
+  initialSlug?: string
+  getOverride?: (path: string) => Promise<any> | any
 }): Promise<{
   el: HTMLElement; text: () => string; calls: Recorded[]
-  confirms: any[]; destroy: () => void
+  confirms: any[]; setSlug: (slug: string) => Promise<void>; destroy: () => void
 }> {
   const calls: Recorded[] = []
   const confirms: any[] = []
   let previewCalls = 0
   ;(globalThis as any).__ucConfirm = async (options: any) => {
     confirms.push(options)
+    if (input.confirmOverride) return input.confirmOverride(options)
     return input.confirmAnswer !== false
   }
+  const routeState = reactive({ params: { slug: input.initialSlug ?? 'demo-project' } })
+  ;(globalThis as any).__ucRoute = routeState
   ;(globalThis as any).__ucApi = {
     get: async (path: string) => {
       calls.push({ method: 'GET', path })
+      if (input.getOverride) return input.getOverride(path)
       if (path.endsWith('/publishable')) {
         // The server returns EPISODES with an operation overlaid where one
         // exists. `operations` is the shorthand for "a rendered episode that
         // has been uploaded"; `episodes` states the row outright.
         const rows = input.episodes ?? (input.operations ?? []).map((op: any) => ({
           episode_code: op.episode_code, title: 'Some Episode', has_video: true, operation: op,
+          ...(op.lifecycle === 'rejected'
+            ? { publication: { state: 'rejected', reason: op.processing?.rejection_reason } }
+            : {}),
           // The server decides "already on YouTube" and hands the page the
           // REASON; the shim has to produce what the server produces, or these
           // tests describe a response that does not exist (tell 7).
@@ -122,10 +132,24 @@ async function mount(input: {
   }
   const Page = await loadPage()
   const el = document.createElement('div')
+  document.body.appendChild(el)
   const app = createApp(defineComponent({ render: () => h(Page as any) }))
+  app.component('Modal', defineComponent({
+    props: { visible: Boolean, labelledby: String },
+    emits: ['close'],
+    setup(props, { slots }) { return () => props.visible ? h('div', { role: 'dialog', 'aria-labelledby': props.labelledby }, slots.default?.()) : null },
+  }))
+  app.component('NuxtLink', defineComponent({
+    props: { to: String },
+    setup(props, { slots }) { return () => h('a', { href: props.to }, slots.default?.()) },
+  }))
   app.mount(el)
   for (let i = 0; i < 6; i++) await nextTick()
-  return { el, text: () => el.textContent || '', calls, confirms, destroy: () => app.unmount() }
+  return {
+    el, text: () => el.textContent || '', calls, confirms,
+    setSlug: async (nextSlug: string) => { routeState.params.slug = nextSlug; for (let i = 0; i < 4; i++) await nextTick() },
+    destroy: () => { app.unmount(); el.remove() },
+  }
 }
 
 const READY_OP = { operation_id: 'op-1', episode_code: 'EP0001', lifecycle: 'ready', video_id: 'vid-1', processing: { checked_at: '2026-09-02T10:00:00.000Z', provider_status: 'processed' } }
@@ -138,7 +162,7 @@ describe('Upload Center Publish', () => {
         processing: { checked_at: '2026-09-02T10:00:00.000Z', provider_status: 'rejected', rejection_reason: 'copyright' },
       }],
     })
-    assert.match(mounted.text(), /Rejected by YouTube/)
+    assert.equal(mounted.el.querySelector('.publication-fact .state-text')?.textContent?.trim(), 'Rejected')
     assert.match(mounted.text(), /copyright/)
     mounted.destroy()
   })
@@ -182,7 +206,7 @@ describe('Upload Center Publish', () => {
         warnings: ['the scheduled publish time is in the past and YouTube will reject it'],
       },
     })
-    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview')!
+    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
     preview.click()
     for (let i = 0; i < 6; i++) await nextTick()
 
@@ -225,7 +249,7 @@ describe('Upload Center Publish', () => {
   }
 
   async function previewThen(mounted: Awaited<ReturnType<typeof mount>>): Promise<HTMLButtonElement> {
-    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview')!
+    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
     preview.click()
     for (let i = 0; i < 6; i++) await nextTick()
     return [...mounted.el.querySelectorAll('button')]
@@ -238,7 +262,7 @@ describe('Upload Center Publish', () => {
     // The row itself. Before the fix this project rendered "Nothing uploaded
     // yet" and no controls at all.
     assert.match(mounted.text(), /EP0001/)
-    assert.match(mounted.text(), /Not uploaded yet/)
+    assert.match(mounted.text(), /Not uploaded/)
 
     const upload = await previewThen(mounted)
     assert.ok(upload, 'a rendered, never-uploaded episode can be uploaded')
@@ -273,7 +297,7 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.text(), /EP0001/)
     assert.match(mounted.text(), /No rendered video yet/)
     assert.equal(
-      [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview'),
+      [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details'),
       undefined,
       'nothing to preview, so nothing offering to',
     )
@@ -349,7 +373,7 @@ describe('Upload Center Publish', () => {
       preview: PREVIEWED,
     })
     assert.match(mounted.text(), /legacy-video-77/)
-    assert.match(mounted.text(), /On YouTube/)
+    assert.match(mounted.text(), /Uploaded/)
 
     const upload = await previewThen(mounted)
     assert.equal(upload, undefined, 'never offered a second upload of a video that exists')
@@ -381,10 +405,288 @@ describe('Upload Center Publish', () => {
     mounted.destroy()
   })
 
-  test('a short list gets no filter box, and a no-match filter says how many exist', async () => {
+  test('separates local video, upload, and publication facts and formats the channel timezone', async () => {
+    const mounted = await mount({
+      episodes: [{
+        episode_code: 'EP0042', title: 'The River at Midnight', has_video: true,
+        local: {
+          render: { state: 'ready', video_url: '/api/projects/demo-project/episodes/EP0042/final-video' },
+          upload: { state: 'succeeded', job_id: 'job-42' },
+        },
+        publication: {
+          state: 'scheduled', visibility: 'private', scheduled_at: '2026-09-12T02:00:00.000Z',
+          last_checked_at: '2026-09-08T01:00:00.000Z',
+        },
+        plan: { scheduled_at: '2026-09-12T02:00:00.000Z', timezone: 'Asia/Phnom_Penh' },
+      }],
+      total: 1,
+    })
+
+    const text = mounted.text()
+    assert.match(text, /Local video/)
+    assert.match(text, /Ready/)
+    assert.match(text, /Upload/)
+    assert.match(text, /Uploaded/)
+    assert.match(text, /Publication/)
+    assert.match(text, /Scheduled/)
+    assert.match(text, /Asia\/Phnom_Penh/)
+    const play = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Play local video')!
+    play.click()
+    await nextTick()
+    assert.equal(mounted.el.querySelector('video')?.getAttribute('src'), '/api/projects/demo-project/episodes/EP0042/final-video')
+    mounted.destroy()
+  })
+
+  test('labels device time when no valid plan timezone is available', async () => {
+    const mounted = await mount({
+      episodes: [
+        { episode_code: 'EP0043', title: 'No zone', has_video: true, local: { render: { state: 'ready' }, upload: { state: 'none' } }, publication: { state: 'unpublished' }, plan: { scheduled_at: '2026-09-12T02:00:00.000Z' } },
+        { episode_code: 'EP0042', title: 'Bad zone', has_video: true, local: { render: { state: 'ready' }, upload: { state: 'none' } }, publication: { state: 'unpublished' }, plan: { scheduled_at: '2026-09-12T02:00:00.000Z', timezone: 'Mars/Base' } },
+      ],
+    })
+    assert.match(mounted.text(), /Device time/)
+    assert.match(mounted.text(), /plan timezone unavailable/)
+    assert.doesNotMatch(mounted.text(), /· Mars\/Base/)
+    const planned = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim().startsWith('Planned'))!
+    const scheduled = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim().startsWith('Scheduled'))!
+    assert.match(planned.textContent || '', /2/)
+    assert.match(scheduled.textContent || '', /0/, 'a local plan is not presented as confirmed on YouTube')
+    mounted.destroy()
+  })
+
+  test('filters by operational state with honest counts and sorts oldest first', async () => {
+    const mounted = await mount({
+      total: 5,
+      episodes: [
+        { episode_code: 'EP0005', title: 'Private on YouTube', has_video: true, local: { render: { state: 'ready' }, upload: { state: 'succeeded' } }, publication: { state: 'uploaded', visibility: 'private' } },
+        { episode_code: 'EP0004', title: 'Failed', has_video: true, local: { render: { state: 'ready' }, upload: { state: 'failed', reason: 'Connection lost' } }, publication: { state: 'failed', reason: 'Connection lost' } },
+        { episode_code: 'EP0003', title: 'Published', has_video: true, local: { render: { state: 'ready' }, upload: { state: 'succeeded' } }, publication: { state: 'published', published_at: '2026-09-07T00:00:00.000Z' } },
+        { episode_code: 'EP0002', title: 'Ready', has_video: true, local: { render: { state: 'ready' }, upload: { state: 'none' } }, publication: { state: 'unpublished' } },
+        { episode_code: 'EP0001', title: 'Missing', has_video: false, local: { render: { state: 'missing' }, upload: { state: 'none' } }, publication: { state: 'unpublished' } },
+      ],
+    })
+
+    const ready = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Ready to upload'))!
+    assert.match(ready.textContent || '', /2/)
+    const uploaded = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim().startsWith('Uploaded'))!
+    assert.match(uploaded.textContent || '', /1/)
+    const progress = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('In progress'))!
+    assert.match(progress.textContent || '', /0/, 'a completed private upload is not permanently in progress')
+    ready.click()
+    await nextTick()
+    assert.match(mounted.text(), /EP0002/)
+    assert.match(mounted.text(), /EP0004/, 'a failed upload before acceptance remains retryable')
+    assert.doesNotMatch(mounted.text(), /EP0001\b/)
+
+    const all = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('All'))!
+    all.click()
+    const sort = mounted.el.querySelector('select[aria-label="Sort episodes"]') as HTMLSelectElement
+    sort.value = 'episode_oldest'
+    sort.dispatchEvent(new Event('change'))
+    await nextTick()
+    const rows = [...mounted.el.querySelectorAll('[data-episode-code]')]
+    assert.equal(rows[0]?.getAttribute('data-episode-code'), 'EP0001')
+    mounted.destroy()
+  })
+
+  test('opens YouTube metadata review in a focused dialog and keeps preview errors on the episode row', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+    })
+    const review = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
+    review.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    assert.ok(dialog)
+    assert.match(dialog.textContent || '', /What YouTube will receive/)
+    assert.equal((document.activeElement as HTMLElement)?.id, 'upload-review-title')
+    mounted.destroy()
+
+    const failed = await mount({ episodes: [NEVER_UPLOADED], previewFailAfter: 0 })
+    const failedReview = [...failed.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
+    failedReview.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    const row = failed.el.querySelector('[data-episode-code="EP0001"]')!
+    assert.match(row.textContent || '', /preview exploded/)
+    assert.equal(failed.el.querySelector('[role="dialog"]'), null)
+    failed.destroy()
+  })
+
+  test('a missing local video links to Video Assembly for that exact episode', async () => {
+    const mounted = await mount({
+      episodes: [{
+        episode_code: 'EP0081', title: 'Needs a render', has_video: false,
+        local: { render: { state: 'missing' }, upload: { state: 'none' } },
+        publication: { state: 'unpublished' },
+      }],
+    })
+    const link = [...mounted.el.querySelectorAll('a')].find(a => a.textContent!.trim() === 'Open Video Assembly')!
+    assert.equal(link.getAttribute('href'), '/projects/demo-project/video-assembly?episode_id=EP0081')
+    assert.equal([...mounted.el.querySelectorAll('button')].some(button => button.textContent!.includes('Play local video')), false)
+    mounted.destroy()
+  })
+
+  test('a late response from the previous project cannot replace the current episode list', async () => {
+    let resolveOldEpisodes!: (value: any) => void
+    let resolveOldOverview!: (value: any) => void
+    const oldEpisodes = new Promise(resolve => { resolveOldEpisodes = resolve })
+    const oldOverview = new Promise(resolve => { resolveOldOverview = resolve })
+    const mounted = await mount({
+      initialSlug: 'old-project',
+      getOverride: (path) => {
+        if (path.includes('/old-project/') && path.endsWith('/publishable')) return oldEpisodes
+        if (path.includes('/old-project/') && path.endsWith('/overview')) return oldOverview
+        if (path.includes('/new-project/') && path.endsWith('/publishable')) return {
+          episodes: [{ episode_code: 'EP0099', title: 'Current Project', has_video: true }], total: 1,
+        }
+        if (path.includes('/new-project/') && path.endsWith('/overview')) return {
+          assigned_channel: { channel_id: 'UC-new', title: 'New', status: 'connected' },
+          quota: { buckets: { other_endpoints: { remaining: 10 }, video_uploads: { remaining: 1 } } },
+        }
+        throw new Error(`unexpected GET ${path}`)
+      },
+    })
+
+    await mounted.setSlug('new-project')
+    for (let i = 0; i < 4; i++) await nextTick()
+    assert.match(mounted.text(), /Current Project/)
+
+    resolveOldEpisodes({ episodes: [{ episode_code: 'EP0001', title: 'Old Project', has_video: true }], total: 1 })
+    resolveOldOverview({ assigned_channel: null, quota: { buckets: {} } })
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.match(mounted.text(), /Current Project/)
+    assert.doesNotMatch(mounted.text(), /Old Project/)
+    mounted.destroy()
+  })
+
+  test('project navigation removes old rows while the new project is still loading', async () => {
+    let resolveNewEpisodes!: (value: any) => void
+    let resolveNewOverview!: (value: any) => void
+    const newEpisodes = new Promise(resolve => { resolveNewEpisodes = resolve })
+    const newOverview = new Promise(resolve => { resolveNewOverview = resolve })
+    const mounted = await mount({
+      initialSlug: 'old-project',
+      getOverride: (path) => {
+        if (path.includes('/old-project/') && path.endsWith('/publishable')) return {
+          episodes: [{ episode_code: 'EP0001', title: 'Old Project', has_video: true }], total: 1,
+        }
+        if (path.includes('/old-project/') && path.endsWith('/overview')) return {
+          assigned_channel: { channel_id: 'UC-old', title: 'Old', status: 'connected' }, quota: { buckets: {} },
+        }
+        if (path.includes('/new-project/') && path.endsWith('/publishable')) return newEpisodes
+        if (path.includes('/new-project/') && path.endsWith('/overview')) return newOverview
+        throw new Error(`unexpected GET ${path}`)
+      },
+    })
+    assert.match(mounted.text(), /Old Project/)
+    await mounted.setSlug('new-project')
+    assert.doesNotMatch(mounted.text(), /Old Project/)
+    assert.match(mounted.text(), /Loading this project’s uploads/)
+
+    resolveNewEpisodes({ episodes: [{ episode_code: 'EP0002', title: 'New Project', has_video: true }], total: 1 })
+    resolveNewOverview({ assigned_channel: null, quota: { buckets: {} } })
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.match(mounted.text(), /New Project/)
+    mounted.destroy()
+  })
+
+  test('a late metadata review from the previous project cannot open on the current project', async () => {
+    let resolvePreview!: (value: any) => void
+    const preview = new Promise(resolve => { resolvePreview = resolve })
+    const mounted = await mount({ episodes: [NEVER_UPLOADED], preview, initialSlug: 'old-project' })
+    const review = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Review upload details')!
+    review.click()
+    await nextTick()
+    await mounted.setSlug('new-project')
+    resolvePreview(PREVIEWED)
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.equal(mounted.el.querySelector('[role="dialog"]'), null)
+    assert.doesNotMatch(mounted.text(), /What YouTube will receive/)
+    mounted.destroy()
+  })
+
+  test('changing projects while upload confirmation is open cannot submit under the new project', async () => {
+    let resolveConfirm!: (value: boolean) => void
+    const confirm = new Promise<boolean>(resolve => { resolveConfirm = resolve })
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED], preview: PREVIEWED, initialSlug: 'old-project',
+      confirmOverride: async () => confirm,
+    })
+    const upload = await previewThen(mounted)
+    upload.click()
+    await nextTick()
+    await mounted.setSlug('new-project')
+    resolveConfirm(true)
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.equal(mounted.calls.some(call => call.path.endsWith('/youtube/upload')), false)
+    mounted.destroy()
+  })
+
+  test('a broken YouTube overview does not hide local video inventory', async () => {
+    const mounted = await mount({
+      getOverride: (path) => {
+        if (path.endsWith('/publishable')) return {
+          episodes: [{ episode_code: 'EP0044', title: 'Local work survives', has_video: true, local: { render: { state: 'ready', video_url: '/api/local.mp4' }, upload: { state: 'none' } }, publication: { state: 'unpublished' } }],
+          total: 1,
+        }
+        if (path.endsWith('/overview')) throw new Error('Publishing analytics is unreadable')
+        throw new Error(`unexpected GET ${path}`)
+      },
+    })
+    assert.match(mounted.text(), /Local work survives/)
+    assert.match(mounted.text(), /Publishing analytics is unreadable/)
+    const review = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Review upload details')!
+    assert.equal(review.disabled, false, 'local metadata review stays available')
+    mounted.destroy()
+  })
+
+  test('a failed local inventory load has an in-place retry', async () => {
+    let attempts = 0
+    const mounted = await mount({
+      getOverride: (path) => {
+        if (path.endsWith('/publishable')) {
+          attempts += 1
+          if (attempts === 1) throw new Error('Local inventory is temporarily unavailable')
+          return { episodes: [NEVER_UPLOADED], total: 1 }
+        }
+        if (path.endsWith('/overview')) return {
+          assigned_channel: { channel_id: 'UC-x', title: 'Ch', status: 'connected' }, quota: { buckets: {} },
+        }
+        throw new Error(`unexpected GET ${path}`)
+      },
+    })
+    assert.match(mounted.text(), /Local inventory is temporarily unavailable/)
+    const retry = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Retry loading')!
+    retry.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.match(mounted.text(), /The Lighthouse at Dawn/)
+    mounted.destroy()
+  })
+
+  test('video playback errors stay in the player and offer the same episode in Video Assembly', async () => {
+    const mounted = await mount({
+      episodes: [{
+        episode_code: 'EP0042', title: 'Playback problem', has_video: true,
+        local: { render: { state: 'ready', video_url: '/api/local.mp4' }, upload: { state: 'none' } },
+        publication: { state: 'unpublished' },
+      }],
+    })
+    const play = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.trim() === 'Play local video')!
+    play.click()
+    await nextTick()
+    mounted.el.querySelector('video')!.dispatchEvent(new Event('error'))
+    await nextTick()
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    assert.match(dialog.textContent || '', /could not play this local video/)
+    assert.equal(dialog.querySelector('a')?.getAttribute('href'), '/projects/demo-project/video-assembly?episode_id=EP0042')
+    mounted.destroy()
+  })
+
+  test('search stays available on a short list, and a no-match filter keeps the total visible', async () => {
     const few = await mount({ episodes: [NEVER_UPLOADED], total: 1 })
-    assert.equal(few.el.querySelector('input[type="search"]'), null,
-      'one episode needs no search box')
+    assert.ok(few.el.querySelector('input[type="search"]'), 'the operational toolbar stays in one predictable place')
     few.destroy()
 
     const many = Array.from({ length: 14 }, (_, i) => ({
@@ -395,8 +697,8 @@ describe('Upload Center Publish', () => {
     box.value = 'nothing matches this'
     box.dispatchEvent(new Event('input'))
     for (let i = 0; i < 4; i++) await nextTick()
-    assert.match(mounted.text(), /No episode matches/)
-    assert.match(mounted.text(), /14 episodes in total/)
+    assert.match(mounted.text(), /No episodes match these filters/)
+    assert.match(mounted.text(), /14 episodes/)
     mounted.destroy()
   })
 
@@ -421,6 +723,64 @@ describe('Upload Center Publish', () => {
     mounted.destroy()
   })
 
+  test('review stays available but another upload is withheld while local ownership is active or unknown', async () => {
+    for (const [state, reason] of [
+      ['running', /already uploading/],
+      ['unknown', /cannot verify .* local upload state/],
+    ] as const) {
+      const mounted = await mount({
+        episodes: [{
+          episode_code: 'EP0021', title: 'Upload in doubt', has_video: true,
+          local: { render: { state: 'ready' }, upload: { state } },
+          publication: { state: 'unpublished' },
+        }],
+        preview: PREVIEWED,
+      })
+      const upload = await previewThen(mounted)
+      assert.equal(upload, undefined)
+      assert.match(mounted.text(), reason)
+      mounted.destroy()
+    }
+  })
+
+  test('a failed upload before acceptance can be submitted again after review', async () => {
+    const mounted = await mount({
+      episodes: [{
+        episode_code: 'EP0022', title: 'Publication failed', has_video: true,
+        local: { render: { state: 'ready' }, upload: { state: 'failed' } },
+        publication: { state: 'failed' },
+      }],
+      preview: PREVIEWED,
+    })
+    assert.match(
+      [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Ready to upload'))?.textContent || '',
+      /1/,
+    )
+    assert.match(
+      [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Needs attention'))?.textContent || '',
+      /1/,
+    )
+    const upload = await previewThen(mounted)
+    assert.ok(upload)
+    mounted.destroy()
+  })
+
+  test('a failed publication with remote identity is held for status refresh', async () => {
+    const mounted = await mount({
+      episodes: [{
+        episode_code: 'EP0023', title: 'Remote failure', has_video: true, has_remote_video: true, remote_video_id: 'video-23',
+        local: { render: { state: 'ready' }, upload: { state: 'failed' } },
+        publication: { state: 'failed' },
+      }],
+      preview: PREVIEWED,
+    })
+    const upload = await previewThen(mounted)
+    assert.equal(upload, undefined)
+    assert.match(mounted.text(), /failed YouTube record for video-23/)
+    assert.doesNotMatch(mounted.text(), /already on YouTube \(failed\)/)
+    mounted.destroy()
+  })
+
   test('a project whose channel is not connected gets the reason, never the button', async () => {
     const mounted = await mount({ episodes: [NEVER_UPLOADED], preview: PREVIEWED, channelStatus: null })
     const upload = await previewThen(mounted)
@@ -439,7 +799,7 @@ describe('Upload Center Publish', () => {
         modifications: [], warnings: [],
       },
     })
-    const previewButton = () => [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview')!
+    const previewButton = () => [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
     previewButton().click()
     for (let i = 0; i < 6; i++) await nextTick()
     assert.match(mounted.text(), /First Episode Title/)
@@ -485,7 +845,8 @@ describe('Upload Center Publish', () => {
     // episode is finished — and the page says which two things finish one.
     const mounted = await mount({ episodes: [] })
     assert.match(mounted.text(), /Nothing ready to publish yet/)
-    assert.match(mounted.text(), /accepted and its final video has been rendered/)
+    assert.match(mounted.text(), /accepted/)
+    assert.match(mounted.text(), /Video Assembly/)
     mounted.destroy()
   })
 })

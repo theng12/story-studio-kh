@@ -23,6 +23,11 @@ import { Router } from 'express'
 
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
+import type {
+  YouTubeEpisodePublishableProjection,
+  YouTubeLocalUploadProjection,
+  YouTubePublicationProjection,
+} from '../contracts/youtube-upload-center.js'
 import {
   getProjectYouTubeAssignment,
   readYouTubeConnectionRegistry,
@@ -56,12 +61,14 @@ import { fetchCommentInbox } from '../services/youtube-comment-inbox.js'
 import { postCommentReply } from '../lib/youtube-comments.js'
 import { readYouTubeQuota } from '../services/youtube-quota-ledger.js'
 import { buildYouTubeMetadataPackage, resanitizeStoredSnippet, resolveYouTubeUploadSettings } from '../services/youtube-metadata-package.js'
-import { enqueueOrRun, isDuplicate } from '../services/job-queue.js'
+import { enqueueOrRun, getJobs, isDuplicate } from '../services/job-queue.js'
+import type { Job } from '../models/types.js'
 import { resolveUploadMetadata } from '../lib/upload-metadata.js'
-import { hasFinalVideoFast } from '../services/asset-status.js'
 import { createProjectFactsCache, resolveEpisodePaths } from '../services/utils.js'
 import { findYouTubeSourceVideoPath } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
+import { getActivePlanId, listPlans } from '../services/upload-plans.js'
+import { readSidecarStrict } from '../services/upload-sidecar.js'
 import { resolveSourceRevision } from '../services/youtube-operation-recorder.js'
 import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES } from '../services/youtube-remote-video.js'
 import * as im from '../services/idea-manager.js'
@@ -157,6 +164,118 @@ function unavailableReason(hasApplication: boolean, hasChannels: boolean, assign
   return null
 }
 
+const REMOTE_STORE_UNREADABLE = 'Story Studio cannot read the local YouTube records.'
+const UPLOAD_STORE_UNREADABLE = 'Story Studio cannot read the local upload records.'
+
+function latestEpisodeUploadJob(jobs: Job[], episodeCode: string, channelId: string | null): Job | undefined {
+  return jobs
+    .filter(job => job.type === 'youtube_upload'
+      && job.episode_id === episodeCode
+      && job.params?.expected_channel_id === channelId)
+    .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+    .at(-1)
+}
+
+function newestOperations(records: YouTubeOperationRecordV1[]): YouTubeOperationRecordV1[] {
+  return records
+    .map((record, index) => ({ record, index }))
+    .sort((a, b) => {
+      const updated = Date.parse(b.record.updated_at) - Date.parse(a.record.updated_at)
+      return updated || Date.parse(b.record.created_at) - Date.parse(a.record.created_at) || b.index - a.index
+    })
+    .map(({ record }) => record)
+}
+
+function localUploadProjection(
+  job: Job | undefined,
+  operation: YouTubeOperationRecordV1 | undefined,
+  operationsUnreadable: boolean,
+  remote: Awaited<ReturnType<typeof remoteVideoFor>>,
+): YouTubeLocalUploadProjection {
+  if (job?.status === 'queued') return { state: 'queued', job_id: job.job_id }
+  if (job?.status === 'paused') {
+    return { state: 'queued', job_id: job.job_id, reason: 'Upload job is paused.' }
+  }
+  if (job?.status === 'running') return { state: 'running', job_id: job.job_id }
+  if (operationsUnreadable) return { state: 'unknown', reason: UPLOAD_STORE_UNREADABLE }
+  // A current-channel video identity proves that an upload completed even if
+  // a later local retry failed or its terminal queue record is stale.
+  if (remote) return { state: 'succeeded' }
+  if (job) {
+    if (job.status === 'error' || job.status === 'cancelled') {
+      return {
+        state: 'failed', job_id: job.job_id,
+        reason: job.error || (job.status === 'cancelled' ? 'Upload was cancelled.' : 'Upload failed.'),
+      }
+    }
+    return { state: 'succeeded', job_id: job.job_id }
+  }
+  if (!operation) return { state: 'none' }
+  if (operation.lifecycle === 'preparing' || operation.lifecycle === 'uploading') return { state: 'running' }
+  if (operation.video_id) return { state: 'succeeded' }
+  if (operation.lifecycle === 'failed' || operation.lifecycle === 'rejected') {
+    return {
+      state: 'failed',
+      reason: operation.processing?.failure_reason
+        || operation.processing?.rejection_reason
+        || 'Upload failed before YouTube accepted it.',
+    }
+  }
+  return { state: 'unknown', reason: UPLOAD_STORE_UNREADABLE }
+}
+
+function publicationProjection(
+  operation: YouTubeOperationRecordV1 | undefined,
+  remote: Awaited<ReturnType<typeof remoteVideoFor>>,
+  publishingState: Awaited<ReturnType<typeof readYouTubeProjectPublishingState>> | null,
+  channelId: string | null,
+  unavailableReason?: string,
+): YouTubePublicationProjection {
+  if (unavailableReason) return { state: 'unknown', reason: unavailableReason }
+
+  if (operation) {
+    const snapshot = operation.remote_snapshot
+    const visibility = snapshot?.privacy_status
+    const lastCheckedAt = snapshot?.fetched_at || operation.processing?.checked_at
+    const common = {
+      ...(visibility ? { visibility } : {}),
+      ...(lastCheckedAt ? { last_checked_at: lastCheckedAt } : {}),
+    }
+    if (operation.lifecycle === 'failed') {
+      return { state: 'failed', ...common, ...(operation.processing?.failure_reason ? { reason: operation.processing.failure_reason } : {}) }
+    }
+    if (operation.lifecycle === 'rejected') {
+      return { state: 'rejected', ...common, ...(operation.processing?.rejection_reason ? { reason: operation.processing.rejection_reason } : {}) }
+    }
+    if (operation.lifecycle === 'status_unavailable') {
+      return { state: 'unknown', ...common, reason: 'YouTube status was unavailable at the last check.' }
+    }
+    if (operation.lifecycle === 'processing') return { state: 'processing', ...common }
+    if (operation.lifecycle === 'preparing' || operation.lifecycle === 'uploading') return { state: 'unpublished' }
+    if (visibility === 'public') {
+      const publishedAt = publishingState?.reconcile?.channel_id === channelId
+        ? publishingState.reconcile.remote_videos.find(video => video.video_id === operation.video_id)?.published_at
+        : undefined
+      return { state: 'published', ...common, ...(publishedAt ? { published_at: publishedAt } : {}) }
+    }
+    if (snapshot?.scheduled_for) {
+      return { state: 'scheduled', ...common, scheduled_at: snapshot.scheduled_for }
+    }
+    return { state: 'uploaded', ...common }
+  }
+
+  if (!remote) return { state: 'unpublished' }
+  // Legacy sidecars and reconcile links prove a remote video identity only.
+  // Their schedule and privacy fields may be local intent, and `uploaded_at`
+  // is an acceptance time rather than a publication date.
+  return {
+    state: 'uploaded',
+    ...(remote.other_channel && remote.channel_id
+      ? { reason: `This upload belongs to channel ${remote.channel_id}.` }
+      : {}),
+  }
+}
+
 router.get('/projects/:slug/youtube/overview', async (req, res) => {
   try {
     const slug = req.params.slug
@@ -246,7 +365,13 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
   try {
     const slug = req.params.slug
     const channelId = await currentChannelId(slug)
-    const records = await listYouTubeOperations(slug)
+    let records: YouTubeOperationRecordV1[] = []
+    let operationsUnreadable = false
+    try {
+      records = newestOperations(await listYouTubeOperations(slug))
+    } catch {
+      operationsUnreadable = true
+    }
     const ideas = await im.getIdeas(slug, 'accepted')
 
     // EVERY accepted episode, newest first. No cap.
@@ -264,7 +389,34 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
     const facts = createProjectFactsCache(slug)
     // Read ONCE, outside the loop. `readYouTubeProjectPublishingState` takes the
     // state lock, so calling it per episode serialised the whole sweep.
-    const publishingState = await readYouTubeProjectPublishingState(slug)
+    let publishingState: Awaited<ReturnType<typeof readYouTubeProjectPublishingState>> | null = null
+    let publishingStateUnreadable = false
+    try {
+      publishingState = await readYouTubeProjectPublishingState(slug)
+    } catch {
+      publishingStateUnreadable = true
+    }
+    let jobs: Job[] = []
+    let jobsUnreadable = false
+    try {
+      jobs = await getJobs(slug)
+    } catch {
+      jobsUnreadable = true
+    }
+    let planTimezone: string | undefined
+    let planUnreadable = false
+    if (channelId) {
+      try {
+        const accountId = registryCredentialFor(channelId)
+        const [activePlanId, plans] = await Promise.all([
+          getActivePlanId(slug, 'youtube', accountId),
+          listPlans(slug),
+        ])
+        planTimezone = plans.find(plan => plan.id === activePlanId)?.schedule.timezone
+      } catch {
+        planUnreadable = true
+      }
+    }
     const ordered = ideas
       .filter(idea => !!idea.episode_code)
       .sort((a, b) => episodeCodeOrder(b.episode_code!) - episodeCodeOrder(a.episode_code!))
@@ -276,12 +428,29 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
       const batch = await Promise.all(ordered.slice(i, i + BATCH).map(async (idea) => {
         const code = idea.episode_code!
         const title = idea.title || ''
-        // The TITLE is load-bearing: path resolution substitutes it into the
-        // folder name, so asking without it looks in a directory no titled
-        // episode has.
-        const hasVideo = await hasFinalVideoFast(slug, code, title, facts)
-        const operation = records.find(record => record.episode_code === code
+        let sourceVideoPath = ''
+        let renderUnknown = false
+        try {
+          // The exact selector shared with upload admission/execution. A broad
+          // asset probe can call a clip or stale export "ready" while the
+          // uploader has no source it would actually accept.
+          const sourcePaths = await resolveEpisodePaths(slug, code, title, facts)
+          sourceVideoPath = await findYouTubeSourceVideoPath(sourcePaths, slug, code, title)
+        } catch {
+          renderUnknown = true
+        }
+        const hasVideo = !!sourceVideoPath
+        const episodeOperations = records.filter(record => record.episode_code === code
           && onCurrentChannel(channelId, record.channel_id))
+        let operation = episodeOperations[0]
+        const job = latestEpisodeUploadJob(jobs, code, channelId)
+        let sidecar: Awaited<ReturnType<typeof readSidecarStrict>> = null
+        let sidecarUnreadable = ''
+        try {
+          sidecar = await readSidecarStrict(slug, code, 'youtube', facts)
+        } catch {
+          sidecarUnreadable = `Story Studio cannot read its upload record for ${code}, so it cannot tell whether the episode is already on YouTube.`
+        }
         // All three stores, through the one predicate — caught PER ROW.
         //
         // `remoteVideoFor` throws when an episode's own SIDECAR cannot be read.
@@ -290,35 +459,85 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
         // with a load error for all 854 episodes — a listing endpoint must
         // degrade per row, never collectively.
         //
-        // SCOPE, precisely: this catch covers the per-episode sidecar read only.
-        // The operation index and the publishing state are read ONCE for the
-        // whole sweep, above this loop, so a corrupt one of those still fails
-        // the request collectively. That is deferred, not fixed here — see the
-        // master plan's deferred section.
+        // The operation index and publishing state are still read only once.
+        // Their failures degrade every row's REMOTE fact to unknown while the
+        // local render remains visible; this catch is only for one sidecar.
         let remote = null
         let unreadable = ''
-        try {
-          remote = await remoteVideoFor(slug, code, title, channelId, records, publishingState, facts)
-        } catch (error) {
-          unreadable = (error as { detail?: string })?.detail
-            || `Story Studio cannot read its upload record for ${code}, so it cannot tell whether the episode is already on YouTube.`
+        if (!operationsUnreadable && !publishingStateUnreadable && publishingState) {
+          try {
+            remote = await remoteVideoFor(slug, code, title, channelId, records, publishingState, facts)
+          } catch (error) {
+            unreadable = (error as { detail?: string })?.detail
+              || sidecarUnreadable
+              || `Story Studio cannot read its upload record for ${code}, so it cannot tell whether the episode is already on YouTube.`
+          }
         }
+        if (remote?.video_id) {
+          operation = episodeOperations.find(record => record.video_id === remote.video_id) ?? operation
+        }
+        const publicationOperation = remote && remote.source !== 'operation_record'
+          && operation?.video_id !== remote?.video_id
+          ? undefined
+          : operation
+        const remoteStoresUnreadable = operationsUnreadable || publishingStateUnreadable
+        const storeBlockedReason = remoteStoresUnreadable
+          ? REMOTE_STORE_UNREADABLE
+          : jobsUnreadable
+            ? UPLOAD_STORE_UNREADABLE
+            : planUnreadable
+              ? 'Story Studio cannot read the local upload plan.'
+              : unreadable || sidecarUnreadable
+        const local: YouTubeEpisodePublishableProjection['local'] = {
+          render: renderUnknown
+            ? { state: 'unknown' }
+            : sourceVideoPath
+              ? {
+                  state: 'ready',
+                  video_url: `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-media?path=${encodeURIComponent(sourceVideoPath)}`,
+                }
+              : { state: 'missing' },
+          upload: localUploadProjection(job, operation, operationsUnreadable || jobsUnreadable, remote),
+        }
+        const writeBlockedReason = storeBlockedReason
+          || (local.upload.state === 'queued'
+            ? `${code} already has an upload queued.`
+            : local.upload.state === 'running'
+              ? `${code} already has an upload in progress.`
+              : '')
+        const publication = publicationProjection(
+          publicationOperation,
+          remote,
+          publishingState,
+          channelId,
+          remoteStoresUnreadable ? REMOTE_STORE_UNREADABLE : unreadable || sidecarUnreadable || undefined,
+        )
         return {
           episode_code: code,
           title,
-          has_video: hasVideo,
-          has_remote_video: !!remote,
+          ...(!renderUnknown ? { has_video: hasVideo } : {}),
+          ...(!remoteStoresUnreadable && !unreadable && !sidecarUnreadable
+            ? { has_remote_video: !!remote }
+            : {}),
           ...(remote?.video_id ? { remote_video_id: remote.video_id } : {}),
           ...(remote ? { remote_source: remote.source } : {}),
           ...(operation ? { operation: publicOperation(operation) } : {}),
+          local,
+          publication,
+          plan: {
+            ...(sidecar?.scheduled_for ? { scheduled_at: sidecar.scheduled_for } : {}),
+            ...(planTimezone ? { timezone: planTimezone } : {}),
+          },
           // The route's own refusal reason, decided ONCE here. The page used to
           // re-derive this ladder in its own order and with its own vocabulary,
           // which is two implementations of one rule (tell 7b).
-          ...(unreadable
-            ? { blocked_reason: unreadable }
+          ...(writeBlockedReason
+            ? { blocked_reason: writeBlockedReason }
             : remote
               ? { blocked_reason: alreadyOnYouTubeReason(code, remote) }
-              : !hasVideo
+              : renderUnknown
+                ? { blocked_reason: `${code}'s rendered video could not be checked.` }
+                : !hasVideo
                 ? { blocked_reason: `${code} has no rendered video yet.` }
                 : {}),
         }
