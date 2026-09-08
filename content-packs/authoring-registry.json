@@ -1,5 +1,5 @@
 {
-  "revision": 277,
+  "revision": 286,
   "batches": [
     {
       "revision": 2,
@@ -5502,6 +5502,200 @@
           }
         ]
       }
+    },
+    {
+      "revision": 278,
+      "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+      "request": {
+        "expected_revision": 277,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/illuminated-history-2026-09-09"
+        },
+        "proposal_ref": "Owner brief 2026-09-09: Illuminated History — long-form whole-story history for sleep; two visual styles, three framed thumbnail recipes, two lettering axis fonts and one turning-points topic pack",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.illuminated-frame-painting",
+            "item_id": "com.storystudio.style.illuminated-frame-painting",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/illuminated-history/style/illuminated-frame-painting",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.illuminated-frame-painting",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.illuminated-frame-painting",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.dark-sepia-documentary-scene",
+            "item_id": "com.storystudio.style.dark-sepia-documentary-scene",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/illuminated-history/style/dark-sepia-documentary-scene",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.dark-sepia-documentary-scene",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.dark-sepia-documentary-scene",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.framed-subject-with-dates",
+            "item_id": "com.storystudio.thumbnail.framed-subject-with-dates",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/illuminated-history/thumbnail/framed-subject-with-dates",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.framed-subject-with-dates",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.framed-subject-with-dates",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.medallion-portrait",
+            "item_id": "com.storystudio.thumbnail.medallion-portrait",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/illuminated-history/thumbnail/medallion-portrait",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.medallion-portrait",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.medallion-portrait",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.numbered-series-card",
+            "item_id": "com.storystudio.thumbnail.numbered-series-card",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/illuminated-history/thumbnail/numbered-series-card",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.numbered-series-card",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.numbered-series-card",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.cream-condensed-serif-with-tagline",
+            "item_ids": [
+              "com.storystudio.lettering.cream-condensed-serif-with-tagline"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/illuminated-history/lettering/cream-condensed-serif-with-tagline",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.cream-condensed-serif-with-tagline",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.cream-condensed-serif-with-tagline",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.red-grunge-capitals",
+            "item_ids": [
+              "com.storystudio.lettering.red-grunge-capitals"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/illuminated-history/lettering/red-grunge-capitals",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.red-grunge-capitals",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.red-grunge-capitals",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.turning-points-and-eras",
+            "item_id": "com.storystudio.topic.turning-points-and-eras",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/illuminated-history/topic/turning-points-and-eras",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.turning-points-and-eras",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.turning-points-and-eras",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -9472,6 +9666,142 @@
         },
         "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
         "pack_id": "com.storystudio.pack.metadata-formula.backyard-sleep-titles",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 279,
+      "transition_ref": "lifecycle:d225183b9b9df94c74e1591b053b73ab03ca323451a1712071bc212dc5ef35e4",
+      "request": {
+        "expected_revision": 278,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/illuminated-history-2026-09-09"
+        },
+        "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+        "pack_id": "com.storystudio.pack.style.illuminated-frame-painting",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 280,
+      "transition_ref": "lifecycle:94ec506bc67f9fedf39144f8ec73bbea71ff84a0a2c0afd6bee83d8d6465ccaf",
+      "request": {
+        "expected_revision": 279,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/illuminated-history-2026-09-09"
+        },
+        "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+        "pack_id": "com.storystudio.pack.style.dark-sepia-documentary-scene",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 281,
+      "transition_ref": "lifecycle:44d58e28287bf85708d43f51e47d9e0b4bd8a94c18006b32bad0ec3246645901",
+      "request": {
+        "expected_revision": 280,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/illuminated-history-2026-09-09"
+        },
+        "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+        "pack_id": "com.storystudio.pack.thumbnail.framed-subject-with-dates",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 282,
+      "transition_ref": "lifecycle:7d66c8f891554f1f405ab3bd158801f0054ce274d701036cf5d9a5550b2f60ef",
+      "request": {
+        "expected_revision": 281,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/illuminated-history-2026-09-09"
+        },
+        "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+        "pack_id": "com.storystudio.pack.thumbnail.medallion-portrait",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 283,
+      "transition_ref": "lifecycle:5f698af8bb40f188ee71c63ada6cb2a38eebb0a159bef1db98a139e3d5fc05a9",
+      "request": {
+        "expected_revision": 282,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/illuminated-history-2026-09-09"
+        },
+        "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+        "pack_id": "com.storystudio.pack.thumbnail.numbered-series-card",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 284,
+      "transition_ref": "lifecycle:3bf50277ad66f47d97e8aa35775e3e64542aa8b0ca2e741910ba73c32d36e7aa",
+      "request": {
+        "expected_revision": 283,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/illuminated-history-2026-09-09"
+        },
+        "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+        "pack_id": "com.storystudio.pack.lettering.cream-condensed-serif-with-tagline",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 285,
+      "transition_ref": "lifecycle:fc52ac3307a72ee12bb2e111a282b4da1569e44e5744e54ff0398e5b27fd51f6",
+      "request": {
+        "expected_revision": 284,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/illuminated-history-2026-09-09"
+        },
+        "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+        "pack_id": "com.storystudio.pack.lettering.red-grunge-capitals",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 286,
+      "transition_ref": "lifecycle:be153cc146c6bd8badb02e1b5c6f9fe7f64a251e0afffaaa7bb3b9c3d45cecc6",
+      "request": {
+        "expected_revision": 285,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/illuminated-history-2026-09-09"
+        },
+        "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+        "pack_id": "com.storystudio.pack.topic.turning-points-and-eras",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -16086,6 +16416,194 @@
         },
         "sku": {
           "id": "com.storystudio.sku.metadata-formula.backyard-sleep-titles",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+      "pack_id": "com.storystudio.pack.style.illuminated-frame-painting",
+      "item_id": "com.storystudio.style.illuminated-frame-painting",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/illuminated-history/style/illuminated-frame-painting",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.illuminated-frame-painting",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.illuminated-frame-painting",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+      "pack_id": "com.storystudio.pack.style.dark-sepia-documentary-scene",
+      "item_id": "com.storystudio.style.dark-sepia-documentary-scene",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/illuminated-history/style/dark-sepia-documentary-scene",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.dark-sepia-documentary-scene",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.dark-sepia-documentary-scene",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+      "pack_id": "com.storystudio.pack.thumbnail.framed-subject-with-dates",
+      "item_id": "com.storystudio.thumbnail.framed-subject-with-dates",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/illuminated-history/thumbnail/framed-subject-with-dates",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.framed-subject-with-dates",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.framed-subject-with-dates",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+      "pack_id": "com.storystudio.pack.thumbnail.medallion-portrait",
+      "item_id": "com.storystudio.thumbnail.medallion-portrait",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/illuminated-history/thumbnail/medallion-portrait",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.medallion-portrait",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.medallion-portrait",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+      "pack_id": "com.storystudio.pack.thumbnail.numbered-series-card",
+      "item_id": "com.storystudio.thumbnail.numbered-series-card",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/illuminated-history/thumbnail/numbered-series-card",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.numbered-series-card",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.numbered-series-card",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+      "pack_id": "com.storystudio.pack.lettering.cream-condensed-serif-with-tagline",
+      "item_ids": [
+        "com.storystudio.lettering.cream-condensed-serif-with-tagline"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/illuminated-history/lettering/cream-condensed-serif-with-tagline",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.cream-condensed-serif-with-tagline",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.cream-condensed-serif-with-tagline",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+      "pack_id": "com.storystudio.pack.lettering.red-grunge-capitals",
+      "item_ids": [
+        "com.storystudio.lettering.red-grunge-capitals"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/illuminated-history/lettering/red-grunge-capitals",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.red-grunge-capitals",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.red-grunge-capitals",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
+      "pack_id": "com.storystudio.pack.topic.turning-points-and-eras",
+      "item_id": "com.storystudio.topic.turning-points-and-eras",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/illuminated-history/topic/turning-points-and-eras",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.turning-points-and-eras",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.turning-points-and-eras",
           "status": "proposed"
         }
       }

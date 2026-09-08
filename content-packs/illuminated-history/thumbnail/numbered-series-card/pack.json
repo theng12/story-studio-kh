@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.numbered-series-card",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Numbered Series Card thumbnail recipe: a title band across the top carrying the episode's years in parentheses, a painted portrait on the left and an old map on the right, built so a series that runs in order reads as one shelf of cards.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.numbered-series-card",
+    "family": "com.storystudio.family.thumbnail.numbered-series-card"
+  },
+  "dependencies": []
+}

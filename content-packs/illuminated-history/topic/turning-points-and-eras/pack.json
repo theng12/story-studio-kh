@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.turning-points-and-eras",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of Turning Points and Eras: fifty events, treaties, revolutions, expeditions, plagues, superstitions and cultural histories told whole, with twenty ordered chapters apiece, written in a calm sleep register and each chapter grounded in a named kind of record.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.turning-points-and-eras",
+    "family": "com.storystudio.family.topic.turning-points-and-eras"
+  },
+  "dependencies": []
+}

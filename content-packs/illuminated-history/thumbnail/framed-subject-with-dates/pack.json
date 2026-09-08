@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.framed-subject-with-dates",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Framed Subject with Dates thumbnail recipe: the episode's subject painted inside an ornate gold frame, with the title in gold serif capitals, one small-cap tagline beneath it, and the subject's span of years set as a third short line.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.framed-subject-with-dates",
+    "family": "com.storystudio.family.thumbnail.framed-subject-with-dates"
+  },
+  "dependencies": []
+}
