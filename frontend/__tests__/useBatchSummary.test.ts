@@ -125,11 +125,13 @@ describe('buildLatestBatchSummary()', () => {
   })
 
   test('returns null while the most recent batch still has active jobs', () => {
-    const jobs: Job[] = [
-      makeJob({ episode_id: 'TN0001', status: 'done', finished_at: '2026-04-25T10:05:00Z' }),
-      makeJob({ episode_id: 'TN0002', status: 'running', started_at: '2026-04-25T10:04:00Z' }),
-    ]
-    assert.equal(buildLatestBatchSummary(jobs), null)
+    for (const status of ['queued', 'running', 'paused'] as const) {
+      const jobs: Job[] = [
+        makeJob({ episode_id: 'TN0001', status: 'done', finished_at: '2026-04-25T10:05:00Z' }),
+        makeJob({ episode_id: 'TN0002', status, started_at: '2026-04-25T10:04:00Z' }),
+      ]
+      assert.equal(buildLatestBatchSummary(jobs), null, status)
+    }
   })
 
   test('computes success/failed counts per episode, not per job', () => {
@@ -239,5 +241,23 @@ describe('buildLatestBatchSummary()', () => {
     assert.equal(s.success, 0)
     assert.equal(s.cancelled, 1)
     assert.equal(s.failed, 0)
+  })
+
+  test('verified recovered subtitles are reported separately from failures and success', () => {
+    const recovered = makeJob({
+      episode_id: 'SS0080', type: 'subtitles_transcribe', status: 'error',
+      params: {
+        pipeline_batch_id: 'batch-A', episode_recovery_id: 'plan-1',
+        episode_recovery: { id: 'plan-1', completed: ['audio_merge', 'subtitle_sections', 'subtitle_stitch'], first_unresolved: 'scene_plan_run' },
+      },
+      error: 'Original attempt produced 13/16 sections.',
+    })
+    const s = buildLatestBatchSummary([recovered])!
+    assert.equal(s.total, 1)
+    assert.equal(s.success, 0)
+    assert.equal(s.recovered, 1)
+    assert.equal(s.failed, 0)
+    assert.deepEqual(s.failed_episodes, [])
+    assert.deepEqual(s.episodes_needing_repair, [])
   })
 })

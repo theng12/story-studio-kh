@@ -14,6 +14,7 @@
  * isolation from Vue reactivity.
  */
 import type { Job } from './useJobs.js'
+import { jobDisplayStatus } from '../utils/episode-recovery.js'
 
 export interface FailedEpisode {
   episode_id: string
@@ -31,6 +32,8 @@ export interface BatchSummary {
   /** Distinct episodes submitted in this batch. */
   total: number
   success: number
+  /** Episodes whose failed subtitle attempt now has verified output; later pipeline work may remain. */
+  recovered: number
   failed: number
   cancelled: number
   /** Wall-clock ms from earliest started_at to latest finished_at across
@@ -113,20 +116,21 @@ function summarize(batch_id: string, jobs: Job[]): BatchSummary {
   }
 
   let success = 0
+  let recovered = 0
   let failed = 0
   let cancelled = 0
   const episodes_needing_repair: string[] = []
   const failed_episodes: FailedEpisode[] = []
 
   for (const [ep, arr] of byEpisode.entries()) {
-    const statuses = arr.map(j => j.status)
+    const statuses = arr.map(jobDisplayStatus)
     if (statuses.some(s => s === 'error')) {
       failed++
       episodes_needing_repair.push(ep)
       // Pick the *first* failing job in the chain — that's the one that
       // broke the chain and the one worth surfacing for retry.
       const errJob = arr
-        .filter(j => j.status === 'error')
+        .filter(j => jobDisplayStatus(j) === 'error')
         .sort((a, b) => new Date(a.finished_at || a.created_at).getTime()
                       - new Date(b.finished_at || b.created_at).getTime())[0]!
       failed_episodes.push({
@@ -137,6 +141,8 @@ function summarize(batch_id: string, jobs: Job[]): BatchSummary {
       })
     } else if (statuses.some(s => s === 'cancelled')) {
       cancelled++
+    } else if (statuses.some(s => s === 'recovered')) {
+      recovered++
     } else if (statuses.every(s => s === 'done')) {
       success++
     }
@@ -171,6 +177,7 @@ function summarize(batch_id: string, jobs: Job[]): BatchSummary {
     batch_id,
     total: byEpisode.size,
     success,
+    recovered,
     failed,
     cancelled,
     elapsed_ms,
@@ -211,7 +218,7 @@ export function buildLatestBatchSummary(jobs: readonly Job[]): BatchSummary | nu
     if (!pick || latest > pick.latest) pick = { id, jobs: arr, latest }
   }
   if (!pick) return null
-  const anyActive = pick.jobs.some(j => j.status === 'running' || j.status === 'queued')
+  const anyActive = pick.jobs.some(j => j.status === 'running' || j.status === 'queued' || j.status === 'paused')
   if (anyActive) return null
 
   return summarize(pick.id, pick.jobs)

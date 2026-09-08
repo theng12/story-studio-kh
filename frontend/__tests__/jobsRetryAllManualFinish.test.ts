@@ -5,7 +5,8 @@ import test from 'node:test'
 import { createApp, h, nextTick, ref, type Component } from 'vue'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
-import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType } from '../utils/episode-recovery'
+import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '../utils/episode-recovery'
+import { filterJobsForView } from '../utils/job-presentation'
 
 const pagePath = fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url))
 const source = readFileSync(pagePath, 'utf8')
@@ -44,7 +45,7 @@ async function loadJobs(): Promise<Component> {
     const normaliseRepairResult = () => null
     const triageFailedJobsForRetryAll = (jobs) => ({ retry: jobs, alreadyComplete: [], blocked: [] })
     const customerSafeJobText = value => String(value || '')
-    const filterJobsForView = jobs => jobs
+    const filterJobsForView = globalThis.__filterJobsForView
     const isVerifiedLiveCapacity = () => false
     const jobRequestIds = () => []
     const primaryControl = () => null
@@ -52,6 +53,8 @@ async function loadJobs(): Promise<Component> {
     const formatCredits = () => ''
     const isEpisodeRecoveryType = globalThis.__isEpisodeRecoveryType
     const groupEpisodeRecoveryRetries = globalThis.__groupEpisodeRecoveryRetries
+    const isVerifiedRecoveredSubtitleJob = globalThis.__isVerifiedRecoveredSubtitleJob
+    const jobDisplayStatus = globalThis.__jobDisplayStatus
   `
   const content = script.content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm, '')
@@ -70,8 +73,10 @@ async function loadJobs(): Promise<Component> {
 
 async function mount(jobs: any[]) {
   const posts: Array<{ path: string; body: unknown }> = []
+  const queueStats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: jobs.length }
+  for (const job of jobs) if (job.status in queueStats) (queueStats as any)[job.status]++
   ;(globalThis as any).__jobsQueue = {
-    jobs: ref(jobs), stats: ref({}), start: () => undefined, stop: () => undefined,
+    jobs: ref(jobs), stats: ref(queueStats), start: () => undefined, stop: () => undefined,
   }
   ;(globalThis as any).__jobsApi = {
     get: async () => ({}), del: async () => ({}), put: async () => ({}),
@@ -79,6 +84,9 @@ async function mount(jobs: any[]) {
   }
   ;(globalThis as any).__isEpisodeRecoveryType = isEpisodeRecoveryType
   ;(globalThis as any).__groupEpisodeRecoveryRetries = groupEpisodeRecoveryRetries
+  ;(globalThis as any).__isVerifiedRecoveredSubtitleJob = isVerifiedRecoveredSubtitleJob
+  ;(globalThis as any).__jobDisplayStatus = jobDisplayStatus
+  ;(globalThis as any).__filterJobsForView = filterJobsForView
   const Jobs = await loadJobs()
   const host = document.body.appendChild(document.createElement('div'))
   const app = createApp(Jobs)
@@ -110,4 +118,29 @@ test('mounted Jobs Retry all withholds manual Finish rows while preserving ordin
   assert.match(source, /v-if="isTerminalContinuityRender\(job\)"/)
   assert.match(source, /!isTerminalContinuityRender\(job\).*auto_repair_missing_prompts/)
   mounted.unmount()
+})
+
+test('mounted Jobs counts and filters verified recovery separately from attention', async () => {
+  const recovered = {
+    job_id: 'recovered-subtitles', project_slug: 'fixture-project', episode_id: 'SS0080',
+    type: 'subtitles_transcribe', status: 'error', params: {
+      episode_recovery_id: 'plan-1',
+      episode_recovery: { id: 'plan-1', completed: ['audio_merge', 'subtitle_sections', 'subtitle_stitch'], first_unresolved: 'scene_plan_run' },
+    },
+  }
+  const needsAttention = { job_id: 'still-failed', project_slug: 'fixture-project', episode_id: 'SS0081', type: 'audio', status: 'error', params: {} }
+  const mounted = await mount([recovered, needsAttention])
+  try {
+    assert.equal(mounted.state.stats.value.error, 1)
+    assert.equal(mounted.state.stats.value.recovered, 1)
+    assert.equal(mounted.state.statusFilters.value.find((item: any) => item.key === 'error')?.count, 1)
+    assert.equal(mounted.state.statusFilters.value.find((item: any) => item.key === 'recovered')?.count, 1)
+    mounted.state.statusFilter.value = 'error'
+    await nextTick()
+    assert.deepEqual(mounted.state.filteredJobs.value.map((job: any) => job.job_id), ['still-failed'])
+    mounted.state.statusFilter.value = 'recovered'
+    await nextTick()
+    assert.deepEqual(mounted.state.filteredJobs.value.map((job: any) => job.job_id), ['recovered-subtitles'])
+    assert.deepEqual(mounted.state.failedJobsForRetryAll.value.map((job: any) => job.job_id), ['still-failed'])
+  } finally { mounted.unmount() }
 })

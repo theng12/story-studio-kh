@@ -140,9 +140,16 @@ function unsettledHistoryControl(
   const check = job.history_evidence_check
   if (check?.state === 'unreachable') {
     const detail = check.detail ? ` ${publicControlDetail(check.detail)}` : ''
+    const staleTranscriptionAbsence = evidence.some(entry => (
+      entry.operation === 'audio.transcription'
+      && entry.state === 'not_created'
+      && !isProviderTerminal(entry)
+    ))
     return control(
       'recheck-provider-status', true, 'Check GenStudio again',
-      `Story Studio could not reach GenStudio to confirm whether ${outstanding} finished, so it cannot say whether that work is still running.${detail}`,
+      staleTranscriptionAbsence
+        ? `Story Studio could not reach GenStudio to recheck an earlier no-record transcription result, so it cannot confirm whether that request was created or charged.${detail}`
+        : `Story Studio could not reach GenStudio to confirm whether ${outstanding} finished, so it cannot say whether that work is still running.${detail}`,
       'PROVIDER_STATUS_UNREACHABLE', 'remote-result-required',
     )
   }

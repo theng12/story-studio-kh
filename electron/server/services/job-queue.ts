@@ -30,6 +30,7 @@ import {
   isNeverCreatedProviderTask,
   isActiveGenStudioProviderState,
   isUnsettledProviderEntry as isUnsettledProviderEntryShared,
+  shouldRecheckStoredTranscriptionAbsence,
 } from '../lib/provider-task-state.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
 import { getApiKey } from './app-secrets-store.js'
@@ -207,6 +208,7 @@ export async function reconcileRemoteCancellationFromProvider(
     reserved_credits?: number | null
     settled_credits?: number | null
     released_credits?: number | null
+    transcription_absence_verified_at?: string
   },
 ): Promise<void> {
   const job = jobs.get(storyJobId)
@@ -529,6 +531,7 @@ function requiresCancellationReconciliation(job: Pick<Job, 'genstudio_jobs' | 'r
   return hasCancellationContext(job)
     ? hasUnsettledProviderWork(job) || (job.genstudio_jobs || []).length > 0
     : hasRecoverableUnsettledGenStudioEvidence(job)
+      || (job.genstudio_jobs || []).some(shouldRecheckStoredTranscriptionAbsence)
 }
 
 function mergeGenStudioReconciliationEvidence(
@@ -547,6 +550,7 @@ function mergeGenStudioReconciliationEvidence(
     reserved_credits?: number | null
     settled_credits?: number | null
     released_credits?: number | null
+    transcription_absence_verified_at?: string
   },
 ): void {
   const entries = [...(job.genstudio_jobs || [])]
@@ -561,8 +565,24 @@ function mergeGenStudioReconciliationEvidence(
   if (matches.length !== 1) return
   const index = matches[0]!
   const prior = entries[index]!
+  const {
+    dispatch_state: _priorDispatchState,
+    cancellable: _priorCancellable,
+    cancelled: _priorCancelled,
+    cancellation_requested: _priorCancellationRequested,
+    cancellation_note: _priorCancellationNote,
+    failure_code: _priorFailureCode,
+    reserved_credits: _priorReservedCredits,
+    settled_credits: _priorSettledCredits,
+    released_credits: _priorReleasedCredits,
+    transcription_absence_verified_at: _priorTranscriptionAbsenceVerifiedAt,
+    ...priorWithoutSyntheticAbsenceFields
+  } = prior
+  const correctedFalseTranscriptionAbsence = isNeverCreatedProviderTask(prior)
+    && shouldRecheckStoredTranscriptionAbsence(prior)
+    && provider.id !== evidenceId
   entries[index] = {
-    ...prior,
+    ...(isNeverCreatedProviderTask(prior) ? priorWithoutSyntheticAbsenceFields : prior),
     id: provider.id,
     state: provider.state,
     queue_state: provider.state === 'succeeded' ? 'succeeded'
@@ -579,9 +599,14 @@ function mergeGenStudioReconciliationEvidence(
     ...(typeof provider.reserved_credits === 'number' && Number.isFinite(provider.reserved_credits) ? { reserved_credits: provider.reserved_credits } : {}),
     ...(typeof provider.settled_credits === 'number' && Number.isFinite(provider.settled_credits) ? { settled_credits: provider.settled_credits } : {}),
     ...(typeof provider.released_credits === 'number' && Number.isFinite(provider.released_credits) ? { released_credits: provider.released_credits } : {}),
+    ...(provider.transcription_absence_verified_at ? { transcription_absence_verified_at: provider.transcription_absence_verified_at } : {}),
     updated_at: new Date().toISOString(),
   }
   job.genstudio_jobs = coalesceExactImageProviderEvidence(job, entries)
+  if (correctedFalseTranscriptionAbsence) {
+    const correction = `GenStudio later located ${operation} ${provider.id}; Story Studio corrected its earlier no-record result without submitting a new request.`
+    if (!job.output_lines.includes(correction)) job.output_lines.push(correction)
+  }
 }
 
 /**
@@ -611,6 +636,12 @@ function reportNeverCreatedProviderTasks(
     ? 'Story Studio has stopped waiting for it and will not resend it on its own — running this step again is safe, and costs only what the missing item costs.'
     : `Story Studio has stopped waiting for these ${absent.length} requests and will not resend them on its own — running this step again is safe, and costs only what the missing items cost.`
   if (!already.has(summary)) job.output_lines.push(summary)
+}
+
+function reportUnverifiedTranscriptionAbsence(job: Job): void {
+  if (!(job.genstudio_jobs || []).some(shouldRecheckStoredTranscriptionAbsence)) return
+  const correction = 'Story Studio is rechecking an earlier no-record transcription result. Until GenStudio responds, it cannot confirm whether that request was created or charged.'
+  if (!job.output_lines.includes(correction)) job.output_lines.push(correction)
 }
 
 /**
@@ -648,6 +679,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     job.reconciliation_error = outcome.reason
     for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.evidence_id, item.job)
     reportNeverCreatedProviderTasks(job, outcome.absent)
+    if (outcome.kind === 'pending' && outcome.reason) reportUnverifiedTranscriptionAbsence(job)
 
     if (outcome.kind === 'pending') {
       // v1.4.81 — this path is reached two ways, and only one of them involves
@@ -745,7 +777,8 @@ function needsHistoryEvidenceRefresh(job: Job): boolean {
   if (job.force_abandoned) return false
   return (job.genstudio_jobs || []).some(entry => (
     entry.state !== 'cancelled' && isUnsettledProviderEntry(entry)
-  )) || hasPendingRemoteCancellation(job)
+  )) || (job.genstudio_jobs || []).some(shouldRecheckStoredTranscriptionAbsence)
+    || hasPendingRemoteCancellation(job)
 }
 
 async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> {
@@ -768,6 +801,7 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
     job.remote_cancellations = outcome.records
     for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.evidence_id, item.job)
     reportNeverCreatedProviderTasks(job, outcome.absent)
+    if (outcome.kind === 'pending' && outcome.reason) reportUnverifiedTranscriptionAbsence(job)
 
     // v1.2.9 — `needsHistoryEvidenceRefresh` answers false for two entirely
     // different reasons: the evidence really is settled, or the owner abandoned

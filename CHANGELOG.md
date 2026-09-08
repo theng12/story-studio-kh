@@ -6,6 +6,9 @@ What's new in each release. Newest first.
 
 ## v1.4.130 — 2026-09-08
 
+- **Recovered subtitles stop looking unfinished.** Jobs distinguishes the original failed attempt from verified later recovery, keeps its credit history, and removes obsolete missing-section retry prompts.
+- **Subtitle history checks the accepted request.** Read-only reconciliation uses the transcription confirmation key and rechecks old absence records affected by the earlier key mismatch. It does not submit another paid request.
+
 - **Review several uploads together.** Ready-to-upload now requires a connected channel. Select eligible episodes, review their files, thumbnails and publication times, then queue the reviewed uploads with separate results for each episode.
 - **The reviewed video is the one uploaded.** Upload confirmation and recovery compare the file’s actual bytes. A changed render asks for another review instead of silently uploading it.
 - **Cleanup verifies before deleting.** Clearing local finals requires a matching file receipt and a fresh YouTube check confirming processing completed on the current channel. Unverified and older receipts keep their local files.

@@ -250,9 +250,16 @@ test('a pruned request preview does not make a batch unreconcilable — the key 
       /without a durable task identity or saved idempotency key/,
       'Story Studio held the key the whole time; it must not claim otherwise',
     )
-    // It actually asked, by key, for every entry that had no durable id.
+    // Current transcription tasks use the quote-confirmation key. A 404 there
+    // then checks the legacy direct-transcription key before deciding the task
+    // was never created.
     const byKey = lookups.filter(p => p.includes('/by-idempotency-key/'))
-    assert.equal(byKey.length, PENDING_COUNT)
+    assert.equal(byKey.length, PENDING_COUNT * 2)
+    for (let index = 0; index < PENDING_COUNT; index++) {
+      const key = `story-stt-${index.toString(16).padStart(8, '0')}0155ae1b8150970a2da2a286`
+      assert.match(byKey[index * 2] || '', new RegExp(`${key}-confirm$`))
+      assert.match(byKey[index * 2 + 1] || '', new RegExp(`${key}$`))
+    }
     // GenStudio answered "no such task", which is terminal — so the job resolves.
     assert.equal(outcome.absent.length, PENDING_COUNT)
     assert.equal(outcome.kind, 'failed')

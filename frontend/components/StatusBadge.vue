@@ -18,6 +18,7 @@ const label = computed(() => {
     queued: 'Queued',
     paused: 'Paused',
     done: 'Done',
+    recovered: 'Recovered',
     error: 'Needs attention',
     cancelled: 'Cancelled',
   }
@@ -34,6 +35,11 @@ const label = computed(() => {
   background: var(--info);
   margin-right: 4px;
   animation: pulse 1.5s infinite;
+}
+
+.badge-recovered {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--success);
 }
 
 @keyframes pulse {

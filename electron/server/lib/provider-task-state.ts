@@ -49,6 +49,27 @@ export function isNeverCreatedProviderTask(entry: { state?: unknown }): boolean 
 }
 
 /**
+ * Old generic reconciliation asked a transcription quote key instead of its
+ * confirmation key and could persist a false `not_created` result. Keep only
+ * those pending, unmarked rows unsettled until the corrected read succeeds or
+ * verifies both current and legacy identities are absent.
+ */
+export function shouldRecheckStoredTranscriptionAbsence(entry: {
+  state?: unknown
+  operation?: unknown
+  id?: unknown
+  request?: { idempotency_key?: unknown }
+  transcription_absence_verified_at?: unknown
+}): boolean {
+  const id = typeof entry.id === 'string' ? entry.id : ''
+  return isNeverCreatedProviderTask(entry)
+    && entry.operation === 'audio.transcription'
+    && (!id || id.startsWith('pending:'))
+    && (typeof entry.request?.idempotency_key === 'string' || id.startsWith('pending:'))
+    && !entry.transcription_absence_verified_at
+}
+
+/**
  * Every provider state from which no further outcome can arrive.
  *
  * v1.4.81 — THERE WERE TWO OF THESE, and they disagreed by one word.
@@ -76,6 +97,7 @@ const SETTLED_PROVIDER_STATES: ReadonlySet<string> = new Set([
 
 /** True when this recorded provider task can no longer change. */
 export function isSettledProviderEntry(entry: { state?: unknown; cancelled?: boolean | null }): boolean {
+  if (shouldRecheckStoredTranscriptionAbsence(entry)) return false
   return entry.cancelled === true || SETTLED_PROVIDER_STATES.has(String(entry.state))
 }
 
