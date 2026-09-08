@@ -23,7 +23,7 @@
  */
 
 import fs from 'fs/promises'
-import { existsSync } from 'fs'
+import { constants, existsSync } from 'fs'
 import path from 'path'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
@@ -789,6 +789,35 @@ export async function migrateMediaToExternal(
         if (dryRun) continue
         const to = path.join(destDir, name)
         try {
+          const versionPrefix = `${code}_final_video_v`
+          const stem = path.basename(name, path.extname(name))
+          const isVersionedFinal = stem.startsWith(versionPrefix)
+            && /^\d+$/.test(stem.slice(versionPrefix.length)) && VIDEO_EXTS.has(ext(name))
+          if (key === 'video' && (isFinalVideoName(code, name) || isVersionedFinal)) {
+            // Both paths are active final locations. Serialize with render,
+            // import and cleanup; a same-size destination is not proof that it
+            // contains this render. Keep both files if their bytes disagree.
+            const [first, second] = [from, to].map(file => path.resolve(file)).sort()
+            await withFinalVideoPathLock(first!, () => withFinalVideoPathLock(second!, async () => {
+              const sourceRevision = await resolveYouTubeSourceRevision(from)
+              const sourceSize = (await fs.stat(from)).size
+              let destinationRevision: string | null = null
+              try { destinationRevision = await resolveYouTubeSourceRevision(to) } catch (error: any) {
+                if (error?.code !== 'ENOENT') throw error
+              }
+              if (destinationRevision && destinationRevision !== sourceRevision) {
+                throw new Error('a different final already exists at the destination; both files were kept')
+              }
+              if (!destinationRevision) await fs.copyFile(from, to, constants.COPYFILE_EXCL)
+              if (await resolveYouTubeSourceRevision(to) !== sourceRevision) {
+                throw new Error('the copied final does not match the source; the source was kept')
+              }
+              await fs.rm(from)
+              result.bytes_moved += sourceSize
+              result.files_moved++
+            }))
+            continue
+          }
           // Resumable: a same-size file already at the dest counts as copied.
           let needCopy = true
           try { if ((await fs.stat(to)).size === st.size) needCopy = false } catch { /* not there */ }

@@ -428,6 +428,35 @@ describe('storage cleanup + sidecar detection + external root', () => {
     assert.deepEqual(await fs.readFile(seed.final_path), replacementBytes)
   })
 
+  for (const versioned of [false, true]) for (const identical of [false, true]) {
+    test(`${versioned ? 'versioned final' : 'canonical final'} migration ${identical ? 'removes the source only after matching destination bytes' : 'preserves same-size different renders at both locations'}`, async () => {
+      const seed = await seedAcceptedEpisode(`TN00${30 + Number(identical) + Number(versioned) * 2}`, 2048)
+      if (versioned) {
+        const versionedPath = seed.final_path.replace('_final_video.mp4', '_final_video_v2.mp4')
+        await fs.rename(seed.final_path, versionedPath)
+        seed.final_path = versionedPath
+      }
+      const mediaRoot = path.join(tmp.dir, `external-migration-${seed.code}`)
+      await fs.mkdir(mediaRoot, { recursive: true })
+      await pm.updateProject(SLUG, { media_root: mediaRoot })
+      const { resolveEpisodePaths } = await import('../services/utils.js')
+      const destPaths = await resolveEpisodePaths(SLUG, seed.code, TITLE)
+      const destination = path.join(destPaths.video_dir, path.basename(seed.final_path))
+      assert.notEqual(destination, seed.final_path)
+      await fs.mkdir(destPaths.video_dir, { recursive: true })
+      const destinationBytes = Buffer.alloc(2048, identical ? 0 : 8)
+      await fs.writeFile(destination, destinationBytes)
+
+      const result = await storageAudit.migrateMediaToExternal(SLUG)
+
+      assert.deepEqual(await fs.readFile(destination), destinationBytes)
+      assert.equal(existsSync(seed.final_path), !identical)
+      assert.equal(result.files_moved, identical ? 1 : 0)
+      if (identical) assert.deepEqual(result.errors, [])
+      else assert.match(result.errors[0]?.reason || '', /different final.*both files were kept/)
+    })
+  }
+
   test('a changed external final refuses the whole episode before either final is deleted', async () => {
     const seed = await seedAcceptedEpisode('TN0025', 2048)
     await setAppSetting('library_root', path.join(tmp.dir, 'library-exact-cleanup'))

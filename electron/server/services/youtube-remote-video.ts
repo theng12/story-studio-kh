@@ -43,6 +43,7 @@ import type { ProjectFactsCache } from './utils.js'
 import { isYouTubeVideoRemoved, readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import { isContentSha256Revision, resolveYouTubeSourceRevision } from './youtube-source-video.js'
+import { stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { getProjectDir } from './project-manager.js'
@@ -219,6 +220,50 @@ export async function youtubeRetentionProofForFile(
     reason: hasEvidence
       ? evidence.protected_reason
         || 'the recorded YouTube upload has no matching content SHA-256 for this local final'
+      : 'the episode has no usable YouTube evidence',
+  }
+}
+
+/**
+ * Archive moves preserve an exact second copy before removing the source, so
+ * historical receipts remain usable only when the source did not change after
+ * their recorded upload/reconciliation time. Final cleanup intentionally does
+ * not call this: deletion requires a current content-hash operation instead.
+ */
+export async function youtubeArchiveProofForFile(
+  evidence: YouTubeRetentionEvidence,
+  filePath: string,
+): Promise<{ usable: boolean; video_id?: string; reason?: string }> {
+  const revision = await resolveYouTubeSourceRevision(filePath)
+  const matching = evidence.ready_operations.find(record =>
+    isContentSha256Revision(record.source_revision) && record.source_revision === revision)
+  if (matching) return { usable: true, video_id: matching.video_id }
+
+  const info = await stat(filePath)
+  const notNewerThan = (iso: string | undefined): boolean => {
+    const timestamp = iso ? Date.parse(iso) : NaN
+    // Durable receipts carry milliseconds while a filesystem can report a
+    // finer mtime; values inside that same receipt millisecond are equal.
+    return Number.isFinite(timestamp) && Math.floor(info.mtimeMs) <= timestamp
+  }
+  if (evidence.reconcile_link
+    && !hasNonReadyCanonicalIdentity(evidence, evidence.reconcile_link.video_id)
+    && notNewerThan(evidence.reconcile_link.linked_at)) {
+    return { usable: true, video_id: evidence.reconcile_link.video_id }
+  }
+  if (evidence.legacy_sidecar
+    && !hasNonReadyCanonicalIdentity(evidence, evidence.legacy_sidecar.video_id)
+    && notNewerThan(evidence.legacy_sidecar.uploaded_at)) {
+    return { usable: true, video_id: evidence.legacy_sidecar.video_id }
+  }
+
+  const hasEvidence = evidence.ready_operations.length > 0
+    || !!evidence.reconcile_link || !!evidence.legacy_sidecar || !!evidence.protected_reason
+  return {
+    usable: false,
+    reason: hasEvidence
+      ? evidence.protected_reason
+        || 'the canonical upload is not ready, or this local export is newer than its usable YouTube receipt'
       : 'the episode has no usable YouTube evidence',
   }
 }
