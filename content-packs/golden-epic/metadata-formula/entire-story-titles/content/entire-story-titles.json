@@ -1,0 +1,97 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.entire-story-titles",
+  "name": "Entire Story Titles",
+  "description": "The write-up shape for an episode that tells one whole civilisation or one whole life from beginning to end in a single sitting of two to three and a half hours. One fixed title pattern promises the entire story and names the arc in a tagline, and the description below it tells a tired reader whose story this is, how the centuries are laid out, how long it runs, and how to listen — with nothing anywhere that asks them to stay awake.",
+  "architecture": "Whole-arc opening, era sections, stated runtime, listening note, sources note, optional repost note, hashtags.",
+  "description_plan": {
+    "max_chars": 3600,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "opening",
+        "instruction": "Three or four unhurried sentences naming the subject and saying plainly that the episode tells the whole of it: where and when the story begins, where and when it ends, and roughly how many years lie between. For a civilisation, name the first settlement or first ruler and the last; for a life, name the birth and the death. Say what the listener is about to hear. No question, no promise of a secret, no teaser, no second-person address.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 440
+      },
+      {
+        "id": "eras",
+        "instruction": "List the eras in order, one per line, each a short noun phrase naming the stretch of the arc it covers — a founding, an expansion, a golden age, a reform, a war, a division, a decline, an ending and what came after. Cover the whole span so a reader can see the shape of the arc at a glance. No times, no countdown numbering, no descriptions beyond the phrase itself, and nothing framed as a reveal.",
+        "header": {
+          "render": true,
+          "text": "The whole arc, in order"
+        },
+        "target_chars": 800
+      },
+      {
+        "id": "runtime",
+        "instruction": "State the episode length in hours and minutes in one sentence, and say that the whole story is told in that single sitting with nothing held back for a later part. Episodes in this format target one hundred and twenty to two hundred and ten minutes; use the actual length from the story context rather than that range.",
+        "header": {
+          "render": true,
+          "text": "How long it runs"
+        },
+        "target_chars": 220
+      },
+      {
+        "id": "listening",
+        "instruction": "Three or four sentences on how the episode is built for sleep: one voice throughout, even volume with no sudden changes, eras that resolve rather than hand over, and no battle, no shouting, and no reason to stay awake for anything later in the recording. Add plainly that a listener who falls asleep in the first century loses nothing, because the arc is told at one pace the whole way through. Say it calmly and never as a sales point.",
+        "header": {
+          "render": true,
+          "text": "How to listen"
+        },
+        "target_chars": 440
+      },
+      {
+        "id": "sources",
+        "instruction": "Two or three sentences naming the kinds of evidence the episode leans on across such a long span — the sorts of annals, inscriptions, coins, excavated levels, administrative records, travellers' accounts, or later chronicles a careful narrator would use for this arc. Describe source types rather than citing any specific title, author, or archive reference, and state plainly which centuries of the arc are thinly attested, contested, or known only from one side.",
+        "header": {
+          "render": true,
+          "text": "Where this comes from"
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "repost",
+        "instruction": "Include this section only when the story context says the episode is also released as audio on a podcast feed. When it is, write one plain sentence saying the same recording is available as a podcast episode, with no link, no platform name, and no urging. When the story context says nothing about a podcast release, emit nothing at all for this section.",
+        "header": {
+          "render": true,
+          "text": "Also as a podcast"
+        },
+        "target_chars": 120
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 110,
+    "guidance": "Use exactly one shape: Fall Asleep to the ENTIRE Story of <Subject> — <Tagline>. Keep ENTIRE in capitals and set everything else in title case. The subject is the civilisation, empire, dynasty, or person told whole, named as a reader would search for it. The tagline rotates between three styles — the years the arc spans, a claim opening 'The Empire That', and for a life a claim opening 'The Conqueror Who' or its plain equivalent for the office held. Never open with a question, never promise a secret, never add an exclamation, and never name a living person."
+  },
+  "tag_plan": {
+    "count": 24,
+    "guidance": "for a very long calm episode telling one civilisation or one life from beginning to end, mixing the subject's name, the dynasty or realm, the region, the centuries covered, the whole-story framing, and the listening context"
+  },
+  "tone": {
+    "constraints": [
+      "No hook, no cliffhanger, no countdown, no teaser anywhere in the title or the description.",
+      "No second-person urging, no call to act, and nothing that asks the listener to stay awake.",
+      "Promise the whole arc and deliver it: never split the story or hint at a later part.",
+      "Name the subject and other historical figures plainly; never name a living person and never invent one.",
+      "Dates, spans, and figures come from the story context and are never invented; no invented quotations.",
+      "Say plainly which stretches of the arc are thinly attested or contested rather than filling them with invented detail.",
+      "Mention conquest, massacre, and collapse briefly and without dwelling, and give the aftermath more room than the act.",
+      "Keep sentences unhurried and mostly declarative; let the write-up settle rather than accelerate."
+    ]
+  }
+}
