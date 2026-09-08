@@ -1,0 +1,86 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.history-for-sleep-titles",
+  "name": "History for Sleep Titles",
+  "description": "The write-up shape for a very long, calm history episode meant to be fallen asleep to. Two fixed title patterns carry the promise, and the description below them tells a tired reader what they will hear, how long it runs, and how to listen — with nothing anywhere that asks them to stay awake.",
+  "architecture": "Plain opening, chapter list, stated runtime, listening note, sources note, hashtags.",
+  "description_plan": {
+    "max_chars": 3200,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "opening",
+        "instruction": "Two or three unhurried sentences saying plainly what this episode is about and roughly what period and place it sits in. No question, no promise, no teaser, no second-person address. Begin with the subject itself rather than with the listener.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 320
+      },
+      {
+        "id": "chapters",
+        "instruction": "List the chapters in order, one per line, each as a short noun phrase naming what that chapter covers. No times, no numbering that counts down, no chapter descriptions beyond the phrase itself.",
+        "header": {
+          "render": true,
+          "text": "What you will hear"
+        },
+        "target_chars": 700
+      },
+      {
+        "id": "runtime",
+        "instruction": "State the episode length in hours and minutes in one sentence, and say that it is written to run past the point most listeners fall asleep. Episodes in this format target one hundred to one hundred and forty minutes; use the actual length from the story context rather than that range.",
+        "header": {
+          "render": true,
+          "text": "How long it runs"
+        },
+        "target_chars": 200
+      },
+      {
+        "id": "listening",
+        "instruction": "Three or four sentences on how the episode is built for sleep: one voice throughout, even volume with no sudden changes, chapters that resolve rather than hand over, and no reason to stay awake for anything later in the recording. Say it calmly and never as a sales point.",
+        "header": {
+          "render": true,
+          "text": "How to listen"
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "sources",
+        "instruction": "Two or three sentences naming the kinds of evidence the episode leans on — the sorts of records, accounts, inventories, or physical remains a careful narrator would use. Describe source types rather than citing any specific title, author, or archive reference, and state plainly where the record is thin or disputed.",
+        "header": {
+          "render": true,
+          "text": "Where this comes from"
+        },
+        "target_chars": 380
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 110,
+    "guidance": "Use one of exactly two shapes, each closing with the same suffix after a vertical bar. Shape one is a plain-experience title — What It Was Like to <verb phrase> | History for Sleep — where the verb phrase names an ordinary activity of the period in five words or fewer. Shape two is a subject-and-turn title — <Subject>: The <Thing> That <Twist> | History for Sleep — where the twist states a real, verifiable turn in the history rather than a tease. Never open with a question, never promise a secret or a thing nobody knows, never use all capitals or exclamation, and never name a real individual."
+  },
+  "tag_plan": {
+    "count": 22,
+    "guidance": "for a long calm history episode meant for sleep, mixing the subject, the period, the place, and the listening context"
+  },
+  "tone": {
+    "constraints": [
+      "No hook, no cliffhanger, no countdown, no teaser anywhere in the title or the description.",
+      "No second-person urging, no call to act, and nothing that asks the listener to stay awake.",
+      "Dates, periods, and figures come from the story context and are never invented.",
+      "Name no individual people, real or invented, and no companies.",
+      "Say plainly where the record is thin or disputed rather than resolving it with invented detail.",
+      "Keep sentences unhurried and mostly declarative; let the write-up settle rather than accelerate."
+    ]
+  }
+}

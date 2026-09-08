@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.weathered-brush-stamp",
+  "name": "Weathered Brush Stamp",
+  "description": "Distressed hand-brushed capitals, stamped in thick paint and left rough at the edges.",
+  "axis": "text",
+  "phrase": "lettering hand-brushed in thick paint and stamped onto a rough surface, distressed broken edges, dry-brush gaps and skipped strokes through the letterforms, uneven pressure, a single flat colour in bone white or oxblood, completely matte with no glow, no outline and no shadow",
+  "preview_assets": [
+    "assets/weathered-brush-stamp.webp"
+  ]
+}

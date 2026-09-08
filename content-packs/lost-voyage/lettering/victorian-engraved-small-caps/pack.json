@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.victorian-engraved-small-caps",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Victorian Engraved Small Caps lettering style: one engraved small-capital letterform for period maritime and history covers.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.victorian-engraved-small-caps",
+    "family": "com.storystudio.family.lettering.victorian-engraved-small-caps"
+  },
+  "dependencies": []
+}

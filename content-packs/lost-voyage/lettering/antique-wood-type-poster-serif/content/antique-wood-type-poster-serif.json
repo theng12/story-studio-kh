@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.antique-wood-type-poster-serif",
+  "name": "Antique Wood-Type Poster Serif",
+  "description": "Heavy condensed wood-type capitals from a nineteenth-century poster, stacked and printed slightly worn.",
+  "axis": "font",
+  "phrase": "heavy condensed nineteenth-century wood-type poster capitals, thick slab-ish bracketed serifs, tall narrow proportions, tight stacking across two or three lines, slightly worn and broken print edges with uneven ink coverage",
+  "preview_assets": [
+    "assets/antique-wood-type-poster-serif.webp"
+  ]
+}
