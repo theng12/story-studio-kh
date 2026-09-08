@@ -1,0 +1,1646 @@
+{
+  "generated": "2026-09-08T02:29:02.878Z",
+  "count": 164,
+  "items": [
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.a-life-as",
+      "name": "A Life As",
+      "collection_dir": "free-starters/kit/a-life-as-v1.0.4",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.4",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.archival-ledger",
+      "name": "Archival Ledger",
+      "collection_dir": "archival-ledger",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 8 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.archival-ledger",
+      "name": "Archival Ledger",
+      "collection_dir": "paid/archival-ledger/kit/archival-ledger-v1.0.3",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.3",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.build-momentum",
+      "name": "Build Momentum",
+      "collection_dir": "free-starters/kit/build-momentum-v1.0.2",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.business-explained",
+      "name": "Business Explained",
+      "collection_dir": "free-starters/kit/business-explained-v1.0.1",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.calm-mind",
+      "name": "Calm Mind",
+      "collection_dir": "free-starters/kit/calm-mind-v1.0.2",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.deep-time",
+      "name": "Deep Time",
+      "collection_dir": "free-starters/kit/deep-time-v1.0.3",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.3",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.first-humans",
+      "name": "First Humans",
+      "collection_dir": "free-starters/kit/first-humans-v1.0.4",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.4",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.history-explained",
+      "name": "History Explained",
+      "collection_dir": "free-starters/kit/history-explained-v1.0.1",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.human-behavior",
+      "name": "Human Behavior",
+      "collection_dir": "free-starters/kit/human-behavior-v1.0.2",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.sleep-journeys",
+      "name": "Sleep Journeys",
+      "collection_dir": "free-starters/kit/sleep-journeys-v1.0.2",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.symbolic-psychology-studio",
+      "name": "Symbolic Psychology Studio",
+      "collection_dir": "symbolic-psychology-studio/kit/symbolic-psychology-studio",
+      "axis": "series-formula+topic-pack+thumbnail-recipe+visual-style",
+      "description": "Bundles 6 components: series-formula, topic-pack, thumbnail-recipe, visual-style.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "channel-kit",
+      "id": "com.storystudio.bundle.wild-worlds",
+      "name": "Wild Worlds",
+      "collection_dir": "free-starters/kit/wild-worlds-v1.0.3",
+      "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
+      "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
+      "version": "1.0.3",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.bold-outline-pop",
+      "name": "Bold Outline Pop",
+      "collection_dir": "paid/lettering/explainer",
+      "axis": "font",
+      "description": "Extra-heavy geometric sans wearing a thick contrasting outline. The safest bet on a small screen.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.bone-etch",
+      "name": "Bone Etch",
+      "collection_dir": "paid/lettering/dread",
+      "axis": "font",
+      "description": "Brittle letterforms carved from pale bone, with hairline fractures running through the thicker strokes.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.breath-fog",
+      "name": "Breath Fog",
+      "collection_dir": "paid/lettering/calm",
+      "axis": "text",
+      "description": "As if breathed onto cold glass — edges softly diffusing, nothing sharp.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.broadsheet-masthead",
+      "name": "Broadsheet Masthead",
+      "collection_dir": "paid/lettering/archive",
+      "axis": "font",
+      "description": "The dense nineteenth-century newspaper masthead: heavy thick-thin serifs set tight, built to be read across a room.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.candle-smoke",
+      "name": "Candle Smoke",
+      "collection_dir": "paid/lettering/dread",
+      "axis": "text",
+      "description": "Drawn in rising smoke, trailing off into soot at the edges. Quiet dread rather than a shout.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.case-file-stamp",
+      "name": "Case File Stamp",
+      "collection_dir": "paid/lettering/investigation",
+      "axis": "font",
+      "description": "Official rubber-stamped capitals, pressed unevenly so some strokes are solid and others break away. Reads as something…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.chalk-outline",
+      "name": "Chalk Outline",
+      "collection_dir": "paid/lettering/investigation",
+      "axis": "font",
+      "description": "Hollow letters drawn in a single wobbling chalk line, the way a scene gets marked out on the ground.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.chalkboard-clean",
+      "name": "Chalkboard Clean",
+      "collection_dir": "paid/lettering/explainer",
+      "axis": "text",
+      "description": "Clean white chalk on a dark green board, lightly dusty but never smudged into illegibility.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.cold-steel",
+      "name": "Cold Steel",
+      "collection_dir": "paid/lettering/investigation",
+      "axis": "text",
+      "description": "Brushed gunmetal with a hard cold rim light and no warmth anywhere in it. Serious without being loud.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.crt-scanline",
+      "name": "CRT Scanline",
+      "collection_dir": "paid/lettering/arcade",
+      "axis": "text",
+      "description": "Glowing phosphor with horizontal scanlines crossing the letters and a soft bloom around them.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.diner-neon-tube",
+      "name": "Diner Neon Tube",
+      "collection_dir": "paid/lettering/arcade",
+      "axis": "font",
+      "description": "Letters bent from one continuous glass tube, the way a roadside sign was actually made.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.dusk-gradient-soft",
+      "name": "Dusk Gradient",
+      "collection_dir": "paid/lettering/calm",
+      "axis": "text",
+      "description": "A slow gradient from dusty lavender into warm rose, with no hard edge anywhere in it.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.eighties-airbrush",
+      "name": "Eighties Airbrush",
+      "collection_dir": "paid/lettering/arcade",
+      "axis": "text",
+      "description": "Airbrushed magenta into cyan with a chrome bevel and one starburst highlight, exactly as promised.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.engraved-brass",
+      "name": "Engraved Brass",
+      "collection_dir": "paid/lettering/archive",
+      "axis": "text",
+      "description": "Cut into aged brass, the lines darkened with age and the surface holding a soft warm sheen.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.evidence-tag",
+      "name": "Evidence Tag",
+      "collection_dir": "paid/lettering/investigation",
+      "axis": "text",
+      "description": "Printed onto a buff evidence tag with a red rule and a punched string hole. Small, official, and unmistakably catalogue…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.field-notebook",
+      "name": "Field Notebook",
+      "collection_dir": "paid/lettering/archive",
+      "axis": "font",
+      "description": "Quick pencil handwriting from a working notebook: slightly slanted, unfussy, written to be used later.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.frost-crack",
+      "name": "Frost Crack",
+      "collection_dir": "paid/lettering/dread",
+      "axis": "font",
+      "description": "Angular letters split by frost fractures, as though the cold got into them and they gave.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.hand-quiet",
+      "name": "Hand Quiet",
+      "collection_dir": "paid/lettering/calm",
+      "axis": "font",
+      "description": "Unhurried lowercase handwriting with soft round strokes — a note left for someone, not a headline.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.highlighter-block",
+      "name": "Highlighter Block",
+      "collection_dir": "paid/lettering/explainer",
+      "axis": "text",
+      "description": "Dark letters sitting on a bright highlighter block, with the marker edges left visible.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.letterpress-plate",
+      "name": "Letterpress Plate",
+      "collection_dir": "paid/lettering/archive",
+      "axis": "text",
+      "description": "Pressed deep into cotton-rag paper, ink dense where the plate bit hardest.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.linen-press",
+      "name": "Linen Press",
+      "collection_dir": "paid/lettering/calm",
+      "axis": "font",
+      "description": "A soft slab-serif with rounded terminals, gently pressed rather than printed hard.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.marker-slab",
+      "name": "Marker Slab",
+      "collection_dir": "paid/lettering/explainer",
+      "axis": "font",
+      "description": "Fat chisel-marker letters laid down in single confident strokes. Nothing hesitant about it.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.microfilm-caption",
+      "name": "Microfilm Caption",
+      "collection_dir": "paid/lettering/archive",
+      "axis": "font",
+      "description": "The small evenly spaced characters that head a reel of microfilm — plain, mechanical, unarguable.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.moonlit-thread",
+      "name": "Moonlit Thread",
+      "collection_dir": "paid/lettering/calm",
+      "axis": "font",
+      "description": "Hairline letterforms set wide apart, thin as thread. Almost weightless.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.museum-placard",
+      "name": "Museum Placard",
+      "collection_dir": "paid/lettering/archive",
+      "axis": "text",
+      "description": "Fine engraved lettering on a cream enamel plaque — the caption beside the exhibit, not the exhibit.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.paper-cutout",
+      "name": "Paper Cutout",
+      "collection_dir": "paid/lettering/explainer",
+      "axis": "font",
+      "description": "Letters cut from thick coloured paper with the scissor edges left showing.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.pixel-block",
+      "name": "Pixel Block",
+      "collection_dir": "paid/lettering/arcade",
+      "axis": "font",
+      "description": "Chunky low-resolution pixel letters built from hard square blocks. No anti-aliasing anywhere.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.redacted-marker",
+      "name": "Redacted Marker",
+      "collection_dir": "paid/lettering/investigation",
+      "axis": "text",
+      "description": "Each line sits on a heavy black marker bar with the words knocked out of it — the classifed-document look, made legible.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.rust-bleed",
+      "name": "Rust Bleed",
+      "collection_dir": "paid/lettering/dread",
+      "axis": "text",
+      "description": "Corroded iron with orange rust bleeding outward into whatever is behind it.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.seventies-bubble",
+      "name": "Seventies Bubble",
+      "collection_dir": "paid/lettering/arcade",
+      "axis": "font",
+      "description": "Inflated 1970s bubble letters, rounded and crowding into each other.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.shadow-swallow",
+      "name": "Shadow Swallow",
+      "collection_dir": "paid/lettering/dread",
+      "axis": "font",
+      "description": "Letters whose lower halves are eaten by darkness — you read the tops and your eye finishes the rest.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.soft-vellum",
+      "name": "Soft Vellum",
+      "collection_dir": "paid/lettering/calm",
+      "axis": "text",
+      "description": "Warm cream vellum with a faint translucent glow coming through the letters.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.sticker-cut",
+      "name": "Sticker Cut",
+      "collection_dir": "paid/lettering/explainer",
+      "axis": "text",
+      "description": "Die-cut sticker treatment: a thick white border all the way round and a small offset shadow.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.surveillance-timecode",
+      "name": "Surveillance Timecode",
+      "collection_dir": "paid/lettering/investigation",
+      "axis": "font",
+      "description": "The rigid monospaced characters burned into the corner of a camera recording — thin, evenly spaced, faintly aliased.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.vhs-tracking",
+      "name": "VHS Tracking",
+      "collection_dir": "paid/lettering/arcade",
+      "axis": "text",
+      "description": "Chroma-shifted colour fringing with a tracking tear ripping across the middle of the word.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.wet-ink-drip",
+      "name": "Wet Ink Drip",
+      "collection_dir": "paid/lettering/dread",
+      "axis": "text",
+      "description": "Glossy black ink still wet, running slowly down from the baseline.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.chronology",
+      "name": "Chronology",
+      "collection_dir": "paid/metadata-formulas/editorial",
+      "axis": "Dated era markers as headers, a short paragraph under each.",
+      "description": "The episode's subject laid out in time. Era or date markers become the headers and each carries a short paragraph, so a…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.numbered-index",
+      "name": "Numbered Index",
+      "collection_dir": "paid/metadata-formulas/editorial",
+      "axis": "A numbered one-line index of what is covered, then one fram…",
+      "description": "A numbered index of everything covered, one line each, then a single paragraph of framing. Scannable in two seconds. Un…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.problem-and-fix",
+      "name": "Problem and Fix",
+      "collection_dir": "paid/metadata-formulas/editorial",
+      "axis": "Problem, cost, proposal, evidence — four headed blocks that…",
+      "description": "Four headed blocks that argue rather than describe: the problem, what it costs, what the episode proposes, and what bac…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.questions-and-answers",
+      "name": "Questions and Answers",
+      "collection_dir": "paid/metadata-formulas/editorial",
+      "axis": "Every section is a question header with a short answer bene…",
+      "description": "The whole description is the questions a viewer arrives with, each one a header and each answered in two or three sente…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.quote-led",
+      "name": "Quote Led",
+      "collection_dir": "paid/metadata-formulas/editorial",
+      "axis": "A pulled quote first, then commentary, context, and attribu…",
+      "description": "Opens on a line pulled from the episode itself, then earns it. A quote, a paragraph of commentary, the context that mak…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.signed-note",
+      "name": "Signed Note",
+      "collection_dir": "paid/metadata-formulas/editorial",
+      "axis": "A short first-person note to the viewer, signed off at the…",
+      "description": "The description as a short note from the person who made it, in first person, ending in a sign-off. No headers, no bloc…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.ancient-humans",
+      "name": "How Did Ancient Humans…?",
+      "collection_dir": "free-starters/formula/ancient-humans-v1.0.2",
+      "axis": "Evidence & systems",
+      "description": "Long-form prehistoric and early-human survival explainers. Each episode asks one concrete question about how ancient hu…",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.archival-ledger",
+      "name": "Archival Ledger",
+      "collection_dir": "archival-ledger",
+      "axis": "Evidence & systems",
+      "description": "Long-form historical documentaries that reconstruct how major outcomes came about: the institutions, material pressures…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.archival-ledger",
+      "name": "Archival Ledger",
+      "collection_dir": "paid/archival-ledger/formula/archival-ledger",
+      "axis": "Evidence & systems",
+      "description": "Long-form historical documentaries that reconstruct how major outcomes came about: the institutions, material pressures…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.before-after-timeline",
+      "name": "Before/After Timeline",
+      "collection_dir": "reusable-primitives/formula/before-after-timeline",
+      "axis": "Evidence-aware timelines",
+      "description": "A reusable evidence-aware Formula that establishes a baseline, names one change and its time window, follows measuremen…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.build-under-constraints",
+      "name": "Build Under Constraints",
+      "collection_dir": "legacy-niche-conversion/formula/build-under-constraints",
+      "axis": "Immersive paths",
+      "description": "First-person, point-of-view creator content where ONE on-screen character walks the viewer through an aspirational, act…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.counted-explainer",
+      "name": "Counted Explainer",
+      "collection_dir": "legacy-niche-conversion/formula/counted-explainer",
+      "axis": "Evidence & systems",
+      "description": "The curious-explainer voice for multi-topic explainer and 'Top N' videos: confident, evidence-based, occasionally wry,…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.deep-time-documentary",
+      "name": "Deep Time Documentary",
+      "collection_dir": "free-starters/formula/deep-time-documentary-v1.0.2",
+      "axis": "Evidence & systems",
+      "description": "Feature-length, evidence-led documentaries about the changing Earth: prehistoric life, ancient oceans, climates, landfo…",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.economics-of",
+      "name": "The Economics of…",
+      "collection_dir": "free-starters/formula/economics-of-v1.0.1",
+      "axis": "Evidence & systems",
+      "description": "Long-form economics explainers about what it costs, earns, and risks to own or operate a real business.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.guided-mindfulness",
+      "name": "Guided Mindfulness",
+      "collection_dir": "free-starters/formula/guided-mindfulness-v1.0.1",
+      "axis": "Mind & ideas",
+      "description": "Guided meditation, breathing exercises, body-scan, present-moment awareness. Tone is slow, present, breath-paced. Pair…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.history-explained",
+      "name": "History, Explained",
+      "collection_dir": "free-starters/formula/history-explained-v1.0.2",
+      "axis": "Evidence & systems",
+      "description": "Short narrated history facts — events, people, oddities. Tone is curious and grounded; voice is the friend who reads a…",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.human-behavior-explained",
+      "name": "Human Behavior, Explained",
+      "collection_dir": "free-starters/formula/human-behavior-explained-v1.0.2",
+      "axis": "Mind & ideas",
+      "description": "Pop-psychology narration — habits, cognitive biases, relationships, mental health, focus, anxiety, ADHD, stoicism-as-CB…",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.natural-world-explained",
+      "name": "Natural World, Explained",
+      "collection_dir": "free-starters/formula/natural-world-explained-v1.0.2",
+      "axis": "Living world",
+      "description": "Wildlife subjects from across the whole animal kingdom, vertebrates and invertebrates alike — mammals, birds, reptiles,…",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.pastoral-scripture",
+      "name": "Pastoral Scripture",
+      "collection_dir": "legacy-niche-conversion/formula/pastoral-scripture",
+      "axis": "Faith",
+      "description": "A scripture-anchored pastoral Formula with two explicit modes: a concise daily reflection that teaches one takeaway, an…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.philosophy-real-problem",
+      "name": "Philosophy for a Real Problem",
+      "collection_dir": "legacy-niche-conversion/formula/philosophy-real-problem",
+      "axis": "Mind & ideas",
+      "description": "Short philosophical reflections — Stoicism, Taoism, Buddhism, existentialism, ethics. Tone is thoughtful and unhurried;…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.pov-your-life-as",
+      "name": "POV: Your Life As…",
+      "collection_dir": "free-starters/formula/pov-your-life-as-v1.0.2",
+      "axis": "Immersive paths",
+      "description": "Second-person life-path explainers that place the viewer inside a role, rank, or occupation and carry them through recr…",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.practical-motivation",
+      "name": "Practical Motivation",
+      "collection_dir": "free-starters/formula/practical-motivation-v1.0.1",
+      "axis": "Mind & ideas",
+      "description": "Spoken-word motivational narration — discipline, mindset, hard work, resilience. Pair with cinematic B-Roll (runners, s…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.prayer",
+      "name": "Prayer",
+      "collection_dir": "legacy-niche-conversion/formula/prayer",
+      "axis": "Faith",
+      "description": "Spoken-word Christian prayer paired with calm, reverent B-Roll. Topics span morning / evening / mealtime / family / anx…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.question-ladder",
+      "name": "Question Ladder",
+      "collection_dir": "reusable-primitives/formula/question-ladder",
+      "axis": "Evidence-aware explainers",
+      "description": "A reusable explanatory Formula that starts with one concrete audience question, defines its scope, explains the mechani…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.sleep-history-compilation",
+      "name": "Sleep History Compilation",
+      "collection_dir": "sleep-history/formula/sleep-history-compilation",
+      "axis": "Calm documentary",
+      "description": "Long, calm compilations of true histories — ten to twenty independent chapters per video, each the slow story of one fo…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.sleep-story",
+      "name": "Sleep Story",
+      "collection_dir": "free-starters/formula/sleep-story",
+      "axis": "Calm stories",
+      "description": "Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories wit…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.animal-hardship-annotation",
+      "name": "Animal Hardship Annotation",
+      "collection_dir": "free-starters/thumbnail/animal-hardship-annotation",
+      "axis": "Natural world",
+      "description": "A direct 16:9 animal explainer cover pairing one expressive animal with one restrained hand-drawn hardship note.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.annotated-business-board",
+      "name": "Annotated Business Board",
+      "collection_dir": "free-starters/thumbnail/annotated-business-board",
+      "axis": "Explainer",
+      "description": "A clean hand-drawn economics explainer: one unmistakable business or location in the center, surrounded by a small visu…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.archival-map-investigation",
+      "name": "Archival Map Investigation",
+      "collection_dir": "archival-ledger",
+      "axis": "History",
+      "description": "A historical investigation cover: an original period portrait or key artifact, a marked parchment map, and one archival…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.archival-map-investigation",
+      "name": "Archival Map Investigation",
+      "collection_dir": "paid/archival-ledger/thumbnail/archival-map-investigation",
+      "axis": "History",
+      "description": "A historical investigation cover: an original period portrait or key artifact, a marked parchment map, and one archival…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.before-after-proof-panel",
+      "name": "Before/After Proof Panel",
+      "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel",
+      "axis": "Explainer",
+      "description": "A truthful temporal comparison of one subject's baseline and credible observed outcome.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.centered-hero-headline",
+      "name": "Centered Hero Headline",
+      "collection_dir": "free-starters/thumbnail/centered-hero-headline",
+      "axis": "Explainer",
+      "description": "Full-canvas dim overlay (~50% strength) with one big centered all-caps headline. No subtitle banner, no accent rule. Wo…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.curiosity-question-cartoon",
+      "name": "Curiosity Question Cartoon",
+      "collection_dir": "free-starters/thumbnail/curiosity-question-cartoon-v1.0.1",
+      "axis": "Explainer",
+      "description": "A bright, simple cartoon moment with one main subject, one revealing contrast, and a short model-rendered curiosity hoo…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.cutaway-exploded-object",
+      "name": "Cutaway Exploded Object",
+      "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object",
+      "axis": "Explainer",
+      "description": "One object opened along an ordered inside-to-outside axis with a few readable layers.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.documentary-label-tableau",
+      "name": "Documentary Label Tableau",
+      "collection_dir": "free-starters/thumbnail/documentary-label-tableau-v1.0.1",
+      "axis": "Documentary",
+      "description": "One extraordinary natural-history subject or Earth-scale event, composed as a calm cinematic tableau with a short model…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.dreamlike-story-title-card",
+      "name": "Dreamlike Story Title Card",
+      "collection_dir": "legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card",
+      "axis": "Sleep Story",
+      "description": "A calm illustrated sleep-story cover with one gentle subject or quiet setting and a large, luminous gold-serif episode…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.dreamscape-story-window",
+      "name": "Dreamscape Story Window",
+      "collection_dir": "free-starters/thumbnail/dreamscape-story-window",
+      "axis": "Sleep Story",
+      "description": "A calm story-world vignette seen through one quiet window of light, with a small readable title and a single gentle foc…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+      "name": "Editorial Psychology Symbolic Split",
+      "collection_dir": "psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1",
+      "axis": "Psychology",
+      "description": "A sparse 16:9 editorial psychology cover built around one symbolic figure or object and a dominant opposing title band.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.hands-on-pov-moment",
+      "name": "Hands-On POV Moment",
+      "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment",
+      "axis": "Explainer",
+      "description": "First-person or over-shoulder hands perform one legible non-harmful action in context.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.hero-payoff-companion",
+      "name": "Hero Payoff Companion",
+      "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion",
+      "axis": "Explainer",
+      "description": "A generic or rights-cleared host visibly connected to one separate tangible result object.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.iconic-result-closeup",
+      "name": "Iconic Result Close-Up",
+      "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup",
+      "axis": "Explainer",
+      "description": "One truthful finished outcome dominates the frame at a detail-revealing angle.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.macro-mystery-detail",
+      "name": "Macro Mystery Detail",
+      "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail",
+      "axis": "Explainer",
+      "description": "One ambiguous macro detail with a small honest edge clue that preserves context.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.numbered-lineup",
+      "name": "Numbered Lineup",
+      "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup",
+      "axis": "Explainer",
+      "description": "Three to five equal-status entries in a precise row or grid with correct native numerals.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.object-hero-question",
+      "name": "Object Hero + Question",
+      "collection_dir": "reusable-primitives/thumbnail/object-hero-question",
+      "axis": "Explainer",
+      "description": "A 16:9 explainer cover with one concrete object or artifact as the hero and a complete exact episode-title question ren…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.period-portrait-serif-title",
+      "name": "Period Portrait Serif Title",
+      "collection_dir": "sleep-history/thumbnail/period-portrait-serif-title",
+      "axis": "History",
+      "description": "An anonymous period-dressed figure presents the episode's subject on one third of the canvas while a large two-line ser…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.portrait-block-right",
+      "name": "Portrait + Right Title Block",
+      "collection_dir": "free-starters/thumbnail/portrait-block-right",
+      "axis": "Documentary",
+      "description": "Subject portrait fills the left side of the canvas; a right-anchored bold all-caps title sits over a dimmed right gradi…",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.prehistoric-discovery",
+      "name": "Prehistoric Discovery",
+      "collection_dir": "free-starters/thumbnail/prehistoric-discovery-v1.0.1",
+      "axis": "Explainer",
+      "description": "One evidence-led prehistoric survival discovery with a compact truthful hook.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.prehistoric-survival-title-card",
+      "name": "Prehistoric Survival Title Card",
+      "collection_dir": "legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card",
+      "axis": "Explainer",
+      "description": "A full-title prehistoric survival explainer cover that connects one simple ancient human to a concrete environmental ch…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.reaction-evidence-inset",
+      "name": "Reaction Evidence Inset",
+      "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset",
+      "axis": "Explainer",
+      "description": "A generic reaction subject connected by gaze or gesture to one native evidence detail.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.route-map-one-promise",
+      "name": "Route Map + One Promise",
+      "collection_dir": "reusable-primitives/thumbnail/route-map-one-promise",
+      "axis": "Explainer",
+      "description": "A 16:9 symbolic route cover with one wayfinding anchor and a complete exact episode-title promise rendered directly in…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.scale-journey",
+      "name": "Scale Journey",
+      "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/scale-journey",
+      "axis": "Explainer",
+      "description": "Exactly three related forms progress through continuous depth and scale.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.two-option-criteria-split",
+      "name": "Two-Option Criteria Split",
+      "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split",
+      "axis": "Explainer",
+      "description": "A balanced present-time comparison of two alternatives under shared visible criteria.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.ancient-humans-environments",
+      "name": "Environments & Climate",
+      "collection_dir": "legacy-niche-conversion/topic/ancient-humans-environments",
+      "axis": "-",
+      "description": "How prehistoric people adapted routines and bodies to radically different landscapes.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.ancient-humans-social-life",
+      "name": "Social Life & Belief",
+      "collection_dir": "legacy-niche-conversion/topic/ancient-humans-social-life",
+      "axis": "-",
+      "description": "Family, cooperation, conflict, ritual, identity, and daily rhythms in small communities.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.ancient-humans-survival",
+      "name": "Survival Problems",
+      "collection_dir": "free-starters/topic/ancient-humans-survival-v1.0.1",
+      "axis": "prehistory, survival, risk, archaeology",
+      "description": "Concrete threats and necessities ancient humans had to solve without modern systems, reconstructed from archaeological…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.ancient-humans-technology",
+      "name": "Tools & Technology",
+      "collection_dir": "legacy-niche-conversion/topic/ancient-humans-technology",
+      "axis": "-",
+      "description": "Material inventions and learned processes that changed prehistoric survival.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.archival-ledger.empires-trade-extraction",
+      "name": "Empires, Trade & Extraction",
+      "collection_dir": "archival-ledger",
+      "axis": "empires, colonial history, trade, extraction, global history",
+      "description": "Imperial expansion, colonial rule, chartered companies, trade routes, commodity systems, forced labor, and resistance t…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.archival-ledger.empires-trade-extraction",
+      "name": "Empires, Trade & Extraction",
+      "collection_dir": "paid/archival-ledger/topic/empires-trade-extraction-v1.0.1",
+      "axis": "empires, colonial history, trade, extraction, global history",
+      "description": "Imperial expansion, colonial rule, chartered companies, trade routes, commodity systems, forced labor, and resistance t…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power",
+      "name": "Infrastructure, Commodities & Corporate Power",
+      "collection_dir": "archival-ledger",
+      "axis": "infrastructure history, commodity history, corporate power, industrial history, technology and power",
+      "description": "Railways, canals, energy, food, communications, industrial systems, corporations, and the material networks that reshap…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power",
+      "name": "Infrastructure, Commodities & Corporate Power",
+      "collection_dir": "paid/archival-ledger/topic/infrastructure-commodities-corporate-power-v1.0.1",
+      "axis": "infrastructure history, commodity history, corporate power, industrial history, technology and power",
+      "description": "Railways, canals, energy, food, communications, industrial systems, corporations, and the material networks that reshap…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.archival-ledger.money-debt-financial-institutions",
+      "name": "Money, Debt & Financial Institutions",
+      "collection_dir": "archival-ledger",
+      "axis": "financial history, money, debt, banking, economic crises",
+      "description": "Currency, banking, public debt, taxation, credit systems, financial panics, depressions, and the institutions that orga…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.archival-ledger.money-debt-financial-institutions",
+      "name": "Money, Debt & Financial Institutions",
+      "collection_dir": "paid/archival-ledger/topic/money-debt-financial-institutions-v1.0.1",
+      "axis": "financial history, money, debt, banking, economic crises",
+      "description": "Currency, banking, public debt, taxation, credit systems, financial panics, depressions, and the institutions that orga…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse",
+      "name": "States, Revolutions & Collapse",
+      "collection_dir": "archival-ledger",
+      "axis": "states, revolutions, collapse, civil wars, political change",
+      "description": "State formation and breakdown, revolutions, civil wars, reforms, independence movements, and constitutional turning poi…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse",
+      "name": "States, Revolutions & Collapse",
+      "collection_dir": "paid/archival-ledger/topic/states-revolutions-collapse-v1.0.1",
+      "axis": "states, revolutions, collapse, civil wars, political change",
+      "description": "State formation and breakdown, revolutions, civil wars, reforms, independence movements, and constitutional turning poi…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order",
+      "name": "Wars, Treaties & World Order",
+      "collection_dir": "archival-ledger",
+      "axis": "war history, diplomacy, treaties, world order, geopolitics",
+      "description": "Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order",
+      "name": "Wars, Treaties & World Order",
+      "collection_dir": "paid/archival-ledger/topic/wars-treaties-world-order-v1.0.1",
+      "axis": "war history, diplomacy, treaties, world order, geopolitics",
+      "description": "Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.audience-question-seeder",
+      "name": "Audience Question Seeder",
+      "collection_dir": "reusable-primitives/topic/audience-question-seeder-v1.0.1",
+      "axis": "-",
+      "description": "A duplicate-resistant Topic Pack for practical audience questions, organized by audience context, question intent, cons…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.deep-time-earth-systems",
+      "name": "Earth Systems & Deep Change",
+      "collection_dir": "free-starters/topic/deep-time-earth-systems-v1.0.1",
+      "axis": "geology, Earth systems, climate history",
+      "description": "Planetary mechanisms, climates, continents, landforms, and changing atmospheres across deep time.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.deep-time-field-record.ancient-oceans-deep-sea",
+      "name": "Ancient Oceans & Deep Sea",
+      "collection_dir": "paid/deep-time-field-record/topic/ancient-oceans-deep-sea",
+      "axis": "palaeoceanography, ancient oceans, deep sea, ocean chemistry, sediment cores",
+      "description": "Evidence-led episodes about the ocean as a system through deep time - its chemistry, circulation, gateways, reefs and s…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.deep-time-field-record.human-origins-ancient-worlds",
+      "name": "Human Origins & Ancient Worlds",
+      "collection_dir": "paid/deep-time-field-record/topic/human-origins-ancient-worlds",
+      "axis": "palaeoanthropology, human origins, hominin fossils, archaeology, dating methods",
+      "description": "Evidence-led episodes about the hominin record - the specimen, the site, the date and the dispute - built from named fo…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.deep-time-field-record.prehistoric-life-extinction",
+      "name": "Prehistoric Life & Extinction",
+      "collection_dir": "paid/deep-time-field-record/topic/prehistoric-life-extinction",
+      "axis": "palaeontology, prehistoric life, extinction, fossil record, evolution",
+      "description": "Evidence-led episodes about ancient life and the extinctions that reshaped it, built from named specimens, formations,…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.deep-time-speculative-earth",
+      "name": "Speculative Earth Scenarios",
+      "collection_dir": "legacy-niche-conversion/topic/deep-time-speculative-earth",
+      "axis": "-",
+      "description": "Clearly labelled counterfactual Earth and life scenarios constrained by real science.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.drinks-and-spices-histories",
+      "name": "Drinks & Spices Histories",
+      "collection_dir": "sleep-history/topic/drinks-and-spices-histories-v1.0.1",
+      "axis": "drink history, spice history, everyday history",
+      "description": "Fifty drinks, spices, and condiments, each with twenty distinct hand-authored episode angles for calm, long-form histor…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.economics-ancient-civilizations",
+      "name": "Ancient Civilizations & Empires",
+      "collection_dir": "legacy-niche-conversion/topic/economics-ancient-civilizations",
+      "axis": "-",
+      "description": "Economic systems, institutions, infrastructure, and state power across ancient civilizations.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.economics-businesses",
+      "name": "Businesses & Companies",
+      "collection_dir": "free-starters/topic/economics-businesses-v1.0.1",
+      "axis": "business, companies, ownership, operations",
+      "description": "Owner-operator businesses, capital-heavy companies, venues, and modern commercial systems, examined through their real…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.everyday-calm",
+      "name": "Everyday Calm",
+      "collection_dir": "free-starters/topic/everyday-calm-v1.0.1",
+      "axis": "mindfulness, everyday calm, gentle practice",
+      "description": "Fifty ordinary moments that can hold a brief, optional practice of attention.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.everyday-object-histories",
+      "name": "Everyday Object Histories",
+      "collection_dir": "sleep-history/topic/everyday-object-histories-v1.0.1",
+      "axis": "object history, material culture, everyday history",
+      "description": "Fifty ordinary household objects, each with twenty materially distinct chapter angles, for long compilations that tell…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.food-histories",
+      "name": "Food Histories",
+      "collection_dir": "sleep-history/topic/food-histories",
+      "axis": "food history, culinary history, everyday history",
+      "description": "Fifty foods, each with twenty materially distinct episode slots, for calm long-form compilations that tell the true his…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.habits-momentum",
+      "name": "Habits & Momentum",
+      "collection_dir": "free-starters/topic/habits-momentum-v1.0.2",
+      "axis": "habits, momentum, practical motivation",
+      "description": "Fifty mechanisms of behaviour change - starting, cues and environment, sustaining, relapse, measurement, identity, and…",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.historical-wars-treaties-world-order",
+      "name": "Wars, Treaties & World Order",
+      "collection_dir": "free-starters/topic/historical-wars-treaties-world-order-v1.0.2",
+      "axis": "war history, diplomacy, treaties, world order, geopolitics",
+      "description": "Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.human-behavior-social-dynamics",
+      "name": "Social Dynamics & Boundaries",
+      "collection_dir": "free-starters/topic/human-behavior-social-dynamics-v1.0.1",
+      "axis": "psychology, relationships, social dynamics",
+      "description": "Evidence-aware relationship patterns, status, manipulation, trust, conflict, boundaries, and group behavior.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.natural-world-animals",
+      "name": "Animals",
+      "collection_dir": "free-starters/topic/natural-world-animals-v1.0.1",
+      "axis": "animals, wildlife, biology",
+      "description": "Vertebrate and invertebrate animal lives, adaptations, ecological pressures, and survival trade-offs.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.natural-world-fungi",
+      "name": "Fungi & Mycelium",
+      "collection_dir": "legacy-niche-conversion/topic/natural-world-fungi",
+      "axis": "-",
+      "description": "Fungi, lichen, decay, symbiosis, spores, and the hidden systems beneath forests and soils.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.natural-world-insects",
+      "name": "Insects & Arthropods",
+      "collection_dir": "legacy-niche-conversion/topic/natural-world-insects",
+      "axis": "-",
+      "description": "Insects, arachnids, crustaceans, social colonies, metamorphosis, and extreme small-animal adaptations.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.natural-world-plants",
+      "name": "Plants & Botanical Survival",
+      "collection_dir": "legacy-niche-conversion/topic/natural-world-plants",
+      "axis": "-",
+      "description": "Plants, pollination, roots, reproduction, chemical defenses, and adaptations to difficult habitats.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.night-journeys",
+      "name": "Night Journeys",
+      "collection_dir": "free-starters/topic/night-journeys-v1.0.1",
+      "axis": "sleep story, bedtime story, night journey",
+      "description": "Fifty low-arousal night-story settings where one gentle character completes twenty distinct, quiet tasks or journeys.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.pastoral-daily-reflection",
+      "name": "Daily Scripture Reflection",
+      "collection_dir": "legacy-niche-conversion/topic/pastoral-daily-reflection",
+      "axis": "devotional, scripture, reflection",
+      "description": "Short passage-led devotional reflections with one grounded practice for daily life.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.pastoral-expository-teaching",
+      "name": "Expository Scripture Teaching",
+      "collection_dir": "legacy-niche-conversion/topic/pastoral-expository-teaching",
+      "axis": "preaching, scripture, teaching",
+      "description": "Longer text-led teaching that traces a passage's argument before making one pastoral application.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.pov-criminal-hierarchies",
+      "name": "Criminal Hierarchies",
+      "collection_dir": "legacy-niche-conversion/topic/pov-criminal-hierarchies",
+      "axis": "crime, hierarchy, outlaws",
+      "description": "Roles and ladders inside organized crime, smuggling, piracy, and outlaw networks examined through institutional evidenc…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.pov-historical-occupations",
+      "name": "Historical Occupations",
+      "collection_dir": "free-starters/topic/pov-historical-occupations-v1.0.1",
+      "axis": "historical jobs, occupations, daily life",
+      "description": "Dangerous, strange, and status-heavy jobs whose full life cycle reveals a past society.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.pov-law-enforcement",
+      "name": "Law Enforcement Hierarchies",
+      "collection_dir": "legacy-niche-conversion/topic/pov-law-enforcement",
+      "axis": "law enforcement, ranks, police",
+      "description": "Ranks, specialist units, and policing systems across periods and societies examined through lawful authority, accountab…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.anime-cel",
+      "name": "Anime Cel",
+      "collection_dir": "production-looks/style/anime-cel",
+      "axis": "Digital",
+      "description": "Modern anime cel-shading — clean lineart, flat cel light, expressive and vivid.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.archival-documentary-reconstruction",
+      "name": "Archival Documentary Reconstruction",
+      "collection_dir": "archival-ledger",
+      "axis": "Realistic",
+      "description": "Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.archival-documentary-reconstruction",
+      "name": "Archival Documentary Reconstruction",
+      "collection_dir": "paid/archival-ledger/style/archival-documentary-reconstruction",
+      "axis": "Realistic",
+      "description": "Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.chinese-ink-wash-storytelling",
+      "name": "Chinese Ink-Wash Storytelling",
+      "collection_dir": "storytelling-looks/style/chinese-ink-wash-storytelling",
+      "axis": "Illustration",
+      "description": "Monochrome brush-and-wash storytelling with calligraphic contours, wet blooms, dry-brush texture, and spacious rice-pap…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.cinematic-photoreal",
+      "name": "Cinematic Photoreal",
+      "collection_dir": "free-starters/style/cinematic-photoreal",
+      "axis": "Realistic",
+      "description": "Filmic photoreal look — shallow depth of field, golden-hour light, graded like a movie still.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.dreamlike-luminous-sleep-illustration",
+      "name": "Dreamlike Luminous Sleep Illustration",
+      "collection_dir": "legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
+      "axis": "Illustration",
+      "description": "A luminous watercolor-and-gouache sleep-story language with moonlit blues, candle gold, and softly painted story-world…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.flat-vector-explainer",
+      "name": "Flat Vector Explainer",
+      "collection_dir": "free-starters/style/flat-vector-explainer",
+      "axis": "Explainer",
+      "description": "Clean flat-vector infographic look — bold shapes, limited palette, crisp and modern.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.hand-drawn-cartoon-explainer",
+      "name": "Hand-Drawn Cartoon Explainer",
+      "collection_dir": "production-looks/style/hand-drawn-cartoon-explainer",
+      "axis": "Explainer",
+      "description": "Casual explainer-video cartoons with rounded mascots, slightly imperfect ink lines, flat muted colors, and familiar eve…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.hand-drawn-editorial-diagram",
+      "name": "Hand-Drawn Editorial Diagram",
+      "collection_dir": "free-starters/style/hand-drawn-editorial-diagram",
+      "axis": "Explainer",
+      "description": "Fine ink outlines, lightly painted natural color, and clear object-led diagrams for approachable visual explainers.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.hand-drawn-hardship-cartoon",
+      "name": "Hand-Drawn Hardship Cartoon",
+      "collection_dir": "legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon",
+      "axis": "Natural world",
+      "description": "An expressive animal illustration language using uneven ink, limited flat color, and sparse annotated paper-like space.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.impasto-psychological-animals",
+      "name": "Impasto Psychological Animals",
+      "collection_dir": "legacy-thumbnail-restoration/style/impasto-psychological-animals",
+      "axis": "Illustration",
+      "description": "A melancholy editorial animal-psychology style rendered with tactile oil-paint depth and one readable human-scale actio…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.minimal-stick-figure-explainer",
+      "name": "Minimal Stick-Figure Explainer",
+      "collection_dir": "free-starters/style/minimal-stick-figure-explainer-v1.0.1",
+      "axis": "Explainer",
+      "description": "Polished stick-figure storytelling with expressive faces, generous white space, and restrained color accents.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.oil-painting-classical",
+      "name": "Oil Painting Classical",
+      "collection_dir": "symbolic-psychology-studio/style/oil-painting-classical",
+      "axis": "Illustration",
+      "description": "Old-master oil painting — rich impasto, chiaroscuro lighting, museum-canvas depth.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.old-master-still-life",
+      "name": "Old Master Still Life",
+      "collection_dir": "sleep-history/style/old-master-still-life",
+      "axis": "Illustration",
+      "description": "Object-led old-master oil still life — one hero object on a worn wooden table under a single cool window light, dark um…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.paleo-documentary-tableau",
+      "name": "Paleo Documentary Tableau",
+      "collection_dir": "free-starters/style/paleo-documentary-tableau",
+      "axis": "Illustration",
+      "description": "Calm painterly natural-history reconstructions with readable deep-time landscapes, organisms, and atmosphere.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.pastel-surreal-psychological-collage",
+      "name": "Pastel Surreal Psychological Collage",
+      "collection_dir": "psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1",
+      "axis": "Editorial psychology",
+      "description": "A restrained matte mixed-media collage language for symbolic psychological subjects and editorial emotional imagery.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.pixel-art-story",
+      "name": "Pixel Art Story",
+      "collection_dir": "production-looks/style/pixel-art-story",
+      "axis": "Digital",
+      "description": "Readable retro RPG pixel art with strong silhouettes and playful adventure framing.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.prehistoric-stick-cartoon",
+      "name": "Prehistoric Stick Cartoon",
+      "collection_dir": "free-starters/style/prehistoric-stick-cartoon-v1.0.1",
+      "axis": "Explainer",
+      "description": "Playful history-explainer cartoon with stick-limbed cave people, mammoths, flat snowy scenes, and bold black outlines.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.retro-paint-fantasy",
+      "name": "Retro Paint Fantasy",
+      "collection_dir": "production-looks/style/retro-paint-fantasy",
+      "axis": "Digital",
+      "description": "Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.sepia-ink-wash",
+      "name": "Sepia Ink & Wash",
+      "collection_dir": "free-starters/style/sepia-ink-wash",
+      "axis": "Illustration",
+      "description": "Muted line-and-wash illustration — fine ink over desaturated watercolor, lamplit and weathered, like a period expeditio…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.studio-catalog-realism",
+      "name": "Studio Catalog Realism",
+      "collection_dir": "production-looks/style/studio-catalog-realism",
+      "axis": "Realistic",
+      "description": "Crisp tabletop realism with neutral surfaces, honest materials, soft studio light, and carefully staged miniature scene…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.watercolor-storybook",
+      "name": "Watercolor Storybook",
+      "collection_dir": "free-starters/style/watercolor-storybook",
+      "axis": "Illustration",
+      "description": "Soft children’s-book watercolor — gentle washes, rounded shapes, warm and cozy.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.waxy-outline-cartoon",
+      "name": "Waxy Outline Cartoon",
+      "collection_dir": "free-starters/style/waxy-outline-cartoon",
+      "axis": "Explainer",
+      "description": "Bold curiosity-cartoon art with waxy imperfect outlines, saturated flats, and instantly readable reactions.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.whiteboard-doodle-explainer",
+      "name": "Whiteboard Doodle Explainer",
+      "collection_dir": "production-looks/style/whiteboard-doodle-explainer",
+      "axis": "Explainer",
+      "description": "Hand-drawn whiteboard doodles — stick figures, big expressive faces, one idea per frame.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    }
+  ]
+}
