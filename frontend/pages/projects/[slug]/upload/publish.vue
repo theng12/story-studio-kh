@@ -108,7 +108,7 @@
               </button>
               <button
                 v-if="renderState(ep) === 'ready'" class="btn btn-ghost btn-sm" type="button"
-                :disabled="busy !== ''" @click="preview(ep.episode_code)"
+                :disabled="busy !== ''" @click="preview(ep.episode_code, $event)"
               >
                 {{ busy === `preview-${ep.episode_code}` ? 'Preparing…' : 'Review upload details' }}
               </button>
@@ -126,14 +126,14 @@
         <p class="hint">Checking with YouTube spends this Cloud project’s daily allowance. Nothing here checks on its own.</p>
       </section>
 
-      <Modal :visible="!!previewed" size="lg" labelledby="upload-review-title" @close="closeReview">
+      <Modal :visible="!!previewed" size="lg" labelledby="upload-review-title" @close="closeReview()">
         <section v-if="previewed" class="upload-review">
           <header class="review-head">
             <div>
               <h2 id="upload-review-title" ref="previewHeading" tabindex="-1">What YouTube will receive</h2>
               <p>{{ previewedEpisode }} · exact metadata review before upload</p>
             </div>
-            <button type="button" class="btn btn-ghost btn-sm" @click="closeReview">Close</button>
+            <button type="button" class="btn btn-ghost btn-sm" @click="closeReview()">Close</button>
           </header>
           <p v-if="previewed.modifications.length" class="hint">
             {{ previewed.modifications.length }} change{{ previewed.modifications.length === 1 ? '' : 's' }} applied to your metadata:
@@ -146,6 +146,66 @@
         <ul v-if="previewed.warnings.length" class="warnings">
           <li v-for="(warning, i) in previewed.warnings" :key="i"><b>Warning:</b> {{ warning }}</li>
         </ul>
+
+        <section class="thumbnail-review" aria-labelledby="upload-thumbnail-title">
+          <div class="thumbnail-review-head">
+            <div>
+              <p class="section-kicker">Thumbnail</p>
+              <h3 id="upload-thumbnail-title">{{ alreadyPublished ? 'Current local thumbnail' : 'Choose the image for this upload' }}</h3>
+            </div>
+            <span v-if="previewed.thumbnail.options.length" class="thumbnail-count">
+              {{ previewed.thumbnail.options.length }} option{{ previewed.thumbnail.options.length === 1 ? '' : 's' }}
+            </span>
+          </div>
+          <template v-if="previewed.thumbnail.state === 'selected'">
+            <div class="selected-thumbnail">
+              <img
+                v-if="!thumbnailImageUnavailable"
+                :src="previewed.thumbnail.url"
+                :alt="`Thumbnail selected for ${previewedEpisode}`"
+                @error="thumbnailImageUnavailable = true"
+              />
+              <div v-else class="thumbnail-unavailable" role="status">
+                This thumbnail file is selected, but its preview is unavailable.
+              </div>
+              <div class="selected-thumbnail-copy">
+                <strong>{{ previewed.thumbnail.filename }}</strong>
+                <span v-if="alreadyPublished">Current local selection. It does not change the upload already queued or on YouTube.</span>
+                <span v-else>Selected for this upload request. Your saved default is unchanged.</span>
+              </div>
+            </div>
+          </template>
+          <div v-else-if="previewed.thumbnail.state === 'unavailable'" class="thumbnail-unavailable" role="status">
+            <strong>{{ previewed.thumbnail.filename }}</strong>
+            <span>{{ previewed.thumbnail.reason || 'The selected thumbnail is unavailable.' }}</span>
+          </div>
+          <div v-else class="thumbnail-unavailable" role="status">
+            <strong>No thumbnail is selected for this upload.</strong>
+            <span>Choose or generate one if you want Story Studio to set a thumbnail on YouTube.</span>
+          </div>
+          <div v-if="previewed.thumbnail.options.length > 1 || previewed.thumbnail.state !== 'selected' || thumbnailImageUnavailable" class="thumbnail-options" aria-label="Choose thumbnail">
+            <button
+              v-for="option in previewed.thumbnail.options"
+              :key="option.filename"
+              type="button"
+              :class="['thumbnail-option', { selected: option.filename === previewed.thumbnail.filename }]"
+              :data-thumbnail-filename="option.filename"
+              :aria-pressed="option.filename === previewed.thumbnail.filename"
+              :title="option.filename === previewed.thumbnail.filename && thumbnailImageUnavailable ? 'Retry thumbnail preview' : `Use ${option.filename}`"
+              :disabled="busy !== '' || !!alreadyPublished"
+              @click="selectThumbnail(option.filename, $event)"
+            >
+              <img :src="option.url" alt="" />
+              <span>{{ option.filename }}</span>
+              <small v-if="option.filename === previewed.thumbnail.filename">✓ Selected</small>
+              <small v-if="option.is_pinned">Saved default</small>
+            </button>
+          </div>
+          <p v-if="thumbnailError" class="row-result err" role="alert">{{ thumbnailError }}</p>
+          <NuxtLink class="thumbnail-generator-link" :to="thumbnailGeneratorLink(previewedEpisode)">
+            Open {{ previewedEpisode }} in Thumbnail Generator
+          </NuxtLink>
+        </section>
 
         <dl class="payload">
           <div><dt>Title</dt><dd>{{ previewed.snippet.title }}</dd></div>
@@ -180,6 +240,9 @@
           as a way to correct something.
         -->
         <div v-else-if="alreadyPublished" class="hint">{{ alreadyPublished }}</div>
+        <div v-else-if="previewed.thumbnail.state === 'unavailable' || thumbnailImageUnavailable" class="hint">
+          Choose an available thumbnail before uploading.
+        </div>
         <div v-else class="field-row upload-row">
           <button class="btn btn-primary" type="button" :disabled="busy !== ''" @click="upload(previewedEpisode)">
             {{ busy === 'upload' ? 'Uploading…' : 'Upload to YouTube' }}
@@ -262,6 +325,20 @@ interface Preview {
   status: { privacyStatus: string; publishAt?: string; containsSyntheticMedia?: boolean }
   modifications: Array<{ field: string; reason: string }>
   warnings: string[]
+  thumbnail: {
+    state: 'selected' | 'none' | 'unavailable'
+    filename?: string
+    url?: string
+    reason?: string
+    options: Array<{ filename: string; url: string; is_pinned?: boolean }>
+  }
+}
+
+function normalizePreview(value: Preview): Preview {
+  return {
+    ...value,
+    thumbnail: value.thumbnail || { state: 'none', options: [] },
+  }
 }
 
 const route = useRoute()
@@ -320,6 +397,9 @@ const uploadQuotaExhausted = ref(false)
 const quotaUnavailableReason = ref('')
 const previewedEpisode = ref('')
 const previewHeading = ref<HTMLElement | null>(null)
+const reviewOpener = ref<HTMLElement | null>(null)
+const thumbnailImageUnavailable = ref(false)
+const thumbnailError = ref('')
 const videoEpisode = ref<PublishableEpisode | null>(null)
 const videoError = ref('')
 const overviewError = ref('')
@@ -460,7 +540,22 @@ function countStatus(key: StatusFilter): number { return episodes.value.filter(e
 function clearFilters(): void { filter.value = ''; statusFilter.value = 'all' }
 function openVideo(ep: PublishableEpisode): void { if (playableVideoUrl(ep)) videoEpisode.value = ep }
 function closeVideo(): void { videoEpisode.value = null; videoError.value = '' }
-function closeReview(): void { previewed.value = null; previewedEpisode.value = '' }
+function closeReview(restoreFocus = true): void {
+  const opener = reviewOpener.value
+  reviewOpener.value = null
+  previewed.value = null
+  previewedEpisode.value = ''
+  thumbnailImageUnavailable.value = false
+  thumbnailError.value = ''
+  if (restoreFocus && opener) {
+    void nextTick(() => {
+      if (opener.isConnected && !(opener as HTMLButtonElement).disabled) opener.focus()
+    })
+  }
+}
+function thumbnailGeneratorLink(episodeCode: string): string {
+  return `/projects/${slug.value}/images?tab=thumbnails&episode_id=${encodeURIComponent(episodeCode)}`
+}
 
 /**
  * Why a remote check cannot run right now, or '' when it can. Local records
@@ -605,21 +700,30 @@ async function refresh(op: Operation): Promise<void> {
  * channel, and neither is undoable: YouTube has no replace.
  */
 async function upload(episodeCode: string): Promise<void> {
+  if (previewed.value?.thumbnail.state === 'unavailable' || thumbnailImageUnavailable.value) return
   const requestedSlug = slug.value
   const expectedChannelId = assignedChannel.value?.channel_id
   const expectedChannelTitle = assignedChannel.value?.title
   const expectedPackageRevision = previewed.value?.package_revision
+  const expectedThumbnailFilename = previewed.value?.thumbnail.state === 'selected'
+    ? previewed.value.thumbnail.filename || null
+    : null
+  const confirmationAction = beginAction('confirm-upload')
   const confirmed = await ask({
     title: `Upload ${episodeCode} to YouTube?`,
     message: `This uploads ${episodeCode} to ${expectedChannelTitle || 'the assigned channel'} (${expectedChannelId || 'unknown'}). `
+      + `Thumbnail: ${expectedThumbnailFilename || 'none selected'}. `
       + 'A video cannot be replaced once uploaded — only deleted and uploaded again under a new link.',
     confirmLabel: 'Upload',
   })
-  if (!confirmed) return
+  if (!actionIsCurrent(confirmationAction)) return
+  if (!confirmed) { busy.value = ''; return }
   if (slug.value !== requestedSlug || previewedEpisode.value !== episodeCode
     || previewed.value?.package_revision !== expectedPackageRevision
-    || assignedChannel.value?.channel_id !== expectedChannelId) return
-  const action = beginAction('upload')
+    || (previewed.value?.thumbnail.state === 'selected' ? previewed.value.thumbnail.filename || null : null) !== expectedThumbnailFilename
+    || assignedChannel.value?.channel_id !== expectedChannelId) { busy.value = ''; return }
+  busy.value = 'upload'
+  const action = confirmationAction
   delete rowResults[episodeCode]
   try {
     const res = await post<{ job_id: string; channel_id: string }>(
@@ -629,6 +733,7 @@ async function upload(episodeCode: string): Promise<void> {
         confirm: true,
         expected_channel_id: expectedChannelId,
         expected_package_revision: expectedPackageRevision,
+        thumbnail_filename: expectedThumbnailFilename,
       },
     )
     if (!actionIsCurrent(action)) return
@@ -645,7 +750,8 @@ async function upload(episodeCode: string): Promise<void> {
   }
 }
 
-async function preview(episodeCode: string): Promise<void> {
+async function preview(episodeCode: string, event?: Event): Promise<void> {
+  if (event?.currentTarget instanceof HTMLElement) reviewOpener.value = event.currentTarget
   const action = beginAction(`preview-${episodeCode}`)
   delete rowResults[episodeCode]
   // Drop the previous payload BEFORE asking for the next one. Leaving it up
@@ -654,6 +760,8 @@ async function preview(episodeCode: string): Promise<void> {
   // about another.
   previewed.value = null
   previewedEpisode.value = ''
+  thumbnailImageUnavailable.value = false
+  thumbnailError.value = ''
   try {
     const result = await post<Preview>(`/projects/${action.slug}/youtube/preview`, {
       // No `mark_as_ai_generated` here. The server resolves it from the
@@ -662,7 +770,7 @@ async function preview(episodeCode: string): Promise<void> {
       episode_code: episodeCode, privacy_status: 'private',
     })
     if (!actionIsCurrent(action)) return
-    previewed.value = result
+    previewed.value = normalizePreview(result)
     previewedEpisode.value = episodeCode
     await nextTick()
     previewHeading.value?.focus()
@@ -671,6 +779,38 @@ async function preview(episodeCode: string): Promise<void> {
     rowResults[episodeCode] = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not build the upload details.' }
   } finally {
     if (actionIsCurrent(action)) busy.value = ''
+  }
+}
+
+async function selectThumbnail(filename: string, event?: Event): Promise<void> {
+  if (!previewed.value || !previewedEpisode.value || busy.value || alreadyPublished.value
+    || (previewed.value.thumbnail.filename === filename && !thumbnailImageUnavailable.value)) return
+  const restoreFocus = event?.currentTarget instanceof HTMLElement && event.currentTarget === document.activeElement
+  const episodeCode = previewedEpisode.value
+  const action = beginAction(`thumbnail-${episodeCode}`)
+  thumbnailError.value = ''
+  try {
+    const result = await post<Preview>(`/projects/${action.slug}/youtube/preview`, {
+      episode_code: episodeCode,
+      privacy_status: 'private',
+      thumbnail_filename: filename,
+    })
+    if (!actionIsCurrent(action) || previewedEpisode.value !== episodeCode) return
+    previewed.value = normalizePreview(result)
+    thumbnailImageUnavailable.value = false
+  } catch (error: any) {
+    if (!actionIsCurrent(action) || previewedEpisode.value !== episodeCode) return
+    thumbnailError.value = error?.data?.detail || error?.message || 'Could not select that thumbnail.'
+  } finally {
+    if (actionIsCurrent(action)) {
+      busy.value = ''
+      if (restoreFocus) {
+        await nextTick()
+        const option = [...(previewHeading.value?.closest('[role="dialog"]')?.querySelectorAll<HTMLButtonElement>('.thumbnail-option') || [])]
+          .find(button => button.dataset.thumbnailFilename === filename)
+        ;(option || previewHeading.value)?.focus()
+      }
+    }
   }
 }
 
@@ -688,7 +828,7 @@ watch(slug, () => {
   uploadQuotaExhausted.value = false
   filter.value = ''
   statusFilter.value = 'all'
-  closeReview()
+  closeReview(false)
   closeVideo()
   for (const key of Object.keys(rowResults)) delete rowResults[key]
   void load()
@@ -770,6 +910,26 @@ watch(slug, () => {
 .video-review video { width: 100%; max-height: min(65vh, 560px); border-radius: var(--radius-sm); background: #000; }
 .changes, .warnings { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: var(--font-xs); }
 .warnings { color: var(--warning, #d97706); }
+.thumbnail-review { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+.thumbnail-review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.thumbnail-review-head h3 { margin: 2px 0 0; font-size: 15px; }
+.section-kicker { margin: 0; color: var(--text-muted); font-size: var(--font-xs); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.thumbnail-count { color: var(--text-muted); font-size: var(--font-xs); }
+.selected-thumbnail { display: grid; grid-template-columns: minmax(180px, 280px) minmax(0, 1fr); gap: 12px; align-items: center; }
+.selected-thumbnail > img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--radius-sm); background: var(--bg-primary); }
+.selected-thumbnail-copy { display: grid; gap: 5px; min-width: 0; }
+.selected-thumbnail-copy strong, .thumbnail-option span { overflow-wrap: anywhere; }
+.selected-thumbnail-copy span, .thumbnail-unavailable span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
+.thumbnail-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+.thumbnail-option { display: grid; grid-template-rows: auto 1fr auto; gap: 5px; min-width: 0; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-secondary); text-align: left; cursor: pointer; }
+.thumbnail-option:hover, .thumbnail-option:focus-visible { border-color: var(--accent); }
+.thumbnail-option.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--text-primary); }
+.thumbnail-option:disabled { cursor: wait; opacity: .65; }
+.thumbnail-option img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: calc(var(--radius-sm) - 2px); background: var(--bg-secondary); }
+.thumbnail-option span { font-size: var(--font-xs); line-height: 1.35; }
+.thumbnail-option small { color: var(--accent); font-size: var(--font-xs); }
+.thumbnail-unavailable { display: grid; gap: 4px; min-height: 92px; align-content: center; padding: 14px; border: 1px dashed var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); }
+.thumbnail-generator-link { width: fit-content; color: var(--accent); font-size: var(--font-xs); }
 .payload { display: grid; gap: 6px; margin: 0; max-height: min(55vh, 520px); overflow: auto; }
 .payload > div { display: grid; grid-template-columns: minmax(120px, 160px) minmax(0, 1fr); gap: 12px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-tertiary); }
 .payload dt, .payload dd { margin: 0; font-size: var(--font-xs); }
@@ -800,5 +960,11 @@ watch(slug, () => {
 @media (max-width: 620px) {
   .upload-review .review-head, .video-review .review-head { align-items: stretch; flex-direction: column; }
   .upload-review .payload > div { grid-template-columns: 1fr; }
+  .selected-thumbnail { grid-template-columns: 1fr; }
+  .thumbnail-options { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 390px) {
+  .thumbnail-review-head { align-items: stretch; flex-direction: column; }
+  .thumbnail-options { grid-template-columns: 1fr; }
 }
 </style>

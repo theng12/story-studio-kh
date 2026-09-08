@@ -40,6 +40,7 @@ async function mount(input: {
   /** Publishable episodes, stated directly. Use this for the never-uploaded case. */
   episodes?: any[]
   preview?: any
+  previewOverride?: (body: any) => Promise<any> | any
   refresh?: any
   channelStatus?: string | null
   quotaRemaining?: number
@@ -120,6 +121,7 @@ async function mount(input: {
         if (input.previewFailAfter !== undefined && previewCalls > input.previewFailAfter) {
           throw new Error('preview exploded')
         }
+        if (input.previewOverride) return input.previewOverride(body)
         return input.preview
       }
       if (path.endsWith('/refresh')) return input.refresh
@@ -222,6 +224,125 @@ describe('Upload Center Publish', () => {
     mounted.destroy()
   })
 
+  test('review shows the selected thumbnail and carries a changed choice into the queued upload', async () => {
+    const selected = (filename: string) => ({
+      ...PREVIEWED,
+      thumbnail: {
+        state: 'selected',
+        filename,
+        url: `/api/projects/demo-project/video-editor/preview-image?path=${encodeURIComponent(`/tmp/${filename}`)}&v=1`,
+        options: [
+          { filename: 'EP0001_Thumb01_v2.png', url: '/api/thumb-v2.png' },
+          { filename: 'EP0001_Thumb01_v1.png', url: '/api/thumb-v1.png' },
+        ],
+      },
+    })
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      previewOverride: (body) => selected(body.thumbnail_filename || 'EP0001_Thumb01_v2.png'),
+    })
+    await previewThen(mounted)
+
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    assert.equal(dialog.querySelector('img')?.getAttribute('src'), '/api/projects/demo-project/video-editor/preview-image?path=%2Ftmp%2FEP0001_Thumb01_v2.png&v=1')
+    assert.match(dialog.textContent || '', /EP0001_Thumb01_v2\.png/)
+    const older = [...dialog.querySelectorAll('button')]
+      .find(button => button.textContent?.includes('EP0001_Thumb01_v1.png')) as HTMLButtonElement
+    assert.equal(older.getAttribute('aria-pressed'), 'false')
+    older.focus()
+    older.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    const chosen = [...dialog.querySelectorAll('button')]
+      .find(button => button.textContent?.includes('EP0001_Thumb01_v1.png')) as HTMLButtonElement
+    assert.equal(chosen.getAttribute('aria-pressed'), 'true')
+    assert.match(chosen.textContent || '', /Selected/)
+    assert.equal(document.activeElement, chosen, 'keyboard focus follows the selected thumbnail through preview refresh')
+
+    const upload = [...mounted.el.querySelectorAll('button')]
+      .find(button => button.textContent!.includes('Upload to YouTube')) as HTMLButtonElement
+    upload.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    const previewCalls = mounted.calls.filter(call => call.path.endsWith('/preview'))
+    assert.equal(previewCalls.length, 2)
+    assert.equal(previewCalls[1]?.body.thumbnail_filename, 'EP0001_Thumb01_v1.png')
+    const posted = mounted.calls.find(call => call.path.endsWith('/youtube/upload'))
+    assert.equal(posted?.body.thumbnail_filename, 'EP0001_Thumb01_v1.png')
+    assert.match(mounted.confirms[0].message, /EP0001_Thumb01_v1\.png/)
+    assert.equal(
+      dialog.querySelector('a')?.getAttribute('href'),
+      '/projects/demo-project/images?tab=thumbnails&episode_id=EP0001',
+    )
+    mounted.destroy()
+  })
+
+  test('review distinguishes no thumbnail from an image that cannot be displayed', async () => {
+    const none = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: { ...PREVIEWED, thumbnail: { state: 'none', options: [] } },
+    })
+    await previewThen(none)
+    assert.match(none.text(), /No thumbnail is selected for this upload/)
+    none.destroy()
+
+    const unavailable = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: {
+        ...PREVIEWED,
+        thumbnail: {
+          state: 'selected', filename: 'EP0001_Thumb01_v1.png', url: '/api/broken.png',
+          options: [{ filename: 'EP0001_Thumb01_v1.png', url: '/api/broken.png' }],
+        },
+      },
+    })
+    await previewThen(unavailable)
+    unavailable.el.querySelector('img')!.dispatchEvent(new Event('error'))
+    await nextTick()
+    assert.match(unavailable.text(), /thumbnail file is selected, but its preview is unavailable/i)
+    assert.equal(
+      [...unavailable.el.querySelectorAll('button')].some(button => button.textContent!.includes('Upload to YouTube')),
+      false,
+      'a thumbnail the owner could not review cannot silently become an explicit no-thumbnail upload',
+    )
+    const retry = unavailable.el.querySelector<HTMLButtonElement>('.thumbnail-option')!
+    assert.equal(retry.title, 'Retry thumbnail preview')
+    retry.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.equal(unavailable.calls.filter(call => call.path.endsWith('/preview')).length, 2)
+    unavailable.destroy()
+  })
+
+  test('a disappeared thumbnail exposes alternatives and remains blocked until one is reviewed', async () => {
+    const available = 'EP0001_Thumb02_v1.png'
+    const unavailable = 'EP0001_Thumb01_v1.png'
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      previewOverride: (body) => body.thumbnail_filename === available
+        ? {
+            ...PREVIEWED,
+            thumbnail: { state: 'selected', filename: available, url: '/api/available.png', options: [{ filename: available, url: '/api/available.png' }] },
+          }
+        : {
+            ...PREVIEWED,
+            thumbnail: {
+              state: 'unavailable', filename: unavailable, reason: 'The selected thumbnail is no longer available.',
+              options: [{ filename: available, url: '/api/available.png' }],
+            },
+          },
+    })
+    await previewThen(mounted)
+    assert.equal(
+      [...mounted.el.querySelectorAll('button')].some(button => button.textContent!.includes('Upload to YouTube')),
+      false,
+    )
+    const alternative = [...mounted.el.querySelectorAll('button')]
+      .find(button => button.textContent!.includes(available)) as HTMLButtonElement
+    assert.ok(alternative)
+    alternative.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.ok([...mounted.el.querySelectorAll('button')].some(button => button.textContent!.includes('Upload to YouTube')))
+    mounted.destroy()
+  })
+
   // ── Clicking Upload ─────────────────────────────────────────────────────
   //
   // The page-level tests. The backend suite proves the route; these prove a
@@ -276,7 +397,7 @@ describe('Upload Center Publish', () => {
 
     const posted = mounted.calls.find(c => c.path.endsWith('/youtube/upload'))
     assert.ok(posted, 'the click reaches the route')
-    assert.deepEqual(posted!.body, { episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x', expected_package_revision: 'pack-42' })
+    assert.deepEqual(posted!.body, { episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x', expected_package_revision: 'pack-42', thumbnail_filename: null })
     assert.match(mounted.confirms[0].message, /Ch \(UC-x\)/)
 
     assert.match(mounted.text(), /Uploading EP0001 to UC-x/)
@@ -322,6 +443,38 @@ describe('Upload Center Publish', () => {
     assert.equal(mounted.confirms.length, 1, 'it did ask')
     assert.equal(mounted.calls.find(c => c.path.endsWith('/youtube/upload')), undefined,
       'and it took no for an answer')
+    mounted.destroy()
+  })
+
+  test('thumbnail choice is locked while upload confirmation is unresolved', async () => {
+    let resolveConfirm!: (value: boolean) => void
+    const confirm = new Promise<boolean>(resolve => { resolveConfirm = resolve })
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: {
+        ...PREVIEWED,
+        thumbnail: {
+          state: 'selected', filename: 'EP0001_Thumb01_v2.png', url: '/api/v2.png',
+          options: [
+            { filename: 'EP0001_Thumb01_v2.png', url: '/api/v2.png' },
+            { filename: 'EP0001_Thumb01_v1.png', url: '/api/v1.png' },
+          ],
+        },
+      },
+      confirmOverride: async () => confirm,
+    })
+    const upload = await previewThen(mounted)
+    upload.click()
+    await nextTick()
+    const choices = [...mounted.el.querySelectorAll<HTMLButtonElement>('.thumbnail-option')]
+    assert.equal(choices.every(button => button.disabled), true)
+    resolveConfirm(false)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    for (let i = 0; i < 4; i++) await nextTick()
+    assert.equal(
+      [...mounted.el.querySelectorAll<HTMLButtonElement>('.thumbnail-option')].every(button => !button.disabled),
+      true,
+    )
     mounted.destroy()
   })
 
@@ -502,6 +655,10 @@ describe('Upload Center Publish', () => {
     assert.ok(dialog)
     assert.match(dialog.textContent || '', /What YouTube will receive/)
     assert.equal((document.activeElement as HTMLElement)?.id, 'upload-review-title')
+    const close = [...dialog.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Close') as HTMLButtonElement
+    close.click()
+    for (let i = 0; i < 3; i++) await nextTick()
+    assert.equal(document.activeElement, review, 'closing review restores its episode trigger')
     mounted.destroy()
 
     const failed = await mount({ episodes: [NEVER_UPLOADED], previewFailAfter: 0 })
@@ -734,11 +891,30 @@ describe('Upload Center Publish', () => {
           local: { render: { state: 'ready' }, upload: { state } },
           publication: { state: 'unpublished' },
         }],
-        preview: PREVIEWED,
+        preview: {
+          ...PREVIEWED,
+          thumbnail: {
+            state: 'selected', filename: 'EP0021_Thumb01_v1.png', url: '/api/current.png',
+            options: [
+              { filename: 'EP0021_Thumb01_v1.png', url: '/api/current.png' },
+              { filename: 'EP0021_Thumb02_v1.png', url: '/api/other.png' },
+            ],
+          },
+        },
       })
       const upload = await previewThen(mounted)
       assert.equal(upload, undefined)
       assert.match(mounted.text(), reason)
+      assert.match(mounted.text(), /Current local thumbnail/)
+      assert.match(mounted.text(), /does not change the upload already queued or on YouTube/)
+      assert.equal(
+        [...mounted.el.querySelectorAll<HTMLButtonElement>('.thumbnail-option')].every(button => button.disabled),
+        true,
+      )
+      mounted.el.querySelector('img')!.dispatchEvent(new Event('error'))
+      await nextTick()
+      assert.match(mounted.text(), reason, 'the active upload reason stays authoritative if the local preview fails')
+      assert.doesNotMatch(mounted.text(), /Choose an available thumbnail before uploading/)
       mounted.destroy()
     }
   })

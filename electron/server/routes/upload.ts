@@ -29,7 +29,7 @@ import {
 } from '../services/youtube-connection-store.js'
 import { computeEpisodeStatus, hasFinalVideoFast, getFinalVideoBytes } from '../services/asset-status.js'
 import { readSidecar, readSidecarRaw, readSidecarStrict } from '../services/upload-sidecar.js'
-import { listUploadThumbnails, resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
+import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
 import * as plans from '../services/upload-plans.js'
 import * as uq from '../services/upload-queue.js'
 import * as reconciler from '../services/upload-reconciler.js'

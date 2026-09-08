@@ -18,6 +18,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import fsp from 'node:fs/promises'
 
 import { Router } from 'express'
 
@@ -63,7 +64,7 @@ import { readYouTubeQuota } from '../services/youtube-quota-ledger.js'
 import { buildYouTubeMetadataPackage, resanitizeStoredSnippet, resolveYouTubeUploadSettings } from '../services/youtube-metadata-package.js'
 import { enqueueOrRun, getJobs, isDuplicate } from '../services/job-queue.js'
 import type { Job } from '../models/types.js'
-import { resolveUploadMetadata } from '../lib/upload-metadata.js'
+import { listUploadThumbnails, resolveUploadMetadata } from '../lib/upload-metadata.js'
 import { createProjectFactsCache, resolveEpisodePaths } from '../services/utils.js'
 import { findYouTubeSourceVideoPath } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
@@ -99,6 +100,51 @@ function fail(res: import('express').Response, error: unknown, fallback: string)
     ? tagged.statusCode
     : typeof tagged?.status === 'number' ? tagged.status : 500
   res.status(status).json(humanizeBackendError(error, fallback))
+}
+
+function thumbnailPreviewUrl(slug: string, filePath: string, cacheKey: string): string {
+  return `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-image?path=${encodeURIComponent(filePath)}&k=${encodeURIComponent(cacheKey)}`
+}
+
+async function uploadThumbnailPreview(
+  slug: string,
+  episodeCode: string,
+  fallbackTitle: string,
+  selectedFilename: string | null | undefined,
+) {
+  const options = await listUploadThumbnails({
+    slug,
+    episode_code: episodeCode,
+    fallback_title: fallbackTitle,
+    platform: 'youtube',
+  })
+  const publicOptions = await Promise.all(options.map(async option => {
+    try {
+      const stat = await fsp.stat(option.path)
+      return {
+        filename: option.filename,
+        is_pinned: option.is_pinned,
+        url: thumbnailPreviewUrl(slug, option.path, `${stat.size}-${Math.trunc(stat.mtimeMs)}`),
+      }
+    } catch {
+      return {
+        filename: option.filename,
+        is_pinned: option.is_pinned,
+        url: thumbnailPreviewUrl(slug, option.path, 'unavailable'),
+      }
+    }
+  }))
+  if (!selectedFilename) return { state: 'none' as const, options: publicOptions }
+  const selected = publicOptions.find(option => option.filename === selectedFilename)
+  if (!selected) {
+    return {
+      state: 'unavailable' as const,
+      filename: selectedFilename,
+      options: publicOptions,
+      reason: 'The selected thumbnail is no longer available. Choose another thumbnail before uploading.',
+    }
+  }
+  return { state: 'selected' as const, filename: selected.filename, url: selected.url, options: publicOptions }
 }
 
 /**
@@ -1981,9 +2027,15 @@ router.post('/projects/:slug/youtube/preview', async (req, res) => {
       ...(typeof req.body?.publish_at === 'string' && req.body.publish_at ? { publish_at: req.body.publish_at } : {}),
       ...settings,
       fallback_title: previewTitle,
-      ...(typeof req.body?.thumbnail_filename === 'string' ? { thumbnail_filename: req.body.thumbnail_filename } : {}),
+      ...(typeof req.body?.thumbnail_filename === 'string' || req.body?.thumbnail_filename === null
+        ? { thumbnail_filename: req.body.thumbnail_filename }
+        : {}),
     })
-    res.json(built)
+    const thumbnail = await uploadThumbnailPreview(
+      req.params.slug, episodeCode, previewTitle, built.thumbnail_filename,
+    )
+    const { thumbnail_filename: _thumbnailFilename, ...payload } = built
+    res.json({ ...payload, thumbnail })
   } catch (error) {
     fail(res, error, 'Failed to build the YouTube preview.')
   }
@@ -2113,7 +2165,9 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       // Same resolver the preview used, so the two cannot disagree.
       ...(await resolveYouTubeUploadSettings(slug)),
       fallback_title: episodeTitle,
-      ...(typeof req.body?.thumbnail_filename === 'string' ? { thumbnail_filename: req.body.thumbnail_filename } : {}),
+      ...(typeof req.body?.thumbnail_filename === 'string' || req.body?.thumbnail_filename === null
+        ? { thumbnail_filename: req.body.thumbnail_filename }
+        : {}),
     })
     const expectedPackageRevision = typeof req.body?.expected_package_revision === 'string'
       ? req.body.expected_package_revision.trim()
@@ -2150,6 +2204,7 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
         expected_source_revision: expectedSourceRevision,
         approved_final_payload: built.final_payload,
         approved_upload_mode: approvedUploadMode,
+        ...(built.thumbnail_filename !== undefined ? { thumbnail_filename: built.thumbnail_filename } : {}),
         privacy_status: built.status.privacyStatus,
         // `scheduled_for`, not `publish_at` — that is the key the generator
         // reads. Emitting the wrong one uploaded a scheduled episode as private

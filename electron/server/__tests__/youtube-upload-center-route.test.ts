@@ -55,6 +55,16 @@ const CHANNEL = 'UC-center'
 const CLIENT_SECRET = 'center-client-secret-value'
 const ACCESS = 'center-access-token-value'
 const REFRESH = 'center-refresh-token-value'
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLKSQAAAABJRU5ErkJggg==', 'base64')
+
+async function removeQueuedTestJob(slug: string, jobId: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const current = jobQueue.getJob(jobId)
+    if (!current || ['completed', 'failed', 'cancelled'].includes(current.status)) break
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  jobQueue.removeTerminalJob(slug, jobId)
+}
 
 async function project(assign: boolean): Promise<string> {
   const temp = await useTempDataDir()
@@ -235,6 +245,100 @@ test('the exact preview is deterministic and is what the upload would send', asy
   assert.equal(first.body.status.containsSyntheticMedia, true)
   assert.equal(Array.isArray(first.body.modifications), true)
   assert.equal(Array.isArray(first.body.warnings), true)
+})
+
+test('preview exposes the resolver-selected thumbnail and upload pins that filename into the job', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  await fs.mkdir(paths.thumb_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.thumb_dir, `${episodeCode}_Thumb01_v1.png`), PNG)
+  await fs.writeFile(path.join(paths.thumb_dir, `${episodeCode}_Thumb01_v2.png`), PNG)
+
+  const initial = await request(app).post(`/api/projects/${slug}/youtube/preview`)
+    .send({ episode_code: episodeCode, privacy_status: 'private' })
+  assert.equal(initial.status, 200)
+  assert.equal(initial.body.thumbnail.state, 'selected')
+  assert.equal(initial.body.thumbnail.filename, `${episodeCode}_Thumb01_v2.png`)
+  assert.equal(initial.body.thumbnail.options.length, 2)
+  assert.match(initial.body.thumbnail.url, /video-editor\/preview-image\?path=/)
+
+  const image = await request(videoApp).get(initial.body.thumbnail.url.replace(/^\/api/, '/api'))
+  assert.equal(image.status, 200)
+  assert.equal(image.headers['content-type'], 'image/png')
+  assert.deepEqual(image.body, PNG)
+
+  const chosen = `${episodeCode}_Thumb01_v1.png`
+  const reviewed = await request(app).post(`/api/projects/${slug}/youtube/preview`)
+    .send({ episode_code: episodeCode, privacy_status: 'private', thumbnail_filename: chosen })
+  assert.equal(reviewed.status, 200)
+  assert.equal(reviewed.body.thumbnail.filename, chosen)
+
+  const queued = await request(app).post(`/api/projects/${slug}/youtube/upload`).send({
+    episode_code: episodeCode,
+    confirm: true,
+    expected_channel_id: CHANNEL,
+    expected_package_revision: reviewed.body.package_revision,
+    thumbnail_filename: chosen,
+  })
+  assert.equal(queued.status, 200)
+  assert.equal(jobQueue.getJob(queued.body.job_id)?.params?.thumbnail_filename, chosen)
+  const uploadOverrides = await import('../services/upload-overrides.js')
+  await uploadOverrides.writeSelectedThumbnail(slug, episodeCode, title, 'youtube', `${episodeCode}_Thumb01_v2.png`)
+  assert.equal(jobQueue.getJob(queued.body.job_id)?.params?.thumbnail_filename, chosen,
+    'changing the saved default after queueing does not change this upload')
+  await removeQueuedTestJob(slug, queued.body.job_id)
+})
+
+test('preview says none when the resolver finds no thumbnail', async () => {
+  const slug = await project(true)
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/preview`)
+    .send({ episode_code: 'EP0001', privacy_status: 'private' })
+  assert.equal(preview.status, 200)
+  assert.deepEqual(preview.body.thumbnail, { state: 'none', options: [] })
+})
+
+test('an explicitly reviewed empty thumbnail choice stays empty if a file appears before queueing', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const reviewed = await request(app).post(`/api/projects/${slug}/youtube/preview`)
+    .send({ episode_code: episodeCode, privacy_status: 'private' })
+  assert.equal(reviewed.body.thumbnail.state, 'none')
+
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  await fs.mkdir(paths.thumb_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.thumb_dir, `${episodeCode}_Thumb01_v1.png`), PNG)
+
+  const queued = await request(app).post(`/api/projects/${slug}/youtube/upload`).send({
+    episode_code: episodeCode,
+    confirm: true,
+    expected_channel_id: CHANNEL,
+    expected_package_revision: reviewed.body.package_revision,
+    thumbnail_filename: null,
+  })
+  assert.equal(queued.status, 200)
+  assert.equal(jobQueue.getJob(queued.body.job_id)?.params?.thumbnail_filename, null)
+  await removeQueuedTestJob(slug, queued.body.job_id)
+})
+
+test('upload rejects a reviewed thumbnail that disappeared instead of silently choosing another', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  const chosen = `${episodeCode}_Thumb01_v1.png`
+  await fs.mkdir(paths.thumb_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.thumb_dir, chosen), PNG)
+  const reviewed = await request(app).post(`/api/projects/${slug}/youtube/preview`)
+    .send({ episode_code: episodeCode, privacy_status: 'private', thumbnail_filename: chosen })
+  await fs.unlink(path.join(paths.thumb_dir, chosen))
+
+  const queued = await request(app).post(`/api/projects/${slug}/youtube/upload`).send({
+    episode_code: episodeCode,
+    confirm: true,
+    expected_channel_id: CHANNEL,
+    expected_package_revision: reviewed.body.package_revision,
+    thumbnail_filename: chosen,
+  })
+  assert.equal(queued.status >= 400, true)
+  assert.match(queued.body.detail, /no longer available/i)
+  assert.equal((await jobQueue.getJobs(slug)).some(job => job.episode_id === episodeCode && job.type === 'youtube_upload'), false)
 })
 
 test('a scheduled preview shows the privacy the request will really carry', async () => {

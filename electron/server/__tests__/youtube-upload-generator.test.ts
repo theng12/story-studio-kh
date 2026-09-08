@@ -123,6 +123,21 @@ describe('youtube upload generator', () => {
     assert.equal(log.includes('generator-secret-value'), false)
   })
 
+  test('an explicit no-thumbnail upload does not report a missing-thumbnail failure', async () => {
+    const { slug, accountId } = await setUp(true)
+    __setYouTubeTransportForTests(fakeAcceptingUpload('video-without-thumbnail').transport())
+    const running = job(slug, accountId)
+    running.params.thumbnail_filename = null
+
+    await generateYoutubeUpload(running)
+
+    const log = running.output_lines.join('\n')
+    assert.match(log, /No thumbnail selected for this upload\./)
+    assert.doesNotMatch(log, /No thumbnail set|no thumbnail found/)
+    const state = await readYouTubeProjectPublishingState(slug)
+    assert.equal(state.episode_video_links[CODE]?.video_id, 'video-without-thumbnail')
+  })
+
   test('provider acceptance is checkpointed to the pinned channel across an in-flight reassignment', async () => {
     const { slug, accountId } = await setUp(true)
     const secondChannel = 'UC-generator-2'

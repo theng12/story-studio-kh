@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.127 — 2026-09-08
+
+- **Choose the upload thumbnail inside the review dialog.** Preview the available episode thumbnails, see the selected filename, and choose another image without leaving Upload Center. Missing or unreadable thumbnails are shown explicitly.
+- **The upload carries your thumbnail choice.** Manual upload passes the selected episode thumbnail through to the queued job instead of silently falling back to automatic selection.
+
 ## v1.4.126 — 2026-09-08
 
 - **Upload Center now separates local video, upload progress, and YouTube publication.** Find episodes by status, search titles or codes, and sort by episode, status, or schedule. Locally planned dates are distinguished from confirmed YouTube schedules, with timezones shown.

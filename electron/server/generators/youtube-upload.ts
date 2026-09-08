@@ -78,7 +78,7 @@ interface YouTubeUploadParams {
    */
   playlist_id?: string | null
   /** Exact episode thumbnail selected in Upload preview. */
-  thumbnail_filename?: string
+  thumbnail_filename?: string | null
   // NOTE: this job only ever UPLOADS. Re-running it on an episode that is
   // already published is REFUSED (see `remoteVideoFor` below), not turned into
   // a metadata PATCH — that behaviour existed until v1.5.0 and silently
@@ -282,7 +282,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
           ...(uploadSettings.category_id !== undefined ? { category_id: uploadSettings.category_id } : {}),
           mark_as_ai_generated: uploadSettings.mark_as_ai_generated,
           fallback_title: idea.title || '',
-          ...(params.thumbnail_filename ? { thumbnail_filename: params.thumbnail_filename } : {}),
+          ...(params.thumbnail_filename !== undefined ? { thumbnail_filename: params.thumbnail_filename } : {}),
         })
       }
       operationHandle = await beginYouTubeOperation({
@@ -467,7 +467,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       thumb_error = String(e?.message || 'thumbnail failed')
       job.output_lines.push(`⚠ Thumbnail upload skipped: ${thumb_error}`)
     }
-  } else if (!thumbnail_set) {
+  } else if (!thumbnail_set && params.thumbnail_filename !== null) {
     // v1.0.524 — never silent. Say WHY there was no thumbnail to set, and
     // persist it to the sidecar last_error so the UI / a later backfill run
     // shows the reason instead of an empty skip.
@@ -475,6 +475,8 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       ? `resolved thumbnail path no longer exists: ${meta.thumbnailPath}`
       : 'no thumbnail found for this episode (empty Thumbnail Images folder, or none pinned). Make/pin a thumbnail, then run "Backfill thumbnails".'
     job.output_lines.push(`⚠ No thumbnail set — ${thumb_error}`)
+  } else if (params.thumbnail_filename === null) {
+    job.output_lines.push('No thumbnail selected for this upload.')
   }
   job.progress = 95
 
