@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.victorian-engraved-small-caps",
+  "name": "Victorian Engraved Small Caps",
+  "description": "Engraved small capitals from a nineteenth-century plate — hairline serifs, wide tracking, and a thin ornamental rule ruled beneath the line.",
+  "axis": "font",
+  "phrase": "engraved nineteenth-century didone small capitals, extreme hairline serifs and high thick-to-thin stroke contrast, wide even letter tracking, slight inner bevel as if cut into a printing plate, a thin ornamental rule or small tilde flourish centred beneath the line",
+  "preview_assets": [
+    "assets/victorian-engraved-small-caps.webp"
+  ]
+}

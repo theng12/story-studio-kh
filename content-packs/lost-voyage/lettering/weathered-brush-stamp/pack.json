@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.weathered-brush-stamp",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Weathered Brush Stamp lettering style: one distressed hand-brushed treatment for period maritime and history covers.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.weathered-brush-stamp",
+    "family": "com.storystudio.family.lettering.weathered-brush-stamp"
+  },
+  "dependencies": []
+}

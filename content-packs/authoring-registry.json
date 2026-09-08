@@ -1,5 +1,5 @@
 {
-  "revision": 152,
+  "revision": 161,
   "batches": [
     {
       "revision": 2,
@@ -3486,6 +3486,204 @@
           }
         ]
       }
+    },
+    {
+      "revision": 153,
+      "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+      "request": {
+        "expected_revision": 152,
+        "coordinator": {
+          "task": "lost-voyage-2026-09-08",
+          "branch": "content/lost-voyage-2026-09-08"
+        },
+        "proposal_ref": "proposal:lost-voyage-maritime-sleep-history-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.maritime-oil-painting",
+            "item_id": "com.storystudio.style.maritime-oil-painting",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/lost-voyage/style/maritime-oil-painting",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.maritime-oil-painting",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.maritime-oil-painting",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.foggy-harbour-realism",
+            "item_id": "com.storystudio.style.foggy-harbour-realism",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/lost-voyage/style/foggy-harbour-realism",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.foggy-harbour-realism",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.foggy-harbour-realism",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.victorian-engraved-small-caps",
+            "item_ids": [
+              "com.storystudio.lettering.victorian-engraved-small-caps"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/lost-voyage/lettering/victorian-engraved-small-caps",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.victorian-engraved-small-caps",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.victorian-engraved-small-caps",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.antique-wood-type-poster-serif",
+            "item_ids": [
+              "com.storystudio.lettering.antique-wood-type-poster-serif"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/lost-voyage/lettering/antique-wood-type-poster-serif",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.antique-wood-type-poster-serif",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.antique-wood-type-poster-serif",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.weathered-brush-stamp",
+            "item_ids": [
+              "com.storystudio.lettering.weathered-brush-stamp"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/lost-voyage/lettering/weathered-brush-stamp",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.weathered-brush-stamp",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.weathered-brush-stamp",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.maritime-title-left-subject-right",
+            "item_id": "com.storystudio.thumbnail.maritime-title-left-subject-right",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/lost-voyage/thumbnail/maritime-title-left-subject-right",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.maritime-title-left-subject-right",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.maritime-title-left-subject-right",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.lost-voyages",
+            "item_id": "com.storystudio.topic.lost-voyages",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/lost-voyage/topic/lost-voyages",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.lost-voyages",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.lost-voyages",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.history-for-sleep-titles",
+            "item_ids": [
+              "com.storystudio.metadata-formula.history-for-sleep-titles"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/lost-voyage/metadata-formula/history-for-sleep-titles",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.history-for-sleep-titles",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.history-for-sleep-titles",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -5592,6 +5790,142 @@
         "receipt_ref": "authoring:c37805aedfe11f5fff33bb0ab82dc8f9bc745d92331ff8e7db1bbe480f36d389",
         "pack_id": "com.storystudio.pack.topic.everyday-object-histories",
         "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 154,
+      "transition_ref": "lifecycle:6077f30978af73dfa7a0afcfb5ca7239909c128f5861c66bcae31b9fefab2441",
+      "request": {
+        "expected_revision": 153,
+        "coordinator": {
+          "task": "lost-voyage-2026-09-08",
+          "branch": "content/lost-voyage-2026-09-08"
+        },
+        "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+        "pack_id": "com.storystudio.pack.style.maritime-oil-painting",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 155,
+      "transition_ref": "lifecycle:0f3b341ba516797338e180a0b6e0f0a6c4eb18d3d3958aa2b5749b67bb8fd89a",
+      "request": {
+        "expected_revision": 154,
+        "coordinator": {
+          "task": "lost-voyage-2026-09-08",
+          "branch": "content/lost-voyage-2026-09-08"
+        },
+        "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+        "pack_id": "com.storystudio.pack.style.foggy-harbour-realism",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 156,
+      "transition_ref": "lifecycle:de5b60baddef053c3207a32337326704b98ad80f777267536ca2ce1ecd31b107",
+      "request": {
+        "expected_revision": 155,
+        "coordinator": {
+          "task": "lost-voyage-2026-09-08",
+          "branch": "content/lost-voyage-2026-09-08"
+        },
+        "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+        "pack_id": "com.storystudio.pack.lettering.victorian-engraved-small-caps",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 157,
+      "transition_ref": "lifecycle:c0cead4d466112545f1957369ea9544f913c734735c4435864ab1738a54336c6",
+      "request": {
+        "expected_revision": 156,
+        "coordinator": {
+          "task": "lost-voyage-2026-09-08",
+          "branch": "content/lost-voyage-2026-09-08"
+        },
+        "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+        "pack_id": "com.storystudio.pack.lettering.antique-wood-type-poster-serif",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 158,
+      "transition_ref": "lifecycle:8f4eb4d9b98170f374d0952c6fcf08477b6fddce136d01eaadc4f6369f92411c",
+      "request": {
+        "expected_revision": 157,
+        "coordinator": {
+          "task": "lost-voyage-2026-09-08",
+          "branch": "content/lost-voyage-2026-09-08"
+        },
+        "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+        "pack_id": "com.storystudio.pack.lettering.weathered-brush-stamp",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 159,
+      "transition_ref": "lifecycle:ee516fb2c4880b6b88c168d9ffa927a9c239c2d290a67280c8b852399fb78dae",
+      "request": {
+        "expected_revision": 158,
+        "coordinator": {
+          "task": "lost-voyage-2026-09-08",
+          "branch": "content/lost-voyage-2026-09-08"
+        },
+        "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+        "pack_id": "com.storystudio.pack.thumbnail.maritime-title-left-subject-right",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 160,
+      "transition_ref": "lifecycle:8a7d08a15205fba30b12e5483eb6af3891c9119c4619e67f2ea8631bea73ec97",
+      "request": {
+        "expected_revision": 159,
+        "coordinator": {
+          "task": "lost-voyage-2026-09-08",
+          "branch": "content/lost-voyage-2026-09-08"
+        },
+        "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+        "pack_id": "com.storystudio.pack.topic.lost-voyages",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 161,
+      "transition_ref": "lifecycle:d7befa2a5669ec1c9792030af5228784bcff39709d3fba948fb93ff08d1d784e",
+      "request": {
+        "expected_revision": 160,
+        "coordinator": {
+          "task": "lost-voyage-2026-09-08",
+          "branch": "content/lost-voyage-2026-09-08"
+        },
+        "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+        "pack_id": "com.storystudio.pack.metadata-formula.history-for-sleep-titles",
+        "version": "1.0.0",
         "changes": {
           "status": "authored"
         }
@@ -10348,6 +10682,198 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.everyday-object-histories",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+      "pack_id": "com.storystudio.pack.style.maritime-oil-painting",
+      "item_id": "com.storystudio.style.maritime-oil-painting",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/lost-voyage/style/maritime-oil-painting",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.maritime-oil-painting",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.maritime-oil-painting",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+      "pack_id": "com.storystudio.pack.style.foggy-harbour-realism",
+      "item_id": "com.storystudio.style.foggy-harbour-realism",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/lost-voyage/style/foggy-harbour-realism",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.foggy-harbour-realism",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.foggy-harbour-realism",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+      "pack_id": "com.storystudio.pack.lettering.victorian-engraved-small-caps",
+      "item_ids": [
+        "com.storystudio.lettering.victorian-engraved-small-caps"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/lost-voyage/lettering/victorian-engraved-small-caps",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.victorian-engraved-small-caps",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.victorian-engraved-small-caps",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+      "pack_id": "com.storystudio.pack.lettering.antique-wood-type-poster-serif",
+      "item_ids": [
+        "com.storystudio.lettering.antique-wood-type-poster-serif"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/lost-voyage/lettering/antique-wood-type-poster-serif",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.antique-wood-type-poster-serif",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.antique-wood-type-poster-serif",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+      "pack_id": "com.storystudio.pack.lettering.weathered-brush-stamp",
+      "item_ids": [
+        "com.storystudio.lettering.weathered-brush-stamp"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/lost-voyage/lettering/weathered-brush-stamp",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.weathered-brush-stamp",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.weathered-brush-stamp",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+      "pack_id": "com.storystudio.pack.thumbnail.maritime-title-left-subject-right",
+      "item_id": "com.storystudio.thumbnail.maritime-title-left-subject-right",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/lost-voyage/thumbnail/maritime-title-left-subject-right",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.maritime-title-left-subject-right",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.maritime-title-left-subject-right",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+      "pack_id": "com.storystudio.pack.topic.lost-voyages",
+      "item_id": "com.storystudio.topic.lost-voyages",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/lost-voyage/topic/lost-voyages",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.lost-voyages",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.lost-voyages",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
+      "pack_id": "com.storystudio.pack.metadata-formula.history-for-sleep-titles",
+      "item_ids": [
+        "com.storystudio.metadata-formula.history-for-sleep-titles"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/lost-voyage/metadata-formula/history-for-sleep-titles",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.history-for-sleep-titles",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.history-for-sleep-titles",
           "status": "proposed"
         }
       }

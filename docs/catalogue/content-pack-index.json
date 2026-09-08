@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-08T02:29:02.878Z",
-  "count": 164,
+  "generated": "2026-09-08T03:32:26.872Z",
+  "count": 172,
   "items": [
     {
       "kind": "channel-kit",
@@ -130,6 +130,16 @@
       "axis": "series-formula+topic-pack+visual-style+thumbnail-recipe",
       "description": "Bundles 4 components: series-formula, topic-pack, visual-style, thumbnail-recipe.",
       "version": "1.0.3",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.antique-wood-type-poster-serif",
+      "name": "Antique Wood-Type Poster Serif",
+      "collection_dir": "lost-voyage/lettering/antique-wood-type-poster-serif",
+      "axis": "font",
+      "description": "Heavy condensed wood-type capitals from a nineteenth-century poster, stacked and printed slightly worn.",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {
@@ -484,6 +494,26 @@
     },
     {
       "kind": "lettering-style",
+      "id": "com.storystudio.lettering.victorian-engraved-small-caps",
+      "name": "Victorian Engraved Small Caps",
+      "collection_dir": "lost-voyage/lettering/victorian-engraved-small-caps",
+      "axis": "font",
+      "description": "Engraved small capitals from a nineteenth-century plate — hairline serifs, wide tracking, and a thin ornamental rule ru…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.weathered-brush-stamp",
+      "name": "Weathered Brush Stamp",
+      "collection_dir": "lost-voyage/lettering/weathered-brush-stamp",
+      "axis": "text",
+      "description": "Distressed hand-brushed capitals, stamped in thick paint and left rough at the edges.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
       "id": "com.storystudio.lettering.wet-ink-drip",
       "name": "Wet Ink Drip",
       "collection_dir": "paid/lettering/dread",
@@ -499,6 +529,16 @@
       "collection_dir": "paid/metadata-formulas/editorial",
       "axis": "Dated era markers as headers, a short paragraph under each.",
       "description": "The episode's subject laid out in time. Era or date markers become the headers and each carries a short paragraph, so a…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.history-for-sleep-titles",
+      "name": "History for Sleep Titles",
+      "collection_dir": "lost-voyage/metadata-formula/history-for-sleep-titles",
+      "axis": "Plain opening, chapter list, stated runtime, listening note…",
+      "description": "The write-up shape for a very long, calm history episode meant to be fallen asleep to. Two fixed title patterns carry t…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -914,6 +954,16 @@
     },
     {
       "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.maritime-title-left-subject-right",
+      "name": "Maritime Title Left, Subject Right",
+      "collection_dir": "lost-voyage/thumbnail/maritime-title-left-subject-right",
+      "axis": "History",
+      "description": "A short engraved title stack holds the left third against pale open sky while the subject — an anonymous period figure…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
       "id": "com.storystudio.thumbnail.numbered-lineup",
       "name": "Numbered Lineup",
       "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup",
@@ -1304,6 +1354,16 @@
     },
     {
       "kind": "topic-pack",
+      "id": "com.storystudio.topic.lost-voyages",
+      "name": "Lost Voyages",
+      "collection_dir": "lost-voyage/topic/lost-voyages",
+      "axis": "maritime history, sea history, sleep history",
+      "description": "Fifty maritime subjects, each with twenty materially distinct episode slots, for calm long-form compilations told one s…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
       "id": "com.storystudio.topic.natural-world-animals",
       "name": "Animals",
       "collection_dir": "free-starters/topic/natural-world-animals-v1.0.1",
@@ -1474,6 +1534,16 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.foggy-harbour-realism",
+      "name": "Foggy Harbour Realism",
+      "collection_dir": "lost-voyage/style/foggy-harbour-realism",
+      "axis": "Realistic",
+      "description": "The calm in-video scene look for sleep narration — near-photoreal painted quaysides in sea mist, grey-teal and slate, o…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.hand-drawn-cartoon-explainer",
       "name": "Hand-Drawn Cartoon Explainer",
       "collection_dir": "production-looks/style/hand-drawn-cartoon-explainer",
@@ -1509,6 +1579,16 @@
       "collection_dir": "legacy-thumbnail-restoration/style/impasto-psychological-animals",
       "axis": "Illustration",
       "description": "A melancholy editorial animal-psychology style rendered with tactile oil-paint depth and one readable human-scale actio…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.maritime-oil-painting",
+      "name": "Maritime Oil Painting",
+      "collection_dir": "lost-voyage/style/maritime-oil-painting",
+      "axis": "Illustration",
+      "description": "Nineteenth-century marine oil painting for covers and hero scenes — loose visible brushwork, a pale ivory sky left open…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
