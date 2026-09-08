@@ -38,8 +38,14 @@ const PACKS = [
 
 /** Preview path (collection-relative) → required dimensions. */
 const PREVIEW_CONTRACT = {
+  // Three per visual style since 2026-09-08: hero, quiet wide scene with no
+  // figure, hardest case. Hero stays first in the pack's `preview_assets`.
   'style/maritime-oil-painting/assets/maritime-oil-painting.webp': [1672, 941],
+  'style/maritime-oil-painting/assets/maritime-oil-painting-2.webp': [1672, 941],
+  'style/maritime-oil-painting/assets/maritime-oil-painting-3.webp': [1672, 941],
   'style/foggy-harbour-realism/assets/foggy-harbour-realism.webp': [1672, 941],
+  'style/foggy-harbour-realism/assets/foggy-harbour-realism-2.webp': [1672, 941],
+  'style/foggy-harbour-realism/assets/foggy-harbour-realism-3.webp': [1672, 941],
   'lettering/victorian-engraved-small-caps/assets/victorian-engraved-small-caps.webp': [1024, 576],
   'lettering/antique-wood-type-poster-serif/assets/antique-wood-type-poster-serif.webp': [1024, 576],
   'lettering/weathered-brush-stamp/assets/weathered-brush-stamp.webp': [1024, 576],
@@ -101,10 +107,13 @@ test('every Lost Voyage pack is an authored, receipt-bound standalone source', a
   }
 })
 
+// Each style ships three previews since 2026-09-08 — hero, quiet wide scene
+// with no figure, hardest case — and the hero stays first so a gallery that
+// shows one image shows the signature shot.
 test('the two visual styles are one cover look and one low-stimulation scene look', async () => {
   const cover = await json(join(ROOT, 'style/maritime-oil-painting/content/visual-style.json'))
   assert.equal(cover.name, 'Maritime Oil Painting')
-  assert.deepEqual(cover.preview_assets, ['assets/maritime-oil-painting.webp'])
+  assert.deepEqual(cover.preview_assets, ['assets/maritime-oil-painting.webp', 'assets/maritime-oil-painting-2.webp', 'assets/maritime-oil-painting-3.webp'])
   assert.ok(cover.compatible_formula_ids.includes(FORMULA_ID))
   // The pale open sky is what the thumbnail recipe's title column sits on; a
   // style bible that stopped promising it would silently break the recipe.
@@ -115,7 +124,7 @@ test('the two visual styles are one cover look and one low-stimulation scene loo
 
   const scene = await json(join(ROOT, 'style/foggy-harbour-realism/content/visual-style.json'))
   assert.equal(scene.name, 'Foggy Harbour Realism')
-  assert.deepEqual(scene.preview_assets, ['assets/foggy-harbour-realism.webp'])
+  assert.deepEqual(scene.preview_assets, ['assets/foggy-harbour-realism.webp', 'assets/foggy-harbour-realism-2.webp', 'assets/foggy-harbour-realism-3.webp'])
   assert.ok(scene.compatible_formula_ids.includes(FORMULA_ID))
   // Low stimulation is the whole product for in-video sleep scenes.
   assert.match(scene.style_bible, /low stimulation/i)
@@ -256,7 +265,7 @@ test('the provenance record states why nothing was generated and how to generate
   ]) {
     assert.ok(provenance.includes(evidence), `provenance must record ${evidence}`)
   }
-  // Nine prompts, one per declared preview, prepared so the render is one step.
+  // One prompt per declared preview, prepared so the render is one step.
   const prompts = provenance.match(/^## Prompt \d+ — /gm) ?? []
   assert.equal(prompts.length, Object.keys(PREVIEW_CONTRACT).length)
 })
