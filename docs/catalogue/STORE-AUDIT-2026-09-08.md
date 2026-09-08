@@ -139,6 +139,11 @@ Three things were found and deliberately **not** changed.
    A twelfth kit, `symbolic-psychology-studio` 1.0.0, is authored but has never
    been on the shelf; its 1.0.1 is `withdrawn` in the registry.
 
+   **Decided the same day — see "Channel kits retired" at the end of this
+   document.** The owner asked what the kits contained, was told every one is a
+   bundle of packs each already sold on its own, and ruled that they go. All
+   eleven are now `retired`.
+
 2. **`content-packs/archival-ledger`** — a pre-split monolithic pack source
    (`com.storystudio.pack.archival-ledger`, 1.0.0) with **no record in the
    authoring registry**, so nothing can ship it. Its content is on the shelf
@@ -332,3 +337,95 @@ in section B, so the end date shown is the live one after both changes.
 | `com.storystudio.family.topic.natural-world-animals` | topic_pack | `cprod_712d77964e314ab79741dbc591a59b30` | `cdsc_267a6eb42ee14ed9ad27adbc12d840ad` | 2026-12-31 → **2027-08-16** | `audit_74c52857c0f5401891617dcc00598a70` |
 | `com.storystudio.family.topic.night-journeys` | topic_pack | `cprod_a0398fa9251f4fcd810355e0e36fbf0c` | `cdsc_a621af69376a44cbad85bfe01009d2d5` | 2026-12-31 → **2027-08-16** | `audit_d667064694d8490d959dd7bd9d31df32` |
 | `com.storystudio.family.topic.pov-historical-occupations` | topic_pack | `cprod_08d5344b8d604c2782db2b59f2c6d670` | `cdsc_266ffb40dfef463a984d16cb856d7852` | 2026-12-31 → **2027-08-16** | `audit_c49ed28932d5462b9601543d251bd55a` |
+
+## Channel kits retired
+
+Added to this document later the same day, after the owner read the section
+above and ruled on it:
+
+> *"no channel kit at all or anymore. we don't do that."*
+>
+> *"tell me what's in the 11 channel kits, are they already existing stuff and
+> just duplicates? if so remove them"*
+
+**They were duplicates, and not even cheaper ones.** Every kit bundles exactly
+four packs — one series formula, one topic pack, one visual style, one
+thumbnail recipe — and all 44 component rows point at products that are on the
+shelf individually at 300 credits each. Four times 300 is 1200, which is
+exactly what a kit cost. The bundle carried **no discount at all**: it sold a
+customer four things they could buy separately, for the price of buying them
+separately, with a second entitlement family to keep track of.
+
+All eleven are now `retired`. **Nobody lost anything.** Retirement stops new
+sales and takes the listing off the shelf; it does not touch a
+`content_entitlements` or `content_purchases` row. The eleven kit entitlements
+that exist (all on the internal `GenStudio KH Staging` account) are intact and
+unrevoked, and each still shows in that account's library, flagged `retired`,
+with its published release downloadable.
+
+| Kit | Product id | Was → now | Audit event |
+| --- | --- | --- | --- |
+| A Life As… | `cprod_20b2f217c4984cdd9c639f2660c93d1f` | active → **retired** | `audit_968c8850c8a6455fb099434c6b40a79f` |
+| Archival Ledger | `cprod_e08df4a3323b485686045b0263b53a48` | active → **retired** | `audit_0fab42174a294b9aba098e83b73f7583` |
+| Build Momentum | `cprod_eb8914af9b6645238b12761168a4bb00` | active → **retired** | `audit_ddaae4503fd249d1991ad80b0e3fe83b` |
+| Business Explained | `cprod_96128241c41a4a5192b60c7add2239bc` | active → **retired** | `audit_222239cd898345b6967fe03c0aaf389c` |
+| Calm Mind | `cprod_9a740adac1fa4c2395dc7d9b762cbf39` | active → **retired** | `audit_e8db4194efe549829878e3f97e743ed7` |
+| Deep Time | `cprod_0780740dfc384515a100846a4139f5ee` | active → **retired** | `audit_20601968b6c94cf892536882846e78de` |
+| First Humans | `cprod_a820f9242a59431cb94a2f22aa8ab313` | active → **retired** | `audit_422ea43b50e140509deed01716a07e04` |
+| History Explained | `cprod_9b37ab5131c04f669b67148aaff99b5d` | active → **retired** | `audit_83b62e8b74164ce8a7c275970f13f910` |
+| Human Behavior | `cprod_97f8111052ca4828bb1826052bd60b5e` | active → **retired** | `audit_d59b8411a62649a58dcbba0b8169f1b5` |
+| Sleep Journeys | `cprod_69a16c615c4347cda979c67b88f441ca` | active → **retired** | `audit_cb7edf6fae8845cab4b696f79e894452` |
+| Wild Worlds | `cprod_b792ed92b7874a559c41da73e3bf4a31` | active → **retired** | `audit_3729bf7bed764c76b30a24dcad068401` |
+
+The twelfth kit, `symbolic-psychology-studio`, has no product row and never
+reached the shelf, so there was nothing to retire.
+
+### How it was done
+
+`apps/cloud-api/scripts/retire_kit_products.py`, new in genstudiokh
+[PR #111](https://github.com/theng12/genstudiokh/pull/111). It sweeps every
+`niche_bundle` product in every state and sets the one field the owner
+console's `POST /products/{id}/retire` sets, dry run by default. The kind check
+lives inside the function that writes, not only in the query, so a product id
+typed on the command line is refused by the same rule that filters the sweep —
+verified live: naming a `visual_style` id exits non-zero and writes nothing. It
+is idempotent (a second `--write` run reported *"0 retired, 11 already retired,
+0 refused"* and added no audit rows) and it never reads or writes an
+entitlement or a purchase. 9 tests.
+
+The console's product-retire route writes no audit row today — alone among the
+content-store mutations of this weight. The script writes the row that route
+should: `content_product.retired` on `content_product`, carrying the previous
+state and the owner's reason. **Closing that gap in the application is the one
+follow-up this leaves open**, and it is deferred only because it is application
+code on a service running 1.24.58 that must not be restarted under fleet load.
+
+**No app code was changed and the service was not restarted.** The running API
+reads the shelf from the database.
+
+### Verification — read-only SQL, before and after
+
+| | Before | After |
+| --- | --- | --- |
+| Active Channel Kits | 11 | **0** |
+| Retired Channel Kits | 0 | **11** |
+| Active non-kit products | 144 | **144** |
+| …at 300 credits | 144 | **144** |
+| …carrying an active 90% discount | 144 | **144** |
+| Entitlements, none revoked | 95 | **95** |
+| Purchases | 51 | **51** |
+| Kit components still active at 300 | 44 of 44 | **44 of 44** |
+
+Zero non-kit rows have an `updated_at` later than the first kit retirement, so
+nothing outside the kit kind was written. The 144/144/144 line matches the
+counts table at the top of this document exactly.
+
+### One loose end, left deliberately
+
+Two shelves — **Free Starter Kits** (10 placements) and **Specialist Channel
+Kits** (1) — hold nothing but kits and are now empty for every customer. No
+hole appears in the store: the client drops a shelf with no visible products,
+and all 144 packs already render through the synthesised **More Content**
+shelf. The rows were left in place because deleting a named shelf is
+merchandising — what stands in its place is the owner's call, not a
+consequence of this ruling.
