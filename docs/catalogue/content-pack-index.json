@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-08T03:32:26.872Z",
-  "count": 172,
+  "generated": "2026-09-08T04:28:06.688Z",
+  "count": 180,
   "items": [
     {
       "kind": "channel-kit",
@@ -234,6 +234,16 @@
     },
     {
       "kind": "lettering-style",
+      "id": "com.storystudio.lettering.condensed-regal-serif",
+      "name": "Condensed Regal Serif",
+      "collection_dir": "royal-history/lettering/condensed-regal-serif",
+      "axis": "font",
+      "description": "Heavy condensed serif capitals stacked on two tight lines, the first white and the second gold, lifted off the dark by…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
       "id": "com.storystudio.lettering.crt-scanline",
       "name": "CRT Scanline",
       "collection_dir": "paid/lettering/arcade",
@@ -319,6 +329,16 @@
       "collection_dir": "paid/lettering/calm",
       "axis": "font",
       "description": "Unhurried lowercase handwriting with soft round strokes — a note left for someone, not a headline.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.heavy-grotesque-hook",
+      "name": "Heavy Grotesque Hook",
+      "collection_dir": "royal-history/lettering/heavy-grotesque-hook",
+      "axis": "font",
+      "description": "Plain extra-bold grotesque capitals in white or warning yellow with a hard dark edge — the modern-era hook, built to re…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -419,6 +439,16 @@
       "collection_dir": "paid/lettering/investigation",
       "axis": "text",
       "description": "Each line sits on a heavy black marker bar with the words knocked out of it — the classifed-document look, made legible.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.roman-two-tone-capitals",
+      "name": "Roman Two-Tone Capitals",
+      "collection_dir": "royal-history/lettering/roman-two-tone-capitals",
+      "axis": "font",
+      "description": "Tall condensed Roman inscriptional capitals on parchment, with the title split into two words of contrasting colour — i…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -529,6 +559,16 @@
       "collection_dir": "paid/metadata-formulas/editorial",
       "axis": "Dated era markers as headers, a short paragraph under each.",
       "description": "The episode's subject laid out in time. Era or date markers become the headers and each carries a short paragraph, so a…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.documentary-for-sleep-titles",
+      "name": "Documentary for Sleep Titles",
+      "collection_dir": "royal-history/metadata-formula/documentary-for-sleep-titles",
+      "axis": "Named opening, life chapters, stated runtime, listening not…",
+      "description": "The write-up shape for a long, calm biography of one ruler, meant to be fallen asleep to. One fixed three-part title pa…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1063,6 +1103,16 @@
       "lifecycle": "active"
     },
     {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.two-tone-hook-portrait-right",
+      "name": "Two-Tone Hook, Portrait Right",
+      "collection_dir": "royal-history/thumbnail/two-tone-hook-portrait-right",
+      "axis": "History",
+      "description": "A two-word hook sits bottom-left in two colours — the first word white, the second gold — while a portrait cut at the c…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
       "kind": "topic-pack",
       "id": "com.storystudio.topic.ancient-humans-environments",
       "name": "Environments & Climate",
@@ -1463,6 +1513,26 @@
       "lifecycle": "active"
     },
     {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.rulers-and-dynasties",
+      "name": "Rulers and Dynasties",
+      "collection_dir": "royal-history/topic/rulers-and-dynasties",
+      "axis": "royal biography, royal history, sleep history",
+      "description": "Fifty royal subjects — monarchs, emperors, dynasties, usurpers and pretenders across every era and region — each with t…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.academic-classical-oil",
+      "name": "Academic Classical Oil",
+      "collection_dir": "royal-history/style/academic-classical-oil",
+      "axis": "Illustration",
+      "description": "The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
       "kind": "visual-style",
       "id": "com.storystudio.style.anime-cel",
       "name": "Anime Cel",
@@ -1509,6 +1579,16 @@
       "collection_dir": "free-starters/style/cinematic-photoreal",
       "axis": "Realistic",
       "description": "Filmic photoreal look — shallow depth of field, golden-hour light, graded like a movie still.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.dark-regal-portrait",
+      "name": "Dark Regal Portrait",
+      "collection_dir": "royal-history/style/dark-regal-portrait",
+      "axis": "Illustration",
+      "description": "The cover look for royal biography — a painted portrait held at chest height under one warm source, with a castle, pala…",
       "version": "1.0.0",
       "lifecycle": "active"
     },

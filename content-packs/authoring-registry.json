@@ -1,5 +1,5 @@
 {
-  "revision": 161,
+  "revision": 170,
   "batches": [
     {
       "revision": 2,
@@ -3684,6 +3684,204 @@
           }
         ]
       }
+    },
+    {
+      "revision": 162,
+      "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+      "request": {
+        "expected_revision": 161,
+        "coordinator": {
+          "task": "royal-history-2026-09-08",
+          "branch": "content/royal-history-2026-09-08"
+        },
+        "proposal_ref": "proposal:royal-history-biography-sleep-history-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.dark-regal-portrait",
+            "item_id": "com.storystudio.style.dark-regal-portrait",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/royal-history/style/dark-regal-portrait",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.dark-regal-portrait",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.dark-regal-portrait",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.academic-classical-oil",
+            "item_id": "com.storystudio.style.academic-classical-oil",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/royal-history/style/academic-classical-oil",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.academic-classical-oil",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.academic-classical-oil",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.roman-two-tone-capitals",
+            "item_ids": [
+              "com.storystudio.lettering.roman-two-tone-capitals"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/royal-history/lettering/roman-two-tone-capitals",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.roman-two-tone-capitals",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.roman-two-tone-capitals",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.condensed-regal-serif",
+            "item_ids": [
+              "com.storystudio.lettering.condensed-regal-serif"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/royal-history/lettering/condensed-regal-serif",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.condensed-regal-serif",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.condensed-regal-serif",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.heavy-grotesque-hook",
+            "item_ids": [
+              "com.storystudio.lettering.heavy-grotesque-hook"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/royal-history/lettering/heavy-grotesque-hook",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.heavy-grotesque-hook",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.heavy-grotesque-hook",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.two-tone-hook-portrait-right",
+            "item_id": "com.storystudio.thumbnail.two-tone-hook-portrait-right",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/royal-history/thumbnail/two-tone-hook-portrait-right",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.two-tone-hook-portrait-right",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.two-tone-hook-portrait-right",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.rulers-and-dynasties",
+            "item_id": "com.storystudio.topic.rulers-and-dynasties",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/royal-history/topic/rulers-and-dynasties",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.rulers-and-dynasties",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.rulers-and-dynasties",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.documentary-for-sleep-titles",
+            "item_ids": [
+              "com.storystudio.metadata-formula.documentary-for-sleep-titles"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/royal-history/metadata-formula/documentary-for-sleep-titles",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.documentary-for-sleep-titles",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.documentary-for-sleep-titles",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -5925,6 +6123,142 @@
         },
         "receipt_ref": "authoring:c276fd92692600fc764b44eafb43b501bbf6c7c17af47d339e3bff34e0a1b318",
         "pack_id": "com.storystudio.pack.metadata-formula.history-for-sleep-titles",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 163,
+      "transition_ref": "lifecycle:6c190c6fbc208e5348102d9efdc6e603b609fc040bd3dcc91d4e81849bcf4b91",
+      "request": {
+        "expected_revision": 162,
+        "coordinator": {
+          "task": "royal-history-2026-09-08",
+          "branch": "content/royal-history-2026-09-08"
+        },
+        "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+        "pack_id": "com.storystudio.pack.style.dark-regal-portrait",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 164,
+      "transition_ref": "lifecycle:ff041e2277bc7b97e2f77232dc9fd397944a6721de98131cae6adb8ce6a94039",
+      "request": {
+        "expected_revision": 163,
+        "coordinator": {
+          "task": "royal-history-2026-09-08",
+          "branch": "content/royal-history-2026-09-08"
+        },
+        "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+        "pack_id": "com.storystudio.pack.style.academic-classical-oil",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 165,
+      "transition_ref": "lifecycle:31c5ceb8238ee3a615c0668791dd121606d9d49c7cf5f2db325982f193a892af",
+      "request": {
+        "expected_revision": 164,
+        "coordinator": {
+          "task": "royal-history-2026-09-08",
+          "branch": "content/royal-history-2026-09-08"
+        },
+        "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+        "pack_id": "com.storystudio.pack.lettering.roman-two-tone-capitals",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 166,
+      "transition_ref": "lifecycle:facd1eaaa6a82478f2ade13b5bffffab43f483e26456669baba2b196ba7d833b",
+      "request": {
+        "expected_revision": 165,
+        "coordinator": {
+          "task": "royal-history-2026-09-08",
+          "branch": "content/royal-history-2026-09-08"
+        },
+        "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+        "pack_id": "com.storystudio.pack.lettering.condensed-regal-serif",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 167,
+      "transition_ref": "lifecycle:85119f902d7a698972b2d0497c499af5bf3804a47b4c92d41966c461b045c232",
+      "request": {
+        "expected_revision": 166,
+        "coordinator": {
+          "task": "royal-history-2026-09-08",
+          "branch": "content/royal-history-2026-09-08"
+        },
+        "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+        "pack_id": "com.storystudio.pack.lettering.heavy-grotesque-hook",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 168,
+      "transition_ref": "lifecycle:f2cb26947842c41241e928ffcc5dcb74d43e6b725ff1938c39e76284ab53ea8f",
+      "request": {
+        "expected_revision": 167,
+        "coordinator": {
+          "task": "royal-history-2026-09-08",
+          "branch": "content/royal-history-2026-09-08"
+        },
+        "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+        "pack_id": "com.storystudio.pack.thumbnail.two-tone-hook-portrait-right",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 169,
+      "transition_ref": "lifecycle:0e2995f7f4b6775f07ee88fc890a9df30ba03e20e796a4e4ead1b55b92567c2a",
+      "request": {
+        "expected_revision": 168,
+        "coordinator": {
+          "task": "royal-history-2026-09-08",
+          "branch": "content/royal-history-2026-09-08"
+        },
+        "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+        "pack_id": "com.storystudio.pack.topic.rulers-and-dynasties",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 170,
+      "transition_ref": "lifecycle:67ef2268a3dba1e484de2540b3ef1f442ce6e474ad2a245ade0cf0bfe5dd9c12",
+      "request": {
+        "expected_revision": 169,
+        "coordinator": {
+          "task": "royal-history-2026-09-08",
+          "branch": "content/royal-history-2026-09-08"
+        },
+        "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+        "pack_id": "com.storystudio.pack.metadata-formula.documentary-for-sleep-titles",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -10874,6 +11208,198 @@
         },
         "sku": {
           "id": "com.storystudio.sku.metadata-formula.history-for-sleep-titles",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+      "pack_id": "com.storystudio.pack.style.dark-regal-portrait",
+      "item_id": "com.storystudio.style.dark-regal-portrait",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/royal-history/style/dark-regal-portrait",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.dark-regal-portrait",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.dark-regal-portrait",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+      "pack_id": "com.storystudio.pack.style.academic-classical-oil",
+      "item_id": "com.storystudio.style.academic-classical-oil",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/royal-history/style/academic-classical-oil",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.academic-classical-oil",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.academic-classical-oil",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+      "pack_id": "com.storystudio.pack.lettering.roman-two-tone-capitals",
+      "item_ids": [
+        "com.storystudio.lettering.roman-two-tone-capitals"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/royal-history/lettering/roman-two-tone-capitals",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.roman-two-tone-capitals",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.roman-two-tone-capitals",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+      "pack_id": "com.storystudio.pack.lettering.condensed-regal-serif",
+      "item_ids": [
+        "com.storystudio.lettering.condensed-regal-serif"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/royal-history/lettering/condensed-regal-serif",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.condensed-regal-serif",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.condensed-regal-serif",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+      "pack_id": "com.storystudio.pack.lettering.heavy-grotesque-hook",
+      "item_ids": [
+        "com.storystudio.lettering.heavy-grotesque-hook"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/royal-history/lettering/heavy-grotesque-hook",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.heavy-grotesque-hook",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.heavy-grotesque-hook",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+      "pack_id": "com.storystudio.pack.thumbnail.two-tone-hook-portrait-right",
+      "item_id": "com.storystudio.thumbnail.two-tone-hook-portrait-right",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/royal-history/thumbnail/two-tone-hook-portrait-right",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.two-tone-hook-portrait-right",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.two-tone-hook-portrait-right",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+      "pack_id": "com.storystudio.pack.topic.rulers-and-dynasties",
+      "item_id": "com.storystudio.topic.rulers-and-dynasties",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/royal-history/topic/rulers-and-dynasties",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.rulers-and-dynasties",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.rulers-and-dynasties",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6331568506a93d6ab6ec41e1639f99fc2eb6b5873c450163ac7888654f1475cc",
+      "pack_id": "com.storystudio.pack.metadata-formula.documentary-for-sleep-titles",
+      "item_ids": [
+        "com.storystudio.metadata-formula.documentary-for-sleep-titles"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/royal-history/metadata-formula/documentary-for-sleep-titles",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.documentary-for-sleep-titles",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.documentary-for-sleep-titles",
           "status": "proposed"
         }
       }

@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.heavy-grotesque-hook",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Heavy Grotesque Hook lettering style: one plain extra-bold grotesque letterform for modern-era biography covers.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.heavy-grotesque-hook",
+    "family": "com.storystudio.family.lettering.heavy-grotesque-hook"
+  },
+  "dependencies": []
+}

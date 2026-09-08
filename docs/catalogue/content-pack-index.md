@@ -7,15 +7,17 @@ One line per pack item, deduped to the highest version per `pack_id`. Format:
 
 `- <id> | <name> | <collection dir> | <category/tags or axis> | <description> | v<version> <lifecycle>`
 
-Totals — 172 items. Visual styles: 26, Lettering styles: 39, Thumbnail recipes: 27, Series formulas: 20, Metadata formulas: 7, Topic packs: 40, Channel kits: 13.
+Totals — 180 items. Visual styles: 28, Lettering styles: 42, Thumbnail recipes: 28, Series formulas: 20, Metadata formulas: 8, Topic packs: 41, Channel kits: 13.
 
-## Visual styles (26)
+## Visual styles (28)
 
+- com.storystudio.style.academic-classical-oil | Academic Classical Oil | royal-history/style/academic-classical-oil | Illustration | The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped… | v1.0.0 active
 - com.storystudio.style.anime-cel | Anime Cel | production-looks/style/anime-cel | Digital | Modern anime cel-shading — clean lineart, flat cel light, expressive and vivid. | v1.0.0 active
 - com.storystudio.style.archival-documentary-reconstruction | Archival Documentary Reconstruction | archival-ledger | Realistic | Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document… | v1.0.0 active
 - com.storystudio.style.archival-documentary-reconstruction | Archival Documentary Reconstruction | paid/archival-ledger/style/archival-documentary-reconstruction | Realistic | Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document… | v1.0.0 active
 - com.storystudio.style.chinese-ink-wash-storytelling | Chinese Ink-Wash Storytelling | storytelling-looks/style/chinese-ink-wash-storytelling | Illustration | Monochrome brush-and-wash storytelling with calligraphic contours, wet blooms, dry-brush texture, and spacious rice-pap… | v1.0.0 active
 - com.storystudio.style.cinematic-photoreal | Cinematic Photoreal | free-starters/style/cinematic-photoreal | Realistic | Filmic photoreal look — shallow depth of field, golden-hour light, graded like a movie still. | v1.0.0 active
+- com.storystudio.style.dark-regal-portrait | Dark Regal Portrait | royal-history/style/dark-regal-portrait | Illustration | The cover look for royal biography — a painted portrait held at chest height under one warm source, with a castle, pala… | v1.0.0 active
 - com.storystudio.style.dreamlike-luminous-sleep-illustration | Dreamlike Luminous Sleep Illustration | legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration | Illustration | A luminous watercolor-and-gouache sleep-story language with moonlit blues, candle gold, and softly painted story-world… | v1.0.0 active
 - com.storystudio.style.flat-vector-explainer | Flat Vector Explainer | free-starters/style/flat-vector-explainer | Explainer | Clean flat-vector infographic look — bold shapes, limited palette, crisp and modern. | v1.0.0 active
 - com.storystudio.style.foggy-harbour-realism | Foggy Harbour Realism | lost-voyage/style/foggy-harbour-realism | Realistic | The calm in-video scene look for sleep narration — near-photoreal painted quaysides in sea mist, grey-teal and slate, o… | v1.0.0 active
@@ -38,7 +40,7 @@ Totals — 172 items. Visual styles: 26, Lettering styles: 39, Thumbnail recipes
 - com.storystudio.style.waxy-outline-cartoon | Waxy Outline Cartoon | free-starters/style/waxy-outline-cartoon | Explainer | Bold curiosity-cartoon art with waxy imperfect outlines, saturated flats, and instantly readable reactions. | v1.0.0 active
 - com.storystudio.style.whiteboard-doodle-explainer | Whiteboard Doodle Explainer | production-looks/style/whiteboard-doodle-explainer | Explainer | Hand-drawn whiteboard doodles — stick figures, big expressive faces, one idea per frame. | v1.0.0 active
 
-## Lettering styles (39)
+## Lettering styles (42)
 
 - com.storystudio.lettering.antique-wood-type-poster-serif | Antique Wood-Type Poster Serif | lost-voyage/lettering/antique-wood-type-poster-serif | font | Heavy condensed wood-type capitals from a nineteenth-century poster, stacked and printed slightly worn. | v1.0.0 active
 - com.storystudio.lettering.bold-outline-pop | Bold Outline Pop | paid/lettering/explainer | font | Extra-heavy geometric sans wearing a thick contrasting outline. The safest bet on a small screen. | v1.0.0 active
@@ -50,6 +52,7 @@ Totals — 172 items. Visual styles: 26, Lettering styles: 39, Thumbnail recipes
 - com.storystudio.lettering.chalk-outline | Chalk Outline | paid/lettering/investigation | font | Hollow letters drawn in a single wobbling chalk line, the way a scene gets marked out on the ground. | v1.0.0 active
 - com.storystudio.lettering.chalkboard-clean | Chalkboard Clean | paid/lettering/explainer | text | Clean white chalk on a dark green board, lightly dusty but never smudged into illegibility. | v1.0.0 active
 - com.storystudio.lettering.cold-steel | Cold Steel | paid/lettering/investigation | text | Brushed gunmetal with a hard cold rim light and no warmth anywhere in it. Serious without being loud. | v1.0.0 active
+- com.storystudio.lettering.condensed-regal-serif | Condensed Regal Serif | royal-history/lettering/condensed-regal-serif | font | Heavy condensed serif capitals stacked on two tight lines, the first white and the second gold, lifted off the dark by… | v1.0.0 active
 - com.storystudio.lettering.crt-scanline | CRT Scanline | paid/lettering/arcade | text | Glowing phosphor with horizontal scanlines crossing the letters and a soft bloom around them. | v1.0.0 active
 - com.storystudio.lettering.diner-neon-tube | Diner Neon Tube | paid/lettering/arcade | font | Letters bent from one continuous glass tube, the way a roadside sign was actually made. | v1.0.0 active
 - com.storystudio.lettering.dusk-gradient-soft | Dusk Gradient | paid/lettering/calm | text | A slow gradient from dusty lavender into warm rose, with no hard edge anywhere in it. | v1.0.0 active
@@ -59,6 +62,7 @@ Totals — 172 items. Visual styles: 26, Lettering styles: 39, Thumbnail recipes
 - com.storystudio.lettering.field-notebook | Field Notebook | paid/lettering/archive | font | Quick pencil handwriting from a working notebook: slightly slanted, unfussy, written to be used later. | v1.0.0 active
 - com.storystudio.lettering.frost-crack | Frost Crack | paid/lettering/dread | font | Angular letters split by frost fractures, as though the cold got into them and they gave. | v1.0.0 active
 - com.storystudio.lettering.hand-quiet | Hand Quiet | paid/lettering/calm | font | Unhurried lowercase handwriting with soft round strokes — a note left for someone, not a headline. | v1.0.0 active
+- com.storystudio.lettering.heavy-grotesque-hook | Heavy Grotesque Hook | royal-history/lettering/heavy-grotesque-hook | font | Plain extra-bold grotesque capitals in white or warning yellow with a hard dark edge — the modern-era hook, built to re… | v1.0.0 active
 - com.storystudio.lettering.highlighter-block | Highlighter Block | paid/lettering/explainer | text | Dark letters sitting on a bright highlighter block, with the marker edges left visible. | v1.0.0 active
 - com.storystudio.lettering.letterpress-plate | Letterpress Plate | paid/lettering/archive | text | Pressed deep into cotton-rag paper, ink dense where the plate bit hardest. | v1.0.0 active
 - com.storystudio.lettering.linen-press | Linen Press | paid/lettering/calm | font | A soft slab-serif with rounded terminals, gently pressed rather than printed hard. | v1.0.0 active
@@ -69,6 +73,7 @@ Totals — 172 items. Visual styles: 26, Lettering styles: 39, Thumbnail recipes
 - com.storystudio.lettering.paper-cutout | Paper Cutout | paid/lettering/explainer | font | Letters cut from thick coloured paper with the scissor edges left showing. | v1.0.0 active
 - com.storystudio.lettering.pixel-block | Pixel Block | paid/lettering/arcade | font | Chunky low-resolution pixel letters built from hard square blocks. No anti-aliasing anywhere. | v1.0.0 active
 - com.storystudio.lettering.redacted-marker | Redacted Marker | paid/lettering/investigation | text | Each line sits on a heavy black marker bar with the words knocked out of it — the classifed-document look, made legible. | v1.0.0 active
+- com.storystudio.lettering.roman-two-tone-capitals | Roman Two-Tone Capitals | royal-history/lettering/roman-two-tone-capitals | font | Tall condensed Roman inscriptional capitals on parchment, with the title split into two words of contrasting colour — i… | v1.0.0 active
 - com.storystudio.lettering.rust-bleed | Rust Bleed | paid/lettering/dread | text | Corroded iron with orange rust bleeding outward into whatever is behind it. | v1.0.0 active
 - com.storystudio.lettering.seventies-bubble | Seventies Bubble | paid/lettering/arcade | font | Inflated 1970s bubble letters, rounded and crowding into each other. | v1.0.0 active
 - com.storystudio.lettering.shadow-swallow | Shadow Swallow | paid/lettering/dread | font | Letters whose lower halves are eaten by darkness — you read the tops and your eye finishes the rest. | v1.0.0 active
@@ -80,7 +85,7 @@ Totals — 172 items. Visual styles: 26, Lettering styles: 39, Thumbnail recipes
 - com.storystudio.lettering.weathered-brush-stamp | Weathered Brush Stamp | lost-voyage/lettering/weathered-brush-stamp | text | Distressed hand-brushed capitals, stamped in thick paint and left rough at the edges. | v1.0.0 active
 - com.storystudio.lettering.wet-ink-drip | Wet Ink Drip | paid/lettering/dread | text | Glossy black ink still wet, running slowly down from the baseline. | v1.0.0 active
 
-## Thumbnail recipes (27)
+## Thumbnail recipes (28)
 
 - com.storystudio.thumbnail.animal-hardship-annotation | Animal Hardship Annotation | free-starters/thumbnail/animal-hardship-annotation | Natural world | A direct 16:9 animal explainer cover pairing one expressive animal with one restrained hand-drawn hardship note. | v1.0.1 active
 - com.storystudio.thumbnail.annotated-business-board | Annotated Business Board | free-starters/thumbnail/annotated-business-board | Explainer | A clean hand-drawn economics explainer: one unmistakable business or location in the center, surrounded by a small visu… | v1.0.0 active
@@ -109,6 +114,7 @@ Totals — 172 items. Visual styles: 26, Lettering styles: 39, Thumbnail recipes
 - com.storystudio.thumbnail.route-map-one-promise | Route Map + One Promise | reusable-primitives/thumbnail/route-map-one-promise | Explainer | A 16:9 symbolic route cover with one wayfinding anchor and a complete exact episode-title promise rendered directly in… | v1.0.0 active
 - com.storystudio.thumbnail.scale-journey | Scale Journey | thumbnail-recipe-expansion-ten/thumbnail/scale-journey | Explainer | Exactly three related forms progress through continuous depth and scale. | v1.0.0 active
 - com.storystudio.thumbnail.two-option-criteria-split | Two-Option Criteria Split | thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split | Explainer | A balanced present-time comparison of two alternatives under shared visible criteria. | v1.0.0 active
+- com.storystudio.thumbnail.two-tone-hook-portrait-right | Two-Tone Hook, Portrait Right | royal-history/thumbnail/two-tone-hook-portrait-right | History | A two-word hook sits bottom-left in two colours — the first word white, the second gold — while a portrait cut at the c… | v1.0.0 active
 
 ## Series formulas (20)
 
@@ -133,9 +139,10 @@ Totals — 172 items. Visual styles: 26, Lettering styles: 39, Thumbnail recipes
 - com.storystudio.formula.sleep-history-compilation | Sleep History Compilation | sleep-history/formula/sleep-history-compilation | Calm documentary | Long, calm compilations of true histories — ten to twenty independent chapters per video, each the slow story of one fo… | v1.0.0 active
 - com.storystudio.formula.sleep-story | Sleep Story | free-starters/formula/sleep-story | Calm stories | Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories wit… | v1.0.0 active
 
-## Metadata formulas (7)
+## Metadata formulas (8)
 
 - com.storystudio.metadata-formula.chronology | Chronology | paid/metadata-formulas/editorial | Dated era markers as headers, a short paragraph under each. | The episode's subject laid out in time. Era or date markers become the headers and each carries a short paragraph, so a… | v1.0.0 active
+- com.storystudio.metadata-formula.documentary-for-sleep-titles | Documentary for Sleep Titles | royal-history/metadata-formula/documentary-for-sleep-titles | Named opening, life chapters, stated runtime, listening not… | The write-up shape for a long, calm biography of one ruler, meant to be fallen asleep to. One fixed three-part title pa… | v1.0.0 active
 - com.storystudio.metadata-formula.history-for-sleep-titles | History for Sleep Titles | lost-voyage/metadata-formula/history-for-sleep-titles | Plain opening, chapter list, stated runtime, listening note… | The write-up shape for a very long, calm history episode meant to be fallen asleep to. Two fixed title patterns carry t… | v1.0.0 active
 - com.storystudio.metadata-formula.numbered-index | Numbered Index | paid/metadata-formulas/editorial | A numbered one-line index of what is covered, then one fram… | A numbered index of everything covered, one line each, then a single paragraph of framing. Scannable in two seconds. Un… | v1.0.0 active
 - com.storystudio.metadata-formula.problem-and-fix | Problem and Fix | paid/metadata-formulas/editorial | Problem, cost, proposal, evidence — four headed blocks that… | Four headed blocks that argue rather than describe: the problem, what it costs, what the episode proposes, and what bac… | v1.0.0 active
@@ -143,7 +150,7 @@ Totals — 172 items. Visual styles: 26, Lettering styles: 39, Thumbnail recipes
 - com.storystudio.metadata-formula.quote-led | Quote Led | paid/metadata-formulas/editorial | A pulled quote first, then commentary, context, and attribu… | Opens on a line pulled from the episode itself, then earns it. A quote, a paragraph of commentary, the context that mak… | v1.0.0 active
 - com.storystudio.metadata-formula.signed-note | Signed Note | paid/metadata-formulas/editorial | A short first-person note to the viewer, signed off at the… | The description as a short note from the person who made it, in first person, ending in a sign-off. No headers, no bloc… | v1.0.0 active
 
-## Topic packs (40)
+## Topic packs (41)
 
 - com.storystudio.topic.ancient-humans-environments | Environments & Climate | legacy-niche-conversion/topic/ancient-humans-environments | - | How prehistoric people adapted routines and bodies to radically different landscapes. | v1.0.0 active
 - com.storystudio.topic.ancient-humans-social-life | Social Life & Belief | legacy-niche-conversion/topic/ancient-humans-social-life | - | Family, cooperation, conflict, ritual, identity, and daily rhythms in small communities. | v1.0.0 active
@@ -185,6 +192,7 @@ Totals — 172 items. Visual styles: 26, Lettering styles: 39, Thumbnail recipes
 - com.storystudio.topic.pov-criminal-hierarchies | Criminal Hierarchies | legacy-niche-conversion/topic/pov-criminal-hierarchies | crime, hierarchy, outlaws | Roles and ladders inside organized crime, smuggling, piracy, and outlaw networks examined through institutional evidenc… | v1.0.0 active
 - com.storystudio.topic.pov-historical-occupations | Historical Occupations | free-starters/topic/pov-historical-occupations-v1.0.1 | historical jobs, occupations, daily life | Dangerous, strange, and status-heavy jobs whose full life cycle reveals a past society. | v1.0.1 active
 - com.storystudio.topic.pov-law-enforcement | Law Enforcement Hierarchies | legacy-niche-conversion/topic/pov-law-enforcement | law enforcement, ranks, police | Ranks, specialist units, and policing systems across periods and societies examined through lawful authority, accountab… | v1.0.0 active
+- com.storystudio.topic.rulers-and-dynasties | Rulers and Dynasties | royal-history/topic/rulers-and-dynasties | royal biography, royal history, sleep history | Fifty royal subjects — monarchs, emperors, dynasties, usurpers and pretenders across every era and region — each with t… | v1.0.0 active
 
 ## Channel kits (13)
 

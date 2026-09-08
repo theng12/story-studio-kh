@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.metadata-formula.documentary-for-sleep-titles",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Documentary for Sleep Titles description formula: a named-subject documentary write-up architecture for very long royal biography episodes.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.metadata-formula.documentary-for-sleep-titles",
+    "family": "com.storystudio.family.metadata-formula.documentary-for-sleep-titles"
+  },
+  "dependencies": []
+}
