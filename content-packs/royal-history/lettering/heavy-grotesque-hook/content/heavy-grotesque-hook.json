@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.heavy-grotesque-hook",
+  "name": "Heavy Grotesque Hook",
+  "description": "Plain extra-bold grotesque capitals in white or warning yellow with a hard dark edge — the modern-era hook, built to read at card size.",
+  "axis": "font",
+  "phrase": "plain extra-bold grotesque capitals with closed apertures, flat terminals and no serifs of any kind, set tight and slightly condensed on one or two lines, filled either in clean white or in a saturated warning yellow, each letter carrying one hard dark edge of even weight all the way round, completely matte with no gradient, no bevel, no glow and no drop shadow",
+  "preview_assets": [
+    "assets/heavy-grotesque-hook.webp"
+  ]
+}

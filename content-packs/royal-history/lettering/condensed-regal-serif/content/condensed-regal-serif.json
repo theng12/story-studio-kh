@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.condensed-regal-serif",
+  "name": "Condensed Regal Serif",
+  "description": "Heavy condensed serif capitals stacked on two tight lines, the first white and the second gold, lifted off the dark by one soft shadow.",
+  "axis": "font",
+  "phrase": "heavy condensed serif capitals with strong thick-to-thin stroke contrast and crisp bracketed serifs, stacked on two lines with very tight leading so the lines almost touch and both are set to the same width, the first line in clean bone white and the second in aged gold, each letter carrying one soft dark drop shadow just far enough to lift it off the ground, with no outline, no bevel and no glow",
+  "preview_assets": [
+    "assets/condensed-regal-serif.webp"
+  ]
+}

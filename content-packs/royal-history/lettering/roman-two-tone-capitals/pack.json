@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.roman-two-tone-capitals",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Roman Two-Tone Capitals lettering style: one tall condensed Roman capital letterform with a two-colour title split, for royal biography covers.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.roman-two-tone-capitals",
+    "family": "com.storystudio.family.lettering.roman-two-tone-capitals"
+  },
+  "dependencies": []
+}

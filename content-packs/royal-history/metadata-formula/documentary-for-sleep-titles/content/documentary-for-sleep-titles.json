@@ -1,0 +1,96 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.documentary-for-sleep-titles",
+  "name": "Documentary for Sleep Titles",
+  "description": "The write-up shape for a long, calm biography of one ruler, meant to be fallen asleep to. One fixed three-part title pattern carries the subject, the documentary promise, and a rotating era tag, and the description below it tells a tired reader whose life this is, how long it runs, and how to listen — with nothing anywhere that asks them to stay awake.",
+  "architecture": "Named opening, life chapters, stated runtime, listening note, sources note, optional repost note, hashtags.",
+  "description_plan": {
+    "max_chars": 3400,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "opening",
+        "instruction": "Three or four unhurried sentences naming the subject and placing them: the throne or office they held, the realm and the period, and the shape of the life the episode will follow. Say plainly what the reader is about to hear. No question, no promise, no teaser, no second-person address, and no claim of a secret or an untold story.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 400
+      },
+      {
+        "id": "chapters",
+        "instruction": "List the chapters in order, one per line, each a short noun phrase naming the stretch of the life or reign it covers — accession, the early court, a war, a marriage, a reform, an exile, a succession. No times, no numbering that counts down, no chapter descriptions beyond the phrase itself, and nothing framed as a reveal.",
+        "header": {
+          "render": true,
+          "text": "What you will hear"
+        },
+        "target_chars": 700
+      },
+      {
+        "id": "runtime",
+        "instruction": "State the episode length in hours and minutes in one sentence, and say that it is written to run past the point most listeners fall asleep. Episodes in this format target sixty to one hundred and thirty minutes; use the actual length from the story context rather than that range.",
+        "header": {
+          "render": true,
+          "text": "How long it runs"
+        },
+        "target_chars": 200
+      },
+      {
+        "id": "listening",
+        "instruction": "Three or four sentences on how the episode is built for sleep: one voice throughout, even volume with no sudden changes, chapters that resolve rather than hand over, and no battle, no shouting, and no reason to stay awake for anything later in the recording. Say it calmly and never as a sales point.",
+        "header": {
+          "render": true,
+          "text": "How to listen"
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "sources",
+        "instruction": "Two or three sentences naming the kinds of evidence the episode leans on — the sorts of chronicles, charters, letters, coins, inventories, court records, or monuments a careful narrator would use for this period. Describe source types rather than citing any specific title, author, or archive reference, and state plainly where the record is thin, partisan, or disputed.",
+        "header": {
+          "render": true,
+          "text": "Where this comes from"
+        },
+        "target_chars": 400
+      },
+      {
+        "id": "repost",
+        "instruction": "Include this section only when the story context says the episode is also released as audio on a podcast feed. When it is, write one plain sentence saying the same recording is available as a podcast episode, with no link, no platform name, and no urging. When the story context says nothing about a podcast release, emit nothing at all for this section.",
+        "header": {
+          "render": true,
+          "text": "Also as a podcast"
+        },
+        "target_chars": 120
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 110,
+    "guidance": "Use exactly one shape, in three parts divided by vertical bars: <Name> | <Epithet> Documentary | <Era> History. The name is the subject as a reader would search for it. The epithet is two or three plain words describing the office or the life, drawn from the story context and never invented. The era tag rotates with the subject — Ancient, Medieval, Royal, Modern, French, African, Chinese, Roman, Egyptian, Persian, Byzantine, Ottoman and their like. Never open with a question, never promise a secret or a thing nobody knows, never use all capitals or exclamation, and never name a living person."
+  },
+  "tag_plan": {
+    "count": 24,
+    "guidance": "for a long calm biography of one ruler meant for sleep, mixing the subject's name, the dynasty, the realm, the period, the documentary framing, and the listening context"
+  },
+  "tone": {
+    "constraints": [
+      "No hook, no cliffhanger, no countdown, no teaser anywhere in the title or the description.",
+      "No second-person urging, no call to act, and nothing that asks the listener to stay awake.",
+      "Name the subject and other historical figures plainly; never name a living person and never invent one.",
+      "Dates, titles, and figures come from the story context and are never invented; no invented quotations.",
+      "Say plainly where the record is thin, partisan, or disputed rather than resolving it with invented detail.",
+      "Mention violence, execution, and coercion briefly and without dwelling, and give the aftermath more room than the act.",
+      "Keep sentences unhurried and mostly declarative; let the write-up settle rather than accelerate."
+    ]
+  }
+}

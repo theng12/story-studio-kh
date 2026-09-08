@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.roman-two-tone-capitals",
+  "name": "Roman Two-Tone Capitals",
+  "description": "Tall condensed Roman inscriptional capitals on parchment, with the title split into two words of contrasting colour — ink black over deep red.",
+  "axis": "font",
+  "phrase": "tall narrow classical Roman inscriptional capitals of the kind cut into imperial stone, sharp triangular serifs and swelling stems with a chiselled entasis, set on aged parchment with thin even tracking, the title split across two words that carry contrasting colour — the first in dense ink black and the second in a deep oxide red — both flat and matte with no glow, no outline and no drop shadow",
+  "preview_assets": [
+    "assets/roman-two-tone-capitals.webp"
+  ]
+}
