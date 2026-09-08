@@ -16,6 +16,7 @@ import request from 'supertest'
 import sharp from 'sharp'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import { fiveSecondVideoBytes } from './fixtures/tiny-video.js'
 
 const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLKSQAAAABJRU5ErkJggg==',
@@ -270,6 +271,56 @@ test('the scene clip route persists the selected published variant on the queued
     }
   } finally {
     restoreVideoCatalog?.()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('Follow narration resolves and saves each scene duration from the selected published resolution', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreVideoCatalog: (() => void) | undefined
+  try {
+    const jq = await import('../services/job-queue.js')
+    await jq.setQueuePaused(true)
+    await configureMockGenStudio(service.baseUrl)
+    restoreVideoCatalog = enableMockVideoCatalog(service, [
+      { operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
+      { operation: 'image-to-video', duration_seconds: 8, resolution: '720p', credits_per_video: 80, minimum_credits: 80, price_version: 'mock-video-price-v1' },
+      { operation: 'image-to-video', duration_seconds: 12, resolution: '1080p', credits_per_video: 120, minimum_credits: 120, price_version: 'mock-video-price-v1' },
+    ])
+    const app = (await import('../app.js')).app
+    const { project, episodeId, paths } = await createEpisode('Follow narration queues exact scene durations')
+    await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+      scenes: [
+        { id: 'scene-round-up', scene_index: 1, start_sec: 0, end_sec: 4.2, approved: true, motion_prompt: 'A slow drift.' },
+        { id: 'scene-cap', scene_index: 2, start_sec: 4.2, end_sec: 16.2, approved: true, motion_prompt: 'A gentle push.' },
+      ],
+    }))
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const imageDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(imageDir, { recursive: true })
+    await Promise.all([
+      fs.writeFile(path.join(imageDir, 'scene-round-up.png'), ONE_PIXEL_PNG),
+      fs.writeFile(path.join(imageDir, 'scene-cap.png'), ONE_PIXEL_PNG),
+    ])
+
+    const response = await request(app)
+      .post(`/api/projects/${project.slug}/scene-review/${episodeId}/generate-clips-batch`)
+      .send({ model: 'mock-video-v1', duration_mode: 'follow_narration', resolution: '720p' })
+      .expect(201)
+
+    assert.equal(response.body.params.duration_mode, 'follow_narration')
+    assert.deepEqual(response.body.params.scene_durations, {
+      'scene-round-up': { duration_seconds: 5, narration_duration_seconds: 4.2 },
+      'scene-cap': { duration_seconds: 8, narration_duration_seconds: 12 },
+    })
+    assert.equal(service.submissions.filter(entry => entry.operation === 'video').length, 0)
+  } finally {
+    restoreVideoCatalog?.()
+    const jq = await import('../services/job-queue.js')
+    await jq.setQueuePaused(false)
     await service.close()
     await temp.cleanup()
   }
@@ -755,7 +806,10 @@ test('a scene clip checkpoints its exact published operation before the first vi
       scenes: [{ id: 'scene-001', scene_index: 1, image_path: imagePath, motion_prompt: 'A slow drift across archive shelves.' }],
     }))
     const outDir = await resolveVideoAssetsDir(project.slug, episodeId, paths.episode_dir)
-    service.queueScenario('video', { states: ['accepted', 'running', 'succeeded'] })
+    service.queueScenario('video', {
+      states: ['accepted', 'running', 'succeeded'],
+      videoArtifact: fiveSecondVideoBytes(),
+    })
     const status = withFirstStatusAssertion(service, 'video', async taskId => {
       const entry = (await readManifest(outDir)).tasks['scene-001.mp4']
       assert.equal(entry?.task_id, taskId)

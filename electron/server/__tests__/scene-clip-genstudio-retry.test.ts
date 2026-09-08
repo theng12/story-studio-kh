@@ -33,8 +33,10 @@
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
-import { sceneClipFleetBusyRetryPlan } from '../generators/scene-clip.js'
+import { generateSceneClipJob, generateSceneClipsBatchJob, sceneClipFleetBusyRetryPlan } from '../generators/scene-clip.js'
 import { FLEET_BUSY_RETRY_DELAYS_MS } from '../lib/genstudio-fleet-busy.js'
 import {
   GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE,
@@ -42,6 +44,9 @@ import {
   GenStudioTtsTerminalFailureError,
   GenStudioVideoTerminalFailureError,
 } from '../lib/genstudio-client.js'
+import { useTempDataDir } from './_helpers.js'
+import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import { tinyVideoBytes, twoSecondVideoBytes } from './fixtures/tiny-video.js'
 
 /** A settled GenStudio job with the reservation released whole — the free case. */
 function settledJob(over: Record<string, unknown>) {
@@ -228,4 +233,154 @@ test('no stall watchdog can cancel this generator\'s own retry', () => {
   // teaching it about the wait.
   const source = readFileSync(new URL('../generators/scene-clip.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /pauseJobForStall|setInterval/)
+})
+
+test('a batch audits saved clips before declaring no work and reports deleted requested scenes', () => {
+  const source = readFileSync(new URL('../generators/scene-clip.ts', import.meta.url), 'utf8')
+  const batch = source.slice(source.indexOf('export async function generateSceneClipsBatchJob'))
+
+  const earlyReturn = batch.slice(batch.indexOf('if (!ready.length)'), batch.indexOf('const originalParams'))
+  assert.match(earlyReturn, /auditSceneClipCompletion\(planPath, requiredIds, clipsDir, expectedDurations\)/,
+    'a non-empty, corrupt or wrong-duration saved file must fail completion rather than return success')
+  assert.match(batch, /const requiredIds: string\[\] = requestedSceneIds \? \[\.\.\.requestedSceneIds\] : \[\]/,
+    'a map entry whose Scene Plan row was deleted must remain a missing required item')
+})
+
+test('a Follow narration batch preserves its hold mode for each child clip', () => {
+  const source = readFileSync(new URL('../generators/scene-clip.ts', import.meta.url), 'utf8')
+  const batch = source.slice(source.indexOf('export async function generateSceneClipsBatchJob'))
+
+  assert.match(batch, /job\.params = \{\s*\.\.\.job\.params,/,
+    'per-scene child params must retain duration_mode from the durable parent request')
+  assert.match(source, /params\.duration_mode === 'follow_narration'\s*\? \{ shortfall_mode: 'hold' as const \}/,
+    'each Follow child must checkpoint final-frame hold for assembly')
+})
+
+test('a rejected replacement candidate leaves the active clip untouched', () => {
+  const source = readFileSync(new URL('../generators/scene-clip.ts', import.meta.url), 'utf8')
+  const download = source.slice(source.indexOf('await downloadVideo('), source.indexOf('await checkpointSceneClip('))
+
+  assert.match(download, /candidatePath/,
+    'provider bytes must land beside, never directly on top of, the active clip')
+  assert.match(download, /assertPlayableSceneClip\(candidatePath, durationSeconds\)/,
+    'candidate media must qualify before promotion')
+  assert.match(download, /await fs\.rename\(candidatePath, outPath\)/,
+    'only a qualified candidate may atomically replace the active clip')
+})
+
+test('a Follow narration batch dispatches each saved duration, persists hold receipts, and keeps an active clip on a rejected replacement', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    const settings = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+    const pm = await import('../services/project-manager.js')
+    const ideas = await import('../services/idea-manager.js')
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+
+    await settings.setGenStudioUrl(service.baseUrl)
+    await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    service.setVideoModels([{
+      id: 'mock-video-v1', display_name: 'Mock Video', available: true,
+      modes: ['image-to-video'], aspect_ratios: ['16:9'],
+      variants: [
+        { operation: 'image-to-video', duration_seconds: 1, resolution: '720p', credits_per_video: 10, minimum_credits: 10, price_version: 'mock-v1' },
+        { operation: 'image-to-video', duration_seconds: 2, resolution: '720p', credits_per_video: 20, minimum_credits: 20, price_version: 'mock-v1' },
+      ],
+    }])
+    clearGenStudioCatalogCache()
+    service.queueScenario('video', { videoArtifact: tinyVideoBytes() })
+    service.queueScenario('video', { videoArtifact: twoSecondVideoBytes() })
+
+    const project = await pm.createProject({ name: 'Follow batch requests exact durations', episode_prefix: 'EP', episode_digits: 3 })
+    const [idea] = await ideas.addIdeas(project.slug, [{
+      title: 'Two duration clips', logline: 'A local mocked provider fixture.', themes: [],
+      suggested_chapters: 1, suggested_length: 'short', mood: 'neutral',
+    }], 'mock-chat-v1')
+    assert.ok(idea)
+    const accepted = await ideas.acceptIdea(project.slug, idea.id, false)
+    const episodeId = accepted.episode_code
+    const paths = await resolveEpisodePathsByCode(project.slug, episodeId)
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const imageDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    const firstImage = path.join(imageDir, 'scene-one.png')
+    const secondImage = path.join(imageDir, 'scene-two.png')
+    await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+    await fs.mkdir(imageDir, { recursive: true })
+    await Promise.all([
+      fs.writeFile(firstImage, Buffer.from('mock-scene-image-one')),
+      fs.writeFile(secondImage, Buffer.from('mock-scene-image-two')),
+    ])
+    const planPath = path.join(paths.scene_prompts_dir, 'scene_plan.json')
+    await fs.writeFile(planPath, JSON.stringify({ scenes: [
+      { id: 'scene-one', scene_index: 1, start_sec: 0, end_sec: 0.7, approved: true, image_path: firstImage, motion_prompt: 'A still moon rises.' },
+      { id: 'scene-two', scene_index: 2, start_sec: 0.7, end_sec: 2.1, approved: true, image_path: secondImage, motion_prompt: 'Clouds move past the moon.' },
+    ] }))
+
+    const job: any = {
+      job_id: 'follow-duration-batch', project_slug: project.slug, type: 'scene_clip_batch',
+      episode_id: episodeId, title: 'Follow duration test', status: 'running',
+      created_at: new Date().toISOString(), started_at: new Date().toISOString(),
+      finished_at: null, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: 'mock-video-v1', operation: 'image-to-video',
+        resolution: '720p', duration_mode: 'follow_narration',
+        scene_durations: {
+          'scene-one': { duration_seconds: 1, narration_duration_seconds: 0.7 },
+          'scene-two': { duration_seconds: 2, narration_duration_seconds: 1.4 },
+        },
+      },
+    }
+    await generateSceneClipsBatchJob(job)
+
+    const submitted = service.submissions.filter(entry => entry.operation === 'video' && !entry.replay)
+    assert.deepEqual(submitted.map(entry => ({
+      duration: entry.parsedBody?.duration_seconds,
+      resolution: entry.parsedBody?.resolution,
+      mode: entry.parsedBody?.mode,
+    })), [
+      { duration: 1, resolution: '720p', mode: 'image-to-video' },
+      { duration: 2, resolution: '720p', mode: 'image-to-video' },
+    ])
+    const saved = JSON.parse(await fs.readFile(planPath, 'utf8'))
+    assert.deepEqual(saved.scenes.map((scene: any) => ({
+      id: scene.id,
+      requested: scene.clip_requested_duration_seconds,
+      measured: scene.clip_duration_seconds,
+      shortfall: scene.clip_shortfall_mode,
+    })), [
+      { id: 'scene-one', requested: 1, measured: 1, shortfall: 'hold' },
+      { id: 'scene-two', requested: 2, measured: 2, shortfall: 'hold' },
+    ])
+
+    const activePath = saved.scenes[0].clip_path
+    const activeBytes = await fs.readFile(activePath)
+    saved.scenes[0].motion_prompt = 'The moon now rises through windblown clouds.'
+    await fs.writeFile(planPath, JSON.stringify(saved))
+    service.queueScenario('video', { videoArtifact: Buffer.from('invalid replacement artifact') })
+    const replacement = {
+      ...job,
+      job_id: 'follow-duration-replacement',
+      output_lines: [],
+      params: {
+        ...job.params,
+        scene_id: 'scene-one',
+        scene_durations: {
+          'scene-one': { duration_seconds: 1, narration_duration_seconds: 0.7 },
+        },
+      },
+    }
+    await assert.rejects(generateSceneClipJob(replacement), /Scene clip needs review/)
+    assert.deepEqual(await fs.readFile(activePath), activeBytes,
+      'a rejected provider artifact must leave the previous active clip intact')
+    assert.ok((await fs.readdir(path.dirname(activePath))).some(name =>
+      name.startsWith('.scene-one.follow-duration-replacement.candidate.mp4')),
+    'the rejected candidate remains available for review')
+  } finally {
+    const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+    clearGenStudioCatalogCache()
+    await service.close()
+    await temp.cleanup()
+  }
 })

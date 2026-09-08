@@ -72,6 +72,9 @@ export interface MockGenStudioScenario {
   waitForConcurrentTtsSubmissions?: number
   /** Close exactly the first cancellation response after accepting the POST. */
   dropFirstCancellationResponse?: boolean
+  /** Video only. A real artifact fixture lets generator tests exercise media
+   * validation without making a provider request. */
+  videoArtifact?: Buffer
 }
 
 export interface MockGenStudioRequest {
@@ -92,12 +95,13 @@ export interface MockGenStudioSubmission {
 }
 
 interface StoredScenario extends Required<Omit<MockGenStudioScenario,
-  'failureCode' | 'routingStatusCode' | 'outputText' | 'finishReason' | 'envelope'>> {
+  'failureCode' | 'routingStatusCode' | 'outputText' | 'finishReason' | 'envelope' | 'videoArtifact'>> {
   failureCode: string | null
   routingStatusCode: string | null
   outputText: string
   finishReason: string
   envelope: Record<string, unknown>
+  videoArtifact: Buffer
 }
 
 interface MockJob {
@@ -329,6 +333,7 @@ function normalizeScenario(
         ? scenario.waitForConcurrentTtsSubmissions!
         : 0,
     dropFirstCancellationResponse: scenario.dropFirstCancellationResponse === true,
+    videoArtifact: scenario.videoArtifact || TINY_MP4,
   }
 }
 
@@ -374,6 +379,7 @@ export class MockGenStudioService {
   /** Test-only per-credential discovery controls; production contracts see ordinary catalog rows. */
   private readonly transcriptionModelsByKey = new Map<string, Array<Record<string, unknown>>>()
   private readonly accountOverviewByKey = new Map<string, Record<string, unknown>>()
+  private videoModels: Array<Record<string, unknown>> | null = null
   private readonly contentAccounts = new Map<string, string>()
   private readonly contentAccountCredits = new Map<string, number>()
   private readonly contentBundleComponents = new Map<string, string[]>()
@@ -486,6 +492,7 @@ export class MockGenStudioService {
     }
     this.activeTtsSubmissions = 0
     this.maxInFlightTtsSubmissions = 0
+    this.videoModels = null
   }
 
   registerKey(key: string, scopes: Iterable<MockGenStudioScope>): void {
@@ -498,6 +505,11 @@ export class MockGenStudioService {
 
   setAccountOverviewForKey(key: string, overview: Record<string, unknown>): void {
     this.accountOverviewByKey.set(key, structuredClone(overview))
+  }
+
+  /** Test-only catalogue seam for a generator revalidating saved durations. */
+  setVideoModels(models: Array<Record<string, unknown>>): void {
+    this.videoModels = structuredClone(models)
   }
 
   registerContentStoreKey(
@@ -1786,8 +1798,9 @@ export class MockGenStudioService {
           response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': String(wav.length) })
           response.end(wav)
         } else if (artifact.kind === 'video') {
-          response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(TINY_MP4.length) })
-          response.end(TINY_MP4)
+          const bytes = artifact.job.scenario.videoArtifact
+          response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(bytes.length) })
+          response.end(bytes)
         } else {
           const srt = Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nHello from mock GenStudio.\n')
           response.writeHead(200, { 'Content-Type': 'application/x-subrip', 'Content-Length': String(srt.length) })
@@ -1915,7 +1928,7 @@ export class MockGenStudioService {
       return true
     }
     if (pathname === '/v1/video/models' || pathname === '/v1/videos/models') {
-      json(response, 200, [{
+      json(response, 200, this.videoModels || [{
         id: 'mock-video-v1', display_name: 'Mock Video', available: false,
         modes: ['image-to-video'],
         aspect_ratios: ['16:9'],

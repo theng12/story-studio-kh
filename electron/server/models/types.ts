@@ -2925,6 +2925,9 @@ export interface VideoScene {
   plan_scene_id?: string
   /** Internal proof that duration was hydrated from the authoritative plan. */
   __scene_plan_duration?: boolean
+  /** Follow narration clips hold their final frame during assembly, including
+   * transition tails after a nominally long clip. */
+  clip_shortfall_mode?: 'hold'
 }
 
 export interface VideoTitleCard {
@@ -4233,6 +4236,14 @@ export interface ScenePlanEntry {
   rendered_motion_prompt?: string
   /** image_version used as the clip's first frame; enables source-image stale checks. */
   clip_source_image_version?: string
+  /** The exact paid clip duration accepted for this scene. External clips clear
+   * this provider receipt; it is not a catalogue limit or preset value. */
+  clip_requested_duration_seconds?: number
+  /** Duration measured from the completed clip's video stream. */
+  clip_duration_seconds?: number
+  /** Follow narration clips hold their final frame during assembly, including
+   * transition tails after a nominally long clip. */
+  clip_shortfall_mode?: 'hold'
   /** Motion Review decision. New clips start as `pending`; the operator can
    *  approve the clip or intentionally keep the still. Missing means a legacy
    *  pre-review clip and remains accepted for backward compatibility. */

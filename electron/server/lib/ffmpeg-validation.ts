@@ -22,6 +22,8 @@ import { armProbeWatchdog, PROBE_TIMEOUT_MS } from './ffmpeg-utils.js'
 
 export interface MediaInfo {
   durationSec: number
+  /** Video stream duration, independent of a potentially longer audio track. */
+  videoDurationSec?: number
   hasVideo: boolean
   hasAudio: boolean
   videoCodec?: string
@@ -35,6 +37,25 @@ export interface MediaInfo {
   /** Pixel format reported by ffprobe (e.g. yuv420p, yuv444p). Useful for
    *  spotting mismatches that x264/x265 reject at init. */
   pixelFormat?: string
+}
+
+/** Read the video's clock without substituting the container/audio duration. */
+export function videoStreamDuration(stream: { duration?: unknown; duration_ts?: unknown; time_base?: unknown; nb_frames?: unknown; avg_frame_rate?: unknown; r_frame_rate?: unknown } | undefined): number | undefined {
+  if (!stream) return undefined
+  const positive = (value: number) => Number.isFinite(value) && value > 0 ? value : undefined
+  const ratio = (value: unknown) => {
+    const [numerator, denominator] = String(value ?? '').split('/').map(Number)
+    return positive((numerator ?? NaN) / (denominator ?? NaN))
+  }
+  const duration = positive(Number(stream.duration))
+  if (duration !== undefined) return duration
+  const timeBase = ratio(stream.time_base)
+  if (timeBase !== undefined) {
+    const fromTicks = positive(Number(stream.duration_ts) * timeBase)
+    if (fromTicks !== undefined) return fromTicks
+  }
+  const frameRate = ratio(stream.avg_frame_rate) ?? ratio(stream.r_frame_rate)
+  return frameRate === undefined ? undefined : positive(Number(stream.nb_frames) / frameRate)
 }
 
 /**
@@ -101,6 +122,7 @@ export async function getMediaInfo(filePath: string): Promise<MediaInfo> {
 
         resolve({
           durationSec,
+          videoDurationSec: videoStreamDuration(v),
           hasVideo: !!v,
           hasAudio: !!a,
           videoCodec: v?.codec_name,
@@ -108,7 +130,7 @@ export async function getMediaInfo(filePath: string): Promise<MediaInfo> {
           width: v?.width,
           height: v?.height,
           frameRate,
-          videoFrames: Number.isFinite(nbFrames) && nbFrames > 0 ? nbFrames : undefined,
+          videoFrames: Number.isFinite(nbFrames) && nbFrames >= 0 ? nbFrames : undefined,
           pixelFormat: v?.pix_fmt,
         })
       } catch (e: any) {

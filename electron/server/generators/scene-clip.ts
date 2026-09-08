@@ -19,6 +19,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { downloadVideo } from '../lib/download-video.js'
+import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
 import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
 import { resolveSceneImageReadPath } from './scene-image.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
@@ -163,6 +164,13 @@ interface SceneClipGenerateParams {
   operation?: string
   duration_seconds?: number
   resolution?: string
+  /** Exact per-scene requests accepted at enqueue time. Follow narration
+   * resolves these from the authoritative Scene Plan windows. */
+  scene_durations?: Record<string, {
+    duration_seconds: number
+    narration_duration_seconds: number
+  }>
+  duration_mode?: 'manual' | 'follow_narration'
   /** Unattended pipeline runs approve their generated clip automatically. */
   auto_approve_clip?: boolean
 }
@@ -246,6 +254,47 @@ export function selectSceneClipGenStudioVariant(
   throw new Error(`GenStudio does not publish a ${duration}s at ${resolution.trim()} option for this model.`)
 }
 
+/** Round narration UP to a currently published duration at the chosen
+ * resolution; exceeding the published ceiling deliberately chooses that
+ * ceiling so assembly can hold the final frame for the visible shortfall. */
+export function selectSceneClipNarrationVariant(
+  variants: readonly GenStudioVideoVariant[] | undefined,
+  resolution: string,
+  narrationDurationSeconds: number,
+): GenStudioVideoVariant {
+  if (!Number.isFinite(narrationDurationSeconds) || narrationDurationSeconds <= 0) {
+    throw new Error('Scene narration duration must be a positive number.')
+  }
+  const normalizedResolution = resolution.trim().toLowerCase()
+  const candidates = variantsForGenStudioVideoOperation(variants, STORY_STUDIO_VIDEO_MODE)
+    .filter(variant => variant.resolution.trim().toLowerCase() === normalizedResolution)
+    .sort((a, b) => a.duration_seconds - b.duration_seconds)
+  if (!candidates.length) {
+    throw new Error(`GenStudio publishes no priced image-to-video duration at ${resolution.trim()} for this model.`)
+  }
+  return candidates.find(variant => variant.duration_seconds >= narrationDurationSeconds) || candidates.at(-1)!
+}
+
+/** Resolve a live, selected image-to-video product without inventing a
+ * duration/resolution choice. */
+export async function requireSceneClipGenStudioCatalogModel(
+  selectedModel: string,
+): Promise<{ apiKey: string; modelId: string; model: GenStudioVideoModel }> {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) {
+    throw new Error('Add a GenStudio API key in Settings → This Mac before generating motion clips.')
+  }
+  const catalog = await listGenStudioVideoModels(apiKey)
+  const modelId = resolveSceneClipCatalogModel(selectedModel, catalog)
+  if (!modelId) {
+    throw new Error(
+      `Saved video model "${selectedModel}" is not available through GenStudio. `
+      + 'Choose an available GenStudio image-to-video model; no other route was attempted.',
+    )
+  }
+  return { apiKey, modelId, model: catalog.find(model => model.id === modelId)! }
+}
+
 /** Resolve the selected model and its exact current published variant. */
 export async function requireSceneClipGenStudioModel(
   selectedModel: string,
@@ -255,26 +304,8 @@ export async function requireSceneClipGenStudioModel(
   modelId: string
   variant: GenStudioVideoVariant
 }> {
-  const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) {
-    throw new Error('Add a GenStudio API key in Settings → This Mac before generating motion clips.')
-  }
-  // A catalogue beyond the staleness window throws GenStudioCatalogUnavailableError
-  // and is deliberately NOT caught: never submit paid video work against a
-  // product Story Studio cannot currently verify is published and priced.
-  const catalog = await listGenStudioVideoModels(apiKey)
-  const modelId = resolveSceneClipCatalogModel(selectedModel, catalog)
-  if (!modelId) {
-    throw new Error(
-      // Naming the retired fallbacks told the customer which upstreams Story
-      // Studio used to reach for. What they need to know is that nothing else
-      // was tried and no credits were spent — say that, name nobody.
-      `Saved video model "${selectedModel}" is not available through GenStudio. `
-      + 'Choose an available GenStudio image-to-video model; no other route was attempted.',
-    )
-  }
-  const resolved = catalog.find(model => model.id === modelId)!
-  const variant = selectSceneClipGenStudioVariant(resolved.variants, requestedVariant)
+  const { apiKey, modelId, model } = await requireSceneClipGenStudioCatalogModel(selectedModel)
+  const variant = selectSceneClipGenStudioVariant(model.variants, requestedVariant)
   return { apiKey, modelId, variant }
 }
 
@@ -304,9 +335,14 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
 
   // Re-check the live catalog at execution time. A queued historical job may
   // outlive a route/catalog refresh, but it must never revive a direct route.
+  const savedDuration = params.scene_durations?.[scene_id]
   const requestedVariant = params.operation === undefined && params.duration_seconds === undefined && params.resolution === undefined
     ? undefined
-    : { operation: params.operation, duration_seconds: params.duration_seconds, resolution: params.resolution }
+    : {
+      operation: params.operation,
+      duration_seconds: savedDuration?.duration_seconds ?? params.duration_seconds,
+      resolution: params.resolution,
+    }
   const { apiKey, modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
 
   const aspectRatio = (params.aspect_ratio === '9:16' || params.aspect_ratio === 'portrait') ? 'portrait' : 'landscape'
@@ -556,12 +592,18 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     }
   }
 
-  await downloadVideo(result.videoUrl, outPath, (received) => {
+  // Keep the last usable clip active until the replacement has decoded and
+  // matched its paid duration. A rejected candidate remains beside it for
+  // review, and no retry is submitted from this validation failure.
+  const candidatePath = path.join(outDir, `.${scene_id}.${job.job_id}.candidate.mp4`)
+  await downloadVideo(result.videoUrl, candidatePath, (received) => {
     // Coarse 70→95 progress band while the clip downloads.
     if (received > 0 && (job.progress ?? 0) < 95) job.progress = Math.min(95, (job.progress ?? 0) + 1)
   }, result.downloadHeaders)
-  const outputStat = await fs.stat(outPath)
+  const outputStat = await fs.stat(candidatePath)
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded clip is empty for scene ${scene_id}`)
+  const measuredDurationSeconds = await assertPlayableSceneClip(candidatePath, durationSeconds)
+  await fs.rename(candidatePath, outPath)
   job.progress = 95
 
   await checkpointSceneClip(
@@ -571,6 +613,13 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     scene.motion_prompt,
     scene.image_version,
     params.auto_approve_clip === true,
+    {
+      requested_duration_seconds: durationSeconds,
+      duration_seconds: measuredDurationSeconds,
+      ...(params.duration_mode === 'follow_narration'
+        ? { shortfall_mode: 'hold' as const }
+        : {}),
+    },
   )
 
   job.output_dir = outDir
@@ -594,11 +643,17 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
   const clipsDir = await resolveVideoAssetsDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   const ready = [] as ScenePlan['scenes']
-  const requiredIds: string[] = []
   const blockers: string[] = []
+  // A new request snapshots only scenes without a saved clip. On recovery,
+  // preserve that accepted paid-work boundary even if a prompt/image changed
+  // while the queue was waiting. Legacy jobs have no map and retain their
+  // historical reconciliation behavior.
+  const requestedSceneIds = params.scene_durations ? new Set(Object.keys(params.scene_durations)) : null
+  const requiredIds: string[] = requestedSceneIds ? [...requestedSceneIds] : []
   for (const scene of plan.scenes) {
+    if (requestedSceneIds && !requestedSceneIds.has(scene.id)) continue
     if (scene.motion_choice === 'still') continue
-    requiredIds.push(scene.id)
+    if (!requestedSceneIds) requiredIds.push(scene.id)
     const image = scene.image_path && existsSync(scene.image_path)
       ? scene.image_path
       : await resolveSceneImageReadPath(job.project_slug, episode_id.toUpperCase(), paths.episode_dir, scene.id)
@@ -623,9 +678,16 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
     })
   }
   if (!ready.length) {
+    const expectedDurations = Object.fromEntries(requiredIds.flatMap(sceneId => {
+      const duration = params.scene_durations?.[sceneId]?.duration_seconds ?? params.duration_seconds
+      return typeof duration === 'number' ? [[sceneId, duration]] : []
+    }))
+    const audit = await auditSceneClipCompletion(planPath, requiredIds, clipsDir, expectedDurations)
     job.progress = 100
     requireJobCompletion(job, {
-      label: 'Motion clip generation', expected: requiredIds.length, completed: requiredIds.length,
+      label: 'Motion clip generation', expected: audit.expected, completed: audit.completed,
+      missing: audit.missing, invalid: audit.invalid,
+      retry_hint: 'Saved clips that fail verification are preserved; use the visible per-scene Regenerate action to replace them.',
     })
     job.output_lines.push('All required scenes already have fresh, selected image-to-video clips.')
     return
@@ -646,7 +708,7 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
         model,
         aspect_ratio: params.aspect_ratio || '16:9',
         operation: params.operation,
-        duration_seconds: params.duration_seconds,
+        duration_seconds: params.scene_durations?.[scene.id]?.duration_seconds ?? params.duration_seconds,
         resolution: params.resolution,
         auto_approve_clip: true,
       }
@@ -701,7 +763,11 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
       + 'Retry re-submits only what is still missing.',
     )
   }
-  const audit = await auditSceneClipCompletion(planPath, requiredIds, clipsDir)
+  const expectedDurations = Object.fromEntries(requiredIds.flatMap(sceneId => {
+    const duration = params.scene_durations?.[sceneId]?.duration_seconds ?? params.duration_seconds
+    return typeof duration === 'number' ? [[sceneId, duration]] : []
+  }))
+  const audit = await auditSceneClipCompletion(planPath, requiredIds, clipsDir, expectedDurations)
   requireJobCompletion(job, {
     label: 'Motion clip generation', expected: audit.expected, completed: audit.completed,
     missing: audit.missing, invalid: audit.invalid,

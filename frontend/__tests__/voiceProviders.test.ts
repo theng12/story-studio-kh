@@ -209,12 +209,14 @@ test('GenStudio catalogs stay provider-owned across voice, image, LLM, and video
   assert.match(imageModels, /\/app-settings\/genstudio\/image-models/)
   assert.match(modelSelector, /get<LlmModelRow\[]>\(`\/models\?project=\$\{props\.projectSlug\}`\)/)
   assert.match(motionReview, /genstudio-video:\$\{model\.id\}/)
-  // The row describes what the CLIP will be. It no longer opens by naming the
-  // gateway: every video model here comes through it, the group heading says
-  // so once, and the words were taking the room the published length,
-  // resolution and price need.
-  assert.match(motionReview, /aria-label="Published clip variant"/)
+  // The controls describe what the CLIP will be. Resolution and manual timing
+  // are separate, but both still come only from the selected model's current
+  // priced image-to-video rows; the page never copies a duration/provider list.
+  assert.match(motionReview, /aria-label="Published resolution"/)
+  assert.match(motionReview, /aria-label="Manual clip length slider"/)
+  assert.match(motionReview, /variantsForVideoOperation\(selectedVideoModel\.value\?\.variants, STORY_STUDIO_VIDEO_OPERATION\)/)
   assert.match(motionReview, /variant\.credits_per_video/)
+  assert.doesNotMatch(motionReview, /capability\.durations|provider.*duration/i)
   assert.doesNotMatch(motionReview, /the cheapest option GenStudio publishes for this model/)
   assert.doesNotMatch(motionReview, /Image-to-video generation through GenStudio KH/)
   assert.doesNotMatch(motionReview, /local fleet|cloud fleet|execution_label/i)

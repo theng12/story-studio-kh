@@ -38,7 +38,8 @@
       </WorkspaceNotice>
 
       <WorkspaceNotice title="External clips use the same timeline" tone="info">
-        Upload an MP4 on the matching scene. Long clips are trimmed, short clips hold their final frame, and narration audio remains in control.
+        Upload an MP4 on the matching scene. Long clips are trimmed and short external or legacy clips loop to fill the narration window.
+        Clips generated with Follow narration hold their final frame instead when they cannot reach the full scene.
       </WorkspaceNotice>
     </div>
 
@@ -88,15 +89,82 @@
               {{ selectedVideoModelAudioNotice }}
             </span>
           </label>
-          <label class="model-field variant-field">
-            <span>Clip variant</span>
-            <select v-model="videoVariantKey" class="select" :disabled="!selectedVideoVariants.length" aria-label="Published clip variant">
-              <option v-if="!selectedVideoVariants.length" value="">No published length or resolution</option>
-              <option v-for="variant in selectedVideoVariants" :key="variantKey(variant)" :value="variantKey(variant)">
-                {{ variant.duration_seconds }}s at {{ variant.resolution }} — {{ variant.credits_per_video }} credits (minimum {{ variant.minimum_credits }} credits, price list {{ variant.price_version }})
+          <label class="model-field resolution-field">
+            <span>Resolution</span>
+            <select
+              class="select"
+              :value="selectedResolution"
+              :disabled="!availableResolutions.length"
+              aria-label="Published resolution"
+              @change="chooseResolution"
+            >
+              <option v-if="!availableResolutions.length" value="">No published resolution</option>
+              <option v-for="resolution in availableResolutions" :key="resolution" :value="resolution">
+                {{ resolution }}
               </option>
             </select>
           </label>
+          <fieldset class="duration-mode" :disabled="!selectedResolutionVariants.length">
+            <legend>Clip timing</legend>
+            <label>
+              <input v-model="durationMode" type="radio" name="duration-mode" value="manual">
+              <span><strong>Manual duration</strong><small>Use one listed length for every new clip.</small></span>
+            </label>
+            <label>
+              <input v-model="durationMode" type="radio" name="duration-mode" value="follow_narration">
+              <span><strong>Follow narration</strong><small>Round each scene up to its next listed length.</small></span>
+            </label>
+          </fieldset>
+          <div v-if="durationMode === 'manual'" class="manual-duration">
+            <div class="manual-duration-heading">
+              <label for="manual-clip-length">Manual clip length</label>
+              <span v-if="maximumDuration !== null">Maximum {{ maximumDuration }}s</span>
+            </div>
+            <div class="manual-duration-inputs">
+              <input
+                aria-label="Manual clip length slider"
+                type="range"
+                min="0"
+                :max="Math.max(0, selectedResolutionVariants.length - 1)"
+                step="1"
+                :value="manualDurationIndex"
+                :aria-valuetext="manualDurationSeconds === null ? undefined : `${manualDurationSeconds} seconds`"
+                :disabled="!selectedResolutionVariants.length"
+                @input="chooseManualSliderValue"
+                @keydown="moveManualDuration"
+              >
+              <div class="duration-number-wrap">
+                <input
+                  id="manual-clip-length"
+                  class="input duration-number"
+                  aria-label="Manual clip length"
+                  type="number"
+                  inputmode="decimal"
+                  step="any"
+                  :min="minimumDuration ?? undefined"
+                  :max="maximumDuration ?? undefined"
+                  :value="manualDurationDraft"
+                  :disabled="!selectedResolutionVariants.length"
+                  @input="editManualDuration"
+                  @blur="commitManualDuration"
+                  @keydown.enter="commitManualDuration"
+                >
+                <span aria-hidden="true">seconds</span>
+              </div>
+            </div>
+            <p class="duration-help">
+              Listed lengths: {{ publishedDurationLabels || 'None' }}. Typed values round up; values above the listed maximum use {{ maximumDuration }}s.
+            </p>
+          </div>
+          <div v-else class="follow-duration-note">
+            <strong>Each unsent scene is matched separately.</strong>
+            <span>Longer clips are trimmed. If narration exceeds the listed maximum, the final frame holds for the visible shortfall.</span>
+          </div>
+          <div v-if="selectedResolutionVariants.length" class="batch-cost" aria-live="polite">
+            <strong>{{ batchPlans.length }} {{ batchPlans.length === 1 ? 'clip' : 'clips' }} · Listed total {{ formatCredits(batchListedTotal) }}</strong>
+            <span>The current catalogue rows are shown for planning; the provider quote is authoritative when each request is accepted.</span>
+            <span v-if="existingClipCount">Existing clips stay out of this batch.</span>
+          </div>
           <button class="btn btn-sm btn-secondary" :disabled="savingAll || stats.with_clip === 0" @click="approveAllClips">
             Approve all fresh clips
           </button>
@@ -132,6 +200,14 @@
             <span>{{ scene.start_sec.toFixed(1) }}s to {{ scene.end_sec.toFixed(1) }}s</span>
             <span class="choice-badge">{{ choiceLabel(scene) }}</span>
           </div>
+          <div v-if="scene.duration_plan" class="scene-duration-plan" :class="{ 'has-shortfall': scene.duration_plan.adjustment === 'hold' }">
+            <span><small>Narration</small><strong>{{ formatSeconds(scene.duration_plan.narration_seconds) }}</strong></span>
+            <span><small>Next request</small><strong>{{ formatSeconds(scene.duration_plan.requested_seconds) }}</strong></span>
+            <span><small>Adjustment</small><strong>{{ scene.duration_plan.adjustment_label }}</strong></span>
+            <span
+              :title="`Minimum ${scene.duration_plan.variant.minimum_credits} credits · price list ${scene.duration_plan.variant.price_version}`"
+            ><small>Current listed cost</small><strong>Listed cost {{ formatCredits(scene.duration_plan.variant.credits_per_video) }}</strong></span>
+          </div>
           <p class="transcript">{{ scene.transcript_segment }}</p>
           <details open>
             <summary>Motion direction</summary>
@@ -148,7 +224,7 @@
           >{{ uploadingId === scene.id ? 'Uploading...' : 'Upload external MP4' }}</button>
           <button
             class="btn btn-sm btn-secondary"
-            :disabled="!videoModel || !scene.image_filename || !scene.motion_prompt || animatingId === scene.id"
+            :disabled="!selectionReady || !scene.image_filename || !scene.motion_prompt || animatingId === scene.id"
             @click="generateOne(scene)"
           >{{ animatingId === scene.id ? 'Queuing...' : (scene.clip_exists ? 'Re-generate clip' : 'Generate clip') }}</button>
           <button
@@ -188,8 +264,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
-import { describeVideoModelRate } from '~/utils/genstudio-credit-cost'
-import { variantsForVideoOperation, videoVariantKey as publishedVideoVariantKey } from '~/utils/genstudio-video-variants'
+import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-cost'
+import { variantsForVideoOperation } from '~/utils/genstudio-video-variants'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Motion Review')
@@ -216,6 +292,14 @@ interface MotionStats {
   motion_reviewed: number
   all_motion_reviewed: boolean
 }
+type DurationMode = 'manual' | 'follow_narration'
+type DurationPlan = {
+  narration_seconds: number
+  requested_seconds: number
+  adjustment: 'exact' | 'trim' | 'hold' | 'loop'
+  adjustment_label: string
+  variant: VideoVariant
+}
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -225,14 +309,16 @@ const initialEpisodeId = typeof route.query.episode_id === 'string'
     ? route.query.episode
     : ''
 const episodeId = ref(initialEpisodeId)
-const { config } = useProject()
 const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 const { isJobActiveFor } = useJobs()
 const scenes = ref<MotionScene[]>([])
 const SCENE_RENDER_BATCH = 24
 const renderedSceneLimit = ref(SCENE_RENDER_BATCH)
-const renderedScenes = computed(() => scenes.value.slice(0, renderedSceneLimit.value))
+const renderedScenes = computed(() => scenes.value.slice(0, renderedSceneLimit.value).map(scene => ({
+  ...scene,
+  duration_plan: durationPlanForScene(scene),
+})))
 const sceneLoadSentinel = ref<HTMLElement | null>(null)
 let sceneLoadObserver: IntersectionObserver | null = null
 let reviewLoadSequence = 0
@@ -240,6 +326,7 @@ function loadMoreScenes(): void {
   renderedSceneLimit.value = Math.min(scenes.value.length, renderedSceneLimit.value + SCENE_RENDER_BATCH)
 }
 const stats = ref<MotionStats | null>(null)
+const animateMinSeconds = ref(0)
 const loading = ref(false)
 const queuing = ref(false)
 const savingAll = ref(false)
@@ -247,7 +334,10 @@ const savingId = ref<string | null>(null)
 const animatingId = ref<string | null>(null)
 const uploadingId = ref<string | null>(null)
 const videoModel = ref('')
-const videoVariantKey = ref('')
+const selectedResolution = ref('')
+const durationMode = ref<DurationMode>('manual')
+const manualDurationSeconds = ref<number | null>(null)
+const manualDurationDraft = ref('')
 const { videoModels: genStudioVideoModels, refresh: refreshGenStudioMediaModels } = useGenStudioMediaModels()
 const cacheBuster = ref(Date.now())
 const motionPresets = usePresets({
@@ -257,21 +347,17 @@ const motionPresets = usePresets({
   snapshot: () => ({
     model: videoModel.value,
     aspect_ratio: '16:9',
-    operation: selectedVideoVariant.value?.operation,
-    duration_seconds: selectedVideoVariant.value?.duration_seconds,
-    resolution: selectedVideoVariant.value?.resolution,
+    operation: STORY_STUDIO_VIDEO_OPERATION,
+    duration_seconds: manualDurationSeconds.value ?? undefined,
+    resolution: selectedResolution.value || undefined,
+    duration_mode: durationMode.value,
   }),
   apply: (data: any) => {
     if (typeof data?.model === 'string') videoModel.value = data.model
-    if (Number.isFinite(Number(data?.duration_seconds)) && typeof data?.resolution === 'string' && data.resolution.trim()) {
-      videoVariantKey.value = variantKey({
-        operation: typeof data?.operation === 'string' && data.operation.trim()
-          ? data.operation.trim()
-          : STORY_STUDIO_VIDEO_OPERATION,
-        duration_seconds: Number(data.duration_seconds),
-        resolution: data.resolution.trim(),
-      })
-    }
+    selectedResolution.value = typeof data?.resolution === 'string' ? data.resolution.trim() : ''
+    manualDurationSeconds.value = Number.isFinite(Number(data?.duration_seconds)) ? Number(data.duration_seconds) : null
+    manualDurationDraft.value = manualDurationSeconds.value === null ? '' : String(manualDurationSeconds.value)
+    durationMode.value = data?.duration_mode === 'follow_narration' ? 'follow_narration' : 'manual'
   },
 })
 
@@ -294,9 +380,6 @@ function cheapestVariant(variants: readonly VideoVariant[]) {
     || a.duration_seconds - b.duration_seconds
     || a.resolution.localeCompare(b.resolution)
   ))[0]!
-}
-function variantKey(variant: Pick<VideoVariant, 'operation' | 'duration_seconds' | 'resolution'>): string {
-  return publishedVideoVariantKey(variant)
 }
 
 /**
@@ -345,7 +428,7 @@ const i2vModels = computed(() => {
           : noVariant,
         description: (variant
           ? `The cheapest published option is selected first (${variant.duration_seconds}s at ${variant.resolution}). `
-            + 'Choose a published length and resolution; that selected option is what the clip will use.'
+            + 'Choose a resolution, then use one published length or match each scene to its narration.'
           : 'GenStudio publishes no priced length or resolution for this model, so Story Studio '
             + 'cannot generate a clip with it.')
           + (generatesAudio ? ` ${GENERATED_AUDIO_DISCLOSURE}` : ''),
@@ -380,12 +463,48 @@ const selectedVideoModel = computed(() => {
 const selectedVideoVariants = computed<VideoVariant[]>(() => (
   variantsForVideoOperation(selectedVideoModel.value?.variants, STORY_STUDIO_VIDEO_OPERATION)
 ))
-const selectedVideoVariant = computed(() => selectedVideoVariants.value.find(variant => variantKey(variant) === videoVariantKey.value) || null)
-watch(selectedVideoVariants, (variants) => {
-  if (!variants.length) { videoVariantKey.value = ''; return }
-  if (!variants.some(variant => variantKey(variant) === videoVariantKey.value)) {
-    videoVariantKey.value = variantKey(cheapestVariant(variants)!)
+const availableResolutions = computed(() => [...new Set(selectedVideoVariants.value.map(variant => variant.resolution))])
+const selectedResolutionVariants = computed(() => selectedVideoVariants.value
+  .filter(variant => variant.resolution === selectedResolution.value)
+  .sort((a, b) => a.duration_seconds - b.duration_seconds))
+const selectedManualVariant = computed(() => selectedResolutionVariants.value
+  .find(variant => variant.duration_seconds === manualDurationSeconds.value) || null)
+const minimumDuration = computed(() => selectedResolutionVariants.value[0]?.duration_seconds ?? null)
+const maximumDuration = computed(() => selectedResolutionVariants.value.at(-1)?.duration_seconds ?? null)
+const publishedDurationLabels = computed(() => selectedResolutionVariants.value
+  .map(variant => `${variant.duration_seconds}s`).join(', '))
+const manualDurationIndex = computed(() => Math.max(0, selectedResolutionVariants.value
+  .findIndex(variant => variant.duration_seconds === manualDurationSeconds.value)))
+
+function setManualDuration(duration: number | null): void {
+  manualDurationSeconds.value = duration
+  manualDurationDraft.value = duration === null ? '' : String(duration)
+}
+
+function snappedVariant(requested: number): VideoVariant | null {
+  if (!selectedResolutionVariants.value.length || !Number.isFinite(requested)) return null
+  return selectedResolutionVariants.value.find(variant => variant.duration_seconds >= requested)
+    || selectedResolutionVariants.value.at(-1)!
+}
+
+function syncPublishedSelection(variants: readonly VideoVariant[]): void {
+  if (!variants.length) {
+    selectedResolution.value = ''
+    setManualDuration(null)
+    return
   }
+  if (!variants.some(variant => variant.resolution === selectedResolution.value)) {
+    selectedResolution.value = cheapestVariant(variants)!.resolution
+  }
+  const current = Number(manualDurationSeconds.value)
+  const next = selectedResolutionVariants.value.find(variant => variant.duration_seconds === current)
+    || (Number.isFinite(current) ? snappedVariant(current) : null)
+    || cheapestVariant(selectedResolutionVariants.value)
+  setManualDuration(next?.duration_seconds ?? null)
+}
+
+watch(selectedVideoVariants, (variants) => {
+  syncPublishedSelection(variants)
 }, { immediate: true })
 watch(i2vModels, (models) => {
   if (!models.length) return
@@ -394,17 +513,110 @@ watch(i2vModels, (models) => {
   if (selected) videoModel.value = `genstudio-video:${selected.id}`
 }, { immediate: true })
 
+function chooseResolution(event: Event): void {
+  const requested = manualDurationSeconds.value
+  selectedResolution.value = (event.target as HTMLSelectElement).value
+  const selected = requested === null ? null : snappedVariant(requested)
+  setManualDuration(selected?.duration_seconds ?? cheapestVariant(selectedResolutionVariants.value)?.duration_seconds ?? null)
+}
+
+function chooseManualSliderValue(event: Event): void {
+  const index = Number((event.target as HTMLInputElement).value)
+  setManualDuration(selectedResolutionVariants.value[index]?.duration_seconds ?? null)
+}
+
+function editManualDuration(event: Event): void {
+  manualDurationDraft.value = (event.target as HTMLInputElement).value
+}
+
+function commitManualDuration(): void {
+  const selected = snappedVariant(Number(manualDurationDraft.value))
+  setManualDuration(selected?.duration_seconds ?? manualDurationSeconds.value)
+}
+
+function moveManualDuration(event: KeyboardEvent): void {
+  const movement = event.key === 'ArrowRight' || event.key === 'ArrowUp'
+    ? 1
+    : event.key === 'ArrowLeft' || event.key === 'ArrowDown'
+      ? -1
+      : 0
+  if (!movement) return
+  event.preventDefault()
+  const index = Math.min(
+    selectedResolutionVariants.value.length - 1,
+    Math.max(0, manualDurationIndex.value + movement),
+  )
+  setManualDuration(selectedResolutionVariants.value[index]?.duration_seconds ?? null)
+}
+
+function formatSeconds(seconds: number): string {
+  return `${Math.round(seconds * 10) / 10}s`
+}
+
+function durationPlanForScene(scene: MotionScene): DurationPlan | null {
+  const narration = Math.max(0, scene.end_sec - scene.start_sec)
+  const variant = durationMode.value === 'follow_narration'
+    ? snappedVariant(narration)
+    : selectedManualVariant.value
+  if (!variant) return null
+  const difference = Math.round((variant.duration_seconds - narration) * 10) / 10
+  if (difference > 0) return {
+    narration_seconds: narration,
+    requested_seconds: variant.duration_seconds,
+    adjustment: 'trim',
+    adjustment_label: `Trim ${formatSeconds(difference)}`,
+    variant,
+  }
+  if (difference < 0) {
+    const shortfall = formatSeconds(Math.abs(difference))
+    return {
+      narration_seconds: narration,
+      requested_seconds: variant.duration_seconds,
+      adjustment: durationMode.value === 'follow_narration' ? 'hold' : 'loop',
+      adjustment_label: durationMode.value === 'follow_narration'
+        ? `Hold final frame ${shortfall}`
+        : `Loop clip for ${shortfall}`,
+      variant,
+    }
+  }
+  return {
+    narration_seconds: narration,
+    requested_seconds: variant.duration_seconds,
+    adjustment: 'exact',
+    adjustment_label: 'No adjustment',
+    variant,
+  }
+}
+
+function batchEligible(scene: MotionScene): boolean {
+  return scene.approved
+    && !!scene.image_filename
+    && !!scene.motion_prompt?.trim()
+    && !scene.clip_exists
+    && scene.motion_choice !== 'still'
+    && scene.end_sec - scene.start_sec >= animateMinSeconds.value
+}
+const batchPlans = computed(() => scenes.value.filter(batchEligible)
+  .map(durationPlanForScene)
+  .filter((plan): plan is DurationPlan => plan !== null))
+const batchListedTotal = computed(() => batchPlans.value
+  .reduce((total, plan) => total + plan.variant.credits_per_video, 0))
+const existingClipCount = computed(() => scenes.value.filter(scene => scene.clip_exists).length)
+
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))
-const canGenerate = computed(() => !!episodeId.value && !!videoModel.value && !!selectedVideoVariant.value && scenes.value.some(scene =>
-  !i2vModels.value.find(model => model.id === videoModel.value)?.disabled
-    && scene.approved && scene.image_filename && scene.motion_prompt && (!scene.clip_exists || scene.clip_stale),
-))
+const selectionReady = computed(() => !!selectedResolution.value
+  && !!selectedResolutionVariants.value.length
+  && (durationMode.value === 'follow_narration' || !!selectedManualVariant.value)
+  && !i2vModels.value.find(model => model.id === videoModel.value)?.disabled)
+const canGenerate = computed(() => !!episodeId.value && !!videoModel.value
+  && selectionReady.value && batchPlans.value.length > 0)
 const generateStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!i2vModels.value.length) return 'GenStudio has no image-to-video models available'
   if (!videoModel.value) return 'Pick an image-to-video model'
-  if (!canGenerate.value) return 'No approved images are waiting for motion'
-  return 'Only approved images are sent to image-to-video'
+  if (!selectedResolutionVariants.value.length) return 'Choose a published resolution'
+  if (!canGenerate.value) return 'No approved missing clips are waiting for motion'
+  return `${batchPlans.value.length} approved missing ${batchPlans.value.length === 1 ? 'clip is' : 'clips are'} ready`
 })
 
 function imageUrl(scene: MotionScene) {
@@ -423,13 +635,14 @@ function choiceLabel(scene: MotionScene) {
 async function loadReview() {
   const ep = episodeId.value
   const requestSequence = ++reviewLoadSequence
-  if (!ep) { scenes.value = []; stats.value = null; return }
+  if (!ep) { scenes.value = []; stats.value = null; animateMinSeconds.value = 0; return }
   loading.value = true
   try {
-    const result = await get<{ scenes: MotionScene[]; stats: MotionStats | null }>(`/projects/${slug.value}/scene-review/${ep}`)
+    const result = await get<{ scenes: MotionScene[]; stats: MotionStats | null; animate_min_seconds?: number }>(`/projects/${slug.value}/scene-review/${ep}`)
     if (requestSequence !== reviewLoadSequence || episodeId.value !== ep) return
     scenes.value = result.scenes || []
     stats.value = result.stats
+    animateMinSeconds.value = Math.max(0, Number(result.animate_min_seconds) || 0)
     cacheBuster.value = Date.now()
   } catch (error: any) {
     if (requestSequence !== reviewLoadSequence || episodeId.value !== ep) return
@@ -439,17 +652,28 @@ async function loadReview() {
   }
 }
 
+function generationPayload(): Record<string, string | number> | null {
+  if (!videoModel.value || !selectionReady.value) return null
+  return {
+    model: videoModel.value,
+    aspect_ratio: '16:9',
+    operation: STORY_STUDIO_VIDEO_OPERATION,
+    duration_mode: durationMode.value,
+    resolution: selectedResolution.value,
+    ...(durationMode.value === 'manual' && selectedManualVariant.value
+      ? { duration_seconds: selectedManualVariant.value.duration_seconds }
+      : {}),
+  }
+}
+
 async function generateOne(scene: MotionScene) {
-  if (!videoModel.value || !selectedVideoVariant.value) return
+  const payload = generationPayload()
+  if (!payload) return
   animatingId.value = scene.id
   try {
     await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-clip`, {
       scene_id: scene.id,
-      model: videoModel.value,
-      aspect_ratio: '16:9',
-      operation: selectedVideoVariant.value.operation,
-      duration_seconds: selectedVideoVariant.value.duration_seconds,
-      resolution: selectedVideoVariant.value.resolution,
+      ...payload,
     })
     success(`Scene ${scene.scene_index} clip queued.`)
   } catch (error: any) {
@@ -460,15 +684,12 @@ async function generateOne(scene: MotionScene) {
 }
 
 async function generateMissing() {
-  if (!videoModel.value || !selectedVideoVariant.value) return
+  const payload = generationPayload()
+  if (!payload || !batchPlans.value.length) return
   queuing.value = true
   try {
     const result = await post<{ queued: number; skipped: number }>(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-missing-clips`, {
-      model: videoModel.value,
-      aspect_ratio: '16:9',
-      operation: selectedVideoVariant.value.operation,
-      duration_seconds: selectedVideoVariant.value.duration_seconds,
-      resolution: selectedVideoVariant.value.resolution,
+      ...payload,
     })
     success(`${result.queued || 0} image-to-video clips queued.`)
   } catch (error: any) {
@@ -618,14 +839,42 @@ watch(episodeId, () => {
 .motion-summary-score.ready { border-color: color-mix(in srgb, var(--motion-green) 55%, var(--border)); background: color-mix(in srgb, var(--motion-green) 10%, transparent); }
 .motion-summary-score.ready strong { color: var(--motion-green); }
 .motion-progress { height: 4px; margin: 0 0 2px; overflow: hidden; border-radius: 999px; background: var(--bg-tertiary); }
-.motion-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--motion-blue), var(--motion-green)); transition: width .35s ease; }
-.motion-tool-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding-top: 17px; border-top: 1px solid var(--border); }
-.motion-tool-heading { display: flex; min-width: 190px; flex-direction: column; gap: 3px; }
+.motion-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--motion-blue), var(--motion-green)); }
+.motion-tool-row { display: grid; gap: 12px; padding-top: 17px; border-top: 1px solid var(--border); }
+.motion-tool-heading { display: flex; flex-direction: column; gap: 3px; }
 .motion-tool-heading strong { font-size: 13px; }
 .motion-tool-heading span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
-.motion-tools { justify-content: flex-end; flex-wrap: wrap; }
+.motion-tools { display: grid; grid-template-columns: minmax(300px, 1.2fr) minmax(140px, .45fr) minmax(420px, 1.4fr) max-content max-content; align-items: end; justify-content: stretch; }
 .model-field { min-width: 280px; }
 .model-field > span, .media-label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+.resolution-field { min-width: 150px; }
+.duration-mode { display: flex; min-width: 360px; margin: 0; padding: 0; border: 0; gap: 7px; }
+.duration-mode legend, .manual-duration-heading label { margin-bottom: 6px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+.duration-mode label { display: flex; flex: 1 1 0; align-items: flex-start; gap: 8px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-tertiary); cursor: pointer; }
+.duration-mode label:has(input:checked) { border-color: color-mix(in srgb, var(--motion-blue) 70%, var(--border)); background: color-mix(in srgb, var(--motion-blue) 10%, var(--bg-tertiary)); }
+.duration-mode input { margin-top: 2px; accent-color: var(--motion-blue); }
+.duration-mode span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.duration-mode strong { font-size: 12px; }
+.duration-mode small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; }
+.duration-mode:disabled label { cursor: not-allowed; opacity: .55; }
+.manual-duration { grid-column: 1 / -1; grid-row: 2; width: min(100%, 760px); }
+.manual-duration-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.manual-duration-heading span { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 700; }
+.manual-duration-inputs { display: grid; grid-template-columns: minmax(150px, 1fr) 130px; align-items: center; gap: 10px; }
+.manual-duration-inputs input[type='range'] { width: 100%; accent-color: var(--motion-blue); cursor: pointer; }
+.duration-number-wrap { position: relative; }
+.duration-number { width: 100%; padding-right: 53px; font-variant-numeric: tabular-nums; }
+.duration-number-wrap > span { position: absolute; top: 50%; right: 10px; color: var(--text-muted); font-size: var(--font-xs); pointer-events: none; transform: translateY(-50%); }
+.duration-help, .follow-duration-note span, .batch-cost span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
+.duration-help { margin: 6px 0 0; }
+.follow-duration-note { display: flex; grid-column: 1 / -1; grid-row: 2; max-width: 760px; flex-direction: column; gap: 3px; padding: 9px 11px; border-radius: 10px; background: color-mix(in srgb, var(--motion-blue) 9%, var(--bg-tertiary)); }
+.follow-duration-note strong { font-size: 12px; }
+.batch-cost { display: flex; grid-column: 1 / 4; grid-row: 3; min-width: 280px; align-items: baseline; justify-content: flex-start; gap: 5px 12px; flex-wrap: wrap; padding-top: 9px; border-top: 1px solid var(--border); text-align: left; }
+.batch-cost strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+.motion-tools > .btn { grid-row: 3; align-self: center; }
+.motion-tools > .btn:first-of-type { grid-column: 4; }
+.motion-tools > .btn:last-child { grid-column: 5; }
+input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-visible) { outline: 2px solid var(--motion-blue); outline-offset: 2px; }
 /* Prose, not a field label — override the uppercase caption styling above. */
 .model-field > span.model-audio-notice {
   margin: 6px 0 0; max-width: 46ch;
@@ -636,10 +885,10 @@ watch(episodeId, () => {
 
 .motion-grid { display: grid; gap: 14px; padding: 0; list-style: none; }
 .motion-list-more { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; color: var(--text-muted); font-size: 12px; }
-.motion-card { display: grid; grid-template-columns: minmax(380px, .9fr) minmax(320px, 1.1fr); gap: 18px; padding: 15px; border: 1px solid var(--border); border-left: 4px solid var(--motion-gold); border-radius: 14px; background: var(--bg-secondary); box-shadow: 0 6px 22px rgba(0,0,0,.07); transition: border-color .18s ease, transform .18s ease; content-visibility: auto; contain-intrinsic-size: auto 320px; }
+.motion-card { display: grid; grid-template-columns: minmax(380px, .9fr) minmax(320px, 1.1fr); gap: 18px; padding: 15px; border: 1px solid color-mix(in srgb, var(--motion-gold) 55%, var(--border)); border-radius: 14px; background: var(--bg-secondary); box-shadow: 0 6px 22px rgba(0,0,0,.07); transition: border-color .18s ease, transform .18s ease; content-visibility: auto; contain-intrinsic-size: auto 320px; }
 .motion-card:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--motion-blue) 30%, var(--border)); }
-.motion-card.choice-clip, .motion-card.choice-legacy { border-left-color: var(--motion-green); }
-.motion-card.choice-still { border-left-color: var(--motion-blue); }
+.motion-card.choice-clip, .motion-card.choice-legacy { border-color: color-mix(in srgb, var(--motion-green) 55%, var(--border)); }
+.motion-card.choice-still { border-color: color-mix(in srgb, var(--motion-blue) 55%, var(--border)); }
 .media-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .media-box img, .media-box video, .missing-media { width: 100%; aspect-ratio: 16 / 9; border-radius: 9px; background: #0b0d0c; object-fit: contain; }
 .missing-media { display: grid; place-items: center; border: 1px dashed var(--border); color: var(--text-muted); font-size: 12px; }
@@ -648,6 +897,11 @@ watch(episodeId, () => {
 .scene-line strong { font-size: 15px; }
 .scene-line > span { color: var(--text-muted); font-size: 12px; }
 .choice-badge { margin-left: auto; padding: 4px 9px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-primary) !important; font-weight: 650; }
+.scene-duration-plan { display: grid; grid-template-columns: repeat(4, minmax(105px, 1fr)); gap: 7px; margin-top: 10px; }
+.scene-duration-plan > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; padding: 7px 8px; border-radius: 8px; background: var(--bg-tertiary); }
+.scene-duration-plan small { color: var(--text-muted); font-size: var(--font-xs); letter-spacing: .04em; text-transform: uppercase; }
+.scene-duration-plan strong { overflow-wrap: anywhere; font-size: var(--font-xs); font-variant-numeric: tabular-nums; }
+.scene-duration-plan.has-shortfall > span:nth-child(3) { background: color-mix(in srgb, var(--warning, #d97706) 13%, var(--bg-tertiary)); color: var(--warning, #d99558); }
 .transcript { margin: 10px 0; color: var(--text-secondary); line-height: 1.55; }
 .motion-prompt { margin: 7px 0; color: var(--text-muted); line-height: 1.5; }
 .stale-note { color: #d99558; font-weight: 650; }
@@ -664,19 +918,30 @@ watch(episodeId, () => {
 @media (max-width: 1220px) {
   .motion-command-bar :deep(.top-action-bar) { grid-template-columns: 1fr; align-items: stretch; }
   .motion-command-bar :deep(.generate-region) { justify-content: flex-start; }
+  .motion-tools { grid-template-columns: minmax(280px, 1fr) minmax(140px, .45fr); }
+  .duration-mode { grid-column: 1 / -1; grid-row: 2; }
+  .manual-duration, .follow-duration-note { grid-column: 1 / -1; grid-row: 3; }
+  .batch-cost { grid-column: 1 / -1; grid-row: 4; }
+  .motion-tools > .btn { grid-row: 5; }
+  .motion-tools > .btn:first-of-type { grid-column: 1; justify-self: start; }
+  .motion-tools > .btn:last-child { grid-column: 2; justify-self: end; }
   .motion-card { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
   .motion-hero-route { display: none; }
   .motion-guide-grid { grid-template-columns: 1fr; }
-  .motion-tool-row { align-items: stretch; flex-direction: column; }
-  .motion-tools { justify-content: flex-start; }
+  .motion-tool-row { align-items: stretch; }
 }
 @media (max-width: 640px) {
   .motion-summary { align-items: flex-start; flex-direction: column; }
   .motion-summary-score, .model-field { width: 100%; min-width: 0; }
-  .motion-tools { align-items: stretch; flex-direction: column; }
+  .motion-tools { grid-template-columns: 1fr; align-items: stretch; }
+  .motion-tools > *, .duration-mode, .manual-duration, .follow-duration-note, .batch-cost,
+  .motion-tools > .btn:first-of-type, .motion-tools > .btn:last-child { grid-column: 1; grid-row: auto; justify-self: stretch; }
+  .duration-mode { min-width: 0; flex-direction: column; }
+  .manual-duration-inputs { grid-template-columns: 1fr; }
   .media-pair { grid-template-columns: 1fr; }
+  .scene-duration-plan { grid-template-columns: 1fr 1fr; }
   .motion-actions { justify-content: stretch; }
   .motion-actions .btn { flex: 1 1 100%; }
   .back-to-top { right: 16px; bottom: 16px; }
