@@ -563,7 +563,7 @@ export async function runArchiveSweep(opts: ArchiveRunOptions): Promise<ArchiveR
         await fs.rm(candidate.source_path, { force: true })
         return { sourceHash, breadcrumbWarning }
       })
-      if ('skipped' in move) {
+      if (typeof move.skipped === 'string') {
         result.skipped.push({
           source_path: candidate.source_path,
           code: candidate.code,

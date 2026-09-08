@@ -438,7 +438,9 @@ describe('storage cleanup + sidecar detection + external root', () => {
       }
       const mediaRoot = path.join(tmp.dir, `external-migration-${seed.code}`)
       await fs.mkdir(mediaRoot, { recursive: true })
-      await pm.updateProject(SLUG, { media_root: mediaRoot })
+      const projectFile = path.join(pm.projectsRoot(), SLUG, 'project.json')
+      const project = JSON.parse(await fs.readFile(projectFile, 'utf8'))
+      await fs.writeFile(projectFile, JSON.stringify({ ...project, media_root: mediaRoot }))
       const { resolveEpisodePaths } = await import('../services/utils.js')
       const destPaths = await resolveEpisodePaths(SLUG, seed.code, TITLE)
       const destination = path.join(destPaths.video_dir, path.basename(seed.final_path))
