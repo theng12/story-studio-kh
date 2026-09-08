@@ -137,7 +137,7 @@ describe('Video Assembly render fingerprint and scene reuse', () => {
     const animationAt = generate.indexOf('resolveVideoAssemblySceneAnimation(req, req.scenes.length)')
     const fingerprintAt = generate.indexOf('buildVideoAssemblyRenderFingerprint({')
     const finalEncodeAt = generate.lastIndexOf('await runFinalComposition({')
-    const finalPromoteAt = generate.lastIndexOf('await fs.rename(outputFile, finalPath)')
+    const finalPromoteAt = generate.lastIndexOf('await withFinalVideoPathLock(finalPath')
     const finalVerifyAt = generate.lastIndexOf('await verifyFinalVideo(job, resolvedOutputPath, finalName)')
 
     assert.ok(cloneAt >= 0 && cloneAt < authoritativeAt)
@@ -145,6 +145,9 @@ describe('Video Assembly render fingerprint and scene reuse', () => {
     assert.ok(snapshotAt < animationAt && animationAt < fingerprintAt)
     assert.match(generate.slice(fingerprintAt, fingerprintAt + 1_200), /resolved_scene_animation: resolvedSceneAnimation/)
     assert.ok(finalEncodeAt < finalPromoteAt && finalPromoteAt < finalVerifyAt)
+    assert.match(generate, /withFinalVideoPathLock\(compFinalPath/)
+    assert.match(generate, /withFinalVideoPathLock\(compProjectTreeFinalPath/)
+    assert.match(generate, /withFinalVideoPathLock\(projectTreeFinalPath/)
   })
 
   test('generator replay keeps durable params unchanged and resolves the same default animation choices', async () => {

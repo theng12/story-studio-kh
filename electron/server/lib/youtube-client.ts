@@ -17,6 +17,7 @@
 
 import fs from 'fs'
 import fsp from 'fs/promises'
+import type { FileHandle } from 'node:fs/promises'
 import type { OAuthTokenBundle } from './youtube-oauth.js'
 import { refreshAccessToken } from './youtube-oauth.js'
 import { friendlyQuotaErrorMessage, QUOTA_COST, type QuotaKey } from '../services/upload-quota.js'
@@ -204,6 +205,8 @@ export interface UploadVideoArgs {
   slug: string
   accountId: string
   filePath: string
+  /** Optional already-open render descriptor, pinned by the upload generator after hashing it. */
+  sourceHandle?: FileHandle
   snippet: VideoSnippet
   status: VideoStatus
   onProgress?: (bytesSent: number, totalBytes: number) => void
@@ -397,7 +400,7 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
   // next year is covered without anyone remembering to cover it. See
   // lib/metadata-scaffold.ts for what "junk" means and how it was calibrated.
   assertPublishableMetadata(args.snippet)
-  const stat = await fsp.stat(args.filePath)
+  const stat = args.sourceHandle ? await args.sourceHandle.stat() : await fsp.stat(args.filePath)
   const totalBytes = stat.size
   if (totalBytes <= 0) throw new Error(`Upload target is empty: ${args.filePath}`)
 
@@ -554,6 +557,7 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
   try {
     const result = await uploadChunkedWithRetry({
       filePath: args.filePath,
+      sourceHandle: args.sourceHandle,
       totalBytes,
       sessionUrl,
       startCursor: initialCursor,
@@ -643,6 +647,7 @@ const MAX_RETRIES_PER_CHUNK = 5
  */
 async function uploadChunkedWithRetry(args: {
   filePath: string
+  sourceHandle?: FileHandle
   totalBytes: number
   sessionUrl: string
   /**
@@ -671,7 +676,9 @@ async function uploadChunkedWithRetry(args: {
     let lastErr: any
     while (attempt < MAX_RETRIES_PER_CHUNK) {
       try {
-        const chunkStream = fs.createReadStream(args.filePath, { start: cursor, end })
+        const chunkStream = args.sourceHandle
+          ? args.sourceHandle.createReadStream({ start: cursor, end, autoClose: false })
+          : fs.createReadStream(args.filePath, { start: cursor, end })
         const webStream = nodeStreamToWeb(chunkStream)
         const resp = await youtubeFetch(args.sessionUrl, {
           method: 'PUT',
@@ -1224,6 +1231,7 @@ export interface VideoBackfillView {
  * Cost: 1 quota unit (`videos_list`) per batch of 50.
  */
 export interface VideoPublicationDetails {
+  channelId?: string
   uploadStatus?: string
   failureReason?: string
   rejectionReason?: string
@@ -1307,6 +1315,7 @@ export async function listVideoPublicationDetails(
       const snippet = item.snippet || {}
       const status = item.status || {}
       out[item.id] = {
+        channelId: snippet.channelId,
         uploadStatus: status.uploadStatus,
         failureReason: status.failureReason,
         rejectionReason: status.rejectionReason,

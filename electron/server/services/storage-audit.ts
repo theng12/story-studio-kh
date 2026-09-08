@@ -4,8 +4,8 @@
  * Surfaces per-episode local size broken down by category so the user
  * can see where the disk goes and free space safely. Cleanup actions
  * have a remote-proof safety guard — they refuse to delete a final video
- * whose exact render hasn't been confirmed usable on YouTube unless the caller
- * explicitly opts in via `force: true`.
+ * whose exact render and current YouTube processing state cannot be freshly
+ * verified.
  *
  * Categories surfaced:
  *   - final_video       — `*_final_video.*` (the cleanup target by default)
@@ -17,8 +17,9 @@
  *                          stuff the user wouldn't want to delete from
  *                          this UI; surfaced as a single number)
  *
- * Accepted provider IDs drive the uploaded badge. Exact ready-operation source
- * identity, reconciliation evidence, or a historical sidecar drives cleanup.
+ * Accepted provider IDs drive the uploaded badge. Only a current content-hash
+ * operation can become a cleanup candidate; deletion separately verifies the
+ * exact bytes and current remote processing state.
  */
 
 import fs from 'fs/promises'
@@ -32,6 +33,11 @@ import {
   youtubeRetentionProofForFile,
   readYouTubeRetentionStores,
 } from './youtube-remote-video.js'
+import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
+import { registryCredentialFor } from '../lib/youtube-client.js'
+import { syncYouTubePublicationState } from './youtube-publication-status.js'
+import { isContentSha256Revision, resolveYouTubeSourceRevision } from './youtube-source-video.js'
+import { withFinalVideoPathLock } from './final-video-lock.js'
 import {
   getExternalFinalVideoRoot,
   resolveExternalFinalVideoDir,
@@ -64,7 +70,7 @@ export interface StorageEntry {
   uploaded_to_youtube: boolean
   /** Empty when no upload, otherwise the YouTube video id. */
   youtube_video_id: string
-  /** True only when every present final candidate is the render proven usable remotely. */
+  /** A current content-hash receipt exists; deletion still verifies bytes + YouTube live. */
   cleanup_eligible: boolean
   /** Why ordinary cleanup is blocked when a final exists. */
   cleanup_reason?: string
@@ -173,7 +179,10 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
 
   const ideas = await im.getIdeas(slug, 'accepted')
   const externalRoot = await getExternalFinalVideoRoot()
-  const { records: operations, state: publishingState } = await readYouTubeRetentionStores(slug)
+  const [{ records: operations, state: publishingState }, assignment] = await Promise.all([
+    readYouTubeRetentionStores(slug),
+    getProjectYouTubeAssignment(slug),
+  ])
 
   const CONCURRENCY = 8
   const results: StorageEntry[] = new Array(ideas.length)
@@ -265,13 +274,14 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
       ...v.final_video_filenames.map(name => path.join(paths.video_dir, name)),
       ...externalFinalPaths,
     ]
-    let cleanupEligible = false
-    let cleanupReason: string | undefined
-    if (finalCandidates.length > 0) {
-      const proofs = await Promise.all(finalCandidates.map(file => youtubeRetentionProofForFile(evidence, file)))
-      cleanupEligible = proofs.every(proof => proof.usable)
-      cleanupReason = proofs.find(proof => !proof.usable)?.reason
-    }
+    const cleanupEligible = finalCandidates.length > 0 && !!assignment
+      && evidence.ready_operations.some(record => record.channel_id === assignment.channel_id
+        && isContentSha256Revision(record.source_revision))
+    const cleanupReason = finalCandidates.length > 0 && uploaded && !cleanupEligible
+      ? 'No current-channel YouTube operation records a content SHA-256 for this final.'
+      : cleanupEligible
+        ? 'The exact local final and current YouTube processing state will be verified immediately before deletion.'
+        : undefined
 
     const audioTotal = audioBytes + mergedBytes
     const imageTotal = sceneBytes + thumbBytes
@@ -349,13 +359,59 @@ export interface CleanupResult {
 }
 
 export interface CleanupOptions {
-  /**
-   * When false (default), the cleanup refuses to delete a final video
-   * unless durable evidence proves that exact render is usable remotely. Lets users bulk-
-   * cleanup safely without accidentally deleting an unpublished render.
-   * Set true to override (manual per-row cleanup with explicit confirm).
-   */
+  /** Retained for callers written before exact remote verification became mandatory; it cannot bypass it. */
   force?: boolean
+}
+
+function cleanupRefusal(code: string, reason: string): Error & { statusCode: number } {
+  return Object.assign(
+    new Error(`Final video for ${code} is not confirmed as the uploaded render (${reason}).`),
+    { statusCode: 412 },
+  )
+}
+
+async function verifyFinalCleanupCandidates(
+  slug: string,
+  code: string,
+  title: string,
+  candidates: string[],
+): Promise<Map<string, string>> {
+  const assignment = await getProjectYouTubeAssignment(slug)
+  if (!assignment) throw cleanupRefusal(code, 'no current YouTube channel is assigned')
+  const evidence = await youtubeRetentionEvidenceFor(slug, code, title)
+  const verifiedOperations = new Map<string, Promise<void>>()
+  const verifiedRevisions = new Map<string, string>()
+  for (const file of candidates) {
+    const proof = await youtubeRetentionProofForFile(evidence, file)
+    if (!proof.usable || !proof.source_revision || !proof.operation_id || !proof.video_id || proof.channel_id !== assignment.channel_id) {
+      throw cleanupRefusal(code, proof.reason || 'the exact local final has no ready content-hash receipt on the current channel')
+    }
+    let verified = verifiedOperations.get(proof.operation_id)
+    if (!verified) {
+      verified = (async () => {
+        let fresh: Awaited<ReturnType<typeof syncYouTubePublicationState>>
+        try {
+          fresh = await syncYouTubePublicationState({
+            project_slug: slug,
+            operation_id: proof.operation_id!,
+            account_id: registryCredentialFor(assignment.channel_id),
+          })
+        } catch {
+          throw cleanupRefusal(code, 'YouTube could not freshly verify the exact uploaded video')
+        }
+        if (fresh.state.lifecycle !== 'ready') {
+          throw cleanupRefusal(code, `YouTube currently reports ${fresh.state.lifecycle}`)
+        }
+        if (fresh.details?.channelId !== assignment.channel_id) {
+          throw cleanupRefusal(code, 'YouTube did not confirm the video on the current channel')
+        }
+      })()
+      verifiedOperations.set(proof.operation_id, verified)
+    }
+    await verified
+    verifiedRevisions.set(file, proof.source_revision)
+  }
+  return verifiedRevisions
 }
 
 /**
@@ -371,6 +427,7 @@ export async function cleanupFinalVideoForEpisode(
   episodeCode: string,
   opts: CleanupOptions = {},
 ): Promise<CleanupResult> {
+  void opts
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
 
@@ -410,37 +467,75 @@ export async function cleanupFinalVideoForEpisode(
     return { items, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
   }
 
-  // Ordinary cleanup requires remote proof for THESE exact local candidates.
-  // A later render must not inherit an older upload receipt for the same code.
-  if (!opts.force) {
-    const evidence = await youtubeRetentionEvidenceFor(slug, code, idea.title || '')
-    const proofs = await Promise.all(candidates.map(file => youtubeRetentionProofForFile(evidence, file)))
-    const refused = proofs.find(proof => !proof.usable)
-    if (refused) {
-      const err: any = new Error(
-        `Final video for ${code} is not confirmed as the uploaded render (${refused.reason}). Pass force:true to delete anyway.`,
-      )
-      err.statusCode = 412
-      throw err
+  // Every deletion re-hashes THESE local bytes and refreshes that exact remote
+  // video on the currently assigned channel. Historical receipts remain visible
+  // in the audit but cannot authorize deletion without this fresh proof.
+  const verifiedRevisions = await verifyFinalCleanupCandidates(slug, code, idea.title || '', candidates)
+
+  // Check every candidate again before deleting any one of them. An episode can
+  // have a project-tree and external final; discovering that the second changed
+  // after deleting the first would leave an unreported partial cleanup.
+  for (const file of candidates) {
+    let revision: string
+    try {
+      revision = await withFinalVideoPathLock(file, () => resolveYouTubeSourceRevision(file))
+    } catch {
+      throw cleanupRefusal(code, `the local final is no longer readable: ${path.basename(file)}`)
+    }
+    if (revision !== verifiedRevisions.get(file)) {
+      throw cleanupRefusal(code, 'the local final changed after its exact remote verification')
     }
   }
 
   let bytesFreed = 0
   let deleted = 0
   let failed = 0
+  let skipped = 0
   for (const file of candidates) {
-    let size = 0
-    try { size = (await fs.stat(file)).size } catch { /* file vanished mid-flight */ }
-    try {
-      await fs.rm(file, { force: true })
-      items.push({ episode_code: code, file, status: 'deleted', bytes_freed: size })
-      bytesFreed += size
+    const item = await withFinalVideoPathLock(file, async (): Promise<CleanupItem> => {
+      let currentRevision: string
+      let size: number
+      try {
+        currentRevision = await resolveYouTubeSourceRevision(file)
+        size = (await fs.stat(file)).size
+      } catch (error: any) {
+        return {
+          episode_code: code,
+          file,
+          status: 'skipped',
+          bytes_freed: 0,
+          reason: `the local final could not be reread after exact remote verification (${error?.message || 'file missing'})`,
+        }
+      }
+      if (currentRevision !== verifiedRevisions.get(file)) {
+        return {
+          episode_code: code,
+          file,
+          status: 'skipped',
+          bytes_freed: 0,
+          reason: 'the local final changed after its exact remote verification',
+        }
+      }
+      try {
+        await fs.rm(file)
+        return { episode_code: code, file, status: 'deleted', bytes_freed: size }
+      } catch (error: any) {
+        return {
+          episode_code: code,
+          file,
+          status: 'failed',
+          bytes_freed: 0,
+          reason: error?.message || 'rm failed',
+        }
+      }
+    })
+    items.push(item)
+    if (item.status === 'deleted') {
+      bytesFreed += item.bytes_freed
       deleted++
-    } catch (e: any) {
-      items.push({
-        episode_code: code, file, status: 'failed', bytes_freed: 0,
-        reason: e?.message || 'rm failed',
-      })
+    } else if (item.status === 'skipped') {
+      skipped++
+    } else {
       failed++
     }
   }
@@ -456,20 +551,18 @@ export async function cleanupFinalVideoForEpisode(
     items,
     bytes_freed: bytesFreed,
     deleted_count: deleted,
-    skipped_count: 0,
+    skipped_count: skipped,
     failed_count: failed,
   }
 }
 
 /**
- * Bulk variant: cleanup final videos across multiple episodes in one
- * pass. Each episode's safety check runs independently (uploaded ones
- * delete; non-uploaded ones get skipped UNLESS force=true is set).
+ * Bulk variant: cleanup final videos across multiple episodes in one pass.
+ * Each content-hash candidate is freshly verified; missing, stale, or non-ready
+ * remote evidence skips deletion.
  *
- * `episode_codes` lists the codes to clean. When empty + `all_uploaded`
- * is true, every accepted episode with usable remote evidence gets
- * cleaned — the typical "free up space everywhere it's safe to do so"
- * one-click.
+ * `episode_codes` lists the codes to clean. When empty + `all_uploaded` is
+ * true, every accepted episode with a current content-hash receipt is checked.
  */
 export async function bulkCleanupFinalVideos(
   slug: string,
@@ -490,12 +583,16 @@ export async function bulkCleanupFinalVideos(
       .filter(i => set.has((i.episode_code || '').toUpperCase()))
       .map(i => i.episode_code!)
   } else if (opts.all_uploaded) {
-    const { records: operations, state: publishingState } = await readYouTubeRetentionStores(slug)
+    const [{ records: operations, state: publishingState }, assignment] = await Promise.all([
+      readYouTubeRetentionStores(slug),
+      getProjectYouTubeAssignment(slug),
+    ])
     const checks = await Promise.all(ideas.map(async (i) => {
       const evidence = await youtubeRetentionEvidenceFor(
         slug, i.episode_code!, i.title || '', operations, publishingState,
       )
-      return evidence.ready_operations.length || evidence.reconcile_link || evidence.legacy_sidecar
+      return assignment && evidence.ready_operations.some(record => record.channel_id === assignment.channel_id
+        && isContentSha256Revision(record.source_revision))
         ? i.episode_code!
         : null
     }))
@@ -525,7 +622,7 @@ export async function bulkCleanupFinalVideos(
       if (e?.statusCode === 412) {
         allItems.push({
           episode_code: code, file: '', status: 'skipped', bytes_freed: 0,
-          reason: 'Not confirmed uploaded; pass force:true to override.',
+          reason: e?.message || 'The exact final was not freshly verified on YouTube.',
         })
         skipped++
       } else {

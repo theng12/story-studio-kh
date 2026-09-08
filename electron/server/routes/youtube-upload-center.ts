@@ -58,6 +58,8 @@ import {
   recordYouTubeRemoteSyncAttempt,
   rollbackYouTubeReconcileDecision,
   setYouTubeReconcileIgnored,
+  isYouTubeVideoRemoved,
+  recordYouTubeVideoRemoval,
 } from '../services/youtube-project-publishing-store.js'
 import type { ModerationReceipt } from '../services/youtube-project-publishing-store.js'
 import { analyzeYouTubeReconcile } from '../services/youtube-reconcile.js'
@@ -522,7 +524,8 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
         }
         const hasVideo = !!sourceVideoPath
         const episodeOperations = records.filter(record => record.episode_code === code
-          && onCurrentChannel(channelId, record.channel_id))
+          && onCurrentChannel(channelId, record.channel_id)
+          && !isYouTubeVideoRemoved(publishingState ?? {}, code, record.channel_id, record.video_id))
         let operation = episodeOperations[0]
         const job = latestEpisodeUploadJob(jobs, code, channelId)
         let sidecar: Awaited<ReturnType<typeof readSidecarStrict>> = null
@@ -579,6 +582,13 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
                 }
               : { state: 'missing' },
           upload: localUploadProjection(job, operation, operationsUnreadable || jobsUnreadable, remote),
+        }
+        // A completed historical job remains history after an explicit removal;
+        // it must not make this episode look uploaded forever.
+        const explicitlyRemoved = publishingState?.removed_videos?.some(entry =>
+          entry.episode_code === code && entry.channel_id === channelId)
+        if (explicitlyRemoved && !remote && !operation && local.upload.state === 'succeeded') {
+          local.upload = { state: 'none' }
         }
         const writeBlockedReason = storeBlockedReason
           || (local.upload.state === 'queued'
@@ -2051,6 +2061,45 @@ router.post('/projects/:slug/youtube/comments/ban', async (req, res) => {
   }
 })
 
+/** Local association only. This action never deletes a video on YouTube. */
+router.post('/projects/:slug/youtube/episodes/:episode_code/forget-upload', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const episodeCode = req.params.episode_code
+    if (req.body?.confirm !== true || !req.body?.expected_channel_id || !req.body?.expected_video_id) {
+      res.status(400).json({ detail: 'Confirm that you deleted this exact video on YouTube before allowing a new upload.' })
+      return
+    }
+    const { channelId } = await accountForCurrentChannel(slug)
+    if (req.body.expected_channel_id !== channelId) {
+      res.status(409).json({ detail: 'The YouTube channel changed. Review the episode again.' })
+      return
+    }
+    const title = await acceptedTitleFor(slug, episodeCode)
+    const jobs = await getJobs(slug)
+    if (jobs.some(job => job.type === 'youtube_upload' && job.episode_id === episodeCode
+      && ['queued', 'running', 'paused'].includes(job.status))) {
+      res.status(409).json({ detail: 'This episode has an upload in progress. Finish or stop that work before removing its association.' })
+      return
+    }
+    const remote = await remoteVideoFor(slug, episodeCode, title, channelId)
+    if (!remote || remote.channel_id !== channelId || remote.video_id !== req.body.expected_video_id) {
+      res.status(409).json({ detail: 'The episode’s YouTube association changed. Reload and review it again.' })
+      return
+    }
+    if (remote.lifecycle && ['preparing', 'uploading', 'accepted', 'processing'].includes(remote.lifecycle)) {
+      res.status(409).json({ detail: 'YouTube has not finished this upload. Check its status before removing the association.' })
+      return
+    }
+    await recordYouTubeVideoRemoval({
+      project_slug: slug, episode_code: episodeCode, channel_id: channelId, video_id: remote.video_id,
+    })
+    res.json({ episode_code: episodeCode, video_id: remote.video_id, association_removed: true })
+  } catch (error) {
+    fail(res, error, 'Failed to remove the local upload association.')
+  }
+})
+
 router.post('/projects/:slug/youtube/preview', async (req, res) => {
   try {
     const episodeCode = typeof req.body?.episode_code === 'string' ? req.body.episode_code.trim() : ''
@@ -2084,8 +2133,14 @@ router.post('/projects/:slug/youtube/preview', async (req, res) => {
     const thumbnail = await uploadThumbnailPreview(
       req.params.slug, episodeCode, previewTitle, built.thumbnail_filename,
     )
+    const sourcePaths = await resolveEpisodePaths(req.params.slug, episodeCode, previewTitle)
+    const sourcePath = await findYouTubeSourceVideoPath(sourcePaths, req.params.slug, episodeCode, previewTitle)
+    // Hash only an explicitly requested review, never the episode listing.
+    const source = sourcePath
+      ? { filename: path.basename(sourcePath), revision: await resolveSourceRevision(sourcePath) }
+      : null
     const { thumbnail_filename: _thumbnailFilename, ...payload } = built
-    res.json({ ...payload, thumbnail })
+    res.json({ ...payload, thumbnail, source })
   } catch (error) {
     fail(res, error, 'Failed to build the YouTube preview.')
   }
@@ -2197,6 +2252,23 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       return
     }
     const expectedSourceRevision = await resolveSourceRevision(sourceVideoPath)
+    const reviewedSourceRevision = typeof req.body?.expected_source_revision === 'string'
+      ? req.body.expected_source_revision.trim()
+      : ''
+    if (!reviewedSourceRevision) {
+      res.status(400).json({
+        code: 'YOUTUBE_CONFIRMATION_REQUIRED',
+        detail: 'Review the rendered video before confirming its upload.',
+      })
+      return
+    }
+    if (reviewedSourceRevision !== expectedSourceRevision) {
+      res.status(409).json({
+        code: 'YOUTUBE_PREVIEW_STALE',
+        detail: 'The rendered video changed after review. Review and confirm the upload again; nothing was uploaded.',
+      })
+      return
+    }
     // Already open? Refuse and say which. `accepted` and later mean the video
     // exists on YouTube: uploading again would create a duplicate nobody asked
     // for, and YouTube has no "replace" for content.

@@ -113,15 +113,23 @@ export async function syncYouTubePublicationState(input: {
   project_slug: string
   operation_id: string
   account_id: string
-}): Promise<{ state: YouTubePublicationState; persisted: boolean }> {
+}): Promise<{ state: YouTubePublicationState; persisted: boolean; details?: VideoPublicationDetails }> {
   const record = await readYouTubeOperation(input.project_slug, input.operation_id)
   if (!record?.video_id) throw new Error('This YouTube operation has no accepted video to check.')
+  const assignment = await getProjectYouTubeAssignment(input.project_slug)
+  if (!assignment || assignment.channel_id !== record.channel_id) {
+    throw new Error('This YouTube operation belongs to a channel this project no longer publishes to.')
+  }
+  if (input.account_id !== registryCredentialFor(record.channel_id)) {
+    throw new Error('The YouTube credential does not match this project’s assigned channel.')
+  }
 
   const details = await listVideoPublicationDetails(input.project_slug, input.account_id, [record.video_id])
-  const state = mapYouTubePublicationState(details[record.video_id] ?? null)
+  const remoteDetails = details[record.video_id]
+  const state = mapYouTubePublicationState(remoteDetails ?? null)
 
   if (state.lifecycle === 'status_unavailable' && TERMINAL.has(record.lifecycle)) {
-    return { state, persisted: false }
+    return { state, persisted: false, ...(remoteDetails ? { details: remoteDetails } : {}) }
   }
 
   await updatePinnedYouTubeOperation({
@@ -140,7 +148,7 @@ export async function syncYouTubePublicationState(input: {
       }
     },
   })
-  return { state, persisted: true }
+  return { state, persisted: true, ...(remoteDetails ? { details: remoteDetails } : {}) }
 }
 
 export interface ProjectSyncResult {

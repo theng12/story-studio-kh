@@ -23,6 +23,7 @@ import { readSidecarStrict, setScheduledFor } from './upload-sidecar.js'
 import type { UploadPlatform } from './upload-store.js'
 import { operationPublicationFacts, readYouTubeRetentionStores } from './youtube-remote-video.js'
 import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
+import { isYouTubeVideoRemoved } from './youtube-project-publishing-store.js'
 
 export interface UploadSchedule {
   /** 0-6, Sunday = 0. Empty array + monthly_day set = monthly mode. */
@@ -413,18 +414,20 @@ export async function readItemPublicationStates(slug: string): Promise<Record<st
 }>> {
   const out: Record<string, { privacy_status?: string; scheduled_for?: string | null }> = {}
   const ideas = await im.getIdeas(slug, 'accepted')
-  const { records: operations } = await readYouTubeRetentionStores(slug)
+  const { records: operations, state } = await readYouTubeRetentionStores(slug)
   const assignedChannel = (await getProjectYouTubeAssignment(slug))?.channel_id
   await Promise.all(ideas.map(async (idea) => {
     if (!idea.episode_code) return
     const canonical = operations.filter(record => record.episode_code === idea.episode_code
-      && (!assignedChannel || record.channel_id === assignedChannel)).at(-1)
+      && (!assignedChannel || record.channel_id === assignedChannel)
+      && !isYouTubeVideoRemoved(state, idea.episode_code!, record.channel_id, record.video_id)).at(-1)
     const facts = canonical ? operationPublicationFacts(canonical) : {}
     const sc = await readSidecarStrict(slug, idea.episode_code, 'youtube')
+    const removedSidecar = isYouTubeVideoRemoved(state, idea.episode_code, sc?.channel_id, sc?.video_id)
     out[idea.episode_code] = {
       ...(facts.privacy_status !== undefined
         ? { privacy_status: facts.privacy_status }
-        : sc?.privacy_status ? { privacy_status: sc.privacy_status } : {}),
+        : sc?.privacy_status && !removedSidecar ? { privacy_status: sc.privacy_status } : {}),
       // A private remote receipt with no publishAt is not a competing claim.
       // Keep a locally planned sidecar slot until an explicit schedule PUT
       // confirms it remotely. A public or unlisted canonical receipt remains

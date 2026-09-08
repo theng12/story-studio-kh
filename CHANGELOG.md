@@ -6,6 +6,10 @@ What's new in each release. Newest first.
 
 ## v1.4.129 — 2026-09-08
 
+- **Review several uploads together.** Ready-to-upload now requires a connected channel. Select eligible episodes, review their files, thumbnails and publication times, then queue the reviewed uploads with separate results for each episode.
+- **The reviewed video is the one uploaded.** Upload confirmation and recovery compare the file’s actual bytes. A changed render asks for another review instead of silently uploading it.
+- **Cleanup verifies before deleting.** Clearing local finals requires a matching file receipt and a fresh YouTube check confirming processing completed on the current channel. Unverified and older receipts keep their local files.
+- **Re-upload after a deliberate YouTube deletion.** Explicitly remove the old upload association after deleting the video on YouTube. Story preserves its history and lets you review a new upload; it never deletes the remote video itself.
 - **Uploads use the date you review.** Upload Center defaults to an episode’s future planned date, offers a custom date or private upload, and carries that exact choice into the queued request.
 - **Schedule private videos without uploading them again.** Choose a future publication time inside Upload Center. Story Studio checks the current channel and YouTube visibility before applying it.
 - **Give unscheduled videos a local plan.** Preview available dates from the channel’s upload plan and save missing assignments without changing existing dates or publishing videos.

@@ -154,7 +154,7 @@ describe('youtube operation recorder', () => {
     const file = path.join(temp.dir, 'final.mp4')
     await fs.writeFile(file, 'a'.repeat(100))
     const first = await resolveSourceRevision(file)
-    assert.match(first, /^[0-9a-f]{64}$/)
+    assert.match(first, /^sha256:[0-9a-f]{64}$/)
     assert.equal(await resolveSourceRevision(file), first)
 
     await fs.writeFile(file, 'b'.repeat(250))

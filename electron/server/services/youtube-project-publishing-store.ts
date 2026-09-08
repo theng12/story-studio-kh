@@ -53,6 +53,13 @@ export interface YouTubeProjectPublishingStateV1 {
   project_slug: string
   episode_video_links: Record<string, EpisodeVideoLink>
   reconciliation_history: ReconciliationDecision[]
+  /** Explicit owner decisions; missing provider responses never create these. */
+  removed_videos?: Array<{
+    episode_code: string
+    channel_id: string
+    video_id: string
+    confirmed_at: string
+  }>
   /**
    * The last listing of the channel's uploads, plus the videos the owner has
    * deliberately set aside. Cached so the Reconcile inventory is free to open;
@@ -217,7 +224,7 @@ const STATE_KEYS = [
   'schema_version', 'revision', 'project_slug', 'episode_video_links', 'reconciliation_history',
 ] as const
 /** Added after the schema shipped; absent in older files, which stay valid. */
-const STATE_OPTIONAL_KEYS = ['remote_sync', 'reconcile', 'comments', 'analytics', 'page_cursors'] as const
+const STATE_OPTIONAL_KEYS = ['remote_sync', 'reconcile', 'comments', 'analytics', 'page_cursors', 'removed_videos'] as const
 const REMOTE_SYNC_OUTCOMES = ['ok', 'partial', 'failed'] as const
 const REMOTE_SYNC_ERROR_CODES = ['offline', 'provider_error', 'quota_exhausted'] as const
 const PRIVACY_STATUSES = ['private', 'unlisted', 'public'] as const
@@ -421,6 +428,30 @@ function decodeReconciliationHistory(value: unknown): ReconciliationDecision[] {
   return decisions
 }
 
+function decodeRemovedVideos(value: unknown): NonNullable<YouTubeProjectPublishingStateV1['removed_videos']> {
+  if (!Array.isArray(value)) throw stateCorrupt('removed_videos is not an array')
+  return value.map(entry => {
+    if (!isRecord(entry)) throw stateCorrupt('removed video receipt is invalid')
+    exactKeys(entry, ['episode_code', 'channel_id', 'video_id', 'confirmed_at'])
+    return {
+      episode_code: identifier(entry.episode_code, 'removed video episode'),
+      channel_id: identifier(entry.channel_id, 'removed video channel'),
+      video_id: identifier(entry.video_id, 'removed video id'),
+      confirmed_at: timestamp(entry.confirmed_at, 'removed video confirmation'),
+    }
+  })
+}
+
+export function isYouTubeVideoRemoved(
+  state: Pick<YouTubeProjectPublishingStateV1, 'removed_videos'>,
+  episodeCode: string,
+  channelId: string | null | undefined,
+  videoId: string | undefined,
+): boolean {
+  return !!videoId && !!channelId && !!state.removed_videos?.some(entry =>
+    entry.episode_code === episodeCode && entry.channel_id === channelId && entry.video_id === videoId)
+}
+
 function decodeState(raw: unknown, expectedProjectSlug: string): YouTubeProjectPublishingStateV1 {
   if (!isRecord(raw)) throw stateCorrupt('the project publishing state is not an object')
   exactKeys(raw, STATE_KEYS, STATE_OPTIONAL_KEYS)
@@ -432,6 +463,7 @@ function decodeState(raw: unknown, expectedProjectSlug: string): YouTubeProjectP
     project_slug: identifier(raw.project_slug, 'project_slug'),
     episode_video_links: decodeEpisodeVideoLinks(raw.episode_video_links),
     reconciliation_history: decodeReconciliationHistory(raw.reconciliation_history),
+    ...(hasOwn(raw, 'removed_videos') ? { removed_videos: decodeRemovedVideos(raw.removed_videos) } : {}),
     ...(hasOwn(raw, 'remote_sync') ? { remote_sync: decodeRemoteSync(raw.remote_sync) } : {}),
     ...(hasOwn(raw, 'reconcile') ? { reconcile: decodeReconcile(raw.reconcile) } : {}),
     ...(hasOwn(raw, 'comments') ? { comments: decodeComments(raw.comments) } : {}),
@@ -885,6 +917,35 @@ export async function readYouTubeProjectPublishingState(project_slug: string): P
 
 
 
+/** Preserve the old identity while allowing a deliberate new upload. */
+export async function recordYouTubeVideoRemoval(input: {
+  project_slug: string
+  episode_code: string
+  channel_id: string
+  video_id: string
+}): Promise<void> {
+  const projectSlug = normalizeProjectSlug(input.project_slug)
+  const episodeCode = normalizeIdentifier(input.episode_code, 'episode_code')
+  const channelId = normalizeIdentifier(input.channel_id, 'channel_id')
+  const videoId = normalizeIdentifier(input.video_id, 'video_id')
+  const project = await resolveValidatedProject(projectSlug)
+  await withLock(project.state_path, async () => {
+    const assignment = await getProjectYouTubeAssignment(projectSlug)
+    if (assignment?.channel_id !== channelId) {
+      throw foundationError('YOUTUBE_ASSIGNMENT_CHANGED', 'The YouTube channel changed. Review this episode again.')
+    }
+    const current = await readStateUnlocked(project.state_path, projectSlug)
+    if (isYouTubeVideoRemoved(current, episodeCode, channelId, videoId)) return
+    const next = cloneState(current)
+    next.removed_videos = [...(current.removed_videos ?? []), {
+      episode_code: episodeCode, channel_id: channelId, video_id: videoId,
+      confirmed_at: new Date().toISOString(),
+    }]
+    next.revision = current.revision + 1
+    await writeStateUnlocked(project.state_path, decodeState(next, projectSlug))
+  })
+}
+
 export async function linkYouTubeEpisodeVideo(input: {
   project_slug: string
   episode_code: string
@@ -908,7 +969,7 @@ export async function linkYouTubeEpisodeVideo(input: {
     if (existing && existing.channel_id === channelId && existing.video_id === videoId && existing.source === input.source) {
       return cloneState(current)
     }
-    if (existing) {
+    if (existing && !isYouTubeVideoRemoved(current, episodeCode, existing.channel_id, existing.video_id)) {
       const explicitDecision = input.source === 'reconcile' && current.reconciliation_history.some(decision => (
         decision.episode_code === episodeCode
         && decision.previous_video_id === existing.video_id

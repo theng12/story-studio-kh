@@ -278,6 +278,7 @@ test('preview exposes the resolver-selected thumbnail and upload pins that filen
     confirm: true,
     expected_channel_id: CHANNEL,
     expected_package_revision: reviewed.body.package_revision,
+    expected_source_revision: reviewed.body.source?.revision,
     thumbnail_filename: chosen,
   })
   assert.equal(queued.status, 200)
@@ -312,6 +313,7 @@ test('an explicitly reviewed empty thumbnail choice stays empty if a file appear
     confirm: true,
     expected_channel_id: CHANNEL,
     expected_package_revision: reviewed.body.package_revision,
+    expected_source_revision: reviewed.body.source?.revision,
     thumbnail_filename: null,
   })
   assert.equal(queued.status, 200)
@@ -334,6 +336,7 @@ test('upload rejects a reviewed thumbnail that disappeared instead of silently c
     confirm: true,
     expected_channel_id: CHANNEL,
     expected_package_revision: reviewed.body.package_revision,
+    expected_source_revision: reviewed.body.source?.revision,
     thumbnail_filename: chosen,
   })
   assert.equal(queued.status >= 400, true)
@@ -3302,6 +3305,7 @@ async function confirmedUploadBody(slug: string, episodeCode: string) {
     confirm: true,
     expected_channel_id: CHANNEL,
     expected_package_revision: preview.body.package_revision,
+    expected_source_revision: preview.body.source?.revision,
   }
 }
 
@@ -3666,6 +3670,7 @@ test('a confirmed publish_at overrides private mode for that exact upload', asyn
     episode_code: episodeCode, confirm: true, expected_channel_id: CHANNEL,
     privacy_status: 'public', publish_at: publishAt,
     expected_package_revision: preview.body.package_revision,
+    expected_source_revision: preview.body.source?.revision,
   })
   assert.equal(started.status, 200, JSON.stringify(started.body))
   const job = jobQueue.getJob(started.body.job_id)
@@ -3885,6 +3890,7 @@ test('a fresh project can be listed, previewed, uploaded, and ends up with a vid
       confirm: true,
       expected_channel_id: CHANNEL,
       expected_package_revision: preview.body.package_revision,
+      expected_source_revision: preview.body.source?.revision,
       privacy_status: 'public',
       publish_at: approvedPublishAt,
     })
@@ -4072,22 +4078,27 @@ test('a renamed episode folder is still recognised as published', async () => {
   assert.equal(res.body.video_id, 'legacy-video-77')
 })
 
-test('a tombstoned sidecar means the episode can be uploaded again', async () => {
-  // `deleted_at` means the video was removed upstream - the field's own
-  // documentation says bulk actions skip these rows so a takedown is not
-  // re-uploaded. Treating it as "on YouTube" locked Upload out forever, and the
-  // "Forget link" control that used to reset it went with the old page.
+test('an automatic missing-video tombstone still requires explicit removal before reupload', async () => {
   const slug = await registryOnlyProject()
   const { episodeCode, title } = await legacyPublishedEpisode(slug)
   const current = await sidecars.readSidecarRaw(slug, episodeCode, title, 'youtube')
   await sidecars.writeSidecar(slug, episodeCode, title, {
-    ...current!, deleted_at: new Date().toISOString(), deleted_reason: 'takedown',
+    ...current!, deleted_at: new Date().toISOString(), deleted_reason: 'sync_404',
   })
-
   const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
   const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
-  assert.equal(row.has_remote_video, false, 'the video is gone, so it is uploadable again')
-  assert.equal(row.blocked_reason, undefined)
+  assert.equal(row.has_remote_video, true, 'a missing response does not prove deletion')
+  const refused = await request(app).post(`/api/projects/${slug}/youtube/upload`).send({
+    episode_code: episodeCode, confirm: true, expected_channel_id: CHANNEL,
+  })
+  assert.equal(refused.status, 409)
+  assert.equal(refused.body.code, 'YOUTUBE_ALREADY_PUBLISHED')
+  const removed = await request(app).post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/forget-upload`).send({
+    confirm: true, expected_channel_id: CHANNEL, expected_video_id: current!.video_id,
+  })
+  assert.equal(removed.status, 200, JSON.stringify(removed.body))
+  const after = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  assert.equal(after.body.episodes.find((entry: any) => entry.episode_code === episodeCode).has_remote_video, false)
 })
 
 
@@ -4236,7 +4247,7 @@ test('a tombstoned sidecar on THIS channel is uploadable again', async () => {
   const { episodeCode, title } = await legacyPublishedEpisode(slug)
   const current = await sidecars.readSidecarRaw(slug, episodeCode, title, 'youtube')
   await sidecars.writeSidecar(slug, episodeCode, title, {
-    ...current!, deleted_at: new Date().toISOString(), deleted_reason: 'takedown',
+    ...current!, deleted_at: new Date().toISOString(), deleted_reason: 'manual',
   })
 
   const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
@@ -4349,4 +4360,89 @@ test('episode codes sort by their trailing number, and total counts every episod
   // A string sort puts EP0003 before EP0002; the numeric one does not.
   assert.deepEqual(res.body.episodes.map((e: any) => e.episode_code), ['EP0003', 'EP0002', 'EP0001'])
   assert.equal(res.body.total, 3, 'total is the whole set, not the rendered page')
+})
+
+
+test('upload preview pins rendered bytes and refuses a changed file with the same size and timestamp', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const body = await confirmedUploadBody(slug, episodeCode)
+  const jobsBefore = (await jobQueue.getJobs(slug)).length
+  assert.match(body.expected_source_revision, /^sha256:[a-f0-9]{64}$/)
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  const filename = path.join(paths.video_dir, `${episodeCode}_final_video.mp4`)
+  const before = await fs.stat(filename)
+  await fs.writeFile(filename, 'other-bytes')
+  await fs.utimes(filename, before.atime, before.mtime)
+  assert.equal((await fs.stat(filename)).size, before.size)
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const res = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(res.status, 409)
+  assert.equal(res.body.code, 'YOUTUBE_PREVIEW_STALE')
+  assert.match(res.body.detail, /rendered video changed/)
+  assert.equal((await jobQueue.getJobs(slug)).length, jobsBefore)
+})
+
+test('upload requires the rendered file revision from explicit review', async () => {
+  const { slug, episodeCode } = await uploadReadyProject()
+  const body = await confirmedUploadBody(slug, episodeCode)
+  const jobsBefore = (await jobQueue.getJobs(slug)).length
+  const { expected_source_revision: _reviewedSource, ...withoutSource } = body
+  const res = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(withoutSource)
+  assert.equal(res.status, 400)
+  assert.equal(res.body.code, 'YOUTUBE_CONFIRMATION_REQUIRED')
+  assert.equal((await jobQueue.getJobs(slug)).length, jobsBefore)
+})
+
+test('confirmed deleted-video association permits a new upload and preserves the old receipt', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const id = await acceptedOperation(slug, episodeCode, 'deleted-video')
+  const accepted = await operations.readYouTubeOperation(slug, id)
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: id, expected_revision: accepted!.revision,
+    mutate: record => { record.lifecycle = 'ready' },
+  })
+  await sidecars.writeSidecar(slug, episodeCode, title, {
+    platform: 'youtube', video_id: 'deleted-video', channel_id: CHANNEL,
+    account_id: `registry:${CHANNEL}`, uploaded_at: new Date().toISOString(),
+    last_sync_at: new Date().toISOString(), scheduled_for: '2099-11-03T11:00:00.000Z',
+    privacy_status: 'private', title, description: '', tags: [], thumbnail_set: false,
+  })
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const endpoint = `/api/projects/${slug}/youtube/episodes/${episodeCode}/forget-upload`
+  assert.equal((await request(app).post(endpoint).send({
+    expected_channel_id: CHANNEL, expected_video_id: 'deleted-video',
+  })).status, 400)
+  assert.equal((await request(app).post(endpoint).send({
+    confirm: true, expected_channel_id: CHANNEL, expected_video_id: 'different-video',
+  })).status, 409)
+  const removed = await request(app).post(endpoint).send({
+    confirm: true, expected_channel_id: CHANNEL, expected_video_id: 'deleted-video',
+  })
+  assert.equal(removed.status, 200, JSON.stringify(removed.body))
+  const list = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = list.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.equal(row.has_remote_video, false)
+  assert.equal(row.publication.state, 'unpublished')
+  assert.equal(row.plan.scheduled_at, '2099-11-03T11:00:00.000Z', 'retain the episode plan for a new explicit review, never claim remote scheduling')
+  assert.ok(['none', 'failed'].includes(row.local.upload.state), 'historical completed jobs must not block a replacement')
+  assert.equal((await operations.readYouTubeOperation(slug, id))?.video_id, 'deleted-video')
+  assert.equal((await publishing.readYouTubeProjectPublishingState(slug)).removed_videos?.[0]?.video_id, 'deleted-video')
+  // New provider acceptance can replace the active link, while history stays.
+  await acceptedOperation(slug, episodeCode, 'replacement-video')
+  const refreshed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  assert.equal(refreshed.body.episodes.find((entry: any) => entry.episode_code === episodeCode).remote_video_id, 'replacement-video')
+  assert.equal(fake.calls.length, 0, 'association removal performs no YouTube mutation or read')
+})
+
+test('deleted-video association refusal preserves an upload that is still processing', async () => {
+  const { slug, episodeCode } = await uploadReadyProject()
+  await acceptedOperation(slug, episodeCode, 'processing-video')
+  const res = await request(app).post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/forget-upload`).send({
+    confirm: true, expected_channel_id: CHANNEL, expected_video_id: 'processing-video',
+  })
+  assert.equal(res.status, 409)
+  assert.match(res.body.detail, /not finished/)
+  assert.equal((await publishing.readYouTubeProjectPublishingState(slug)).removed_videos, undefined)
 })

@@ -22,12 +22,26 @@
       <section class="panel uploads">
         <header class="uploads-head">
           <div>
-            <h3>{{ episodes.length === 0 ? 'Nothing ready to publish yet' : `${total} episode${total === 1 ? '' : 's'}` }}</h3>
+            <h3 id="upload-list-title" ref="uploadListHeading" tabindex="-1">{{ episodes.length === 0 ? 'Nothing ready to publish yet' : `${total} episode${total === 1 ? '' : 's'}` }}</h3>
             <p v-if="episodes.length" class="hint">Local files, upload work, and YouTube publication are shown separately.</p>
             <p v-else class="hint">An episode appears here once it is accepted. Render its final video in Video Assembly before uploading.</p>
           </div>
           <div class="head-actions">
             <span v-if="episodes.length" class="visible-count" aria-live="polite">{{ sortedEpisodes.length }} shown</span>
+            <button
+              v-if="episodes.length" class="btn btn-ghost btn-sm" type="button"
+              :disabled="busy !== '' || !visibleUploadCandidates.length"
+              @click="toggleVisibleSelection"
+            >
+              {{ allVisibleUploadCandidatesSelected ? 'Clear visible selection' : `Select visible eligible (${visibleUploadCandidates.length})` }}
+            </button>
+            <button
+              v-if="episodes.length" class="btn btn-primary btn-sm" type="button"
+              :disabled="busy !== '' || !selectedUploadEpisodes.length"
+              @click="reviewSelectedUploads($event)"
+            >
+              {{ busy === 'bulk-preview' ? 'Reviewing…' : `Review selected uploads (${selectedUploadEpisodes.length})` }}
+            </button>
             <button
               v-if="episodes.length" class="btn btn-ghost btn-sm" type="button"
               :disabled="busy !== '' || !planCandidates.length || !!planBlocked"
@@ -98,6 +112,13 @@
         <ul v-if="sortedEpisodes.length" class="op-list">
           <li v-for="ep in sortedEpisodes" :key="ep.episode_code" class="op" :data-episode-code="ep.episode_code">
             <div class="op-id">
+              <label v-if="isUploadEligible(ep)" class="episode-select">
+                <input
+                  type="checkbox" :checked="selectedUploadCodes.includes(ep.episode_code)"
+                  :disabled="busy !== ''" @change="toggleEpisodeSelection(ep.episode_code)"
+                />
+                <span>Select {{ ep.episode_code }} for upload review</span>
+              </label>
               <strong>{{ ep.episode_code }}</strong>
               <span class="episode-title">{{ ep.title }}</span>
               <code v-if="ep.remote_video_id || ep.operation?.video_id" class="muted">{{ ep.remote_video_id || ep.operation?.video_id }}</code>
@@ -106,6 +127,7 @@
             <div class="fact">
               <span class="fact-label">Local video</span>
               <span :class="['state-text', stateTone(renderState(ep))]">{{ renderLabel(ep) }}</span>
+              <span v-if="renderState(ep) === 'ready' && !assignedChannel" class="fact-note">Ready locally · assign a channel to upload.</span>
               <button v-if="playableVideoUrl(ep)" class="inline-action" type="button" @click="openVideo(ep)">Play local video</button>
               <NuxtLink v-else-if="renderState(ep) === 'missing'" class="inline-action" :to="videoAssemblyLink(ep)">Open Video Assembly</NuxtLink>
             </div>
@@ -159,6 +181,14 @@
               >
                 {{ busy === `preview-${ep.episode_code}` ? 'Preparing…' : 'Review upload details' }}
               </button>
+              <NuxtLink
+                v-if="renderState(ep) === 'ready' && !assignedChannel"
+                :to="`/projects/${slug}/settings#youtube`" class="btn btn-ghost btn-sm"
+              >Assign channel</NuxtLink>
+              <button
+                v-if="associatedVideoId(ep) && assignedChannel" class="btn btn-ghost btn-sm forget-upload" type="button"
+                :disabled="busy !== ''" @click="forgetUpload(ep)"
+              >I deleted this video on YouTube</button>
             </div>
             <p v-if="ep.blocked_reason" class="row-result warn">{{ ep.blocked_reason }}</p>
             <p v-if="rowResults[ep.episode_code]" :class="['row-result', rowResults[ep.episode_code].kind]" role="status">
@@ -304,6 +334,7 @@
         </section>
 
         <dl class="payload">
+          <div v-if="previewed.source"><dt>Video file</dt><dd><strong>{{ previewed.source.filename }}</strong><small>Story Studio will stop if this file changes before queueing.</small></dd></div>
           <div><dt>Title</dt><dd>{{ previewed.snippet.title }}</dd></div>
           <div><dt>Description</dt><dd class="pre">{{ previewed.snippet.description }}</dd></div>
           <div><dt>Tags</dt><dd>{{ (previewed.snippet.tags || []).join(', ') || 'none' }}</dd></div>
@@ -351,6 +382,7 @@
         <div v-else-if="previewed.thumbnail.state === 'unavailable' || thumbnailImageUnavailable" class="hint">
           Choose an available thumbnail before uploading.
         </div>
+        <div v-else-if="!previewed.source?.revision" class="hint">Refresh this review so Story Studio can verify the exact video file before uploading.</div>
         <div v-else class="field-row upload-row">
           <button class="btn btn-primary" type="button" :disabled="busy !== ''" @click="upload(previewedEpisode)">
             {{ busy === 'upload' ? 'Uploading…' : 'Upload to YouTube' }}
@@ -361,6 +393,81 @@
           {{ rowResults[previewedEpisode].message }}
         </p>
       </section>
+      </Modal>
+
+      <Modal :visible="bulkReviewOpen" size="lg" labelledby="bulk-upload-review-title" @close="closeBulkReview">
+        <section class="bulk-upload-review">
+          <header class="review-head">
+            <div>
+              <h2 id="bulk-upload-review-title" ref="bulkReviewHeading" tabindex="-1">Review selected uploads</h2>
+              <p>{{ bulkReviews.length }} selected · each video keeps its own exact file, thumbnail, metadata, and timing</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" :disabled="busy === 'bulk-upload'" @click="closeBulkReview">Close</button>
+          </header>
+
+          <p v-if="busy === 'bulk-preview'" class="hint" role="status">Reviewing each selected upload…</p>
+          <ul class="bulk-review-list">
+            <li v-for="item in bulkReviews" :key="item.episode_code" class="bulk-review-item">
+              <header>
+                <div>
+                  <strong>{{ item.episode_code }}</strong>
+                  <span>{{ item.title }}</span>
+                </div>
+                <span :class="['state-text', item.state === 'queued' || item.state === 'reviewed' ? 'tone-success' : item.state === 'error' ? 'tone-danger' : 'tone-info']">
+                  {{ bulkReviewStateLabel(item) }}
+                </span>
+              </header>
+              <p v-if="item.error" class="row-result err" role="alert">{{ item.error }}</p>
+              <template v-if="item.preview">
+                <div class="bulk-review-details">
+                  <div class="bulk-thumbnail">
+                    <img
+                      v-if="item.preview.thumbnail.state === 'selected' && item.preview.thumbnail.url"
+                      :src="item.preview.thumbnail.url" :alt="`Thumbnail selected for ${item.episode_code}`"
+                      @load="bulkThumbnailLoaded(item)" @error="bulkThumbnailUnavailable(item)"
+                    />
+                    <span v-else>{{ item.preview.thumbnail.state === 'none' ? 'No thumbnail selected' : 'Thumbnail unavailable' }}</span>
+                    <small>{{ item.preview.thumbnail.filename || 'No thumbnail' }}</small>
+                  </div>
+                  <dl>
+                    <div><dt>Video file</dt><dd>{{ item.preview.source?.filename || 'Unavailable' }}</dd></div>
+                    <div><dt>YouTube title</dt><dd><strong>{{ item.preview.snippet.title }}</strong><small>{{ metadataReadiness(item.preview) }}</small></dd></div>
+                    <div><dt>Channel</dt><dd>{{ item.channel_title }} · {{ item.channel_id }}</dd></div>
+                    <div><dt>Publishing</dt><dd>{{ bulkTimingLabel(item) }}<small v-if="item.preview.status.publishAt">{{ item.preview.status.publishAt }}</small></dd></div>
+                  </dl>
+                </div>
+                <details class="bulk-metadata">
+                  <summary>Review metadata</summary>
+                  <dl>
+                    <div><dt>Title</dt><dd>{{ item.preview.snippet.title }}</dd></div>
+                    <div><dt>Description</dt><dd class="pre">{{ item.preview.snippet.description || 'none' }}</dd></div>
+                    <div><dt>Tags</dt><dd>{{ (item.preview.snippet.tags || []).join(', ') || 'none' }}</dd></div>
+                  </dl>
+                </details>
+                <ul v-if="item.preview.warnings.length" class="warnings">
+                  <li v-for="(warning, index) in item.preview.warnings" :key="index"><b>Warning:</b> {{ warning }}</li>
+                </ul>
+              </template>
+            </li>
+          </ul>
+
+          <div class="bulk-review-footer">
+            <p class="hint">Files and metadata are checked again before queueing. Refused rows stay here and are not retried automatically.</p>
+            <p v-if="bulkQueueWasStopped" class="result warn" role="status">Queueing stopped. Already queued uploads continue; the remaining Reviewed rows can be queued when you are ready.</p>
+            <button
+              v-if="busy === 'bulk-upload'" class="btn btn-ghost" type="button"
+              :disabled="bulkQueueStopRequested" @click="bulkQueueStopRequested = true"
+            >{{ bulkQueueStopRequested ? 'Stopping after current…' : 'Stop queueing' }}</button>
+            <button
+              v-else
+              class="btn btn-primary" type="button"
+              :disabled="busy !== '' || !queueableBulkReviews.length"
+              @click="queueReviewedUploads"
+            >
+              {{ busy === 'bulk-upload' ? 'Queueing…' : `Queue reviewed uploads (${queueableBulkReviews.length})` }}
+            </button>
+          </div>
+        </section>
       </Modal>
 
       <Modal :visible="!!videoEpisode" size="lg" labelledby="local-video-title" @close="closeVideo">
@@ -441,6 +548,8 @@ interface PublishableEpisode {
 }
 interface Preview {
   package_revision?: string
+  source_sha256?: string
+  source?: { filename: string; revision: string } | null
   snippet: { title: string; description?: string; tags?: string[]; categoryId?: string }
   status: { privacyStatus: string; publishAt?: string; containsSyntheticMedia?: boolean }
   modifications: Array<{ field: string; reason: string }>
@@ -452,6 +561,18 @@ interface Preview {
     reason?: string
     options: Array<{ filename: string; url: string; is_pinned?: boolean }>
   }
+}
+type BulkReviewState = 'pending' | 'reviewed' | 'queueing' | 'queued' | 'error'
+interface BulkUploadReview {
+  episode_code: string
+  title: string
+  channel_id: string
+  channel_title: string
+  timezone: string
+  state: BulkReviewState
+  preview?: Preview
+  error?: string
+  job_id?: string
 }
 
 function normalizePreview(value: Preview): Preview {
@@ -477,6 +598,14 @@ const statusFilter = ref<StatusFilter>('all')
 const sort = ref<SortMode>('episode_newest')
 const rowResults = reactive<Record<string, { kind: 'ok' | 'warn' | 'err'; message: string }>>({})
 const planResult = ref<{ kind: 'ok' | 'warn' | 'err'; message: string } | null>(null)
+const selectedUploadCodes = ref<string[]>([])
+const bulkReviewOpen = ref(false)
+const bulkReviewHeading = ref<HTMLElement | null>(null)
+const bulkReviewOpener = ref<HTMLElement | null>(null)
+const uploadListHeading = ref<HTMLElement | null>(null)
+const bulkReviews = ref<BulkUploadReview[]>([])
+const bulkQueueStopRequested = ref(false)
+const bulkQueueWasStopped = ref(false)
 let loadRevision = 0
 let actionRevision = 0
 
@@ -656,6 +785,7 @@ const plannedPublishAt = computed(() => isFutureIso(selectedEpisode.value?.plan?
 function canScheduleExisting(ep: PublishableEpisode): boolean {
   return ep.can_schedule_existing === true && publicationState(ep) === 'uploaded'
 }
+function associatedVideoId(ep: PublishableEpisode): string { return ep.remote_video_id || ep.operation?.video_id || '' }
 const scheduleVisibilityUnknown = computed(() => reviewIntent.value === 'schedule'
   && !!selectedEpisode.value
   && !selectedEpisode.value.publication?.visibility)
@@ -670,7 +800,7 @@ function plannedDate(ep: PublishableEpisode): string {
 }
 function lastCheckedLabel(ep: PublishableEpisode): string {
   const checkedAt = ep.publication?.last_checked_at || ep.operation?.processing?.checked_at
-  if (checkedAt) return `Checked ${formatWhen(checkedAt)}`
+  if (checkedAt) return `YouTube checked ${formatWhen(checkedAt)}; cleanup verifies again.`
   return ep.operation || ep.has_remote_video ? 'Not checked with YouTube yet' : ''
 }
 function stateTone(state: RenderState | UploadState | PublicationState): string {
@@ -691,10 +821,7 @@ function matchesStatus(ep: PublishableEpisode, key: StatusFilter): boolean {
   if (key === 'attention') return renderState(ep) === 'unknown'
     || ['failed', 'unknown'].includes(uploadState(ep))
     || ['failed', 'rejected', 'unknown'].includes(publicationState(ep))
-  if (renderState(ep) !== 'ready' || ep.blocked_reason) return false
-  if (uploadState(ep) === 'none' && publicationState(ep) === 'unpublished') return true
-  const hasRemoteIdentity = !!(ep.has_remote_video || ep.remote_video_id || ep.operation?.video_id)
-  return uploadState(ep) === 'failed' && ['failed', 'rejected'].includes(publicationState(ep)) && !hasRemoteIdentity
+  return isUploadEligible(ep)
 }
 function countStatus(key: StatusFilter): number { return episodes.value.filter(ep => matchesStatus(ep, key)).length }
 function clearFilters(): void { filter.value = ''; statusFilter.value = 'all' }
@@ -908,6 +1035,41 @@ const uploadBlocked = computed(() => {
   return ''
 })
 
+function uploadEligibilityReason(ep: PublishableEpisode): string {
+  if (uploadBlocked.value) return uploadBlocked.value
+  if (renderState(ep) !== 'ready') return `${ep.episode_code} does not have a rendered video.`
+  if (ep.blocked_reason) return ep.blocked_reason
+  const hasRemoteIdentity = !!(ep.has_remote_video || ep.remote_video_id || ep.operation?.video_id)
+  if (hasRemoteIdentity) return `${ep.episode_code} already has a YouTube video association.`
+  const localUpload = uploadState(ep)
+  if (!['none', 'failed'].includes(localUpload)) return `${ep.episode_code} already has upload work in progress or completed.`
+  const publication = publicationState(ep)
+  if (publication === 'unpublished') return ''
+  if (localUpload === 'failed' && ['failed', 'rejected'].includes(publication)) return ''
+  return `${ep.episode_code} is not available for a new upload.`
+}
+function isUploadEligible(ep: PublishableEpisode): boolean { return uploadEligibilityReason(ep) === '' }
+
+const visibleUploadCandidates = computed(() => sortedEpisodes.value.filter(isUploadEligible))
+const selectedUploadEpisodes = computed(() => selectedUploadCodes.value
+  .map(code => episodes.value.find(ep => ep.episode_code === code))
+  .filter((ep): ep is PublishableEpisode => !!ep && isUploadEligible(ep)))
+const allVisibleUploadCandidatesSelected = computed(() => visibleUploadCandidates.value.length > 0
+  && visibleUploadCandidates.value.every(ep => selectedUploadCodes.value.includes(ep.episode_code)))
+function toggleEpisodeSelection(episodeCode: string): void {
+  selectedUploadCodes.value = selectedUploadCodes.value.includes(episodeCode)
+    ? selectedUploadCodes.value.filter(code => code !== episodeCode)
+    : [...selectedUploadCodes.value, episodeCode]
+}
+function toggleVisibleSelection(): void {
+  const visibleCodes = visibleUploadCandidates.value.map(ep => ep.episode_code)
+  if (allVisibleUploadCandidatesSelected.value) {
+    selectedUploadCodes.value = selectedUploadCodes.value.filter(code => !visibleCodes.includes(code))
+  } else {
+    selectedUploadCodes.value = [...new Set([...selectedUploadCodes.value, ...visibleCodes])]
+  }
+}
+
 const remoteBlocked = computed(() => {
   if (overviewError.value) return 'YouTube connection status is unavailable, so remote checks are paused.'
   if (!channelStatus.value) return 'This project has no assigned YouTube channel, so it cannot check anything on YouTube.'
@@ -1002,6 +1164,10 @@ async function load(): Promise<void> {
       quotaExhausted.value = false
       uploadQuotaExhausted.value = false
     }
+    selectedUploadCodes.value = selectedUploadCodes.value.filter(code => {
+      const episode = episodes.value.find(ep => ep.episode_code === code)
+      return !!episode && isUploadEligible(episode)
+    })
   } catch (error: any) {
     loadError.value = error?.data?.detail || error?.message || 'Could not load this project’s uploads.'
   } finally {
@@ -1044,6 +1210,41 @@ async function refresh(op: Operation): Promise<void> {
   }
 }
 
+async function forgetUpload(ep: PublishableEpisode): Promise<void> {
+  const expectedChannelId = assignedChannel.value?.channel_id
+  const expectedVideoId = associatedVideoId(ep)
+  if (busy.value || !expectedChannelId || !expectedVideoId) return
+  const requestedSlug = slug.value
+  const confirmationAction = beginAction(`forget-${ep.episode_code}`)
+  const confirmed = await ask({
+    title: `Allow ${ep.episode_code} to be uploaded again?`,
+    message: `Use this only after you deleted ${expectedVideoId} on YouTube and verified it is gone. Story Studio will remove this local upload association; it will not check or delete anything on YouTube. The next upload creates a new YouTube link.`,
+    confirmLabel: 'Remove upload association',
+  })
+  if (!actionIsCurrent(confirmationAction)) return
+  if (!confirmed) { busy.value = ''; return }
+  if (slug.value !== requestedSlug || assignedChannel.value?.channel_id !== expectedChannelId
+    || associatedVideoId(ep) !== expectedVideoId) { busy.value = ''; return }
+  try {
+    await post(`/projects/${requestedSlug}/youtube/episodes/${encodeURIComponent(ep.episode_code)}/forget-upload`, {
+      confirm: true,
+      expected_channel_id: expectedChannelId,
+      expected_video_id: expectedVideoId,
+    })
+    if (!actionIsCurrent(confirmationAction)) return
+    rowResults[ep.episode_code] = {
+      kind: 'ok',
+      message: `${ep.episode_code}'s local upload association was removed. YouTube was not changed. Review the upload again before queueing.`,
+    }
+    await load()
+  } catch (error: any) {
+    if (!actionIsCurrent(confirmationAction)) return
+    rowResults[ep.episode_code] = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not remove that upload association.' }
+  } finally {
+    if (actionIsCurrent(confirmationAction)) busy.value = ''
+  }
+}
+
 /**
  * Upload. The only control in this product that puts a video on YouTube.
  *
@@ -1057,11 +1258,16 @@ async function upload(episodeCode: string): Promise<void> {
   const expectedChannelId = assignedChannel.value?.channel_id
   const expectedChannelTitle = assignedChannel.value?.title
   const expectedPackageRevision = previewed.value?.package_revision
+  const expectedSourceRevision = previewed.value?.source?.revision
   const expectedThumbnailFilename = previewed.value?.thumbnail.state === 'selected'
     ? previewed.value.thumbnail.filename || null
     : null
   const expectedPrivacyStatus = previewed.value?.status.privacyStatus || 'private'
   const expectedPublishAt = previewed.value?.status.publishAt
+  if (!expectedPackageRevision || !expectedSourceRevision) {
+    rowResults[episodeCode] = { kind: 'err', message: 'Refresh this review so Story Studio can verify the exact metadata and video file.' }
+    return
+  }
   if (expectedPublishAt && !isFutureIso(expectedPublishAt)) {
     timingDirty.value = true
     timingError.value = 'This scheduled time has passed. Choose and review a new future time before uploading.'
@@ -1083,6 +1289,7 @@ async function upload(episodeCode: string): Promise<void> {
   if (!confirmed) { busy.value = ''; return }
   if (slug.value !== requestedSlug || previewedEpisode.value !== episodeCode
     || previewed.value?.package_revision !== expectedPackageRevision
+    || previewed.value?.source?.revision !== expectedSourceRevision
     || previewed.value?.status.privacyStatus !== expectedPrivacyStatus
     || previewed.value?.status.publishAt !== expectedPublishAt
     || (previewed.value?.thumbnail.state === 'selected' ? previewed.value.thumbnail.filename || null : null) !== expectedThumbnailFilename
@@ -1098,6 +1305,7 @@ async function upload(episodeCode: string): Promise<void> {
         confirm: true,
         expected_channel_id: expectedChannelId,
         expected_package_revision: expectedPackageRevision,
+        expected_source_revision: expectedSourceRevision,
         thumbnail_filename: expectedThumbnailFilename,
         privacy_status: expectedPrivacyStatus,
         ...(expectedPublishAt ? { publish_at: expectedPublishAt } : {}),
@@ -1114,6 +1322,176 @@ async function upload(episodeCode: string): Promise<void> {
     rowResults[episodeCode] = { kind: 'err', message: error?.data?.detail || error?.message || 'Failed to start that upload.' }
   } finally {
     if (actionIsCurrent(action)) busy.value = ''
+  }
+}
+
+function metadataReadiness(value: Preview): string {
+  const changes = value.modifications.length
+  const warnings = value.warnings.length
+  if (!changes && !warnings) return 'Ready · no changes needed'
+  return `Ready · ${changes} reviewed change${changes === 1 ? '' : 's'}${warnings ? ` · ${warnings} warning${warnings === 1 ? '' : 's'}` : ''}`
+}
+function bulkTimingLabel(item: BulkUploadReview): string {
+  const publishAt = item.preview?.status.publishAt
+  return publishAt ? formatZonedWhen(publishAt, item.timezone) : 'Keep private'
+}
+function bulkReviewStateLabel(item: BulkUploadReview): string {
+  if (item.state === 'pending') return item.preview ? 'Checking thumbnail' : 'Reviewing'
+  if (item.state === 'reviewed') return 'Reviewed'
+  if (item.state === 'queueing') return 'Queueing'
+  if (item.state === 'queued') return 'Queued'
+  return 'Needs attention'
+}
+const queueableBulkReviews = computed(() => bulkReviews.value.filter(item => item.state === 'reviewed'))
+
+function bulkThumbnailLoaded(item: BulkUploadReview): void {
+  if (item.state === 'pending' && item.preview?.thumbnail.state === 'selected') item.state = 'reviewed'
+}
+function bulkThumbnailUnavailable(item: BulkUploadReview): void {
+  if (item.state === 'queued' || item.state === 'queueing') return
+  item.state = 'error'
+  item.error = 'This thumbnail is selected, but its preview is unavailable. Open the individual upload review and choose a viewable image.'
+}
+
+function closeBulkReview(): void {
+  if (busy.value === 'bulk-upload') return
+  if (busy.value === 'bulk-preview') {
+    actionRevision += 1
+    busy.value = ''
+  }
+  const opener = bulkReviewOpener.value
+  bulkReviewOpener.value = null
+  bulkReviewOpen.value = false
+  bulkReviews.value = []
+  bulkQueueStopRequested.value = false
+  bulkQueueWasStopped.value = false
+  void nextTick(() => {
+    if (opener?.isConnected && !(opener as HTMLButtonElement).disabled) opener.focus()
+    else uploadListHeading.value?.focus()
+  })
+}
+
+async function reviewSelectedUploads(event?: Event): Promise<void> {
+  if (busy.value || !selectedUploadEpisodes.value.length || !assignedChannel.value) return
+  if (event?.currentTarget instanceof HTMLElement) bulkReviewOpener.value = event.currentTarget
+  const channel = { ...assignedChannel.value }
+  const selected = [...selectedUploadEpisodes.value].sort((a, b) => episodeNumber(a) - episodeNumber(b))
+  bulkReviews.value = selected.map(ep => ({
+    episode_code: ep.episode_code,
+    title: ep.title,
+    channel_id: channel.channel_id,
+    channel_title: channel.title,
+    timezone: isFutureIso(ep.plan?.scheduled_at) ? ep.plan?.timezone || deviceTimezone : deviceTimezone,
+    state: 'pending',
+  }))
+  bulkReviewOpen.value = true
+  await nextTick()
+  bulkReviewHeading.value?.focus()
+  const action = beginAction('bulk-preview')
+  for (const item of bulkReviews.value) {
+    if (!actionIsCurrent(action)) return
+    const episode = episodes.value.find(ep => ep.episode_code === item.episode_code)
+    if (!episode) {
+      item.state = 'error'
+      item.error = 'This episode is no longer available.'
+      continue
+    }
+    const publishAt = isFutureIso(episode.plan?.scheduled_at) ? episode.plan.scheduled_at : undefined
+    try {
+      const result = normalizePreview(await post<Preview>(`/projects/${action.slug}/youtube/preview`, {
+        episode_code: item.episode_code,
+        privacy_status: 'private',
+        ...(publishAt ? { publish_at: publishAt } : {}),
+      }))
+      if (!actionIsCurrent(action)) return
+      item.preview = result
+      if (!result.package_revision || !result.source?.revision || !result.source.filename) {
+        item.state = 'error'
+        item.error = 'Story Studio could not verify the exact metadata and video file. Refresh and review this row again.'
+      } else if (result.thumbnail.state === 'unavailable') {
+        item.state = 'error'
+        item.error = result.thumbnail.reason || 'Choose an available thumbnail in the individual upload review.'
+      } else if (result.thumbnail.state === 'selected' && !result.thumbnail.url) {
+        item.state = 'error'
+        item.error = 'This thumbnail is selected, but its preview is unavailable. Open the individual upload review and choose a viewable image.'
+      } else if (result.thumbnail.state === 'selected') {
+        // A selected filename is not a reviewed image. The native image load
+        // event promotes this row to Reviewed; an error keeps it out of Queue.
+        item.state = 'pending'
+      } else {
+        item.state = 'reviewed'
+      }
+    } catch (error: any) {
+      if (!actionIsCurrent(action)) return
+      item.state = 'error'
+      item.error = error?.data?.detail || error?.message || 'Could not review this upload.'
+    }
+  }
+  if (actionIsCurrent(action)) busy.value = ''
+}
+
+async function queueReviewedUploads(): Promise<void> {
+  if (busy.value || !queueableBulkReviews.value.length) return
+  const requestedSlug = slug.value
+  const expectedChannelId = assignedChannel.value?.channel_id
+  if (!expectedChannelId) return
+  bulkQueueStopRequested.value = false
+  bulkQueueWasStopped.value = false
+  const action = beginAction('bulk-upload')
+  const reviewed = [...queueableBulkReviews.value]
+  for (const item of reviewed) {
+    if (!actionIsCurrent(action)) return
+    if (bulkQueueStopRequested.value) { bulkQueueWasStopped.value = true; break }
+    const preview = item.preview
+    const episode = episodes.value.find(ep => ep.episode_code === item.episode_code)
+    if (!preview || !episode || !isUploadEligible(episode) || assignedChannel.value?.channel_id !== item.channel_id) {
+      item.state = 'error'
+      item.error = 'This row changed after review. Review the selected uploads again.'
+      continue
+    }
+    if (preview.status.publishAt && !isFutureIso(preview.status.publishAt)) {
+      item.state = 'error'
+      item.error = 'This scheduled time has passed. Review a new future time before uploading.'
+      continue
+    }
+    const expectedPackageRevision = preview.package_revision
+    const expectedSourceRevision = preview.source?.revision
+    if (!expectedPackageRevision || !expectedSourceRevision) {
+      item.state = 'error'
+      item.error = 'The reviewed metadata or video-file check is missing. Review this row again.'
+      continue
+    }
+    item.state = 'queueing'
+    try {
+      const result = await post<{ job_id: string; channel_id: string }>(
+        `/projects/${requestedSlug}/youtube/upload`,
+        {
+          episode_code: item.episode_code,
+          confirm: true,
+          expected_channel_id: item.channel_id,
+          expected_package_revision: expectedPackageRevision,
+          expected_source_revision: expectedSourceRevision,
+          thumbnail_filename: preview.thumbnail.state === 'selected' ? preview.thumbnail.filename || null : null,
+          privacy_status: preview.status.privacyStatus,
+          ...(preview.status.publishAt ? { publish_at: preview.status.publishAt } : {}),
+        },
+      )
+      if (!actionIsCurrent(action)) return
+      item.state = 'queued'
+      item.job_id = result.job_id
+      rowResults[item.episode_code] = { kind: 'ok', message: `Uploading ${item.episode_code} to ${result.channel_id}. Progress appears in Jobs.` }
+    } catch (error: any) {
+      if (!actionIsCurrent(action)) return
+      item.state = 'error'
+      item.error = error?.data?.detail || error?.message || 'Failed to queue this upload.'
+      rowResults[item.episode_code] = { kind: 'err', message: item.error! }
+    }
+  }
+  if (actionIsCurrent(action)) {
+    busy.value = ''
+    selectedUploadCodes.value = selectedUploadCodes.value.filter(code =>
+      !bulkReviews.value.some(item => item.episode_code === code && item.state === 'queued'))
+    await load()
   }
 }
 
@@ -1268,6 +1646,12 @@ watch(slug, () => {
   filter.value = ''
   statusFilter.value = 'all'
   planResult.value = null
+  selectedUploadCodes.value = []
+  bulkReviewOpen.value = false
+  bulkReviews.value = []
+  bulkReviewOpener.value = null
+  bulkQueueStopRequested.value = false
+  bulkQueueWasStopped.value = false
   closeReview(false)
   closeVideo()
   for (const key of Object.keys(rowResults)) delete rowResults[key]
@@ -1339,6 +1723,9 @@ watch(slug, () => {
 .op > * { min-width: 0; }
 .op-id, .fact { display: grid; gap: 3px; }
 .fact { position: relative; }
+.episode-select { display: flex; align-items: center; gap: 6px; width: fit-content; color: var(--text-muted); font-size: var(--font-xs); cursor: pointer; }
+.episode-select input { margin: 0; accent-color: var(--accent); }
+.episode-select:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .episode-title { color: var(--text-secondary); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .fact-label {
   position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0);
@@ -1352,9 +1739,10 @@ watch(slug, () => {
 .fact-note { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; overflow-wrap: anywhere; }
 .upload-progress { margin-top: 3px; min-width: 120px; }
 .op-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.forget-upload { flex-basis: 100%; margin-left: auto; color: var(--text-muted); }
 .row-result { grid-column: 1 / -1; margin: 0; padding-top: 7px; border-top: 1px solid var(--border); line-height: 1.5; }
 
-.upload-review, .video-review { display: grid; gap: 14px; min-width: 0; }
+.upload-review, .bulk-upload-review, .video-review { display: grid; gap: 14px; min-width: 0; }
 .review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .review-head h2 { margin: 0; font-size: 18px; }
 .review-head h2:focus { outline: none; }
@@ -1410,6 +1798,36 @@ watch(slug, () => {
 .payload dd small { margin-top: 3px; color: var(--text-muted); font-size: var(--font-xs); }
 .payload dd.pre { white-space: pre-wrap; }
 
+.bulk-review-list { display: grid; gap: 9px; max-height: min(62vh, 620px); margin: 0; padding: 0; overflow: auto; list-style: none; }
+.bulk-review-item { display: grid; gap: 10px; padding: 11px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+.bulk-review-item > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.bulk-review-item > header > div { display: grid; gap: 3px; min-width: 0; }
+.bulk-review-item > header span { color: var(--text-muted); font-size: var(--font-xs); overflow-wrap: anywhere; }
+.bulk-review-details { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); gap: 12px; }
+.bulk-thumbnail { display: grid; align-content: start; gap: 5px; min-width: 0; }
+.bulk-thumbnail img, .bulk-thumbnail > span { width: 100%; aspect-ratio: 16 / 9; border-radius: var(--radius-sm); background: var(--bg-primary); }
+.bulk-thumbnail img { object-fit: cover; }
+.bulk-thumbnail > span { display: grid; place-items: center; padding: 8px; box-sizing: border-box; color: var(--text-muted); font-size: var(--font-xs); text-align: center; }
+.bulk-thumbnail small { color: var(--text-muted); font-size: var(--font-xs); overflow-wrap: anywhere; }
+.bulk-review-details dl { display: grid; gap: 5px; margin: 0; }
+.bulk-review-details dl > div { display: grid; grid-template-columns: minmax(90px, 110px) minmax(0, 1fr); gap: 9px; }
+.bulk-review-details dt, .bulk-review-details dd { margin: 0; font-size: var(--font-xs); }
+.bulk-review-details dt { color: var(--text-muted); font-weight: 700; }
+.bulk-review-details dd { color: var(--text-secondary); overflow-wrap: anywhere; }
+.bulk-review-details dd small { display: block; margin-top: 2px; color: var(--text-muted); font-size: var(--font-xs); }
+.bulk-metadata { padding-top: 8px; border-top: 1px solid var(--border); }
+.bulk-metadata summary { width: fit-content; color: var(--accent); font-size: var(--font-xs); cursor: pointer; }
+.bulk-metadata summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bulk-metadata dl { display: grid; gap: 6px; margin: 9px 0 0; }
+.bulk-metadata dl > div { display: grid; grid-template-columns: minmax(90px, 110px) minmax(0, 1fr); gap: 9px; }
+.bulk-metadata dt, .bulk-metadata dd { margin: 0; font-size: var(--font-xs); }
+.bulk-metadata dt { color: var(--text-muted); font-weight: 700; }
+.bulk-metadata dd { color: var(--text-secondary); overflow-wrap: anywhere; }
+.bulk-metadata dd.pre { max-height: 180px; overflow: auto; white-space: pre-wrap; }
+.bulk-review-footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 14px; }
+.bulk-review-footer .hint { margin: 0; }
+.bulk-review-footer .result { grid-column: 1 / -1; margin: 0; }
+
 @container uc-publish (max-width: 880px) {
   .episode-columns { display: none; }
   .op { grid-template-columns: minmax(160px, 1.2fr) repeat(3, minmax(110px, 1fr)); }
@@ -1433,14 +1851,20 @@ watch(slug, () => {
   .status-chip { flex: 1 1 auto; }
 }
 @media (max-width: 620px) {
-  .upload-review .review-head, .video-review .review-head { align-items: stretch; flex-direction: column; }
+  .upload-review .review-head, .bulk-upload-review .review-head, .video-review .review-head { align-items: stretch; flex-direction: column; }
   .upload-review .payload > div { grid-template-columns: 1fr; }
   .timing-options { grid-template-columns: 1fr; }
   .selected-thumbnail { grid-template-columns: 1fr; }
   .thumbnail-options { grid-template-columns: 1fr 1fr; }
+  .bulk-review-details { grid-template-columns: 1fr; }
+  .bulk-thumbnail { max-width: 240px; }
+  .bulk-review-footer { grid-template-columns: 1fr; align-items: stretch; }
+  .bulk-review-footer .result { grid-column: auto; }
 }
 @media (max-width: 390px) {
   .thumbnail-review-head { align-items: stretch; flex-direction: column; }
   .thumbnail-options { grid-template-columns: 1fr; }
+  .bulk-review-details dl > div { grid-template-columns: 1fr; gap: 2px; }
+  .bulk-metadata dl > div { grid-template-columns: 1fr; gap: 2px; }
 }
 </style>

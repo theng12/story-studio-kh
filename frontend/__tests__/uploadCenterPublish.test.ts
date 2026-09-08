@@ -214,6 +214,8 @@ describe('Upload Center Publish', () => {
     const mounted = await mount({ operations: [READY_OP] })
     assert.equal(mounted.calls.some(c => c.path.includes('/refresh')), false)
     assert.match(mounted.text(), /Nothing here checks on its own/)
+    assert.match(mounted.text(), /YouTube checked .*cleanup verifies again/)
+    assert.doesNotMatch(mounted.text(), /safe to clear/i)
     mounted.destroy()
   })
 
@@ -397,6 +399,8 @@ describe('Upload Center Publish', () => {
   }
   const PREVIEWED = {
     package_revision: 'pack-42',
+    source_sha256: 'metadata-source-42',
+    source: { filename: 'EP0001_final_video.mp4', revision: 'video-source-42' },
     snippet: { title: 'The Lighthouse at Dawn', description: 'd', tags: [], categoryId: '24' },
     status: { privacyStatus: 'private', containsSyntheticMedia: true },
     modifications: [], warnings: [],
@@ -432,7 +436,8 @@ describe('Upload Center Publish', () => {
     assert.ok(posted, 'the click reaches the route')
     assert.deepEqual(posted!.body, {
       episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x',
-      expected_package_revision: 'pack-42', thumbnail_filename: null, privacy_status: 'private',
+      expected_package_revision: 'pack-42', expected_source_revision: 'video-source-42',
+      thumbnail_filename: null, privacy_status: 'private',
     })
     assert.match(mounted.confirms[0].message, /Ch \(UC-x\)/)
 
@@ -461,7 +466,7 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.confirms[0].message, new RegExp(publishAt.replaceAll('.', '\\.')))
     assert.deepEqual(mounted.calls.find(call => call.path.endsWith('/youtube/upload'))?.body, {
       episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x', expected_package_revision: 'pack-42',
-      thumbnail_filename: null, privacy_status: 'private', publish_at: publishAt,
+      expected_source_revision: 'video-source-42', thumbnail_filename: null, privacy_status: 'private', publish_at: publishAt,
     })
     mounted.destroy()
   })
@@ -866,6 +871,229 @@ describe('Upload Center Publish', () => {
     mounted.destroy()
   })
 
+  test('selects only visible episodes that are ready for this connected channel', async () => {
+    const mounted = await mount({
+      episodes: [
+        { ...NEVER_UPLOADED, episode_code: 'EP0003', title: 'Visible and ready' },
+        { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Also ready' },
+        { episode_code: 'EP0001', title: 'Missing render', has_video: false, local: { render: { state: 'missing' }, upload: { state: 'none' } }, publication: { state: 'unpublished' } },
+      ],
+      preview: PREVIEWED,
+    })
+    const search = mounted.el.querySelector<HTMLInputElement>('input[aria-label="Filter episodes by code or title"]')!
+    search.value = 'EP0003'
+    search.dispatchEvent(new Event('input'))
+    await nextTick()
+
+    const selectVisible = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select visible eligible'))!
+    assert.match(selectVisible.textContent || '', /\(1\)/)
+    selectVisible.click()
+    await nextTick()
+
+    assert.equal(mounted.el.querySelectorAll<HTMLInputElement>('.episode-select input:checked').length, 1)
+    assert.match(
+      [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+        .find(button => button.textContent!.includes('Review selected uploads'))?.textContent || '',
+      /\(1\)/,
+    )
+    mounted.destroy()
+  })
+
+  test('bulk review shows exact files thumbnails metadata channel and timing, then queues each reviewed fence once', async () => {
+    const plannedAt = '2099-10-11T02:30:00.000Z'
+    const mounted = await mount({
+      episodes: [
+        { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Private upload' },
+        { ...NEVER_UPLOADED, episode_code: 'EP0001', title: 'Planned upload', plan: { scheduled_at: plannedAt, timezone: 'Asia/Phnom_Penh' } },
+      ],
+      previewOverride: (body) => ({
+        ...PREVIEWED,
+        package_revision: `package-${body.episode_code}`,
+        source: { filename: `${body.episode_code}_final_video.mp4`, revision: `source-${body.episode_code}` },
+        snippet: {
+          ...PREVIEWED.snippet,
+          title: `YouTube title ${body.episode_code}`,
+          description: `Exact description for ${body.episode_code}`,
+          tags: [`tag-${body.episode_code}`, 'shared-tag'],
+        },
+        status: { ...PREVIEWED.status, ...(body.publish_at ? { publishAt: body.publish_at } : {}) },
+        thumbnail: {
+          state: 'selected', filename: `${body.episode_code}_Thumb01.png`, url: `/api/${body.episode_code}.png`,
+          options: [{ filename: `${body.episode_code}_Thumb01.png`, url: `/api/${body.episode_code}.png` }],
+        },
+      }),
+    })
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+    await nextTick()
+    const review = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Review selected uploads'))!
+    review.focus()
+    review.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+
+    const dialog = mounted.el.querySelector('[aria-labelledby="bulk-upload-review-title"]')!
+    assert.equal(document.activeElement?.id, 'bulk-upload-review-title', 'keyboard focus moves into the bulk review')
+    assert.match(dialog.textContent || '', /EP0001_final_video\.mp4/)
+    assert.match(dialog.textContent || '', /EP0002_Thumb01\.png/)
+    assert.match(dialog.textContent || '', /YouTube title EP0001/)
+    assert.match(dialog.textContent || '', /Ch · UC-x/)
+    assert.match(dialog.textContent || '', new RegExp(plannedAt.replaceAll('.', '\\.')))
+    assert.match(dialog.textContent || '', /Asia\/Phnom_Penh/)
+    assert.match(dialog.textContent || '', /Keep private/)
+    assert.doesNotMatch(dialog.textContent || '', /Reviewed version|package-EP0001/)
+
+    const metadataReview = [...dialog.querySelectorAll<HTMLDetailsElement>('details')]
+      .find(details => details.querySelector('summary')?.textContent?.includes('Review metadata'))!
+    metadataReview.open = true
+    metadataReview.dispatchEvent(new Event('toggle'))
+    await nextTick()
+    assert.match(metadataReview.textContent || '', /Exact description for EP0001/)
+    assert.match(metadataReview.textContent || '', /tag-EP0001, shared-tag/)
+
+    const thumbnails = [...dialog.querySelectorAll<HTMLImageElement>('.bulk-thumbnail img')]
+    assert.equal(thumbnails.length, 2)
+    thumbnails.forEach(image => image.dispatchEvent(new Event('load')))
+    await nextTick()
+
+    const queue = [...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Queue reviewed uploads'))!
+    assert.match(queue.textContent || '', /\(2\)/)
+    queue.click()
+    for (let i = 0; i < 14; i++) await nextTick()
+
+    const uploads = mounted.calls.filter(call => call.path.endsWith('/youtube/upload'))
+    assert.deepEqual(uploads.map(call => call.body), [
+      {
+        episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x',
+        expected_package_revision: 'package-EP0001', expected_source_revision: 'source-EP0001',
+        thumbnail_filename: 'EP0001_Thumb01.png', privacy_status: 'private', publish_at: plannedAt,
+      },
+      {
+        episode_code: 'EP0002', confirm: true, expected_channel_id: 'UC-x',
+        expected_package_revision: 'package-EP0002', expected_source_revision: 'source-EP0002',
+        thumbnail_filename: 'EP0002_Thumb01.png', privacy_status: 'private',
+      },
+    ])
+    assert.equal(mounted.confirms.length, 0, 'the exact bulk review has one explicit queue action, not a second generic dialog')
+    assert.match(dialog.textContent || '', /Queued/)
+    ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.trim() === 'Close')!.click()
+    await nextTick()
+    assert.equal(document.activeElement?.id, 'upload-list-title', 'closing after queue returns focus to the stable upload list heading')
+    mounted.destroy()
+  })
+
+  test('a broken thumbnail preview keeps that bulk row out of the upload queue', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: {
+        ...PREVIEWED,
+        thumbnail: {
+          state: 'selected', filename: 'EP0001_Thumb01.png', url: '/api/broken-thumbnail.png',
+          options: [{ filename: 'EP0001_Thumb01.png', url: '/api/broken-thumbnail.png' }],
+        },
+      },
+    })
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+    await nextTick()
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Review selected uploads'))!.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+
+    const dialog = mounted.el.querySelector('[aria-labelledby="bulk-upload-review-title"]')!
+    dialog.querySelector<HTMLImageElement>('.bulk-thumbnail img')!.dispatchEvent(new Event('error'))
+    await nextTick()
+
+    assert.match(dialog.textContent || '', /Needs attention/)
+    assert.match(dialog.textContent || '', /thumbnail is selected, but its preview is unavailable/i)
+    const queue = [...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Queue reviewed uploads'))!
+    assert.match(queue.textContent || '', /\(0\)/)
+    assert.equal(queue.disabled, true)
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 0)
+    mounted.destroy()
+  })
+
+  test('bulk preview and queue failures stay on their own rows and never retry automatically', async () => {
+    let uploadAttempts = 0
+    const mounted = await mount({
+      episodes: [
+        { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Preview refusal' },
+        { ...NEVER_UPLOADED, episode_code: 'EP0001', title: 'Queue refusal' },
+      ],
+      previewFailAfter: 1,
+      preview: PREVIEWED,
+      postOverride: (path) => {
+        if (path.endsWith('/youtube/upload')) {
+          uploadAttempts += 1
+          throw Object.assign(new Error('file changed after review'), { data: { detail: 'The rendered video changed after review.' } })
+        }
+      },
+    })
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+    await nextTick()
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Review selected uploads'))!.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+    assert.match(mounted.text(), /preview exploded/)
+
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Queue reviewed uploads'))!.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+    assert.equal(uploadAttempts, 1)
+    assert.match(mounted.text(), /rendered video changed after review/)
+    mounted.destroy()
+  })
+
+  test('stop queueing finishes the current request and leaves later reviewed rows ready to continue', async () => {
+    let uploadAttempts = 0
+    let finishFirstUpload!: (value: { job_id: string; channel_id: string }) => void
+    const firstUpload = new Promise<{ job_id: string; channel_id: string }>((resolve) => { finishFirstUpload = resolve })
+    const mounted = await mount({
+      episodes: [
+        { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Second reviewed upload' },
+        { ...NEVER_UPLOADED, episode_code: 'EP0001', title: 'First reviewed upload' },
+      ],
+      preview: PREVIEWED,
+      postOverride: (path) => {
+        if (!path.endsWith('/youtube/upload')) return undefined
+        uploadAttempts += 1
+        return uploadAttempts === 1 ? firstUpload : { job_id: `job-${uploadAttempts}`, channel_id: 'UC-x' }
+      },
+    })
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select visible eligible'))!.click()
+    await nextTick()
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Review selected uploads'))!.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+
+    const dialog = mounted.el.querySelector('[aria-labelledby="bulk-upload-review-title"]')!
+    ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Queue reviewed uploads'))!.click()
+    await nextTick()
+    const stop = [...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.trim() === 'Stop queueing')!
+    assert.equal(stop.disabled, false)
+    stop.click()
+    await nextTick()
+    assert.match(dialog.textContent || '', /Stopping after current/)
+
+    finishFirstUpload({ job_id: 'job-1', channel_id: 'UC-x' })
+    for (let i = 0; i < 12; i++) await nextTick()
+
+    assert.equal(uploadAttempts, 1, 'stopping does not start the next reviewed admission')
+    assert.match(dialog.textContent || '', /Already queued uploads continue/)
+    assert.match(dialog.textContent || '', /Queue reviewed uploads \(1\)/)
+    assert.equal([...dialog.querySelectorAll('.state-text')].filter(node => node.textContent?.trim() === 'Queued').length, 1)
+    assert.equal([...dialog.querySelectorAll('.state-text')].filter(node => node.textContent?.trim() === 'Reviewed').length, 1)
+    mounted.destroy()
+  })
+
   test('opens YouTube metadata review in a focused dialog and keeps preview errors on the episode row', async () => {
     const mounted = await mount({
       episodes: [NEVER_UPLOADED],
@@ -1188,6 +1416,58 @@ describe('Upload Center Publish', () => {
     const upload = await previewThen(mounted)
     assert.equal(upload, undefined, 'no button to press')
     assert.match(mounted.text(), /no assigned YouTube channel/)
+    const ready = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Ready to upload'))!
+    assert.match(ready.textContent || '', /0/, 'local readiness alone is not readiness for a missing channel')
+    assert.ok([...mounted.el.querySelectorAll<HTMLAnchorElement>('a')]
+      .some(link => link.textContent!.includes('Assign channel') && link.href.includes('/settings#youtube')))
+    mounted.destroy()
+  })
+
+  test('removing a deleted operation association is explicit, fenced, and never claims to delete on YouTube', async () => {
+    const mounted = await mount({
+      operations: [READY_OP],
+      postOverride: (path) => path.endsWith('/forget-upload')
+        ? { episode_code: 'EP0001', video_id: 'vid-1', association_removed: true }
+        : undefined,
+    })
+    const forget = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('I deleted this video on YouTube'))!
+    forget.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+
+    assert.match(mounted.confirms[0].message, /only after you deleted vid-1 on YouTube and verified it is gone/i)
+    assert.match(mounted.confirms[0].message, /will not check or delete anything on YouTube/i)
+    const call = mounted.calls.find(entry => entry.path.endsWith('/youtube/episodes/EP0001/forget-upload'))!
+    assert.deepEqual(call.body, {
+      confirm: true,
+      expected_channel_id: 'UC-x',
+      expected_video_id: 'vid-1',
+    })
+    assert.match(mounted.text(), /YouTube was not changed/)
+    mounted.destroy()
+  })
+
+  test('a legacy remote id can reach the same exact association-removal boundary', async () => {
+    const mounted = await mount({
+      episodes: [{
+        episode_code: 'EP0007', title: 'Legacy upload', has_video: true,
+        has_remote_video: true, remote_video_id: 'legacy-video-77', remote_source: 'legacy_sidecar',
+        blocked_reason: 'EP0007 is already on YouTube as legacy-video-77.',
+      }],
+      postOverride: (path) => path.endsWith('/forget-upload')
+        ? { episode_code: 'EP0007', video_id: 'legacy-video-77', association_removed: true }
+        : undefined,
+    })
+    const forget = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('I deleted this video on YouTube'))!
+    assert.ok(forget)
+    forget.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    assert.deepEqual(
+      mounted.calls.find(entry => entry.path.endsWith('/youtube/episodes/EP0007/forget-upload'))?.body,
+      { confirm: true, expected_channel_id: 'UC-x', expected_video_id: 'legacy-video-77' },
+    )
     mounted.destroy()
   })
 
@@ -1254,8 +1534,10 @@ describe('Upload Center Publish', () => {
 })
 
 describe('Upload Center Publish boundaries', () => {
-  test('offers no retry that could re-upload an accepted video', () => {
-    assert.doesNotMatch(source, /re-?upload|retryUpload|uploadAgain/i)
+  test('the only path to another upload is the confirmed exact-video association removal', () => {
+    assert.match(source, /\/youtube\/episodes\/\$\{encodeURIComponent\(ep\.episode_code\)\}\/forget-upload/)
+    assert.match(source, /confirm: true[\s\S]*expected_channel_id: expectedChannelId[\s\S]*expected_video_id: expectedVideoId/)
+    assert.doesNotMatch(source, /retryUpload|uploadAgain/i)
   })
 
   test('has no retired automatic-upload control or qualification request', () => {
