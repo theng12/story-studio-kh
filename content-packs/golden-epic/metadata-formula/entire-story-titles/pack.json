@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.metadata-formula.entire-story-titles",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Entire Story Titles description formula: a whole-arc write-up architecture for two-to-three-and-a-half-hour histories of one civilisation or one life.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.metadata-formula.entire-story-titles",
+    "family": "com.storystudio.family.metadata-formula.entire-story-titles"
+  },
+  "dependencies": []
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.bevelled-gold-cinematic-serif",
+  "name": "Bevelled Gold Cinematic Serif",
+  "description": "Bevelled metallic gold serif capitals with a subtle chrome edge, carrying a small spaced small-cap tagline between two thin rules beneath them.",
+  "axis": "font",
+  "phrase": "bevelled metallic gold serif capitals with faceted stems, a warm highlight running along the top of each bevel and a subtle cool chrome edge tracing the lower contour, set on one line with even tracking, and beneath them a much smaller tagline in widely spaced small capitals of the same serif, held between two thin gold rules that run the full width of the title, the tagline in pale bronze rather than gold, everything matte-metallic with no outline, no glow and no drop shadow",
+  "preview_assets": [
+    "assets/bevelled-gold-cinematic-serif.webp"
+  ]
+}
