@@ -33,6 +33,7 @@
     "content-pack:validate": "node scripts/content-packs/validate-pack.mjs",
     "content-pack:ship": "node scripts/content-packs/ship-pack.mjs",
     "content-pack:registry": "node scripts/content-packs/authoring-registry.mjs",
+    "content-pack:index": "node scripts/content-packs/index.mjs",
     "start": "electron .",
     "test:backend": "node scripts/testing/run-backend-tests.mjs",
     "test:frontend": "cd frontend && npx nuxi prepare && node ../scripts/testing/run-lane-tests.mjs frontend",
