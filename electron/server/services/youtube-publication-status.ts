@@ -17,7 +17,6 @@ import {
   listYouTubeOperations,
   readYouTubeOperation,
   updatePinnedYouTubeOperation,
-  updateYouTubeOperation,
 } from './youtube-operation-store.js'
 import type { RemoteSyncState } from './youtube-project-publishing-store.js'
 

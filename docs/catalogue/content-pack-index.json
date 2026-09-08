@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-08T04:28:06.688Z",
-  "count": 180,
+  "generated": "2026-09-08T09:38:17.467Z",
+  "count": 193,
   "items": [
     {
       "kind": "channel-kit",
@@ -144,6 +144,16 @@
     },
     {
       "kind": "lettering-style",
+      "id": "com.storystudio.lettering.bevelled-gold-cinematic-serif",
+      "name": "Bevelled Gold Cinematic Serif",
+      "collection_dir": "golden-epic/lettering/bevelled-gold-cinematic-serif",
+      "axis": "font",
+      "description": "Bevelled metallic gold serif capitals with a subtle chrome edge, carrying a small spaced small-cap tagline between two…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
       "id": "com.storystudio.lettering.bold-outline-pop",
       "name": "Bold Outline Pop",
       "collection_dir": "paid/lettering/explainer",
@@ -259,6 +269,26 @@
       "collection_dir": "paid/lettering/arcade",
       "axis": "font",
       "description": "Letters bent from one continuous glass tube, the way a roadside sign was actually made.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.distressed-pale-serif",
+      "name": "Distressed Pale Serif",
+      "collection_dir": "midnight-archives/lettering/distressed-pale-serif",
+      "axis": "font",
+      "description": "Distressed serif capitals in white or cold blue-white, edged in dark and lifted by the faintest glow — the quieter hook…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
+      "id": "com.storystudio.lettering.dripping-paint-finish",
+      "name": "Dripping Paint Finish",
+      "collection_dir": "midnight-archives/lettering/dripping-paint-finish",
+      "axis": "text",
+      "description": "A treatment rather than a face: whatever capitals are set, they are finished in wet paint that has run, with thin drips…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -434,6 +464,16 @@
     },
     {
       "kind": "lettering-style",
+      "id": "com.storystudio.lettering.red-glow-serif-capitals",
+      "name": "Red-Glow Serif Capitals",
+      "collection_dir": "midnight-archives/lettering/red-glow-serif-capitals",
+      "axis": "font",
+      "description": "White serif capitals cut with a red edge and a red glow burning off behind them, the letterforms slightly distressed —…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "lettering-style",
       "id": "com.storystudio.lettering.redacted-marker",
       "name": "Redacted Marker",
       "collection_dir": "paid/lettering/investigation",
@@ -564,11 +604,31 @@
     },
     {
       "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.contrarian-reveal-titles",
+      "name": "Contrarian Reveal Titles",
+      "collection_dir": "midnight-archives/metadata-formula/contrarian-reveal-titles",
+      "axis": "Contradiction opening, corrections list, chapter list, stat…",
+      "description": "The write-up shape for a dark-history episode that opens by contradicting what the viewer already believes. Three fixed…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
       "id": "com.storystudio.metadata-formula.documentary-for-sleep-titles",
       "name": "Documentary for Sleep Titles",
       "collection_dir": "royal-history/metadata-formula/documentary-for-sleep-titles",
       "axis": "Named opening, life chapters, stated runtime, listening not…",
       "description": "The write-up shape for a long, calm biography of one ruler, meant to be fallen asleep to. One fixed three-part title pa…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.entire-story-titles",
+      "name": "Entire Story Titles",
+      "collection_dir": "golden-epic/metadata-formula/entire-story-titles",
+      "axis": "Whole-arc opening, era sections, stated runtime, listening…",
+      "description": "The write-up shape for an episode that tells one whole civilisation or one whole life from beginning to end in a single…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -974,6 +1034,16 @@
     },
     {
       "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.hook-left-frightened-face-right",
+      "name": "Hook Left, Frightened Face Right",
+      "collection_dir": "midnight-archives/thumbnail/hook-left-frightened-face-right",
+      "axis": "History",
+      "description": "Two variants for one dark-history channel. A: a three-to-five-word hook filling the left half of the frame, a frightene…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
       "id": "com.storystudio.thumbnail.iconic-result-closeup",
       "name": "Iconic Result Close-Up",
       "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup",
@@ -1069,6 +1139,16 @@
       "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset",
       "axis": "Explainer",
       "description": "A generic reaction subject connected by gaze or gesture to one native evidence detail.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.regalia-portrait-title-quadrant",
+      "name": "Regalia Portrait, Title Quadrant",
+      "collection_dir": "golden-epic/thumbnail/regalia-portrait-title-quadrant",
+      "axis": "History",
+      "description": "A full-regalia figure holds one side of the frame at three-quarter length while the title fills the opposite upper quad…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1344,6 +1424,16 @@
     },
     {
       "kind": "topic-pack",
+      "id": "com.storystudio.topic.empires-and-civilisations-entire",
+      "name": "Empires and Civilisations Entire",
+      "collection_dir": "golden-epic/topic/empires-and-civilisations-entire",
+      "axis": "whole civilisations, empires, sleep history, long documentary",
+      "description": "Fifty subjects — empires, dynasties, civilisations and whole lives from every era and every inhabited continent — each…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
       "id": "com.storystudio.topic.everyday-calm",
       "name": "Everyday Calm",
       "collection_dir": "free-starters/topic/everyday-calm-v1.0.1",
@@ -1523,6 +1613,16 @@
       "lifecycle": "active"
     },
     {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.the-real-story-is-worse",
+      "name": "The Real Story Is Worse",
+      "collection_dir": "midnight-archives/topic/the-real-story-is-worse",
+      "axis": "dark history, debunked legends, famous frauds",
+      "description": "Fifty dark-history subjects — the original fairy tales, the asylums, the alchemists, the secret societies, the ghost sh…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
       "kind": "visual-style",
       "id": "com.storystudio.style.academic-classical-oil",
       "name": "Academic Classical Oil",
@@ -1624,6 +1724,26 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.golden-epic-poster",
+      "name": "Golden Epic Poster",
+      "collection_dir": "golden-epic/style/golden-epic-poster",
+      "axis": "Illustration",
+      "description": "The cover look for a whole-civilisation history — a full-regalia figure at three-quarter length on one side, an entire…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.gothic-candlelight-portrait",
+      "name": "Gothic Candlelight Portrait",
+      "collection_dir": "midnight-archives/style/gothic-candlelight-portrait",
+      "axis": "Illustration",
+      "description": "The cover look for dark history — one face filling half the frame at the moment it understands something, lit by a sing…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.hand-drawn-cartoon-explainer",
       "name": "Hand-Drawn Cartoon Explainer",
       "collection_dir": "production-looks/style/hand-drawn-cartoon-explainer",
@@ -1659,6 +1779,16 @@
       "collection_dir": "legacy-thumbnail-restoration/style/impasto-psychological-animals",
       "axis": "Illustration",
       "description": "A melancholy editorial animal-psychology style rendered with tactile oil-paint depth and one readable human-scale actio…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.inked-crosshatch-storybook",
+      "name": "Inked Crosshatch Storybook",
+      "collection_dir": "midnight-archives/style/inked-crosshatch-storybook",
+      "axis": "Illustration",
+      "description": "The scene look for dark history — thick-line pen and ink with dense cross-hatching, the way an engraved graphic novel p…",
       "version": "1.0.0",
       "lifecycle": "active"
     },

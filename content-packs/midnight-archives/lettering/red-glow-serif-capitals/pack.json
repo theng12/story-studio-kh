@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.red-glow-serif-capitals",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Red-Glow Serif Capitals lettering style: distressed white serif capitals with a red edge and a red outer glow, for dark-history hook covers.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.red-glow-serif-capitals",
+    "family": "com.storystudio.family.lettering.red-glow-serif-capitals"
+  },
+  "dependencies": []
+}

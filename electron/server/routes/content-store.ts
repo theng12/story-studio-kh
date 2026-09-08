@@ -32,7 +32,16 @@ export interface ContentStoreRouterOptions {
 export function createContentStoreRouter(options: ContentStoreRouterOptions = {}): Router {
 const router = Router()
 
-router.use((req, res, next) => {
+// Scoped to `/content-store` on purpose. This router is mounted bare on `/api`
+// alongside ~30 others, so a path-less `router.use` here runs for EVERY `/api`
+// request that reaches this point in the mount order — every router registered
+// after it in routes/index.ts (b-roll, research, scene plan, scene review,
+// continuity, music pool, library, changelog, …) silently inherited this 16 KiB
+// cap and answered oversized-but-legitimate payloads with a Content Store error
+// that had nothing to do with them. Found 2026-09-08 when a 16.9 KiB
+// `POST /api/projects/:slug/image-pool/generate` (13 preview prompts) was
+// refused with CONTENT_STORE_REQUEST_TOO_LARGE.
+router.use('/content-store', (req, res, next) => {
   const declared = Number(req.headers['content-length'] || 0)
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
     res.status(413).json({ code: 'CONTENT_STORE_REQUEST_TOO_LARGE', detail: 'Content Store request body exceeds 16 KiB.' })
@@ -45,7 +54,7 @@ router.use((req, res, next) => {
   next()
 })
 
-router.use(express.json({ limit: MAX_BODY_BYTES }))
+router.use('/content-store', express.json({ limit: MAX_BODY_BYTES }))
 
 function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? '') : (value ?? '')

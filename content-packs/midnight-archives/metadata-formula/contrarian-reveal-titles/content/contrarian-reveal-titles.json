@@ -1,0 +1,97 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.contrarian-reveal-titles",
+  "name": "Contrarian Reveal Titles",
+  "description": "The write-up shape for a dark-history episode that opens by contradicting what the viewer already believes. Three fixed title patterns each name the familiar version and refuse it, and the description below pays the hook off — what the record actually says, what the episode covers, how long it runs at thirty-five to ninety-five minutes, and where the evidence comes from — without ever leaving a promise unsettled.",
+  "architecture": "Contradiction opening, corrections list, chapter list, stated runtime, series note, sources note, hashtags.",
+  "description_plan": {
+    "max_chars": 3200,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "opening",
+        "instruction": "Two or three short sentences. The first names the familiar version of the story in the plainest words available — the one the viewer arrived with, the one taught in a schoolroom or printed on a plaque. The second says flatly that it is not what happened, and names in one clause what did. The third, if it is needed, says what the record leaves unsettled. Do not ask a question, do not address the viewer, do not tease a reveal for later, and do not repeat the title verbatim. The contradiction is the opening; everything after it exists to pay for it.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 360
+      },
+      {
+        "id": "corrections",
+        "instruction": "List the specific corrections the episode makes, one per line, each a single sentence pairing the familiar claim with what the record shows instead. Cover every claim the title promised and stop there; a correction the episode does not actually make must not appear. Where the record is thin, contested, or survives only from one side, say so in the line itself rather than stating the correction harder. No numbering that reads as a countdown, no line framed as a tease, and no correction that rests on an invented quotation, letter, or scene.",
+        "header": {
+          "render": true,
+          "text": "What the record actually says"
+        },
+        "target_chars": 700
+      },
+      {
+        "id": "chapters",
+        "instruction": "List what the episode covers in the order it covers it, one short noun phrase per line, each naming a subject and the turn it takes rather than describing it. Cover the whole runtime so a reader can see the shape at a glance. No times, no numbering, no descriptions beyond the phrase, and nothing withheld as a surprise.",
+        "header": {
+          "render": true,
+          "text": "What the episode covers"
+        },
+        "target_chars": 560
+      },
+      {
+        "id": "runtime",
+        "instruction": "State the episode length in hours and minutes in one sentence, and say plainly that everything the title promised is settled inside it with nothing held back for a later part. Episodes in this format run between thirty-five and ninety-five minutes; use the actual length from the story context rather than that range.",
+        "header": {
+          "render": true,
+          "text": "How long it runs"
+        },
+        "target_chars": 200
+      },
+      {
+        "id": "series",
+        "instruction": "One or two sentences placing the episode in the Was Never series — the standing strand on this channel that takes a story everybody knows and shows what the record says instead. Say what the strand does in plain words. Do not urge the reader to subscribe, follow, watch another episode, or do anything at all, and do not name a schedule the channel may not keep.",
+        "header": {
+          "render": true,
+          "text": "The Was Never series"
+        },
+        "target_chars": 220
+      },
+      {
+        "id": "sources",
+        "instruction": "Two or three sentences naming the kinds of evidence the episode leans on — the sorts of court records, asylum admission books, ships' logs, inquest papers, printed editions, trial transcripts, inventories, or later chronicles a careful narrator would use for this subject. Describe source types rather than citing any specific title, author, or archive reference, and state plainly which parts of the account are thinly attested, disputed, or survive only in the version written by the winning side.",
+        "header": {
+          "render": true,
+          "text": "Where this comes from"
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 100,
+    "guidance": "Use one of exactly three shapes, in title case. One: <Subject> Was Never <Familiar Claim> | The Real Story Is Worse. Two: The Real <Subject> Was Not <Familiar Claim>. Three: They <Did This> Then <Erased It>. The familiar claim is the thing the viewer already believes; contradict it flatly rather than asking about it. Name the subject so the title can be searched for. Never a question mark, never an exclamation, never a countdown number, never a living person, and never a promise the episode does not settle."
+  },
+  "tag_plan": {
+    "count": 24,
+    "guidance": "for a dark-history episode that contradicts a familiar story, mixing the subject's name, the familiar version being corrected, the period and region, the strand of dark history it belongs to — original fairy tales, asylums, alchemy, secret societies, ghost ships, debunked legends, famous frauds — and the contrarian framing itself"
+  },
+  "tone": {
+    "constraints": [
+      "Lead with the contradiction: name the familiar version first and refuse it in the next breath, without a question and without addressing the reader.",
+      "Pay the hook: every claim the title makes is settled inside the description and inside the episode, and nothing is held back for a later part.",
+      "No invented quotations, invented letters, or invented scenes; describe only what the record supports and say plainly where it stops.",
+      "Never name a living person, and take no subject within living memory.",
+      "No verdict passed on a subject as hero or monster, no moralising, and no direct address urging the reader to do anything.",
+      "No modern political analogy, and no claim about a present-day state, people, religion, or party.",
+      "State cruelty briefly and plainly; never dwell on injury, torture, or sexual violence, and never reach for gore as an effect.",
+      "Dates, spans, and figures come from the story context and are never invented or rounded upward for effect."
+    ]
+  }
+}
