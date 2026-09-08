@@ -60,6 +60,23 @@ const PREVIEW_CONTRACT = {
 }
 
 async function json(path) { return JSON.parse(await readFile(path, 'utf8')) }
+
+// Production content checks follow the newest authored pack; the original receipt
+// assertions above/below still protect the immutable 1.0.0 source.
+async function currentTopic() {
+  const registry = await json(REGISTRY)
+  const record = registry.records
+    .filter(r => r.pack_id === 'com.storystudio.pack.topic.rulers-and-dynasties' && r.status === 'authored')
+    .sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0]
+  assert.ok(record, 'the current Topic Pack must be registered and authored')
+  const manifest = await json(join(process.cwd(), record.source_path, 'pack.json'))
+  assert.equal(manifest.pack_id, record.pack_id)
+  assert.equal(manifest.version, record.version)
+  assert.equal(manifest.entitlement.sku, record.stocking_proposal.sku.id)
+  assert.equal(manifest.entitlement.family, record.stocking_proposal.family.id)
+  return json(join(process.cwd(), record.source_path, 'content/topic-pack.json'))
+}
+
 async function exists(path) { return stat(path).then(() => true, () => false) }
 
 test('every Royal History pack is an authored, receipt-bound standalone source', async () => {
@@ -201,7 +218,7 @@ test('the thumbnail recipe puts a two-word hook bottom-left and one portrait rig
 })
 
 test('the topic pack sells 1,000 authored assignments at the house standard', async () => {
-  const doc = await json(join(ROOT, 'topic/rulers-and-dynasties/content/topic-pack.json'))
+  const doc = await currentTopic()
   assert.deepEqual(doc.compatible_formula_ids, [FORMULA_ID])
   assert.equal(doc.subjects.length, 50)
   assert.equal(doc.max_siblings_per_subject, 20)

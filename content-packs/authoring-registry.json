@@ -1,5 +1,5 @@
 {
-  "revision": 219,
+  "revision": 223,
   "batches": [
     {
       "revision": 2,
@@ -4926,6 +4926,78 @@
           }
         ]
       }
+    },
+    {
+      "revision": 220,
+      "receipt_ref": "authoring:20355f2535b5d11e46bc9d1838ee237d41633c366162e28278a46dec2e5d6ebe",
+      "request": {
+        "expected_revision": 219,
+        "coordinator": {
+          "task": "royal-history-scope-correction-2026-09-08",
+          "branch": "codex/upload-scheduling-progress"
+        },
+        "proposal_ref": "owner:royal-history-correction-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.rulers-and-dynasties",
+            "item_id": "com.storystudio.topic.rulers-and-dynasties",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/royal-history/topic/rulers-and-dynasties-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.rulers-and-dynasties",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.rulers-and-dynasties",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 221,
+      "receipt_ref": "authoring:8e7d1cd69b78e9d0834c64118ca5c3dd45335f2931a4c75d9b67d03ffe2cc1bd",
+      "request": {
+        "expected_revision": 220,
+        "coordinator": {
+          "task": "legends-scope-correction-2026-09-08",
+          "branch": "codex/upload-scheduling-progress"
+        },
+        "proposal_ref": "owner:consolidate-claude-content-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.legends-across-every-civilisation",
+            "item_id": "com.storystudio.topic.legends-across-every-civilisation",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/timeless-dreams/topic/legends-across-every-civilisation-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.legends-across-every-civilisation",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.legends-across-every-civilisation",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -8034,6 +8106,40 @@
         },
         "receipt_ref": "authoring:47ff8e36f7cc03bba520cb4b9984d5c8693752991a2f108b57c38c6c3a1d698c",
         "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 222,
+      "transition_ref": "lifecycle:8d7c3ceb3d7baadf781e360dad6e8a19527e6a5b2b4001b4a3458c20f57f2106",
+      "request": {
+        "expected_revision": 221,
+        "coordinator": {
+          "task": "topic-scope-correction-2026-09-08",
+          "branch": "codex/upload-scheduling-progress"
+        },
+        "receipt_ref": "authoring:20355f2535b5d11e46bc9d1838ee237d41633c366162e28278a46dec2e5d6ebe",
+        "pack_id": "com.storystudio.pack.topic.rulers-and-dynasties",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 223,
+      "transition_ref": "lifecycle:b5ceafcd3f0ae3041c891521e368d5ff1924ad2e28fa3f18403c01b78a5aac0e",
+      "request": {
+        "expected_revision": 222,
+        "coordinator": {
+          "task": "topic-scope-correction-2026-09-08",
+          "branch": "codex/upload-scheduling-progress"
+        },
+        "receipt_ref": "authoring:8e7d1cd69b78e9d0834c64118ca5c3dd45335f2931a4c75d9b67d03ffe2cc1bd",
+        "pack_id": "com.storystudio.pack.topic.legends-across-every-civilisation",
         "version": "1.0.1",
         "changes": {
           "status": "authored"
@@ -14178,6 +14284,52 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.oil-painting-classical",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:20355f2535b5d11e46bc9d1838ee237d41633c366162e28278a46dec2e5d6ebe",
+      "pack_id": "com.storystudio.pack.topic.rulers-and-dynasties",
+      "item_id": "com.storystudio.topic.rulers-and-dynasties",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/royal-history/topic/rulers-and-dynasties-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.rulers-and-dynasties",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.rulers-and-dynasties",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8e7d1cd69b78e9d0834c64118ca5c3dd45335f2931a4c75d9b67d03ffe2cc1bd",
+      "pack_id": "com.storystudio.pack.topic.legends-across-every-civilisation",
+      "item_id": "com.storystudio.topic.legends-across-every-civilisation",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/timeless-dreams/topic/legends-across-every-civilisation-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.legends-across-every-civilisation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.legends-across-every-civilisation",
           "status": "proposed"
         }
       }
