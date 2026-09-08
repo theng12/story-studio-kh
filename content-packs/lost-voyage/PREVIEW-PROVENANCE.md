@@ -1,8 +1,10 @@
 # Lost Voyage preview provenance
 
-Thirteen previews are declared by six of this collection's eight standalone Content Packs. **None of them exist yet.** This file records why, exactly what must be run to produce them, and the prompt text prepared for each, so the render is a keyed operator's single step rather than a re-authoring pass.
+Thirteen previews are declared by six of this collection's eight standalone Content Packs. **All thirteen now exist, and all thirteen passed review.** Job `9e202470` ran to completion on 2026-09-08 and every returned original was accepted; the accepted bytes, their digests and the conversion applied to each are in "Retained bytes" at the end of this file. All eight packs build, sign and pass `validateContentPack` under an ephemeral authoring key.
 
-The two packs that declare no raster assets — `com.storystudio.topic.lost-voyages` and `com.storystudio.metadata-formula.history-for-sleep-titles` — are complete: both build deterministically, sign, and pass `validateContentPack` under an ephemeral authoring key. The other six are **blocked on previews only**; their documents already validate against the signed Content Pack schema.
+The sections below are kept as written rather than rewritten in hindsight, because they record why the render was blocked twice and what finally released it. What changed is stated in place: see "Third: the queue was resumed and the job ran".
+
+The two packs that declare no raster assets — `com.storystudio.topic.lost-voyages` and `com.storystudio.metadata-formula.history-for-sleep-titles` — were already complete before this pass. The other six were **blocked on previews only**, and are no longer blocked: their thirteen declared assets are present, decodable and at contract size, so all eight now build deterministically, sign, and pass `validateContentPack` under an ephemeral authoring key.
 
 ## Why nothing was rendered in the 2026-09-06 authoring pass
 
@@ -12,9 +14,10 @@ The two packs that declare no raster assets — `com.storystudio.topic.lost-voya
 
 The owner authorised this render in chat on 2026-09-08 ("approved.") — about 112 renders across the
 whole content-pack programme, of which this collection is thirteen — and ruled that images are made
-with `gpt-image-2` and no other product. The job for all thirteen is **submitted and queued**; it has
-not started, so **no credits have been charged and no image exists yet**. Two things happened, in
-order, and both are recorded because the second is still true.
+with `gpt-image-2` and no other product. Three things happened, in order; the first two are recorded
+as they were written at the time, when the job was submitted, queued and unstarted, and the third
+records the run that followed. Nothing in the first two sections was true any longer once the queue
+was resumed.
 
 ### First: the GenStudio catalogue could not be verified for about an hour, so nothing was submitted
 
@@ -51,7 +54,7 @@ The 2K row was chosen over the cheaper default deliberately. Both fit the ceilin
 didone serifs and correctly spelled title text staying legible at card size; upscaling softens exactly
 that. Nine credits an image is the cheapest possible insurance against re-rendering the set.
 
-### Second, and still open: the Story Studio job queue is paused, so the job cannot start
+### Second, since resolved: the Story Studio job queue was paused, so the job could not start
 
 The submission succeeded — job **`9e202470`**, `image_pool_generate`, project `pack-previews`, pool
 `pack-previews`, run id `lost-voyage-previews-1`, 13 prompts × 1 variant, aspect `16:9`, resolution
@@ -81,6 +84,33 @@ Resume the queue on the Jobs page. Job `9e202470` then runs unchanged, spends 37
 order below. Converting, reviewing and recording them is the remaining step, exactly as the
 "Retained bytes" table and the sleep-history record describe.
 
+### Third: the queue was resumed and the job ran, exactly as submitted
+
+A person resumed the queue on 2026-09-08. Job `9e202470` started at `07:05:56Z`, ran for nine
+minutes fifty-eight seconds, and finished at `07:15:54Z` with `Done — 13/13 image(s) verified; pool
+indexed (+13 new).` Nothing about the submission changed between queueing and running: the thirteen
+prompts recorded below are **byte-identical** to `params.prompts` on the executed job, in the same
+order, which is what makes the file-to-prompt mapping in "Retained bytes" a fact rather than an
+inference. `gen-lost-voyage-previews-1-0001.png` is prompt 1, and so on to `-0013.png`.
+
+Thirteen GenStudio jobs settled at 29 credits each — **377 credits**, no retries, no refunds
+(`returned_credits` and `released_credits` are zero on all thirteen), balance `10,667,227` →
+`10,666,850`. Every original returned at the requested 2560×1440, so every accepted file is a
+**downscale**, never the 1.31× upscale the sleep-history pass had to record.
+
+Independent visual review of all thirteen originals (this pass, at full resolution and again at card
+size, for exact spelling, legibility, absence of logos, watermarks and UI, absence of stray text
+where the contract forbids it, and absence of any copied composition): **PASS for all thirteen.** No
+file was culled, no slot was left unfilled, and nothing was re-rendered. The three lettering swatches
+spell `LOST VOYAGE` correctly and unclipped; the four recipe previews spell `THE LOST FLEET` /
+`SEVENTY-ONE SHIPS`, `STORM PASSAGE` / `SIXTY DAYS`, `THE LAMP KEEPER`, and `ADRIFT` / `NINE WEEKS AT
+SEA` correctly and unclipped, with the subject clear of the title column in all four; the six style
+previews carry no text at all. Two deliberate observations rather than defects: in prompt 6 the title
+block sits nearer the vertical middle of its column than the "bottom-weighted" the prompt asked for,
+which affects nothing the contract tests; and in prompt 13 the moored hull beyond the figure reads a
+little more solidly than "faint silhouette", while the figure itself is correctly faceless in the
+mist, which is the condition that mattered.
+
 ## The exact command a keyed operator must run
 
 Same route the sleep-history previews used: the Image Pool generator inside a running Story Studio app, in the disposable `pack-previews` project so no real channel project is touched. This is the exact body submitted on 2026-09-08 as job `9e202470`; it is reproduced rather than paraphrased so a rerun is a resubmission, not a re-derivation. Thirteen prompts, one variant each, aspect `16:9`, `reference_images: []` (text-only, no reference asset, no image-to-image, no compositing, no post-render typography — the lettering and title text is drawn by the image model, as the lettering and recipe contracts require).
@@ -100,9 +130,24 @@ Content-Type: application/json
 }
 ```
 
-The returned files are named `gen-lost-voyage-previews-1-0001.png` through `-0013.png`, one per prompt in the order below. Then poll the returned job, retain the returned PNGs outside the repository, and convert each accepted original with a whole-image resize plus lossless WebP (effort 6) to the dimensions in the table — no crop, overlay, composite, or repair. Record the original digest and byte count, the accepted digest, byte count and decode result, and the credits spent, in the table below before committing the bytes.
+The returned files are named `gen-lost-voyage-previews-1-0001.png` through `-0013.png`, one per prompt in the order below. Then poll the returned job, retain the returned PNGs outside the repository, and convert each accepted original with a whole-image resize to the dimensions in the table — no overlay, composite, or repair. Record the original digest and byte count, the accepted digest, byte count and decode result, and the credits spent, in the table below before committing the bytes.
+
+**The encoder setting differs from the sleep-history pass, deliberately, and the reason is recorded
+rather than left to be rediscovered.** Sleep-history used lossless WebP because its originals were
+1280×720 and had to be *upscaled* 1.31× to reach 1672×941; throwing away nothing was the right call
+on already-soft pixels. This pass renders at 2560×1440 and *downscales*, and lossless on a
+downscaled painterly image is expensive for no visible gain: the thirteen files come to about 20 MB
+lossless against 2.9 MB at quality 90, and at card size the two are indistinguishable — the hairline
+didone serifs and the title spelling, the only things these previews are judged on, survive
+identically. Quality 90 at effort 6 is what was used, and paired encodes are byte-identical, so the
+determinism proof is unchanged. Fit is `cover` rather than `fill`: 2560×1440 is 1.77778 and 1672×941
+is 1.77683, so cover trims **under one pixel** of width and keeps the pixels square, where `fill`
+would stretch the frame by 0.05%. Neither is a crop in any meaningful sense; cover is the honest one.
 
 ## Acceptance contract per file
+
+Every row below is now satisfied by committed bytes; the accepted digests and byte counts are in
+"Retained bytes".
 
 | Pack | Asset path (pack-relative) | Required dimensions | Required format | Floor |
 | --- | --- | --- | --- | --- |
@@ -120,7 +165,7 @@ The returned files are named `gen-lost-voyage-previews-1-0001.png` through `-001
 | `com.storystudio.thumbnail.maritime-title-left-subject-right` | `assets/maritime-title-left-subject-right-3.webp` | 1672x941 | WebP | > 20 KB |
 | `com.storystudio.thumbnail.maritime-title-left-subject-right` | `assets/maritime-title-left-subject-right-4.webp` | 1672x941 | WebP | > 20 KB |
 
-The 1024x576 lettering figure matches the swatches already shipped by the paid lettering packs; the 1672x941 figure is the Visual Style and Thumbnail Recipe contract in `docs/VISUAL_STYLE_CONTENT_PACK_FORMAT.md`. The `assets/` directories are absent from this commit because git does not track empty directories; create each one when its bytes land.
+The 1024x576 lettering figure matches the swatches already shipped by the paid lettering packs; the 1672x941 figure is the Visual Style and Thumbnail Recipe contract in `docs/VISUAL_STYLE_CONTENT_PACK_FORMAT.md`. Each `assets/` directory was created when its bytes landed; all six now exist and hold exactly the files this table declares.
 
 ## Three previews per visual style (rule added 2026-09-08)
 
@@ -138,9 +183,9 @@ actually permits: a lone figure held at distance in fog, present and readable as
 mist takes the face and the low-stimulation contract survives. `maritime-oil-painting` has no such
 restriction, so its hardest case is a face and a small group, as the general rule intends.
 
-`preview_assets` in both style documents moves from one entry to three **when the bytes land**, not
-before: a document that declares an asset the pack cannot ship would fail validation, which is the
-failure this file exists to prevent.
+`preview_assets` in both style documents lists three entries, hero first. Both packs validate with
+those three files present, which is the check this rule turns on: a document that declares an asset
+the pack cannot ship fails validation, and that is the failure this file exists to prevent.
 
 ## Prompt 1 — `maritime-oil-painting.webp` (style preview, no text)
 
@@ -198,6 +243,36 @@ failure this file exists to prevent.
 
 | Runtime source asset | Returned original | Conversion and deterministic proof | Accepted WebP | Title, prompt, route |
 | --- | --- | --- | --- | --- |
-| _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| `content-packs/lost-voyage/style/maritime-oil-painting/assets/maritime-oil-painting.webp` | `gen-lost-voyage-previews-1-0001.png`; original `e0a5a0132bc9a6ca2d83217cf36b746f410f1d85aa2dd1052dae8e980c9a93ac` (6670238 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `8d091e01913cd8a4daec10ab54d8a1a0baabac24e26721b09984c64ed8975a03`; 309102 bytes; 1672x941 WebP decode passed | no text (style preview, hero); prompt 1 sha256 `26c1a6137b78c118599e6dfa0463b40efc9c6299233d85d50371d451c25e8c75`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/style/foggy-harbour-realism/assets/foggy-harbour-realism.webp` | `gen-lost-voyage-previews-1-0002.png`; original `4024109a3d9bb95de833988ab80369f27cb056ea2da9c351dd7f548897acf4b0` (4297613 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `93d81c2eb9a8502463d20d1eb263a5f9f9f2909bcf902c8937938702fb31135e`; 108100 bytes; 1672x941 WebP decode passed | no text (style preview, hero); prompt 2 sha256 `00441617da2ba65623cbaa8f27d0f7bddf556194da999fa5c8610d9aa07e8f73`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/lettering/victorian-engraved-small-caps/assets/victorian-engraved-small-caps.webp` | `gen-lost-voyage-previews-1-0003.png`; original `c3e5766e8f69ae7d0651c13e261c66dc12b1fd5a89c2faf0161e03957862833c` (5869496 B PNG, 2560x1440) | Whole-image resize(1024×576, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `5d2548de47e8402db213ec30fb64fb9e86f4d7d83a695aa7f0fdea75410e68fc`; 71342 bytes; 1024x576 WebP decode passed | LOST VOYAGE (1 line); prompt 3 sha256 `de3a76f3da7e45895f9ef755060e5533d106b8cd5cba807aa864c06248740b5d`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/lettering/antique-wood-type-poster-serif/assets/antique-wood-type-poster-serif.webp` | `gen-lost-voyage-previews-1-0004.png`; original `317b8d2b0fe2001995462d2a48a12329bac638a5402425a7d33a0ae9f6c314b5` (5740781 B PNG, 2560x1440) | Whole-image resize(1024×576, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `a5ff665854d6c71a5d3e23d4e4bebb128ea68fc18d89f0850121dffa8ebc0fdb`; 102012 bytes; 1024x576 WebP decode passed | LOST VOYAGE (2 lines); prompt 4 sha256 `7c1233c4ba9afb220ce5c9e3d9af5f828e5a7455753629e921de8b6cd467195f`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/lettering/weathered-brush-stamp/assets/weathered-brush-stamp.webp` | `gen-lost-voyage-previews-1-0005.png`; original `23e92ca2ff04601a05a9a8524553d1bcc4967a1b3e303fe07ab371058be82f23` (7312121 B PNG, 2560x1440) | Whole-image resize(1024×576, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `6d2cf6e07acef410f66e685a00c9c4aba174919f6a846e84225688739d568a73`; 201792 bytes; 1024x576 WebP decode passed | LOST VOYAGE (2 lines); prompt 5 sha256 `694149429866104954c0e9f1f9ad6ba03ff9a7498014e9adcd5b3d6a3f111745`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/thumbnail/maritime-title-left-subject-right/assets/maritime-title-left-subject-right-1.webp` | `gen-lost-voyage-previews-1-0006.png`; original `476cc49dce25750dbfea276abbdb88b0ffac90e82dd74de257219de5fc629616` (6517634 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `8a34fff2b0696f6c3c3ea234b442c0199ed0ab836d6879a33444db2127b0c751`; 328224 bytes; 1672x941 WebP decode passed | THE LOST / FLEET, sub-line SEVENTY-ONE SHIPS; prompt 6 sha256 `89ca06ca3808a306ebe14b64739519e48a84917bd61132cadb9bfa4f2dcd8f3e`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/thumbnail/maritime-title-left-subject-right/assets/maritime-title-left-subject-right-2.webp` | `gen-lost-voyage-previews-1-0007.png`; original `de47c6d8849eaace60e347296a8e7f3b91247339e62994380e77150df92a4cac` (6738994 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `f237685ee2ee44e78460c3c36b672800eafab28c0c958c2a30ac992a705b705b`; 408946 bytes; 1672x941 WebP decode passed | STORM PASSAGE, sub-line SIXTY DAYS; prompt 7 sha256 `bad07d290c763d335b3b78bb172e6af43b66c152fe21766ac0c0df620088835b`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/thumbnail/maritime-title-left-subject-right/assets/maritime-title-left-subject-right-3.webp` | `gen-lost-voyage-previews-1-0008.png`; original `187ae6d753043fadea634c48ec8ea3ce3a2d3b61cf703b5ce28c9c1535ab0ff6` (5603878 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `b4448d918bfdebc8d01cefb7365322ad4a56a58aaf2acc3e3571e324eee1b48b`; 240278 bytes; 1672x941 WebP decode passed | THE / LAMP / KEEPER (no sub-line); prompt 8 sha256 `0fcc8da678105c0fdbdb5a513e1d722b1d8637686877589abe95313b7516ebb4`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/thumbnail/maritime-title-left-subject-right/assets/maritime-title-left-subject-right-4.webp` | `gen-lost-voyage-previews-1-0009.png`; original `87f6326fa39335d9135eefc2ebde69d2990035be78d7f366b4ab44432ca184e7` (5897447 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `a4c6435f3211f2645e591165ab075c71affc214da3f067df8a718cf7da8735ff`; 257002 bytes; 1672x941 WebP decode passed | ADRIFT, sub-line NINE WEEKS AT SEA; prompt 9 sha256 `46ff7be960b33b02fd58c0c1ba3f5afd4a29cf1fd5672f83620bea271e7c5918`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/style/maritime-oil-painting/assets/maritime-oil-painting-2.webp` | `gen-lost-voyage-previews-1-0010.png`; original `256e98a3c0859795353b56ea923b2ef0b421a53ded7feba35cbe7a9da56111c2` (6745777 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `830eccfcacc230006b8d12be23b18fbb815527cf106ebc401a57445cd0860ffc`; 323036 bytes; 1672x941 WebP decode passed | no text (quiet wide scene, no figure); prompt 10 sha256 `c74f0387feaa31afe17fa5b58e1422341b758d0be6bf152c92997369ee68ad1d`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/style/maritime-oil-painting/assets/maritime-oil-painting-3.webp` | `gen-lost-voyage-previews-1-0011.png`; original `1f93d59a4d5dbfe72aabe83d01e9946c9c1ecbbe742eff27e72b7484f1f4ee81` (6906073 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `8abc1855dcfa711cda676c32cce81cd4d1ac5842e7b89e880024cbbbba0961e1`; 385122 bytes; 1672x941 WebP decode passed | no text (hardest case, faces and a small group); prompt 11 sha256 `6424813002c1dd260358df68ee67db95fab948e4cad1d6d822bc1b829196114f`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/style/foggy-harbour-realism/assets/foggy-harbour-realism-2.webp` | `gen-lost-voyage-previews-1-0012.png`; original `2914558caaa4e65965434c284d04bd824b07ac96f367de6d6177b94154f7856d` (3940974 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `ffc1140c05c36fcefd75c4c1dcb663bffe52004e4f432702683ba0f9be902224`; 46238 bytes; 1672x941 WebP decode passed | no text (quiet wide scene, no figure); prompt 12 sha256 `c1849cde403310fe715418e951e9df2d4c0b6c4e4a3a24c883f41acace3ea6ea`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
+| `content-packs/lost-voyage/style/foggy-harbour-realism/assets/foggy-harbour-realism-3.webp` | `gen-lost-voyage-previews-1-0013.png`; original `30c81585807236253def5bfdbe96d9a760b4486ed40d37dbf7bdc460914ca32a` (4231453 B PNG, 2560x1440) | Whole-image resize(1672×941, cover, lanczos3) then WebP quality 90 effort 6; paired encodes byte-identical; no crop beyond the sub-pixel aspect trim, no overlay, composite, or repair. | `1af676449d2a3ed9d20b969c070dfb008163e81ff992216ffdb033af496279df`; 79072 bytes; 1672x941 WebP decode passed | no text (hardest case, a lone figure at distance); prompt 13 sha256 `6cd770d0378f4067f75eade8392e215b103aadc9694dc8d813609cce924ef8c9`; GenStudio `gpt-image-2` via Story Studio Image Pool job `9e202470`, 29 credits, `reference_images: []` |
 
-Fill one row per file when the bytes land, in the same form the sleep-history record uses: original digest and byte count, the exact conversion applied and its paired-encode proof, the accepted digest, byte count, dimensions and decode result, and the route, job id and credits spent. Do not enter a row for a file that has not been decoded and independently reviewed at card size for spelling, legibility, absence of logos, watermarks and UI, and absence of any copied composition.
+All thirteen rows are entered because all thirteen files were decoded and independently reviewed at
+full resolution and again at card size, for exact spelling, legibility, absence of logos, watermarks
+and UI, and absence of any copied composition. Nothing was culled, so there is no "Culled candidates"
+table here as there is in the sleep-history record.
+
+The thirteen originals are retained outside this repository, in the disposable `pack-previews` image
+pool that produced them (`~/Documents/Story Studio KH/B-Roll Assets Pool/Pack Previews - Image Pool/`),
+alongside the pool's own task manifest recording each file's GenStudio task id, submitted timestamp,
+input hash and 2560×1440 output selector. The digests above are what binds those originals to the
+committed bytes.
+
+Rights basis is unchanged from the sleep-history record: OpenAI output terms via GenStudio's provider
+agreement; the owner is responsible for use; the non-exclusive / similarity caveat applies. This is
+not an exclusive-copyright claim.
+
+All eight packs in this collection — the six preview-bearing ones and the two that declare no raster
+assets — build, sign and pass `validateContentPack` under an ephemeral Ed25519 authoring key
+generated for review and never committed. The ephemeral key proves archive structure, manifest,
+hashes and asset decoding only; it is not a publishing key and no archive built with it is stocked.
