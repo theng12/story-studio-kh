@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.scratchy-editorial-poster",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Scratchy Editorial Poster visual style: scratchy pen and marker hatching over rough brush blocks, two colours on stark white paper, huge distressed poster capitals used as texture behind the subject.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.scratchy-editorial-poster",
+    "family": "com.storystudio.family.style.scratchy-editorial-poster"
+  },
+  "dependencies": []
+}

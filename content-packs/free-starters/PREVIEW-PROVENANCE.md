@@ -1,0 +1,32 @@
+# Free Starters preview provenance
+
+The hero preview bytes and their approved provenance live in `ASSET-PROVENANCE.md`, which is the machine-readable ledger the free-starter inventory test reads. This file records the previews rendered after it.
+
+## Style preview backfill — 2026-09-08
+
+The owner's rule of 2026-09-08 is three previews per Visual Style — the hero, a quiet wide scene with no figure in it, and the hardest case the style can legally be asked for. 9 of this collection's Visual Styles shipped with one preview each, so 18 new previews were rendered and each of those packs moved to a new `<slug>-v<version>` sibling directory, leaving the directory it shipped from in place. The existing hero bytes were copied into the new directory unchanged.
+
+The full render record — run ids, job ids, prompt digests, the conversion applied and the review of every image — is in `content-packs/PREVIEW-BACKFILL-2026-09-08.md`. The rows below are this collection's accepted bytes.
+
+| Style item | New pack version | Accepted asset | SHA-256 | Bytes | Dimensions | Decode |
+| --- | --- | --- | --- | ---: | --- | --- |
+| `com.storystudio.style.cinematic-photoreal` | 1.0.1 | `content-packs/free-starters/style/cinematic-photoreal-v1.0.1/assets/cinematic-photoreal-scene.webp` | `573f03a0b6093b8ae3f38b8d1d2987fc09fc801d789c99c1920384a4c5619e71` | 105376 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.cinematic-photoreal` | 1.0.1 | `content-packs/free-starters/style/cinematic-photoreal-v1.0.1/assets/cinematic-photoreal-face.webp` | `b3be56507b27e355acef4e2c8ae2178e97b98cb39369020f2f8e1c4ffb300169` | 82630 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.flat-vector-explainer` | 1.0.1 | `content-packs/free-starters/style/flat-vector-explainer-v1.0.1/assets/flat-vector-explainer-scene.webp` | `4f8c4fc7631e52f09d113d8cd93eaf985ed7c7a224e7c53b0ea88c3b184220cd` | 26148 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.flat-vector-explainer` | 1.0.1 | `content-packs/free-starters/style/flat-vector-explainer-v1.0.1/assets/flat-vector-explainer-face.webp` | `dec958ce524f8a51e121fdd896f628bd8ac261bfbc5b676660203c3dcda1572e` | 51832 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.hand-drawn-editorial-diagram` | 1.0.1 | `content-packs/free-starters/style/hand-drawn-editorial-diagram-v1.0.1/assets/hand-drawn-editorial-diagram-scene.webp` | `5d47c7cbbdc62caa800b5cfc01f37d9df6f92fa86dda250f2f1f63978dc8918b` | 372052 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.hand-drawn-editorial-diagram` | 1.0.1 | `content-packs/free-starters/style/hand-drawn-editorial-diagram-v1.0.1/assets/hand-drawn-editorial-diagram-face.webp` | `b8bad7be86d2313147ec2d2a7c25c95fc70c1f9b6fa7a959b362856c1badf68b` | 478190 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.minimal-stick-figure-explainer` | 1.0.2 | `content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.2/assets/minimal-stick-figure-explainer-scene.webp` | `7527a5a129ce6710cc36048d105419b87659da18488cdbb5f947a0047cb3d2bb` | 47600 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.minimal-stick-figure-explainer` | 1.0.2 | `content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.2/assets/minimal-stick-figure-explainer-face.webp` | `533f9a5aa7b855f5a0dfbe9e5fce5273bdb072b7f7f1d30ad61199f336a1142b` | 59834 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.paleo-documentary-tableau` | 1.0.1 | `content-packs/free-starters/style/paleo-documentary-tableau-v1.0.1/assets/paleo-documentary-tableau-scene.webp` | `0da4064136d17fd74cbc2dda7ec24cb46411a89d2b8f94130e17ec94d0d2fbf7` | 213240 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.paleo-documentary-tableau` | 1.0.1 | `content-packs/free-starters/style/paleo-documentary-tableau-v1.0.1/assets/paleo-documentary-tableau-face.webp` | `8e450799d01997aaed06ec369b3232df08c1b3ec2e3d0e96e68fde58d74521b5` | 318124 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.prehistoric-stick-cartoon` | 1.0.2 | `content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.2/assets/prehistoric-stick-cartoon-scene.webp` | `681b529726e4d4d56f2783137f2728d967dc46927787b4f5c5a6f01eb60ea03d` | 113294 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.prehistoric-stick-cartoon` | 1.0.2 | `content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.2/assets/prehistoric-stick-cartoon-face.webp` | `f08536b70cdfe84035dd174aab7a42665d5d1342d5734ee5a76f69492e38cb38` | 161406 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.sepia-ink-wash` | 1.0.1 | `content-packs/free-starters/style/sepia-ink-wash-v1.0.1/assets/sepia-ink-wash-scene.webp` | `855e0b1d7f6d50fe8bb3c7a178f70e042cf69df10efd29d4499b82b63bede932` | 407738 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.sepia-ink-wash` | 1.0.1 | `content-packs/free-starters/style/sepia-ink-wash-v1.0.1/assets/sepia-ink-wash-face.webp` | `8390b1c80ead84f374aa6a3dea2ab47fdc6f849d3afcef4c0833d37267415bc1` | 285560 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.watercolor-storybook` | 1.0.1 | `content-packs/free-starters/style/watercolor-storybook-v1.0.1/assets/watercolor-storybook-scene.webp` | `1f90a16bdda21345bacd43ea4021955a9ad3693058684dd9b9bebf166a18999b` | 247782 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.watercolor-storybook` | 1.0.1 | `content-packs/free-starters/style/watercolor-storybook-v1.0.1/assets/watercolor-storybook-face.webp` | `33eabcc2da1b18b2ac06b67be8604db8aff5bdaa80f6605bc375b6d56a1085b3` | 408184 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.waxy-outline-cartoon` | 1.0.1 | `content-packs/free-starters/style/waxy-outline-cartoon-v1.0.1/assets/waxy-outline-cartoon-scene.webp` | `f5542c73050e8fa7bfadf52f47d323f16c9507fce4d8c2dd4000ebff957c0584` | 390322 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.waxy-outline-cartoon` | 1.0.1 | `content-packs/free-starters/style/waxy-outline-cartoon-v1.0.1/assets/waxy-outline-cartoon-face.webp` | `7b58a568df0b0e6da7f6ef433ff6b3c5d6d0960a00eb02223160e74d90958012` | 246640 | 1672x941 | WebP decode passed |
+
+Each of these was rendered by GenStudio `gpt-image-2` through the Story Studio Image Pool in the `pack-previews` project, one variant, `16:9`, `2K`, `reference_images: []`, 29 credits each — 522 credits for this collection. Every file decodes as a 1672×941 WebP above the 20,480-byte floor and carries no text of any kind.

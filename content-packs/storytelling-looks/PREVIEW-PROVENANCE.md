@@ -40,3 +40,16 @@ Output intent: polished final production preview with no text and clean full-ble
 - No copied reference composition or excluded reference subject arrangement: passed
 - No text, caption, calligraphy, seal/chop, signature, logo, watermark, border, player/device UI, letterbox, or pillarbox: passed
 - No malformed or unsafe subject matter: passed
+
+## Style preview backfill — 2026-09-08
+
+The owner's rule of 2026-09-08 is three previews per Visual Style — the hero, a quiet wide scene with no figure in it, and the hardest case the style can legally be asked for. This collection's Visual Style shipped with one preview, so 2 new previews were rendered and the pack moved to a new `<slug>-v<version>` sibling directory, leaving the directory it shipped from in place. The existing hero bytes were copied into the new directory unchanged.
+
+The full render record — run ids, job ids, prompt digests, the conversion applied and the review of every image — is in `content-packs/PREVIEW-BACKFILL-2026-09-08.md`. The rows below are this collection's accepted bytes.
+
+| Style item | New pack version | Accepted asset | SHA-256 | Bytes | Dimensions | Decode |
+| --- | --- | --- | --- | ---: | --- | --- |
+| `com.storystudio.style.chinese-ink-wash-storytelling` | 1.0.1 | `content-packs/storytelling-looks/style/chinese-ink-wash-storytelling-v1.0.1/assets/chinese-ink-wash-storytelling-scene.webp` | `f911663ef70f173c3209d8f8314f3d123dd1cab97c37114d586c97f658ba57b1` | 197946 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.chinese-ink-wash-storytelling` | 1.0.1 | `content-packs/storytelling-looks/style/chinese-ink-wash-storytelling-v1.0.1/assets/chinese-ink-wash-storytelling-face.webp` | `05858bb33216e451452689d18575003fb2b380efc7457e4a89666d5827c7bca0` | 138234 | 1672x941 | WebP decode passed |
+
+Each of these was rendered by GenStudio `gpt-image-2` through the Story Studio Image Pool in the `pack-previews` project, one variant, `16:9`, `2K`, `reference_images: []`, 29 credits each — 58 credits for this collection. Every file decodes as a 1672×941 WebP above the 20,480-byte floor and carries no text of any kind.
