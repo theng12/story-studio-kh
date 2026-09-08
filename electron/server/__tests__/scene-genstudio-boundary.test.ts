@@ -85,7 +85,10 @@ test('ordinary bulk repairs stay bounded while explicit paid auto-repair opts in
   // the splitter — not a fan-out around it — so what is asserted here is that
   // the splitter remains the only door.
   assert.match(plan, /const targetPacks = explicitPaidRepair[\s\S]*\? \[targets\][\s\S]*: packScenePromptItems\(targets, effectivePackSize\)/)
-  assert.match(plan, /scenePromptRepairPackSize\(targets\.length, promptPackSize\)/)
+  // A Pipeline policy checkpoints the selected pack size so a retry retains
+  // the accepted request shape. The repair splitter still receives that
+  // bounded size rather than fanning out to the legacy per-scene helpers.
+  assert.match(plan, /scenePromptRepairPackSize\(targets\.length, stablePackSize\)/)
   assert.match(plan, /explicitPaidRepair \? 1 : scenePromptRepairPackSize\(outstanding\.length, outstanding\.length\)/)
   assert.match(plan, /appendGroupLabel: explicitPaidRepair/)
   assert.match(plan, /scenePromptRequestLabel\(input\.requestLabel, group, input\.appendGroupLabel !== false\)/)

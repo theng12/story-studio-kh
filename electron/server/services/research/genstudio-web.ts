@@ -31,7 +31,9 @@
  */
 
 import { getApiKey } from '../app-secrets-store.js'
-import { callChatWithGenStudio, listChatModels } from '../../lib/genstudio-client.js'
+import { callChatWithGenStudio, GenStudioChatCapabilityUnavailableError, GenStudioChatProductUnavailableError, listChatModels, type GenStudioChatModel } from '../../lib/genstudio-client.js'
+import { executePipelineModelPolicy } from '../../lib/ai-client.js'
+import { pipelinePolicyInputFingerprint } from '../../lib/pipeline-model-policy.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../../lib/json-output-contract.js'
 import type { ResearchAdapter } from './types.js'
 import type { ResearchOutput, ResearchRunOptions, ResearchWebRunReport } from '../../models/types.js'
@@ -39,6 +41,7 @@ import { buildResearchPrompt, assembleOutput } from './prompt.js'
 import {
   WEB_MODE_UNAVAILABLE_REASON,
   buildWebSearchBlock,
+  failedWebResearchConditions,
   isWebResearchQualified,
   selectWebResearchModels,
   toResearchCitations,
@@ -63,15 +66,19 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
       throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before running research.')
     }
 
-    const qualified = selectWebResearchModels(await listChatModels(apiKey))
-    if (!qualified.length) throw new Error(WEB_MODE_UNAVAILABLE_REASON)
+    const policy = opts.pipeline_model_policy
+    // Policy candidates are checked only before a fresh POST. A saved key is
+    // a read of already-submitted work, so it must not depend on today's
+    // catalogue being reachable or still publishing the historical product.
+    const qualified = policy ? [] : selectWebResearchModels(await listChatModels(apiKey))
+    if (!qualified.length && !policy) throw new Error(WEB_MODE_UNAVAILABLE_REASON)
 
     // An explicitly requested model is honoured only if it still qualifies.
     // Healing to a different product would change what the user is charged
     // for without telling them, so an unqualified request is refused by name.
     const requested = opts.model?.trim() || ''
     let product = qualified[0]!
-    if (requested) {
+    if (requested && !policy) {
       const match = qualified.find(model => model.id === requested)
       if (!match) {
         throw new Error(
@@ -81,27 +88,93 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
       }
       product = match
     }
-    // Defensive: the list above is already filtered, but the qualification rule
-    // is the one thing that must never be bypassed by a future refactor.
-    if (!isWebResearchQualified(product)) throw new Error(WEB_MODE_UNAVAILABLE_REASON)
+    // For an explicit policy, candidates are validated inside the bounded
+    // executor so an unavailable primary can advance to the next authorized
+    // product. The non-policy path keeps its existing qualified default.
+    if (!policy && !isWebResearchQualified(product)) throw new Error(WEB_MODE_UNAVAILABLE_REASON)
 
-    const webSearch = buildWebSearchBlock(product, opts.web_search, opts.max_sources ?? null)
-    // Ask for per-claim sources only when the request also asks GenStudio to
-    // ground them. Both come off the one block, so they cannot drift into
-    // asking the model for URLs that nothing will check.
-    const { system, user } = buildResearchPrompt(opts, 'web', webSearch.claim_attribution === true)
-
-    const result = await callChatWithGenStudio(apiKey, {
-      modelId: product.id,
-      system,
-      userMessage: user,
-      outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
-      // Same long-form shape as model-knowledge research, and the same
-      // truncation risk — web mode also has to fit its sources in.
-      outputBudget: 'long',
-      webSearch,
-      requestIdentity: opts.request_identity,
-    }).catch((err: unknown) => {
+    let actualProduct: GenStudioChatModel | null = policy ? null : product
+    let finalWebSearch = actualProduct
+      ? buildWebSearchBlock(actualProduct, opts.web_search, opts.max_sources ?? null)
+      : null
+    const runProduct = async (
+      candidateId: string,
+      recovery?: { idempotencyKey: string },
+      checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
+      checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
+    ) => {
+      if (recovery) {
+        // Recovery is a GET by a server-owned key. Keep the run's persisted
+        // options for its result record, but do not build a new request from
+        // a changed product catalogue.
+        const webSearch = {
+          enabled: true as const,
+          allowed_domains: [...(opts.web_search?.allowed_domains || [])],
+          blocked_domains: [...(opts.web_search?.blocked_domains || [])],
+        }
+        finalWebSearch = webSearch
+        const { system, user } = buildResearchPrompt(opts, 'web', false)
+        return callChatWithGenStudio(apiKey, {
+          modelId: candidateId,
+          system,
+          userMessage: user,
+          outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
+          outputBudget: 'long',
+          webSearch,
+          requestIdentity: opts.request_identity,
+          ...(checkpointAccepted ? { onJobAccepted: (_jobId: string, idempotencyKey: string) => checkpointAccepted(idempotencyKey) } : {}),
+          ...(checkpointPrepared ? { onRequestPrepared: checkpointPrepared } : {}),
+          recoverByIdempotencyKey: true,
+          idempotencyKey: recovery.idempotencyKey,
+          allowedRecoveryKeys: [recovery.idempotencyKey],
+        })
+      }
+      // The preflight catalogue is only a selection snapshot. Re-read the
+      // exact product immediately before each fresh submission so a capability
+      // withdrawal (or account lock) cannot turn a web request into a plain
+      // chat request after the policy was accepted.
+      const liveCandidate = (await listChatModels(apiKey)).find(item => item.id === candidateId)
+      if (!liveCandidate || !liveCandidate.available || liveCandidate.locked === true || liveCandidate.qualification_only) {
+        throw new GenStudioChatProductUnavailableError(candidateId)
+      }
+      if (!isWebResearchQualified(liveCandidate)) {
+        const failed = failedWebResearchConditions(liveCandidate)
+        throw new GenStudioChatCapabilityUnavailableError(
+          candidateId,
+          `web research capability check failed (${failed.join(', ') || 'unknown capability mismatch'})`,
+        )
+      }
+      const candidate = liveCandidate
+      actualProduct = candidate
+      const webSearch = buildWebSearchBlock(candidate, opts.web_search, opts.max_sources ?? null)
+      finalWebSearch = webSearch
+      // Ask for per-claim sources only when the request also asks GenStudio to
+      // ground them. Both come off the one block, so they cannot drift into
+      // asking the model for URLs that nothing will check.
+      const { system, user } = buildResearchPrompt(opts, 'web', webSearch.claim_attribution === true)
+      return callChatWithGenStudio(apiKey, {
+        modelId: candidate.id,
+        system,
+        userMessage: user,
+        outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
+        // Same long-form shape as model-knowledge research, and the same
+        // truncation risk — web mode also has to fit its sources in.
+        outputBudget: 'long',
+        webSearch,
+        requestIdentity: opts.request_identity,
+        ...(checkpointAccepted ? { onJobAccepted: (_jobId: string, idempotencyKey: string) => checkpointAccepted(idempotencyKey) } : {}),
+        ...(checkpointPrepared ? { onRequestPrepared: checkpointPrepared } : {}),
+      })
+    }
+    const result = await (policy
+      ? executePipelineModelPolicy(
+          policy,
+          runProduct,
+          opts.pipeline_policy_checkpoint,
+          opts.pipeline_policy_checkpoint_key || opts.request_identity || 'research',
+          pipelinePolicyInputFingerprint({ topic: opts.topic, specific_questions: opts.specific_questions, max_sources: opts.max_sources, web_search: opts.web_search }),
+        )
+      : runProduct(product!.id)).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       throw new Error(`GenStudio web research failed: ${message}`)
     })
@@ -134,21 +207,21 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
       ...(result.webSearch.citationClaims.length
         ? { citation_claims: result.webSearch.citationClaims }
         : {}),
-      ...(product.web_search_credits_per_search !== null
-        ? { credits_per_search: product.web_search_credits_per_search }
+      ...(actualProduct?.web_search_credits_per_search !== null && actualProduct?.web_search_credits_per_search !== undefined
+        ? { credits_per_search: actualProduct.web_search_credits_per_search }
         : {}),
-      ...(product.web_research_credits_per_request !== null
-        ? { credits_per_request: product.web_research_credits_per_request }
+      ...(actualProduct?.web_research_credits_per_request !== null && actualProduct?.web_research_credits_per_request !== undefined
+        ? { credits_per_request: actualProduct.web_research_credits_per_request }
         : {}),
-      ...(webSearch.allowed_domains.length ? { allowed_domains: webSearch.allowed_domains } : {}),
-      ...(webSearch.blocked_domains.length ? { blocked_domains: webSearch.blocked_domains } : {}),
+      ...(finalWebSearch?.allowed_domains.length ? { allowed_domains: finalWebSearch.allowed_domains } : {}),
+      ...(finalWebSearch?.blocked_domains.length ? { blocked_domains: finalWebSearch.blocked_domains } : {}),
     }
 
     return assembleOutput(result.text, toResearchCitations(result.citations), {
       topic: opts.topic,
       specific_questions: opts.specific_questions,
       provider: GENSTUDIO_WEB_RESEARCH_PROVIDER,
-      model: product.id,
+      model: actualProduct?.id || product?.id || policy?.assigned_model || '',
       mode: 'web-search',
       web_run: webRun,
     })

@@ -232,6 +232,98 @@ describe('web mode when nothing in the catalogue qualifies', () => {
   })
 })
 
+describe('Pipeline web research recovery', () => {
+  it('reads the saved GenStudio key without a current catalogue lookup or replacement POST', async () => {
+    const { setGenStudioUrl } = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+    const { pipelinePolicyInputFingerprint } = await import('../lib/pipeline-model-policy.js')
+    const { genStudioWebResearch } = await import('../services/research/genstudio-web.js')
+    const originalFetch = globalThis.fetch
+    const seen: Array<{ method: string; path: string }> = []
+    const options = {
+      topic: 'A recovered web-research run',
+      max_sources: 3,
+      web_search: { allowed_domains: ['archives.example'], blocked_domains: ['spam.example'] },
+    }
+    const fingerprint = pipelinePolicyInputFingerprint({
+      topic: options.topic,
+      specific_questions: undefined,
+      max_sources: options.max_sources,
+      web_search: options.web_search,
+    })
+    const checkpoint = {
+      read: () => ({
+        input_fingerprint: fingerprint,
+        candidates: ['historical-web-product', 'backup-web-product'],
+        candidate_index: 0,
+        candidate_model: 'historical-web-product',
+        status: 'accepted' as const,
+        idempotency_key: 'saved-web-key',
+        updated_at: '2026-09-09T00:00:00.000Z',
+      }),
+      write: async () => {},
+    }
+    try {
+      await setGenStudioUrl('http://127.0.0.1:9876')
+      await setApiKey('genstudio', 'web-recovery-test-key')
+      clearGenStudioCatalogCache()
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input))
+        const method = (init?.method || 'GET').toUpperCase()
+        seen.push({ method, path: url.pathname })
+        assert.notEqual(url.pathname, '/v1/chat/models', 'a durable recovery must not need today\'s catalogue')
+        assert.notEqual(method, 'POST', 'a durable recovery must not submit a replacement')
+        if (url.pathname === '/v1/account/overview') {
+          return Response.json({
+            paid_concurrency_limit: 5,
+            paid_active_jobs: 0,
+            paid_queued_jobs: 0,
+            max_queued_jobs: 25,
+            generation_submissions_per_minute: 30,
+          })
+        }
+        assert.equal(url.pathname, '/v1/chat/responses/by-idempotency-key/saved-web-key')
+        return Response.json({
+          id: 'web-recovery-job',
+          operation: 'chat.response',
+          state: 'succeeded',
+          model_id: 'historical-web-product',
+          output_text: JSON.stringify({ summary: 'Recovered source-backed research.', claims: [], citations: [] }),
+          output_retained: true,
+          finish_reason: 'stop',
+          failure_code: null,
+          routing_status_code: null,
+          credit_cost: 0,
+          remaining_credits: 900,
+          idempotent_replay: true,
+          citations: [{ id: 'source-1', url: 'https://example.com/source', title: 'Recovered source' }],
+        })
+      }
+      const output = await genStudioWebResearch.run({
+        ...options,
+        request_identity: 'web-recovery-request',
+        pipeline_model_policy: {
+          mode: 'backup',
+          models: ['historical-web-product', 'backup-web-product'],
+          assigned_model: 'historical-web-product',
+        },
+        pipeline_policy_checkpoint: checkpoint,
+        pipeline_policy_checkpoint_key: 'web-recovery-request',
+      })
+      assert.equal(output.source_model, 'historical-web-product')
+      assert.deepEqual(output.citations.map(citation => citation.url), ['https://example.com/source'])
+      assert.deepEqual(output.web_run?.allowed_domains, ['archives.example'])
+      assert.ok(seen.some(request => request.path === '/v1/chat/responses/by-idempotency-key/saved-web-key'))
+      assert.equal(seen.some(request => request.path === '/v1/chat/models'), false)
+      assert.equal(seen.some(request => request.method === 'POST'), false)
+    } finally {
+      globalThis.fetch = originalFetch
+      clearGenStudioCatalogCache()
+    }
+  })
+})
+
 describe('web_search request block', () => {
   it('omits max_searches when the model publishes max_web_searches: null', () => {
     const block = buildWebSearchBlock(qualifiedModel({ max_web_searches: null }), undefined, 8)

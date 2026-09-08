@@ -39,6 +39,9 @@ import { getConfig } from '../services/project-manager.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { canonicalHttpUrl, canonicalHttpUrls, sanitizeResearchOutputUrls } from '../services/research/urls.js'
 import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
+import { pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
+import { pipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
+import * as jq from '../services/job-queue.js'
 
 // Re-exported for back-compat with importers that referenced these here.
 export { RESEARCH_JSON_FILENAME, RESEARCH_MD_FILENAME } from '../lib/research-paths.js'
@@ -101,6 +104,9 @@ export async function runResearchJob(job: Job): Promise<void> {
     model: params.model,
     mode,
     request_identity: freshGenerationRequestIdentity(job, 'research'),
+    pipeline_model_policy: pipelinePolicyForJob(job.params, 'research') || undefined,
+    pipeline_policy_checkpoint: pipelinePolicyCheckpointStore(job.params, () => jq.checkpointJobState(job)),
+    pipeline_policy_checkpoint_key: `${job.project_slug}:${params.episode_id}:research`,
     ...(mode === 'web-search'
       ? {
           web_search: {

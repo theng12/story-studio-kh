@@ -91,7 +91,7 @@
                are different facts. The Introduction is locked either way, so
                the greyed-out styling is applied only when it will NOT run;
                otherwise the tile would say the wrong one of the two. -->
-          <label
+          <article
             v-if="entry.kind === 'step'"
             class="step-tile"
             :class="{
@@ -99,10 +99,17 @@
               missing: stepChecked[entry.id] && !presetNameFor(entry.id) && !noPresetStep(entry.id),
               costly: entry.costly,
               disabled: stepDisabled(entry.id) && !stepChecked[entry.id],
+              'policy-expanded': modelPolicyExpanded[entry.id],
             }"
             :title="stepDisabledReason(entry.id)"
           >
-            <input type="checkbox" v-model="stepChecked[entry.id]" :disabled="stepDisabled(entry.id)" />
+            <input
+              type="checkbox"
+              class="step-toggle"
+              v-model="stepChecked[entry.id]"
+              :disabled="stepDisabled(entry.id)"
+              :aria-label="`Run ${entry.label}`"
+            />
             <div class="step-body">
               <div class="step-head">
                 <span class="step-icon" aria-hidden="true">{{ entry.icon }}</span>
@@ -141,10 +148,72 @@
                   title="Open the page that owns these settings."
                 >Tune →</NuxtLink>
               </div>
+              <div v-if="modelPolicyFor(entry.id)" class="step-model-policy" @click.stop>
+                <details @toggle="setModelPolicyExpanded(entry.id, ($event.target as HTMLDetailsElement).open)">
+                  <summary>
+                    Models for this run
+                    <span class="step-model-policy-summary">{{ modelPolicySummary(entry.id) }}</span>
+                  </summary>
+                  <div class="step-model-policy-body">
+                    <label class="step-model-policy-toggle">
+                      <input
+                        type="checkbox"
+                        :checked="modelPolicyFor(entry.id)!.enabled"
+                        @change="setModelPolicyEnabled(entry.id, ($event.target as HTMLInputElement).checked)"
+                      />
+                      Choose exact model{{ modelPolicyFor(entry.id)!.mode === 'single' ? '' : 's' }} for this run
+                    </label>
+                    <template v-if="modelPolicyFor(entry.id)!.enabled">
+                      <fieldset class="step-model-policy-fields">
+                        <legend>Run policy</legend>
+                        <label v-for="mode in modelPolicyModes" :key="mode.value" class="step-model-policy-mode">
+                          <input
+                            type="radio"
+                            :name="`model-policy-${entry.id}`"
+                            :checked="modelPolicyFor(entry.id)!.mode === mode.value"
+                            @change="setModelPolicyMode(entry.id, mode.value)"
+                          />
+                          <span><strong>{{ mode.label }}</strong> — {{ mode.detail }}</span>
+                        </label>
+                      </fieldset>
+                      <div class="step-model-policy-candidates">
+                        <div
+                          v-for="(_, index) in modelPolicyFor(entry.id)!.models"
+                          :key="`${entry.id}-${index}`"
+                          class="step-model-policy-candidate"
+                        >
+                          <ModelSelector
+                            :model-value="modelPolicyFor(entry.id)!.models[index] || ''"
+                            :project-slug="slug"
+                            :label="modelCandidateLabel(entry.id, index)"
+                            @update:model-value="setModelPolicyModel(entry.id, index, $event)"
+                            @model-meta="setModelPolicyModelMeta(entry.id, index, $event)"
+                          />
+                          <p v-if="modelPolicyLimits(entry.id, index)" class="step-model-policy-limits">
+                            {{ modelPolicyLimits(entry.id, index) }}
+                          </p>
+                          <div v-if="modelPolicyFor(entry.id)!.mode !== 'single'" class="step-model-policy-candidate-actions">
+                            <button type="button" class="btn btn-xs btn-ghost" :disabled="index === 0" @click="moveModelPolicyCandidate(entry.id, index, -1)">Earlier</button>
+                            <button type="button" class="btn btn-xs btn-ghost" :disabled="index === modelPolicyFor(entry.id)!.models.length - 1" @click="moveModelPolicyCandidate(entry.id, index, 1)">Later</button>
+                            <button type="button" class="btn btn-xs btn-ghost" @click="removeModelPolicyCandidate(entry.id, index)">Remove</button>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        v-if="modelPolicyFor(entry.id)!.mode !== 'single'"
+                        type="button"
+                        class="btn btn-xs btn-secondary"
+                        @click="addModelPolicyCandidate(entry.id)"
+                      >Add {{ modelPolicyFor(entry.id)!.mode === 'backup' ? 'backup' : 'model' }}</button>
+                      <p v-if="modelPolicyError(entry.id)" class="step-model-policy-error" role="status">{{ modelPolicyError(entry.id) }}</p>
+                    </template>
+                  </div>
+                </details>
+              </div>
               <div v-if="stepDisabled(entry.id)" class="step-warning">{{ stepDisabledReason(entry.id) }}</div>
               <div v-else-if="entry.warning" class="step-warning">⚠ {{ entry.warning }}</div>
             </div>
-          </label>
+          </article>
           <!-- External node → read-only "Open page →" card. Not enqueued by
                Run Batch; documents the real chain order + where to run it. -->
           <div
@@ -598,6 +667,11 @@
         concurrently when the queue has capacity. If a step fails for an
         episode, that episode's chain stops; other episodes continue.
       </p>
+      <p v-if="modelPolicyRunSummary.length" class="text-muted text-sm mt-2">
+        <template v-for="(line, index) in modelPolicyRunSummary" :key="line">
+          <span v-if="index"> </span>{{ line }}
+        </template>
+      </p>
 
       <!-- Force re-run toggle: skip-when-done is the default so routine
            runs over partially-complete episodes don't burn tokens on
@@ -893,6 +967,180 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   video_assembly: false,
 })
 
+type EligibleModelPolicyStep = Extract<StepId,
+  'script-only' | 'introduction-only' | 'research' | 'metadata' | 'image_prompts' | 'scene_plan' | 'contextual_cues'>
+type ModelPolicyMode = 'single' | 'distribute' | 'backup'
+interface ModelPolicyDraft {
+  enabled: boolean
+  mode: ModelPolicyMode
+  models: string[]
+}
+interface ModelPolicyModelMeta {
+  id: string
+  context_window_tokens?: number
+  context_limit_tokens?: number
+  max_output_tokens?: number
+}
+
+const MODEL_POLICY_STEPS = new Set<EligibleModelPolicyStep>([
+  'script-only', 'introduction-only', 'research', 'metadata', 'image_prompts', 'scene_plan', 'contextual_cues',
+])
+const modelPolicyModes: Array<{ value: ModelPolicyMode; label: string; detail: string }> = [
+  { value: 'single', label: 'Single', detail: 'Use this exact product for every episode.' },
+  { value: 'distribute', label: 'Distribute', detail: 'Use the chosen products across independent episodes.' },
+  { value: 'backup', label: 'Primary + backups', detail: 'Try backups only after a proven terminal, unaccepted failure.' },
+]
+const modelPolicies = reactive<Record<EligibleModelPolicyStep, ModelPolicyDraft>>({
+  research: { enabled: false, mode: 'single', models: [''] },
+  'script-only': { enabled: false, mode: 'single', models: [''] },
+  'introduction-only': { enabled: false, mode: 'single', models: [''] },
+  image_prompts: { enabled: false, mode: 'single', models: [''] },
+  metadata: { enabled: false, mode: 'single', models: [''] },
+  scene_plan: { enabled: false, mode: 'single', models: [''] },
+  contextual_cues: { enabled: false, mode: 'single', models: [''] },
+})
+const modelPolicyModelMeta = reactive<Record<EligibleModelPolicyStep, Array<ModelPolicyModelMeta | null>>>({
+  research: [null],
+  'script-only': [null],
+  'introduction-only': [null],
+  image_prompts: [null],
+  metadata: [null],
+  scene_plan: [null],
+  contextual_cues: [null],
+})
+const modelPolicyExpanded = reactive<Record<StepId, boolean>>({
+  research: false, broll: false, 'script-only': false, 'introduction-only': false,
+  image_prompts: false, thumb_images: false, audio: false, audio_merge: false,
+  metadata: false, subtitles: false, character_sheet: false, scene_plan: false,
+  contextual_cues: false, scene_review: false, motion_review: false, video_assembly: false,
+})
+
+function modelPolicyFor(stepId: StepId): ModelPolicyDraft | null {
+  return MODEL_POLICY_STEPS.has(stepId as EligibleModelPolicyStep)
+    ? modelPolicies[stepId as EligibleModelPolicyStep]
+    : null
+}
+function resetModelPolicies(): void {
+  for (const stepId of MODEL_POLICY_STEPS) {
+    modelPolicies[stepId].enabled = false
+    modelPolicies[stepId].mode = 'single'
+    modelPolicies[stepId].models = ['']
+    modelPolicyModelMeta[stepId] = [null]
+    modelPolicyExpanded[stepId] = false
+  }
+}
+function setModelPolicyEnabled(stepId: StepId, enabled: boolean): void {
+  const policy = modelPolicyFor(stepId)
+  if (policy) policy.enabled = enabled
+}
+function setModelPolicyExpanded(stepId: StepId, expanded: boolean): void {
+  modelPolicyExpanded[stepId] = expanded
+}
+function setModelPolicyMode(stepId: StepId, mode: ModelPolicyMode): void {
+  const policy = modelPolicyFor(stepId)
+  if (!policy) return
+  policy.mode = mode
+  if (mode === 'single') {
+    policy.models = [policy.models[0] || '']
+    modelPolicyModelMeta[stepId as EligibleModelPolicyStep] = [modelPolicyModelMeta[stepId as EligibleModelPolicyStep][0] || null]
+  } else if (policy.models.length < 2) {
+    policy.models.push('')
+    modelPolicyModelMeta[stepId as EligibleModelPolicyStep].push(null)
+  }
+}
+function setModelPolicyModel(stepId: StepId, index: number, modelId: string): void {
+  const policy = modelPolicyFor(stepId)
+  if (!policy) return
+  policy.models[index] = modelId
+  modelPolicyModelMeta[stepId as EligibleModelPolicyStep][index] = null
+}
+function setModelPolicyModelMeta(stepId: StepId, index: number, model: ModelPolicyModelMeta | null): void {
+  const policy = modelPolicyFor(stepId)
+  if (policy && model?.id === policy.models[index]) {
+    modelPolicyModelMeta[stepId as EligibleModelPolicyStep][index] = model
+  }
+}
+function modelPolicyLimits(stepId: StepId, index: number): string {
+  const model = modelPolicyModelMeta[stepId as EligibleModelPolicyStep]?.[index]
+  if (!model || model.id !== modelPolicyFor(stepId)?.models[index]) return ''
+  const context = model.context_window_tokens ?? model.context_limit_tokens
+  const output = model.max_output_tokens
+  const facts: string[] = []
+  if (typeof context === 'number' && context > 0) facts.push(`Context window: ${context.toLocaleString()} tokens.`)
+  if (typeof output === 'number' && output > 0) facts.push(`Max output: ${output.toLocaleString()} tokens.`)
+  if (typeof context === 'number' && context > 0 && typeof output === 'number' && output > 0) {
+    facts.push(`Input capacity estimate at this output: ${Math.max(0, context - output).toLocaleString()} tokens. GenStudio validates the exact prompt fit.`)
+  }
+  return facts.join(' ')
+}
+function addModelPolicyCandidate(stepId: StepId): void {
+  const policy = modelPolicyFor(stepId)
+  if (policy && policy.mode !== 'single') {
+    policy.models.push('')
+    modelPolicyModelMeta[stepId as EligibleModelPolicyStep].push(null)
+  }
+}
+function removeModelPolicyCandidate(stepId: StepId, index: number): void {
+  const policy = modelPolicyFor(stepId)
+  if (policy && policy.mode !== 'single') {
+    policy.models.splice(index, 1)
+    modelPolicyModelMeta[stepId as EligibleModelPolicyStep].splice(index, 1)
+  }
+}
+function moveModelPolicyCandidate(stepId: StepId, index: number, direction: -1 | 1): void {
+  const policy = modelPolicyFor(stepId)
+  const target = index + direction
+  if (!policy || policy.mode === 'single' || target < 0 || target >= policy.models.length) return
+  ;[policy.models[index], policy.models[target]] = [policy.models[target], policy.models[index]]
+  const meta = modelPolicyModelMeta[stepId as EligibleModelPolicyStep]
+  ;[meta[index], meta[target]] = [meta[target], meta[index]]
+}
+function modelPolicyError(stepId: StepId): string {
+  const policy = modelPolicyFor(stepId)
+  if (!policy?.enabled) return ''
+  const models = policy.models.filter(Boolean)
+  if (models.length !== policy.models.length) return 'Choose a published GenStudio product for every model slot.'
+  if (new Set(models).size !== models.length) return 'Choose each product once.'
+  if (policy.mode === 'single' && models.length !== 1) return 'Single mode needs one product.'
+  if ((policy.mode === 'distribute' || policy.mode === 'backup') && models.length < 2) {
+    return `${policy.mode === 'backup' ? 'Primary + backups' : 'Distribute'} needs at least two products.`
+  }
+  return ''
+}
+function modelPolicySummary(stepId: StepId): string {
+  const policy = modelPolicyFor(stepId)
+  if (!policy?.enabled) return 'Preset default'
+  const count = policy.models.filter(Boolean).length
+  if (policy.mode === 'single') return count ? 'One exact model' : 'Choose a model'
+  return count ? `${policy.mode === 'backup' ? 'Primary + backups' : 'Distribute'} · ${count} models` : 'Choose models'
+}
+function modelCandidateLabel(stepId: StepId, index: number): string {
+  const policy = modelPolicyFor(stepId)
+  if (policy?.mode === 'backup') return index === 0 ? 'Primary model' : `Backup ${index}`
+  return policy?.mode === 'distribute' ? `Model ${index + 1}` : 'Model'
+}
+function modelPoliciesForRun(): Partial<Record<EligibleModelPolicyStep, { mode: ModelPolicyMode; models: string[] }>> {
+  const result: Partial<Record<EligibleModelPolicyStep, { mode: ModelPolicyMode; models: string[] }>> = {}
+  for (const step of checkedStepsOrdered.value) {
+    const policy = modelPolicyFor(step.id)
+    if (policy?.enabled && !modelPolicyError(step.id)) result[step.id as EligibleModelPolicyStep] = {
+      mode: policy.mode,
+      models: [...policy.models],
+    }
+  }
+  return result
+}
+const modelPolicyRunSummary = computed(() => Object.entries(modelPoliciesForRun()).map(([stepId, policy]) => {
+  const label = stepById(stepId as StepId).label
+  if (policy.mode === 'distribute') return `${label} will distribute independent episodes across ${policy.models.length} selected products.`
+  if (policy.mode === 'backup') return `${label} uses its selected backups only after a proven terminal, unaccepted failure; uncertain or accepted requests reconnect instead.`
+  return `${label} uses its selected product for this run.`
+}))
+
+// These choices apply only to the current batch. A project change must never
+// carry one channel's explicit products into another channel's request.
+watch(slug, resetModelPolicies)
+
 const channelIntroEnabled = ref(false)
 async function loadChannelIntroduction(): Promise<void> {
   try {
@@ -903,7 +1151,7 @@ async function loadChannelIntroduction(): Promise<void> {
     channelIntroEnabled.value = false
   }
 }
-onMounted(loadChannelIntroduction)
+watch(slug, () => { void loadChannelIntroduction() }, { immediate: true })
 
 function clearSelectedSteps(): void {
   for (const step of stepsMeta) stepChecked[step.id] = false
@@ -1130,6 +1378,13 @@ interface Episode {
   suggested_chapters?: number
 }
 const selectedEpisodes = reactive(new Set<string>())
+
+// A route update reuses this page instance. Both a previous channel's episode
+// ids and its selected stage list are unsafe to carry into the next channel.
+watch(slug, () => {
+  clearSelectedSteps()
+  selectedEpisodes.clear()
+})
 
 // Shared SWR cache so navigating away and back to /pipeline is instant.
 // Auto-revalidates when any job for this slug completes — selection state
@@ -1856,6 +2111,8 @@ const blockingIssues = computed<string[]>(() => {
   if (checkedStepCount.value === 0) issues.push('Pick at least one step to run.')
   if (selectedEpisodes.size === 0) issues.push('Select at least one episode.')
   for (const step of checkedStepsOrdered.value) {
+    const policyError = modelPolicyError(step.id)
+    if (policyError) issues.push(`${step.label}: ${policyError}`)
     if (noPresetStep(step.id)) continue   // runs on built-in defaults
     if (!presetNameFor(step.id)) {
       issues.push(`No active preset for "${step.label}". Open that generator page, apply a preset, then come back.`)
@@ -1920,6 +2177,7 @@ async function openConfirm(repair: boolean) {
     const body = {
       episode_ids: [...selectedEpisodes],
       steps: checkedStepsOrdered.value.map(s => s.id),
+      ...(Object.keys(modelPoliciesForRun()).length ? { model_policies: modelPoliciesForRun() } : {}),
       force: repair ? false : forceRerun.value,
       ...(repair ? { repair_missing: true, action_id: repairActionId.value } : {}),
       ...(!repair && forceRerun.value ? { operation_id: runActionId.value || crypto.randomUUID() } : {}),
@@ -1946,6 +2204,7 @@ async function submit() {
     const body = {
       episode_ids: [...selectedEpisodes],
       steps: checkedStepsOrdered.value.map(s => s.id),
+      ...(Object.keys(modelPoliciesForRun()).length ? { model_policies: modelPoliciesForRun() } : {}),
       force: repairMode.value ? false : forceRerun.value,
       ...(repairMode.value ? { repair_missing: true, action_id: repairActionId.value } : {}),
       ...(!repairMode.value && forceRerun.value ? { operation_id: runActionId.value } : {}),
@@ -2053,14 +2312,15 @@ async function submit() {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
 .step-tile.selected { border-color: var(--accent); background: rgba(240, 198, 116, 0.06); }
 .step-tile.missing  { border-color: rgb(180, 83, 9); background: rgba(245, 158, 11, 0.08); }
 .step-tile.costly { border-style: dashed; }
+.step-tile.policy-expanded { grid-column: 1 / -1; }
 .step-tile.disabled { opacity: 0.55; cursor: not-allowed; }
-.step-tile.disabled input { cursor: not-allowed; }
+.step-tile.disabled .step-toggle { cursor: not-allowed; }
+.step-toggle { align-self: flex-start; flex: 0 0 auto; margin-top: 2px; }
 .step-warning { margin-top: 4px; font-size: var(--font-xs); color: rgb(180, 83, 9); }
 .step-body { flex: 1; }
 .step-head { display: flex; align-items: center; gap: 8px; }
@@ -2096,6 +2356,25 @@ async function submit() {
 .preset-missing { color: rgb(180, 83, 9); font-size: var(--font-xs); }
 .preset-link { color: var(--accent); text-decoration: underline; font-size: var(--font-xs); }
 .step-preset-none { font-size: var(--font-xs); color: var(--text-muted); font-style: italic; }
+.step-model-policy { margin-top: 8px; font-size: var(--font-xs); }
+.step-model-policy summary { color: var(--text-secondary); cursor: pointer; }
+.step-model-policy-summary { color: var(--text-muted); margin-left: 4px; }
+.step-model-policy-body { display: grid; gap: 8px; margin-top: 8px; }
+.step-model-policy-toggle,
+.step-model-policy-mode { display: flex; align-items: flex-start; gap: 6px; color: var(--text-secondary); }
+.step-model-policy-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 5px 12px; margin: 0; padding: 7px 8px; border: 1px solid var(--border); border-radius: 4px; }
+.step-model-policy-fields legend { padding: 0 3px; color: var(--text-muted); }
+.step-model-policy-candidates { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.step-model-policy-candidate { display: grid; gap: 4px; }
+.step-model-policy-candidate :deep(.form-group) { margin: 0; }
+.step-model-policy-limits { margin: 0; color: var(--text-muted); line-height: 1.4; }
+.step-model-policy-candidate-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.step-model-policy-error { margin: 0; color: rgb(180, 83, 9); }
+
+@media (max-width: 560px) {
+  .step-model-policy-fields,
+  .step-model-policy-candidates { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* ── Episode list ─────────────────────────────────────────────────────── */
 .episode-list {

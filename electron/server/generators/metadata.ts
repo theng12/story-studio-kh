@@ -15,7 +15,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { callAi, callAiWithRetry } from '../lib/ai-client.js'
+import { callAi, callAiWithModelPolicy, callAiWithRetry } from '../lib/ai-client.js'
 import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
@@ -47,6 +47,7 @@ import {
   inspectYouTubeFinalizationStatus,
 } from '../services/youtube-metadata-finalizer.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { pipelinePolicyCheckpointStore, pipelinePolicyForJob, pipelinePolicyInputFingerprint } from '../lib/pipeline-model-policy.js'
 
 /**
  * The last-resort title voice, for a project whose Format AND Niche both say
@@ -216,6 +217,25 @@ export async function generateMetadata(job: Job): Promise<void> {
   // product GenStudio hasn't published).
   const resolvedDefault = req.model?.trim() ? null : await resolveDefaultMetadataModel(config)
   const model = req.model?.trim() || resolvedDefault!.model
+  const metadataPolicy = pipelinePolicyForJob(params, 'metadata')
+  const metadataCheckpoint = pipelinePolicyCheckpointStore(params, () => jq.checkpointJobState(job))
+  const callMetadataAi = (
+    system: string,
+    user: string,
+    stream: boolean,
+    context: Parameters<typeof callAiWithRetry>[5],
+  ) => metadataPolicy
+    ? callAiWithModelPolicy(metadataPolicy, system, user, aiCreds(config), stream, {
+        ...context,
+        pipelinePolicyCheckpoint: metadataCheckpoint,
+        pipelinePolicyCheckpointKey: context?.pipelinePolicyCheckpointKey
+          || `${project_slug}:${episode_id}:metadata:${pipelinePolicyInputFingerprint({ system, user })}`,
+        onModelSelected: async selected => {
+          await context?.onModelSelected?.(selected)
+          job.output_lines.push(`[pipeline] metadata using GenStudio product "${selected}".`)
+        },
+      })
+    : callAiWithRetry(model, system, user, aiCreds(config), stream, context)
   if (resolvedDefault?.notice) job.output_lines.push(resolvedDefault.notice)
   const credErr = checkProvider(model, config)
   if (credErr) throw new Error(credErr)
@@ -323,10 +343,11 @@ export async function generateMetadata(job: Job): Promise<void> {
       let llmValues: Record<string, string> = {}
       if (llmKeys.length) {
         const extractPrompt = buildExtractionPrompt({ episodeCode: episode_id, title, storyContext, placeholders: llmKeys })
-        const raw = await callAiWithRetry(model, '', extractPrompt, aiCreds(config), false,
+        const raw = await callMetadataAi('', extractPrompt, false,
           {
             slug: project_slug, jobId: job.job_id, signal: controller.signal,
             requestIdentity: freshGenerationRequestIdentity(job, 'metadata-template'),
+            pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:metadata:template`,
             // Every requested placeholder is required and non-empty in the
             // contract: these values are substituted straight into a YouTube
             // title and description, where a blank is invisible until it is
@@ -361,10 +382,10 @@ export async function generateMetadata(job: Job): Promise<void> {
         buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, promptFormat),
         episode_id,
       ) + await noEmojiDirective()
-      const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false,
+      const descRaw = await callMetadataAi('', descPrompt, false,
         // Standard: a full YouTube description (up to ~5,000 characters).
         // Titles and tags below stay short-form on purpose.
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'standard', requestIdentity: freshGenerationRequestIdentity(job, 'metadata-description') })
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'standard', requestIdentity: freshGenerationRequestIdentity(job, 'metadata-description'), pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:metadata:description` })
       // The whole prompt is the source: it carries his story context, his
       // title, his custom section labels AND the niche's own voice rules — so
       // the prayer channel's deliberate single 🙏 survives, because the
@@ -469,8 +490,8 @@ Requirements:
 - Tone: ${titleTone}.
 - One per line. No numbering, quotes, or commentary.${await noEmojiDirective()}`
       const titlePromptWithAvoidance = await prependAvoidanceToPrompt(project_slug, 'titles', titlePrompt, episode_id)
-      const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false,
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal, requestIdentity: freshGenerationRequestIdentity(job, 'metadata-titles') })
+      const titleRaw = await callMetadataAi('', titlePromptWithAvoidance, false,
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal, requestIdentity: freshGenerationRequestIdentity(job, 'metadata-titles'), pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:metadata:titles` })
       // v1.4.84 — drop the model's own document furniture BEFORE the slice.
       //
       // The prompt asks for titles "one per line, no numbering, quotes, or
@@ -537,8 +558,8 @@ Requirements:
 - 1-4 words per tag, no "#" prefix.
 - Mix of broad and episode-specific keywords.${broadKeywordsLine}
 - One per line, no numbering or commentary.${await noEmojiDirective()}`
-      const tagRaw = await callAiWithRetry(model, '', tagPrompt, aiCreds(config), false,
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal, requestIdentity: freshGenerationRequestIdentity(job, 'metadata-tags') })
+      const tagRaw = await callMetadataAi('', tagPrompt, false,
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal, requestIdentity: freshGenerationRequestIdentity(job, 'metadata-tags'), pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:metadata:tags` })
       tags = await applyEmojiPolicyToAll(
         tagRaw.split('\n')
           .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())

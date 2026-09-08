@@ -12,7 +12,7 @@ import path from 'path'
 import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, repairPlanCoverage, removeNonRenderableScenes } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
-import { hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
+import { checkpointJobState, hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
@@ -24,12 +24,14 @@ import { describeOpeningHead, measureOpeningSec } from '../lib/opening-duration.
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { imagePromptGuidanceBlock, legibleTextGuidanceBlock, resolveAvoidLegibleText } from '../lib/image-content-guidance.js'
 import { resolveStyleBible } from '../lib/style-bible.js'
-import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
+import { callAi, callAiWithModelPolicy, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 import {
   listChatModels as listGenStudioChatModels,
   GenStudioApiError,
+  GenStudioChatCapabilityUnavailableError,
+  GenStudioChatProductUnavailableError,
   GenStudioChatRecoveryUnresolvedError,
   isGenStudioInsufficientCredits,
   isGenStudioRequestInProgress,
@@ -37,6 +39,7 @@ import {
   type GenStudioChatModel,
 } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import { pipelinePolicyCheckpointStore, pipelinePolicyForJob, pipelinePolicyInputFingerprint } from '../lib/pipeline-model-policy.js'
 import {
   describeScenePromptPackSize,
   parseScenePromptPackSetting,
@@ -208,6 +211,10 @@ interface ScenePlanRunParams {
    *  SELECTED product's published `max_output_tokens` — never to a fixed list,
    *  which would cap a 128,000-token product at a stale 32,768. */
   prompt_max_tokens?: ScenePromptTokenSetting
+  /** Stable Pipeline pack layout: retries must never repartition paid prompt work. */
+  pipeline_scene_prompt_pack_sizes?: Partial<Record<'visual' | 'motion', number>>
+  /** Historical request shape for resuming this job, never current catalogue facts. */
+  pipeline_scene_request_plan?: ScenePolicyRequestPlan
   /**
    * The character CEILING every visual prompt is written under, so the prompt
    * survives the image model that will render it. It is never a length to fill:
@@ -269,6 +276,26 @@ interface ScenePromptPayload {
   introduction_remainder?: boolean
   previous_visual_prompts?: string[]
   upcoming_narration?: string[]
+}
+
+interface ScenePolicyRequestPlan {
+  model_id: string
+  context_window_tokens: number
+  max_output_tokens: number
+  visual_max_tokens: number
+  active_output_budget: number
+  prompt_pack_size: number
+}
+
+export function readScenePolicyRequestPlan(value: unknown): ScenePolicyRequestPlan | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const plan = value as Record<string, unknown>
+  if (typeof plan.model_id !== 'string' || !plan.model_id) return null
+  if (typeof plan.context_window_tokens !== 'number' || !Number.isSafeInteger(plan.context_window_tokens) || plan.context_window_tokens < 0) return null
+  for (const key of ['max_output_tokens', 'visual_max_tokens', 'active_output_budget', 'prompt_pack_size']) {
+    if (typeof plan[key] !== 'number' || !Number.isSafeInteger(plan[key]) || plan[key] < 1) return null
+  }
+  return plan as unknown as ScenePolicyRequestPlan
 }
 
 export type ScenePromptCompletionIssueKind = 'provider-omitted' | 'duplicate-prompt' | 'checkpoint-failed' | 'not-durable'
@@ -375,6 +402,24 @@ export async function getScenePlanGenStudioModel(selectedModel: string): Promise
   return model
 }
 
+async function getScenePlanPolicyPlanningModel(policy: NonNullable<ReturnType<typeof pipelinePolicyForJob>>): Promise<GenStudioChatModel> {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) throw new Error('Add a GenStudio API key in Settings → This Mac before generating scene prompts.')
+  const catalog = await listGenStudioChatModels(apiKey)
+  const candidates = [policy.assigned_model, ...policy.models.filter(model => model !== policy.assigned_model)]
+  for (const candidateId of candidates) {
+    const candidate = catalog.find(model => model.id === candidateId && model.available)
+    if (!candidate) continue
+    try {
+      assertModelCanHoldAJsonContract(candidate)
+      return candidate
+    } catch (error) {
+      if (!(error instanceof GenStudioChatCapabilityUnavailableError)) throw error
+    }
+  }
+  throw new Error('None of the selected Pipeline Scene Plan products currently publishes structured-output support. No request or credit charge was made.')
+}
+
 /**
  * v1.4.37 — refuse a model that cannot be HELD to a JSON contract, before a
  * single request is paid for.
@@ -402,13 +447,29 @@ export async function getScenePlanGenStudioModel(selectedModel: string): Promise
  */
 export function assertModelCanHoldAJsonContract(model: GenStudioChatModel): void {
   if (model.structured_output_mode !== 'none') return
-  throw new Error(
-    `"${model.display_name || model.id}" cannot be held to a JSON contract — it publishes no `
-    + 'structured-output support, so it answers with prose whenever it feels like it and a long '
-    + 'scene plan fails part-way through. Choose a model that GenStudio KH publishes structured-output '
-    + 'support for — several do, including one with almost this same name — and run Scene Plan again. '
-    + 'Nothing was charged.',
+  const label = model.display_name?.trim() || model.id
+  throw new GenStudioChatCapabilityUnavailableError(
+    model.id,
+    `"${label}" cannot be held to a JSON contract because it publishes no structured-output support. `
+      + 'Choose a model that GenStudio KH publishes structured-output support for and run Scene Plan again. Nothing was charged',
   )
+}
+
+function assertScenePromptPackCapability(model: GenStudioChatModel, maxTokens: number, itemCount: number): void {
+  assertModelCanHoldAJsonContract(model)
+  if (!Number.isInteger(model.max_output_tokens) || model.max_output_tokens < maxTokens) {
+    throw new GenStudioChatCapabilityUnavailableError(
+      model.id,
+      `this ${itemCount}-scene pack requires ${maxTokens.toLocaleString()} output tokens, above its published ${model.max_output_tokens.toLocaleString()} limit`,
+    )
+  }
+  const structuredItemLimit = model.max_structured_items_per_request
+  if (typeof structuredItemLimit !== 'number' || !Number.isInteger(structuredItemLimit) || structuredItemLimit < itemCount) {
+    throw new GenStudioChatCapabilityUnavailableError(
+      model.id,
+      `this JSON contract requires ${itemCount} structured items, above its published ${structuredItemLimit ?? 'unpublished'} item limit`,
+    )
+  }
 }
 
 export function parseDirectPackResults(
@@ -571,7 +632,35 @@ export const SCENE_PLAN_FILENAME = 'scene_plan.json'
 export async function runScenePlanJob(job: Job): Promise<void> {
   const params = job.params as ScenePlanRunParams
   const { episode_id } = params
+  const scenePolicy = pipelinePolicyForJob(params, 'scene_plan')
+  const sceneCheckpoint = pipelinePolicyCheckpointStore(params, () => checkpointJobState(job))
+  const scenePlanPolicyCall: typeof callAi | undefined = scenePolicy
+    ? async (...args: Parameters<typeof callAi>) => {
+      const [, system, user, apiKeys, stream = false, context = {}] = args
+      const requestIdentity = context.requestIdentity
+        || `${job.project_slug}:${episode_id || 'episode'}:scene-plan:${pipelinePolicyInputFingerprint({
+          system,
+          user,
+          outputBudget: context.outputBudget,
+          maxTokens: context.maxTokens,
+          outputContract: context.outputContract,
+          images: context.images,
+        })}`
+      return callAiWithModelPolicy(scenePolicy, system, user, apiKeys, stream, {
+        ...context,
+        slug: context.slug || job.project_slug,
+        requestIdentity,
+        pipelinePolicyCheckpoint: sceneCheckpoint,
+        pipelinePolicyCheckpointKey: requestIdentity,
+        onModelSelected: async selected => {
+          await context.onModelSelected?.(selected)
+          job.output_lines.push(`[pipeline] scene plan using GenStudio product "${selected}".`)
+        },
+      })
+    }
+    : undefined
   let model = params.model || ''
+  if (scenePolicy) model = scenePolicy.assigned_model
   if (!episode_id) throw new Error('episode_id is required')
   const packedRepairStage: 'visual' | 'motion' | undefined = params.regenerate_empty_motion_prompts
     ? 'motion'
@@ -588,23 +677,46 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   )
   if (!model && needsModel) throw new Error('model is required')
   if (!model) model = 'deterministic-timeline'
-  const promptModel = needsModel ? await getScenePlanGenStudioModel(model) : null
+  // A retry keeps the shape of the requests it already prepared. These are
+  // historical job inputs, not a cached catalogue: every NEW policy attempt
+  // still validates its actual product below. Saved-key lookups need no live
+  // model just to recover output that GenStudio already accepted.
+  const rawRequestPlan = scenePolicy ? params.pipeline_scene_request_plan : undefined
+  const savedRequestPlan = readScenePolicyRequestPlan(rawRequestPlan)
+  if (rawRequestPlan && (!savedRequestPlan || !scenePolicy!.models.includes(savedRequestPlan.model_id))) {
+    throw new Error('The saved Scene Plan request shape is invalid; no new request was submitted.')
+  }
+  const promptModel = savedRequestPlan
+    ? { id: savedRequestPlan.model_id, context_window_tokens: savedRequestPlan.context_window_tokens, max_output_tokens: savedRequestPlan.max_output_tokens }
+    : needsModel ? (scenePolicy
+      ? await getScenePlanPolicyPlanningModel(scenePolicy)
+      : await getScenePlanGenStudioModel(model)) : null
   if (promptModel) model = `genstudio-chat:${promptModel.id}`
 
   const promptTokenSetting = parseScenePromptTokenSetting(params.prompt_max_tokens)
-  const visualMaxTokens = resolveScenePromptTokenBudget(promptModel?.max_output_tokens, promptTokenSetting)
+  const visualMaxTokens = savedRequestPlan?.visual_max_tokens
+    ?? resolveScenePromptTokenBudget(promptModel?.max_output_tokens, promptTokenSetting)
   // Motion records are intentionally short; keeping their batches within 4K
   // prevents a large visual-model allowance from creating truncated motion JSON.
-  const activePromptOutputBudget = requestedStage === 'motion'
+  const activePromptOutputBudget = savedRequestPlan?.active_output_budget ?? (requestedStage === 'motion'
     ? Math.min(4_096, visualMaxTokens)
-    : visualMaxTokens
+    : visualMaxTokens)
   const promptPackSetting = parseScenePromptPackSetting(params.prompt_pack_size)
-  // The owner's own batch tuning for THIS channel (tokens reserved per scene,
-  // safety fraction, default batch). Absent keys fall back to the documented
-  // defaults; there is no ceiling in code above any of them.
   let promptPackTuning = parseScenePromptPackTuning(undefined)
   try { promptPackTuning = parseScenePromptPackTuning(await getConfig(job.project_slug)) } catch { /* defaults apply */ }
-  const promptPackSize = resolveScenePromptPackSize(activePromptOutputBudget, promptPackSetting, promptPackTuning)
+  const promptPackSize = savedRequestPlan?.prompt_pack_size
+    ?? resolveScenePromptPackSize(activePromptOutputBudget, promptPackSetting, promptPackTuning)
+  if (scenePolicy && promptModel && !savedRequestPlan) {
+    params.pipeline_scene_request_plan = {
+      model_id: promptModel.id,
+      context_window_tokens: promptModel.context_window_tokens,
+      max_output_tokens: promptModel.max_output_tokens,
+      visual_max_tokens: visualMaxTokens,
+      active_output_budget: activePromptOutputBudget,
+      prompt_pack_size: promptPackSize,
+    }
+    await checkpointJobState(job)
+  }
   // A published image-model figure or nothing. No default is invented here.
   const promptCharCap = parsePromptCharCap(params.prompt_char_cap)
 
@@ -962,9 +1074,20 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const savedPromptRecoveries = explicitPaidRepair
       ? scenePromptRecoveries(params.scene_prompt_recoveries)
       : []
-    const effectivePackSize = isPackedRepair
-      ? scenePromptRepairPackSize(targets.length, promptPackSize)
+    const persistedPackSize = scenePolicy ? params.pipeline_scene_prompt_pack_sizes?.[stage] : undefined
+    const stablePackSize = Number.isInteger(persistedPackSize) && persistedPackSize! >= 1
+      ? persistedPackSize!
       : promptPackSize
+    if (scenePolicy && !persistedPackSize) {
+      params.pipeline_scene_prompt_pack_sizes = {
+        ...params.pipeline_scene_prompt_pack_sizes,
+        [stage]: stablePackSize,
+      }
+      await checkpointJobState(job)
+    }
+    const effectivePackSize = isPackedRepair
+      ? scenePromptRepairPackSize(targets.length, stablePackSize)
+      : stablePackSize
     // The explicit paid path audits progress across the whole missing tail.
     // Keep it as one logical set; each request within a pass is still one scene.
     const targetPacks = explicitPaidRepair
@@ -1194,8 +1317,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       throwIfPauseRequested(job.job_id)
       try {
         const messages = buildPackMessages(payloads, input.recoveryIssues, input.recoveryNote)
-        const raw = await callAi(
-          model,
+        const requestIdentity = explicitPaidRepair
+          ? `${job.project_slug}:${episode_id}:scene-plan:${stage}:paid-auto-repair:${job.job_id}:${input.requestLabel}`
+          : freshGenerationRequestIdentity(job, `scene-plan-${stage}-${input.requestLabel}`)
+            ?? `${job.project_slug}:${episode_id}:scene-plan:${stage}:${input.requestLabel}`
+        const raw = await (scenePolicy ? callAiWithModelPolicy(scenePolicy,
           messages[0]!.content,
           messages.slice(1).map(message => message.content).join('\n\n'),
           GENSTUDIO_ONLY_LEGACY_KEY_BAG,
@@ -1203,10 +1329,17 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           {
             slug: job.project_slug,
             jobId: `${job.job_id}:${input.requestLabel}`,
-            requestIdentity: explicitPaidRepair
-              ? `${job.project_slug}:${episode_id}:scene-plan:${stage}:paid-auto-repair:${job.job_id}:${input.requestLabel}`
-              : freshGenerationRequestIdentity(job, `scene-plan-${stage}-${input.requestLabel}`)
-                ?? `${job.project_slug}:${episode_id}:scene-plan:${stage}:${input.requestLabel}`,
+            requestIdentity,
+            pipelinePolicyCheckpoint: sceneCheckpoint,
+            pipelinePolicyCheckpointKey: requestIdentity,
+            beforeModelAttempt: async selected => {
+              const apiKey = await getApiKey('genstudio').catch(() => '')
+              if (!apiKey) throw new Error('Add a GenStudio API key in Settings → This Mac before generating scene prompts.')
+              const live = (await listGenStudioChatModels(apiKey)).find(candidate => candidate.id === selected)
+              if (!live || !live.available) throw new GenStudioChatProductUnavailableError(selected)
+              assertScenePromptPackCapability(live, input.maxTokens, input.sceneIds.length)
+            },
+            onModelSelected: selected => { job.output_lines.push(`[pipeline] scene plan using GenStudio product "${selected}".`) },
             ...(input.recoverByIdempotencyKey ? {
               recoverByIdempotencyKey: true,
               idempotencyKey: input.recoverByIdempotencyKey,
@@ -1218,7 +1351,28 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),
             onDiagnostics: (details: TextGenerationDiagnostics) => { diagnostics = details },
           },
-        )
+        ) : callAi(
+          model,
+          messages[0]!.content,
+          messages.slice(1).map(message => message.content).join('\n\n'),
+          GENSTUDIO_ONLY_LEGACY_KEY_BAG,
+          false,
+          {
+            slug: job.project_slug,
+            jobId: `${job.job_id}:${input.requestLabel}`,
+            requestIdentity,
+            ...(input.recoverByIdempotencyKey ? {
+              recoverByIdempotencyKey: true,
+              idempotencyKey: input.recoverByIdempotencyKey,
+              allowedRecoveryKeys: [input.recoverByIdempotencyKey],
+            } : {}),
+            maxTokens: input.maxTokens,
+            outputContract: scenePromptPackOutputContract(input.sceneIds, isMotion ? 'motion' : 'visual'),
+            disableReasoning: true,
+            temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),
+            onDiagnostics: (details: TextGenerationDiagnostics) => { diagnostics = details },
+          },
+        ))
         responseReceived = true
         results = parseDirectPackResults(raw, input.sceneIds, isMotion ? 'motion' : 'visual')
         checkpointErrors = await checkpointPackPromptResults(
@@ -1608,6 +1762,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         ? (target.visual_prompt ?? '')
         : undefined,
       apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
+      callAi: scenePlanPolicyCall,
       request_identity: freshGenerationRequestIdentity(job, `visual-prompt-${target.id}`),
       slug: job.project_slug,
     })
@@ -1668,6 +1823,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       style_prompt: motionStyle,
       custom_instructions: params.custom_instructions,
       apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
+      callAi: scenePlanPolicyCall,
       slug: job.project_slug,
       request_identity: freshGenerationRequestIdentity(job, `motion-prompt-${target.id}`),
     })
@@ -1734,6 +1890,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // passing it keeps behaviour consistent with the full-plan path.
       window_size: params.window_size,
       onWarn: (m) => job.output_lines.push(m),
+      callAi: scenePlanPolicyCall,
     })
     const newScenes = replanned.scenes
     if (!newScenes.length) throw new Error('Re-plan produced no scenes for that range.')
@@ -1851,6 +2008,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // Map window progress into the 10–80 band the job reserves for planning.
       job.progress = 10 + Math.round((done / Math.max(1, totalWindows)) * 70)
     },
+    callAi: scenePlanPolicyCall,
   })
 
   // Record what this plan did with its opening, the way the deterministic
@@ -2007,7 +2165,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // model here cuts the (sequential-on-cloud) motion phase substantially.
       if (typeof cfg?.prompt_model === 'string' && cfg.prompt_model.trim()) promptModel = cfg.prompt_model.trim()
     } catch { /* defaults apply */ }
-    const motionModel = promptModel ? await requireScenePlanGenStudioModel(promptModel) : model
+    const motionModel = scenePolicy
+      ? scenePolicy.assigned_model
+      : promptModel ? await requireScenePlanGenStudioModel(promptModel) : model
     const motionLevel = resolveMotionLevel(params.motion_level, projDefaultMotion)
     const targets = plan.scenes
       .map((s, i) => (s.visual_prompt?.trim() && s.motion_mode !== 'still' ? i : -1))
@@ -2025,6 +2185,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         style_prompt: effectiveStyle,
         custom_instructions: params.custom_instructions,
         apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
+        callAi: scenePlanPolicyCall,
         slug: job.project_slug,
         should_cancel: () => isCancelled(job.job_id),
         onWarn: (m) => job.output_lines.push(m),

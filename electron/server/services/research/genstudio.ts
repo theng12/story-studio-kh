@@ -7,7 +7,7 @@
  */
 
 import { getApiKey } from '../app-secrets-store.js'
-import { callAiWithRetry } from '../../lib/ai-client.js'
+import { callAiWithModelPolicy, callAiWithRetry } from '../../lib/ai-client.js'
 import { resolveDefaultChatModel } from '../genstudio-default-model.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../../lib/json-output-contract.js'
 import type { ResearchAdapter } from './types.js'
@@ -41,7 +41,18 @@ class GenStudioResearchAdapter implements ResearchAdapter {
     // Long-form: a research pass returns a summary, a claims list, a citation
     // list and an episode outline in one JSON object. The 2,048-token
     // short-form default truncated it, which GenStudio then refused to settle.
-    const raw = await callAiWithRetry(model, system, user, {}, false, {
+    let actualModel = model
+    const policy = opts.pipeline_model_policy
+    const raw = await (policy
+      ? callAiWithModelPolicy(policy, system, user, {}, false, {
+          outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
+          outputBudget: 'long',
+          requestIdentity: opts.request_identity,
+          onModelSelected: selected => { actualModel = selected },
+          pipelinePolicyCheckpoint: opts.pipeline_policy_checkpoint,
+          pipelinePolicyCheckpointKey: opts.pipeline_policy_checkpoint_key,
+        })
+      : callAiWithRetry(model, system, user, {}, false, {
       // A research pass IS one JSON object — `assembleOutput` parses it. Asking
       // for prose and hoping left the model free to wrap that object in
       // commentary, and a prose-wrapped response is discarded after it has
@@ -50,7 +61,7 @@ class GenStudioResearchAdapter implements ResearchAdapter {
       outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
       outputBudget: 'long',
       requestIdentity: opts.request_identity,
-    }).catch((err: unknown) => {
+    })).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       throw new Error(`GenStudio research failed: ${message}`)
     })
@@ -59,7 +70,7 @@ class GenStudioResearchAdapter implements ResearchAdapter {
       topic: opts.topic,
       specific_questions: opts.specific_questions,
       provider: 'llm-only',
-      model,
+      model: actualModel,
       mode: 'model-knowledge',
     })
   }

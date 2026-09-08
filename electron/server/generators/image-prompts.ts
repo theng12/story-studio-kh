@@ -11,7 +11,7 @@ import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
-import { callAi, parseStructuredJson } from '../lib/ai-client.js'
+import { callAi, callAiWithModelPolicy, parseStructuredJson } from '../lib/ai-client.js'
 import { resolveEpisodePaths, resolveEpisodeTitleByCode, resolveSubfolderNames } from '../services/utils.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
@@ -35,6 +35,7 @@ import {
   parsePromptCharCap,
 } from '../services/prompt-char-cap.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { pipelinePolicyCheckpointStore, pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
 
 interface ThumbnailPromptsParams {
   episode_id: string
@@ -576,11 +577,31 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     }, 500)
     try {
       job.output_lines.push(`Calling ${model} for ${targetNumbers.length} thumbnail prompt(s)…`)
-      const raw = await callAi(model, '', prompt, aiCreds(config), false, {
+      const promptPolicy = pipelinePolicyForJob(job.params, 'image_prompts')
+      const promptCheckpoint = pipelinePolicyCheckpointStore(job.params, () => jq.checkpointJobState(job))
+      const promptRequestIdentity = freshGenerationRequestIdentity(job, `thumbnail-prompts-${targetNumbers.join('-')}`)
+        ?? `${projectSlug}:${episodeId}:thumbnail-prompts-${targetNumbers.join('-')}`
+      const raw = promptPolicy
+        ? await callAiWithModelPolicy(promptPolicy, '', prompt, aiCreds(config), false, {
+            slug: projectSlug,
+            jobId: job.job_id,
+            signal: controller.signal,
+            requestIdentity: promptRequestIdentity,
+            pipelinePolicyCheckpoint: promptCheckpoint,
+            pipelinePolicyCheckpointKey: promptRequestIdentity,
+            onModelSelected: selected => {
+              job.output_lines.push(`[pipeline] image prompts using GenStudio product "${selected}".`)
+            },
+            outputContract: thumbnailPromptsOutputContract(targetNumbers.length),
+            outputBudget: 'standard',
+            disableReasoning: true,
+            temperature: 0.35,
+          })
+        : await callAi(model, '', prompt, aiCreds(config), false, {
         slug: projectSlug,
         jobId: job.job_id,
         signal: controller.signal,
-        requestIdentity: freshGenerationRequestIdentity(job, `thumbnail-prompts-${targetNumbers.join('-')}`),
+        requestIdentity: promptRequestIdentity,
         outputContract: thumbnailPromptsOutputContract(targetNumbers.length),
         // Standard: a structured pack of N thumbnail prompts.
         outputBudget: 'standard',
