@@ -3,6 +3,7 @@ import path from 'path'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
+import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
 import type { ScenePlan } from '../models/types.js'
 
 export interface SceneImageCompletionAudit {
@@ -87,6 +88,7 @@ export async function auditSceneClipCompletion(
   planPath: string,
   sceneIds: string[],
   clipsDirectory: string,
+  expectedDurations: Record<string, number> = {},
 ): Promise<SceneClipCompletionAudit> {
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
   const scenesById = new Map(plan.scenes.map(scene => [scene.id, scene]))
@@ -126,6 +128,14 @@ export async function auditSceneClipCompletion(
     if (scene.motion_choice !== 'clip') {
       invalid.push(`${sceneId} (clip not selected)`)
       issues.push({ item_id: sceneId, state: 'invalid', reason: 'clip not selected' })
+      continue
+    }
+    try {
+      await assertPlayableSceneClip(clipPath, expectedDurations[sceneId] ?? scene.clip_requested_duration_seconds)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      invalid.push(`${sceneId} (unplayable clip)`)
+      issues.push({ item_id: sceneId, state: 'invalid', reason })
     }
   }
 
@@ -166,8 +176,14 @@ export async function checkpointSceneClip(
   renderedMotionPrompt: string,
   sourceImageVersion: string | undefined,
   approveClip: boolean,
+  receipt: {
+    requested_duration_seconds?: number
+    duration_seconds?: number
+    shortfall_mode?: 'hold'
+  } = {},
 ): Promise<ScenePlan> {
   await assertUsableFile(clipPath, `Motion clip for ${sceneId}`)
+  const durationSeconds = receipt.duration_seconds ?? await assertPlayableSceneClip(clipPath, receipt.requested_duration_seconds)
   return withLock(planPath, async () => {
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     const scene = plan.scenes.find(item => item.id === sceneId)
@@ -177,6 +193,11 @@ export async function checkpointSceneClip(
     scene.rendered_motion_prompt = renderedMotionPrompt
     scene.clip_source_image_version = sourceImageVersion
     scene.motion_choice = approveClip ? 'clip' : 'pending'
+    if (receipt.requested_duration_seconds === undefined) delete scene.clip_requested_duration_seconds
+    else scene.clip_requested_duration_seconds = receipt.requested_duration_seconds
+    scene.clip_duration_seconds = durationSeconds
+    if (receipt.shortfall_mode === 'hold') scene.clip_shortfall_mode = 'hold'
+    else delete scene.clip_shortfall_mode
     await writeJsonAtomic(planPath, plan)
     return plan
   })

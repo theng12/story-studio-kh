@@ -27,9 +27,15 @@ import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../s
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseHttpByteRange } from '../lib/http-byte-range.js'
 import { isDecodableImage } from '../lib/image-validation.js'
+import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
-import { requireSceneClipGenStudioModel, resolveVideoAssetsDir } from '../generators/scene-clip.js'
+import {
+  requireSceneClipGenStudioCatalogModel,
+  requireSceneClipGenStudioModel,
+  resolveVideoAssetsDir,
+  selectSceneClipNarrationVariant,
+} from '../generators/scene-clip.js'
 import { decodeUploadBuffer } from './image-references.js'
 import {
   assertScenePromptsRenderable,
@@ -41,7 +47,8 @@ import {
   readSubtitleTimelineIntegrity,
 } from '../services/scene-timeline-integrity.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
-import type { JobType, SceneClipVariantSelection, ScenePlan } from '../models/types.js'
+import { checkpointSceneClip } from '../services/scene-media-checkpoint.js'
+import type { JobType, SceneClipVariantSelection, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { RENDER_STATUS_FILENAME } from '../services/scene-render-status.js'
 
 export const router = Router()
@@ -73,6 +80,66 @@ function requestedSceneClipVariant(body: Record<string, unknown>): SceneClipVari
     throw new Error('operation, duration_seconds and resolution must name one published motion variant')
   }
   return { operation, duration_seconds, resolution }
+}
+
+type SceneClipDurationMode = 'manual' | 'follow_narration'
+type SceneClipDurations = Record<string, { duration_seconds: number; narration_duration_seconds: number }>
+
+function requestedSceneClipDurationMode(body: Record<string, unknown>): SceneClipDurationMode {
+  if (body.duration_mode === undefined || body.duration_mode === null || body.duration_mode === 'manual') return 'manual'
+  if (body.duration_mode === 'follow_narration') return 'follow_narration'
+  throw new Error('duration_mode must be "manual" or "follow_narration"')
+}
+
+function narrationDurationSeconds(scene: ScenePlanEntry): number {
+  const duration = scene.end_sec - scene.start_sec
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(`Scene ${scene.id} has no valid narration window.`)
+  }
+  return duration
+}
+
+function sceneClipDurations(
+  scenes: readonly ScenePlanEntry[],
+  durationForNarration: (narrationDuration: number) => number,
+): SceneClipDurations {
+  return Object.fromEntries(scenes.map(scene => {
+    const narration_duration_seconds = narrationDurationSeconds(scene)
+    return [scene.id, {
+      duration_seconds: durationForNarration(narration_duration_seconds),
+      narration_duration_seconds,
+    }]
+  }))
+}
+
+async function readScenePlanForClipDurations(slug: string, episodeId: string): Promise<ScenePlan> {
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+  const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+  if (!existsSync(planPath)) throw new Error('No scene_plan.json yet')
+  return JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+}
+
+async function scenesEligibleForClipBatch(
+  slug: string,
+  episodeId: string,
+  plan: ScenePlan,
+): Promise<ScenePlanEntry[]> {
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+  const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+  const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+  const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+  const cfg = await pm.getConfig(slug).catch(() => null)
+  const animateMinSeconds = Math.max(0, Number((cfg as any)?.animate_min_seconds) || 0)
+  return plan.scenes.filter(scene => (
+    scene.motion_choice !== 'still'
+      && scene.approved === true
+      && !!scene.motion_prompt?.trim()
+      && (scene.end_sec - scene.start_sec) >= animateMinSeconds
+      && (existsSync(path.join(namedDir, `${scene.id}.png`)) || existsSync(path.join(legacyDir, `${scene.id}.png`)))
+      // Existing clips, stale included, require the visible individual
+      // Regenerate action. Batch work never silently spends over recovery.
+      && !existsSync(path.join(clipsDir, `${scene.id}.mp4`))
+  ))
 }
 
 function streamLocalMedia(
@@ -673,11 +740,36 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
   if (!model) return res.status(400).json({ detail: 'model is required' })
-  let requestedVariant: SceneClipVariantSelection
-  try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
+  let durationMode: SceneClipDurationMode
+  try { durationMode = requestedSceneClipDurationMode(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
+  let requestedVariant: SceneClipVariantSelection | undefined
+  if (durationMode === 'manual') {
+    try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
+  }
 
   try {
-    const { modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
+    let variant: SceneClipVariantSelection
+    let sceneDurations: SceneClipDurations | undefined
+    let modelId: string
+    if (durationMode === 'follow_narration') {
+      const resolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
+      if (!resolution) return res.status(400).json({ detail: 'resolution is required when following narration' })
+      const plan = await readScenePlanForClipDurations(slug, episodeId)
+      const scene = plan.scenes.find(item => item.id === sceneId)
+      if (!scene) return res.status(404).json({ detail: `scene ${sceneId} not found in scene_plan.json` })
+      const selected = await requireSceneClipGenStudioCatalogModel(model)
+      const followVariant = selectSceneClipNarrationVariant(selected.model.variants, resolution, narrationDurationSeconds(scene))
+      modelId = selected.modelId
+      variant = followVariant
+      sceneDurations = sceneClipDurations([scene], narration => selectSceneClipNarrationVariant(selected.model.variants, resolution, narration).duration_seconds)
+    } else {
+      const selected = await requireSceneClipGenStudioModel(model, requestedVariant)
+      modelId = selected.modelId
+      variant = selected.variant
+      const plan = await readScenePlanForClipDurations(slug, episodeId).catch(() => null)
+      const scene = plan?.scenes.find(item => item.id === sceneId)
+      if (scene) sceneDurations = sceneClipDurations([scene], () => variant.duration_seconds)
+    }
     if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
       return res.status(409).json({ detail: `Scene ${sceneId} clip already generating` })
     }
@@ -694,6 +786,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
         operation: variant.operation,
         duration_seconds: variant.duration_seconds,
         resolution: variant.resolution,
+        duration_mode: durationMode,
+        ...(sceneDurations ? { scene_durations: sceneDurations } : {}),
         auto_approve_clip: body.auto_approve_clip === true,
       },
     })
@@ -711,10 +805,34 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
-  let requestedVariant: SceneClipVariantSelection
-  try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
+  let durationMode: SceneClipDurationMode
+  try { durationMode = requestedSceneClipDurationMode(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
+  let requestedVariant: SceneClipVariantSelection | undefined
+  if (durationMode === 'manual') {
+    try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
+  }
   try {
-    const { modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
+    let variant: SceneClipVariantSelection
+    let sceneDurations: SceneClipDurations | undefined
+    let modelId: string
+    if (durationMode === 'follow_narration') {
+      const resolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
+      if (!resolution) return res.status(400).json({ detail: 'resolution is required when following narration' })
+      const plan = await readScenePlanForClipDurations(slug, episodeId)
+      const selected = await requireSceneClipGenStudioCatalogModel(model)
+      sceneDurations = sceneClipDurations(await scenesEligibleForClipBatch(slug, episodeId, plan), narration => selectSceneClipNarrationVariant(selected.model.variants, resolution, narration).duration_seconds)
+      const first = Object.values(sceneDurations)[0]
+      if (!first) return res.status(400).json({ detail: 'No scenes are available to follow narration' })
+      const followVariant = selectSceneClipNarrationVariant(selected.model.variants, resolution, first.narration_duration_seconds)
+      modelId = selected.modelId
+      variant = followVariant
+    } else {
+      const selected = await requireSceneClipGenStudioModel(model, requestedVariant)
+      modelId = selected.modelId
+      variant = selected.variant
+      const plan = await readScenePlanForClipDurations(slug, episodeId).catch(() => null)
+      if (plan) sceneDurations = sceneClipDurations(await scenesEligibleForClipBatch(slug, episodeId, plan), () => variant.duration_seconds)
+    }
     const job = await jq.enqueue({
       project_slug: slug,
       type: 'scene_clips_batch' as JobType,
@@ -727,6 +845,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
         operation: variant.operation,
         duration_seconds: variant.duration_seconds,
         resolution: variant.resolution,
+        duration_mode: durationMode,
+        ...(sceneDurations ? { scene_durations: sceneDurations } : {}),
       },
     })
     res.status(201).json(job)
@@ -738,17 +858,38 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
 
 // ── POST /scene-review/:ep/generate-missing-clips ─────────────────────
 // v1.0.470 — bulk-queue scene_clip_generate for every scene that HAS an image
-// + a motion prompt but no clip yet (or whose clip is stale). Skips in-flight.
+// + a motion prompt but no clip yet. Existing clips use the visible individual
+// Regenerate action. Skips in-flight.
 router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
-  let requestedVariant: SceneClipVariantSelection
-  try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
+  let durationMode: SceneClipDurationMode
+  try { durationMode = requestedSceneClipDurationMode(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
+  let requestedVariant: SceneClipVariantSelection | undefined
+  if (durationMode === 'manual') {
+    try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
+  }
 
   try {
-    const { modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
+    let variant: SceneClipVariantSelection | undefined
+    let modelId: string
+    let followVariants: ReturnType<typeof selectSceneClipNarrationVariant>[] | undefined
+    let followResolution = ''
+    if (durationMode === 'follow_narration') {
+      followResolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
+      if (!followResolution) return res.status(400).json({ detail: 'resolution is required when following narration' })
+      const selected = await requireSceneClipGenStudioCatalogModel(model)
+      modelId = selected.modelId
+      // Kept only as a type-preserving container for the live published rows;
+      // each eligible scene resolves its own exact row below.
+      followVariants = selected.model.variants
+    } else {
+      const selected = await requireSceneClipGenStudioModel(model, requestedVariant)
+      modelId = selected.modelId
+      variant = selected.variant
+    }
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
@@ -772,14 +913,15 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
       const hasMotion = !!(s.motion_prompt && s.motion_prompt.trim())
       const longEnough = (s.end_sec - s.start_sec) >= animateMinSeconds
       const clipExists = existsSync(path.join(clipsDir, `${s.id}.mp4`))
-      const clipStale = clipExists && (
-        (typeof s.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || ''))
-        || (typeof s.image_version === 'string' && s.clip_source_image_version !== s.image_version)
-      )
       // Animate scenes that are approved + ready (image + motion) + long enough,
-      // and not already freshly clipped. Skip in-flight.
-      if (!s.approved || !hasImage || !hasMotion || !longEnough || (clipExists && !clipStale)) { skipped++; continue }
+      // with no saved clip. Existing clips must use the visible individual
+      // Regenerate action; skip in-flight work too.
+      if (!s.approved || s.motion_choice === 'still' || !hasImage || !hasMotion || !longEnough || clipExists) { skipped++; continue }
       if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === s.id)) { skipped++; continue }
+      const selectedVariant = durationMode === 'follow_narration'
+        ? selectSceneClipNarrationVariant(followVariants, followResolution, narrationDurationSeconds(s))
+        : variant!
+      const durations = sceneClipDurations([s], () => selectedVariant.duration_seconds)
       await jq.enqueue({
         project_slug: slug,
         type: 'scene_clip_generate' as JobType,
@@ -790,9 +932,11 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
           scene_id: s.id,
           model: `genstudio-video:${modelId}`,
           aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
-          operation: variant.operation,
-          duration_seconds: variant.duration_seconds,
-          resolution: variant.resolution,
+          operation: selectedVariant.operation,
+          duration_seconds: selectedVariant.duration_seconds,
+          resolution: selectedVariant.resolution,
+          duration_mode: durationMode,
+          scene_durations: durations,
         },
       })
       queued++
@@ -983,24 +1127,21 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clip
     // Atomic write (tmp → rename) so the assembler never reads a half-written mp4.
     const tmp = path.join(outDir, `.tmp_${sceneId}_${process.pid}.mp4`)
     await fs.writeFile(tmp, buf)
+    const measuredDurationSeconds = await assertPlayableSceneClip(tmp)
     await fs.rename(tmp, outPath)
 
-    // Stamp the plan for the Scene Review UI (clip presence + staleness). The
-    // assembler keys off file existence, so the write above is what actually
-    // makes the clip flow into the final video — this just keeps the UI honest.
-    // Re-read to avoid racing a concurrent in-app clip job on the same plan.
-    // The re-read alone only NARROWED that window — without the lock another
-    // writer can still land between this read and the write below.
-    await withLock(planPath, async () => {
-      const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-      const target = fresh.scenes.find(s => s.id === sceneId)
-      if (!target) return
-      target.clip_path = outPath
-      target.rendered_motion_prompt = target.motion_prompt
-      target.clip_source_image_version = target.image_version
-      target.motion_choice = 'pending'
-      await writeJsonAtomic(planPath, fresh)
-    })
+    // The checkpoint decodes the uploaded video before exposing it to Scene
+    // Review. It also clears any paid-duration receipt and Follow hold from a
+    // replaced external clip while recording its measured duration.
+    await checkpointSceneClip(
+      planPath,
+      sceneId,
+      outPath,
+      scene.motion_prompt || '',
+      scene.image_version,
+      false,
+      { duration_seconds: measuredDurationSeconds },
+    )
     res.json({ ok: true, scene_id: sceneId, saved_as: path.basename(outPath), bytes: buf.length })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save uploaded clip'))

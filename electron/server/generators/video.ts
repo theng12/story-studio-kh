@@ -494,6 +494,7 @@ export interface ScannedAssets {
     /** Exact still remains mandatory even when an approved motion clip is used. */
     still_path?: string
     media_type?: 'still' | 'motion'
+    clip_shortfall_mode?: 'hold'
     start_sec?: number
     end_sec?: number
     duration_sec?: number
@@ -673,6 +674,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
           path: useMotion ? clipPath : plannedPath,
           still_path: plannedPath,
           media_type: useMotion ? 'motion' : 'still',
+          clip_shortfall_mode: useMotion ? scene.clip_shortfall_mode : undefined,
           number: scene.scene_index,
           source: 'scene_plan',
           planned_scene_index: scene.scene_index,
@@ -1198,6 +1200,7 @@ export async function prepareUnifiedVideoAssemblyInputs(
     title: `Scene ${scene.planned_scene_index || scene.number}`,
     show_title: false,
     __scene_plan_duration: true,
+    clip_shortfall_mode: scene.clip_shortfall_mode,
   }))
   req.scene_pool_mode = 'scene_plan'
   req.merged_audio_path = merged.path
@@ -2950,6 +2953,7 @@ export async function prepareSceneClips(
     // Everything downstream (cycling, xfade transitions, effect gate,
     // subtitles, logo, overlays, export) is identical to a still scene.
     const isVideoScene = /\.(mp4|mov|webm|mkv|m4v)$/i.test(scene.image_path || '')
+    const holdVideo = isVideoScene && scene.clip_shortfall_mode === 'hold'
 
     const pickedType = picks[i]
     const durLog = Math.abs(duration - defaultDuration) > 0.05 ? ` [dur=${duration.toFixed(2)}s]` : ''
@@ -2970,6 +2974,10 @@ export async function prepareSceneClips(
           // of freezing on the overlap.
           duration: renderDuration,
         })
+
+    // Follow narration plays once, then holds the last frame through its window and xfade tail.
+    // Pad before overlays so their timing continues normally over the held frame.
+    if (holdVideo) vfParts.push(`tpad=stop_mode=clone:stop_duration=${renderDuration}`)
 
     // Chapter title overlay. v1.0.56+ optionally animates entry via
     // drawtext's `alpha=` (fade) or `x=` / `y=` (slide) expressions.
@@ -3061,7 +3069,7 @@ export async function prepareSceneClips(
     const stillDecoder = isVideoScene ? [] : await stillDecoderArgs(scene.image_path)
     const singleFrameStill = !isVideoScene && isZoompanAnimation(pickedType, motionLibrary)
     const inputArgs = isVideoScene
-      ? (naturalVideo
+      ? (naturalVideo || holdVideo
           ? ['-i', scene.image_path]
           : ['-stream_loop', '-1', '-i', scene.image_path])
       : singleFrameStill

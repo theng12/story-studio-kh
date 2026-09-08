@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.128 — 2026-09-08
+
+- **Motion duration follows the selected model.** Choose resolution separately and adjust duration with a snapping slider or number field using the model’s published image-to-video options.
+- **Follow narration is an explicit choice.** Each missing scene rounds up to a supported clip duration. Review the requested duration, listed cost and any trim or final-frame hold before generating. Saved manual settings and accepted requests keep their behavior.
+- **Generated clips are checked before completion.** Story Studio validates playable video and the requested duration, preserving invalid output for review without silently buying another generation. New Follow narration clips hold their last frame when shorter than the narration; existing clips keep their previous playback behavior.
+
 ## v1.4.127 — 2026-09-08
 
 - **Choose the upload thumbnail inside the review dialog.** Preview the available episode thumbnails, see the selected filename, and choose another image without leaving Upload Center. Missing or unreadable thumbnails are shown explicitly.

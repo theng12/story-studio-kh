@@ -6,6 +6,7 @@ import { afterEach, describe, it } from 'node:test'
 
 import { auditSceneClipCompletion, auditSceneImageCompletion, checkpointSceneClip, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import type { ScenePlan } from '../models/types.js'
+import { tinyVideoBytes } from './fixtures/tiny-video.js'
 
 const tempDirs: string[] = []
 const ONE_PIXEL_PNG = Buffer.from(
@@ -104,13 +105,30 @@ describe('scene media checkpoints', () => {
   it('registers a verified clip with its prompt and image version', async () => {
     const { dir, planPath } = await fixture()
     const clip = path.join(dir, 'scene-1.mp4')
-    await fs.writeFile(clip, 'video')
+    await fs.writeFile(clip, tinyVideoBytes())
     await checkpointSceneClip(planPath, 'scene-1', clip, 'Slow push in', 'image-v1', true)
     const saved = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     assert.equal(saved.scenes[0]?.clip_path, clip)
     assert.equal(saved.scenes[0]?.rendered_motion_prompt, 'Slow push in')
     assert.equal(saved.scenes[0]?.clip_source_image_version, 'image-v1')
     assert.equal(saved.scenes[0]?.motion_choice, 'clip')
+  })
+
+  it('records a Follow narration clip receipt and its required final-frame hold', async () => {
+    const { dir, planPath } = await fixture()
+    const clip = path.join(dir, 'scene-1.mp4')
+    await fs.writeFile(clip, tinyVideoBytes())
+
+    await checkpointSceneClip(planPath, 'scene-1', clip, 'Slow push in', 'image-v1', true, {
+      requested_duration_seconds: 1,
+      duration_seconds: 1,
+      shortfall_mode: 'hold',
+    })
+
+    const saved = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    assert.equal(saved.scenes[0]?.clip_requested_duration_seconds, 1)
+    assert.equal(saved.scenes[0]?.clip_duration_seconds, 1)
+    assert.equal(saved.scenes[0]?.clip_shortfall_mode, 'hold')
   })
 
   it('audits canonical, empty, missing, and removed scene images', async () => {
