@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-08T15:11:35.979Z",
-  "count": 186,
+  "generated": "2026-09-08T16:23:44.846Z",
+  "count": 195,
   "items": [
     {
       "kind": "lettering-style",
@@ -484,6 +484,16 @@
     },
     {
       "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.backyard-sleep-titles",
+      "name": "Backyard Sleep Titles",
+      "collection_dir": "backyard-naturalist/metadata-formula/backyard-sleep-titles",
+      "axis": "Quiet opening, chapter list, stated runtime, how to listen,…",
+      "description": "The write-up shape for a long, calm episode about the creatures and plants living around a house. Two fixed title patte…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
       "id": "com.storystudio.metadata-formula.chronology",
       "name": "Chronology",
       "collection_dir": "paid/metadata-formulas/editorial",
@@ -520,6 +530,16 @@
       "axis": "Whole-arc opening, era sections, stated runtime, listening…",
       "description": "The write-up shape for an episode that tells one whole civilisation or one whole life from beginning to end in a single…",
       "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "metadata-formula",
+      "id": "com.storystudio.metadata-formula.every-type-explained-titles",
+      "name": "Every Type Explained Titles",
+      "collection_dir": "cartoon-animal-explainer/metadata-formula/every-type-explained-titles",
+      "axis": "Coverage opening, the list of types covered, stated runtime…",
+      "description": "The write-up shape for an animal explainer that promises complete coverage of one group in a stated number of minutes.…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {
@@ -944,6 +964,16 @@
     },
     {
       "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.labelled-caricature-trio",
+      "name": "Labelled Caricature Trio",
+      "collection_dir": "cartoon-animal-explainer/thumbnail/labelled-caricature-trio",
+      "axis": "Explainer",
+      "description": "Three caricatured animals of one species standing side by side on plain white, each with a single hand-printed word abo…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
       "id": "com.storystudio.thumbnail.macro-mystery-detail",
       "name": "Macro Mystery Detail",
       "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail",
@@ -1074,6 +1104,16 @@
     },
     {
       "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.sketch-and-marker-note",
+      "name": "Sketch and Marker Note",
+      "collection_dir": "backyard-naturalist/thumbnail/sketch-and-marker-note",
+      "axis": "Natural world",
+      "description": "A page from somebody's notebook: the subject drawn on the left in the active style, two to four handwritten marker word…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
       "id": "com.storystudio.thumbnail.two-option-criteria-split",
       "name": "Two-Option Criteria Split",
       "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split",
@@ -1190,6 +1230,26 @@
       "axis": "-",
       "description": "A duplicate-resistant Topic Pack for practical audience questions, organized by audience context, question intent, cons…",
       "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.backyard-creatures",
+      "name": "Backyard Creatures",
+      "collection_dir": "backyard-naturalist/topic/backyard-creatures",
+      "axis": "backyard wildlife, misunderstood animals, sleep nature",
+      "description": "Fifty misunderstood animals of gardens and houses — spiders, insects, centipedes, woodlice, worms, birds and small mamm…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.backyard-plants",
+      "name": "Backyard Plants",
+      "collection_dir": "backyard-naturalist/topic/backyard-plants",
+      "axis": "backyard plants, weeds and volunteers, sleep nature",
+      "description": "Fifty plants that live around a house without being planned — lawn weeds, path colonists, mosses and lichens, self-sown…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {
@@ -1614,6 +1674,26 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.flat-cartoon-wildlife",
+      "name": "Flat Cartoon Wildlife",
+      "collection_dir": "cartoon-animal-explainer/style/flat-cartoon-wildlife",
+      "axis": "Illustration",
+      "description": "One calm animal at a time, drawn with a thick clean outline and flat muted fills, standing in a simple landscape reduce…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.flat-colour-stick-scenes",
+      "name": "Flat Colour Stick Scenes",
+      "collection_dir": "standalone-looks/style/flat-colour-stick-scenes",
+      "axis": "Illustration",
+      "description": "Round-headed stick figures with big white eyes, drawn in a thick black line whose edges stay slightly rough, standing i…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.flat-vector-explainer",
       "name": "Flat Vector Explainer",
       "collection_dir": "free-starters/style/flat-vector-explainer-v1.0.1",
@@ -1730,6 +1810,16 @@
       "axis": "Explainer",
       "description": "Polished stick-figure storytelling with expressive faces, generous white space, and restrained color accents.",
       "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.naturalist-sketchbook",
+      "name": "Naturalist Sketchbook",
+      "collection_dir": "backyard-naturalist/style/naturalist-sketchbook",
+      "axis": "Illustration",
+      "description": "A field guide's page: one creature or plant drawn in fine cross-hatched pen and ink under a light warm tint, sitting on…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {

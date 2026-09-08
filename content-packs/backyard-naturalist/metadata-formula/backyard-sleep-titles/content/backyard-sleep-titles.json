@@ -1,0 +1,97 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.backyard-sleep-titles",
+  "name": "Backyard Sleep Titles",
+  "description": "The write-up shape for a long, calm episode about the creatures and plants living around a house. Two fixed title patterns say plainly whose life is being told and that it is told slowly, and the description below lists the chapters, states the real runtime, explains how the episode is built so a listener can fall asleep in the first chapter and lose nothing, and says where the natural history comes from.",
+  "architecture": "Quiet opening, chapter list, stated runtime, how to listen, where this comes from, optional note on what to do instead of killing it, hashtags.",
+  "description_plan": {
+    "max_chars": 3400,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "opening",
+        "instruction": "Three or four sentences naming the subject and saying plainly what the episode is: a long, quiet account of one living thing that shares a house or a garden with people. Say what the subject actually does for a living, say how many chapters there are, and say that each chapter stands on its own so a listener can start anywhere and stop anywhere. Do not tease a chapter, do not promise a strangest or a final one, and do not ask the reader a question.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "chapters",
+        "instruction": "List the chapters in the order they appear, one per line, each a short noun phrase naming what that chapter is about. Use the plain words a listener would use, keep every line the same rough length so the list reads as a calm block, and do not number them or give timestamps. No ranking language, no adjectives doing sales work, and nothing framed as a reveal.",
+        "header": {
+          "render": true,
+          "text": "The chapters"
+        },
+        "target_chars": 900
+      },
+      {
+        "id": "runtime",
+        "instruction": "State the episode length in one sentence, in hours and minutes, taking the actual figure from the story context. Episodes in this shape run ninety to one hundred and thirty minutes; if the story context gives a length outside that, use the real one and say so plainly. Then say roughly how long a chapter lasts and say that nothing is held back for a second part.",
+        "header": {
+          "render": true,
+          "text": "How long it runs"
+        },
+        "target_chars": 260
+      },
+      {
+        "id": "listening",
+        "instruction": "Three or four sentences on how the episode is built for sleep. Say that the volume stays even the whole way through with no sudden changes, that the pace never quickens, that each chapter resolves rather than handing over to the next, that there is no music sting, no scare, no raised voice and no jump in loudness anywhere, and that a listener who falls asleep in the first chapter has missed nothing they were promised. Say it plainly and never as a sales point.",
+        "header": {
+          "render": true,
+          "text": "How to listen"
+        },
+        "target_chars": 440
+      },
+      {
+        "id": "sources",
+        "instruction": "Two or three sentences naming the kinds of evidence the episode leans on — the sorts of field guides, regional entomology and botany surveys, extension-service advice, museum collections, long-running garden and citizen-science records or peer-reviewed papers a careful narrator would use. Describe source types rather than citing any specific title, author, institution or database. Where a widely repeated belief about this subject is wrong — a bite it does not deliver, a disease it does not carry, a poison it does not have — correct it here in one plain sentence.",
+        "header": {
+          "render": true,
+          "text": "Where this comes from"
+        },
+        "target_chars": 440
+      },
+      {
+        "id": "instead",
+        "instruction": "Include this section only when the story context says the episode covers a creature or plant people commonly kill or destroy on sight. When it does, write two or three plain sentences on what to do instead: how to move it outside, how to leave it alone, what it eats that a person would rather not have, and when a professional is genuinely the right answer. Give no medical advice, name no product, and never suggest a method that would hurt the animal. When the story context does not say the subject is commonly killed, emit nothing at all for this section.",
+        "header": {
+          "render": true,
+          "text": "What to do instead"
+        },
+        "target_chars": 320
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 110,
+    "guidance": "Rotate between two shapes across a series. First: The Secret Life of Your Backyard: <Subject> | Sleep Nature, with that exact colon and pipe, the subject given as the plain common name a listener would search for, and nothing after the pipe. Second: Why You Should Never Kill <Creature> (told slowly), in that exact punctuation with the bracketed phrase last, used only when the episode really makes the case for leaving that creature alone. Title case, the creature or plant the searchable word. Never a question, an exclamation, a promised secret, a runtime figure, or a living person's name."
+  },
+  "tag_plan": {
+    "count": 22,
+    "guidance": "for a long calm nature episode about the living things around a house, mixing the subject's common and scientific names, the group it belongs to, the garden and household settings it turns up in, the plain misconception the episode corrects, the sleep and long-listening framing, and the general backyard-wildlife and nature-documentary terms a listener of this kind of video already searches for"
+  },
+  "tone": {
+    "constraints": [
+      "No hook, no cliffhanger, no countdown to a final chapter, and no teaser anywhere in the title or the description.",
+      "Nothing in the write-up may startle: no exclamation, no capitalised shouting, no warning framed to alarm, and no promise of anything frightening.",
+      "The subject is treated as worth keeping alive; never describe it as vermin, filth or an enemy, and never recommend killing it.",
+      "Counts, sizes, lifespans, bite and sting facts come from the story context and are never invented, exaggerated or made more certain than the evidence allows.",
+      "Say plainly which claims are settled and which are still argued, and correct a popular belief that is known to be wrong.",
+      "Give no medical, veterinary or pesticide advice, and name no product, brand or treatment.",
+      "Name naturalists and institutions only in general terms; never name a living private individual and never invent a source.",
+      "No second-person urging, no call to act, and nothing that asks the listener to stay awake."
+    ]
+  }
+}

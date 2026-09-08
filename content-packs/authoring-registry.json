@@ -1,5 +1,5 @@
 {
-  "revision": 265,
+  "revision": 277,
   "batches": [
     {
       "revision": 2,
@@ -5258,6 +5258,250 @@
           }
         ]
       }
+    },
+    {
+      "revision": 266,
+      "receipt_ref": "authoring:20cc5fec4b8a5e07f1a03a1eeebd504f583ac3025f738401bee782b74bbcc855",
+      "request": {
+        "expected_revision": 265,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "proposal_ref": "Owner brief 2026-09-09: Cartoon Animal Explainer — a flat cartoon wildlife look, a labelled caricature trio thumbnail, and an every-type-explained title formula",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.flat-cartoon-wildlife",
+            "item_id": "com.storystudio.style.flat-cartoon-wildlife",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/cartoon-animal-explainer/style/flat-cartoon-wildlife",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.flat-cartoon-wildlife",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.flat-cartoon-wildlife",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.labelled-caricature-trio",
+            "item_id": "com.storystudio.thumbnail.labelled-caricature-trio",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/cartoon-animal-explainer/thumbnail/labelled-caricature-trio",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.labelled-caricature-trio",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.labelled-caricature-trio",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.every-type-explained-titles",
+            "item_ids": [
+              "com.storystudio.metadata-formula.every-type-explained-titles"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/cartoon-animal-explainer/metadata-formula/every-type-explained-titles",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.every-type-explained-titles",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.every-type-explained-titles",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 267,
+      "receipt_ref": "authoring:ebd1b5e09ab64e5b5f921bd6a8630358bcb69c8efb2fbcbf5739418e740c0754",
+      "request": {
+        "expected_revision": 266,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "proposal_ref": "Owner brief 2026-09-09: a third Standalone Look — Flat Colour Stick Scenes, stick figures in complete coloured environments with diagram devices drawn into the scene",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.flat-colour-stick-scenes",
+            "item_id": "com.storystudio.style.flat-colour-stick-scenes",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/standalone-looks/style/flat-colour-stick-scenes",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.flat-colour-stick-scenes",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.flat-colour-stick-scenes",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 268,
+      "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+      "request": {
+        "expected_revision": 267,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "proposal_ref": "Owner brief 2026-09-09: Backyard Naturalist — a field-guide sketchbook look, a sketch-and-marker-note thumbnail, two backyard topic packs, and a calm sleep title formula",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.naturalist-sketchbook",
+            "item_id": "com.storystudio.style.naturalist-sketchbook",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/backyard-naturalist/style/naturalist-sketchbook",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.naturalist-sketchbook",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.naturalist-sketchbook",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.sketch-and-marker-note",
+            "item_id": "com.storystudio.thumbnail.sketch-and-marker-note",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/backyard-naturalist/thumbnail/sketch-and-marker-note",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.sketch-and-marker-note",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.sketch-and-marker-note",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.backyard-creatures",
+            "item_id": "com.storystudio.topic.backyard-creatures",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/backyard-naturalist/topic/backyard-creatures",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.backyard-creatures",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.backyard-creatures",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.backyard-plants",
+            "item_id": "com.storystudio.topic.backyard-plants",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/backyard-naturalist/topic/backyard-plants",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.backyard-plants",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.backyard-plants",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.backyard-sleep-titles",
+            "item_ids": [
+              "com.storystudio.metadata-formula.backyard-sleep-titles"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/backyard-naturalist/metadata-formula/backyard-sleep-titles",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.backyard-sleep-titles",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.backyard-sleep-titles",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -9076,6 +9320,159 @@
         "receipt_ref": "authoring:73575eb864c8593ad74abca5374d969b7f9f5107787672848cf4cb0b2d516e3d",
         "pack_id": "com.storystudio.pack.topic.lost-voyages",
         "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 269,
+      "transition_ref": "lifecycle:a142f5e1eeaf695ea7abc0e08ba63abda5a849c50ac2210ac24ce9438a61ebc8",
+      "request": {
+        "expected_revision": 268,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "receipt_ref": "authoring:20cc5fec4b8a5e07f1a03a1eeebd504f583ac3025f738401bee782b74bbcc855",
+        "pack_id": "com.storystudio.pack.style.flat-cartoon-wildlife",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 270,
+      "transition_ref": "lifecycle:91df10ebbd1298fa9c0dd4da6bc0635a3a323d78a3fb75fd2e8267cd36df797c",
+      "request": {
+        "expected_revision": 269,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "receipt_ref": "authoring:20cc5fec4b8a5e07f1a03a1eeebd504f583ac3025f738401bee782b74bbcc855",
+        "pack_id": "com.storystudio.pack.thumbnail.labelled-caricature-trio",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 271,
+      "transition_ref": "lifecycle:067d6bb6bad36441a3c13d8ecb3085fb1330f75ed67118ec7596ade2ae54e0e4",
+      "request": {
+        "expected_revision": 270,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "receipt_ref": "authoring:20cc5fec4b8a5e07f1a03a1eeebd504f583ac3025f738401bee782b74bbcc855",
+        "pack_id": "com.storystudio.pack.metadata-formula.every-type-explained-titles",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 272,
+      "transition_ref": "lifecycle:319d555de9605fd77360b3c0ec26b0baebbbe3902ebf19b2b3bd52dcf088215d",
+      "request": {
+        "expected_revision": 271,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "receipt_ref": "authoring:ebd1b5e09ab64e5b5f921bd6a8630358bcb69c8efb2fbcbf5739418e740c0754",
+        "pack_id": "com.storystudio.pack.style.flat-colour-stick-scenes",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 273,
+      "transition_ref": "lifecycle:b928bbf18c987356e9822ab0f61e755e79e8afcf6c604d646197fe9fb12b1362",
+      "request": {
+        "expected_revision": 272,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+        "pack_id": "com.storystudio.pack.style.naturalist-sketchbook",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 274,
+      "transition_ref": "lifecycle:eaf1228d249c124c66d484ffc7f4375373a89e7897d7b5a4181217d128ebed6b",
+      "request": {
+        "expected_revision": 273,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+        "pack_id": "com.storystudio.pack.thumbnail.sketch-and-marker-note",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 275,
+      "transition_ref": "lifecycle:28df477a67280c1cc11312cc360289cdc3ba44bec63ed9c5f85ecd2be6c51dcf",
+      "request": {
+        "expected_revision": 274,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+        "pack_id": "com.storystudio.pack.topic.backyard-creatures",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 276,
+      "transition_ref": "lifecycle:3b97b646486e21e6d6394f4954e2ac83008f955e32625fb9198d160649a3177a",
+      "request": {
+        "expected_revision": 275,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+        "pack_id": "com.storystudio.pack.topic.backyard-plants",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 277,
+      "transition_ref": "lifecycle:da7bde26222f7a816936cde1a32893cdba2190d653ad3c69f4271e7d4bc37cfe",
+      "request": {
+        "expected_revision": 276,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "content/three-more-collections-2026-09-09"
+        },
+        "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+        "pack_id": "com.storystudio.pack.metadata-formula.backyard-sleep-titles",
+        "version": "1.0.0",
         "changes": {
           "status": "authored"
         }
@@ -15478,6 +15875,217 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.lost-voyages",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:20cc5fec4b8a5e07f1a03a1eeebd504f583ac3025f738401bee782b74bbcc855",
+      "pack_id": "com.storystudio.pack.style.flat-cartoon-wildlife",
+      "item_id": "com.storystudio.style.flat-cartoon-wildlife",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/cartoon-animal-explainer/style/flat-cartoon-wildlife",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.flat-cartoon-wildlife",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.flat-cartoon-wildlife",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:20cc5fec4b8a5e07f1a03a1eeebd504f583ac3025f738401bee782b74bbcc855",
+      "pack_id": "com.storystudio.pack.thumbnail.labelled-caricature-trio",
+      "item_id": "com.storystudio.thumbnail.labelled-caricature-trio",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/cartoon-animal-explainer/thumbnail/labelled-caricature-trio",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.labelled-caricature-trio",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.labelled-caricature-trio",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:20cc5fec4b8a5e07f1a03a1eeebd504f583ac3025f738401bee782b74bbcc855",
+      "pack_id": "com.storystudio.pack.metadata-formula.every-type-explained-titles",
+      "item_ids": [
+        "com.storystudio.metadata-formula.every-type-explained-titles"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/cartoon-animal-explainer/metadata-formula/every-type-explained-titles",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.every-type-explained-titles",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.every-type-explained-titles",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ebd1b5e09ab64e5b5f921bd6a8630358bcb69c8efb2fbcbf5739418e740c0754",
+      "pack_id": "com.storystudio.pack.style.flat-colour-stick-scenes",
+      "item_id": "com.storystudio.style.flat-colour-stick-scenes",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/standalone-looks/style/flat-colour-stick-scenes",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.flat-colour-stick-scenes",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.flat-colour-stick-scenes",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+      "pack_id": "com.storystudio.pack.style.naturalist-sketchbook",
+      "item_id": "com.storystudio.style.naturalist-sketchbook",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/backyard-naturalist/style/naturalist-sketchbook",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.naturalist-sketchbook",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.naturalist-sketchbook",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+      "pack_id": "com.storystudio.pack.thumbnail.sketch-and-marker-note",
+      "item_id": "com.storystudio.thumbnail.sketch-and-marker-note",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/backyard-naturalist/thumbnail/sketch-and-marker-note",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.sketch-and-marker-note",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.sketch-and-marker-note",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+      "pack_id": "com.storystudio.pack.topic.backyard-creatures",
+      "item_id": "com.storystudio.topic.backyard-creatures",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/backyard-naturalist/topic/backyard-creatures",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.backyard-creatures",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.backyard-creatures",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+      "pack_id": "com.storystudio.pack.topic.backyard-plants",
+      "item_id": "com.storystudio.topic.backyard-plants",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/backyard-naturalist/topic/backyard-plants",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.backyard-plants",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.backyard-plants",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ba18b05fa0d75b1140ae48eacb398d3aa71357d9369e29e0834d7d0b170d8c27",
+      "pack_id": "com.storystudio.pack.metadata-formula.backyard-sleep-titles",
+      "item_ids": [
+        "com.storystudio.metadata-formula.backyard-sleep-titles"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/backyard-naturalist/metadata-formula/backyard-sleep-titles",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.backyard-sleep-titles",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.backyard-sleep-titles",
           "status": "proposed"
         }
       }

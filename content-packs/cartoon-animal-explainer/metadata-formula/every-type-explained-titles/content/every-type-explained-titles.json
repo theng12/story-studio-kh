@@ -1,0 +1,97 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.every-type-explained-titles",
+  "name": "Every Type Explained Titles",
+  "description": "The write-up shape for an animal explainer that promises complete coverage of one group in a stated number of minutes. Two fixed title patterns name the group and the runtime plainly, and the description below lists exactly which types are covered, states the real length, says which claims are settled and which are still argued, and describes the kinds of source the episode leans on.",
+  "architecture": "Coverage opening, the list of types covered, stated runtime, what is settled and what is argued, sources note, optional correction note, hashtags.",
+  "description_plan": {
+    "max_chars": 3200,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "opening",
+        "instruction": "Three or four sentences naming the group the episode covers and saying plainly how many types are in it. Say what makes the group one group — the shared trait, the shared ancestry, the shared habitat or the shared job the animals do — and say that the episode goes through them one at a time in a fixed order. Do not tease a type, do not promise a strangest or a last one, and do not ask the reader a question.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 400
+      },
+      {
+        "id": "types",
+        "instruction": "List the types in the order they appear, one per line, each a short noun phrase naming the animal itself. Use the plain common name a viewer would recognise or search for, and put the scientific or group name in ordinary brackets after it only where the common name is genuinely ambiguous. No numbering, no times, no ranking language, no adjectives doing sales work, and nothing framed as a reveal.",
+        "header": {
+          "render": true,
+          "text": "Every type covered"
+        },
+        "target_chars": 850
+      },
+      {
+        "id": "runtime",
+        "instruction": "State the episode length in minutes in one sentence, taking the actual figure from the story context rather than from any range. Say that the number in the title is the real length of this video and not a rounded promise, and say roughly how long each type gets. Episodes in this shape run fifteen to twenty-two minutes; if the story context gives a length outside that, use the real one and say so plainly rather than bending the title to fit.",
+        "header": {
+          "render": true,
+          "text": "How long it runs"
+        },
+        "target_chars": 260
+      },
+      {
+        "id": "settled",
+        "instruction": "Two to four sentences separating what is well established about this group from what is still argued among the people who study it. Name at least one thing that is settled and at least one thing that is genuinely open — a disputed count of species, a contested relationship between two types, a behaviour recorded only a handful of times — and say plainly which is which. Never present an open question as settled to make the coverage sound more complete than it is.",
+        "header": {
+          "render": true,
+          "text": "What is settled, what is argued"
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "sources",
+        "instruction": "Two or three sentences naming the kinds of evidence the episode leans on — the sorts of field guides, survey data, museum collections, tagging and tracking studies, camera-trap records or peer-reviewed work a careful narrator would use for this group. Describe source types rather than citing any specific title, author, institution or database. Where a widely repeated popular claim about this group is known to be wrong, say so here in one plain sentence.",
+        "header": {
+          "render": true,
+          "text": "Where this comes from"
+        },
+        "target_chars": 400
+      },
+      {
+        "id": "correction",
+        "instruction": "Include this section only when the story context records a correction to an earlier episode of this series. When it does, write one plain sentence naming what was wrong and what is right, with no apology, no self-deprecation and no link. When the story context records no correction, emit nothing at all for this section.",
+        "header": {
+          "render": true,
+          "text": "Correction"
+        },
+        "target_chars": 140
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 100,
+    "guidance": "Rotate between two shapes across a series. First: Every <Species> Type Explained in <N> Minutes, with the plain group name a viewer would search for and N the real length in whole minutes. Second: Every Continent's <Superlative> Animal Explained in <N> Minutes, used only when the episode truly takes one animal per continent and argues the superlative. Title case, the animal group as the searchable word, the number in digits. N must equal the real runtime; never round it up. Never a question, an exclamation, a promised secret, or a count of types the episode does not deliver."
+  },
+  "tag_plan": {
+    "count": 20,
+    "guidance": "for an animal explainer that covers one group completely, mixing the group's common and scientific names, the plain names of the three or four best-known types in it, the habitats and continents the types come from, the complete-coverage framing, the stated runtime, and the general animal-explainer and natural-history terms a viewer of this kind of video already searches for"
+  },
+  "tone": {
+    "constraints": [
+      "No hook, no cliffhanger, no countdown to a final type, and no teaser anywhere in the title or the description.",
+      "The order the types appear in is not a ranking unless the episode actually ranks them, and the write-up never implies one that is not there.",
+      "The number of minutes in the title is the real runtime of this video, taken from the story context and never rounded up for effect.",
+      "Counts, sizes, speeds, lifespans and population figures come from the story context and are never invented, exaggerated or stated more precisely than the evidence allows.",
+      "Say plainly which claims are settled and which are still argued, and correct a popular claim that is known to be wrong.",
+      "Describe predation, injury and death briefly and factually where the subject requires it, and never linger on an animal's suffering.",
+      "Name scientists, naturalists and institutions only in general terms; never name a living private individual and never invent a source.",
+      "No second-person urging, no call to act, and nothing that asks the viewer to comment, subscribe or stay to the end."
+    ]
+  }
+}
