@@ -4,12 +4,19 @@
  * sitting, across fifty cycles from eight traditions. One reservation batch
  * (revision 225), one receipt, three lifecycle promotions (revisions 231-233).
  *
- * Two of the three declare preview assets that DO NOT EXIST YET: this control
- * Mac does not perform production image generation, and no owner authorisation
- * was given for this pass. Nothing was fabricated and nothing was stubbed, so
- * this file pins the honest state instead: every declared preview path is named
- * by the collection's PREVIEW-PROVENANCE.md, and any preview byte that HAS
- * landed must meet the contract.
+ * Two of the three declare preview assets, and all four of them now EXIST:
+ * they were rendered on 2026-09-08 under an explicit owner authorisation
+ * through GenStudio `gpt-image-2`, converted, and committed. So the preview
+ * assertions are no longer conditional — every declared preview must be on
+ * disk, must decode to its exact contract, and must have its digest and byte
+ * count recorded in the collection's PREVIEW-PROVENANCE.md.
+ *
+ * The hero and the hardest-case preview were rendered from REWORDED prompts:
+ * the first wording described baroque figures in the ordinary art-historical
+ * way — drapery over an undraped body, bare shoulders, winged infants — and the
+ * provider's safety system refused both outright as sexual. The look is now
+ * fully draped by contract, in the style document as well as in the prompts,
+ * and that is pinned below so a later edit cannot walk it back into a refusal.
  *
  * The three-preview rule for Visual Styles, set by the owner on 2026-09-08 and
  * applied to Royal History first, is asserted here too, so a later edit cannot
@@ -114,18 +121,36 @@ test('the visual style is cloud, diagonal, drapery, attribute and chiaroscuro', 
   assert.match(style.style_bible, /small winged cherubs cluster at the edges/i)
   assert.match(style.style_bible, /one plainly readable attribute/i)
   assert.match(style.style_bible, /strong chiaroscuro from a single high source/i)
-  // The medium, and the manner the owner named.
+  // The medium, and the manner the owner named. The owner's rule of 2026-09-08
+  // is that the look is described rather than attributed, so no painter — living
+  // or dead — may be named anywhere in the shipped document.
   assert.match(style.style_bible, /oil on a coarse primed canvas or as fresco/i)
-  assert.match(style.style_bible, /in the manner of Rubens and of Giulio Romano/i)
+  assert.match(style.style_bible, /in the high-baroque manner of grand ceiling and altarpiece decoration/i)
+  for (const field of [style.style_bible, style.description, style.negative_prompt, style.tags.join(' ')]) {
+    assert.doesNotMatch(field, /rubens|giulio romano|caravaggio|titian|tiepolo|veronese|poussin/i,
+      'the style is described in the high-baroque manner rather than attributed to a painter')
+  }
   // The palette contract: warm flesh against stormy or gilded sky.
   assert.match(style.style_bible, /stormy in slate, bruised violet and grey-green, or gilded in amber/i)
   // It is a SLEEP look, and the bible says so, which is why the drama is in the
   // composition rather than in a face.
   assert.match(style.style_bible, /the drama sits in the composition and the light rather than in a face/i)
   for (const rejected of ['photograph', 'flat vector', 'anime', 'modern objects',
-    'muted grey palette', 'text', 'close cropped screaming face']) {
+    'muted grey palette', 'text', 'close cropped screaming face',
+    // Added 2026-09-08 after the provider refused two of this style's own
+    // previews as sexual. The look is fully draped by contract now, and the
+    // negative prompt has to say so or the refusal comes back on a buyer's
+    // first generation rather than on ours.
+    'nudity', 'bare skin', 'undraped figures', 'bare shoulders', 'bare torso']) {
     assert.ok(style.negative_prompt.includes(rejected), `negative prompt must reject ${rejected}`)
   }
+  // Positively stated in the bible too, because a negative prompt alone is a
+  // hint and the bible is what the planner actually reasons from.
+  assert.match(style.style_bible, /fully draped in heavy robes from the neck to the ankle/i)
+  assert.match(style.style_bible, /there is no nudity anywhere in this look, no bare torso and no bare shoulder/i)
+  // Cherubs stay in the look, but clothed and optional — which is what let the
+  // hero preview drop them rather than fight the classifier for them.
+  assert.match(style.style_bible, /they are clothed in the same way, and a picture may leave them out entirely/i)
 })
 
 test('the visual style declares three previews — hero, empty scene, and hardest case', async () => {
@@ -256,7 +281,7 @@ test('no topic line is shared with any other authored collection', async () => {
   }
 })
 
-test('every declared preview is named by the provenance record, and any that exists meets the contract', async () => {
+test('every declared preview exists, meets the contract, and is accounted for by the provenance record', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   const declared = new Set()
   for (const p of PACKS) {
@@ -271,7 +296,7 @@ test('every declared preview is named by the provenance record, and any that exi
     assert.ok(provenance.includes(rel.split('/').pop()), `provenance must name ${rel}`)
     assert.ok(provenance.includes(`${width}x${height}`), `provenance must state ${width}x${height}`)
     const path = join(ROOT, rel)
-    if (!await exists(path)) continue
+    assert.ok(await exists(path), `${rel} is declared by a pack and must be committed`)
     const buf = await readFile(path)
     assert.ok(buf.byteLength > 20 * 1024, `${rel} must exceed the 20 KB floor`)
     const meta = await sharp(buf).metadata()
@@ -283,7 +308,7 @@ test('every declared preview is named by the provenance record, and any that exi
   }
 })
 
-test('the provenance record states why nothing was generated, how to generate it, and what to refuse', async () => {
+test('the provenance record states under what authorisation these were rendered, how, and what to refuse', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   for (const evidence of [
     'image-pool/generate',
@@ -300,6 +325,25 @@ test('the provenance record states why nothing was generated, how to generate it
   assert.match(provenance, /must carry no word in any language/)
   assert.match(provenance, /spelled exactly as written/)
   assert.match(provenance, /must be rejected rather than committed/)
+  // The refusal, why the wording changed, and the refused text kept as history.
+  // Without these a later reader sees only the passing prompts and repeats the
+  // mistake the next time this style is extended.
+  for (const evidence of [
+    'IMAGE_CONTENT_REFUSED',
+    'safety_violations=["sexual"]',
+    'baroque-myth-previews-1-reword',
+    'The refused wording, kept as history',
+  ]) {
+    assert.ok(provenance.includes(evidence), `provenance must record ${evidence}`)
+  }
+  // The two prompts that ship must themselves be draped, or the record and the
+  // bytes drift apart the next time somebody re-runs them.
+  const shipped = provenance.match(/^> .+$/gm) ?? []
+  for (const index of [0, 2]) {
+    assert.match(shipped[index], /high-baroque manner/i, 'no painter is named in the shipped prompt')
+    assert.match(shipped[index], /no nudity/i)
+    assert.match(shipped[index], /fully draped from the neck to the ankle|is fully clothed/i)
+  }
   // One run id, and its body stays well inside the seven-prompt ceiling.
   const prompts = provenance.match(/^## Prompt \d+ — /gm) ?? []
   assert.equal(prompts.length, Object.keys(PREVIEW_CONTRACT).length)
