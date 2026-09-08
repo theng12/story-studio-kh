@@ -41,6 +41,19 @@ Content-Type: application/json
 
 Then poll the returned job, retain the returned PNGs outside the repository, and convert each accepted original with a whole-image resize plus lossless WebP (effort 6) to the dimensions in the table — no crop, overlay, composite, or repair. Record the original digest and byte count, the accepted digest, byte count and decode result, and the credits spent, in the table below before committing the bytes.
 
+### One request will not fit in Story Studio 1.4.128 or earlier
+
+Attempted on 2026-09-08 and recorded here so the next operator does not lose the attempt. These thirteen prompts serialise to **16,832 bytes**, and every build up to and including 1.4.128 refuses the request with
+
+```
+HTTP 413 {"code":"CONTENT_STORE_REQUEST_TOO_LARGE",
+          "detail":"Content Store request body exceeds 16 KiB."}
+```
+
+The message is misleading: nothing about this route belongs to the Content Store. `routes/content-store.ts` mounted its 16 KiB body guard as a **path-less** `router.use`, and `routes/index.ts` mounts that router bare on `/api` ahead of about thirty others, so every router registered after it — b-roll, research, scene plan, scene review, continuity, music pool, library, changelog — silently inherited the Store's cap. The guard is now scoped to `/content-store`, with a regression test that mounts a sibling router after it and pushes an oversized body through. Once a build carrying that fix is installed, the single request above works as written.
+
+**Until such a build is installed**, do not shorten, merge or reword a prompt to fit — the prompt text is the contract. Send the thirteen as two jobs with distinct run ids (`…-previews-1` for prompts 1-7, `…-previews-1b` for prompts 8-13), because the pool names files `gen-<run_id>-NNNN.png` with the index restarting at 1 for each job, and a shared run id would make the second job overwrite the first. The credits are identical either way: 13 × 29 = 377.
+
 ## Acceptance contract per file
 
 | Pack | Asset path (pack-relative) | Required dimensions | Required format | Floor |
