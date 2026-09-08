@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.dripping-paint-finish",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Dripping Paint Finish lettering treatment: a single-colour wet-paint finish with runs leaving the baseline.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.dripping-paint-finish",
+    "family": "com.storystudio.family.lettering.dripping-paint-finish"
+  },
+  "dependencies": []
+}

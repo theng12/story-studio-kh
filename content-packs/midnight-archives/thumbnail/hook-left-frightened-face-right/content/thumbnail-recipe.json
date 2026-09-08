@@ -1,0 +1,72 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.hook-left-frightened-face-right",
+  "name": "Hook Left, Frightened Face Right",
+  "description": "Two variants for one dark-history channel. A: a three-to-five-word hook filling the left half of the frame, a frightened face close on the right, one candle lighting both. B: a whole scene with the title running the full width across the top or the bottom. No wordmark, no badges, no borders.",
+  "layout": "hero",
+  "category": "History",
+  "tags": [
+    "dark history",
+    "contrarian hook",
+    "frightened face",
+    "candlelight",
+    "teal and amber",
+    "ink texture",
+    "full-width title",
+    "two variants",
+    "hook thumbnail",
+    "fast pacing"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Choose exactly one variant per image and never mix them.\n\nVariant A, the hook cover. Split the sixteen by nine canvas down its vertical centre. The right half carries one face and one face only, close — cut at the shoulders or the upper chest, filling that half, turned toward the camera with the eyes to camera — caught mid-reaction rather than at rest: fear with the whites showing above the iris, shock with the mouth open and the jaw slack, or grief with the eyes wet. One candle, lamp wick or torch is the only light in the frame; place it low and close on the inner side of the face so the light climbs from beneath the cheekbone, the eye sockets and the throat drop into shadow, and everything more than an arm's length behind the head goes to unlit ground. No fill, no second key, no rim from behind. The left half carries the hook and nothing else: three to five words, rendered directly in the image, stacked across two or three lines of equal width, set large enough that the smallest word still reads at card size, with a clear margin between the outermost letter and the left, top and bottom edges. That half stays dark, empty and free of costume, architecture or smoke behind the letters. Nothing crosses the centre line except the falloff of the candlelight.\n\nVariant B, the scene cover. One whole scene fills the frame — a room, a corridor, a deck, a cell, a case of objects — with one light source inside it and a deliberate perspective that leads the eye from a near edge at the bottom of the frame to the lit thing. A figure may appear but stays small, incidental and turned away. The title runs the full width of the frame as a single band across either the top or the bottom, on one line if it fits and two if it does not, and the band of picture beneath or above it is kept dark, flat and quiet so no beam, edge or object crosses behind the letters. Pick the top or the bottom by where the scene is quietest, and alternate the choice down a channel so a row of episode cards does not read as one repeated image.\n\nBoth variants: the frame carries the hook or the title and nothing else — no wordmark, no channel name, no logo, no badge, no ribbon, no numeral bug, no border, no arrow, no reaction mark, and no second line of copy beyond the hook's own stacked lines. The active Visual Style remains the final authority for medium, palette, texture, detail level and lighting; this recipe controls only the variant, the split, the crop, the gaze, the light's position and the placement and shape of the text.",
+  "composition_rules": [
+    "Exactly one variant per image: A, hook filling the left half with a close frightened face on the right; or B, a whole scene with the title running the full width across the top or the bottom.",
+    "The hook in variant A is three to five words, rendered in the image, stacked across two or three lines of equal width, and nothing else appears in that half.",
+    "The face in variant A is cut at the shoulders or upper chest, turned to camera with the eyes to camera, and caught mid-reaction — never calm, never in profile, never full length.",
+    "One warm source only, low and close and inside the frame or just outside its edge, lighting the face from beneath; no fill, no second key, no rim light from behind.",
+    "The half or band of frame that carries the text stays dark, quiet and free of costume, architecture, smoke or beams behind the letters.",
+    "In variant B the title alternates between the top and the bottom of the frame down a channel, chosen by where the scene is quietest.",
+    "Vary the era, dress, room and objects between episodes; keep the variant grammar, the crop, the gaze, the single light and the word count fixed."
+  ],
+  "required_elements": [
+    "A hook of three to five words in variant A, filling the left half of the frame, or a full-width title band across the top or bottom in variant B",
+    "In variant A, one face cut at the shoulders or upper chest, turned to camera with the eyes to camera and caught mid-reaction",
+    "A single warm light source inside or just outside the frame, low and close, with steep falloff to unlit ground",
+    "An unlit, uncluttered ground behind every letter of the hook or title"
+  ],
+  "avoid_elements": [
+    "A wordmark, channel name, logo, badge, ribbon, numeral bug, or border of any kind",
+    "Both variants in one image, or more than one face anywhere in the frame",
+    "A hook shorter than three words or longer than five, a subtitle, a date line, or any caption beyond the hook or title",
+    "Costume detail, architecture, smoke, or light beams crossing behind the letters",
+    "Arrows, emoji, circles, price tags, red rings, or reaction marks",
+    "Bright daylight, flat even lighting, a second key light, a rim light from behind, or a calm expression",
+    "Gore, open wounds, blood spatter, or a body shown as an injury rather than a person",
+    "Post-render typography compositing, watermarks, or copied trade dress",
+    "Recognisable modern individuals, living people, or invented insignia presented as real"
+  ],
+  "headline_mode": "curiosity-hook",
+  "headline_guidance": "Write a contrarian hook of three to five words and render it directly in the image. The hook contradicts what the viewer already believes about the subject rather than teasing them with a question: say that the familiar version is wrong, or that the true one is worse, and let the correction itself be the pull. Name the subject inside the hook wherever it fits, because a hook nobody can place is not a hook. Never a question mark, never an exclamation, never a number that reads as a countdown, never a promise the episode does not keep, and never a claim about a living person. Set it stacked across two or three lines of equal width, and fail closed on misspelling, clipping, or any text beyond the hook.",
+  "default_text_style": "bone white fill with a thin deep-red outline and a soft red glow burning outward into the dark, the fill slightly distressed and no bevel, gradient or drop shadow",
+  "default_font_style": "bold serif capitals in clean bone white with strong thick-to-thin stroke contrast and sharp bracketed serifs, set tight and stacked across two or three lines of equal width, each letter carrying a thin hard outline in deep blood red and, behind that, a soft red glow burning outward into the dark ground, the white fill slightly distressed with fine broken edges and small chipped flecks as if printed on rough stock, with no bevel, no gradient and no drop shadow",
+  "default_text_position": "bottom-left",
+  "headline_formats": [
+    "{SUBJECT} Was Never {CLAIM}",
+    "The Real {SUBJECT}",
+    "They Erased {SUBJECT}",
+    "{SUBJECT} Was Worse",
+    "Nobody Was Told"
+  ],
+  "visual_style_guidance": "This recipe is built for the two looks this collection ships and needs both of them. Variant A wants the dark gothic candlelight portrait look: one face close and painted rather than photographed, an extreme expression, a single candle climbing the face from beneath, amber on the lit side against cold teal shadow, heavy ink texture across the whole frame, and steep falloff that gives the left half its unlit ground for free. Variant B wants the inked cross-hatch scene look: thick-line pen and ink with hatching radiating from one light inside the room, flat teal and amber washes laid under the ink, and a corner or band of solid black where the title can sit. The recipe governs only the variant, the split, the crop, the gaze, the light's position and the placement and shape of the text; every rendering choice of medium, palette, detail level, texture and lighting stays with the active Visual Style. A style that lights a scene evenly, fills its shadows, softens its edges, or holds a bright or saturated palette will break this recipe, because the text then has no dark quiet ground to land on and the face stops reading at card size.",
+  "preview_assets": [
+    "assets/hook-left-frightened-face-right-1.webp",
+    "assets/hook-left-frightened-face-right-2.webp",
+    "assets/hook-left-frightened-face-right-3.webp",
+    "assets/hook-left-frightened-face-right-4.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.history-explained"
+  ]
+}

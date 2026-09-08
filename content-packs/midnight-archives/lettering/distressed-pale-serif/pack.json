@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.distressed-pale-serif",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Distressed Pale Serif lettering style: heavily distressed pale serif capitals with a dark edge and a faint cool glow.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.distressed-pale-serif",
+    "family": "com.storystudio.family.lettering.distressed-pale-serif"
+  },
+  "dependencies": []
+}
