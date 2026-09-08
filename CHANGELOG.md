@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.130 — 2026-09-08
+
+- **Recovered subtitles stop looking unfinished.** Jobs distinguishes the original failed attempt from verified later recovery, keeps its credit history, and removes obsolete missing-section retry prompts.
+- **Subtitle history checks the accepted request.** Read-only reconciliation uses the transcription confirmation key and rechecks old absence records affected by the earlier key mismatch. It does not submit another paid request.
+
+- **Review several uploads together.** Ready-to-upload now requires a connected channel. Select eligible episodes, review their files, thumbnails and publication times, then queue the reviewed uploads with separate results for each episode.
+- **The reviewed video is the one uploaded.** Upload confirmation and recovery compare the file’s actual bytes. A changed render asks for another review instead of silently uploading it.
+- **Cleanup verifies before deleting.** Clearing local finals requires a matching file receipt and a fresh YouTube check confirming processing completed on the current channel. Unverified and older receipts keep their local files.
+- **Re-upload after a deliberate YouTube deletion.** Explicitly remove the old upload association after deleting the video on YouTube. Story preserves its history and lets you review a new upload; it never deletes the remote video itself.
+- **Uploads use the date you review.** Upload Center defaults to an episode’s future planned date, offers a custom date or private upload, and carries that exact choice into the queued request.
+- **Schedule private videos without uploading them again.** Choose a future publication time inside Upload Center. Story Studio checks the current channel and YouTube visibility before applying it.
+- **Give unscheduled videos a local plan.** Preview available dates from the channel’s upload plan and save missing assignments without changing existing dates or publishing videos.
+- **Upload progress stays visible.** Follow transferred bytes, percentage, speed and estimated time remaining beside each active upload, with a direct link to Jobs. The page also shows its assigned YouTube channel and fixes scrolling into empty space below the list.
+
 ## v1.4.129 — 2026-09-08
 
 - **Large requests to non-Store features are no longer refused with a Content Store error.** The Content Store's 16 KiB request limit was applied to every feature registered after it — B-roll and Image Pool, research, scene plan, scene review, continuity, music pool, library and changelog — so a legitimate large request could fail with a message about a limit that did not apply to it. The limit now applies to Content Store requests only.

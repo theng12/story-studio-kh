@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-08T14:11:50.681Z",
+  "generated": "2026-09-08T14:19:46.456Z",
   "count": 207,
   "items": [
     {
@@ -1556,10 +1556,10 @@
       "kind": "topic-pack",
       "id": "com.storystudio.topic.legends-across-every-civilisation",
       "name": "Legends Across Every Civilisation",
-      "collection_dir": "timeless-dreams/topic/legends-across-every-civilisation",
+      "collection_dir": "timeless-dreams/topic/legends-across-every-civilisation-v1.0.1",
       "axis": "world mythology, legends and creatures, sleep compilation",
       "description": "Fifty mythical creatures and beings — dragons, giants, sea monsters, tricksters, underworld guides, sky gods, flood sur…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
@@ -1696,10 +1696,10 @@
       "kind": "topic-pack",
       "id": "com.storystudio.topic.rulers-and-dynasties",
       "name": "Rulers and Dynasties",
-      "collection_dir": "royal-history/topic/rulers-and-dynasties",
+      "collection_dir": "royal-history/topic/rulers-and-dynasties-v1.0.1",
       "axis": "royal biography, royal history, sleep history",
       "description": "Fifty royal subjects — monarchs, emperors, dynasties, usurpers and pretenders across every era and region — each with t…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {

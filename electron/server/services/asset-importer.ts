@@ -23,6 +23,9 @@ import path from 'path'
 import { resolveEpisodePaths } from './utils.js'
 import * as im from './idea-manager.js'
 import { episodeStatusCache } from './episode-status-cache.js'
+import { withFinalVideoImportSelectionLock, withFinalVideoPathLock } from './final-video-lock.js'
+
+const FINAL_VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.mkv', '.webm', '.m4v'])
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -144,6 +147,56 @@ async function resolveCollision(dest: string): Promise<{ dest: string; renamed: 
   return { dest: final, renamed }
 }
 
+function isCanonicalFinalDestination(code: string, destination: string): boolean {
+  const name = path.basename(destination)
+  return name.startsWith(`${code}_final_video.`)
+    && FINAL_VIDEO_EXTENSIONS.has(path.extname(name).toLowerCase())
+}
+
+async function copyOrMove(source: string, destination: string, mode: ImportOptions['mode']): Promise<void> {
+  if (mode !== 'move') {
+    await fs.copyFile(source, destination)
+    return
+  }
+  // fs.rename can fail across filesystems with EXDEV. Fall back to
+  // copy-then-unlink so cross-mount imports still work.
+  try {
+    await fs.rename(source, destination)
+  } catch (error: any) {
+    if (error?.code !== 'EXDEV') throw error
+    await fs.copyFile(source, destination)
+    await fs.unlink(source)
+  }
+}
+
+/**
+ * Choose and write an imported final while coordinating with final render and
+ * cleanup. The initial collision plan is intentionally recomputed inside the
+ * target lock: a renderer may publish between the batch preflight and this
+ * mutation, in which case the imported file receives the next version.
+ */
+async function importFinal(
+  source: string,
+  canonicalDestination: string,
+  code: string,
+  mode: ImportOptions['mode'],
+): Promise<{ dest: string; renamed: boolean }> {
+  const videoDir = path.dirname(canonicalDestination)
+  const extension = path.extname(canonicalDestination)
+  return withFinalVideoImportSelectionLock(videoDir, code, extension, async () => {
+    while (true) {
+      const selected = await resolveCollision(canonicalDestination)
+      const outcome = await withFinalVideoPathLock(selected.dest, async () => {
+        const current = await resolveCollision(canonicalDestination)
+        if (current.dest !== selected.dest) return null
+        await copyOrMove(source, current.dest, mode)
+        return current
+      })
+      if (outcome) return outcome
+    }
+  })
+}
+
 /**
  * Compute the canonical destination for a single ImportItem.
  *
@@ -251,12 +304,17 @@ export async function importAssets(
     throw new Error(`Pre-flight failed:\n${sourceErrors.join('\n')}`)
   }
 
-  // 3. Compute destinations + collision-resolve. We do this BEFORE any
-  //    write so the user gets the auto-rename plan as part of the result.
+  // 3. Compute destinations + collision-resolve. Final-video imports defer
+  //    their collision decision until their locked write: a render may finish
+  //    after this preflight, and must receive the canonical name instead.
   type Plan = { item: ImportItem; dest: string; renamed: boolean }
   const plans: Plan[] = []
   for (const it of items) {
     const initialDest = computeDestination(paths, code, it)
+    if (isCanonicalFinalDestination(code, initialDest)) {
+      plans.push({ item: it, dest: initialDest, renamed: false })
+      continue
+    }
     const { dest, renamed } = await resolveCollision(initialDest)
     plans.push({ item: it, dest, renamed })
   }
@@ -272,42 +330,31 @@ export async function importAssets(
   const results: ImportItemResult[] = []
   let copied = 0, moved = 0, renamed = 0, failed = 0
   for (const p of plans) {
+    let destination = p.dest
+    let wasRenamed = p.renamed
     try {
-      if (opts.mode === 'move') {
-        // fs.rename can fail across filesystems with EXDEV. Fall back to
-        // copy-then-unlink so cross-mount imports still work.
-        try {
-          await fs.rename(p.item.source_path, p.dest)
-        } catch (e: any) {
-          if (e?.code === 'EXDEV') {
-            await fs.copyFile(p.item.source_path, p.dest)
-            await fs.unlink(p.item.source_path)
-          } else {
-            throw e
-          }
-        }
-        results.push({
-          source: p.item.source_path,
-          destination: p.dest,
-          status: p.renamed ? 'renamed-moved' : 'moved',
-          reason: p.renamed ? 'destination already existed; auto-suffixed' : undefined,
-        })
-        moved++
+      if (isCanonicalFinalDestination(code, p.dest)) {
+        const selected = await importFinal(p.item.source_path, p.dest, code, opts.mode)
+        destination = selected.dest
+        wasRenamed = selected.renamed
       } else {
-        await fs.copyFile(p.item.source_path, p.dest)
-        results.push({
-          source: p.item.source_path,
-          destination: p.dest,
-          status: p.renamed ? 'renamed-copied' : 'copied',
-          reason: p.renamed ? 'destination already existed; auto-suffixed' : undefined,
-        })
-        copied++
+        await copyOrMove(p.item.source_path, destination, opts.mode)
       }
-      if (p.renamed) renamed++
+      results.push({
+        source: p.item.source_path,
+        destination,
+        status: opts.mode === 'move'
+          ? wasRenamed ? 'renamed-moved' : 'moved'
+          : wasRenamed ? 'renamed-copied' : 'copied',
+        reason: wasRenamed ? 'destination already existed; auto-suffixed' : undefined,
+      })
+      if (opts.mode === 'move') moved++
+      else copied++
+      if (wasRenamed) renamed++
     } catch (e: any) {
       results.push({
         source: p.item.source_path,
-        destination: p.dest,
+        destination,
         status: 'failed',
         reason: e?.message || 'unknown error',
       })

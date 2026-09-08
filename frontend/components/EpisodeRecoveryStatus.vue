@@ -1,20 +1,23 @@
 <template>
-  <div v-if="message || states.length" class="episode-recovery" role="status">
-    <p v-if="message">{{ message }}</p>
-    <p v-if="expected">{{ expected - missing.length }}/{{ expected }} sections ready</p>
-    <p v-for="state in states" :key="state.section">{{ state.section }}: {{ state.message }}</p>
-    <form v-if="canBuy && !sent" class="subtitle-purchase" @submit.prevent="buy">
-      <label>Additional subtitle credit ceiling
-        <input v-model="ceiling" type="number" min="1" step="1" required :disabled="busy" />
-      </label>
-      <button class="btn btn-xs btn-primary" type="submit" :disabled="busy">{{ busy ? 'Queueing recovery…' : 'Buy missing subtitles now' }}</button>
-    </form>
-    <div v-if="rerunSections.length && rerunHref" class="subtitle-rerun">
-      <p>Recovery cannot finish the saved result. A fresh GenStudio request is limited to the chapter you choose; GenStudio confirms the current quote before submission and the new request may be charged.</p>
-      <a class="btn btn-xs btn-secondary" :href="rerunHref">Open missing chapter controls</a>
-    </div>
-    <p v-if="sent">Recovery queued. Existing task identities and completed sections are preserved.</p>
-    <p v-if="error" role="alert">{{ error }}</p>
+  <div v-if="verifiedRecovered || message || states.length" class="episode-recovery" :class="{ recovered: verifiedRecovered }" role="status">
+    <p v-if="verifiedRecovered"><strong>Recovered.</strong> {{ message }}</p>
+    <template v-else>
+      <p v-if="message">{{ message }}</p>
+      <p v-if="expected">{{ expected - missing.length }}/{{ expected }} sections ready</p>
+      <p v-for="state in states" :key="state.section">{{ state.section }}: {{ state.message }}</p>
+      <form v-if="canBuy && !sent" class="subtitle-purchase" @submit.prevent="buy">
+        <label>Additional subtitle credit ceiling
+          <input v-model="ceiling" type="number" min="1" step="1" required :disabled="busy" />
+        </label>
+        <button class="btn btn-xs btn-primary" type="submit" :disabled="busy">{{ busy ? 'Queueing recovery…' : 'Buy missing subtitles now' }}</button>
+      </form>
+      <div v-if="rerunSections.length && rerunHref" class="subtitle-rerun">
+        <p>Recovery cannot finish the saved result. A fresh GenStudio request is limited to the chapter you choose; GenStudio confirms the current quote before submission and the new request may be charged.</p>
+        <a class="btn btn-xs btn-secondary" :href="rerunHref">Open missing chapter controls</a>
+      </div>
+      <p v-if="sent">Recovery queued. Existing task identities and completed sections are preserved.</p>
+      <p v-if="error" role="alert">{{ error }}</p>
+    </template>
   </div>
 </template>
 
@@ -24,7 +27,7 @@ import { computed, ref } from 'vue'
 const props = defineProps<{ job: {
   job_id: string; project_slug: string; episode_id?: string; type: string; status: string
   params?: Record<string, any>; result?: Record<string, any>
-} }>()
+}; verifiedRecovered?: boolean }>()
 const { post } = useApi()
 const ceiling = ref('')
 const busy = ref(false)
@@ -59,6 +62,7 @@ async function buy() {
 <style scoped>
 .episode-recovery { min-width: 0; overflow-wrap: anywhere; font-size: .85rem; }
 .episode-recovery p { margin: .35rem 0; }
+.episode-recovery.recovered { color: var(--success); }
 .subtitle-purchase { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; margin: .5rem 0; }
 .subtitle-purchase label { display: flex; flex-direction: column; gap: .25rem; max-width: 100%; }
 .subtitle-purchase input { width: 10rem; max-width: 100%; min-height: 2rem; }

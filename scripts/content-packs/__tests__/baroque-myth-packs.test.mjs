@@ -2,7 +2,7 @@
  * The Baroque Myth collection — three standalone packs authored 2026-09-08 for
  * a sleep channel that tells one god, one hero or one epic ENTIRE in a single
  * sitting, across fifty cycles from eight traditions. One reservation batch
- * (revision 221), one receipt, three lifecycle promotions (revisions 227-229).
+ * (revision 225), one receipt, three lifecycle promotions (revisions 231-233).
  *
  * Two of the three declare preview assets that DO NOT EXIST YET: this control
  * Mac does not perform production image generation, and no owner authorisation
@@ -25,7 +25,7 @@ import { markIn, meaningfulStrings } from './forbidden-marks.mjs'
 
 const ROOT = join(process.cwd(), 'content-packs/baroque-myth')
 const REGISTRY = join(process.cwd(), 'content-packs/authoring-registry.json')
-const RECEIPT = 'authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9'
+const RECEIPT = 'authoring:c5d7b95637645010495c4140433515cc0e816590e3d35a595148429692249406'
 const FORMULA_ID = 'com.storystudio.formula.sleep-history-compilation'
 
 /** `multi` kinds are sold as an item SET, so the registry records `item_ids`. */

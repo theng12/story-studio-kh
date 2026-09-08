@@ -14,7 +14,7 @@
 import { test, describe, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
-import { existsSync, readFileSync, rmSync } from 'fs'
+import { existsSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
@@ -423,6 +423,16 @@ describe('moving, without losing anything', () => {
     assert.ok(!/opts\.force|options\.force/.test(src), 'the sweep must never read a force flag')
   })
 
+  test('copy verification and source removal share the final pathname lock', () => {
+    const src = readFileSync(fileURLToPath(new URL('../services/archive-sweep.ts', import.meta.url)), 'utf8')
+    const lockAt = src.indexOf('withFinalVideoPathLock(candidate.source_path')
+    const copyAt = src.indexOf('await fs.copyFile(candidate.source_path, target,')
+    const verifyAt = src.indexOf('const [sourceHash, targetHash]')
+    const exclusiveCopyAt = src.indexOf('fsConstants.COPYFILE_EXCL')
+    const removeAt = src.indexOf('await fs.rm(candidate.source_path, { force: true })')
+    assert.ok(lockAt >= 0 && lockAt < copyAt && copyAt < exclusiveCopyAt && exclusiveCopyAt < verifyAt && verifyAt < removeAt)
+  })
+
   test('a name collision is refused rather than overwriting a finished video', async () => {
     const src = path.join(tmp.dir, 'exports')
     const dest = path.join(tmp.dir, 'archive')
@@ -523,9 +533,10 @@ describe('the breadcrumb', () => {
       },
     })
 
-    assert.equal(result.moved.length, 1, 'the move itself still completes — the file is safely copied')
-    assert.equal(existsSync(epDir), false, 'the episode folder must NOT be recreated by the breadcrumb')
-    assert.match(result.warnings.join(' '), /TN0001/, 'and the fault is reported, not swallowed')
+    assert.equal(result.moved.length, 0, 'a missing fresh receipt blocks the move before any source removal')
+    assert.equal(existsSync(src + path.sep + SLUG + path.sep + 'TN0001_final_video.mp4'), true)
+    assert.equal(existsSync(epDir), false, 'the missing episode folder must NOT be recreated')
+    assert.ok(result.skipped.some(item => item.code === 'TN0001'))
   })
 })
 
@@ -559,6 +570,38 @@ describe('the run acts on the list he approved', () => {
       result.skipped.some(s => s.reason_code === 'not_reviewed' && s.source_path === late),
       'and it is reported as unreviewed rather than passed over in silence',
     )
+  })
+
+  test('a same-size render arriving after preview is freshly proven before its source can move', async () => {
+    const src = path.join(tmp.dir, 'after-preview')
+    const dest = path.join(tmp.dir, 'archive')
+    await seedEpisode('TN0001', 'First', true)
+    const secondEpisodeDir = await seedEpisode('TN0002', 'Second', true)
+    await seedExport(src, 'TN0001')
+    const second = await seedExport(src, 'TN0002')
+    const receipt = JSON.parse(await fs.readFile(path.join(secondEpisodeDir, 'youtube_upload.json'), 'utf8'))
+    const renderedLater = new Date(Date.parse(receipt.uploaded_at) + 1_000)
+    let replaced = false
+
+    const result = await sweep.runArchiveSweep({
+      destination: dest,
+      sourceRoot: src,
+      onProgress: () => {
+        if (replaced) return
+        replaced = true
+        // The preview has already included both candidates. Replacing this
+        // second pathname is synchronous, so its later mtime is visible before
+        // the next source lock is acquired without relying on a timer.
+        writeFileSync(second, Buffer.alloc(2048, 9))
+        utimesSync(second, renderedLater, renderedLater)
+      },
+    })
+
+    assert.equal(result.moved.length, 1)
+    assert.equal(result.moved[0]!.code, 'TN0001')
+    assert.ok(existsSync(second), 'the unproven replacement remains at its source')
+    assert.equal(existsSync(path.join(dest, SLUG, 'TN0002_final_video.mp4')), false)
+    assert.ok(result.skipped.some(item => item.source_path === second && /receipt changed/.test(item.reason)))
   })
 
   test('approving something cannot loosen the upload rule', async () => {

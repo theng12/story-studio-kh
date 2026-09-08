@@ -37,6 +37,39 @@ test('cancelled subtitle, Scene Plan, and Scene Review retries use saved source 
   assert.deepEqual(jobs[0].params, { force: true, sections: ['Chapter_02'] })
 })
 
+test('only a verified normal subtitle recovery is presented as recovered', async () => {
+  const { isVerifiedRecoveredSubtitleJob: isRecovered } = await import('../utils/episode-recovery')
+  const job = {
+    type: 'subtitles_transcribe',
+    status: 'error',
+    params: {
+      force: false,
+      episode_recovery_id: 'recovery-plan-1',
+      episode_recovery: {
+        id: 'recovery-plan-1',
+        completed: ['audio_merge', 'subtitle_sections', 'subtitle_stitch'],
+        first_unresolved: 'scene_plan_run',
+        message: '16/16 sections ready',
+      },
+    },
+  }
+  assert.equal(isRecovered(job), true)
+  assert.equal(isRecovered({ ...job, params: { ...job.params, force: true } }), false)
+  assert.equal(isRecovered({ ...job, params: { ...job.params, generation_action: { id: 'fresh-1', kind: 'fresh' } } }), false)
+  assert.equal(isRecovered({ ...job, params: { ...job.params, episode_recovery_id: 'another-plan' } }), false)
+  assert.equal(isRecovered({ ...job, params: { ...job.params, episode_recovery_id: '' } }), false)
+  assert.equal(isRecovered({ ...job, params: { ...job.params, episode_recovery: {
+    ...job.params.episode_recovery, completed: ['audio_merge', 'subtitle_sections'],
+  } } }), false)
+  assert.equal(isRecovered({ ...job, params: { ...job.params, episode_recovery: {
+    ...job.params.episode_recovery, first_unresolved: 'subtitle_stitch',
+  } } }), false)
+  assert.equal(isRecovered({ ...job, params: { ...job.params, episode_recovery: {
+    ...job.params.episode_recovery, first_unresolved: undefined,
+  } } }), false)
+  assert.equal(isRecovered({ ...job, status: 'done' }), false)
+})
+
 async function component() {
   const filename = fileURLToPath(new URL('../components/EpisodeRecoveryStatus.vue', import.meta.url))
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
@@ -83,6 +116,36 @@ test('settlement uncertainty has no purchase control', async () => {
   app.mount(host)
   try { assert.match(host.textContent!, /Waiting for credit settlement/); assert.equal(host.querySelector('button'), null) }
   finally { app.unmount(); host.remove() }
+})
+
+test('verified recovery replaces stale missing-section actions with the current result', async () => {
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(await component(), {
+    verifiedRecovered: true,
+    job: {
+      job_id: 'old-failure', project_slug: 'p', episode_id: 'SS0080', type: 'subtitles_transcribe', status: 'error',
+      params: {
+        episode_recovery: {
+          completed: ['audio_merge', 'subtitle_sections', 'subtitle_stitch'],
+          first_unresolved: 'scene_plan_run',
+          message: '16/16 sections ready',
+        },
+        subtitle_recovery: { sections: {
+          Chapter_01: { state: 'needs_attention', message: 'Old attempt missing.', manual_action: 'buy_missing_subtitles' },
+        } },
+      },
+      result: { expected_sections: 16, ready_sections: 13, missing_sections: ['Chapter_01', 'Chapter_03', 'Chapter_12'] },
+    },
+  })
+  app.mount(host)
+  try {
+    assert.match(host.textContent!, /Recovered/)
+    assert.match(host.textContent!, /16\/16 sections ready/)
+    assert.doesNotMatch(host.textContent!, /13\/16 sections ready/)
+    assert.doesNotMatch(host.textContent!, /Old attempt missing/)
+    assert.equal(host.querySelector('button'), null)
+    assert.equal(host.querySelector('a'), null)
+  } finally { app.unmount(); host.remove() }
 })
 
 test('unavailable saved subtitle work points to a scoped fresh request and states the charge boundary', async () => {

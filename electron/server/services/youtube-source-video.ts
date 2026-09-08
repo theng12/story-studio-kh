@@ -1,13 +1,36 @@
 import { createHash } from 'node:crypto'
-import fsp from 'fs/promises'
+import { createReadStream } from 'node:fs'
+import fsp from 'node:fs/promises'
+import type { FileHandle } from 'node:fs/promises'
 import path from 'path'
 
-/** Cheap identity for a multi-gigabyte render: name, size, and modification time. */
+const CONTENT_SHA256_PREFIX = 'sha256:'
+
+/** True only for the versioned, byte-for-byte source identity written by current uploads. */
+export function isContentSha256Revision(value: string): boolean {
+  return /^sha256:[a-f0-9]{64}$/.test(value)
+}
+
+/**
+ * Byte-for-byte identity for a rendered source. The prefix keeps old
+ * name/size/mtime fingerprints distinguishable: a legacy receipt is useful
+ * history, but it is never evidence that today's local bytes were uploaded.
+ */
 export async function resolveYouTubeSourceRevision(filePath: string): Promise<string> {
-  const info = await fsp.stat(filePath)
-  return createHash('sha256')
-    .update(`${path.basename(filePath)}:${info.size}:${info.mtimeMs}`)
-    .digest('hex')
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk)
+  return `${CONTENT_SHA256_PREFIX}${hash.digest('hex')}`
+}
+
+/**
+ * Hash an already-open render without closing it. The upload generator keeps
+ * this descriptor open for its later chunk reads, so an atomic final-video
+ * replacement cannot make the recorded bytes differ from the bytes sent.
+ */
+export async function resolveYouTubeSourceRevisionFromHandle(file: FileHandle): Promise<string> {
+  const hash = createHash('sha256')
+  for await (const chunk of file.createReadStream({ start: 0, autoClose: false })) hash.update(chunk)
+  return `${CONTENT_SHA256_PREFIX}${hash.digest('hex')}`
 }
 
 /** Resolve the exact final video used by both upload admission and execution. */

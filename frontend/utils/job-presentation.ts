@@ -1,3 +1,5 @@
+import { jobDisplayStatus } from './episode-recovery.js'
+
 export interface JobControlLike {
   action: string
   enabled: boolean
@@ -7,7 +9,13 @@ export interface JobFilterLike {
   type?: string
   status?: string
   project_slug?: string
-  params?: { pipeline_batch_id?: unknown }
+  params?: {
+    pipeline_batch_id?: unknown
+    force?: unknown
+    generation_action?: { kind?: unknown }
+    episode_recovery_id?: unknown
+    episode_recovery?: { id?: unknown; completed?: readonly unknown[]; first_unresolved?: unknown }
+  }
 }
 
 export interface CapacitySnapshotLike {
@@ -40,7 +48,7 @@ export function filterJobsForView<T extends JobFilterLike>(
   return jobs.filter(job => {
     if (filters.project !== 'all' && job.project_slug !== filters.project) return false
     if (filters.type !== 'all' && job.type !== filters.type) return false
-    if (filters.status !== 'all' && job.status !== filters.status) return false
+    if (filters.status !== 'all' && jobDisplayStatus(job) !== filters.status) return false
     if (filters.batch && job.params?.pipeline_batch_id !== filters.batch) return false
     return true
   })

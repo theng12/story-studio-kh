@@ -321,14 +321,25 @@ test('capacity facts require a fresh verified account snapshot', () => {
 })
 
 test('failure review keeps only failed jobs from the selected batch', () => {
+  const recovered = {
+    status: 'error', type: 'subtitles_transcribe', project_slug: 'story', params: {
+      pipeline_batch_id: 'batch-2', episode_recovery_id: 'plan-1',
+      episode_recovery: { id: 'plan-1', completed: ['subtitle_sections', 'subtitle_stitch'], first_unresolved: 'scene_plan_run' },
+    },
+  }
   const jobsForReview = [
     { status: 'error', type: 'audio', project_slug: 'story', params: { pipeline_batch_id: 'batch-2' } },
     { status: 'error', type: 'audio', project_slug: 'story', params: { pipeline_batch_id: 'batch-1' } },
     { status: 'done', type: 'audio', project_slug: 'story', params: { pipeline_batch_id: 'batch-2' } },
+    recovered,
   ]
   assert.deepEqual(
     filterJobsForView(jobsForReview, { type: 'all', status: 'error', project: 'all', batch: 'batch-2' }),
     [jobsForReview[0]],
+  )
+  assert.deepEqual(
+    filterJobsForView(jobsForReview, { type: 'all', status: 'recovered', project: 'all', batch: 'batch-2' }),
+    [recovered],
   )
 })
 
@@ -407,7 +418,7 @@ test('Paused status uses the same project and type scope for counts and visible 
   )
   assert.match(jobs, /const typeScopedJobs = computed\(\(\) =>/)
   assert.match(jobs, /\{ key: 'paused', label: 'Paused' \}/)
-  assert.match(jobs, /count: s\.key === 'all'\s*\? typeScopedJobs\.value\.length\s*:\s*typeScopedJobs\.value\.filter\(j => j\.status === s\.key\)\.length/)
+  assert.match(jobs, /count: s\.key === 'all'\s*\? typeScopedJobs\.value\.length\s*:\s*typeScopedJobs\.value\.filter\(j => jobDisplayStatus\(j\) === s\.key\)\.length/)
   assert.match(jobs, /filterJobsForView\(typeScopedJobs\.value, \{[\s\S]*?project: 'all'/)
 })
 

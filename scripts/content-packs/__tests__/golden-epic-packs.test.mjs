@@ -299,7 +299,7 @@ test('the provenance record states why nothing was generated and how to generate
 /**
  * 1.0.1 of the Entire Story Titles formula, authored 2026-09-08 alongside the
  * Gory Cartoon History and Baroque Myth collections. Its own reservation batch
- * (revision 222), its own receipt, one lifecycle promotion (revision 230).
+ * (revision 226), its own receipt, one lifecycle promotion (revision 234).
  *
  * The version exists for exactly one reason: some entire-story episodes run to
  * seven hours, and 1.0.0's write-up told the narrator to target a hundred and
@@ -315,7 +315,7 @@ test('the widened Entire Story Titles version is registered as a sibling of 1.0.
   const base = registry.records.find(r => r.pack_id === packId && r.version === '1.0.0')
   const next = registry.records.find(r => r.pack_id === packId && r.version === '1.0.1')
   assert.ok(next, '1.0.1 must be registered')
-  assert.equal(next.receipt_ref, 'authoring:d55de68f3aae6509f7bfd2d882ca3e5f8ad36d2ce7a403df17c190d132753535')
+  assert.equal(next.receipt_ref, 'authoring:44d6de9234c80a0b3243cf36074305faa1278f5f4ab1db25d59d169fcdc01b22')
   assert.equal(next.status, 'authored')
   assert.equal(next.kind, 'metadata-formula')
   assert.deepEqual(next.item_ids, [itemId])

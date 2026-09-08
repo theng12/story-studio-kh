@@ -1,5 +1,5 @@
 {
-  "revision": 230,
+  "revision": 234,
   "batches": [
     {
       "revision": 2,
@@ -4929,9 +4929,81 @@
     },
     {
       "revision": 220,
-      "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+      "receipt_ref": "authoring:20355f2535b5d11e46bc9d1838ee237d41633c366162e28278a46dec2e5d6ebe",
       "request": {
         "expected_revision": 219,
+        "coordinator": {
+          "task": "royal-history-scope-correction-2026-09-08",
+          "branch": "codex/upload-scheduling-progress"
+        },
+        "proposal_ref": "owner:royal-history-correction-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.rulers-and-dynasties",
+            "item_id": "com.storystudio.topic.rulers-and-dynasties",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/royal-history/topic/rulers-and-dynasties-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.rulers-and-dynasties",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.rulers-and-dynasties",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 221,
+      "receipt_ref": "authoring:8e7d1cd69b78e9d0834c64118ca5c3dd45335f2931a4c75d9b67d03ffe2cc1bd",
+      "request": {
+        "expected_revision": 220,
+        "coordinator": {
+          "task": "legends-scope-correction-2026-09-08",
+          "branch": "codex/upload-scheduling-progress"
+        },
+        "proposal_ref": "owner:consolidate-claude-content-2026-09-08",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.legends-across-every-civilisation",
+            "item_id": "com.storystudio.topic.legends-across-every-civilisation",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/timeless-dreams/topic/legends-across-every-civilisation-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.legends-across-every-civilisation",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.legends-across-every-civilisation",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 224,
+      "receipt_ref": "authoring:5ebae4f4757161c295453465e50d755836dac01e5d6cfa410eda961884dd8fda",
+      "request": {
+        "expected_revision": 223,
         "coordinator": {
           "task": "gory-cartoon-history-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
@@ -5032,10 +5104,10 @@
       }
     },
     {
-      "revision": 221,
-      "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+      "revision": 225,
+      "receipt_ref": "authoring:c5d7b95637645010495c4140433515cc0e816590e3d35a595148429692249406",
       "request": {
-        "expected_revision": 220,
+        "expected_revision": 224,
         "coordinator": {
           "task": "baroque-myth-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
@@ -5114,10 +5186,10 @@
       }
     },
     {
-      "revision": 222,
-      "receipt_ref": "authoring:d55de68f3aae6509f7bfd2d882ca3e5f8ad36d2ce7a403df17c190d132753535",
+      "revision": 226,
+      "receipt_ref": "authoring:44d6de9234c80a0b3243cf36074305faa1278f5f4ab1db25d59d169fcdc01b22",
       "request": {
-        "expected_revision": 221,
+        "expected_revision": 225,
         "coordinator": {
           "task": "entire-story-titles-runtime-widening-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
@@ -8265,15 +8337,49 @@
       }
     },
     {
+      "revision": 222,
+      "transition_ref": "lifecycle:8d7c3ceb3d7baadf781e360dad6e8a19527e6a5b2b4001b4a3458c20f57f2106",
+      "request": {
+        "expected_revision": 221,
+        "coordinator": {
+          "task": "topic-scope-correction-2026-09-08",
+          "branch": "codex/upload-scheduling-progress"
+        },
+        "receipt_ref": "authoring:20355f2535b5d11e46bc9d1838ee237d41633c366162e28278a46dec2e5d6ebe",
+        "pack_id": "com.storystudio.pack.topic.rulers-and-dynasties",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
       "revision": 223,
-      "transition_ref": "lifecycle:eaf884a5832e5a17a677233027f11ad79d2002c957778ab8f9de9c99eb025e86",
+      "transition_ref": "lifecycle:b5ceafcd3f0ae3041c891521e368d5ff1924ad2e28fa3f18403c01b78a5aac0e",
       "request": {
         "expected_revision": 222,
+        "coordinator": {
+          "task": "topic-scope-correction-2026-09-08",
+          "branch": "codex/upload-scheduling-progress"
+        },
+        "receipt_ref": "authoring:8e7d1cd69b78e9d0834c64118ca5c3dd45335f2931a4c75d9b67d03ffe2cc1bd",
+        "pack_id": "com.storystudio.pack.topic.legends-across-every-civilisation",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 227,
+      "transition_ref": "lifecycle:5bc8f37213209aafc1ecef3dacbd3b5db749b9bd4192d693bce686ef5c0ccb15",
+      "request": {
+        "expected_revision": 226,
         "coordinator": {
           "task": "gory-cartoon-history-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
         },
-        "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+        "receipt_ref": "authoring:5ebae4f4757161c295453465e50d755836dac01e5d6cfa410eda961884dd8fda",
         "pack_id": "com.storystudio.pack.style.bold-gory-cartoon",
         "version": "1.0.0",
         "changes": {
@@ -8282,15 +8388,15 @@
       }
     },
     {
-      "revision": 224,
-      "transition_ref": "lifecycle:d3e0b910c76c5731ddb762d527596c1f78c4fc4f818d271ac639260b5102999e",
+      "revision": 228,
+      "transition_ref": "lifecycle:08f8f662074d2fd7c82713ce2724ddbcd659e81b26e70cf13a778e399226b68b",
       "request": {
-        "expected_revision": 223,
+        "expected_revision": 227,
         "coordinator": {
           "task": "gory-cartoon-history-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
         },
-        "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+        "receipt_ref": "authoring:5ebae4f4757161c295453465e50d755836dac01e5d6cfa410eda961884dd8fda",
         "pack_id": "com.storystudio.pack.thumbnail.banner-triptych",
         "version": "1.0.0",
         "changes": {
@@ -8299,15 +8405,15 @@
       }
     },
     {
-      "revision": 225,
-      "transition_ref": "lifecycle:2c302afa383d0a2a96327ff2635e00e0144e35523141035d0c808142baeb0bcb",
+      "revision": 229,
+      "transition_ref": "lifecycle:e2bbac6404849ed1fa7f06ba0a899e889917cfce7d25f5d5d4d63daf6b382fe9",
       "request": {
-        "expected_revision": 224,
+        "expected_revision": 228,
         "coordinator": {
           "task": "gory-cartoon-history-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
         },
-        "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+        "receipt_ref": "authoring:5ebae4f4757161c295453465e50d755836dac01e5d6cfa410eda961884dd8fda",
         "pack_id": "com.storystudio.pack.topic.obscure-history-horrors",
         "version": "1.0.0",
         "changes": {
@@ -8316,15 +8422,15 @@
       }
     },
     {
-      "revision": 226,
-      "transition_ref": "lifecycle:2827f5958998d889ae4d69fee80879775e26015340517409abf42ccfbdcb9a5c",
+      "revision": 230,
+      "transition_ref": "lifecycle:69960ef20ef989f3a3e12d29287f459d458acca9ad2c1e9e32f2bb254fc18b6a",
       "request": {
-        "expected_revision": 225,
+        "expected_revision": 229,
         "coordinator": {
           "task": "gory-cartoon-history-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
         },
-        "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+        "receipt_ref": "authoring:5ebae4f4757161c295453465e50d755836dac01e5d6cfa410eda961884dd8fda",
         "pack_id": "com.storystudio.pack.metadata-formula.obscure-history-listicle-titles",
         "version": "1.0.0",
         "changes": {
@@ -8333,15 +8439,15 @@
       }
     },
     {
-      "revision": 227,
-      "transition_ref": "lifecycle:69cc8da9eccf6ff5ad65324b074f5ed7f331246075ee35bb7f0e11872f13f9e5",
+      "revision": 231,
+      "transition_ref": "lifecycle:545330027827e0de13bea5af1b1f007dc96d374c5c1d8fb27129e3e40d3011dc",
       "request": {
-        "expected_revision": 226,
+        "expected_revision": 230,
         "coordinator": {
           "task": "baroque-myth-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
         },
-        "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+        "receipt_ref": "authoring:c5d7b95637645010495c4140433515cc0e816590e3d35a595148429692249406",
         "pack_id": "com.storystudio.pack.style.baroque-mythological-sky",
         "version": "1.0.0",
         "changes": {
@@ -8350,15 +8456,15 @@
       }
     },
     {
-      "revision": 228,
-      "transition_ref": "lifecycle:b745931ab9dd2f51aca02d22383de6713143d5077210e597d95bf57c9e1270a4",
+      "revision": 232,
+      "transition_ref": "lifecycle:b8938bdbe510f27e4bcb2083994add51050737add74ec6d73b6b3276045922e8",
       "request": {
-        "expected_revision": 227,
+        "expected_revision": 231,
         "coordinator": {
           "task": "baroque-myth-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
         },
-        "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+        "receipt_ref": "authoring:c5d7b95637645010495c4140433515cc0e816590e3d35a595148429692249406",
         "pack_id": "com.storystudio.pack.lettering.spaced-light-serif-edition-label",
         "version": "1.0.0",
         "changes": {
@@ -8367,15 +8473,15 @@
       }
     },
     {
-      "revision": 229,
-      "transition_ref": "lifecycle:1eb5700570b8c96bb1b7395c0f9c1410dc078c859786e8b1a60d4b9c81b5189d",
+      "revision": 233,
+      "transition_ref": "lifecycle:6e05a78d745b87a4430a5eab5d3b70b4f390a6bd1d6335879980167c6adf86b9",
       "request": {
-        "expected_revision": 228,
+        "expected_revision": 232,
         "coordinator": {
           "task": "baroque-myth-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
         },
-        "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+        "receipt_ref": "authoring:c5d7b95637645010495c4140433515cc0e816590e3d35a595148429692249406",
         "pack_id": "com.storystudio.pack.topic.gods-heroes-and-epics",
         "version": "1.0.0",
         "changes": {
@@ -8384,15 +8490,15 @@
       }
     },
     {
-      "revision": 230,
-      "transition_ref": "lifecycle:16d10bb338965b32c4958f4f7eb33fc3ed3e754fc305fbc450450419ab03f714",
+      "revision": 234,
+      "transition_ref": "lifecycle:7c0a4236b6177583b6a264379cce5d055134d9f9c65dfcafbaa28d7a87e135ff",
       "request": {
-        "expected_revision": 229,
+        "expected_revision": 233,
         "coordinator": {
           "task": "entire-story-titles-runtime-widening-2026-09-08",
           "branch": "content/two-collections-2026-09-08"
         },
-        "receipt_ref": "authoring:d55de68f3aae6509f7bfd2d882ca3e5f8ad36d2ce7a403df17c190d132753535",
+        "receipt_ref": "authoring:44d6de9234c80a0b3243cf36074305faa1278f5f4ab1db25d59d169fcdc01b22",
         "pack_id": "com.storystudio.pack.metadata-formula.entire-story-titles",
         "version": "1.0.1",
         "changes": {
@@ -14543,7 +14649,53 @@
       }
     },
     {
-      "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+      "receipt_ref": "authoring:20355f2535b5d11e46bc9d1838ee237d41633c366162e28278a46dec2e5d6ebe",
+      "pack_id": "com.storystudio.pack.topic.rulers-and-dynasties",
+      "item_id": "com.storystudio.topic.rulers-and-dynasties",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/royal-history/topic/rulers-and-dynasties-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.rulers-and-dynasties",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.rulers-and-dynasties",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8e7d1cd69b78e9d0834c64118ca5c3dd45335f2931a4c75d9b67d03ffe2cc1bd",
+      "pack_id": "com.storystudio.pack.topic.legends-across-every-civilisation",
+      "item_id": "com.storystudio.topic.legends-across-every-civilisation",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/timeless-dreams/topic/legends-across-every-civilisation-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.legends-across-every-civilisation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.legends-across-every-civilisation",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5ebae4f4757161c295453465e50d755836dac01e5d6cfa410eda961884dd8fda",
       "pack_id": "com.storystudio.pack.style.bold-gory-cartoon",
       "item_id": "com.storystudio.style.bold-gory-cartoon",
       "version": "1.0.0",
@@ -14566,7 +14718,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+      "receipt_ref": "authoring:5ebae4f4757161c295453465e50d755836dac01e5d6cfa410eda961884dd8fda",
       "pack_id": "com.storystudio.pack.thumbnail.banner-triptych",
       "item_id": "com.storystudio.thumbnail.banner-triptych",
       "version": "1.0.0",
@@ -14589,7 +14741,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+      "receipt_ref": "authoring:5ebae4f4757161c295453465e50d755836dac01e5d6cfa410eda961884dd8fda",
       "pack_id": "com.storystudio.pack.topic.obscure-history-horrors",
       "item_id": "com.storystudio.topic.obscure-history-horrors",
       "version": "1.0.0",
@@ -14612,7 +14764,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14",
+      "receipt_ref": "authoring:5ebae4f4757161c295453465e50d755836dac01e5d6cfa410eda961884dd8fda",
       "pack_id": "com.storystudio.pack.metadata-formula.obscure-history-listicle-titles",
       "item_ids": [
         "com.storystudio.metadata-formula.obscure-history-listicle-titles"
@@ -14637,7 +14789,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+      "receipt_ref": "authoring:c5d7b95637645010495c4140433515cc0e816590e3d35a595148429692249406",
       "pack_id": "com.storystudio.pack.style.baroque-mythological-sky",
       "item_id": "com.storystudio.style.baroque-mythological-sky",
       "version": "1.0.0",
@@ -14660,7 +14812,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+      "receipt_ref": "authoring:c5d7b95637645010495c4140433515cc0e816590e3d35a595148429692249406",
       "pack_id": "com.storystudio.pack.lettering.spaced-light-serif-edition-label",
       "item_ids": [
         "com.storystudio.lettering.spaced-light-serif-edition-label"
@@ -14685,7 +14837,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:03cc8b1e2dba20c873339ea814f8a72b5a13ce624870a9714ded44f476f6dee9",
+      "receipt_ref": "authoring:c5d7b95637645010495c4140433515cc0e816590e3d35a595148429692249406",
       "pack_id": "com.storystudio.pack.topic.gods-heroes-and-epics",
       "item_id": "com.storystudio.topic.gods-heroes-and-epics",
       "version": "1.0.0",
@@ -14708,7 +14860,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:d55de68f3aae6509f7bfd2d882ca3e5f8ad36d2ce7a403df17c190d132753535",
+      "receipt_ref": "authoring:44d6de9234c80a0b3243cf36074305faa1278f5f4ab1db25d59d169fcdc01b22",
       "pack_id": "com.storystudio.pack.metadata-formula.entire-story-titles",
       "item_ids": [
         "com.storystudio.metadata-formula.entire-story-titles"

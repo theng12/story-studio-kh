@@ -51,7 +51,7 @@ describe('force-abandon on the Jobs page', () => {
   })
 
   it('re-running is reachable from ordinary cancelled rows without disguising paid auto-repair as Retry', () => {
-    const retryButtons = jobsPage.match(/v-if="\(job\.status === 'error' \|\| job\.status === 'cancelled'\) && !isTerminalContinuityRender\(job\) && job\.params\?\.auto_repair_missing_prompts !== true"/g) || []
+    const retryButtons = jobsPage.match(/v-if="\(job\.status === 'error' \|\| job\.status === 'cancelled'\) && !isVerifiedRecoveredSubtitleJob\(job\) && !isTerminalContinuityRender\(job\) && job\.params\?\.auto_repair_missing_prompts !== true"/g) || []
     assert.equal(retryButtons.length, 2, 'both the active and the history lists must offer Retry for ordinary jobs')
     assert.equal((jobsPage.match(/v-if="isTerminalContinuityRender\(job\)"/g) || []).length, 2,
       'both lists must send failed continuity renders to current Scene Review settings')

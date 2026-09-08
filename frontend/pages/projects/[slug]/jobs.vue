@@ -18,6 +18,7 @@
             <span class="workspace-metric" data-tone="warning"><strong>{{ stats.queued }}</strong> waiting locally</span>
             <span v-if="stats.paused" class="workspace-metric" data-tone="warning"><strong>{{ stats.paused }}</strong> paused</span>
             <span class="workspace-metric" data-tone="success"><strong>{{ stats.done }}</strong> done</span>
+            <span v-if="stats.recovered" class="workspace-metric" data-tone="success"><strong>{{ stats.recovered }}</strong> recovered</span>
             <span v-if="stats.error" class="workspace-metric" data-tone="error"><strong>{{ stats.error }}</strong> job{{ stats.error === 1 ? '' : 's' }} need{{ stats.error === 1 ? 's' : '' }} attention</span>
           </div>
           <div class="genstudio-capacity-summary" aria-label="GenStudio account capacity">
@@ -161,8 +162,8 @@
       <div class="bbf-header">
         <span class="bbf-icon" aria-hidden="true">{{ batchSummary.failed > 0 ? '⚠️' : '✅' }}</span>
         <span class="bbf-headline">
-          <strong>Pipeline finished</strong>
-          ({{ batchSummary.success }}/{{ batchSummary.total }} episodes,
+          <strong>Pipeline run finished</strong>
+          ({{ batchSummary.success }} done<span v-if="batchSummary.recovered"> · {{ batchSummary.recovered }} with recovered subtitle work</span> of {{ batchSummary.total }} episodes,
            {{ formatElapsed(batchSummary.elapsed_ms) }})
           <span v-if="batchSummary.cancelled > 0" class="bbf-cancelled">
             · {{ batchSummary.cancelled }} cancelled
@@ -225,6 +226,7 @@
           @click="reviewFailures"
         >Review jobs →</button>
         <NuxtLink
+          v-if="batchSummary.failed > 0"
           :to="batchRepairLink"
           class="btn btn-sm btn-primary"
           :title="batchSummary.failed_episodes.length
@@ -368,12 +370,12 @@
           v-for="job in activeJobs"
           :key="job.job_id"
           class="job-card card"
-          :class="'status-' + job.status"
+          :class="'status-' + jobDisplayStatus(job)"
         >
         <!-- Row 1: Status + Type + Episode + Actions -->
         <div class="job-row-main">
           <div class="job-identity">
-            <StatusBadge :status="job.status" />
+            <StatusBadge :status="jobDisplayStatus(job)" />
             <NuxtLink
               v-if="isUniversal && job.project_slug !== '_app_'"
               :to="`/projects/${job.project_slug}/jobs`"
@@ -426,7 +428,7 @@
                  combined button caused duplicate provider tasks when
                  users clicked it repeatedly to "make it work". -->
             <button
-              v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
+              v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
               class="btn btn-xs btn-primary"
               @click="repairJobOnly(job)"
               title="SAFE — Polls the provider for tasks that were submitted but never finished downloading, and pulls them in for free. Never re-submits anything. Click this FIRST when a job timed out — the provider often finished the work on its side. If chunks are still missing afterwards, then click Retry."
@@ -465,7 +467,7 @@
               Finish missing images
             </NuxtLink>
             <button
-              v-if="(job.status === 'error' || job.status === 'cancelled') && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
+              v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
               class="btn btn-xs btn-secondary"
               :disabled="controlBusy.has(job.job_id)"
               @click="retryJob(job)"
@@ -476,7 +478,7 @@
           </div>
         </div>
 
-        <EpisodeRecoveryStatus :job="job" />
+        <EpisodeRecoveryStatus :job="job" :verified-recovered="isVerifiedRecoveredSubtitleJob(job)" />
         <!-- Row 2: Meta (model, duration, timestamps) -->
         <div class="job-meta">
           <span
@@ -530,7 +532,7 @@
              question this card exists to answer is "how much is left" — and
              the wall of one-line-per-scene it replaces answered that only by
              making the reader count. -->
-        <div v-if="job.item_progress" class="job-stats">
+        <div v-if="job.item_progress && !isVerifiedRecoveredSubtitleJob(job)" class="job-stats">
           <span class="job-stat">
             <strong>{{ jobCounts(job).total.toLocaleString() }}</strong>
             <span class="job-stat-label">total</span>
@@ -644,9 +646,9 @@
         </div>
 
         <!-- Error details -->
-        <div v-if="job.status === 'error'" class="job-error-section">
+        <div v-if="job.status === 'error'" class="job-error-section" :class="{ 'is-original-attempt': isVerifiedRecoveredSubtitleJob(job) }">
           <div v-if="job.error" class="error-summary">
-            <span class="error-label">What happened:</span>
+            <span class="error-label">{{ isVerifiedRecoveredSubtitleJob(job) ? 'Original attempt:' : 'What happened:' }}</span>
             <span class="error-summary-text">{{ firstErrorLine(customerJobText(job.error, job)) }}</span>
           </div>
           <button
@@ -750,11 +752,11 @@
           v-for="job in paginatedHistory"
           :key="job.job_id"
           class="job-card card"
-          :class="'status-' + job.status"
+          :class="'status-' + jobDisplayStatus(job)"
         >
           <div class="job-row-main">
             <div class="job-identity">
-              <StatusBadge :status="job.status" />
+              <StatusBadge :status="jobDisplayStatus(job)" />
               <NuxtLink
                 v-if="isUniversal && job.project_slug !== '_app_'"
                 :to="`/projects/${job.project_slug}/jobs`"
@@ -793,7 +795,7 @@
               </details>
               <!-- v1.0.114 — Repair / Retry split (mirror of expanded view above). -->
               <button
-                v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
+                v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
                 class="btn btn-xs btn-primary"
                 @click="repairJobOnly(job)"
                 title="SAFE — Polls the provider for already-completed tasks and downloads them for free. Never re-submits. Click this FIRST when a job timed out."
@@ -829,7 +831,7 @@
                 Finish missing images
               </NuxtLink>
               <button
-                v-if="(job.status === 'error' || job.status === 'cancelled') && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
+                v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
                 class="btn btn-xs btn-secondary"
                 :disabled="controlBusy.has(job.job_id)"
                 @click="retryJob(job)"
@@ -839,7 +841,7 @@
               </button>
             </div>
           </div>
-          <EpisodeRecoveryStatus :job="job" />
+          <EpisodeRecoveryStatus :job="job" :verified-recovered="isVerifiedRecoveredSubtitleJob(job)" />
           <p
             v-if="primaryJobControl(job)"
             class="job-control-reason"
@@ -880,7 +882,7 @@
 
           <!-- History has no in-flight work and no ETA — its final counts,
                its money, its exceptions, and the same drawer. -->
-          <div v-if="job.item_progress" class="job-stats">
+          <div v-if="job.item_progress && !isVerifiedRecoveredSubtitleJob(job)" class="job-stats">
             <span class="job-stat">
               <strong>{{ jobCounts(job).total.toLocaleString() }}</strong>
               <span class="job-stat-label">total</span>
@@ -990,9 +992,9 @@
             </template>
           </AdvancedDisclosure>
 
-          <div v-if="job.status === 'error'" class="job-error-section">
+          <div v-if="job.status === 'error'" class="job-error-section" :class="{ 'is-original-attempt': isVerifiedRecoveredSubtitleJob(job) }">
             <div v-if="job.error" class="error-summary">
-              <span class="error-label">What happened:</span>
+              <span class="error-label">{{ isVerifiedRecoveredSubtitleJob(job) ? 'Original attempt:' : 'What happened:' }}</span>
               <span class="error-summary-text">{{ firstErrorLine(customerJobText(job.error, job)) }}</span>
             </div>
             <button
@@ -1067,7 +1069,7 @@ import {
   secondaryControls,
 } from '~/utils/job-presentation'
 import { formatCredits } from '~/utils/genstudio-credit-cost'
-import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType } from '~/utils/episode-recovery'
+import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -1080,7 +1082,11 @@ const universalQueue = useAllJobs()
 const genStudioModels = useGenStudioModelDisplay()
 const isUniversal = computed(() => route.query.scope === 'all')
 const jobs = computed(() => isUniversal.value ? universalQueue.jobs.value : projectQueue.jobs.value)
-const stats = computed(() => isUniversal.value ? universalQueue.stats.value : projectQueue.stats.value)
+const queueStats = computed(() => isUniversal.value ? universalQueue.stats.value : projectQueue.stats.value)
+const stats = computed(() => {
+  const recovered = jobs.value.filter(job => jobDisplayStatus(job) === 'recovered').length
+  return { ...queueStats.value, recovered, error: Math.max(0, queueStats.value.error - recovered) }
+})
 const { success, error: showError, info } = useToast()
 
 interface ProjectOption { slug: string; name: string }
@@ -1444,7 +1450,8 @@ function jobProgressStale(job: RJob): boolean {
 }
 
 function jobExceptions(job: RJob) {
-  return describeJobExceptions({ ...job, genstudio_jobs: settledRemoteJobs(job) }, now.value)
+  const lines = describeJobExceptions({ ...job, genstudio_jobs: settledRemoteJobs(job) }, now.value)
+  return isVerifiedRecoveredSubtitleJob(job) ? lines.filter(line => line.key !== 'output-gap') : lines
 }
 
 // ── Money, summarised ─────────────────────────────────────────────────────
@@ -1633,7 +1640,7 @@ async function repairAllInterrupted() {
 // finished" one-click. Genuinely-missing items stay failed for a later Retry.
 const repairingAllFailed = ref(false)
 const repairableFailedJobs = computed(() =>
-  jobs.value.filter((j: RJob) => (j.status === 'error' || j.status === 'cancelled') && jobCanBeRepaired(j))
+  jobs.value.filter((j: RJob) => (jobDisplayStatus(j) === 'error' || j.status === 'cancelled') && jobCanBeRepaired(j))
 )
 async function repairAllFailed() {
   const snapshot = [...repairableFailedJobs.value]
@@ -1690,6 +1697,7 @@ const manualFinishRetryWithheld = computed(() =>
 const failedJobsForRetryAll = computed(() =>
   jobs.value.filter((j: RJob) =>
     (j.status === 'error' || j.status === 'cancelled')
+    && !isVerifiedRecoveredSubtitleJob(j)
     && j.params?.auto_repair_missing_prompts !== true
     && !isManualFinishContinuityRender(j))
 )
@@ -1853,8 +1861,8 @@ const projectScopedJobs = computed(() => {
 const typeScopedJobs = computed(() => activeFilter.value === 'all'
   ? projectScopedJobs.value
   : projectScopedJobs.value.filter(job => job.type === activeFilter.value))
-// v1.0.x — status filter (independent of the type tabs). 'all' | running | queued | paused | error | done | cancelled.
-const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'cancelled'>('all')
+// v1.0.x — status filter (independent of the type tabs).
+const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled'>('all')
 const failureBatchFilter = ref<string | null>(null)
 const historySection = ref<HTMLElement | null>(null)
 const historyHeading = ref<HTMLElement | null>(null)
@@ -1865,13 +1873,14 @@ const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> =
   { key: 'paused', label: 'Paused' },
   { key: 'error', label: 'Needs attention' },
   { key: 'done', label: 'Done' },
+  { key: 'recovered', label: 'Recovered' },
   { key: 'cancelled', label: 'Cancelled' },
 ]
 const statusFilters = computed(() => STATUS_FILTERS.map(s => ({
   ...s,
   count: s.key === 'all'
     ? typeScopedJobs.value.length
-    : typeScopedJobs.value.filter(j => j.status === s.key).length,
+    : typeScopedJobs.value.filter(j => jobDisplayStatus(j) === s.key).length,
 })))
 
 // Filter tabs at the top of the Jobs page. Order matches the production
@@ -1976,8 +1985,8 @@ const sortedJobs = computed(() => {
       return (getJobDurationMs(a) - getJobDurationMs(b)) * dir
     }
     if (sortKey.value === 'status') {
-      const order: Record<string, number> = { running: 0, paused: 1, queued: 2, error: 3, done: 4, cancelled: 5 }
-      return ((order[a.status] ?? 5) - (order[b.status] ?? 5)) * dir
+      const order: Record<string, number> = { running: 0, paused: 1, queued: 2, error: 3, done: 4, recovered: 5, cancelled: 6 }
+      return ((order[jobDisplayStatus(a)] ?? 6) - (order[jobDisplayStatus(b)] ?? 6)) * dir
     }
     const aVal = (a as any)[sortKey.value] || ''
     const bVal = (b as any)[sortKey.value] || ''
@@ -3383,6 +3392,7 @@ async function clearFinished() {
 .job-card.status-running { border-left: 3px solid var(--accent); }
 .job-card.status-error { border-left: 3px solid var(--error); }
 .job-card.status-done { border-left: 3px solid #22c55e; }
+.job-card.status-recovered { border-left: 3px solid var(--success); }
 .job-card.status-queued { border-left: 3px solid var(--text-muted); }
 .job-card.status-paused { border-left: 3px solid #f5c35b; }
 .job-card.status-cancelled { border-left: 3px solid var(--text-muted); opacity: 0.6; }
@@ -3623,6 +3633,16 @@ async function clearFinished() {
 
 /* Error section */
 .job-error-section { margin-top: 8px; }
+.job-error-section.is-original-attempt .error-summary {
+  background: var(--bg-secondary);
+  border-left-color: var(--border);
+  color: var(--text-muted);
+}
+.job-error-section.is-original-attempt .error-toggle { color: var(--text-muted); }
+.job-error-section.is-original-attempt .error-details {
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+}
 .error-summary {
   display: flex; gap: 6px; align-items: flex-start;
   padding: 8px 10px;

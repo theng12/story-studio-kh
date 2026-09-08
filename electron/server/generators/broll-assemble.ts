@@ -36,6 +36,7 @@ import * as bp from '../services/broll-pool-manager.js'
 import * as jq from '../services/job-queue.js'
 import { getSelectionSidecar } from '../services/broll-selection-sidecar.js'
 import { resolveEpisodePaths } from '../services/utils.js'
+import { withFinalVideoPathLock } from '../services/final-video-lock.js'
 import { getFFmpegPath, getFFprobePath } from '../services/ffmpeg-manager.js'
 import { buildBrollMotion, type BrollMotion, pickRotatedMotion } from '../lib/broll-motion.js'
 import { getTransition } from '../models/transitions.js'
@@ -463,7 +464,7 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   // Atomic rename so a half-encoded file never appears as final. Same
   // filesystem (we write the temp INTO finalDir in v1.0.130+), so this
   // is a metadata-only rename — no cross-volume copy needed.
-  await fsp.rename(tempPath, outPath)
+  await withFinalVideoPathLock(outPath, () => fsp.rename(tempPath, outPath))
   const stat = await fsp.stat(outPath)
   if (!stat.isFile() || stat.size <= 0) throw new Error(`Final video is empty: ${outFilename}`)
   job.output_lines.push(`Done → ${outFilename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)

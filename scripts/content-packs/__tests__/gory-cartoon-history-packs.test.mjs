@@ -2,8 +2,8 @@
  * The Gory Cartoon History collection — four standalone packs authored
  * 2026-09-08 for an obscure-history list channel that runs at two speeds: a
  * nine-to-fourteen-minute listicle, and a two-to-three-hour compilation built
- * from the same self-contained entries. One reservation batch (revision 220),
- * one receipt, four lifecycle promotions (revisions 223-226).
+ * from the same self-contained entries. One reservation batch (revision 224),
+ * one receipt, four lifecycle promotions (revisions 227-230).
  *
  * Two of the four declare preview assets that DO NOT EXIST YET: this control
  * Mac does not perform production image generation, and no owner authorisation
@@ -27,7 +27,7 @@ import { markIn, meaningfulStrings } from './forbidden-marks.mjs'
 
 const ROOT = join(process.cwd(), 'content-packs/gory-cartoon-history')
 const REGISTRY = join(process.cwd(), 'content-packs/authoring-registry.json')
-const RECEIPT = 'authoring:b5fc5512341b93a9acd2859d2e69dccb599c626e5d138b71d8c21b7f680e5c14'
+const RECEIPT = 'authoring:5ebae4f4757161c295453465e50d755836dac01e5d6cfa410eda961884dd8fda'
 const LISTICLE_FORMULA = 'com.storystudio.formula.counted-explainer'
 const ROLE_FORMULA = 'com.storystudio.formula.pov-your-life-as'
 const SLEEP_FORMULA = 'com.storystudio.formula.sleep-history-compilation'

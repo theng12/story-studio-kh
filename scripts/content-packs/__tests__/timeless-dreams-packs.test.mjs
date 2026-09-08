@@ -39,6 +39,23 @@ const PREVIEW_CONTRACT = {
 }
 
 async function json(path) { return JSON.parse(await readFile(path, 'utf8')) }
+
+// Production content checks follow the newest authored pack; the original receipt
+// assertions above/below still protect the immutable 1.0.0 source.
+async function currentTopic() {
+  const registry = await json(REGISTRY)
+  const record = registry.records
+    .filter(r => r.pack_id === 'com.storystudio.pack.topic.legends-across-every-civilisation' && r.status === 'authored')
+    .sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0]
+  assert.ok(record, 'the current Topic Pack must be registered and authored')
+  const manifest = await json(join(process.cwd(), record.source_path, 'pack.json'))
+  assert.equal(manifest.pack_id, record.pack_id)
+  assert.equal(manifest.version, record.version)
+  assert.equal(manifest.entitlement.sku, record.stocking_proposal.sku.id)
+  assert.equal(manifest.entitlement.family, record.stocking_proposal.family.id)
+  return json(join(process.cwd(), record.source_path, 'content/topic-pack.json'))
+}
+
 async function exists(path) { return stat(path).then(() => true, () => false) }
 
 test('every Timeless Dreams pack is an authored, receipt-bound standalone source', async () => {
@@ -112,7 +129,7 @@ test('the lettering style ships a phrase, the font axis, and one swatch', async 
 })
 
 test('the topic pack sells 1,000 authored assignments at the house standard', async () => {
-  const doc = await json(join(ROOT, 'topic/legends-across-every-civilisation/content/topic-pack.json'))
+  const doc = await currentTopic()
   assert.deepEqual(doc.compatible_formula_ids, [FORMULA_ID])
   assert.equal(doc.subjects.length, 50)
   assert.equal(doc.max_siblings_per_subject, 20)
@@ -136,7 +153,7 @@ test('the topic pack sells 1,000 authored assignments at the house standard', as
 })
 
 test('the topic pack is a sleep pack, and says so where it matters', async () => {
-  const doc = await json(join(ROOT, 'topic/legends-across-every-civilisation/content/topic-pack.json'))
+  const doc = await currentTopic()
   // The three promises this compilation is built on: one being toured across
   // cultures, no hook of any kind, and nothing invented.
   assert.match(doc.prompt_context, /walks the same being around the world/i)
@@ -157,7 +174,7 @@ test('the topic pack is a sleep pack, and says so where it matters', async () =>
 test('no topic line is shared with any other authored collection', async () => {
   const FIELDS = ['subjects', 'episode_objects', 'time_place_scopes', 'mechanisms', 'evidence_lenses']
   const linesOf = doc => new Set(FIELDS.flatMap(field => doc[field] ?? []))
-  const mine = linesOf(await json(join(ROOT, 'topic/legends-across-every-civilisation/content/topic-pack.json')))
+  const mine = linesOf(await currentTopic())
   assert.ok(mine.size > 3000, 'the pack contributes its own authored lines')
   for (const [collection, slug] of [
     ['royal-history', 'rulers-and-dynasties'],
