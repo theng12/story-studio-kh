@@ -425,9 +425,17 @@ export async function readItemPublicationStates(slug: string): Promise<Record<st
       ...(facts.privacy_status !== undefined
         ? { privacy_status: facts.privacy_status }
         : sc?.privacy_status ? { privacy_status: sc.privacy_status } : {}),
-      ...(Object.prototype.hasOwnProperty.call(facts, 'scheduled_for')
+      // A private remote receipt with no publishAt is not a competing claim.
+      // Keep a locally planned sidecar slot until an explicit schedule PUT
+      // confirms it remotely. A public or unlisted canonical receipt remains
+      // authoritative, including its null publishAt.
+      ...(facts.scheduled_for
         ? { scheduled_for: facts.scheduled_for }
-        : sc ? { scheduled_for: sc.scheduled_for } : {}),
+        : facts.privacy_status === 'private' && sc
+          ? { scheduled_for: sc.scheduled_for }
+          : facts.scheduled_for !== undefined
+            ? { scheduled_for: facts.scheduled_for }
+            : sc ? { scheduled_for: sc.scheduled_for } : {}),
     }
   }))
   return out

@@ -54,6 +54,11 @@ export type YouTubeLocalRenderProjection = {
 export type YouTubeLocalUploadProjection = {
   state: 'none' | 'queued' | 'running' | 'failed' | 'succeeded' | 'unknown'
   job_id?: string
+  progress?: number
+  bytes_done?: number
+  bytes_total?: number
+  speed_bps?: number
+  eta_seconds?: number
   reason?: string
 }
 

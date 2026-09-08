@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.129 — 2026-09-08
+
+- **Uploads use the date you review.** Upload Center defaults to an episode’s future planned date, offers a custom date or private upload, and carries that exact choice into the queued request.
+- **Schedule private videos without uploading them again.** Choose a future publication time inside Upload Center. Story Studio checks the current channel and YouTube visibility before applying it.
+- **Give unscheduled videos a local plan.** Preview available dates from the channel’s upload plan and save missing assignments without changing existing dates or publishing videos.
+- **Upload progress stays visible.** Follow transferred bytes, percentage, speed and estimated time remaining beside each active upload, with a direct link to Jobs. The page also shows its assigned YouTube channel and fixes scrolling into empty space below the list.
+
 ## v1.4.128 — 2026-09-08
 
 - **Motion duration follows the selected model.** Choose resolution separately and adjust duration with a snapping slider or number field using the model’s published image-to-video options.

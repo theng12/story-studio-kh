@@ -30,6 +30,12 @@ type EpisodeVideoLink = {
   video_id: string
   linked_at: string
   source: 'upload' | 'reconcile'
+  /** Provider-confirmed publication facts for non-operation identities. */
+  publication?: {
+    verified_at: string
+    privacy_status: string
+    scheduled_for: string | null
+  }
 }
 
 type ReconciliationDecision = {
@@ -372,12 +378,25 @@ function decodeEpisodeVideoLinks(value: unknown): Record<string, EpisodeVideoLin
   return Object.fromEntries(Object.entries(value).map(([episode, link]) => {
     mapKey(episode, 'episode_video_links')
     if (!isRecord(link)) throw stateCorrupt('episode video link is invalid')
-    exactKeys(link, ['channel_id', 'video_id', 'linked_at', 'source'])
+    exactKeys(link, ['channel_id', 'video_id', 'linked_at', 'source'], ['publication'])
+    const publication = link.publication
+    if (publication !== undefined && (!isRecord(publication)
+      || typeof publication.privacy_status !== 'string'
+      || (publication.scheduled_for !== null && typeof publication.scheduled_for !== 'string'))) {
+      throw stateCorrupt('episode video link publication is invalid')
+    }
     return [episode, {
       channel_id: identifier(link.channel_id, 'episode video link channel_id'),
       video_id: identifier(link.video_id, 'episode video link video_id'),
       linked_at: timestamp(link.linked_at, 'episode video link linked_at'),
       source: oneOf(link.source, VIDEO_LINK_SOURCES, 'episode video link source'),
+      ...(publication ? {
+        publication: {
+          verified_at: timestamp(publication.verified_at, 'episode video link publication verified_at'),
+          privacy_status: publication.privacy_status as string,
+          scheduled_for: publication.scheduled_for === null ? null : timestamp(publication.scheduled_for, 'episode video link publication scheduled_for'),
+        },
+      } : {}),
     }]
   }))
 }
@@ -906,6 +925,44 @@ export async function linkYouTubeEpisodeVideo(input: {
       video_id: videoId,
       linked_at: decidedAt,
       source: input.source,
+    }
+    next.revision = current.revision + 1
+    const decoded = decodeState(next, projectSlug)
+    await writeStateUnlocked(project.state_path, decoded)
+    return cloneState(decoded)
+  })
+}
+
+/** Persist a provider-confirmed publication receipt on an existing remote link. */
+export async function recordYouTubeEpisodePublication(input: {
+  project_slug: string
+  episode_code: string
+  channel_id: string
+  video_id: string
+  verified_at: string
+  privacy_status: string
+  scheduled_for: string | null
+}): Promise<YouTubeProjectPublishingStateV1> {
+  assertInputKeys(input, ['project_slug', 'episode_code', 'channel_id', 'video_id', 'verified_at', 'privacy_status', 'scheduled_for'])
+  const projectSlug = normalizeProjectSlug(input.project_slug)
+  const episodeCode = normalizeIdentifier(input.episode_code, 'episode_code')
+  const channelId = normalizeIdentifier(input.channel_id, 'channel_id')
+  const videoId = normalizeIdentifier(input.video_id, 'video_id')
+  const verifiedAt = normalizeTimestamp(input.verified_at, 'verified_at')
+  if (typeof input.privacy_status !== 'string' || !input.privacy_status) throw new Error('privacy_status is required')
+  if (input.scheduled_for !== null && typeof input.scheduled_for !== 'string') throw new Error('scheduled_for must be an ISO time or null')
+  const scheduledFor = input.scheduled_for === null ? null : normalizeTimestamp(input.scheduled_for, 'scheduled_for')
+  const project = await resolveValidatedProject(projectSlug)
+  return withLock(project.state_path, async () => {
+    const current = await readStateUnlocked(project.state_path, projectSlug)
+    const existing = current.episode_video_links[episodeCode]
+    if (!existing || existing.channel_id !== channelId || existing.video_id !== videoId) {
+      throw foundationError('YOUTUBE_VIDEO_ID_CONFLICT', 'The verified YouTube video no longer matches this episode link.')
+    }
+    const next = cloneState(current)
+    next.episode_video_links[episodeCode] = {
+      ...existing,
+      publication: { verified_at: verifiedAt, privacy_status: input.privacy_status, scheduled_for: scheduledFor },
     }
     next.revision = current.revision + 1
     const decoded = decodeState(next, projectSlug)

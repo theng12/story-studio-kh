@@ -397,6 +397,226 @@ test('the refresh route performs one bounded check and persists the outcome', as
   assert.equal((await operations.readYouTubeOperation(slug, made.operation_id))?.lifecycle, 'ready')
 })
 
+test('a current-channel private upload can receive a future schedule without re-uploading bytes', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const operationId = await acceptedOperation(slug, episodeCode, 'video-private')
+  const publishAt = new Date(Date.now() + 86_400_000).toISOString()
+
+  const fake = new FakeYouTube()
+  fake.respond({
+    method: 'GET',
+    path: '/youtube/v3/videos?part=snippet,status&id=video-private',
+    body: {
+      items: [{
+        id: 'video-private', etag: 'schedule-etag',
+        snippet: { title: 'Private episode', description: '', tags: [], categoryId: '24' },
+        status: { privacyStatus: 'private', embeddable: true, license: 'youtube', publicStatsViewable: true },
+      }],
+    },
+  })
+  fake.respond({
+    method: 'PUT',
+    path: '/youtube/v3/videos?part=status',
+    body: { id: 'video-private', status: { privacyStatus: 'private', publishAt } },
+  })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({ publish_at: publishAt, confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.deepEqual(res.body, {
+    operation_id: operationId,
+    episode_code: episodeCode,
+    video_id: 'video-private',
+    privacy_status: 'private',
+    scheduled_at: publishAt,
+  })
+  assert.equal(fake.calls.length, 2, 'one ETag-protected metadata update, never videos.insert')
+  assert.equal(fake.calls.some(call => call.path.includes('/upload/youtube/v3/videos')), false)
+  const mutation = fake.calls[1]
+  assert.equal(mutation?.headers?.['if-match'], 'schedule-etag')
+  assert.deepEqual(JSON.parse(mutation!.body!), {
+    id: 'video-private',
+    status: {
+      privacyStatus: 'private', publishAt,
+      selfDeclaredMadeForKids: false, embeddable: true, license: 'youtube', publicStatsViewable: true,
+    },
+  })
+  const record = await operations.readYouTubeOperation(slug, operationId)
+  assert.equal(record?.remote_snapshot?.privacy_status, 'private')
+  assert.equal(record?.remote_snapshot?.scheduled_for, publishAt)
+})
+
+test('scheduling rejects a non-private remote video before changing it', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  await acceptedOperation(slug, episodeCode, 'video-public')
+  const fake = new FakeYouTube()
+  fake.respond({
+    method: 'GET',
+    path: '/youtube/v3/videos?part=snippet,status&id=video-public',
+    body: {
+      items: [{
+        id: 'video-public', etag: 'public-etag',
+        snippet: { title: 'Public episode', description: '', tags: [], categoryId: '24' },
+        status: { privacyStatus: 'public' },
+      }],
+    },
+  })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({ publish_at: new Date(Date.now() + 86_400_000).toISOString(), confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 409)
+  assert.match(res.body.detail, /private/i)
+  assert.equal(fake.calls.length, 1, 'a public video is never changed by schedule')
+})
+
+
+test('scheduling rejects an impossible future calendar date before reading YouTube', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const res = await request(app).post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`).send({
+    publish_at: '2030-02-31T12:00:00Z', confirm: true, expected_channel_id: CHANNEL,
+  })
+  assert.equal(res.status, 400)
+  assert.equal(fake.calls.length, 0)
+})
+
+test('scheduling normalizes a valid offset timestamp before provider receipt and response', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  await acceptedOperation(slug, episodeCode, 'video-offset')
+  const requested = '2030-05-01T09:30:00+07:00'
+  const publishAt = new Date(requested).toISOString()
+  const fake = new FakeYouTube()
+  fake.respond({ method: 'GET', path: '/youtube/v3/videos?part=snippet,status&id=video-offset', body: { items: [{
+    id: 'video-offset', etag: 'offset-etag', snippet: { title: 'Offset', description: '', tags: [], categoryId: '24' },
+    status: { privacyStatus: 'private' },
+  }] } })
+  fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=status', body: { id: 'video-offset', status: { privacyStatus: 'private', publishAt } } })
+  __setYouTubeTransportForTests(fake.transport())
+  const res = await request(app).post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`).send({
+    publish_at: requested, confirm: true, expected_channel_id: CHANNEL,
+  })
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.equal(res.body.scheduled_at, publishAt)
+  assert.equal(JSON.parse(fake.calls[1]!.body!).status.publishAt, publishAt)
+})
+
+test('scheduling refuses a channel changed after review without a provider call', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  await acceptedOperation(slug, episodeCode, 'video-reassigned')
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: 'UC-schedule-new', title: 'New channel', granted_scopes: ['youtube.upload'] },
+    tokens: { access_token: 'new-access', refresh_token: 'new-refresh', expires_at: Date.now() + 3_600_000 },
+  })
+  await connections.assignProjectYouTubeChannel({
+    project_slug: slug, channel_id: 'UC-schedule-new', expected_previous_channel_id: CHANNEL,
+  })
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({
+      publish_at: new Date(Date.now() + 86_400_000).toISOString(),
+      confirm: true,
+      expected_channel_id: CHANNEL,
+    })
+
+  assert.equal(res.status, 409)
+  assert.equal(res.body.code, 'YOUTUBE_CHANNEL_CHANGED')
+  assert.equal(fake.calls.length, 0)
+})
+
+test('a historical private sidecar is scheduled without creating an operation or uploading bytes', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode, title } = await legacyPublishedEpisode(slug)
+  const before = await sidecars.readSidecar(slug, episodeCode, title, 'youtube')
+  await sidecars.writeSidecar(slug, episodeCode, title, { ...before!, privacy_status: 'private' })
+  const publishAt = new Date(Date.now() + 86_400_000).toISOString()
+  const fake = new FakeYouTube()
+  fake.respond({
+    method: 'GET', path: '/youtube/v3/videos?part=snippet,status&id=legacy-video-77',
+    body: { items: [{
+      id: 'legacy-video-77', etag: 'legacy-etag',
+      snippet: { title, description: 'd', tags: [], categoryId: '24' },
+      status: { privacyStatus: 'private' },
+    }] },
+  })
+  fake.respond({
+    method: 'PUT', path: '/youtube/v3/videos?part=status',
+    body: { id: 'legacy-video-77', status: { privacyStatus: 'private', publishAt } },
+  })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({ publish_at: publishAt, confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.deepEqual(res.body, {
+    episode_code: episodeCode, video_id: 'legacy-video-77', privacy_status: 'private', scheduled_at: publishAt,
+  })
+  assert.equal((await operations.listYouTubeOperations(slug)).length, 0, 'scheduling is not a legacy migration')
+  assert.equal((await sidecars.readSidecar(slug, episodeCode, title, 'youtube'))?.scheduled_for, publishAt)
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.deepEqual(row.publication, { state: 'scheduled', visibility: 'private', scheduled_at: publishAt, last_checked_at: row.publication.last_checked_at })
+  assert.equal(row.can_schedule_existing, true)
+  assert.equal(fake.calls.length, 2)
+})
+
+test('a legacy video without a channel receipt is not offered the schedule action', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode, title } = await legacyPublishedEpisode(slug)
+  const sidecar = await sidecars.readSidecar(slug, episodeCode, title, 'youtube')
+  await sidecars.writeSidecar(slug, episodeCode, title, { ...sidecar!, channel_id: '' })
+
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.equal(row.can_schedule_existing, false)
+  assert.match(row.schedule_blocked_reason, /different YouTube channel/i)
+})
+
+test('a failed schedule update does not create a local schedule receipt', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const operationId = await acceptedOperation(slug, episodeCode, 'video-put-fails')
+  const publishAt = new Date(Date.now() + 86_400_000).toISOString()
+  const fake = new FakeYouTube()
+  fake.respond({
+    method: 'GET', path: '/youtube/v3/videos?part=snippet,status&id=video-put-fails',
+    body: { items: [{
+      id: 'video-put-fails', etag: 'put-fails-etag',
+      snippet: { title: 'Unchanged', description: '', tags: [], categoryId: '24' },
+      status: { privacyStatus: 'private' },
+    }] },
+  })
+  fake.rejectNext({
+    method: 'PUT', path: '/youtube/v3/videos?part=status', status: 500,
+    body: { error: { message: 'temporary provider failure' } },
+  })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({ publish_at: publishAt, confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 500)
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot, undefined)
+  assert.equal(fake.calls.length, 2)
+})
+
 /** An accepted operation with a video id, ready to be synced. */
 async function acceptedOperation(slug: string, episode: string, videoId: string, title?: string): Promise<string> {
   const made = await operations.createYouTubeOperation({
@@ -3135,6 +3355,90 @@ test('publishable projects local render, upload, publication, and plan facts wit
   assert.equal(fake.calls.length, 0, 'streaming a local render also costs no YouTube quota')
 })
 
+test('a local plan claim remains reserved when a private operation has no remote schedule yet', async () => {
+  const slug = await registryOnlyProject()
+  const episode = await acceptedEpisode(slug)
+  const operationId = await acceptedOperation(slug, episode.episodeCode, 'video-plan-private')
+  const accepted = await operations.readYouTubeOperation(slug, operationId)
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: operationId, expected_revision: accepted!.revision,
+    mutate(record) {
+      record.remote_snapshot = {
+        fetched_at: new Date().toISOString(), title: episode.title, description: '', tags: [],
+        privacy_status: 'private', scheduled_for: null,
+      }
+    },
+  })
+  const plannedAt = new Date(Date.now() + 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, { [episode.episodeCode]: plannedAt })
+  assert.equal((await uploadPlans.readItemSchedule(slug))[episode.episodeCode], plannedAt)
+})
+
+test('Upload Center plan assigns only missing rows and refuses a stale preview without provider work', async () => {
+  const slug = await registryOnlyProject()
+  const first = await acceptedEpisode(slug)
+  const second = await acceptedEpisode(slug)
+  const later = await acceptedEpisode(slug)
+  const accountId = `registry:${CHANNEL}`
+  const plan = await uploadPlans.upsertPlan(slug, {
+    name: 'Only missing', platform: 'youtube', account_id: accountId,
+    schedule: {
+      weekdays: [0, 1, 2, 3, 4, 5, 6], time_local: '12:00', timezone: 'UTC',
+      start_date: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+    },
+    defaults: { privacy_status: 'private' },
+  })
+  await uploadPlans.setActivePlanId(slug, 'youtube', accountId, plan.id)
+  const firstClaim = new Date(Date.now() + 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, { [first.episodeCode]: firstClaim })
+
+  const wrongChannel = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
+    plan_id: plan.id, expected_channel_id: 'UC-stale', episode_codes: [second.episodeCode],
+  })
+  assert.equal(wrongChannel.status, 409)
+  assert.equal(wrongChannel.body.code, 'YOUTUBE_ASSIGNMENT_CHANGED')
+
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [second.episodeCode, first.episodeCode],
+  })
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.deepEqual(preview.body.ordered_episode_codes, [first.episodeCode, second.episodeCode])
+  assert.deepEqual(preview.body.skipped_existing, [first.episodeCode])
+  assert.equal(preview.body.assignments.length, 1)
+  assert.equal(preview.body.assignments[0].episode_code, second.episodeCode)
+
+  // A separate future claim arrives after review. Apply must recompute and
+  // refuse the old map rather than silently giving the same slot to two rows.
+  const laterClaim = new Date(Date.now() + 7 * 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, {
+    [first.episodeCode]: firstClaim,
+    [later.episodeCode]: laterClaim,
+  })
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const stale = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [second.episodeCode, first.episodeCode],
+    confirm: true, expected_assignments: preview.body.assignments,
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(stale.body.code, 'YOUTUBE_PLAN_PREVIEW_STALE')
+  assert.equal(fake.calls.length, 0, 'local plan claims never change YouTube remotely')
+
+  const saved = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [second.episodeCode, first.episodeCode],
+    confirm: true, expected_assignments: stale.body.assignments,
+  })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  const schedule = await uploadPlans.readItemSchedule(slug)
+  assert.equal(schedule[first.episodeCode], firstClaim)
+  assert.equal(schedule[later.episodeCode], laterClaim)
+  assert.equal(schedule[second.episodeCode], saved.body.assignments[0].publishAt)
+  assert.equal(fake.calls.length, 0)
+})
+
 test('publishable maps cached remote lifecycle and visibility without promoting private uploads', async () => {
   // Break caught: treating every accepted upload as published erases the
   // private/unlisted, processing, scheduled, failed, and rejected states the
@@ -3348,6 +3652,26 @@ test('Upload on a registry-only project queues the job on the registry credentia
     title: 'The Lighthouse at Dawn', description: 'A keeper counts the nights.', tags: ['x'], categoryId: '24',
   }))
   __resetYouTubeTransportForTests()
+})
+
+test('a confirmed publish_at overrides private mode for that exact upload', async () => {
+  const { slug, episodeCode } = await uploadReadyProject()
+  await uploadStore.setUploadMode(slug, 'youtube', 'private')
+  const publishAt = new Date(Date.now() + 86_400_000).toISOString()
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/preview`).send({
+    episode_code: episodeCode, privacy_status: 'public', publish_at: publishAt,
+  })
+  assert.equal(preview.status, 200)
+  const started = await request(app).post(`/api/projects/${slug}/youtube/upload`).send({
+    episode_code: episodeCode, confirm: true, expected_channel_id: CHANNEL,
+    privacy_status: 'public', publish_at: publishAt,
+    expected_package_revision: preview.body.package_revision,
+  })
+  assert.equal(started.status, 200, JSON.stringify(started.body))
+  const job = jobQueue.getJob(started.body.job_id)
+  assert.equal(job?.params?.approved_upload_mode, 'apply-plan')
+  assert.equal(job?.params?.scheduled_for, publishAt)
+  await removeQueuedTestJob(slug, started.body.job_id)
 })
 
 test('publishable keeps queued and paused local uploads distinct from remote publication', async () => {

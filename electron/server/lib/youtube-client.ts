@@ -826,11 +826,18 @@ export async function updateVideoMetadata(opts: {
    * just fixed a typo in the title.
    */
   status?: Partial<VideoStatus>
+  /** Require the live visibility before an update that schedules publication. */
+  requirePrivacyStatus?: PrivacyStatus
 }): Promise<UploadedVideo> {
   if (!opts.snippet && !opts.status) throw new Error('Name at least one YouTube metadata part to update.')
   const live = (await listVideoSnippetStatus(opts.slug, opts.accountId, [opts.videoId]))[opts.videoId]
   if (!live) throw new Error('YouTube did not return the exact video requested for metadata update.')
   if (!live.etag) throw new Error('YouTube did not return an ETag; refusing to overwrite metadata without concurrency protection.')
+  if (opts.requirePrivacyStatus && live.privacyStatus !== opts.requirePrivacyStatus) {
+    const error = new Error(`This video is ${live.privacyStatus}; only a private YouTube video can be scheduled here.`) as Error & { statusCode?: number }
+    error.statusCode = 409
+    throw error
+  }
   const body: Record<string, unknown> = { id: opts.videoId }
   if (opts.snippet) {
     const snippet: VideoSnippet = {
