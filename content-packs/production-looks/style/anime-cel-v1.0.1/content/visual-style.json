@@ -1,0 +1,23 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.anime-cel",
+  "name": "Anime Cel",
+  "description": "Modern anime cel-shading — clean lineart, flat cel light, expressive and vivid.",
+  "category": "Digital",
+  "tags": [
+    "anime",
+    "cel shading",
+    "line art",
+    "vivid",
+    "character"
+  ],
+  "style_bible": "modern anime cel-shaded illustration, clean confident lineart, flat cel shading with crisp shadow shapes, vivid but harmonious palette, expressive faces, soft rim light, detailed painted backgrounds, dynamic composition, key-visual quality, subtle gradient skies",
+  "negative_prompt": "photorealism, 3D render, western cartoon, muddy colours, sketchy unfinished lines, heavy film grain, realistic skin pores, text, watermark",
+  "preview_assets": [
+    "assets/anime-cel.webp",
+    "assets/anime-cel-scene.webp",
+    "assets/anime-cel-face.webp"
+  ],
+  "compatible_formula_ids": []
+}

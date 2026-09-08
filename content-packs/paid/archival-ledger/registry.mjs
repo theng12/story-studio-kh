@@ -116,4 +116,13 @@ export const paidComponentRegistry = [
     family: 'com.storystudio.family.topic.archival-ledger.infrastructure-commodities-corporate-power',
     sourceDirectory: 'topic/infrastructure-commodities-corporate-power-v1.0.1',
   },
+  {
+    packId: 'com.storystudio.pack.style.archival-documentary-reconstruction',
+    itemId: 'com.storystudio.style.archival-documentary-reconstruction',
+    kind: 'visual-style',
+    version: '1.0.1',
+    sku: 'com.storystudio.sku.style.archival-documentary-reconstruction',
+    family: 'com.storystudio.family.style.archival-documentary-reconstruction',
+    sourceDirectory: 'style/archival-documentary-reconstruction-v1.0.1',
+  },
 ]

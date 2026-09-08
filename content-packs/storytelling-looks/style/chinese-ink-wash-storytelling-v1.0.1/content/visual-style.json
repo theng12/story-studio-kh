@@ -1,0 +1,25 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.chinese-ink-wash-storytelling",
+  "name": "Chinese Ink-Wash Storytelling",
+  "description": "Monochrome brush-and-wash storytelling with calligraphic contours, wet blooms, dry-brush texture, and spacious rice-paper compositions.",
+  "category": "Illustration",
+  "tags": [
+    "chinese ink painting",
+    "ink wash",
+    "brush painting",
+    "monochrome",
+    "rice paper",
+    "calligraphic",
+    "literati"
+  ],
+  "style_bible": "Monochrome Chinese ink-wash narrative on warm ivory rice/xuan paper; variable-pressure calligraphic contours, diluted pooled ink, wet blooms, dry-brush texture, soft feathered edges, and restrained hatching. Use near-black anchors, active negative space, and mist-layered depth around one subject or a small grouping. Favor asymmetrical spacious narrative framing, selective detail, and contemplative literati stillness; keep the style content-independent with no fixed character, prop, era, location, or composition.",
+  "negative_prompt": "sepia or foxed expedition-journal styling, lamplight, edge vignette, colored watercolor, storybook, pastel, gouache, oil paint, photorealism, CGI, vector, cartoon, anime, infographic, readable text or calligraphy, seals, chops, signatures, logos, watermarks, UI, interface bars, borders, letterbox, pillarbox, copied reference composition",
+  "preview_assets": [
+    "assets/chinese-ink-wash-storytelling.webp",
+    "assets/chinese-ink-wash-storytelling-scene.webp",
+    "assets/chinese-ink-wash-storytelling-face.webp"
+  ],
+  "compatible_formula_ids": []
+}

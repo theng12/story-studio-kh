@@ -1,0 +1,23 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.whiteboard-doodle-explainer",
+  "name": "Whiteboard Doodle Explainer",
+  "description": "Hand-drawn whiteboard doodles — stick figures, big expressive faces, one idea per frame.",
+  "category": "Explainer",
+  "tags": [
+    "whiteboard",
+    "doodle",
+    "stick figure",
+    "marker",
+    "educational"
+  ],
+  "style_bible": "simple hand-drawn whiteboard-doodle illustration, thick black marker outlines, smooth rounded shapes, clean vector-like lines, minimal detail, high readability at small sizes, looks quickly sketched on a whiteboard, stick-figure humans with circle heads and simple line bodies, highly expressive faces with big eyes and raised eyebrows showing clear emotion, everyday objects simplified into symbolic icons that can be anthropomorphised with faces and personality for visual metaphor, pure white background, one main idea per image, a large central character or object, generous empty space, no realistic perspective or complex environment, arrows and circles and lines to direct attention, simple icons as visual shortcuts, mostly black-and-white line art with limited flat colour accents reserved for important elements only (blue for important or science or earth, yellow for energy or success or discovery, red for danger or problem, green for nature or growth), no realistic lighting, no cinematic shadows, optional big bold uppercase handwritten marker lettering at the top with only a few words",
+  "negative_prompt": "photorealism, 3D render, painterly brushwork, cinematic lighting, realistic shading, gradients, film grain, busy cluttered background, detailed environment, soft airbrush, colour photograph, realistic anatomy",
+  "preview_assets": [
+    "assets/whiteboard-doodle-explainer.webp",
+    "assets/whiteboard-doodle-explainer-scene.webp",
+    "assets/whiteboard-doodle-explainer-face.webp"
+  ],
+  "compatible_formula_ids": []
+}

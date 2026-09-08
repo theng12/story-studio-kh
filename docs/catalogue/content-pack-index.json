@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-08T11:29:46.376Z",
+  "generated": "2026-09-08T12:15:55.210Z",
   "count": 200,
   "items": [
     {
@@ -1676,10 +1676,10 @@
       "kind": "visual-style",
       "id": "com.storystudio.style.anime-cel",
       "name": "Anime Cel",
-      "collection_dir": "production-looks/style/anime-cel",
+      "collection_dir": "production-looks/style/anime-cel-v1.0.1",
       "axis": "Digital",
       "description": "Modern anime cel-shading — clean lineart, flat cel light, expressive and vivid.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
@@ -1696,30 +1696,30 @@
       "kind": "visual-style",
       "id": "com.storystudio.style.archival-documentary-reconstruction",
       "name": "Archival Documentary Reconstruction",
-      "collection_dir": "paid/archival-ledger/style/archival-documentary-reconstruction",
+      "collection_dir": "paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.1",
       "axis": "Realistic",
       "description": "Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.chinese-ink-wash-storytelling",
       "name": "Chinese Ink-Wash Storytelling",
-      "collection_dir": "storytelling-looks/style/chinese-ink-wash-storytelling",
+      "collection_dir": "storytelling-looks/style/chinese-ink-wash-storytelling-v1.0.1",
       "axis": "Illustration",
       "description": "Monochrome brush-and-wash storytelling with calligraphic contours, wet blooms, dry-brush texture, and spacious rice-pap…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.cinematic-photoreal",
       "name": "Cinematic Photoreal",
-      "collection_dir": "free-starters/style/cinematic-photoreal",
+      "collection_dir": "free-starters/style/cinematic-photoreal-v1.0.1",
       "axis": "Realistic",
       "description": "Filmic photoreal look — shallow depth of field, golden-hour light, graded like a movie still.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
@@ -1746,20 +1746,20 @@
       "kind": "visual-style",
       "id": "com.storystudio.style.dreamlike-luminous-sleep-illustration",
       "name": "Dreamlike Luminous Sleep Illustration",
-      "collection_dir": "legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
+      "collection_dir": "legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration-v1.0.1",
       "axis": "Illustration",
       "description": "A luminous watercolor-and-gouache sleep-story language with moonlit blues, candle gold, and softly painted story-world…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.flat-vector-explainer",
       "name": "Flat Vector Explainer",
-      "collection_dir": "free-starters/style/flat-vector-explainer",
+      "collection_dir": "free-starters/style/flat-vector-explainer-v1.0.1",
       "axis": "Explainer",
       "description": "Clean flat-vector infographic look — bold shapes, limited palette, crisp and modern.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
@@ -1796,40 +1796,40 @@
       "kind": "visual-style",
       "id": "com.storystudio.style.hand-drawn-cartoon-explainer",
       "name": "Hand-Drawn Cartoon Explainer",
-      "collection_dir": "production-looks/style/hand-drawn-cartoon-explainer",
+      "collection_dir": "production-looks/style/hand-drawn-cartoon-explainer-v1.0.1",
       "axis": "Explainer",
       "description": "Casual explainer-video cartoons with rounded mascots, slightly imperfect ink lines, flat muted colors, and familiar eve…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.hand-drawn-editorial-diagram",
       "name": "Hand-Drawn Editorial Diagram",
-      "collection_dir": "free-starters/style/hand-drawn-editorial-diagram",
+      "collection_dir": "free-starters/style/hand-drawn-editorial-diagram-v1.0.1",
       "axis": "Explainer",
       "description": "Fine ink outlines, lightly painted natural color, and clear object-led diagrams for approachable visual explainers.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.hand-drawn-hardship-cartoon",
       "name": "Hand-Drawn Hardship Cartoon",
-      "collection_dir": "legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon",
+      "collection_dir": "legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon-v1.0.1",
       "axis": "Natural world",
       "description": "An expressive animal illustration language using uneven ink, limited flat color, and sparse annotated paper-like space.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.impasto-psychological-animals",
       "name": "Impasto Psychological Animals",
-      "collection_dir": "legacy-thumbnail-restoration/style/impasto-psychological-animals",
+      "collection_dir": "legacy-thumbnail-restoration/style/impasto-psychological-animals-v1.0.1",
       "axis": "Illustration",
       "description": "A melancholy editorial animal-psychology style rendered with tactile oil-paint depth and one readable human-scale actio…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
@@ -1866,80 +1866,80 @@
       "kind": "visual-style",
       "id": "com.storystudio.style.minimal-stick-figure-explainer",
       "name": "Minimal Stick-Figure Explainer",
-      "collection_dir": "free-starters/style/minimal-stick-figure-explainer-v1.0.1",
+      "collection_dir": "free-starters/style/minimal-stick-figure-explainer-v1.0.2",
       "axis": "Explainer",
       "description": "Polished stick-figure storytelling with expressive faces, generous white space, and restrained color accents.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.oil-painting-classical",
       "name": "Oil Painting Classical",
-      "collection_dir": "symbolic-psychology-studio/style/oil-painting-classical",
+      "collection_dir": "symbolic-psychology-studio/style/oil-painting-classical-v1.0.1",
       "axis": "Illustration",
       "description": "Old-master oil painting — rich impasto, chiaroscuro lighting, museum-canvas depth.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.old-master-still-life",
       "name": "Old Master Still Life",
-      "collection_dir": "sleep-history/style/old-master-still-life",
+      "collection_dir": "sleep-history/style/old-master-still-life-v1.0.1",
       "axis": "Illustration",
       "description": "Object-led old-master oil still life — one hero object on a worn wooden table under a single cool window light, dark um…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.paleo-documentary-tableau",
       "name": "Paleo Documentary Tableau",
-      "collection_dir": "free-starters/style/paleo-documentary-tableau",
+      "collection_dir": "free-starters/style/paleo-documentary-tableau-v1.0.1",
       "axis": "Illustration",
       "description": "Calm painterly natural-history reconstructions with readable deep-time landscapes, organisms, and atmosphere.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.pastel-surreal-psychological-collage",
       "name": "Pastel Surreal Psychological Collage",
-      "collection_dir": "psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1",
+      "collection_dir": "psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.2",
       "axis": "Editorial psychology",
       "description": "A restrained matte mixed-media collage language for symbolic psychological subjects and editorial emotional imagery.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.pixel-art-story",
       "name": "Pixel Art Story",
-      "collection_dir": "production-looks/style/pixel-art-story",
+      "collection_dir": "production-looks/style/pixel-art-story-v1.0.1",
       "axis": "Digital",
       "description": "Readable retro RPG pixel art with strong silhouettes and playful adventure framing.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.prehistoric-stick-cartoon",
       "name": "Prehistoric Stick Cartoon",
-      "collection_dir": "free-starters/style/prehistoric-stick-cartoon-v1.0.1",
+      "collection_dir": "free-starters/style/prehistoric-stick-cartoon-v1.0.2",
       "axis": "Explainer",
       "description": "Playful history-explainer cartoon with stick-limbed cave people, mammoths, flat snowy scenes, and bold black outlines.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.retro-paint-fantasy",
       "name": "Retro Paint Fantasy",
-      "collection_dir": "production-looks/style/retro-paint-fantasy",
+      "collection_dir": "production-looks/style/retro-paint-fantasy-v1.0.1",
       "axis": "Digital",
       "description": "Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
@@ -1956,50 +1956,50 @@
       "kind": "visual-style",
       "id": "com.storystudio.style.sepia-ink-wash",
       "name": "Sepia Ink & Wash",
-      "collection_dir": "free-starters/style/sepia-ink-wash",
+      "collection_dir": "free-starters/style/sepia-ink-wash-v1.0.1",
       "axis": "Illustration",
       "description": "Muted line-and-wash illustration — fine ink over desaturated watercolor, lamplit and weathered, like a period expeditio…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.studio-catalog-realism",
       "name": "Studio Catalog Realism",
-      "collection_dir": "production-looks/style/studio-catalog-realism",
+      "collection_dir": "production-looks/style/studio-catalog-realism-v1.0.1",
       "axis": "Realistic",
       "description": "Crisp tabletop realism with neutral surfaces, honest materials, soft studio light, and carefully staged miniature scene…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.watercolor-storybook",
       "name": "Watercolor Storybook",
-      "collection_dir": "free-starters/style/watercolor-storybook",
+      "collection_dir": "free-starters/style/watercolor-storybook-v1.0.1",
       "axis": "Illustration",
       "description": "Soft children’s-book watercolor — gentle washes, rounded shapes, warm and cozy.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.waxy-outline-cartoon",
       "name": "Waxy Outline Cartoon",
-      "collection_dir": "free-starters/style/waxy-outline-cartoon",
+      "collection_dir": "free-starters/style/waxy-outline-cartoon-v1.0.1",
       "axis": "Explainer",
       "description": "Bold curiosity-cartoon art with waxy imperfect outlines, saturated flats, and instantly readable reactions.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "visual-style",
       "id": "com.storystudio.style.whiteboard-doodle-explainer",
       "name": "Whiteboard Doodle Explainer",
-      "collection_dir": "production-looks/style/whiteboard-doodle-explainer",
+      "collection_dir": "production-looks/style/whiteboard-doodle-explainer-v1.0.1",
       "axis": "Explainer",
       "description": "Hand-drawn whiteboard doodles — stick figures, big expressive faces, one idea per frame.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     }
   ]

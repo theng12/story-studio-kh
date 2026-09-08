@@ -30,3 +30,16 @@ The approved prompt batches were re-frozen on 2026-08-28 to drop a trailing newl
 The Editorial successor adds the gallery's first right-side subject, first three-quarter profile, and first one-line headline, so the four retained v1.0.0 placements (left, left, center-left, center-left; two- and three-line titles) are expanded rather than duplicated. The rejected preview `#4` slot stays permanently vacant, so the new entry is numbered `-6`.
 
 The Pastel successor replaces the v1.0.0 preview whose Fix Round 1 review found heavy impasto rather than the promised matte mixed-media collage. The v1.0.0 asset is retained unchanged above as diagnostic evidence only. The successor was judged severely on that exact axis and is matte torn-paper collage with paper grain, dry painterly and eroded passages, the full declared low-saturation palette, and ember orange confined to one small accent.
+
+## Style preview backfill — 2026-09-08
+
+The owner's rule of 2026-09-08 is three previews per Visual Style — the hero, a quiet wide scene with no figure in it, and the hardest case the style can legally be asked for. This collection's Visual Style shipped with one preview, so 2 new previews were rendered and the pack moved to a new `<slug>-v<version>` sibling directory, leaving the directory it shipped from in place. The existing hero bytes were copied into the new directory unchanged.
+
+The full render record — run ids, job ids, prompt digests, the conversion applied and the review of every image — is in `content-packs/PREVIEW-BACKFILL-2026-09-08.md`. The rows below are this collection's accepted bytes.
+
+| Style item | New pack version | Accepted asset | SHA-256 | Bytes | Dimensions | Decode |
+| --- | --- | --- | --- | ---: | --- | --- |
+| `com.storystudio.style.pastel-surreal-psychological-collage` | 1.0.2 | `content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.2/assets/pastel-surreal-psychological-collage-scene.webp` | `c038a3f21bc6c5d3005e3df640c9849adaacaabfdba3810220376a31399d214c` | 272290 | 1672x941 | WebP decode passed |
+| `com.storystudio.style.pastel-surreal-psychological-collage` | 1.0.2 | `content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.2/assets/pastel-surreal-psychological-collage-face.webp` | `cefb7a09879592abdd5c334eadb3b9ddf3e2149fb6fe96abddbb753ccd4d4502` | 235004 | 1672x941 | WebP decode passed |
+
+Each of these was rendered by GenStudio `gpt-image-2` through the Story Studio Image Pool in the `pack-previews` project, one variant, `16:9`, `2K`, `reference_images: []`, 29 credits each — 58 credits for this collection. Every file decodes as a 1672×941 WebP above the 20,480-byte floor and carries no text of any kind.

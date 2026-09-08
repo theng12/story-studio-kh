@@ -132,6 +132,20 @@ const SUCCESSORS = [
     family: 'com.storystudio.family.topic.archival-ledger.infrastructure-commodities-corporate-power',
     sku: 'com.storystudio.sku.topic.archival-ledger.infrastructure-commodities-corporate-power',
   },
+  // The 2026-09-08 style preview backfill. The Style shipped with one preview
+  // and now ships three, which is new content, so it is a successor beside its
+  // predecessor for exactly the reason the five Topic successors above are.
+  {
+    kind: 'style',
+    slug: 'archival-documentary-reconstruction-v1.0.1',
+    predecessorSlug: 'archival-documentary-reconstruction',
+    version: '1.0.1',
+    document: 'visual-style.json',
+    packId: 'com.storystudio.pack.style.archival-documentary-reconstruction',
+    itemId: 'com.storystudio.style.archival-documentary-reconstruction',
+    family: 'com.storystudio.family.style.archival-documentary-reconstruction',
+    sku: 'com.storystudio.sku.style.archival-documentary-reconstruction',
+  },
 ]
 
 const STOCKABLE = [...COMPONENTS, ...SUCCESSORS]
@@ -328,12 +342,18 @@ test('each Archival Ledger component source and successor builds deterministical
       assert.equal(first.sha256, second.sha256)
       assert.deepEqual(await readFile(firstPath), await readFile(secondPath))
       assert.deepEqual(verified, { packId: first.packId, version: first.version, sha256: first.sha256 })
-      assert.deepEqual(Object.keys(archive.files), [
-        'manifest.json',
-        'signature.ed25519',
+      // manifest and signature lead; the rest is compared as a set, because the
+      // builder writes entries in its own order and `source.assets` is in
+      // preview_assets order. Those coincided while every pack's previews were
+      // named `-1`, `-2`, `-3`; the 2026-09-08 backfill added `-scene` and
+      // `-face` behind a hero, and the two orders parted. What the archive owes
+      // is the exact set of declared files, not this list's sequence.
+      const entries = Object.keys(archive.files)
+      assert.deepEqual(entries.slice(0, 2), ['manifest.json', 'signature.ed25519'])
+      assert.deepEqual(entries.slice(2).sort(), [
         ...source.assets.map(asset => asset.path),
         `content/${component.document}`,
-      ])
+      ].sort())
     }
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -367,7 +387,14 @@ test('a versioned successor ships beside its predecessor rather than replacing i
     assert.equal(successorSource.documents.length, 1)
 
     // A successor exists to carry more content than the version it succeeds.
-    assert.ok(successorSource.document.subjects.length > predecessorSource.document.subjects.length,
-      `${successor.slug} must not ship fewer subjects than ${predecessor.slug}`)
+    // What "more" means depends on the kind: a Topic Pack gains subjects, a
+    // Visual Style gains previews. Asserting subjects for everything read as a
+    // general rule but was only ever true of the five Topic successors, and it
+    // threw rather than failed the moment a Style successor arrived.
+    const [measure, countOf] = successorSource.document.kind === 'topic-pack'
+      ? ['subjects', document => document.subjects.length]
+      : ['previews', document => document.preview_assets.length]
+    assert.ok(countOf(successorSource.document) > countOf(predecessorSource.document),
+      `${successor.slug} must not ship fewer ${measure} than ${predecessor.slug}`)
   }
 })
