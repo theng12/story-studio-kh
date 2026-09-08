@@ -5,13 +5,14 @@
  * the listener to notice rather than announced. One reservation batch (revision
  * 186), one receipt, two lifecycle promotions (revisions 189-190).
  *
- * The lettering pack declares a preview that DOES NOT EXIST YET: this control
- * Mac does not perform production image generation, and no owner authorisation
- * was given for this pass. Nothing was fabricated and nothing was stubbed, so
- * this file pins the honest state instead: the declared preview path is named
- * by the collection's PREVIEW-PROVENANCE.md, and any preview byte that HAS
- * landed must meet the contract. The day it is rendered, the assertions below
- * start checking it without being edited.
+ * The lettering pack declares one preview. It did not exist when this file was
+ * first written — this control Mac does not perform production image
+ * generation, and no owner authorisation had been given — so nothing was
+ * fabricated and nothing was stubbed. The authorisation arrived on 2026-09-08
+ * and the swatch was rendered by Image Pool job `5f541ae9`. It is now present,
+ * so the assertions below require it to exist, to decode to its contract, and
+ * to carry its own digest and byte count in PREVIEW-PROVENANCE.md. A preview
+ * that goes missing now fails the suite instead of being skipped.
  */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -172,7 +173,7 @@ test('no topic line is shared with any other authored collection', async () => {
   }
 })
 
-test('every declared preview is named by the provenance record, and any that exists meets the contract', async () => {
+test('every declared preview exists, meets the contract, and carries its byte evidence in the provenance record', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   const declared = new Set()
   for (const p of PACKS) {
@@ -187,7 +188,7 @@ test('every declared preview is named by the provenance record, and any that exi
     assert.ok(provenance.includes(rel.split('/').pop()), `provenance must name ${rel}`)
     assert.ok(provenance.includes(`${width}x${height}`), `provenance must state ${width}x${height}`)
     const path = join(ROOT, rel)
-    if (!await exists(path)) continue
+    assert.ok(await exists(path), `${rel} must exist: the swatch landed on 2026-09-08`)
     const buf = await readFile(path)
     assert.ok(buf.byteLength > 20 * 1024, `${rel} must exceed the 20 KB floor`)
     const meta = await sharp(buf).metadata()
@@ -199,7 +200,7 @@ test('every declared preview is named by the provenance record, and any that exi
   }
 })
 
-test('the provenance record states why nothing was generated and how to generate it', async () => {
+test('the provenance record states why the render was held, how it was run, and which job ran it', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   for (const evidence of [
     'image-pool/generate',
@@ -207,6 +208,7 @@ test('the provenance record states why nothing was generated and how to generate
     'does not perform production image generation',
     'timeless-dreams-previews-1',
     'gpt-image-2',
+    '5f541ae9',
   ]) {
     assert.ok(provenance.includes(evidence), `provenance must record ${evidence}`)
   }
