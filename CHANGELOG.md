@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.132
+
+- Replenish scene-image admission requests independently of occupied standard execution lanes, with account pacing, bounded queues and cancellation preserved.
+- Show GenStudio’s published provider queue position and estimated wait in Jobs, and clear them as work advances.
+- Choose language products for each Pipeline run without changing presets. Use one product, distribute episodes across selected products, or set an ordered primary and backups for the seven writing stages.
+- Save the chosen backup and request identity for each logical writing request. Retry reconnects to accepted work; another product is used only after a proven safe refusal or fully released failure.
+- Check the selected product’s published workflow capabilities before submission and keep model controls usable on narrow screens.
+
 ## v1.4.131
 
 - Restore Upload Center’s Upload plans editor: create, edit and activate channel-specific weekly or monthly schedules, with timezone and date bounds.

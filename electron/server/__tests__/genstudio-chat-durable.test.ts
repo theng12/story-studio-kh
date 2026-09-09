@@ -353,6 +353,44 @@ test('an unknown historical idempotency key stays locked and never creates fresh
   assert.equal(posts, 0, 'unknown recovery must preserve its identity instead of submitting anew')
 })
 
+test('saved recovery key bypasses a later lower catalogue ceiling and never posts', async () => {
+  const originalFetch = globalThis.fetch
+  let modelReads = 0
+  let posts = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) {
+        modelReads += 1
+        return Response.json(catalog(1))
+      }
+      if ((init?.method || 'GET').toUpperCase() === 'POST') {
+        posts += 1
+        throw new Error('saved recovery must never submit a replacement')
+      }
+      assert.equal(new URL(url).pathname, '/v1/chat/responses/by-idempotency-key/prepared-primary-key')
+      return Response.json(job({
+        state: 'succeeded', output_text: '{"ok":true}', output_retained: true, finish_reason: 'stop',
+      }))
+    }
+    const result = await callChatWithGenStudio('durable-recovery-key', {
+      ...baseRequest,
+      // This is deliberately above the now-published ceiling. It was valid
+      // when the POST was prepared; recovery must use its saved provider key,
+      // not reject that historical request against today's catalogue.
+      maxOutputTokens: 8_192,
+      idempotencyKey: 'prepared-primary-key',
+      recoverByIdempotencyKey: true,
+      allowedRecoveryKeys: ['prepared-primary-key'],
+    })
+    assert.deepEqual(JSON.parse(result.text), { ok: true })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(modelReads, 0, 'read-only recovery must not re-size the old POST')
+  assert.equal(posts, 0, 'read-only recovery must not create a replacement')
+})
+
 test('a transport failure during recovery stays unresolved and never creates fresh work', async () => {
   const originalFetch = globalThis.fetch
   let posts = 0

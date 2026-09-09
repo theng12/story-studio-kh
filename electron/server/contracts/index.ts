@@ -771,6 +771,9 @@ export interface JobEnqueuedResponse {
     stall_recovery_at?: string | null
     status_detail?: string | null
     failure_detail?: string | null
+    queue_position?: number | null
+    queue_eta_seconds?: number | null
+    queue_reason?: 'provider_pace' | null
     location?: string
     queue_state?: 'waiting_local' | 'submitting' | 'accepted' | 'waiting_account_capacity'
       | 'running' | 'completing' | 'succeeded' | 'failed' | 'waiting_credits' | 'cancelled'

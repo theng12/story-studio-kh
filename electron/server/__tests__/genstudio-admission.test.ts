@@ -210,6 +210,21 @@ test('the live dispatch width uses available standard lanes capped by the publis
   assert.equal(await pool.currentDispatchLimit('permit-width-key'), 1)
 })
 
+test('permit acquisition width is bounded by published submission and queue limits, not occupied execution slots', async () => {
+  const pool = new GenStudioAdmissionPool(async () => capacity({
+    paid_concurrency_limit: 50,
+    paid_active_jobs: 50,
+    paid_queued_jobs: 0,
+    max_queued_jobs: 1000,
+    generation_submissions_per_minute: 60,
+    burst_concurrency_ceiling: 1000,
+  }))
+
+  await pool.refreshNow('permit-replenishment-key')
+  assert.equal(await pool.currentDispatchLimit('permit-replenishment-key'), 1)
+  assert.equal(await pool.currentPermitRequestLimit('permit-replenishment-key'), 60)
+})
+
 test('account queue backpressure pauses new submissions until overview refreshes', async () => {
   let reads = 0
   const pool = new GenStudioAdmissionPool(async () => {

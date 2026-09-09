@@ -42,6 +42,11 @@ import type {
 } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 
+type ScenePlannerRunOptions = ScenePlanRunOptions & {
+  /** Pipeline supplies this only for an explicit per-run model policy. */
+  callAi?: typeof callAi
+}
+
 const MIN_SCENE_SEC = 3
 const MAX_SCENE_SEC = 12
 
@@ -1467,6 +1472,7 @@ export async function generatePromptsForScenes(
     neighbor_context_back?: number
     neighbor_context_forward?: number
     apiKeys: Record<string, string | undefined>
+    callAi?: typeof callAi
     slug?: string
     /** Local-only retries per scene on a thrown error OR an empty result.
      * Default 2 (→ up to 3 attempts). Cloud/API models always make one call. */
@@ -1533,6 +1539,7 @@ export async function generatePromptsForScenes(
             creative_strategy: scene.creative_strategy,
             prompt_char_cap: ctx.prompt_char_cap,
             apiKeys: ctx.apiKeys,
+            callAi: ctx.callAi,
             slug: ctx.slug,
             prev_visual_prompts: prevPrompts,
             next_transcript_segments: nextTranscripts,
@@ -1632,6 +1639,7 @@ export async function generateVisualPromptOnly(opts: {
    */
   prompt_char_cap?: number
   apiKeys: Record<string, string | undefined>
+  callAi?: typeof callAi
   slug?: string
   /**
    * v1.0.291 — optional neighbor context for the two-pass planner. The
@@ -1735,7 +1743,7 @@ export async function generateVisualPromptOnly(opts: {
   userParts.push('Write the visual scene description (single paragraph, no quotes):')
   const user = userParts.join('\n\n')
 
-  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, {
+  const raw = await (opts.callAi || callAi)(opts.model, system, user, opts.apiKeys, false, {
     slug: opts.slug,
     requestIdentity: opts.request_identity,
   })
@@ -1772,6 +1780,7 @@ export async function generateMotionPromptOnly(opts: {
   style_prompt?: string
   custom_instructions?: string
   apiKeys: Record<string, string | undefined>
+  callAi?: typeof callAi
   slug?: string
   request_identity?: string
 }): Promise<string> {
@@ -1801,7 +1810,7 @@ export async function generateMotionPromptOnly(opts: {
   userParts.push('Write the motion instruction (one or two short sentences, no quotes):')
   const user = userParts.join('\n\n')
 
-  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, {
+  const raw = await (opts.callAi || callAi)(opts.model, system, user, opts.apiKeys, false, {
     slug: opts.slug,
     requestIdentity: opts.request_identity,
   })
@@ -1831,6 +1840,7 @@ export async function generateMotionPromptsForScenes(
     style_prompt?: string
     custom_instructions?: string
     apiKeys: Record<string, string | undefined>
+    callAi?: typeof callAi
     slug?: string
     max_retries?: number
     should_cancel?: () => boolean
@@ -1867,6 +1877,7 @@ export async function generateMotionPromptsForScenes(
             style_prompt: ctx.style_prompt,
             custom_instructions: ctx.custom_instructions,
             apiKeys: ctx.apiKeys,
+            callAi: ctx.callAi,
             slug: ctx.slug,
           })
         } catch (e: any) {
@@ -1930,7 +1941,7 @@ export async function generateMotionPromptsForScenes(
  * prompts from all PRIOR chunks. Cloud models + single-endpoint LM Studio
  * keep the previous strict-sequential behaviour (concurrency=1).
  */
-export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<ScenePlan> {
+export async function planScenesTwoPass(opts: ScenePlannerRunOptions): Promise<ScenePlan> {
   if (!existsSync(opts.stitched_srt_path)) {
     throw new Error(`Stitched SRT not found at ${opts.stitched_srt_path}. Run "Stitch subtitles" first.`)
   }
@@ -1994,6 +2005,7 @@ export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<Scen
       neighbor_context_back: opts.neighbor_context_back,
       neighbor_context_forward: opts.neighbor_context_forward,
       apiKeys,
+      callAi: opts.callAi,
       onProgress: (doneCount) => opts.onProgress?.(doneCount, scenes.length, scenes.length),
       onWarn: opts.onWarn,
     },
@@ -2065,7 +2077,7 @@ export function resolveTargetScenesPerWindow(
 }
 
 /** Run the LLM planner. Returns a ScenePlan object ready to persist. */
-export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> {
+export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePlan> {
   if (!existsSync(opts.stitched_srt_path)) {
     throw new Error(`Stitched SRT not found at ${opts.stitched_srt_path}. Run "Stitch subtitles" first.`)
   }
@@ -2190,7 +2202,7 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
         // Maximum: one window of the full-episode scene plan as JSON. Was a
         // hardcoded 16,000 for the same reason, with the same two failure
         // modes on products above and below that number.
-        const raw = await callAi(opts.model, system, user, apiKeys, false, {
+        const raw = await (opts.callAi || callAi)(opts.model, system, user, apiKeys, false, {
           outputBudget: 'maximum',
           // This window is parsed with JSON.parse, so it must be REQUESTED as
           // JSON. No schema: the prompt already states the exact object shape
@@ -2324,6 +2336,7 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
         style_prompt: opts.style_prompt,
         custom_instructions: opts.custom_instructions,
         apiKeys,
+        callAi: opts.callAi,
         onWarn: opts.onWarn,
       })
       if (stillEmpty > 0) {

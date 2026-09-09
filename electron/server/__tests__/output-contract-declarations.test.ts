@@ -65,14 +65,26 @@ function callRegion(relative: string, anchor: string): string {
     text.indexOf(anchor, start + 1), -1,
     `${relative}: anchor is no longer unique — "${anchor}"`,
   )
-  const open = text.indexOf('(', start)
-  let depth = 0
-  for (let i = open; i < text.length; i++) {
-    if (text[i] === '(') depth += 1
-    else if (text[i] === ')') {
-      depth -= 1
-      if (depth === 0) return text.slice(start, i + 1)
+  let open = text.indexOf('(', start)
+  while (open >= 0) {
+    let depth = 0
+    for (let i = open; i < text.length; i++) {
+      if (text[i] === '(') depth += 1
+      else if (text[i] === ')') {
+        depth -= 1
+        if (depth === 0) {
+          // A policy can select the caller first, then invoke it:
+          // `(opts.callAi || callAi)(...)`. Keep tracing through the actual
+          // invocation so its context remains covered by these assertions.
+          if (text[i + 1] === '(') {
+            open = i + 1
+            break
+          }
+          return text.slice(start, i + 1)
+        }
+      }
     }
+    if (depth !== 0) break
   }
   throw new Error(`${relative}: unbalanced call at "${anchor}"`)
 }
@@ -90,7 +102,9 @@ describe('the JSON call sites declare their contract', () => {
     {
       what: '1 · scene planning window pass',
       file: 'services/scene-planner.ts',
-      anchor: 'const raw = await callAi(opts.model, system, user, apiKeys, false, {',
+      // A Pipeline policy injects its selected-product caller here. The
+      // planner's JSON contract remains the call-site responsibility.
+      anchor: 'const raw = await (opts.callAi || callAi)(opts.model, system, user, apiKeys, false, {',
       declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
     },
     {
@@ -114,7 +128,9 @@ describe('the JSON call sites declare their contract', () => {
     {
       what: '6 · metadata template placeholder extraction',
       file: 'generators/metadata.ts',
-      anchor: "const raw = await callAiWithRetry(model, '', extractPrompt,",
+      // Metadata's policy-aware caller delegates to callAiWithRetry when no
+      // policy is selected; the per-request contract still travels here.
+      anchor: "const raw = await callMetadataAi('', extractPrompt, false,",
       declares: 'outputContract: metadataPlaceholderOutputContract(llmKeys)',
     },
     {
@@ -282,7 +298,7 @@ describe('the prose call sites are left alone', () => {
     for (const ctx of contexts) {
       assert.ok(!ctx.includes('outputContract'), 'chapter expansion output is markdown, never JSON')
     }
-    assert.ok(!callRegion('lib/chunked-narration.ts', 'const repairText = await withModelFallback(job, params, model => callAiWithRetry(').includes('outputContract'))
+    assert.ok(!callRegion('lib/chunked-narration.ts', 'const repairText = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(').includes('outputContract'))
     // The one JSON call expansion depends on keeps its contract, passed as its
     // own argument rather than on the shared ctx above.
     //
@@ -298,7 +314,7 @@ describe('the prose call sites are left alone', () => {
   })
 
   test('metadata description, titles and tags ask for no contract', () => {
-    for (const anchor of ['const descRaw = await callAiWithRetry(', 'const titleRaw = await callAiWithRetry(', 'const tagRaw = await callAiWithRetry(']) {
+    for (const anchor of ["const descRaw = await callMetadataAi('', descPrompt, false,", "const titleRaw = await callMetadataAi('', titlePromptWithAvoidance, false,", "const tagRaw = await callMetadataAi('', tagPrompt, false,"]) {
       assert.ok(!callRegion('generators/metadata.ts', anchor).includes('outputContract'), anchor)
     }
   })
@@ -306,7 +322,7 @@ describe('the prose call sites are left alone', () => {
   test('single-scene visual and motion prompt regeneration ask for no contract', () => {
     const text = source('services/scene-planner.ts')
     const calls = [...text.matchAll(
-      /const raw = await callAi\(opts\.model, system, user, opts\.apiKeys, false, \{([\s\S]*?)\}\)/g,
+      /const raw = await \(opts\.callAi \|\| callAi\)\(opts\.model, system, user, opts\.apiKeys, false, \{([\s\S]*?)\}\)/g,
     )]
     assert.equal(calls.length, 2, 'expected the visual and motion single-scene calls')
     for (const call of calls) {

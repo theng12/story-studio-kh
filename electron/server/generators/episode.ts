@@ -6,7 +6,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { callAi, callAiWithRetry } from '../lib/ai-client.js'
+import { callAi, callAiWithModelPolicy, callAiWithRetry } from '../lib/ai-client.js'
 import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { stripEpisodeLabelFromDrawnText } from './image-prompts.js'
 import { matchChapterFile, introMarkerPath, resolveArtifact } from '../lib/episode-artifacts.js'
@@ -43,6 +43,7 @@ import type { GenerateScriptRequest, Job, Format, NarratorStyle, Character } fro
 import { requireJobCompletion } from '../services/job-completion.js'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
+import { pipelinePolicyForJob, pipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 
 // v1.0.166 — fuseFormatWithPattern() removed with the Pattern system.
 // Title shaping happens at idea-time via the Ideas page's title_template
@@ -640,6 +641,8 @@ async function generateEpisode(job: Job): Promise<void> {
       signal: controller.signal,
       isCancelled: () => jq.isCancelled(job.job_id),
       force: !!(params as any).force,
+      pipelineModelPolicy: pipelinePolicyForJob(params, 'script-only') || undefined,
+      pipelinePolicyCheckpoint: pipelinePolicyCheckpointStore(params, () => jq.checkpointJobState(job)),
     }
     const result = format.script.chaptersIndependent
       ? await generateListicleChunked(job, chunkedParams)
@@ -1182,7 +1185,19 @@ Do not add a heading, preface, explanation, divider, or separator.`
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
   try {
-    const introText = await callAiWithRetry(req.model, sysPrompt, introPrompt, apiKeys, true,
+    const introPolicy = pipelinePolicyForJob(params, 'introduction-only')
+    const introCall = introPolicy
+      ? callAiWithModelPolicy(introPolicy, sysPrompt, introPrompt, apiKeys, true, {
+          slug: project_slug,
+          jobId: job.job_id,
+          signal: controller.signal,
+          outputBudget: 'long',
+          requestIdentity: freshGenerationRequestIdentity(job, 'introduction'),
+          pipelinePolicyCheckpoint: pipelinePolicyCheckpointStore(params, () => jq.checkpointJobState(job)),
+          pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:introduction`,
+          onModelSelected: selected => { job.output_lines.push(`[pipeline] introduction using GenStudio product "${selected}".`) },
+        })
+      : callAiWithRetry(req.model, sysPrompt, introPrompt, apiKeys, true,
       // Long: a full introduction section of narration.
       {
         slug: project_slug,
@@ -1190,7 +1205,10 @@ Do not add a heading, preface, explanation, divider, or separator.`
         signal: controller.signal,
         outputBudget: 'long',
         requestIdentity: freshGenerationRequestIdentity(job, 'introduction'),
+        pipelinePolicyCheckpoint: pipelinePolicyCheckpointStore(params, () => jq.checkpointJobState(job)),
+        pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:introduction`,
       })
+    const introText = await introCall
     const cleanedIntro = cleanGeneratedIntroduction(introText)
     if (!cleanedIntro) throw new Error('Introduction generation returned no usable text.')
     const wordCount = cleanedIntro.split(/\s+/).length
@@ -1317,6 +1335,14 @@ async function setupChunkedJobContext(
     }
   }
 
+  const jobPipelinePolicy = pipelinePolicyForJob(jobParams, 'script-only')
+  const snapshotPipelinePolicy = snapshot?.pipeline_model_policy
+  const pipelinePolicy = jobPipelinePolicy || snapshotPipelinePolicy
+  if (jobPipelinePolicy && snapshotPipelinePolicy
+    && JSON.stringify(jobPipelinePolicy) !== JSON.stringify(snapshotPipelinePolicy)) {
+    job.output_lines.push('[pipeline] Applying the current job script policy over the older outline snapshot; the selected job policy is authoritative.')
+  }
+
   // MODEL: the currently selected one wins. See the doc comment above for
   // why this single field does not follow the snapshot. The snapshot is only
   // consulted when the caller named no model at all (a headless caller that
@@ -1418,6 +1444,9 @@ ${narratorStyle}`
     character_ids: characterIds,
     custom_style_text: customStyleText,
     manual_guidance: manualGuidance,
+    ...(pipelinePolicy
+      ? { pipeline_model_policy: pipelinePolicy }
+      : {}),
   }
 
   const params: ChunkedNarrationParams = {
@@ -1436,6 +1465,8 @@ ${narratorStyle}`
     force: !!(job.params as any).force,
     manualGuidance,
     generationParams,
+    pipelineModelPolicy: generationParams.pipeline_model_policy,
+    pipelinePolicyCheckpoint: pipelinePolicyCheckpointStore(jobParams, () => jq.checkpointJobState(job)),
   }
   const mode: ChunkedMode = format.script.chaptersIndependent ? 'listicle' : 'narrative'
 

@@ -189,6 +189,9 @@ export interface GenStudioJob {
   stall_recovery_at?: string | null
   status_detail?: string | null
   failure_detail?: string | null
+  queue_position?: number | null
+  queue_eta_seconds?: number | null
+  queue_reason?: 'provider_pace' | null
   /** See `GenStudioSettledJobShape`. Optional; absent on older APIs. */
   failure_reason?: string | null
   failure_class?: string | null
@@ -1146,6 +1149,9 @@ interface GenStudioImageJob {
   cancellable?: boolean | null
   cancelled?: boolean | null
   cancellation_note?: string | null
+  queue_position?: number | null
+  queue_eta_seconds?: number | null
+  queue_reason?: 'provider_pace' | null
   idempotent_replay?: boolean
   image_url?: string | null
 }
@@ -1211,6 +1217,9 @@ interface GenStudioTranscriptionJob {
   cancellable?: boolean | null
   cancelled?: boolean | null
   cancellation_note?: string | null
+  queue_position?: number | null
+  queue_eta_seconds?: number | null
+  queue_reason?: 'provider_pace' | null
 }
 
 export interface GenStudioTranscriptionRequest extends GenStudioOperationContext {
@@ -1818,6 +1827,9 @@ interface GenStudioChatJob extends GenStudioResearchEnvelope {
   price_version?: string | null
   /** True when this response replayed an existing job for the same key. */
   idempotent_replay?: boolean | null
+  queue_position?: number | null
+  queue_eta_seconds?: number | null
+  queue_reason?: 'provider_pace' | null
 }
 
 interface GenStudioVideoSourceAsset {
@@ -2035,6 +2047,8 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   recoverByIdempotencyKey?: boolean
   /** Server-recorded pending keys allowed to use read-only recovery. */
   allowedRecoveryKeys?: string[]
+  /** Persist the derived idempotency key before a charged POST can begin. */
+  onRequestPrepared?: (idempotencyKey: string) => void | Promise<void>
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
   onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
   /** A private GenStudio-owned image asset for a vision-capable chat model. */
@@ -2331,6 +2345,21 @@ export class GenStudioChatProductUnavailableError extends Error {
 }
 
 /**
+ * A live catalog capability refused this request before any GenStudio POST.
+ * Pipeline backup may try its next explicitly selected candidate, but only
+ * because adapters throw this type before handing work to the provider.
+ */
+export class GenStudioChatCapabilityUnavailableError extends Error {
+  readonly modelId: string
+
+  constructor(modelId: string, detail: string) {
+    super(`The selected GenStudio language product "${modelId}" cannot run this request: ${detail}. No request or credit charge was made.`)
+    this.name = 'GenStudioChatCapabilityUnavailableError'
+    this.modelId = modelId
+  }
+}
+
+/**
  * Every operation Story Studio records evidence for.
  *
  * v1.4.37 — `'music.generation'` is added HERE rather than to
@@ -2400,6 +2429,25 @@ function queueStateForJob(job: GenStudioJob): GenStudioQueueState {
   if (job.state === 'accepted' || job.state === 'reserved') return 'accepted'
   if (job.state === 'validating' || job.state === 'reconciling') return 'completing'
   return 'running'
+}
+
+export function normalizeGenStudioProviderQueue(job: Pick<GenStudioJob, 'queue_position' | 'queue_eta_seconds' | 'queue_reason'>): {
+  queue_position: number | null
+  queue_eta_seconds: number | null
+  queue_reason: 'provider_pace' | null
+} {
+  const position = job.queue_position
+  const eta = job.queue_eta_seconds
+  return {
+    queue_position: typeof position === 'number' && Number.isSafeInteger(position) && position >= 1 ? position : null,
+    queue_eta_seconds: typeof eta === 'number' && Number.isSafeInteger(eta) && eta >= 0 ? eta : null,
+    queue_reason: job.queue_reason === 'provider_pace' ? 'provider_pace' : null,
+  }
+}
+
+function providerQueueFingerprint(job: GenStudioJob): string {
+  const queue = normalizeGenStudioProviderQueue(job)
+  return `${queue.queue_reason || ''}:${queue.queue_position ?? ''}:${queue.queue_eta_seconds ?? ''}`
 }
 
 async function reportQueueState(
@@ -2624,6 +2672,7 @@ async function recordGenStudioEvidence(
   const queue = await import('../services/job-queue.js')
   const storyJobId = queue.currentJobId()
   if (!storyJobId || !job?.id) return
+  const providerQueue = normalizeGenStudioProviderQueue(job)
   await queue.recordGenStudioJob(storyJobId, {
     id: job.id,
     ...(request ? { request } : {}),
@@ -2665,6 +2714,7 @@ async function recordGenStudioEvidence(
       ? { failure_detail: typeof job.failure_detail === 'string' ? customerSafeRemoteDetail(job.failure_detail) : job.failure_detail }
       : {}),
     location: job.location || undefined,
+    ...providerQueue,
     queue_state: queueStateForJob(job),
     updated_at: new Date().toISOString(),
   })
@@ -4749,11 +4799,14 @@ async function waitForVideoJob(
   let current = submitted
   let reportedState = ''
   let reportedRoutingState = ''
+  let reportedProviderQueue = ''
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || ''
-    if (reportedState === current.state && reportedRoutingState === routingState) return
+    const providerQueue = providerQueueFingerprint(current)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
     reportedState = current.state
     reportedRoutingState = routingState
+    reportedProviderQueue = providerQueue
     await recordGenStudioEvidence('video.generation', current)
     await reportQueueState(request, current)
     await request.onState?.(current.state, current.id)
@@ -4989,6 +5042,9 @@ export interface GenStudioMusicJob extends GenStudioSettledJobShape {
   remaining_credits: number
   price_version: string
   routing_status_code?: string
+  queue_position?: number | null
+  queue_eta_seconds?: number | null
+  queue_reason?: 'provider_pace' | null
 }
 
 export interface GenStudioMusicRequest extends GenStudioOperationContext {
@@ -5047,11 +5103,14 @@ async function waitForMusicJob(
   let current = submitted
   let reportedState = ''
   let reportedRoutingState = ''
+  let reportedProviderQueue = ''
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || ''
-    if (reportedState === current.state && reportedRoutingState === routingState) return
+    const providerQueue = providerQueueFingerprint(current as GenStudioJob)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
     reportedState = current.state
     reportedRoutingState = routingState
+    reportedProviderQueue = providerQueue
     await recordGenStudioEvidence('music.generation', current)
     await reportQueueState(request, current)
     await request.onState?.(current.state, current.id)
@@ -6105,6 +6164,9 @@ function chatJobEvidence(job: GenStudioChatJob): GenStudioJob {
     ...(job.retry_after_seconds === null || isValidSettlement(job.retry_after_seconds) ? { retry_after_seconds: job.retry_after_seconds } : {}),
     ...(job.retry_at === null || (typeof job.retry_at === 'string' && job.retry_at.trim()) ? { retry_at: job.retry_at } : {}),
     ...(job.routing_status_code ? { routing_status_code: job.routing_status_code } : {}),
+    ...(job.queue_position !== undefined ? { queue_position: job.queue_position } : {}),
+    ...(job.queue_eta_seconds !== undefined ? { queue_eta_seconds: job.queue_eta_seconds } : {}),
+    ...(job.queue_reason !== undefined ? { queue_reason: job.queue_reason } : {}),
     ...(Number.isFinite(job.credit_cost) ? { credit_cost: job.credit_cost } : {}),
     ...(Number.isFinite(job.remaining_credits) ? { remaining_credits: job.remaining_credits } : {}),
     ...(job.price_version ? { price_version: job.price_version } : {}),
@@ -6139,8 +6201,8 @@ async function recoverChatByIdempotencyKey(
   apiKey: string,
   idempotencyKey: string,
   request: GenStudioChatRequest,
-  prepared: PreparedChatSubmission,
-  requestPreview: GenStudioRequestPreview,
+  prepared: Pick<PreparedChatSubmission, 'outputContract'>,
+  requestPreview?: GenStudioRequestPreview,
 ): Promise<GenStudioChatResult> {
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
@@ -6203,13 +6265,17 @@ async function waitForChatJob(
   let current = job
   let reportedState: string | null = null
   let reportedRoutingState: string | null = null
+  let reportedProviderQueue = ''
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || null
-    if (reportedState === current.state && reportedRoutingState === routingState) return
+    const evidence = chatJobEvidence(current)
+    const providerQueue = providerQueueFingerprint(evidence)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
     reportedState = current.state
     reportedRoutingState = routingState
-    await recordGenStudioEvidence('chat.response', chatJobEvidence(current))
-    await reportQueueState(request, chatJobEvidence(current))
+    reportedProviderQueue = providerQueue
+    await recordGenStudioEvidence('chat.response', evidence)
+    await reportQueueState(request, evidence)
     await request.onState?.(current.state, current.id)
   }
   await reportState()
@@ -6290,7 +6356,7 @@ export async function recoverChatWithGenStudio(
 async function finishChatJob(
   apiKey: string,
   request: GenStudioChatRequest,
-  prepared: PreparedChatSubmission,
+  prepared: Pick<PreparedChatSubmission, 'outputContract'>,
   completed: GenStudioChatJob,
 ): Promise<GenStudioChatResult> {
   let parsed: ReturnType<typeof parseLanguageOutput>
@@ -6507,7 +6573,22 @@ async function callChatWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioChatRequest,
 ): Promise<GenStudioChatResult> {
+  // A saved key means a prior process reached the durable pre-POST checkpoint.
+  // Recovery is a read-only lookup, so it must not recompute the old request's
+  // budget against today's catalogue before that lookup. A lower live ceiling
+  // would otherwise reject the recovery and strand the already-paid request.
+  if (request.recoverByIdempotencyKey && request.idempotencyKey?.trim()) {
+    const idempotencyKey = request.idempotencyKey.trim()
+    if (request.allowedRecoveryKeys?.length && !request.allowedRecoveryKeys.includes(idempotencyKey)) {
+      throw new GenStudioChatRecoveryUnresolvedError(idempotencyKey)
+    }
+    return recoverChatByIdempotencyKey(apiKey, idempotencyKey, request, {
+      outputContract: request.outputContract
+        ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT),
+    })
+  }
   const prepared = await prepareChatSubmission(apiKey, request)
+  await request.onRequestPrepared?.(prepared.idempotencyKey)
   return prepared.transport === 'completions'
     ? callChatViaCompletions(apiKey, request, prepared)
     : callChatViaResponses(apiKey, request, prepared)
@@ -6927,6 +7008,7 @@ interface ImagePermitWaiter {
   waiting: boolean
   monitoring: boolean
   guardPromise?: Promise<void>
+  retryAt?: number
 }
 
 interface ImagePermitQueue {
@@ -6935,6 +7017,8 @@ interface ImagePermitQueue {
   draining: boolean
   pendingDrain: boolean
   waiters: ImagePermitWaiter[]
+  wakeTimer?: ReturnType<typeof setTimeout>
+  wakeAt?: number
 }
 
 const imagePermitQueues = new Map<string, ImagePermitQueue>()
@@ -6965,6 +7049,12 @@ function isRetryableImageAdmissionPermitFailure(error: unknown): boolean {
   return /fetch failed|network|socket|ECONN|timeout|timed out/i.test(error.message)
 }
 
+class ImagePermitRetryError extends Error {
+  constructor(readonly waitMs: number) {
+    super('GenStudio image admission permit will retry')
+  }
+}
+
 function rejectImagePermitWaiter(queue: ImagePermitQueue, waiter: ImagePermitWaiter, error: unknown): void {
   const index = queue.waiters.indexOf(waiter)
   if (index >= 0) queue.waiters.splice(index, 1)
@@ -6972,6 +7062,15 @@ function rejectImagePermitWaiter(queue: ImagePermitQueue, waiter: ImagePermitWai
     waiter.request.signal.removeEventListener('abort', waiter.abort)
   }
   waiter.reject(error instanceof Error ? error : new Error(String(error)))
+}
+
+function attachImagePermitAbort(scope: string, queue: ImagePermitQueue, waiter: ImagePermitWaiter): void {
+  if (!waiter.request.signal || waiter.abort) return
+  waiter.abort = () => {
+    rejectImagePermitWaiter(queue, waiter, new Error('Cancelled by user'))
+    void drainImagePermitQueue(scope, queue)
+  }
+  waiter.request.signal.addEventListener('abort', waiter.abort, { once: true })
 }
 
 function monitorQueuedImagePermit(scope: string, queue: ImagePermitQueue, waiter: ImagePermitWaiter): void {
@@ -6987,6 +7086,10 @@ function monitorQueuedImagePermit(scope: string, queue: ImagePermitQueue, waiter
           waiter.guardPromise = undefined
         }
         if (!queue.waiters.includes(waiter)) return
+        // Retry deadlines are driven by the queue's single earliest timer.
+        // That timer calls this monitor again in guard-sized slices; starting a
+        // second sleep here would race the deadline and hide cancellation.
+        if (waiter.retryAt) return
         const left = waiter.deadline - Date.now()
         if (left <= 0) throw new Error('GenStudio KH job timed out while waiting for completion')
         await new Promise(resolve => setTimeout(resolve, Math.min(POLL_CANCEL_CHECK_MS, left)))
@@ -6998,6 +7101,23 @@ function monitorQueuedImagePermit(scope: string, queue: ImagePermitQueue, waiter
       waiter.monitoring = false
     }
   })()
+}
+
+function scheduleImagePermitDrain(scope: string, queue: ImagePermitQueue, waitMs: number): void {
+  // Wake in cancellation/guard-sized slices. The waiter keeps its real retryAt,
+  // so this never pays early, while a paused or cancelled request does not stay
+  // invisible behind a long provider Retry-After.
+  const bounded = Math.max(1, Math.min(waitMs, POLL_CANCEL_CHECK_MS))
+  const wakeAt = Date.now() + bounded
+  if (queue.wakeTimer && (queue.wakeAt || 0) <= wakeAt) return
+  if (queue.wakeTimer) clearTimeout(queue.wakeTimer)
+  queue.wakeAt = wakeAt
+  queue.wakeTimer = setTimeout(() => {
+    queue.wakeTimer = undefined
+    queue.wakeAt = undefined
+    void drainImagePermitQueue(scope, queue)
+  }, bounded)
+  queue.wakeTimer.unref?.()
 }
 
 async function drainImagePermitQueue(scope: string, queue: ImagePermitQueue): Promise<void> {
@@ -7012,8 +7132,15 @@ async function drainImagePermitQueue(scope: string, queue: ImagePermitQueue): Pr
   queue.draining = true
   queue.pendingDrain = false
   try {
-    const limit = await genStudioAdmission.currentDispatchLimit(queue.apiKey)
+    const limit = await genStudioAdmission.currentPermitRequestLimit(queue.apiKey)
     while (queue.waiters.length) {
+      const now = Date.now()
+      for (const waiter of [...queue.waiters]) {
+        if (waiter.deadline <= now) {
+          rejectImagePermitWaiter(queue, waiter, new Error('GenStudio KH job timed out while waiting for image admission permit'))
+        }
+      }
+      if (!queue.waiters.length) break
       if (queue.active >= limit) {
         for (const waiter of [...queue.waiters]) {
           if (!waiter.waiting) {
@@ -7029,21 +7156,49 @@ async function drainImagePermitQueue(scope: string, queue: ImagePermitQueue): Pr
         }
         break
       }
-      const waiter = queue.waiters[0]!
+      const readyIndex = queue.waiters.findIndex(waiter => (waiter.retryAt || 0) <= now)
+      if (readyIndex < 0) {
+        const retryAt = Math.min(...queue.waiters.map(waiter => waiter.retryAt || now + 1))
+        const guarded = queue.waiters.find(waiter => waiter.retryAt === retryAt)
+        if (guarded) {
+          guarded.guardPromise = assertImageSubmissionAllowed(guarded.request)
+          try {
+            await guarded.guardPromise
+          } catch (error) {
+            guarded.guardPromise = undefined
+            rejectImagePermitWaiter(queue, guarded, error)
+            continue
+          }
+          guarded.guardPromise = undefined
+        }
+        scheduleImagePermitDrain(scope, queue, retryAt - now)
+        break
+      }
+      const waiter = queue.waiters[readyIndex]!
       if (waiter.guardPromise) {
         try {
           await waiter.guardPromise
         } catch {
           continue
         }
-        if (queue.waiters[0] !== waiter) continue
+        if (queue.waiters[readyIndex] !== waiter) continue
       }
-      queue.waiters.shift()
+      queue.waiters.splice(readyIndex, 1)
+      waiter.retryAt = undefined
       if (waiter.request.signal && waiter.abort) {
         waiter.request.signal.removeEventListener('abort', waiter.abort)
+        waiter.abort = undefined
       }
       queue.active++
       void waiter.acquire().then(waiter.resolve, error => {
+        if (error instanceof ImagePermitRetryError) {
+          waiter.retryAt = Date.now() + error.waitMs
+          queue.waiters.push(waiter)
+          attachImagePermitAbort(scope, queue, waiter)
+          monitorQueuedImagePermit(scope, queue, waiter)
+          scheduleImagePermitDrain(scope, queue, error.waitMs)
+          return
+        }
         waiter.reject(error instanceof Error ? error : new Error(String(error)))
       }).finally(() => {
         queue.active = Math.max(0, queue.active - 1)
@@ -7053,6 +7208,8 @@ async function drainImagePermitQueue(scope: string, queue: ImagePermitQueue): Pr
   } finally {
     queue.draining = false
     if (!queue.active && !queue.waiters.length && imagePermitQueues.get(scope) === queue) {
+      if (queue.wakeTimer) clearTimeout(queue.wakeTimer)
+      queue.wakeAt = undefined
       imagePermitQueues.delete(scope)
     } else if (queue.pendingDrain) {
       void drainImagePermitQueue(scope, queue)
@@ -7082,13 +7239,7 @@ function withImagePermitSlot(
       waiting: false,
       monitoring: false,
     }
-    if (request.signal) {
-      waiter.abort = () => {
-        rejectImagePermitWaiter(queue!, waiter, new Error('Cancelled by user'))
-        void drainImagePermitQueue(scope, queue!)
-      }
-      request.signal.addEventListener('abort', waiter.abort, { once: true })
-    }
+    attachImagePermitAbort(scope, queue!, waiter)
     queue!.waiters.push(waiter)
     void drainImagePermitQueue(scope, queue!)
   })
@@ -7106,13 +7257,19 @@ async function acquireImageAdmissionPermit(
 ): Promise<string> {
   const body = wellFormedJson({ model_id: request.modelId.trim(), operation })
   const permitKey = imagePermitIdempotencyKey(idempotencyKey, sequence)
+  let retryAttempt = 0
   const acquire = async (): Promise<string> => {
-    let retry = 0
-    let permitId: string
-    for (;;) {
-      await assertImageSubmissionAllowed(request)
-      try {
-        const permit = await requestJsonWithRetry(
+    await assertImageSubmissionAllowed(request)
+    if (Date.now() >= deadline) {
+      throw new Error('GenStudio KH job timed out while waiting for image admission permit')
+    }
+    const reservation = await genStudioAdmission.reservePermitRequest(apiKey)
+    if ('retryAfterMs' in reservation) {
+      await request.onQueueState?.('waiting_account_capacity')
+      throw new ImagePermitRetryError(reservation.retryAfterMs)
+    }
+    try {
+      const permit = await requestJsonWithRetry(
           `${apiBase(baseUrl)}/v1/images/admission/permits`,
           {
             method: 'POST',
@@ -7131,20 +7288,24 @@ async function acquireImageAdmissionPermit(
           false,
           1,
         )
-        permitId = typeof permit?.id === 'string' ? permit.id.trim() : ''
-        if (!permitId) throw new Error('GenStudio KH returned an invalid image admission permit')
-      } catch (error) {
-        if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
-        if (!isRetryableImageAdmissionPermitFailure(error) || Date.now() >= deadline) throw error
-        await request.onQueueState?.('waiting_account_capacity')
-        const hintMs = error instanceof GenStudioApiError && error.retryAfterSeconds != null
-          ? error.retryAfterSeconds * 1_000
-          : undefined
-        await retryDelay(++retry, request, deadline, hintMs, () => assertImageSubmissionAllowed(request))
-        continue
-      }
+      const permitId = typeof permit?.id === 'string' ? permit.id.trim() : ''
+      if (!permitId) throw new Error('GenStudio KH returned an invalid image admission permit')
       await request.onQueueState?.('submitting')
       return permitId
+    } catch (error) {
+      if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+      if (!isRetryableImageAdmissionPermitFailure(error) || Date.now() >= deadline) throw error
+      await request.onQueueState?.('waiting_account_capacity')
+      const hintMs = error instanceof GenStudioApiError && error.retryAfterSeconds != null
+        ? error.retryAfterSeconds * 1_000
+        : undefined
+      const baseMs = hintMs ?? Math.min(4_000, 500 * (2 ** retryAttempt++))
+      throw new ImagePermitRetryError(Math.min(
+        Math.ceil(baseMs * (hintMs === undefined ? 0.8 + Math.random() * 0.4 : 1 + Math.random() * 0.1)),
+        Math.max(0, deadline - Date.now()),
+      ))
+    } finally {
+      reservation.release()
     }
   }
   const scope = imagePermitScope(baseUrl, apiKey, request.modelId.trim(), operation)
@@ -7344,11 +7505,14 @@ async function waitForTranscriptionJob(
   let current = submitted
   let reportedState: string | null = null
   let reportedRoutingState: string | null = null
+  let reportedProviderQueue = ''
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || null
-    if (reportedState === current.state && reportedRoutingState === routingState) return
+    const providerQueue = providerQueueFingerprint(current as GenStudioJob)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
     reportedState = current.state
     reportedRoutingState = routingState
+    reportedProviderQueue = providerQueue
     await recordGenStudioEvidence('audio.transcription', current)
     await reportQueueState(request, current)
     await request.onState?.(current.state, current.id)
@@ -7605,11 +7769,14 @@ async function waitForJob(
   let current = job
   let reportedState: string | null = null
   let reportedRoutingState: string | null = null
+  let reportedProviderQueue = ''
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || null
-    if (reportedState === current.state && reportedRoutingState === routingState) return
+    const providerQueue = providerQueueFingerprint(current)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
     reportedState = current.state
     reportedRoutingState = routingState
+    reportedProviderQueue = providerQueue
     await recordGenStudioEvidence('voice.tts', current)
     await reportQueueState(request, current)
     await request.onState?.(current.state, current.id)

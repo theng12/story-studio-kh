@@ -6,9 +6,9 @@ import { fileURLToPath } from 'node:url'
 import {
   generateImageWithGenStudio,
   listImageModels,
+  normalizeGenStudioProviderQueue,
   refreshGenStudioAdmission,
 } from '../lib/genstudio-client.js'
-import { shouldPauseContinuityForStall } from '../generators/continuity-render.js'
 import { waitFor } from './_timing.js'
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -71,14 +71,16 @@ async function withFetch<T>(
   try { return await run() } finally { globalThis.fetch = original }
 }
 
-function accountCapacity(width: number): Record<string, unknown> {
+function accountCapacity(width: number, permitQueueWidth = 24, permitPace = 30): Record<string, unknown> {
   return {
     credit_balance: 250,
     paid_concurrency_limit: width,
     paid_active_jobs: 0,
-    paid_queued_jobs: 0,
-    max_queued_jobs: 25,
-    generation_submissions_per_minute: 30,
+    // Keep one published remote queue entry occupied so the final protective
+    // reserve is intact while the fixture controls permit width by queue room.
+    paid_queued_jobs: 1,
+    max_queued_jobs: permitQueueWidth + 1,
+    generation_submissions_per_minute: permitPace,
     burst_concurrency_ceiling: width,
   }
 }
@@ -110,6 +112,19 @@ test('image catalogue preserves the published admission-permit flag and leaves a
     const [legacy] = await listImageModels('permit-catalog-legacy-key')
     assert.equal(published?.requires_admission_permit, true)
     assert.equal(legacy?.requires_admission_permit, undefined)
+  })
+})
+
+test('provider queue evidence preserves each independently published fact and clears invalid fields', () => {
+  assert.deepEqual(normalizeGenStudioProviderQueue({ queue_position: 2, queue_eta_seconds: 120 }), {
+    queue_position: 2,
+    queue_eta_seconds: 120,
+    queue_reason: null,
+  })
+  assert.deepEqual(normalizeGenStudioProviderQueue({ queue_position: 0, queue_eta_seconds: -1, queue_reason: 'provider_pace' }), {
+    queue_position: null,
+    queue_eta_seconds: null,
+    queue_reason: 'provider_pace',
   })
 })
 
@@ -167,7 +182,8 @@ test('same-scope permit acquisition uses the live available width and preserves 
     try {
       await waitFor(() => permitKeys.length === 3, { label: 'three same-scope permits to enter together' })
       assert.equal(maxInFlight, 3)
-      assert.equal(permitKeys[0], 'story-image-permit-4ab4201451cc0b0e7101c00a06bdf69f77629bfb16e0529b840228d0a6dfe1e5')
+      assert.ok(permitKeys.includes('story-image-permit-4ab4201451cc0b0e7101c00a06bdf69f77629bfb16e0529b840228d0a6dfe1e5'),
+        'the fixed request identity retains its exact permit identity regardless of concurrent arrival order')
       gates.forEach((gate, index) => gate.resolve(Response.json({ id: `permit-${index + 1}` })))
       await waitFor(() => generationCalls === 3, { label: 'three paid requests after permit acquisition' })
       assert.equal(overviewReads, 1, 'one cached account read covers arrivals, refills, and empty cleanup')
@@ -183,6 +199,37 @@ test('same-scope permit acquisition uses the live available width and preserves 
     return accountCapacity(3)
   })
   assert.equal(generationCalls, 3)
+})
+
+test('permit replenishment remains bounded but does not collapse when every standard execution slot is occupied', async () => {
+  const gates = Array.from({ length: 3 }, () => deferred<Response>())
+  let permitCalls = 0
+  await withFetch((async (input: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) return gates[permitCalls++]!.promise
+    if (url.endsWith('/v1/images/generations')) {
+      return Response.json(imageJob({ model_id: 'fleet-image-v1' }, `image-task-${permitCalls}`), { status: 202 })
+    }
+    if (/\/v1\/images\/image-task-\d+\/file$/.test(url)) return new Response(PNG)
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, async () => {
+    const jobs = ['occupied-1', 'occupied-2', 'occupied-3'].map(idempotencyKey =>
+      generateImageWithGenStudio('permit-occupied-key', request({ idempotencyKey, requestIdentity: idempotencyKey })))
+    try {
+      await waitFor(() => permitCalls === 3, { label: 'three permits despite no free standard execution slot' })
+      gates.forEach((gate, index) => gate.resolve(Response.json({ id: `permit-${index + 1}` })))
+      await Promise.all(jobs)
+    } finally {
+      gates.forEach((gate, index) => gate.resolve(Response.json({ id: `permit-${index + 1}` })))
+      await Promise.allSettled(jobs)
+    }
+  }, () => ({
+    ...accountCapacity(50, 1_000),
+    paid_active_jobs: 50,
+    generation_submissions_per_minute: 60,
+    burst_concurrency_ceiling: 1_000,
+  }))
+  assert.equal(permitCalls, 3)
 })
 
 test('one permit 429 retries alone while sibling and queued waiters continue', async () => {
@@ -220,6 +267,41 @@ test('one permit 429 retries alone while sibling and queued waiters continue', a
   assert.equal(permitKeys[3], permitKeys[0], 'only the 429 waiter replays its original permit key')
   assert.ok(events.indexOf('generation-2') < events.indexOf('permit-4'), 'two unaffected waiters submit before the retry')
   assert.equal(generationCalls, 3)
+})
+
+test('a retrying narrow-budget permit yields its acquisition opportunity to a sibling', async () => {
+  const events: string[] = []
+  const keys: string[] = []
+  await withFetch((async (input: any, init?: any) => {
+    const url = String(input)
+    if (url.endsWith('/v1/images/admission/permits')) {
+      const key = new Headers(init?.headers).get('Idempotency-Key') || ''
+      keys.push(key)
+      events.push(`permit-${keys.length}`)
+      if (keys.length === 1) {
+        return Response.json({ code: 'ADMISSION_UNAVAILABLE', detail: 'wait' }, {
+          status: 429,
+          headers: { 'Retry-After': '0.05' },
+        })
+      }
+      return Response.json({ id: `permit-${keys.length}` })
+    }
+    if (url.endsWith('/v1/images/generations')) {
+      events.push(`generation-${events.filter(event => event.startsWith('generation-')).length + 1}`)
+      return Response.json(imageJob(JSON.parse(String(init?.body)), `image-task-${events.length}`), { status: 202 })
+    }
+    if (/\/v1\/images\/image-task-\d+\/file$/.test(url)) return new Response(PNG)
+    throw new Error(`Unexpected request ${url}`)
+  }) as typeof fetch, async () => {
+    await Promise.all(['yield-a', 'yield-b'].map(idempotencyKey =>
+      generateImageWithGenStudio('permit-yield-key', request({ idempotencyKey, requestIdentity: idempotencyKey }))))
+  }, () => accountCapacity(1, 2))
+
+  assert.equal(keys.length, 3)
+  assert.ok(keys.some((key, index) => keys.indexOf(key) !== index),
+    'the retried permit preserves its idempotency identity')
+  assert.ok(events.indexOf('generation-1') < events.indexOf('permit-3'),
+    'the sibling receives the released permit acquisition opportunity before the retry')
 })
 
 test('same-scope waiters enter FIFO as permit slots become available', async () => {
@@ -267,15 +349,15 @@ test('same-scope waiters enter FIFO as permit slots become available', async () 
       gates.forEach((gate, index) => gate.resolve(Response.json({ id: `permit-${index + 1}` })))
       await Promise.allSettled(jobs)
     }
-  }, () => accountCapacity(2))
+  }, () => accountCapacity(2, 2))
 
   assert.equal(generationPermits.get('fifo-3'), 'permit-3')
   assert.equal(generationPermits.get('fifo-4'), 'permit-4')
 })
 
-test('permit width shrinks and grows from refreshed account capacity', async () => {
+test('permit width shrinks and grows from refreshed published queue room', async () => {
   const gates = Array.from({ length: 5 }, () => deferred<Response>())
-  let width = 3
+  let permitQueueRoom = 3
   let permitCalls = 0
   let generationCalls = 0
   await withFetch((async (input: any, init?: any) => {
@@ -296,7 +378,7 @@ test('permit width shrinks and grows from refreshed account capacity', async () 
     try {
       await waitFor(() => permitCalls === 3, { label: 'three permits at the initial width' })
 
-      width = 1
+      permitQueueRoom = 2
       await refreshGenStudioAdmission('permit-resize-key')
       jobs.push(generateImageWithGenStudio('permit-resize-key', request({ idempotencyKey: 'resize-4', requestIdentity: 'resize-4' })))
       gates[0]!.resolve(Response.json({ id: 'permit-1' }))
@@ -306,7 +388,7 @@ test('permit width shrinks and grows from refreshed account capacity', async () 
       gates[2]!.resolve(Response.json({ id: 'permit-3' }))
       await waitFor(() => permitCalls === 4, { label: 'one permit after the shrink drains' })
 
-      width = 2
+      permitQueueRoom = 3
       await refreshGenStudioAdmission('permit-resize-key')
       jobs.push(generateImageWithGenStudio('permit-resize-key', request({ idempotencyKey: 'resize-5', requestIdentity: 'resize-5' })))
       await waitFor(() => permitCalls === 5, { label: 'a second permit after the live width grows' })
@@ -317,7 +399,7 @@ test('permit width shrinks and grows from refreshed account capacity', async () 
       gates.forEach((gate, index) => gate.resolve(Response.json({ id: `permit-${index + 1}` })))
       await Promise.allSettled(jobs)
     }
-  }, () => accountCapacity(width))
+  }, () => accountCapacity(50, permitQueueRoom))
   assert.equal(generationCalls, 5)
 })
 
@@ -356,7 +438,7 @@ test('cancellation after slot assignment releases it without requesting a permit
     releaseGuard.resolve()
     await assert.rejects(cancelled, /Cancelled by user/)
     await follower
-  }, () => accountCapacity(1))
+  }, () => accountCapacity(1, 2))
   assert.equal(permitCalls, 1)
 })
 
@@ -445,6 +527,37 @@ test('a permit Retry-After longer than ten minutes stays visible, never pays ear
   assert.equal(generationCalls, 1)
 })
 
+test('a local permit-capacity wait stops at the job deadline without requesting a permit', async () => {
+  const originalNow = Date.now
+  const originalSetTimeout = globalThis.setTimeout
+  let now = Date.UTC(2026, 8, 3)
+  let permitCalls = 0
+  Date.now = () => now
+  globalThis.setTimeout = ((callback: (...args: any[]) => void, _delay?: number, ...args: any[]) => {
+    now += 4 * 60 * 60 * 1_000 + 1
+    queueMicrotask(() => callback(...args))
+    return 1 as any
+  }) as typeof setTimeout
+  try {
+    await assert.rejects(withFetch((async (input: any) => {
+      if (String(input).endsWith('/v1/images/admission/permits')) permitCalls++
+      throw new Error(`Unexpected request ${input}`)
+    }) as typeof fetch, () => generateImageWithGenStudio('permit-local-deadline-key', request()), () => ({
+      credit_balance: 250,
+      paid_concurrency_limit: 1,
+      paid_active_jobs: 0,
+      paid_queued_jobs: 25,
+      max_queued_jobs: 25,
+      generation_submissions_per_minute: 30,
+    })),
+    /timed out while waiting for image admission permit/)
+  } finally {
+    Date.now = originalNow
+    globalThis.setTimeout = originalSetTimeout
+  }
+  assert.equal(permitCalls, 0)
+})
+
 test('a permit retry rechecks the pause guard before its full Retry-After', async () => {
   let permitCalls = 0
   let guards = 0
@@ -524,7 +637,7 @@ test('a queued permit follower observes cancellation while its predecessor is un
     await leader
     await assert.rejects(follower, /Cancelled by user/)
     await new Promise<void>(resolve => setImmediate(resolve))
-  })
+  }, () => accountCapacity(1, 24, 1))
   await first
   assert.equal(permitCalls, 1)
 })
@@ -583,7 +696,7 @@ test('a queued permit follower keeps predecessor reactions bounded during repeat
         firstPermit.resolve(Response.json({ id: 'permit-leader' }))
       }
       await leader
-    })
+    }, () => accountCapacity(1, 24, 1))
   } finally {
     Date.now = originalNow
     globalThis.setTimeout = originalSetTimeout
@@ -595,14 +708,12 @@ test('a queued permit follower keeps predecessor reactions bounded during repeat
   assert.equal(permitCalls, 1)
 })
 
-test('a width-one permit scope waits without holding an unrelated operation', async () => {
+test('an unresolved permit does not hold same-scope or independent replenishment', async () => {
   const firstTextPermit = deferred<Response>()
   const firstTextEntered = deferred<void>()
   const unrelatedEntered = deferred<void>()
   let textPermitCalls = 0
   let generationCalls = 0
-  const generationPermitIds: string[] = []
-  const secondStates: string[] = []
   await withFetch((async (input: any, init?: any) => {
     const url = String(input)
     if (url.endsWith('/v1/images/admission/permits')) {
@@ -621,7 +732,6 @@ test('a width-one permit scope waits without holding an unrelated operation', as
     if (url.endsWith('/v1/images/generations')) {
       generationCalls++
       const body = JSON.parse(String(init?.body))
-      generationPermitIds.push(String(body.admission_permit_id))
       return Response.json(imageJob(body, `image-task-${generationCalls}`), { status: 202 })
     }
     if (/\/v1\/images\/image-task-\d+\/file$/.test(url)) return new Response(PNG)
@@ -629,46 +739,32 @@ test('a width-one permit scope waits without holding an unrelated operation', as
   }) as typeof fetch, async () => {
     const first = generateImageWithGenStudio('permit-scope-key', request({ requestIdentity: 'scope-first' }))
     await firstTextEntered.promise
-    const second = generateImageWithGenStudio('permit-scope-key', request({
-      requestIdentity: 'scope-second',
-      onQueueState: (state: string) => { secondStates.push(state) },
-    }))
+    const second = generateImageWithGenStudio('permit-scope-key', request({ requestIdentity: 'scope-second' }))
     const unrelated = generateImageWithGenStudio('permit-scope-key', request({
       requestIdentity: 'scope-unrelated',
       referenceAssetIds: ['asset-1'],
     }))
-    let concurrencyError: unknown
     try {
-      await unrelatedEntered.promise
-      assert.equal(textPermitCalls, 1, 'the second same-scope permit must remain queued')
-      await waitFor(() => secondStates[0] === 'waiting_account_capacity', {
-        label: 'same-scope follower to report its capacity wait',
-      })
-      assert.equal(secondStates[0], 'waiting_account_capacity')
-      assert.equal(shouldPauseContinuityForStall({
-        stallPauseRequested: false,
-        inFlightCount: 1,
-        pauseRequested: false,
-        fleetWaitingCount: 0,
-        capacityWaitingCount: 1,
-        elapsedMs: 11 * 60_000,
-      }), false)
-      assert.equal(generationPermitIds.some(id => id.startsWith('text-permit')), false,
-        'the queued follower must not make a paid request')
-    } catch (error) {
-      concurrencyError = error
+      await Promise.all([
+        unrelatedEntered.promise,
+        waitFor(() => textPermitCalls === 2, {
+          label: 'same-scope permit replenishment starts while predecessor is unresolved',
+          timeoutMs: 1_000,
+        }),
+      ])
+      assert.equal(textPermitCalls, 2, 'a held permit cannot monopolize same-scope replenishment')
     } finally {
       firstTextPermit.resolve(Response.json({ id: 'text-permit-1' }))
+      // Do not restore this fixture's global fetch stub while a failed
+      // assertion leaves its paid calls running. That would make the next
+      // test receive this test's requests and turn an ordering failure into
+      // unrelated idempotency failures.
+      await Promise.allSettled([first, second, unrelated])
     }
     await Promise.all([first, second, unrelated])
-    if (concurrencyError) throw concurrencyError
-  })
+  }, () => accountCapacity(1))
   assert.equal(textPermitCalls, 2)
   assert.equal(generationCalls, 3)
-  assert.deepEqual(secondStates.filter(state => state === 'waiting_account_capacity' || state === 'submitting'), [
-    'waiting_account_capacity',
-    'submitting',
-  ])
 })
 
 test('a lost permit response replays the identical permit key and body', async () => {

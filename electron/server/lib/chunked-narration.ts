@@ -48,9 +48,10 @@ import { existsSync, statSync } from 'fs'
 import path from 'path'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
-import { callAi, callAiWithRetry, parseStructuredJson } from './ai-client.js'
+import { assertPipelineModelRequestCapabilities, callAi, callAiWithRetry, executePipelineModelPolicy, parseStructuredJson } from './ai-client.js'
+import { pipelinePolicyInputFingerprint, type AssignedPipelineModelPolicy, type PipelinePolicyCheckpointStore } from './pipeline-model-policy.js'
 import { freshGenerationRequestIdentity } from './fresh-generation-action.js'
-import { GenStudioChatIncompleteError, GenStudioChatProductUnavailableError, isGenStudioInsufficientCredits } from './genstudio-client.js'
+import { GenStudioChatIncompleteError, GenStudioChatProductUnavailableError, isGenStudioInsufficientCredits, listChatModels } from './genstudio-client.js'
 import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration.js'
 import { outlineOutputContract } from './story-output-contracts.js'
 import { getOutlineHeadroom } from '../services/app-settings.js'
@@ -589,6 +590,7 @@ export interface GenerationParams {
    *  later expand-chapters run injects the SAME guidance the outline was
    *  built with — keeps ad-hoc names/settings consistent into the body. */
   manual_guidance?: string
+  pipeline_model_policy?: AssignedPipelineModelPolicy
 }
 
 export interface ChunkedSidecar {
@@ -663,6 +665,31 @@ export interface ChunkedNarrationParams {
    *  body for outline-only runs and from the sidecar for expand-chapters
    *  runs (see setupChunkedJobContext in generators/episode.ts). */
   generationParams?: GenerationParams
+  /** Explicit Pipeline policy for this writing stage. */
+  pipelineModelPolicy?: AssignedPipelineModelPolicy
+  /** Durable per-request ledger used by explicit backup policies. */
+  pipelinePolicyCheckpoint?: PipelinePolicyCheckpointStore
+}
+
+export function policyChapterGroups(job: Job, mode: ChunkedMode, outline: OutlineEntry[], pending: OutlineEntry[], batchSize: number): OutlineEntry[][] | null {
+  if (!job.params?.pipeline_model_policy) return null
+  const saved = (job.params as Record<string, unknown>).pipeline_script_chapter_groups
+  const byNumber = new Map(outline.map(entry => [entry.n, entry]))
+  const pendingNumbers = new Set(pending.map(entry => entry.n))
+  const valid = Array.isArray(saved) && saved.every(group => Array.isArray(group)
+    && group.every(number => Number.isInteger(number) && byNumber.has(number)))
+  const groups = valid ? saved as number[][] : (() => {
+    const next: number[][] = []
+    for (let index = 0; index < outline.length; index += batchSize) next.push(outline.slice(index, index + batchSize).map(entry => entry.n))
+    ;(job.params as Record<string, unknown>).pipeline_script_chapter_groups = next
+    void import('../services/job-queue.js').then(queue => queue.checkpointJobState(job)).catch(() => {})
+    return next
+  })()
+  // Preserve each original range in full: an accepted request's prompt and
+  // checkpoint key must never shrink just because a sibling chapter reached
+  // disk before a restart.
+  return groups.filter(group => group.some(number => pendingNumbers.has(number)))
+    .map(group => group.map(number => byNumber.get(number)!).filter(Boolean))
 }
 
 export interface ChunkedNarrationResult {
@@ -914,12 +941,13 @@ export async function expandChapters(
   // both the chunking verdict and the batch bound from it. Never a constant.
   const budget = await resolveChunkingBudget(params.model)
   const batchSize = batchSizeForBudget(mode, budget, params.wordsPerChapter)
+  const plannedGroups = policyChapterGroups(job, mode, sidecar.outline, pending, batchSize)
 
   // Dispatch to mode-specific expansion.
   if (mode === 'listicle') {
-    await expandListicleParallel(job, params, sidecar.outline, pending, sidecar, budget, batchSize)
+    await expandListicleParallel(job, params, sidecar.outline, pending, sidecar, budget, batchSize, plannedGroups || undefined)
   } else {
-    await expandNarrativeSequential(job, params, sidecar.outline, pending, sidecar, budget, batchSize)
+    await expandNarrativeSequential(job, params, sidecar.outline, pending, sidecar, budget, batchSize, plannedGroups || undefined)
   }
 
   // Final sidecar sweep.
@@ -1022,8 +1050,26 @@ export function estimateBatchCount(pending: number, mode: ChunkedMode): number {
 async function withModelFallback<T>(
   job: Job,
   params: ChunkedNarrationParams,
-  attempt: (model: string) => Promise<T>,
+  attempt: (
+    model: string,
+    recovery?: { idempotencyKey: string },
+    checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
+    checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
+  ) => Promise<T>,
+  policyRequest?: { key: string; inputFingerprint: string },
 ): Promise<T> {
+  if (params.pipelineModelPolicy) {
+    return executePipelineModelPolicy(
+      params.pipelineModelPolicy,
+      async (model, recovery, checkpointAccepted, checkpointPrepared) => {
+        job.output_lines.push(`[pipeline] script using GenStudio product "${model}".`)
+        return attempt(model, recovery, checkpointAccepted, checkpointPrepared)
+      },
+      params.pipelinePolicyCheckpoint,
+      policyRequest?.key || `${job.job_id}:chunked`,
+      policyRequest?.inputFingerprint || pipelinePolicyInputFingerprint({ episode_id: params.episode_id, model: params.model }),
+    )
+  }
   try {
     return await attempt(params.model)
   } catch (error) {
@@ -1056,6 +1102,26 @@ async function withModelFallback<T>(
     )
     params.model = healed.modelId
     return await attempt(params.model)
+  }
+}
+
+function pipelineAttemptContext<T extends Record<string, any>>(
+  context: T,
+  recovery?: { idempotencyKey: string },
+  checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
+  checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
+): T & Record<string, any> {
+  return {
+    ...context,
+    ...(recovery ? {
+      recoverByIdempotencyKey: true,
+      idempotencyKey: recovery.idempotencyKey,
+      allowedRecoveryKeys: [recovery.idempotencyKey],
+    } : {}),
+    ...(checkpointAccepted ? {
+      onJobAccepted: async (_jobId: string, idempotencyKey: string) => checkpointAccepted(idempotencyKey),
+    } : {}),
+    ...(checkpointPrepared ? { onRequestPrepared: checkpointPrepared } : {}),
   }
 }
 
@@ -1144,10 +1210,17 @@ async function buildOutline(
   // it. The ceiling is a runaway guard the owner controls, never a constant.
   const headroom = await getOutlineHeadroom()
   const maxChapters = Math.max(params.totalChapters, Math.floor(params.totalChapters * headroom))
-  const arr = await withModelFallback(job, params, model => callForJsonArray(
-    model, params.systemPrompt, prompt, params.apiKeys, ctx,
-    outlineOutputContract(params.totalChapters, maxChapters),
-  ))
+  const outlineContract = outlineOutputContract(params.totalChapters, maxChapters)
+  const outlineCheckpointKey = `${job.project_slug}:${params.episode_id}:script:outline`
+  const arr = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callForJsonArray(
+    model, params.systemPrompt, prompt, params.apiKeys,
+    pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+    outlineContract,
+    params.pipelineModelPolicy !== undefined,
+  ), {
+    key: outlineCheckpointKey,
+    inputFingerprint: pipelinePolicyInputFingerprint({ system: params.systemPrompt, user: prompt, contract: outlineContract }),
+  })
 
   // Normalise: clamp `n` into 1..totalChapters and drop duplicates.
   // The model occasionally repeats chapter numbers or skips one; we
@@ -1309,14 +1382,13 @@ async function expandNarrativeSequential(
   outline: OutlineEntry[], pending: OutlineEntry[], sidecar: ChunkedSidecar,
   budget: ChunkingBudget = unresolvedChunkingBudget(),
   batchSize: number = NARRATIVE_BATCH_SIZE,
+  plannedGroups?: OutlineEntry[][],
 ): Promise<void> {
   // Group pending into contiguous batches so we can pull a clean transition
   // window (last 200 words of the chapter before the batch's first slot) when
   // one exists on disk.
-  const batches: OutlineEntry[][] = []
-  for (let i = 0; i < pending.length; i += batchSize) {
-    batches.push(pending.slice(i, i + batchSize))
-  }
+  const batches: OutlineEntry[][] = plannedGroups || []
+  if (!plannedGroups) for (let i = 0; i < pending.length; i += batchSize) batches.push(pending.slice(i, i + batchSize))
 
   job.output_lines.push(`[chunked] Mode: narrative (sequential, batches of ${batchSize}). ${batches.length} batch(es) to run.`)
   job.output_lines.push(chunkingTriggerLine(params, budget))
@@ -1330,6 +1402,7 @@ async function expandNarrativeSequential(
     const batch = batches[bi]!
     const firstN = batch[0]!.n
     const lastN = batch[batch.length - 1]!.n
+    const chapterCheckpointKey = `${job.project_slug}:${params.episode_id}:script:chapters:${firstN}-${lastN}`
 
     const useTOC = params.totalChapters > TOC_MODE_THRESHOLD
     const prompt = narrativeBatchPrompt(
@@ -1369,14 +1442,23 @@ async function expandNarrativeSequential(
       const repairPrompt = narrativeRepairPrompt(
         params, outline, repairBatch, await narrativeTransitionWindow(params, repairBatch[0]!.n), useTOC,
       )
-      const recoveredRepairText = await withModelFallback(job, params, model => callAiWithRetry(
+      const repairCheckpointKey = `${chapterCheckpointKey}:repair-${repairBatch.map(entry => entry.n).join('-')}`
+      const repairInputFingerprint = pipelinePolicyInputFingerprint({
+        stage: 'script', kind: 'narrative-repair', episode_id: params.episode_id,
+        chapters: repairBatch.map(entry => entry.n), system: params.systemPrompt,
+        generation_params: params.generationParams,
+      })
+      const recoveredRepairText = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(
         model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
-          ...ctx,
+          ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
           recoverByIdempotencyKey: true,
-          idempotencyKey: job.genstudio_chat_recovery_key,
-          allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
+          idempotencyKey: recovery?.idempotencyKey || job.genstudio_chat_recovery_key,
+          allowedRecoveryKeys: recovery ? [recovery.idempotencyKey] : job.genstudio_chat_recovery_keys,
         },
-      ))
+      ), {
+        key: repairCheckpointKey,
+        inputFingerprint: repairInputFingerprint,
+      })
       const repaired = await parseAndWriteBatch(params, repairBatch, recoveredRepairText)
       runningSidecar = markDone(runningSidecar, repaired)
       await writeSidecar(params.scriptDir, runningSidecar)
@@ -1390,8 +1472,13 @@ async function expandNarrativeSequential(
     let wrote: number[] = []
     let incomplete: GenStudioChatIncompleteError | null = null
     try {
-      const text = await withModelFallback(job, params, model =>
-        callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, ctx))
+      const text = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) =>
+        callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
+          ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+        }), {
+          key: chapterCheckpointKey,
+          inputFingerprint: pipelinePolicyInputFingerprint({ system: params.systemPrompt, user: prompt }),
+        })
       wrote = await parseAndWriteBatch(params, batch, text)
     } catch (error) {
       // A repair creates a new billable provider request. Only a confirmed
@@ -1450,9 +1537,20 @@ async function expandNarrativeSequential(
       const repairCtx = incomplete
         ? { ...ctx, outputBudget: singleChapterRepairBudget() }
         : ctx
-      const repairText = await withModelFallback(job, params, model => callAiWithRetry(
-        model, params.systemPrompt, repairPrompt, params.apiKeys, true, repairCtx,
-      ))
+      const repairCheckpointKey = `${chapterCheckpointKey}:repair-${repairBatch.map(entry => entry.n).join('-')}`
+      const repairInputFingerprint = pipelinePolicyInputFingerprint({
+        stage: 'script', kind: 'narrative-repair', episode_id: params.episode_id,
+        chapters: repairBatch.map(entry => entry.n), system: params.systemPrompt,
+        generation_params: params.generationParams,
+      })
+      const repairText = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(
+        model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
+          ...pipelineAttemptContext(repairCtx, recovery, checkpointAccepted, checkpointPrepared),
+        },
+      ), {
+        key: repairCheckpointKey,
+        inputFingerprint: repairInputFingerprint,
+      })
       const repaired = await parseAndWriteBatch(params, repairBatch, repairText)
       repaired.forEach(n => allWrote.add(n))
       runningSidecar = markDone(runningSidecar, repaired)
@@ -1583,11 +1681,10 @@ async function expandListicleParallel(
   outline: OutlineEntry[], pending: OutlineEntry[], sidecar: ChunkedSidecar,
   budget: ChunkingBudget = unresolvedChunkingBudget(),
   batchSize: number = LISTICLE_BATCH_SIZE,
+  plannedGroups?: OutlineEntry[][],
 ): Promise<void> {
-  const batches: OutlineEntry[][] = []
-  for (let i = 0; i < pending.length; i += batchSize) {
-    batches.push(pending.slice(i, i + batchSize))
-  }
+  const batches: OutlineEntry[][] = plannedGroups || []
+  if (!plannedGroups) for (let i = 0; i < pending.length; i += batchSize) batches.push(pending.slice(i, i + batchSize))
   job.output_lines.push(
     `[chunked] Mode: listicle (parallel, batches of ${batchSize}, concurrency ${LISTICLE_CONCURRENCY}). ${batches.length} batch(es) to run.`,
   )
@@ -1610,6 +1707,7 @@ async function expandListicleParallel(
 
       try {
         const prompt = listicleBatchPrompt(params, batch)
+        const chapterCheckpointKey = `${job.project_slug}:${params.episode_id}:script:chapters:${firstN}-${lastN}`
         // Same as the narrative batch: several complete items per response,
         // sized from the batch's own word targets rather than from the
         // product's whole published ceiling.
@@ -1624,8 +1722,13 @@ async function expandListicleParallel(
           recoverByIdempotencyKey: job.genstudio_chat_recovery === true,
           allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
         }
-        const text = await withModelFallback(job, params, model =>
-          callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, ctx))
+        const text = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) =>
+          callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
+            ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+          }), {
+            key: chapterCheckpointKey,
+            inputFingerprint: pipelinePolicyInputFingerprint({ system: params.systemPrompt, user: prompt }),
+          })
         const wrote = await parseAndWriteBatch(params, batch, text)
         // Sidecar updates need serialisation — atomic write is fine but we
         // don't want two workers reading-then-writing concurrently and
@@ -2029,10 +2132,29 @@ async function callForJsonArray(
     recoverByIdempotencyKey?: boolean
     idempotencyKey?: string
     allowedRecoveryKeys?: string[]
+    onRequestPrepared?: (idempotencyKey: string) => Promise<void>
   },
   outputContract: TextOutputContract,
+  validatePipelineCandidate = false,
   retries = 2,
 ): Promise<any[]> {
+  // This is the direct policy executor path rather than callAiWithModelPolicy.
+  // Re-read the exact candidate before the POST so a structured outline can
+  // advance to an authorized backup when the assigned model has lost JSON
+  // capability. The output contract and long budget below are the actual
+  // request values, never an inferred script-wide default.
+  if (validatePipelineCandidate && (!ctx.recoverByIdempotencyKey || !ctx.idempotencyKey)) {
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    const modelId = stripGenStudioModelPrefix('chat', model)
+    const candidate = apiKey
+      ? (await listChatModels(apiKey)).find(item => item.id === modelId)
+      : null
+    if (!candidate || !candidate.available) {
+      throw new GenStudioChatProductUnavailableError(modelId)
+    }
+    assertPipelineModelRequestCapabilities(candidate, { outputContract, outputBudget: 'long' })
+  }
   let lastErr = ''
   const effectiveRetries = isLocalTextModel(model) ? retries : 0
   for (let attempt = 0; attempt <= effectiveRetries; attempt++) {
@@ -2040,6 +2162,7 @@ async function callForJsonArray(
     const raw = await callAiWithRetry(model, system, user, apiKeys, false, {
       ...ctx,
       outputContract,
+      onRequestPrepared: ctx.onRequestPrepared,
       // Long: one structured entry per chapter for the whole episode. Shorter
       // than the narration itself, but far past the short-form default.
       outputBudget: 'long',

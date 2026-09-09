@@ -85,7 +85,9 @@ interface CapacityState {
   refreshPromise: Promise<void> | null
   holdUntil: number
   submitting: number
+  permitSubmitting: number
   submissionTimes: number[]
+  permitRequestTimes: number[]
 }
 
 function freshCapacityState(): CapacityState {
@@ -98,7 +100,9 @@ function freshCapacityState(): CapacityState {
     refreshPromise: null,
     holdUntil: 0,
     submitting: 0,
+    permitSubmitting: 0,
     submissionTimes: [],
+    permitRequestTimes: [],
   }
 }
 
@@ -281,6 +285,52 @@ export class GenStudioAdmissionPool {
     return publishedCeiling === undefined ? limit : Math.min(limit, publishedCeiling)
   }
 
+  /**
+   * Permit acquisition is a short control-plane operation, not a reservation of
+   * an execution worker. Keep its local burst bounded by the account's own
+   * submit pace and queue room; the permit endpoint remains authoritative.
+   */
+  async currentPermitRequestLimit(apiKey: string): Promise<number> {
+    await this.refresh(apiKey)
+    const state = this.stateFor(apiKey)
+    const now = Date.now()
+    this.prunePermitWindow(state, now)
+    const queueRoom = Math.max(1, state.capacity.max_queued_jobs - state.capacity.paid_queued_jobs)
+    return Math.min(state.capacity.generation_submissions_per_minute, queueRoom)
+  }
+
+  /**
+   * Reserve one short-lived permit-request attempt. This is intentionally
+   * independent of long-lived paid execution slots, while applying the
+   * account's published pace and queue headroom to permit requests themselves.
+   */
+  async reservePermitRequest(apiKey: string): Promise<{ release: () => void } | { retryAfterMs: number }> {
+    await this.refresh(apiKey)
+    const state = this.stateFor(apiKey)
+    const now = Date.now()
+    this.prunePermitWindow(state, now)
+    if (state.holdUntil > now) return { retryAfterMs: state.holdUntil - now }
+    if (this.queueNearCapacity(state)) return { retryAfterMs: this.retryMs }
+    if (state.permitRequestTimes.length >= state.capacity.generation_submissions_per_minute) {
+      return { retryAfterMs: Math.max(25, state.permitRequestTimes[0]! + WINDOW_MS - now) }
+    }
+    const queueRoom = Math.max(1, state.capacity.max_queued_jobs - state.capacity.paid_queued_jobs)
+    const limit = Math.min(state.capacity.generation_submissions_per_minute, queueRoom)
+    if (state.permitSubmitting >= limit) {
+      return { retryAfterMs: this.retryMs }
+    }
+    state.permitSubmitting++
+    state.permitRequestTimes.push(now)
+    let released = false
+    return {
+      release: () => {
+        if (released) return
+        released = true
+        state.permitSubmitting = Math.max(0, state.permitSubmitting - 1)
+      },
+    }
+  }
+
   async noteRateLimit(apiKey: string, retryAfterMs: number): Promise<void> {
     const jitterMs = Math.floor(Math.random() * Math.min(750, Math.max(100, retryAfterMs * 0.1)))
     const state = this.stateFor(apiKey)
@@ -403,6 +453,12 @@ export class GenStudioAdmissionPool {
   private pruneWindow(state: CapacityState, now = Date.now()): void {
     while (state.submissionTimes.length && state.submissionTimes[0]! <= now - WINDOW_MS) {
       state.submissionTimes.shift()
+    }
+  }
+
+  private prunePermitWindow(state: CapacityState, now = Date.now()): void {
+    while (state.permitRequestTimes.length && state.permitRequestTimes[0]! <= now - WINDOW_MS) {
+      state.permitRequestTimes.shift()
     }
   }
 

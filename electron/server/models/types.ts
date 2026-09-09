@@ -6,6 +6,7 @@ import type { GenStudioRequestPreview } from '../lib/genstudio-request-preview.j
 import type { ContentPackProvenance } from '../content-packs/runtime-types.js'
 import type { ContentPackItemKind } from '../content-packs/types.js'
 import type { ContextualCueCorner } from '../contracts/contextual-cue-position.js'
+import type { AssignedPipelineModelPolicy, PipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 
 // ── Project ─────────────────────────────────────────────────────────────────
 
@@ -2652,6 +2653,9 @@ export interface Job {
     stall_recovery_at?: string | null
     status_detail?: string | null
     failure_detail?: string | null
+    queue_position?: number | null
+    queue_eta_seconds?: number | null
+    queue_reason?: 'provider_pace' | null
     location?: string
     queue_state?: 'waiting_local' | 'submitting' | 'accepted' | 'waiting_account_capacity'
       | 'running' | 'completing' | 'succeeded' | 'failed' | 'waiting_credits' | 'cancelled'
@@ -4071,6 +4075,9 @@ export interface ResearchRunOptions {
    *  `supports_domain_filters`; silently dropped otherwise. */
   web_search?: ResearchWebSearchSettings
   request_identity?: string
+  pipeline_model_policy?: AssignedPipelineModelPolicy
+  pipeline_policy_checkpoint?: PipelinePolicyCheckpointStore
+  pipeline_policy_checkpoint_key?: string
 }
 
 // ── Continuity-chain config (v1.0.189+ — continuity-chain pipeline) ─────

@@ -7,7 +7,7 @@
  */
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
-import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
+import { callAi, callAiWithModelPolicy, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { getConfig } from '../services/project-manager.js'
@@ -34,12 +34,21 @@ import {
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { ContextualCue, ContextualCueAutoApprovalHold, ContextualCueKind, ContextualCueProposalSettings, ContextualCueTemplate, ContextualCueTimeline, Job, ScenePlan } from '../models/types.js'
 import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.js'
-import { GenStudioChatTerminalFailureError, GenStudioTerminalFailureError, genStudioAdmissionSnapshot, listChatModels } from '../lib/genstudio-client.js'
+import {
+  GenStudioChatCapabilityUnavailableError,
+  GenStudioChatProductUnavailableError,
+  GenStudioChatTerminalFailureError,
+  GenStudioTerminalFailureError,
+  genStudioAdmissionSnapshot,
+  listChatModels,
+  type GenStudioChatModel,
+} from '../lib/genstudio-client.js'
 import { FLEET_BUSY_RETRY_DELAYS_MS, isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { applyEmojiPolicy, noEmojiDirective } from '../lib/emoji-policy.js'
+import { pipelinePolicyCheckpointStore, pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
 
 interface CueCandidate {
   scene_id: string
@@ -58,6 +67,19 @@ function chunk<T>(items: T[], size: number): T[][] {
 
 const CONTEXTUAL_CUE_BACKPRESSURE_RETRIES = 2
 const CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS = 15_000
+
+function assertContextualCueCapability(model: GenStudioChatModel, itemCount: number): void {
+  if (model.structured_output_mode === 'none') {
+    throw new GenStudioChatCapabilityUnavailableError(model.id, 'it publishes no structured-output support for contextual-cue JSON')
+  }
+  const structuredItemLimit = model.max_structured_items_per_request
+  if (typeof structuredItemLimit !== 'number' || !Number.isInteger(structuredItemLimit) || structuredItemLimit < itemCount) {
+    throw new GenStudioChatCapabilityUnavailableError(
+      model.id,
+      `this cue batch requires ${itemCount} structured items, above its published ${structuredItemLimit ?? 'unpublished'} item limit`,
+    )
+  }
+}
 
 /**
  * The short wait used for request pacing and for the backpressure cooldown.
@@ -269,15 +291,13 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const config = normalizeContextualCueConfig((await getConfig(job.project_slug))?.contextual_cues)
   if (!config.enabled) throw new Error('Contextual Cues are disabled for this project. Enable them first.')
   const settings = normalizeContextualCueProposalSettings(job.params)
-  const model = settings.model
+  let model = settings.model
   if (!model) throw new Error('Choose a live GenStudio model in Contextual Cues before proposing cues.')
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) throw new Error('Contextual Cues needs a configured GenStudio API key.')
-  const modelId = resolveGenStudioModelId('chat', model)
-  const catalogModel = modelId ? (await listChatModels(apiKey)).find(candidate => candidate.id === modelId) : null
-  if (!catalogModel) throw new Error('The selected Contextual Cues model is no longer in the live GenStudio catalogue.')
-
+  const cuesPolicy = pipelinePolicyForJob(job.params, 'contextual_cues')
+  const cuesCheckpoint = pipelinePolicyCheckpointStore(job.params, () => checkpointJobState(job))
   const prior = await readContextualCueTimeline(planPath)
   const protectedCues = prior?.cues.filter(cue => cue.status !== 'proposed') || []
   const baseFingerprint = contextualCueProgressFingerprint(plan, settings)
@@ -288,14 +308,32 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const existingProgress = await readContextualCueProgress(planPath)
   const saved = existingProgress?.fingerprint === fingerprint ? existingProgress : null
   if (existingProgress && !saved) await removeContextualCueProgress(planPath)
-  const batchSize = resolveContextualCueBatchSize(catalogModel.max_structured_items_per_request, saved?.batch_size)
-  if (saved && saved.batch_size !== batchSize) {
-    throw new Error(
-      `GenStudio now publishes a ${batchSize}-item structured-output ceiling, below this saved run's ${saved.batch_size}-item batches. `
-      + 'The saved work was preserved; start a new proposal run to use the current limit.',
-    )
+  // A saved policy run may contain an accepted request. Its batch shape is a
+  // historical request fact, so recover it before reading today's catalogue;
+  // every still-pending batch revalidates in beforeModelAttempt below.
+  let catalogModel: GenStudioChatModel | null = null
+  const batchSize = saved && cuesPolicy ? saved.batch_size : 0
+  if (!saved || !cuesPolicy) {
+    const catalog = await listChatModels(apiKey)
+    const planningCandidates = cuesPolicy
+      ? [cuesPolicy.assigned_model, ...cuesPolicy.models.filter(candidate => candidate !== cuesPolicy.assigned_model)]
+      : [resolveGenStudioModelId('chat', model) || '']
+    for (const candidateId of planningCandidates) {
+      const candidate = catalog.find(item => item.id === candidateId && item.available)
+      if (!candidate) continue
+      try { assertContextualCueCapability(candidate, 1); catalogModel = candidate; model = candidate.id; break } catch (error) {
+        if (!(error instanceof GenStudioChatCapabilityUnavailableError)) throw error
+      }
+    }
+    if (!catalogModel) throw new Error('None of the selected Contextual Cues products currently publishes structured-output support. No request or credit charge was made.')
+  } else {
+    model = saved.model
   }
-  const batches = chunk(plan.scenes, batchSize)
+  const resolvedBatchSize = catalogModel
+    ? resolveContextualCueBatchSize(catalogModel.max_structured_items_per_request, saved?.batch_size)
+    : batchSize
+  if (saved && catalogModel && saved.batch_size !== resolvedBatchSize) throw new Error('GenStudio batch capacity changed; start a new proposal run.')
+  const batches = chunk(plan.scenes, resolvedBatchSize)
   const completed = new Map((saved?.completed_batches || []).map(batch => [batch.index, batch]))
   const candidates: CueCandidate[] = [...completed.values()].flatMap(batch => batch.candidates as CueCandidate[])
   const snapshot = genStudioAdmissionSnapshot(apiKey)
@@ -305,7 +343,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
     fingerprint,
     source_scene_plan_generated_at: plan.generated_at,
     model,
-    batch_size: batchSize,
+    batch_size: resolvedBatchSize,
     total_scenes: plan.scenes.length,
     total_batches: batches.length,
     completed_batches: [],
@@ -359,15 +397,37 @@ export async function generateContextualCues(job: Job): Promise<void> {
       // it carries his narration, and an emoji he wrote into the script means
       // the cues proposed from it are left alone.
       const cueUserPrompt = `PACING: ${settings.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: truncateChars(scene.transcript_segment, 420) })) )}`
+      const cueRequestIdentity = freshGenerationRequestIdentity(job, `contextual-cues-${fingerprint}-batch-${index}-scope-${progress.retry_scopes?.[String(index)] || 'initial'}`)
+        ?? `${job.project_slug}:${episodeId}:contextual-cues:${fingerprint}:batch-${index}:scope-${progress.retry_scopes?.[String(index)] || 'initial'}`
       try {
         lastSubmissionAt = Date.now()
-        const raw = await callAi(
+        const raw = await (cuesPolicy ? callAiWithModelPolicy(cuesPolicy,
+          'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.' + await noEmojiDirective(),
+          cueUserPrompt, {}, false,
+          {
+            slug: job.project_slug,
+            jobId: job.job_id,
+            requestIdentity: cueRequestIdentity,
+            pipelinePolicyCheckpoint: cuesCheckpoint,
+            pipelinePolicyCheckpointKey: cueRequestIdentity,
+            beforeModelAttempt: async selected => {
+              const live = (await listChatModels(apiKey)).find(candidate => candidate.id === selected)
+              if (!live || !live.available) throw new GenStudioChatProductUnavailableError(selected)
+              assertContextualCueCapability(live, scenes.length)
+            },
+            onModelSelected: selected => { job.output_lines.push(`[pipeline] contextual cues using GenStudio product "${selected}".`) },
+            outputBudget: 'standard',
+            outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT,
+            disableReasoning: true,
+            temperature: 0.2,
+          },
+        ) : callAi(
           model,
           'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.' + await noEmojiDirective(),
           cueUserPrompt,
           {}, false,
-          { slug: job.project_slug, jobId: job.job_id, requestIdentity: freshGenerationRequestIdentity(job, `contextual-cues-${fingerprint}-batch-${index}-scope-${progress.retry_scopes?.[String(index)] || 'initial'}`) ?? `${job.project_slug}:${episodeId}:contextual-cues:${fingerprint}:batch-${index}:scope-${progress.retry_scopes?.[String(index)] || 'initial'}`, outputBudget: 'standard', outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
-        )
+          { slug: job.project_slug, jobId: job.job_id, requestIdentity: cueRequestIdentity, outputBudget: 'standard', outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
+        ))
         // Cleaned HERE, at the proposal, and never in the cue-save route: by
         // the time a cue comes back from the review screen it may be something
         // the editor typed, and that is his.

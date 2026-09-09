@@ -50,6 +50,8 @@ const genstudioProvider: TextProvider = {
           finishReason: state,
         })
       },
+      onJobAccepted: request.onJobAccepted,
+      onRequestPrepared: request.onRequestPrepared,
     })
     request.onDiagnostics?.({
       requestId: result.jobId,

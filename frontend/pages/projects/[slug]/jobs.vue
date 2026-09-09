@@ -605,6 +605,9 @@
         <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
           {{ genStudioStatusDetail(job) }}
         </p>
+        <p v-if="genStudioQueueDetail(job)" class="genstudio-queue-detail" role="status">
+          {{ genStudioQueueDetail(job) }}
+        </p>
         <p v-if="paidImageReplacementAttemptText(job)" class="paid-image-replacement-attempt" role="status">
           {{ paidImageReplacementAttemptText(job) }}
         </p>
@@ -929,6 +932,9 @@
           <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
             {{ genStudioStatusDetail(job) }}
           </p>
+          <p v-if="genStudioQueueDetail(job)" class="genstudio-queue-detail" role="status">
+            {{ genStudioQueueDetail(job) }}
+          </p>
           <p v-if="paidImageReplacementAttemptText(job)" class="paid-image-replacement-attempt" role="status">
             {{ paidImageReplacementAttemptText(job) }}
           </p>
@@ -1250,12 +1256,25 @@ function genStudioQueueLabel(
  * other time on this page goes through, so it is in the reader's timezone like
  * all of them. Where there is no timestamp, no time is claimed.
  */
+function latestActiveGenStudioRequest(job: RJob) {
+  const active = (job.genstudio_jobs || []).map((item, index) => ({ item, index })).filter(({ item }) => {
+    const state = String(item.queue_state || item.state || '').toLowerCase()
+    return item.cancelled !== true && !['succeeded', 'failed', 'cancelled'].includes(state)
+  })
+  const timestamped = active.filter(({ item }) => Number.isFinite(Date.parse(String(item.updated_at || ''))))
+  const pool = timestamped.length ? timestamped : active
+  return pool.sort((a, b) => {
+    const aTime = Date.parse(String(a.item.updated_at || ''))
+    const bTime = Date.parse(String(b.item.updated_at || ''))
+    return (Number.isFinite(bTime) ? bTime : b.index) - (Number.isFinite(aTime) ? aTime : a.index)
+  })[0]?.item
+}
+
 function genStudioStatusDetail(job: RJob): string {
   // Terminal child diagnostics belong in Technical details. The default card
   // reports completion and the next customer action instead of remote attempts.
-  const remote = [...(job.genstudio_jobs || [])].reverse().find(item =>
-    !['failed', 'cancelled'].includes(genStudioCreditState(item))
-      && (item.status_detail || item.failure_detail))
+  const remote = latestActiveGenStudioRequest(job)
+  if (!remote || !(remote.status_detail || remote.failure_detail)) return ''
   if (!remote) return ''
   const detail = customerJobText(remote.status_detail || remote.failure_detail || '', job)
   if (remote.retry_at) return `${detail} Retry ${formatTime(remote.retry_at)}.`
@@ -1265,6 +1284,50 @@ function genStudioStatusDetail(job: RJob): string {
   }
   if (remote.stall_recovery_at) return `${detail} GenStudio will step in ${formatTime(remote.stall_recovery_at)}.`
   return detail
+}
+
+function formatGenStudioQueueEta(seconds: number): string {
+  if (seconds < 60) return 'less than a minute'
+  const minutes = Math.ceil(seconds / 60)
+  if (minutes < 60) return `about ${minutes} minute${minutes === 1 ? '' : 's'}`
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  return `about ${hours} hour${hours === 1 ? '' : 's'}${remainder ? ` ${remainder} min` : ''}`
+}
+
+/**
+ * Provider queue evidence belongs to the newest active GenStudio request.
+ * Story Studio's own queue position is a separate local fact and is not a
+ * substitute when the provider did not publish one.
+ */
+function genStudioQueueDetail(job: RJob): string {
+  const remote = latestActiveGenStudioRequest(job)
+  if (!remote) return ''
+  const activeRequestCount = (job.genstudio_jobs || []).filter(item => {
+    const itemState = String(item.queue_state || item.state || '').toLowerCase()
+    return item.cancelled !== true && !['succeeded', 'failed', 'cancelled'].includes(itemState)
+  }).length
+
+  const state = String(remote.queue_state || remote.state || '').toLowerCase()
+  const hasProviderQueuePosition = typeof remote.queue_position === 'number' && remote.queue_position > 0
+  const phase = hasProviderQueuePosition ? 'Waiting in the GenStudio provider queue.' : ({
+    waiting_local: 'Waiting in Story Studio before provider submission.',
+    submitting: 'Waiting for GenStudio admission.',
+    accepted: 'GenStudio accepted the latest request; it is queued remotely.',
+    waiting_account_capacity: 'Waiting for GenStudio account admission.',
+    waiting_credits: 'Waiting for GenStudio credits.',
+    running: 'GenStudio is generating.',
+    completing: 'GenStudio is completing the result.',
+  } as Record<string, string>)[state] || ''
+  const facts: string[] = []
+  if (hasProviderQueuePosition) {
+    facts.push(`GenStudio provider queue position ${remote.queue_position}.`)
+  }
+  if (typeof remote.queue_eta_seconds === 'number' && remote.queue_eta_seconds > 0) {
+    facts.push(`Estimated provider wait ${formatGenStudioQueueEta(remote.queue_eta_seconds)}.`)
+  }
+  if (remote.queue_reason === 'provider_pace') facts.push('GenStudio is pacing new requests.')
+  return [activeRequestCount > 1 ? `Latest request: ${phase}` : phase, ...facts].filter(Boolean).join(' ')
 }
 
 function paidImageReplacementAttemptText(job: RJob): string {
@@ -3598,6 +3661,12 @@ async function clearFinished() {
 .genstudio-status-detail {
   margin: 6px 0 0;
   color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
+.genstudio-queue-detail {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
   font-size: var(--font-xs);
   line-height: 1.45;
 }
