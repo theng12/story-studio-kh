@@ -5219,13 +5219,44 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   return true
 }
 
-export async function clearFinished(projectSlug: string): Promise<number> {
+/**
+ * The Jobs toolbar's terminal-history subsets. Omitting this selector keeps
+ * the legacy clear-all-terminal-history behavior for existing callers.
+ */
+export type JobHistoryClearStatus = 'finished' | 'failed'
+
+/** Match the Jobs page's display-only Recovered state for a failed subtitle attempt. */
+function isVerifiedRecoveredSubtitleJob(job: Job): boolean {
+  if (job.type !== 'subtitles_transcribe' || job.status !== 'error'
+    || job.params?.force === true || job.params?.generation_action?.kind === 'fresh') return false
+  const recovery = job.params?.episode_recovery
+  const recoveryId = recovery?.id
+  if (typeof recoveryId !== 'string' || !recoveryId.trim()
+    || typeof job.params?.episode_recovery_id !== 'string'
+    || recoveryId !== job.params.episode_recovery_id) return false
+  return Array.isArray(recovery?.completed)
+    && recovery.completed.includes('subtitle_sections')
+    && recovery.completed.includes('subtitle_stitch')
+    && (recovery.first_unresolved === null
+      || recovery.first_unresolved === 'scene_plan_run'
+      || recovery.first_unresolved === 'contextual_cues'
+      || recovery.first_unresolved === 'continuity_render')
+}
+
+function matchesHistoryClearStatus(job: Job, status: JobHistoryClearStatus | undefined): boolean {
+  if (!isFinishedStatus(job.status)) return false
+  if (!status) return true
+  if (status === 'finished') return job.status !== 'error' || isVerifiedRecoveredSubtitleJob(job)
+  return job.status === 'error' && !isVerifiedRecoveredSubtitleJob(job)
+}
+
+export async function clearFinished(projectSlug: string, status?: JobHistoryClearStatus): Promise<number> {
   await loadPersistedJobs(projectSlug)
   let count = 0
   const clearedIds: string[] = []
   const clearedSceneRenderJobs: Array<Pick<Job, 'episode_id' | 'job_id'>> = []
   for (const [id, job] of jobs.entries()) {
-    if (job.project_slug === projectSlug && ['done', 'error', 'cancelled'].includes(job.status) && (job.force_abandoned || !hasUnsettledProviderEvidence(job))) {
+    if (job.project_slug === projectSlug && matchesHistoryClearStatus(job, status) && (job.force_abandoned || !hasUnsettledProviderEvidence(job))) {
       clearPaidImageWaitTimer(id)
       jobs.delete(id)
       clearedIds.push(id)

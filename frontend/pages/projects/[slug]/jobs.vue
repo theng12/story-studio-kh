@@ -73,47 +73,61 @@
               Story Studio is scheduling conservatively.
             </span>
           </div>
-          <div class="jobs-hero-actions">
-            <button
-              v-if="!queuePaused"
-              class="btn btn-sm btn-secondary"
-              :disabled="changingQueueState"
-              @click="pauseQueue"
-              title="Hold every queued Story job before submission. Running GenStudio jobs stop claiming new items after accepted work is saved."
-            >Pause queue</button>
-            <!-- v1.4.43 — labelled for what it does. This one really is the
-                 whole-library sweep, and it used to be called plain "Repair
-                 assets" next to per-job Repair buttons that fix one thing.
-                 Choosing the sweep should be a choice. -->
-            <NuxtLink
-              v-if="!isUniversal"
-              :to="`/projects/${slug}/board?repair=1`"
-              class="btn btn-sm btn-secondary"
-              title="Scans EVERY accepted episode in this project for output the provider already produced but that never landed on disk, then re-downloads it (no credits consumed). To help one job that needs attention instead, use the buttons on that job's own row below."
-            >
-              Scan all for repair
-            </NuxtLink>
-            <button
-              v-if="finishedCount > 0"
-              class="btn btn-sm btn-ghost"
-              @click="clearFinished"
-            >
-              Clear finished ({{ finishedCount }})
-            </button>
-          </div>
+
         </div>
       </template>
     </WorkspaceHero>
+
+    <section class="jobs-control-toolbar" aria-label="Job actions">
+      <div class="jobs-control-heading">
+        <strong>Job actions</strong>
+        <span>{{ actionScopeLabel }} · all job types and statuses</span>
+      </div>
+      <div class="jobs-control-groups">
+        <div class="jobs-control-group" role="group" aria-label="Recovery and retry">
+          <span class="jobs-control-label">Recovery and retry</span>
+          <div class="jobs-control-buttons">
+            <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || recoverableEpisodes.length === 0"
+              title="Check the affected episodes for missing audio and images, then retrieve available provider output. No new generation or credits."
+              @click="recoverAllEpisodes">{{ recoveringAllEpisodes ? 'Recovering…' : `Recover all (${recoverableEpisodes.length})` }}</button>
+            <button class="btn btn-sm btn-secondary repair-all-btn" :disabled="bulkActionBusy || repairableFailedJobs.length === 0"
+              title="Recheck recorded provider tasks for the eligible jobs and download available output. No new generation or credits."
+              @click="repairAllFailed">{{ repairingAllFailed ? 'Repairing…' : `Repair all (${repairableFailedJobs.length})` }}</button>
+            <button class="btn btn-sm btn-secondary retry-all-btn" :disabled="bulkActionBusy || retryAllTriage.retry.length === 0"
+              :title="retryAllTooltip" @click="retryAllFailed">{{ retryingAllFailed ? 'Sending…' : `Retry all (${retryAllTriage.retry.length})` }}</button>
+          </div>
+        </div>
+        <div class="jobs-control-group" role="group" aria-label="Queue controls">
+          <span class="jobs-control-label">Queue · pause applies to all projects</span>
+          <div class="jobs-control-buttons">
+            <button class="btn btn-sm btn-secondary" :disabled="changingQueueState || resumingQueue || (!queuePaused && !hasQueueWork)"
+              :title="queuePaused ? 'Release the queue hold across all projects.' : 'Hold new work across all projects. Accepted work is saved before it pauses.'"
+              @click="queuePaused ? resumeQueue() : pauseQueue()">{{ changingQueueState || resumingQueue ? 'Updating queue…' : queuePaused ? 'Resume queue' : 'Pause queue' }}</button>
+            <button class="btn btn-sm btn-secondary resume-paused-btn" :disabled="bulkActionBusy || pausedJobCount === 0"
+              @click="resumePausedJobs">{{ bulkResumeBusy ? `Resuming ${bulkResumeCount}…` : `Resume paused (${pausedJobCount})` }}</button>
+          </div>
+        </div>
+        <div class="jobs-control-group" role="group" aria-label="Clear job history">
+          <span class="jobs-control-label">History · keeps files and billing records</span>
+          <div class="jobs-control-buttons">
+            <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || finishedCount === 0"
+              title="Remove completed, recovered and cancelled history whose provider work has settled."
+              @click="clearFinished">{{ clearingHistory === 'finished' ? 'Clearing…' : `Clear finished (${finishedCount})` }}</button>
+            <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || failedCount === 0"
+              title="Remove failed history whose provider work has settled. Files and provider evidence stay intact."
+              @click="clearFailed">{{ clearingHistory === 'failed' ? 'Clearing…' : `Clear failed (${failedCount})` }}</button>
+          </div>
+        </div>
+      </div>
+      <p class="jobs-control-help">Recover checks an episode’s audio and images. Repair checks a job’s recorded requests. Retry continues unfinished work and may use credits.</p>
+      <p v-if="bulkActionMessage" class="jobs-control-result" role="status">{{ bulkActionMessage }}</p>
+    </section>
 
     <!-- Durable Story-side queue hold. Queued work has not been submitted;
          accepted GenStudio items checkpoint before their job pauses. -->
     <WorkspaceNotice v-if="queuePaused" tone="warning" title="Job queue is paused">
       New Story jobs are held before submission. Running GenStudio jobs finish saving already accepted items, then pause safely.
-      <template #actions>
-        <button class="btn btn-sm btn-primary" :disabled="resumingQueue" @click="resumeQueue">
-          {{ resumingQueue ? 'Resuming…' : 'Resume now' }}
-        </button>
-      </template>
+
     </WorkspaceNotice>
 
     <!-- Restart-recovery banner: surfaces when one or more jobs got
@@ -132,16 +146,9 @@
       <span class="rrb-text">
         <strong>{{ interruptedJobs.length }} job{{ interruptedJobs.length === 1 ? '' : 's' }} interrupted by app restart.</strong>
         Tasks already submitted to the provider may be recoverable for free —
-        Repair polls them and downloads completed results. After it finishes,
-        click Retry on any job whose chunks are still missing.
+        Use Recover or Repair in Job actions above to retrieve available results.
+        Retry remains a separate action for unfinished work.
       </span>
-      <button
-        class="btn btn-xs btn-primary"
-        :disabled="repairingAllInterrupted"
-        @click="repairAllInterrupted"
-      >
-        {{ repairingAllInterrupted ? 'Repairing…' : `Repair all (${interruptedJobsRepairable.length})` }}
-      </button>
       <button
         class="rrb-dismiss"
         title="Dismiss for this session"
@@ -211,13 +218,6 @@
         </div>
       </details>
 
-      <!-- Actions row. Two buttons = two different things, spell that out:
-           — "Review failures" filters the History list below to the failed
-             jobs for retry decisions (operator needs the full error body
-             and the retry button each job card already has).
-           — "Repair" opens the Production Board's Repair dialog where
-             provider-completed outputs that didn't persist locally can
-             be re-fetched in one click (no credits consumed). -->
       <div class="bbf-actions">
         <button
           v-if="batchSummary.failed > 0"
@@ -225,15 +225,7 @@
           title="Filter History below to jobs that need attention — use this to review each job’s details and choose whether to Retry."
           @click="reviewFailures"
         >Review jobs →</button>
-        <NuxtLink
-          v-if="batchSummary.failed > 0"
-          :to="batchRepairLink"
-          class="btn btn-sm btn-primary"
-          :title="batchSummary.failed_episodes.length
-            ? `Open Repair for the ${batchSummary.failed_episodes.length} episode(s) that need attention in this batch — nothing else is scanned. Re-downloads output the provider already produced and was already paid for; no credits consumed.`
-            : 'Open Repair (on the Production Board) — lists provider-completed outputs that didn\'t land on disk (e.g. network drop after upload). One-click repair does NOT consume credits; it only re-downloads what the provider already produced.'"
-          @click="bulkBannerDismissed = true"
-        >Repair →</NuxtLink>
+
       </div>
 
       <!-- Inline explainer: what does "needs repair" actually mean and
@@ -263,7 +255,7 @@
       </button>
     </div>
 
-    <!-- Status Filter + bulk repair -->
+    <!-- Status filters do not change the toolbar action scope. -->
     <div class="status-bar">
       <div class="status-filters">
         <button
@@ -277,32 +269,6 @@
           {{ s.label }}<span v-if="s.count > 0" class="status-count">{{ s.count }}</span>
         </button>
       </div>
-      <button
-        v-if="showBulkResume"
-        class="btn btn-sm btn-primary resume-paused-btn"
-        :disabled="bulkResumeBusy"
-        @click="resumePausedJobs"
-      >
-        {{ bulkResumeBusy ? `Rejoining ${bulkResumeCount} jobs…` : `Resume paused work (${pausedJobCount})` }}
-      </button>
-      <button
-        v-if="repairableFailedJobs.length > 0"
-        class="btn btn-sm btn-primary repair-all-btn"
-        :disabled="repairingAllFailed"
-        title="Recover every job that needs attention or was cancelled and CAN be repaired — polls each provider for completed tasks and downloads them for free. Never re-submits (no charge). Genuinely-missing items remain available for Retry."
-        @click="repairAllFailed"
-      >
-        {{ repairingAllFailed ? 'Repairing…' : `Repair available (${repairableFailedJobs.length})` }}
-      </button>
-      <button
-        v-if="failedJobsForRetryAll.length > 0"
-        class="btn btn-sm retry-all-btn"
-        :disabled="retryingAllFailed"
-        :title="retryAllTooltip"
-        @click="retryAllFailed"
-      >
-        {{ retryingAllFailed ? 'Sending…' : `↻ Retry all (${retryAllTriage.retry.length})` }}
-      </button>
     </div>
 
     <!-- Sort Bar -->
@@ -412,6 +378,7 @@
             <button
               v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
               class="btn btn-xs btn-primary"
+              :disabled="repairingJobs.has(job.job_id) || episodeRecoveryBusy(job)"
               @click="repairJobOnly(job)"
               title="SAFE — Polls the provider for tasks that were submitted but never finished downloading, and pulls them in for free. Never re-submits anything. Click this FIRST when a job timed out — the provider often finished the work on its side. If chunks are still missing afterwards, then click Retry."
             >
@@ -424,14 +391,15 @@
                  Repair above does not cover. Same machinery, one episode:
                  scanning the whole library to fix the episode you are looking
                  at is the wrong shape, and slow enough to be unusable. -->
-            <NuxtLink
-              v-if="episodeRecoveryLink(job)"
-              :to="episodeRecoveryLink(job)!"
+            <button
+              v-if="canRecoverEpisode(job)"
+              :disabled="episodeRecoveryBusy(job)"
+              @click="recoverEpisode(job)"
               class="btn btn-xs btn-primary"
               title="SAFE — Checks THIS episode only for output the provider already finished but that never landed on disk, and pulls it in for free. No credits consumed, nothing re-submitted, and no other episode is scanned."
             >
-              Recover this episode
-            </NuxtLink>
+              {{ episodeRecoveryBusy(job) ? 'Recovering…' : 'Recover this episode' }}
+            </button>
             <button
               v-if="(job.status === 'error' || job.status === 'cancelled') && canOfferScenePromptAutoRepair(job)"
               class="btn btn-xs btn-primary prompt-auto-repair-btn"
@@ -452,7 +420,7 @@
             <button
               v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
               class="btn btn-xs btn-secondary"
-              :disabled="controlBusy.has(job.job_id)"
+              :disabled="controlBusy.has(job.job_id) || repairingJobs.has(job.job_id) || episodeRecoveryBusy(job)"
               @click="retryJob(job)"
               :title="retryTooltip(job)"
             >
@@ -787,7 +755,8 @@
               <button
                 v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
                 class="btn btn-xs btn-primary"
-                @click="repairJobOnly(job)"
+                :disabled="repairingJobs.has(job.job_id) || episodeRecoveryBusy(job)"
+              @click="repairJobOnly(job)"
                 title="SAFE — Polls the provider for already-completed tasks and downloads them for free. Never re-submits. Click this FIRST when a job timed out."
               >
                 Repair
@@ -796,14 +765,15 @@
                 {{ repairOutcome[job.job_id].text }}
               </span>
               <!-- v1.2.8 — targeted recovery (mirror of the expanded view). -->
-              <NuxtLink
-                v-if="episodeRecoveryLink(job)"
-                :to="episodeRecoveryLink(job)!"
+              <button
+                v-if="canRecoverEpisode(job)"
+                :disabled="episodeRecoveryBusy(job)"
+                @click="recoverEpisode(job)"
                 class="btn btn-xs btn-primary"
                 title="SAFE — Checks THIS episode only for output the provider already finished but that never landed on disk, and pulls it in for free. No credits consumed, nothing re-submitted, and no other episode is scanned."
               >
-                Recover this episode
-              </NuxtLink>
+                {{ episodeRecoveryBusy(job) ? 'Recovering…' : 'Recover this episode' }}
+              </button>
               <button
                 v-if="(job.status === 'error' || job.status === 'cancelled') && canOfferScenePromptAutoRepair(job)"
                 class="btn btn-xs btn-primary prompt-auto-repair-btn"
@@ -824,7 +794,7 @@
               <button
                 v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
                 class="btn btn-xs btn-secondary"
-                :disabled="controlBusy.has(job.job_id)"
+                :disabled="controlBusy.has(job.job_id) || repairingJobs.has(job.job_id) || episodeRecoveryBusy(job)"
                 @click="retryJob(job)"
                 :title="retryTooltip(job)"
               >
@@ -1067,6 +1037,7 @@ import {
   secondaryControls,
 } from '~/utils/job-presentation'
 import { formatCredits } from '~/utils/genstudio-credit-cost'
+import { recoverEpisodeAssets, describeEpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
 type RJob = DeepReadonly<Job>
 
@@ -1566,6 +1537,7 @@ let timer: ReturnType<typeof setInterval> | null = null
 // across project and universal Jobs views.
 const net = useNetworkStatus()
 const queuePaused = ref(false)
+const globalQueueWork = ref<boolean | null>(null)
 const resumingQueue = ref(false)
 const changingQueueState = ref(false)
 let queueTimer: ReturnType<typeof setInterval> | null = null
@@ -1574,8 +1546,9 @@ const verifiedGenStudioAdmission = computed(() => isVerifiedLiveCapacity(genStud
 
 async function checkQueuePaused(): Promise<void> {
   try {
-    const r = await get<{ paused: boolean }>('/system/queue/status')
+    const r = await get<{ paused: boolean; stats: { queued: number; running: number } }>('/system/queue/status')
     queuePaused.value = !!r.paused
+    globalQueueWork.value = r.stats ? r.stats.queued + r.stats.running > 0 : null
   } catch { /* backend unreachable — leave the last-known value */ }
 }
 
@@ -1638,56 +1611,12 @@ onUnmounted(() => {
 // re-derives the summary from jobs.json and shows it again.
 const bulkBannerDismissed = ref(false)
 
-// ── Restart-recovery banner ───────────────────────────────────────────────
-// Detects jobs that the boot process marked as "Interrupted by app restart"
-// (job-queue.ts:279). Surfaces a session-dismissible info banner with a
-// fan-out "Repair & Retry all" button — each click delegates to the
-// existing per-job retryJob, which already triggers the auto-recovery
-// (manifest task_id polled before any fresh submit, no double-charge).
+// Restart notices are informational; actions always live in the toolbar.
 const restartBannerDismissed = ref(false)
-const repairingAllInterrupted = ref(false)
 const INTERRUPTED_ERROR_TEXT = 'Interrupted by app restart'
 const interruptedJobs = computed(() =>
-  jobs.value.filter((j: RJob) => j.status === 'error' && j.error === INTERRUPTED_ERROR_TEXT)
+  projectScopedJobs.value.filter((j: RJob) => j.status === 'error' && j.error === INTERRUPTED_ERROR_TEXT)
 )
-// v1.0.114 — Only the repairable subset gets fanned out by the bulk
-// "Repair all" button. Non-repairable interrupted jobs (script-only /
-// metadata / etc.) stay visible — the user can Retry them individually
-// after reviewing whether they want to spend money to re-run.
-const interruptedJobsRepairable = computed(() =>
-  interruptedJobs.value.filter((j: RJob) => jobCanBeRepaired(j))
-)
-async function repairAllInterrupted() {
-  // v1.0.114 — fan out to repairJobOnly instead of retryJob. Same
-  // concurrency cap (3) as before. Repairing in parallel is safe because
-  // each call only polls the provider + downloads, no charges.
-  const snapshot = [...interruptedJobsRepairable.value]
-  if (snapshot.length === 0) return
-  repairingAllInterrupted.value = true
-  try {
-    const CONCURRENCY = 3
-    let cursor = 0
-    async function worker() {
-      while (cursor < snapshot.length) {
-        const idx = cursor++
-        if (idx >= snapshot.length) return
-        try {
-          await repairJobOnly(snapshot[idx]!)
-        } catch (e: any) {
-          // repairJobOnly already surfaces toasts on individual failures;
-          // catch here so one bad apple doesn't abort the rest of the
-          // bulk run.
-          console.warn('[bulk-repair] repair failed:', e?.message || e)
-        }
-      }
-    }
-    await Promise.all(
-      Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, () => worker()),
-    )
-  } finally {
-    repairingAllInterrupted.value = false
-  }
-}
 
 // v1.0.x — bulk "Repair all failed": every failed/cancelled job whose type has
 // a repair path (audio/images/video). Free (poll + download only, never
@@ -1695,12 +1624,14 @@ async function repairAllInterrupted() {
 // finished" one-click. Genuinely-missing items stay failed for a later Retry.
 const repairingAllFailed = ref(false)
 const repairableFailedJobs = computed(() =>
-  jobs.value.filter((j: RJob) => (jobDisplayStatus(j) === 'error' || j.status === 'cancelled') && jobCanBeRepaired(j))
+  projectScopedJobs.value.filter((j: RJob) => (jobDisplayStatus(j) === 'error' || j.status === 'cancelled') && jobCanBeRepaired(j))
 )
 async function repairAllFailed() {
+  if (bulkActionBusy.value) return
   const snapshot = [...repairableFailedJobs.value]
   if (snapshot.length === 0) return
   repairingAllFailed.value = true
+  let failed = 0
   try {
     const CONCURRENCY = 3
     let cursor = 0
@@ -1708,12 +1639,13 @@ async function repairAllFailed() {
       while (cursor < snapshot.length) {
         const idx = cursor++
         if (idx >= snapshot.length) return
-        try { await repairJobOnly(snapshot[idx]!) }
-        catch (e: any) { console.warn('[repair-all-failed] repair failed:', e?.message || e) }
+        try { if (!await repairJobOnly(snapshot[idx]!)) failed++ }
+        catch { failed++ }
       }
     }
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, () => worker()))
-    success('Repair-all finished. Cards show each result; anything still missing needs a Retry (regenerate).')
+    bulkActionMessage.value = `Checked ${snapshot.length} job(s); ${failed} checks could not finish. Cards show each result. Retry remains a separate action.`
+    info(bulkActionMessage.value)
   } finally {
     repairingAllFailed.value = false
   }
@@ -1725,7 +1657,7 @@ async function repairAllFailed() {
 // burned him — v1.0.114 removed "Repair & Retry all" after its repair half
 // failing and its retry half firing anyway produced real duplicate charges.
 //
-// So this button is always clickable and never repairs. It sorts what is
+// This button never repairs. It sorts what is
 // failed into three piles and requeues only the pile whose state is
 // definitely known. Continuity rows use their explicit Finish action; everything it declines is named, with the reason, so
 // declining is visible rather than silent.
@@ -1741,7 +1673,7 @@ function isTerminalContinuityRender(job: RJob): boolean {
     && (job.status === 'error' || job.status === 'cancelled')
 }
 const failedJobsForRetryAll = computed(() =>
-  jobs.value.filter((j: RJob) =>
+  projectScopedJobs.value.filter((j: RJob) =>
     (j.status === 'error' || j.status === 'cancelled')
     && !isVerifiedRecoveredSubtitleJob(j)
     && j.params?.auto_repair_missing_prompts !== true)
@@ -1754,7 +1686,7 @@ const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
 const retryAllTooltip = computed(() => describeRetryAllTriage(retryAllTriage.value as any))
 
 async function retryAllFailed() {
-  if (retryingAllFailed.value) return
+  if (bulkActionBusy.value) return
   const triage = retryAllTriage.value
   if (triage.retry.length === 0) {
     // Never silently do nothing. If everything is held back, say so and point
@@ -1776,8 +1708,16 @@ async function retryAllFailed() {
   try {
     // Dependent rows share one server-owned plan. No per-row POST or delete
     // may race its prerequisite, even when a downstream row already failed.
+    let submitted = 0
+    let failures = 0
     for (const episode of grouped.episodes) {
-      await post(`/projects/${episode.project_slug}/jobs/recover-episode/${episode.episode_id}`, { source_job_ids: episode.source_job_ids })
+      try {
+        await post(`/projects/${episode.project_slug}/jobs/recover-episode/${episode.episode_id}`, { source_job_ids: episode.source_job_ids })
+        submitted++
+      } catch (e: any) {
+        failures++
+        console.warn('[retry-all] episode recovery failed:', e?.message || e)
+      }
     }
     // Bounded the same way Repair-all is. Posting is not running — each retry
     // enqueues a job and the queue paces execution (the episode lane is bounded
@@ -1786,16 +1726,17 @@ async function retryAllFailed() {
     // firing thirty HTTP requests in the same tick.
     const CONCURRENCY = 3
     let cursor = 0
-    let failures = 0
     async function worker() {
       while (cursor < snapshot.length) {
         const idx = cursor++
         if (idx >= snapshot.length) return
         const target = snapshot[idx]!
         try {
-          if (isTerminalContinuityRender(target)) {
-            if (!await finishMissingImages(target, false)) failures++
-          } else await retryJob(target)
+          const sent = isTerminalContinuityRender(target)
+            ? await finishMissingImages(target, false)
+            : await retryJob(target)
+          if (sent) submitted++
+          else failures++
           // The repair we knew about belonged to the run that just failed. Once
           // it is re-queued that knowledge is stale, so it is dropped rather
           // than left to license a second retry later.
@@ -1807,9 +1748,8 @@ async function retryAllFailed() {
       }
     }
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, () => worker()))
-    if (failures > 0) showError(`${failures} of ${snapshot.length} retries could not be sent. The rest went to the queue.`)
-    // retryJob surfaces its own per-job errors, so this says what was SENT
-    // rather than claiming everything was accepted.
+    const total = grouped.episodes.length + snapshot.length
+    if (failures > 0) showError(`${failures} of ${total} retry action(s) could not be sent. ${submitted} was sent to the queue.`)
     else success(`Advanced ${grouped.episodes.length} episode recovery plan(s); sent ${snapshot.length} job(s) to the queue.`)
   } catch (cause: any) {
     showError(cause?.data?.detail || cause?.message || 'Episode recovery could not be advanced.')
@@ -2074,15 +2014,18 @@ watch(activeFilter, () => { currentPage.value = 1 })
 watch(statusFilter, () => { currentPage.value = 1 })
 watch(projectFilter, () => { currentPage.value = 1 })
 
-// v1.2.9 — count what the button will actually clear. `clearFinished` skips a
-// finished job whose provider evidence is still unsettled, so counting by
-// status alone promised "Clear finished (1)" and then reported clearing zero,
-// with the row still sitting there. A job is clearable exactly when the server
-// says its history can be removed, and the server already tells us that.
-const finishedCount = computed(() =>
-  jobs.value.filter(j => ['done', 'error', 'cancelled'].includes(j.status)
-    && jobControls(j).some(c => c.enabled && c.action === 'clear-history')).length
-)
+const removableJobs = computed(() => projectScopedJobs.value.filter(job =>
+  ['done', 'error', 'cancelled'].includes(job.status)
+  && jobControls(job).some(control => control.enabled && control.action === 'clear-history')))
+const finishedCount = computed(() => removableJobs.value.filter(job => jobDisplayStatus(job) !== 'error').length)
+const failedCount = computed(() => removableJobs.value.filter(job => jobDisplayStatus(job) === 'error').length)
+const actionScopeLabel = computed(() => !isUniversal.value ? projectName(slug.value)
+  : projectFilter.value === 'all' ? 'All projects' : projectFilter.value === '_app_' ? 'App tools' : projectName(projectFilter.value))
+const hasQueueWork = computed(() => globalQueueWork.value !== false || jobs.value.some(job => ['queued', 'running'].includes(job.status)))
+const clearingHistory = ref<'finished' | 'failed' | null>(null)
+const bulkActionMessage = ref('')
+const bulkActionBusy = computed(() => recoveringAllEpisodes.value || recoveringEpisodes.value.size > 0
+  || repairingAllFailed.value || repairingJobs.value.size > 0 || retryingAllFailed.value || bulkResumeBusy.value || clearingHistory.value !== null)
 
 // ── Duration helpers ────────────────────────────────────────────────────
 
@@ -2395,16 +2338,13 @@ async function resumeJob(job: RJob) {
   }
 }
 
-const pausedJobCount = computed(() => typeScopedJobs.value.filter(job => job.status === 'paused').length)
-const showBulkResume = computed(() => pausedJobCount.value > 0
-  && (statusFilter.value === 'all' || statusFilter.value === 'paused'))
+const pausedJobCount = computed(() => projectScopedJobs.value.filter(job => job.status === 'paused').length)
 
 async function resumePausedJobs() {
-  if (bulkResumeBusy.value || !showBulkResume.value) return
+  if (bulkResumeBusy.value || pausedJobCount.value === 0) return
   bulkResumeCount.value = pausedJobCount.value
   bulkResumeBusy.value = true
   const payload: { project_slug?: string; type?: string } = {}
-  if (activeFilter.value !== 'all') payload.type = activeFilter.value
   if (isUniversal.value && projectFilter.value !== 'all') {
     payload.project_slug = projectFilter.value
   }
@@ -2606,56 +2546,81 @@ watch([activeJobs, paginatedHistory], ([active, history]) => {
   for (const job of [...active, ...history]) void loadCurrentSubtitleAttention(job)
 }, { immediate: true })
 
-/**
- * The job types for which "Recover this episode" can actually recover
- * something.
- *
- * v1.4.43 — this used to be the inverse: offered on EVERY errored job the
- * per-job Repair did not cover. That made it a button which, on most rows,
- * could only ever navigate away and report "nothing to recover":
- *
- *   • Scene Plan produces TEXT. The repair machinery reads audio chunks and
- *     image files. There has never been anything for it to pull back.
- *   • Scene Review writes `<scene-id>.png` from the scene PLAN. The audit
- *     reads `EPxxxx_SceneNN_v*.png` from the retired scene-prompts document,
- *     so it cannot see a single file Scene Review has ever written.
- *
- * Both of those are the jobs the owner was looking at when he pressed it, and
- * both sent him to a whole-library scan that could not have helped:
- * *"it didn't fix the one error but brings me here and run a channel wide
- * hunt. waste of time."*
- *
- * So it is now an allow-list of the assembly steps that fail BECAUSE an
- * upstream media file is missing — the one case where pulling the episode's
- * already-paid-for output back from provider history is the fix. Everything
- * else keeps Retry, which for Scene Review is itself a free recovery (it
- * replays the task manifest before it re-submits anything).
- */
+// Assembly can be blocked by missing upstream media. Recovery retrieves
+// existing files; it never reruns assembly or starts new paid generation.
 const EPISODE_RECOVERY_TYPES = new Set(['audio_merge', 'video_assembly'])
-
-function episodeRecoveryLink(job: RJob): string | null {
-  if (job.status !== 'error' && job.status !== 'cancelled') return null
-  if (jobCanBeRepaired(job)) return null
-  if (!EPISODE_RECOVERY_TYPES.has(job.type)) return null
-  const project = jobProjectSlug(job)
-  if (!project || project === '_app_' || !job.episode_id) return null
-  return `/projects/${project}/board?repair=1&episode=${encodeURIComponent(job.episode_id)}`
+const recoveringEpisodes = ref<Set<string>>(new Set())
+const recoveringAllEpisodes = ref(false)
+const repairingJobs = ref<Set<string>>(new Set())
+function episodeRecoveryKey(job: RJob): string { return `${jobProjectSlug(job)}:${job.episode_id}` }
+function canRecoverEpisode(job: RJob): boolean {
+  const project = job.project_slug || (!isUniversal.value ? slug.value : '')
+  return (job.status === 'error' || job.status === 'cancelled')
+    && EPISODE_RECOVERY_TYPES.has(job.type)
+    && !!project && project !== '_app_' && !!job.episode_id
 }
-
-/**
- * The Repair link for the batch-finished banner: scoped to the episodes that
- * actually failed, because the banner already knows every one of them.
- * Falls back to the library-wide scan only when it somehow knows none.
- */
-const batchRepairLink = computed(() => {
-  const codes = Array.from(new Set(
-    (batchSummary.value?.failed_episodes || [])
-      .map(fe => fe.episode_id)
-      .filter((code): code is string => typeof code === 'string' && !!code),
-  ))
-  const scope = codes.map(code => `&episode=${encodeURIComponent(code)}`).join('')
-  return `/projects/${slug.value}/board?repair=1${scope}`
+function episodeRecoveryBusy(job: RJob): boolean {
+  return recoveringEpisodes.value.has(episodeRecoveryKey(job))
+    || jobs.value.some(other => jobProjectSlug(other) === jobProjectSlug(job) && other.episode_id === job.episode_id
+      && ((other.type === 'images_repair' && ['queued', 'running', 'paused'].includes(other.status))
+        || repairingJobs.value.has(other.job_id)))
+}
+const recoverableEpisodes = computed(() => {
+  const seen = new Set<string>()
+  return projectScopedJobs.value.filter(job => {
+    if (!canRecoverEpisode(job) || episodeRecoveryBusy(job)) return false
+    const key = episodeRecoveryKey(job)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 })
+async function recoverEpisode(job: RJob, announce = true): Promise<boolean> {
+  if (!canRecoverEpisode(job) || episodeRecoveryBusy(job)) return false
+  const key = episodeRecoveryKey(job)
+  recoveringEpisodes.value = new Set(recoveringEpisodes.value).add(key)
+  const setOutcome = (text: string, kind: string) => {
+    const next = { ...repairOutcome.value }
+    for (const row of jobs.value) {
+      if (canRecoverEpisode(row) && episodeRecoveryKey(row) === key) next[row.job_id] = { text, kind }
+    }
+    repairOutcome.value = next
+  }
+  setOutcome('Checking this episode’s existing audio and images…', 'busy')
+  try {
+    const result = await recoverEpisodeAssets(jobProjectSlug(job), job.episode_id, post,
+      message => setOutcome(message, 'busy'))
+    const message = `${job.episode_id}: ${describeEpisodeAssetRecovery(result)}`
+    setOutcome(message, result.audioAttempted && (!result.audio || result.audio.stillMissing > 0) ? 'warn' : 'ok')
+    if (announce) info(message)
+    return true
+  } catch (error: any) {
+    const message = customerJobText(error?.data?.detail || error?.message || 'Could not recover this episode’s files.', job)
+    setOutcome(message, 'warn')
+    if (announce) showError(message)
+    return false
+  } finally {
+    const next = new Set(recoveringEpisodes.value)
+    next.delete(key)
+    recoveringEpisodes.value = next
+  }
+}
+async function recoverAllEpisodes() {
+  if (bulkActionBusy.value) return
+  const snapshot = [...recoverableEpisodes.value]
+  if (!snapshot.length) return
+  const scope = actionScopeLabel.value
+  recoveringAllEpisodes.value = true
+  let failed = 0
+  try {
+    for (const [index, job] of snapshot.entries()) {
+      bulkActionMessage.value = `${scope}: checking episode ${index + 1} of ${snapshot.length}…`
+      if (!await recoverEpisode(job, false)) failed++
+    }
+    bulkActionMessage.value = `${scope}: checked ${snapshot.length} episode(s); ${failed} could not be recovered. Each row shows its result. Queued image recovery appears in Jobs.`
+    info(bulkActionMessage.value)
+  } finally { recoveringAllEpisodes.value = false }
+}
 
 function hasPendingCancellation(job: RJob): boolean {
   return Object.values(job.remote_cancellations || {}).some(record =>
@@ -2788,6 +2753,7 @@ function autoRetryClass(job: Pick<RJob, 'status' | 'auto_retry'>): string {
  * missing).
  */
 async function repairJobOnly(job: RJob) {
+  if (repairingJobs.value.has(job.job_id) || recoveringEpisodes.value.has(episodeRecoveryKey(job))) return false
   const template = REPAIR_ENDPOINTS[job.type]
   if (!template) {
     showError(`This job type doesn't support repair. Use Retry to re-submit instead.`)
@@ -2805,6 +2771,7 @@ async function repairJobOnly(job: RJob) {
     JSON.stringify(template.body).replace(/__EPISODE__/g, job.episode_id)
   )
 
+  repairingJobs.value = new Set(repairingJobs.value).add(job.job_id)
   info(`Looking for finished ${jobTypeLabel(job.type)} work for ${job.episode_id} that never arrived (no charge)…`)
   repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'Looking for finished work…', kind: 'busy' } }
   try {
@@ -2870,10 +2837,16 @@ async function repairJobOnly(job: RJob) {
       chip = { text: 'Recovery finished', kind: 'ok' }
     }
     repairOutcome.value = { ...repairOutcome.value, [job.job_id]: chip }
+    return true
   } catch (e: any) {
     showError(customerJobText(e?.data?.detail || e?.message || 'Could not check for finished work', job))
     setRepairState(job.job_id, { outcome: 'failed' })
     repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'could not check — try again', kind: 'warn' } }
+    return false
+  } finally {
+    const next = new Set(repairingJobs.value)
+    next.delete(job.job_id)
+    repairingJobs.value = next
   }
 }
 
@@ -2903,7 +2876,8 @@ async function finishMissingImages(job: RJob, announce = true): Promise<boolean>
   }
 }
 
-async function retryJob(job: RJob) {
+async function retryJob(job: RJob): Promise<boolean> {
+  if (repairingJobs.value.has(job.job_id) || episodeRecoveryBusy(job)) return false
   // v1.4.32 — whatever a repair found belonged to the run that just failed.
   // Re-running makes it stale, so it is dropped here rather than left behind to
   // license a later Retry all.
@@ -2913,8 +2887,11 @@ async function retryJob(job: RJob) {
     try {
       const response = await post<{ plan: { message: string } }>(`/projects/${projectSlug}/jobs/recover-episode/${job.episode_id}`, { source_job_ids: [job.job_id] })
       info(response.plan.message)
-    } catch (cause: any) { showError(cause?.data?.detail || cause?.message || 'Episode recovery could not be advanced.') }
-    return
+      return true
+    } catch (cause: any) {
+      showError(cause?.data?.detail || cause?.message || 'Episode recovery could not be advanced.')
+      return false
+    }
   }
   // These queue-owned jobs must preserve their exact durable request params.
   // Motion jobs without a saved pair are historical jobs: the executor alone
@@ -2924,8 +2901,11 @@ async function retryJob(job: RJob) {
     try {
       await post(`${jobQueuePath(job)}/retry`, {})
       success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
-    } catch (e: any) { showError(customerJobText(e?.data?.detail || e?.message || 'Failed to retry job', job)) }
-    return
+      return true
+    } catch (e: any) {
+      showError(customerJobText(e?.data?.detail || e?.message || 'Failed to retry job', job))
+      return false
+    }
   }
   // Every job type the queue knows about needs an entry here — otherwise
   // a failed 20-minute video-assembly becomes un-retryable with a cryptic
@@ -2993,12 +2973,15 @@ async function retryJob(job: RJob) {
       if (!resp?.jobs?.length) {
         const reason = resp?.skipped?.[0]?.reason || 'Pipeline did not enqueue the job'
         showError(customerJobText(reason, job))
-        return
+        return false
       }
       await del(jobQueuePath(job))
       success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
-    } catch (e: any) { showError(customerJobText(e?.data?.detail || 'Failed to retry job', job)) }
-    return
+      return true
+    } catch (e: any) {
+      showError(customerJobText(e?.data?.detail || 'Failed to retry job', job))
+      return false
+    }
   }
 
   const target = endpointMap[job.type]
@@ -3006,10 +2989,11 @@ async function retryJob(job: RJob) {
     try {
       await post(projectSlug === '_app_' ? `/jobs/all/${job.job_id}/retry` : `/projects/${projectSlug}/jobs/${job.job_id}/retry`, {})
       success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
+      return true
     } catch (e: any) {
       showError(customerJobText(e?.data?.detail || e?.message || 'Failed to retry job', job))
+      return false
     }
-    return
   }
 
   // v1.0.114 — Retry is now RESUBMIT-ONLY. The previous Repair-then-Retry
@@ -3026,7 +3010,11 @@ async function retryJob(job: RJob) {
     await del(jobQueuePath(job))
     await post(target.url, target.params)
     success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
-  } catch (e: any) { showError(customerJobText(e.data?.detail || 'Failed to retry job', job)) }
+    return true
+  } catch (e: any) {
+    showError(customerJobText(e?.data?.detail || e?.message || 'Failed to retry job', job))
+    return false
+  }
 }
 
 async function autoRepairScenePrompts(job: RJob) {
@@ -3084,29 +3072,26 @@ async function waitForJobTerminal(jobId: string, timeoutMs: number, projectSlug:
   throw new Error(`Repair job ${jobId} did not finish within ${timeoutMs / 1000}s. Nothing was retried.`)
 }
 
-async function clearFinished() {
-  // v1.4.81 — what the badge promised, captured before the call, so a clear
-  // that removes nothing can say so instead of handing back a receipt for zero.
-  // The owner clicked this repeatedly against "Clear finished (6)" and watched
-  // six rows stay put; "Cleared 0 finished job(s)" told him nothing he could
-  // act on, and nothing at all about why.
-  const promised = finishedCount.value
+async function clearHistory(status: 'finished' | 'failed') {
+  if (bulkActionBusy.value) return
+  const promised = status === 'finished' ? finishedCount.value : failedCount.value
+  if (!promised) return
+  const project = isUniversal.value ? projectFilter.value : slug.value
+  const endpoint = isUniversal.value && project === 'all' ? '/jobs/all'
+    : project === '_app_' ? '/jobs/app' : `/projects/${project}/jobs`
+  clearingHistory.value = status
   try {
-    const result = await del<{ cleared: number }>(isUniversal.value ? '/jobs/all' : `/projects/${slug.value}/jobs`)
-    if (result.cleared === 0) {
-      if (promised > 0) {
-        showError(
-          `Nothing was cleared, though ${promised} row(s) look finished. `
-          + 'Open a row and use its own button — its reason says what is still holding it.',
-        )
-      } else {
-        success('No finished jobs to clear.')
-      }
-      return
-    }
-    success(`Cleared ${result.cleared} finished job(s)`)
-  } catch (e: any) { showError(e.data?.detail || 'Failed to clear jobs') }
+    const result = await del<{ cleared: number }>(`${endpoint}?status=${status}`)
+    bulkActionMessage.value = result.cleared
+      ? `Cleared ${result.cleared} ${status} history row(s). Files and billing records are unchanged.`
+      : 'Nothing was cleared. Provider status may have changed; the job’s controls show what is still pending.'
+    info(bulkActionMessage.value)
+  } catch (e: any) { showError(e?.data?.detail || `Failed to clear ${status} history`) }
+  finally { clearingHistory.value = null }
 }
+function clearFinished() { return clearHistory('finished') }
+function clearFailed() { return clearHistory('failed') }
+
 </script>
 
 <style scoped>
@@ -3116,12 +3101,18 @@ async function clearFinished() {
   justify-items: end;
   gap: 10px;
 }
-.jobs-hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
+.jobs-control-toolbar { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-secondary); }
+.jobs-control-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 16px; }
+.jobs-control-heading span, .jobs-control-label, .jobs-control-help { color: var(--text-secondary); font-size: var(--font-xs); }
+.jobs-control-groups { display: grid; grid-template-columns: 3fr 2fr 2fr; gap: 24px; }
+.jobs-control-group { min-width: 0; }
+.jobs-control-label { display: block; margin-bottom: 8px; }
+.jobs-control-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.jobs-control-buttons .btn { min-height: 44px; flex: 1 1 120px; white-space: normal; }
+.jobs-control-buttons .btn:disabled { color: var(--text-muted); background: var(--bg-tertiary); border-color: var(--border); cursor: not-allowed; opacity: .65; }
+.jobs-control-help { margin: 12px 0 0; line-height: 1.5; }
+.jobs-control-result { margin: 8px 0 0; font-size: var(--font-sm); overflow-wrap: anywhere; }
+@media (max-width: 1000px) { .jobs-control-groups { grid-template-columns: 1fr; gap: 16px; } }
 .job-control-primary { border-color: var(--accent); color: var(--accent); }
 .job-control-reason {
   margin: 8px 0 0;
@@ -3823,7 +3814,6 @@ async function clearFinished() {
 
 @media (max-width: 760px) {
   .jobs-hero-aside { justify-items: start; }
-  .jobs-hero-actions { justify-content: flex-start; }
   .genstudio-capacity-summary { justify-content: flex-start; }
   .job-row-main { align-items: flex-start; flex-wrap: wrap; }
   .job-identity { flex-basis: 100%; }

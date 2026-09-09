@@ -5,6 +5,7 @@ import test from 'node:test'
 import { createApp, h, nextTick, readonly, ref, type Component } from 'vue'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
+import { describeEpisodeAssetRecovery, recoverEpisodeAssets } from '../utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '../utils/episode-recovery'
 import { filterJobsForView } from '../utils/job-presentation'
 
@@ -24,7 +25,7 @@ async function loadJobs(): Promise<Component> {
     const useJobs = () => globalThis.__jobsProjectQueue
     const useAllJobs = () => globalThis.__jobsUniversalQueue
     const useGenStudioModelDisplay = () => ({ displayName: () => '', refresh: async () => undefined })
-    const useToast = () => ({ success: () => undefined, error: () => undefined, info: () => undefined })
+    const useToast = () => globalThis.__jobsToast
     const useNetworkStatus = () => ({ online: ref(true) })
     const publicProviderLabel = () => ''
     const buildLatestBatchSummary = () => null
@@ -51,6 +52,8 @@ async function loadJobs(): Promise<Component> {
     const primaryControl = () => null
     const secondaryControls = () => []
     const formatCredits = () => ''
+    const recoverEpisodeAssets = globalThis.__recoverEpisodeAssets
+    const describeEpisodeAssetRecovery = globalThis.__describeEpisodeAssetRecovery
     const isEpisodeRecoveryType = globalThis.__isEpisodeRecoveryType
     const groupEpisodeRecoveryRetries = globalThis.__groupEpisodeRecoveryRetries
     const isVerifiedRecoveredSubtitleJob = globalThis.__isVerifiedRecoveredSubtitleJob
@@ -73,6 +76,7 @@ async function loadJobs(): Promise<Component> {
 
 async function mount(jobs: any[], postReply?: (path: string, body: unknown) => Promise<unknown>) {
   const posts: Array<{ path: string; body: unknown }> = []
+  const toasts: Array<{ kind: 'success' | 'error' | 'info'; message: string }> = []
   function makeReadonlyQueue(seed: any[]) {
     const jobRows = ref(seed)
     const queueStats = ref({ running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 })
@@ -111,7 +115,14 @@ async function mount(jobs: any[], postReply?: (path: string, body: unknown) => P
       return existing ? { ok: true, job: { ...existing, status: 'queued' } } : {}
     },
   }
+  ;(globalThis as any).__jobsToast = {
+    success: (message: string) => { toasts.push({ kind: 'success', message }) },
+    error: (message: string) => { toasts.push({ kind: 'error', message }) },
+    info: (message: string) => { toasts.push({ kind: 'info', message }) },
+  }
   ;(globalThis as any).__isEpisodeRecoveryType = isEpisodeRecoveryType
+  ;(globalThis as any).__recoverEpisodeAssets = recoverEpisodeAssets
+  ;(globalThis as any).__describeEpisodeAssetRecovery = describeEpisodeAssetRecovery
   ;(globalThis as any).__groupEpisodeRecoveryRetries = groupEpisodeRecoveryRetries
   ;(globalThis as any).__isVerifiedRecoveredSubtitleJob = isVerifiedRecoveredSubtitleJob
   ;(globalThis as any).__jobDisplayStatus = jobDisplayStatus
@@ -121,7 +132,7 @@ async function mount(jobs: any[], postReply?: (path: string, body: unknown) => P
   const app = createApp(Jobs)
   app.mount(host)
   await nextTick()
-  return { state: (globalThis as any).__jobsState, posts, projectQueue, universalQueue, unmount: () => { app.unmount(); host.remove() } }
+  return { state: (globalThis as any).__jobsState, posts, toasts, projectQueue, universalQueue, unmount: () => { app.unmount(); host.remove() } }
 }
 
 test('mounted Jobs finishes missing images directly and Retry all keeps continuity rows in the queue', async () => {
@@ -179,6 +190,31 @@ test('mounted Jobs keeps one Finish request busy until its same row returns', as
   } finally { mounted.unmount() }
 })
 
+test('mounted Retry all continues after one grouped episode recovery is rejected', async () => {
+  const mounted = await mount([
+    { job_id: 'first-episode', project_slug: 'fixture-project', episode_id: 'EP0001', type: 'audio_merge', status: 'error', params: {} },
+    { job_id: 'second-episode', project_slug: 'fixture-project', episode_id: 'EP0002', type: 'scene_plan_run', status: 'error', params: {} },
+    { job_id: 'ordinary-failure', project_slug: 'fixture-project', episode_id: 'EP0003', type: 'audio', status: 'error', params: {} },
+  ], async (path) => {
+    if (path.endsWith('/EP0001')) throw new Error('The first provider request still needs reconciliation.')
+    if (path.endsWith('/EP0002')) return { plan: { message: 'EP0002 queued' } }
+    if (path.endsWith('/generate/audio')) throw new Error('The independent retry was rejected.')
+    throw new Error(`unexpected request: ${path}`)
+  })
+  try {
+    await mounted.state.retryAllFailed()
+    assert.deepEqual(mounted.posts.map(call => call.path), [
+      '/projects/fixture-project/jobs/recover-episode/EP0001',
+      '/projects/fixture-project/jobs/recover-episode/EP0002',
+      '/projects/fixture-project/generate/audio',
+    ])
+    assert.deepEqual(mounted.toasts[mounted.toasts.length - 1], {
+      kind: 'error',
+      message: '2 of 3 retry action(s) could not be sent. 1 was sent to the queue.',
+    })
+  } finally { mounted.unmount() }
+})
+
 test('mounted Jobs leaves a rejected Finish row in Needs attention', async () => {
   const mounted = await mount([
     { job_id: 'manual-finish', project_slug: 'fixture-project', episode_id: 'EP0001', type: 'continuity_render', status: 'error', params: {} },
@@ -214,5 +250,54 @@ test('mounted Jobs counts and filters verified recovery separately from attentio
     await nextTick()
     assert.deepEqual(mounted.state.filteredJobs.value.map((job: any) => job.job_id), ['recovered-subtitles'])
     assert.deepEqual(mounted.state.failedJobsForRetryAll.value.map((job: any) => job.job_id), ['still-failed'])
+  } finally { mounted.unmount() }
+})
+
+test('mounted Jobs recovers only the selected episode’s saved assets without navigation or retry', async () => {
+  const mounted = await mount([
+    { job_id: 'target-assembly', project_slug: 'fixture-project', episode_id: 'SS0077', type: 'audio_merge', status: 'error', params: {} },
+    // Both eligible rows represent one episode intent; the update reaches both
+    // cards, but the recovery request must still be made exactly once.
+    { job_id: 'target-video', project_slug: 'fixture-project', episode_id: 'SS0077', type: 'video_assembly', status: 'cancelled', params: {} },
+    { job_id: 'other-assembly', project_slug: 'fixture-project', episode_id: 'SS0078', type: 'audio_merge', status: 'error', params: {} },
+  ], async (path) => {
+    if (path.endsWith('/assets/repair-all')) {
+      return { audited_episode_codes: ['SS0077'], enqueued: [], skipped: [], audio_repair_candidates: ['SS0077'] }
+    }
+    if (path.endsWith('/SS0077/audio-repair')) return { recovered: 1, still_missing: 0, total_expected: 1 }
+    throw new Error(`unexpected request: ${path}`)
+  })
+  try {
+    const target = mounted.state.jobs.value[0]
+    assert.equal(mounted.state.canRecoverEpisode(target), true)
+    assert.equal(mounted.state.canRecoverEpisode(mounted.state.jobs.value[2]), true)
+    assert.equal(await mounted.state.recoverEpisode(target), true)
+    assert.deepEqual(mounted.posts, [
+      { path: '/projects/fixture-project/assets/repair-all', body: { episode_codes: ['SS0077'] } },
+      { path: '/projects/fixture-project/episodes/SS0077/audio-repair', body: {} },
+    ])
+    assert.equal(mounted.state.repairOutcome.value['target-assembly']?.kind, 'ok')
+    assert.equal(mounted.state.repairOutcome.value['target-video']?.kind, 'ok')
+    assert.equal(mounted.state.repairOutcome.value['other-assembly'], undefined)
+    assert.equal(mounted.posts.some(call => /board\?repair|recover-episode|\/retry|\/generate\//.test(call.path)), false)
+  } finally { mounted.unmount() }
+})
+
+test('mounted Jobs holds a duplicate episode click until its free recovery settles', async () => {
+  let settle: ((value: unknown) => void) | undefined
+  const mounted = await mount([
+    { job_id: 'target-assembly', project_slug: 'fixture-project', episode_id: 'SS0077', type: 'audio_merge', status: 'error', params: {} },
+    { job_id: 'target-video', project_slug: 'fixture-project', episode_id: 'SS0077', type: 'video_assembly', status: 'cancelled', params: {} },
+  ], async (path) => {
+    if (path.endsWith('/assets/repair-all')) return new Promise(resolve => { settle = resolve })
+    return { recovered: 0, still_missing: 0, total_expected: 0 }
+  })
+  try {
+    const first = mounted.state.recoverEpisode(mounted.state.jobs.value[0])
+    assert.equal(await mounted.state.recoverEpisode(mounted.state.jobs.value[1]), false)
+    assert.equal(mounted.posts.length, 1, 'a duplicate episode row must not begin another recovery')
+    settle?.({ audited_episode_codes: ['SS0077'], enqueued: [], skipped: [], audio_repair_candidates: [] })
+    assert.equal(await first, true)
+    assert.equal(mounted.posts.length, 1)
   } finally { mounted.unmount() }
 })
