@@ -668,6 +668,7 @@
         >
           <template v-if="expanded === job.job_id">
             <p v-if="expandSummary(job)" class="technical-summary">{{ expandSummary(job) }}</p>
+            <EpisodeRecoveryStatus :job="job" diagnostics-only />
             <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="settledRemoteJobs(job)" />
             <!--
               What the job is actually working on, item by item. A percentage
@@ -948,6 +949,7 @@
           >
             <template v-if="expanded === job.job_id">
               <p v-if="expandSummary(job)" class="technical-summary">{{ expandSummary(job) }}</p>
+              <EpisodeRecoveryStatus :job="job" diagnostics-only />
               <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="settledRemoteJobs(job)" />
               <div v-if="job.item_progress" class="job-items">
                 <span class="job-items-count">

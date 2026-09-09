@@ -164,3 +164,56 @@ test('unavailable saved subtitle work points to a scoped fresh request and state
     assert.equal(host.querySelector('a')?.getAttribute('href'), '/projects/p%20%26%20q/subtitles?episode_id=EP0001')
   } finally { app.unmount(); host.remove() }
 })
+
+for (const status of ['done', 'running', 'error']) {
+  test(`31 chapter diagnostics stay out of the ${status} card summary but remain inspectable`, async () => {
+    const sections = Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`Chapter_${i + 1}`, {
+      message: 'Subtitle task recovered; verifying its artifact and stitch next.',
+    }]))
+    const job = { job_id: 'summary', project_slug: 'p', type: 'subtitles_transcribe', status,
+      params: { subtitle_recovery: { sections } }, result: { expected_sections: 31, missing_sections: [] } }
+    for (const diagnosticsOnly of [false, true]) {
+      const host = document.body.appendChild(document.createElement('div'))
+      const app = createApp(await component(), { job, diagnosticsOnly })
+      app.mount(host)
+      try {
+        assert.equal(host.querySelectorAll('p').length, diagnosticsOnly ? 31 : 1)
+        assert.equal(host.querySelector('[role="status"]') !== null, !diagnosticsOnly)
+        if (diagnosticsOnly) {
+          assert.match(host.textContent!, /Chapter_31: Subtitle task recovered/)
+          assert.equal(host.querySelector('button, input, a'), null)
+        } else {
+          assert.equal(host.textContent!.trim(), '31/31 sections ready')
+        }
+      } finally { app.unmount(); host.remove() }
+    }
+  })
+}
+
+test('both Jobs cards mount recovery diagnostics only inside the expanded Technical details drawer', () => {
+  const page = readFileSync(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url), 'utf8')
+  const drawers = [...page.matchAll(/<AdvancedDisclosure[\s\S]*?<\/AdvancedDisclosure>/g)]
+    .map(match => match[0]).filter(drawer => drawer.includes('label="Technical details"'))
+  assert.equal(drawers.length, 2)
+  for (const drawer of drawers) {
+    assert.match(drawer, /<template v-if="expanded === job.job_id">[\s\S]*<EpisodeRecoveryStatus :job="job" diagnostics-only \/>/)
+  }
+  assert.equal((page.match(/diagnostics-only/g) || []).length, 2)
+})
+
+test('many missing sections retain one visible reason and their total instead of a chapter wall', async () => {
+  const sections = Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`Chapter_${i + 1}`, {
+    state: 'waiting_settlement', message: 'Waiting for credit settlement',
+  }]))
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(await component(), { job: { job_id: 'waiting-many', project_slug: 'p',
+    type: 'subtitles_transcribe', status: 'error', params: { subtitle_recovery: { sections } },
+    result: { expected_sections: 31, missing_sections: Object.keys(sections) } } })
+  app.mount(host)
+  try {
+    assert.equal(host.querySelectorAll('p').length, 2)
+    assert.match(host.textContent!, /Chapter_1: Waiting for credit settlement/)
+    assert.match(host.textContent!, /31 sections need attention/)
+    assert.equal(host.querySelector('button'), null)
+  } finally { app.unmount(); host.remove() }
+})

@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.135
+
+- Keep Jobs recovery summaries compact. Per-chapter subtitle recovery messages now appear inside Technical details instead of filling completed and active job cards. Readiness and recovery actions remain visible.
+
 ## v1.4.134
 
 - Resume chapter expansion requests confirmed as never created when you choose Retry, using the verified original request identity instead of repeatedly looking for a missing result.
