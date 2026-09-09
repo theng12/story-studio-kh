@@ -472,9 +472,204 @@ test('manual Finish rejoins an accepted image through recovery without another p
   }
 })
 
-test('uncertain Finish makes no POST and Replace anyway submits only its exact confirmed scene', async () => {
+test('manual Finish replays a provider-absent prepared image with its original key only', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { buildPaidImageOriginalIdentity } = await import('../services/image-paid-replacement.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest, recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Manual prepared absent replay')
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(outDir, { recursive: true })
+    const original = buildPaidImageOriginalIdentity({
+      prompt: 'A lantern in a quiet archive.', baseScope: 'missing', references: [],
+      selector: { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, reference_mode: 'normal' },
+    })
+    const oldKey = client.buildGenStudioImageIdempotencyKey({
+      prompt: 'A lantern in a quiet archive.', modelId: 'mock-image-v1', aspectRatio: '16:9', resolution: '1K',
+      requestIdentity: `${project.slug}:${episodeId}:scene:scene-001:image:${original.requestScope}`,
+    })
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: '', submitted_at: '2026-09-06T00:00:00.000Z',
+      input_hash: original.inputHash, idempotency_key: oldKey, operation: 'image',
+      last_state: 'prepared', request_scope: original.requestScope,
+    })
+    const now = new Date().toISOString()
+    const finishJob: any = {
+      job_id: 'manual-prepared-absent', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Finish missing images', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001'], missing_only: true,
+        // Deliberately different from the prior request scope: resume must
+        // retain the prepared request identity, not mint a new manual key.
+        manual_image_finish: { action_id: '99999999-9999-4999-8999-999999999999', replace_uncertain: false },
+      },
+    }
+    await writeAuthoritativeFixture(finishJob)
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+
+    assert.equal(await runContinuityRenderJob(finishJob), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 1)
+    assert.equal(service.submissions[0]!.idempotencyKey, oldKey)
+    const completed = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(completed.request_scope, original.requestScope)
+    assert.equal(completed.input_hash, original.inputHash)
+    assert.equal(completed.idempotency_key, oldKey)
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a prepared key found terminal becomes one fresh manual replacement instead of replaying it', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest, recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const oldKey = 'story-image-prepared-terminal-key'
+    service.queueScenario('image', { states: ['failed'], failureCode: 'provider_error' })
+    await assert.rejects(client.generateImageWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, {
+      prompt: 'A lantern in a quiet archive.', modelId: 'mock-image-v1', aspectRatio: '16:9',
+      requestIdentity: 'pre-existing-prepared-request', idempotencyKey: oldKey,
+    }))
+    assert.equal(service.providerSubmissionCount('image'), 1)
+
+    const { project, episodeId, paths } = await createContinuityFixture('Manual prepared terminal replacement')
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(outDir, { recursive: true })
+    await recordTaskStrict(outDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: '', submitted_at: '2026-09-06T00:00:00.000Z',
+      input_hash: 'saved-prepared-hash', idempotency_key: oldKey, operation: 'image',
+      last_state: 'prepared', request_scope: 'missing',
+    })
+    const now = new Date().toISOString()
+    const finishJob: any = {
+      job_id: 'manual-prepared-terminal', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Finish missing images', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K',
+        scene_ids: ['scene-001'], missing_only: true,
+        manual_image_finish: { action_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', replace_uncertain: false },
+      },
+    }
+    await writeAuthoritativeFixture(finishJob)
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+
+    assert.equal(await runContinuityRenderJob(finishJob), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 2)
+    assert.notEqual(service.submissions[1]!.idempotencyKey, oldKey, 'a terminal prepared request must be superseded by a new retry identity')
+    const completed = (await readManifest(outDir)).tasks['scene-001.png']!
+    assert.equal(completed.last_state, 'succeeded')
+    assert.notEqual(completed.idempotency_key, oldKey)
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('manual Finish never replaces a malformed prepared record or an accepted task with an absent lookup', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { recordTaskStrict } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const malformed = await createContinuityFixture('Manual malformed prepared')
+    const malformedDir = await resolveSceneImagesDir(malformed.project.slug, malformed.episodeId, malformed.paths.episode_dir)
+    await fs.mkdir(malformedDir, { recursive: true })
+    await recordTaskStrict(malformedDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: '', submitted_at: '2026-09-06T00:00:00.000Z', input_hash: 'saved-input',
+      operation: 'image', last_state: 'prepared', request_scope: 'missing',
+    })
+    const now = new Date().toISOString()
+    const malformedJob: any = {
+      job_id: 'manual-malformed-prepared', project_slug: malformed.project.slug, type: 'continuity_render', episode_id: malformed.episodeId,
+      title: 'Finish missing images', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: { episode_id: malformed.episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K', scene_ids: ['scene-001'], missing_only: true,
+        manual_image_finish: { action_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', replace_uncertain: false } },
+    }
+    await writeAuthoritativeFixture(malformedJob)
+    await assert.rejects(runContinuityRenderJob(malformedJob), /incomplete/i)
+    assert.ok(malformedJob.output_lines.some((line: string) => /no idempotency key/i.test(line)))
+    assert.equal(service.providerSubmissionCount('image'), 0, 'a prepared record without an identity cannot become a fresh paid request')
+
+    // A legacy forced re-render is deliberate fresh work, not a recovery. Its
+    // malformed historical record must not prevent the new action from owning
+    // a fresh provider request.
+    const forcedJob: any = {
+      ...malformedJob, job_id: 'force-malformed-prepared', output_lines: [],
+      params: { ...malformedJob.params, force: true, missing_only: false, manual_image_finish: undefined },
+    }
+    await writeAuthoritativeFixture(forcedJob)
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+    assert.equal(await runContinuityRenderJob(forcedJob), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 1, 'force owns a fresh request despite the malformed historical prepared record')
+
+    service.reset()
+    const accepted = await createContinuityFixture('Manual accepted absent lookup')
+    const acceptedDir = await resolveSceneImagesDir(accepted.project.slug, accepted.episodeId, accepted.paths.episode_dir)
+    await fs.mkdir(acceptedDir, { recursive: true })
+    await recordTaskStrict(acceptedDir, 'scene-001.png', {
+      provider: 'genstudio-image', task_id: 'missing-accepted-task', submitted_at: '2026-09-06T00:00:00.000Z',
+      input_hash: 'saved-input', idempotency_key: 'story-image-accepted-absent', operation: 'image', last_state: 'accepted', request_scope: 'missing',
+    })
+    const acceptedJob: any = {
+      ...malformedJob, job_id: 'manual-accepted-absent', project_slug: accepted.project.slug, episode_id: accepted.episodeId,
+      params: { ...malformedJob.params, episode_id: accepted.episodeId,
+        manual_image_finish: { action_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', replace_uncertain: false } },
+    }
+    await writeAuthoritativeFixture(acceptedJob)
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname === '/v1/images/missing-accepted-task') return Response.json({ detail: 'not found' }, { status: 404 })
+      return originalFetch(input, init)
+    }
+    await assert.rejects(runContinuityRenderJob(acceptedJob), /incomplete/i)
+    assert.equal(service.providerSubmissionCount('image'), 0, 'an accepted task that cannot be reconciled remains uncertain')
+  } finally {
+    globalThis.fetch = originalFetch
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a 500 during Finish recovery makes no POST and Replace anyway submits only its exact confirmed scene', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
   try {
     const settings = await import('../services/app-settings.js')
     const secrets = await import('../services/app-secrets-store.js')
@@ -513,6 +708,13 @@ test('uncertain Finish makes no POST and Replace anyway submits only its exact c
       },
     }
     await writeAuthoritativeFixture(finishJob)
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname === `/v1/images/by-idempotency-key/${uncertainEntry.idempotency_key}`) {
+        return Response.json({ detail: 'temporary provider outage' }, { status: 500 })
+      }
+      return originalFetch(input, init)
+    }
     await assert.rejects(runContinuityRenderJob(finishJob), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 0)
     assert.deepEqual(finishJob.params.manual_image_finish.uncertain_scene_ids, ['scene-001'])
@@ -538,6 +740,7 @@ test('uncertain Finish makes no POST and Replace anyway submits only its exact c
       },
     }
     await writeAuthoritativeFixture(replaceJob)
+    globalThis.fetch = originalFetch
     service.queueScenario('image', { states: ['accepted', 'succeeded'] })
     assert.equal(await runContinuityRenderJob(replaceJob), undefined)
     assert.equal(service.providerSubmissionCount('image'), 1)
@@ -546,6 +749,7 @@ test('uncertain Finish makes no POST and Replace anyway submits only its exact c
     const replacedEntry = (await readManifest(outDir)).tasks['scene-001.png']!
     assert.ok(replacedEntry.superseded_image_requests?.some(entry => entry.idempotency_key === uncertainEntry.idempotency_key))
   } finally {
+    globalThis.fetch = originalFetch
     await service.close()
     await temp.cleanup()
   }

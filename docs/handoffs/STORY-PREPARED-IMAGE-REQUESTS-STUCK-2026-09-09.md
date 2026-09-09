@@ -67,3 +67,9 @@ Expected effect: the next "Finish missing images" on SS0065/SS0069 clears them w
 
 Scene Review → the missing scene → **Replace anyway** (the manifest already carries the durable
 identity it needs). Fine for SS0065's one scene; not reasonable for SS0069's 44.
+
+## Story implementation response — 2026-09-09
+
+The v1.4.133 Jobs repair branch addresses this prepared/no-task-id case through the existing renderer recovery path. An authoritative absence may replay only the retained key whose request scope and payload identity still match. Accepted task IDs, failed lookups, and ambiguous provider state do not authorize a fresh request. A key that resolves to a confirmed terminal failure transitions into the existing explicit replacement path. Deliberate fresh generation remains independent.
+
+Jobs now queues Finish missing images directly on the same history row, preserving provider evidence and completed outputs. The implementation plan and verification receipt are in `docs/superpowers/plans/2026-09-09-jobs-image-repair.md`. Focused renderer verification passed 36 tests; full local release verification passed (6,960 tests, zero failures, two optional external-evidence checks skipped). No production manifests were edited and no live image requests were submitted for QA.

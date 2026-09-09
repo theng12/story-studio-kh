@@ -54,7 +54,8 @@ describe('force-abandon on the Jobs page', () => {
     const retryButtons = jobsPage.match(/v-if="\(job\.status === 'error' \|\| job\.status === 'cancelled'\) && !isVerifiedRecoveredSubtitleJob\(job\) && !isTerminalContinuityRender\(job\) && job\.params\?\.auto_repair_missing_prompts !== true"/g) || []
     assert.equal(retryButtons.length, 2, 'both the active and the history lists must offer Retry for ordinary jobs')
     assert.equal((jobsPage.match(/v-if="isTerminalContinuityRender\(job\)"/g) || []).length, 2,
-      'both lists must send failed continuity renders to current Scene Review settings')
+      'both lists must offer Finish missing images for failed continuity renders')
+    assert.equal((jobsPage.match(/@click="finishMissingImages\(job\)"/g) || []).length, 2)
   })
 })
 

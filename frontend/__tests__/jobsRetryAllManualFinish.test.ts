@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
-import { createApp, h, nextTick, ref, type Component } from 'vue'
+import { createApp, h, nextTick, readonly, ref, type Component } from 'vue'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '../utils/episode-recovery'
@@ -21,8 +21,8 @@ async function loadJobs(): Promise<Component> {
     const useAppTitle = () => undefined
     const useRoute = () => ({ params: { slug: 'fixture-project' }, query: {} })
     const useApi = () => globalThis.__jobsApi
-    const useJobs = () => globalThis.__jobsQueue
-    const useAllJobs = () => globalThis.__jobsQueue
+    const useJobs = () => globalThis.__jobsProjectQueue
+    const useAllJobs = () => globalThis.__jobsUniversalQueue
     const useGenStudioModelDisplay = () => ({ displayName: () => '', refresh: async () => undefined })
     const useToast = () => ({ success: () => undefined, error: () => undefined, info: () => undefined })
     const useNetworkStatus = () => ({ online: ref(true) })
@@ -71,16 +71,45 @@ async function loadJobs(): Promise<Component> {
   ).toString('base64')}`)).default
 }
 
-async function mount(jobs: any[]) {
+async function mount(jobs: any[], postReply?: (path: string, body: unknown) => Promise<unknown>) {
   const posts: Array<{ path: string; body: unknown }> = []
-  const queueStats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: jobs.length }
-  for (const job of jobs) if (job.status in queueStats) (queueStats as any)[job.status]++
-  ;(globalThis as any).__jobsQueue = {
-    jobs: ref(jobs), stats: ref(queueStats), start: () => undefined, stop: () => undefined,
+  function makeReadonlyQueue(seed: any[]) {
+    const jobRows = ref(seed)
+    const queueStats = ref({ running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 })
+    const refreshStats = () => {
+      const next = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: jobRows.value.length }
+      for (const job of jobRows.value) if (job.status in next) (next as any)[job.status]++
+      queueStats.value = next
+    }
+    const calls: any[] = []
+    refreshStats()
+    return {
+      jobs: readonly(jobRows), stats: readonly(queueStats), calls,
+      applyUpdate(next: any) {
+        calls.push(next)
+        const rows = [...jobRows.value]
+        const index = rows.findIndex(job => job.job_id === next.job_id)
+        if (index >= 0) rows[index] = next
+        else rows.unshift(next)
+        jobRows.value = rows
+        refreshStats()
+      },
+      start: () => undefined, stop: () => undefined,
+    }
   }
+  const projectQueue = makeReadonlyQueue(jobs)
+  const universalQueue = makeReadonlyQueue(jobs)
+  ;(globalThis as any).__jobsProjectQueue = projectQueue
+  ;(globalThis as any).__jobsUniversalQueue = universalQueue
   ;(globalThis as any).__jobsApi = {
     get: async () => ({}), del: async () => ({}), put: async () => ({}),
-    post: async (path: string, body: unknown) => { posts.push({ path, body }); return {} },
+    post: async (path: string, body: unknown) => {
+      posts.push({ path, body })
+      if (postReply) return postReply(path, body)
+      const jobId = path.match(/\/jobs\/([^/]+)\/finish-missing-images$/)?.[1]
+      const existing = jobId ? jobs.find(job => job.job_id === jobId) : null
+      return existing ? { ok: true, job: { ...existing, status: 'queued' } } : {}
+    },
   }
   ;(globalThis as any).__isEpisodeRecoveryType = isEpisodeRecoveryType
   ;(globalThis as any).__groupEpisodeRecoveryRetries = groupEpisodeRecoveryRetries
@@ -92,32 +121,75 @@ async function mount(jobs: any[]) {
   const app = createApp(Jobs)
   app.mount(host)
   await nextTick()
-  return { state: (globalThis as any).__jobsState, posts, unmount: () => { app.unmount(); host.remove() } }
+  return { state: (globalThis as any).__jobsState, posts, projectQueue, universalQueue, unmount: () => { app.unmount(); host.remove() } }
 }
 
-test('mounted Jobs Retry all withholds manual Finish rows while preserving ordinary continuity recovery', async () => {
+test('mounted Jobs finishes missing images directly and Retry all keeps continuity rows in the queue', async () => {
   const mounted = await mount([
     { job_id: 'manual-finish', project_slug: 'fixture-project', episode_id: 'EP0001', type: 'continuity_render', status: 'error', params: { manual_image_finish: {} } },
     { job_id: 'eligible', project_slug: 'fixture-project', episode_id: 'EP0002', type: 'scene_clip_generate', status: 'error', params: {} },
     { job_id: 'ordinary-continuity', project_slug: 'fixture-project', episode_id: 'EP0003', type: 'continuity_render', status: 'error', params: {} },
   ])
-  assert.deepEqual(mounted.state.manualFinishRetryWithheld.value.map((job: any) => job.job_id), ['manual-finish'])
   assert.equal(mounted.state.isTerminalContinuityRender(mounted.state.jobs.value[2]), true)
-  assert.equal(mounted.state.isManualFinishContinuityRender(mounted.state.jobs.value[2]), false)
-  assert.deepEqual(mounted.state.failedJobsForRetryAll.value.map((job: any) => job.job_id), ['eligible', 'ordinary-continuity'])
-  assert.deepEqual(groupEpisodeRecoveryRetries(mounted.state.failedJobsForRetryAll.value).episodes, [{
-    project_slug: 'fixture-project', episode_id: 'EP0003', source_job_ids: ['ordinary-continuity'],
-  }])
+  assert.equal(mounted.state.isTerminalContinuityRender({ ...mounted.state.jobs.value[2], status: 'done' }), false)
+  await mounted.state.finishMissingImages(mounted.state.jobs.value[0])
+  assert.deepEqual(mounted.posts[0], { path: '/projects/fixture-project/jobs/manual-finish/finish-missing-images', body: {} })
+  assert.equal(mounted.state.jobs.value.length, 3, 'the same row changes state; no duplicate is added')
+  assert.equal(mounted.state.jobs.value[0].status, 'queued')
+  assert.equal(mounted.projectQueue.calls.length, 1, 'the project readonly store receives the confirmed row')
+  assert.equal(mounted.universalQueue.calls.length, 1, 'the all-project readonly store receives the confirmed row')
+  assert.equal(mounted.projectQueue.stats.value.queued, 1, 'the visible queue statistics update before SSE arrives')
+  assert.equal(mounted.state.statusFilter.value, 'queued')
+
+  const failedAgain = { ...mounted.state.jobs.value[0], status: 'error' }
+  mounted.projectQueue.applyUpdate(failedAgain)
+  mounted.universalQueue.applyUpdate(failedAgain)
+  mounted.state.statusFilter.value = 'error'
+  assert.deepEqual(mounted.state.failedJobsForRetryAll.value.map((job: any) => job.job_id), ['manual-finish', 'eligible', 'ordinary-continuity'])
   await mounted.state.retryAllFailed()
   assert.deepEqual(mounted.posts.map(call => call.path), [
-    '/projects/fixture-project/jobs/recover-episode/EP0003',
+    '/projects/fixture-project/jobs/manual-finish/finish-missing-images',
+    '/projects/fixture-project/jobs/manual-finish/finish-missing-images',
+    '/projects/fixture-project/jobs/ordinary-continuity/finish-missing-images',
     '/projects/fixture-project/jobs/eligible/retry',
   ])
-  assert.match(source, /Finish missing images stays in Scene Review/)
-  assert.match(source, /Open \{\{ isUniversal.*job\.episode_id \}\} in Scene Review/)
+  assert.match(source, /async function finishMissingImages/)
+  assert.match(source, /await post<\{ job: Job \}>\(`\$\{jobQueuePath\(job\)\}\/finish-missing-images`, \{\}\)/)
+  assert.match(source, /projectQueue\.applyUpdate\(next\)/)
+  assert.match(source, /universalQueue\.applyUpdate\(next\)/)
+  assert.match(source, /statusFilter\.value = next\.status === 'running' \? 'running' : 'queued'/)
+  assert.match(source, /controlBusy\.has\(job\.job_id\) \? 'Queuing…' : 'Finish missing images'/)
   assert.match(source, /v-if="isTerminalContinuityRender\(job\)"/)
-  assert.match(source, /!isTerminalContinuityRender\(job\).*auto_repair_missing_prompts/)
+  assert.match(source, /<button[\s\S]*?v-if="isTerminalContinuityRender\(job\)"[\s\S]*?@click="finishMissingImages\(job\)"/)
   mounted.unmount()
+})
+
+test('mounted Jobs keeps one Finish request busy until its same row returns', async () => {
+  let settlePost: ((value: unknown) => void) | undefined
+  const mounted = await mount([
+    { job_id: 'manual-finish', project_slug: 'fixture-project', episode_id: 'EP0001', type: 'continuity_render', status: 'error', params: {} },
+  ], () => new Promise(resolve => { settlePost = resolve }))
+  try {
+    const first = mounted.state.finishMissingImages(mounted.state.jobs.value[0])
+    assert.equal(await mounted.state.finishMissingImages(mounted.state.jobs.value[0]), false)
+    assert.equal(mounted.posts.length, 1, 'a second click must not submit a second Finish request')
+    settlePost?.({ job: { ...mounted.state.jobs.value[0], status: 'queued' } })
+    assert.equal(await first, true)
+    assert.equal(mounted.state.jobs.value[0].status, 'queued')
+  } finally { mounted.unmount() }
+})
+
+test('mounted Jobs leaves a rejected Finish row in Needs attention', async () => {
+  const mounted = await mount([
+    { job_id: 'manual-finish', project_slug: 'fixture-project', episode_id: 'EP0001', type: 'continuity_render', status: 'error', params: {} },
+  ], async () => { throw new Error('The existing provider request needs reconciliation.') })
+  try {
+    mounted.state.statusFilter.value = 'error'
+    assert.equal(await mounted.state.finishMissingImages(mounted.state.jobs.value[0]), false)
+    assert.equal(mounted.state.jobs.value.length, 1)
+    assert.equal(mounted.state.jobs.value[0].status, 'error')
+    assert.equal(mounted.state.statusFilter.value, 'error')
+  } finally { mounted.unmount() }
 })
 
 test('mounted Jobs counts and filters verified recovery separately from attention', async () => {

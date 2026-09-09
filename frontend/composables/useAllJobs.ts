@@ -95,6 +95,7 @@ export function useAllJobs() {
   return {
     jobs: readonly(jobs),
     stats: readonly(stats),
+    applyUpdate,
     refresh,
     start,
     stop,

@@ -187,7 +187,7 @@ function applySnapshot(snapshot: JobListResponse, slug: string) {
   stats.value = snapshot.stats
 }
 
-function applyUpdate(job: Job, slug: string) {
+function applyUpdate(job: Job, slug = currentSlug) {
   if (currentSlug !== slug || job.project_slug !== slug) return
   // Merge: replace existing or prepend. Sorting stays consistent with the
   // server's `order` in getJobs() because on snapshot we already match it.
@@ -369,6 +369,7 @@ export function useJobs() {
     stats: readonly(stats),
     jobsStale,
     lastRefreshError: readonly(lastRefreshError),
+    applyUpdate,
     isJobActiveFor,
     fetchJobs,
     startPolling,

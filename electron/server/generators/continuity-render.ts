@@ -39,7 +39,6 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import {
   imageManifestIdentityHash,
   hasPipelineRepairImageAttempt,
-  isCurrentPipelineRepairImageAttempt,
   isTerminalGenStudioImageTaskFailure,
   resolveManualImageReplacement,
   resolveImageRetryScope,
@@ -823,14 +822,25 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 && (!durablePermission || !submittedRecoveryCandidate.idempotency_key)
                 ? submittedRecoveryCandidate
                 : null
-              const pipelinePreparedReplay = Boolean(
-                pipelineRepairActionId
-                && isCurrentPipelineRepairImageAttempt(manifestEntry, pipelineRepairActionId)
+              // A `prepared` entry has only reserved an idempotency key. It may
+              // be replayed after GenStudio authoritatively says that exact key
+              // is absent, but only by a recovery/resume action. An explicit
+              // fresh re-render owns a new provider identity instead.
+              let preparedReplay = Boolean(
+                !freshGenerationAction
+                && !force
+                && !manualFinish?.replace_uncertain
                 && !manifestEntry?.task_id
                 && manifestEntry?.idempotency_key
+                && manifestEntry?.input_hash
+                && manifestEntry?.request_scope
                 && manifestEntry.last_state === 'prepared',
               )
-              const useFrozenOriginal = pipelinePreparedReplay || (!manualFinish
+              if (!freshGenerationAction && !force && !manualFinish?.replace_uncertain
+                && manifestEntry?.last_state === 'prepared' && !manifestEntry.task_id && !manifestEntry.idempotency_key) {
+                throw new Error('The saved prepared image request has no idempotency key. No provider work was submitted.')
+              }
+              const useFrozenOriginal = preparedReplay || (!manualFinish
                 && (!!durablePermission || !!submittedRecoveryEntry || !!(manifestEntry?.original_output_selector
                   && isTerminalGenStudioImageTaskFailure(manifestEntry))))
               const originalSelector = (useFrozenOriginal ? manifestEntry?.original_output_selector : null) || (paidSelector ? {
@@ -847,6 +857,26 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   )
                 : null
               let replacementScope = durablePermission?.replacement_scope || ''
+              if (preparedReplay && (replacementScope || submittedRecoveryEntry)) {
+                throw new Error('Prepared image recovery cannot be combined with a paid replacement request.')
+              }
+              // When a prepared record has the complete original paid-image
+              // facts, validate them before reusing its identity. Older
+              // manifests lack these additive fields; their retained key is
+              // still replayed only after the provider proves it absent, but
+              // we never claim an unrecorded payload is identical.
+              const validatedPreparedOriginal = preparedReplay
+                && manifestEntry?.original_output_selector
+                && Array.isArray(manifestEntry.original_reference_inputs)
+                && manifestEntry.original_reference_identity_hash
+                && manifestEntry.original_output_path
+                ? readPaidImageOriginalRequest(
+                    manifestEntry!,
+                    paidReferenceRoot,
+                    { prompt: finalPrompt, baseScope: logicalPaidScope(manifestEntry, baseScope) },
+                    paidOutputRoot,
+                  )
+                : null
               if (!manualFinish && !replacementScope && !submittedRecoveryEntry && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
                 && manifestEntry.original_output_selector) {
                 const decision = await decidePaidImageReplacement({
@@ -888,10 +918,10 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               let identity = originalSelector && capturedReferences
                 ? buildPaidImageOriginalIdentity({ prompt: finalPrompt, selector: originalSelector, references: capturedReferences.inputs, baseScope: logicalScope })
                 : null
-              let requestScope = pipelinePreparedReplay
+              let requestScope = preparedReplay
                 ? manifestEntry!.request_scope!
                 : replacementScope || (submittedRecoveryEntry ? manifestEntry!.replacement_scope! : '') || identity?.requestScope || logicalScope
-              const expectedInputHash = pipelinePreparedReplay
+              const expectedInputHash = preparedReplay
                 ? manifestEntry!.input_hash!
                 : identity?.inputHash || hashRequest(requestScope)
               if (manualFinish && pipelineRepairActionId === manualFinish.action_id
@@ -932,9 +962,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 () => jq.isCancelled(job.job_id),
                 {
                   observeCurrentState: Boolean(manualFinish),
-                  allowPreparedReplayOnAbsent: Boolean(
-                    pipelinePreparedReplay,
-                  ),
+                  allowPreparedReplayOnAbsent: preparedReplay,
                 },
               )
               if (recovery.kind === 'still-generating') {
@@ -1015,6 +1043,10 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 // same retry scope is reproducible after a crash.
                 carried = terminalImageManifestEntry(manifestEntry!, recovery)
                 await compareAndRecordImageTaskStrict(outDir, filename, manifestEntry, carried)
+                // The provider has now conclusively settled the prepared key.
+                // Its next request is a terminal-retry replacement, never a
+                // replay of that old reservation.
+                preparedReplay = false
                 savedEntry = carried
                 attemptOwner = carried
                 if (!manualFinish && originalSelector && carried.idempotency_key) {
@@ -1065,7 +1097,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   : null
                 requestScope = identity?.requestScope || logicalScope
               }
-              const inputHash = pipelinePreparedReplay
+              const inputHash = preparedReplay
                 ? manifestEntry!.input_hash!
                 : replacementScope || submittedRecoveryEntry
                 ? manifestEntry!.input_hash!
@@ -1084,12 +1116,14 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 : null
               const requestReferences = verifiedReplacement
                 ? verifiedReplacement.references.map(reference => reference.path)
-                : sref.referenceImagePaths
-              const requestSelector = verifiedReplacement?.selector || originalSelector
+                : validatedPreparedOriginal
+                  ? validatedPreparedOriginal.references.map(reference => reference.path)
+                  : sref.referenceImagePaths
+              const requestSelector = verifiedReplacement?.selector || validatedPreparedOriginal?.selector || originalSelector
               const requestIdentity = replacementScope
                 ? replacementScope
                 : `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${requestScope}`
-              const preparedKey = pipelinePreparedReplay ? manifestEntry!.idempotency_key! : buildGenStudioImageIdempotencyKey({
+              const calculatedPreparedKey = buildGenStudioImageIdempotencyKey({
                 prompt: finalPrompt,
                 modelId: modelConfig.api_model || model,
                 aspectRatio: requestSelector?.aspect_ratio || aspectRatio,
@@ -1097,6 +1131,10 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 seed: params.seed,
                 requestIdentity,
               })
+              if (preparedReplay && calculatedPreparedKey !== manifestEntry!.idempotency_key) {
+                throw new Error('The saved prepared image request no longer matches this scene. No provider work was submitted.')
+              }
+              const preparedKey = preparedReplay ? manifestEntry!.idempotency_key! : calculatedPreparedKey
               const originalFields = identity && originalSelector && capturedReferences ? {
                 original_output_selector: originalSelector,
                 original_reference_inputs: capturedReferences.inputs,
