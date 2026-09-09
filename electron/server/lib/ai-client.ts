@@ -33,6 +33,7 @@ import {
   type PipelinePolicyAttemptCheckpoint,
   type PipelinePolicyCheckpointStore,
 } from './pipeline-model-policy.js'
+import type { GenStudioRequestPreview } from './genstudio-request-preview.js'
 
 export interface CallAiContext {
   /** Project slug — enables account-aware key resolution. */
@@ -69,6 +70,9 @@ export interface CallAiContext {
   requestIdentity?: string
   /** Reconcile a saved GenStudio chat idempotency key without a new submission. */
   recoverByIdempotencyKey?: boolean
+  /** Explicit Retry-only path for a server-proven not-created request. */
+  allowUncreatedRecovery?: boolean
+  recoveryRequestPreview?: GenStudioRequestPreview
   /** Server-owned durable key for a proven recovery; never client input. */
   idempotencyKey?: string
   allowedRecoveryKeys?: string[]
@@ -146,6 +150,8 @@ export async function callAi(
     // the transient local queue id.
     requestIdentity: ctx.requestIdentity || ctx.slug || undefined,
     recoverByIdempotencyKey: ctx.recoverByIdempotencyKey === true,
+    allowUncreatedRecovery: ctx.allowUncreatedRecovery === true,
+    recoveryRequestPreview: ctx.recoveryRequestPreview,
     idempotencyKey: ctx.idempotencyKey,
     allowedRecoveryKeys: ctx.allowedRecoveryKeys,
     onDiagnostics: ctx.onDiagnostics,
@@ -275,7 +281,7 @@ export async function callAiWithModelPolicy(
       await ctx.onRequestPrepared?.(idempotencyKey)
     }
     const attemptContext: CallAiContext = recovery?.idempotencyKey
-      ? { ...ctx, recoverByIdempotencyKey: true, idempotencyKey: recovery.idempotencyKey, allowedRecoveryKeys: [recovery.idempotencyKey], onJobAccepted, onRequestPrepared }
+      ? { ...ctx, ...(ctx.allowUncreatedRecovery ? { recoverByIdempotencyKey: false } : { recoverByIdempotencyKey: true }), idempotencyKey: recovery.idempotencyKey, allowedRecoveryKeys: [recovery.idempotencyKey], onJobAccepted, onRequestPrepared }
       : { ...ctx, onJobAccepted, onRequestPrepared }
     return callAiWithRetry(candidate, system, userMsg, apiKeys, stream, attemptContext)
   }, ctx.pipelinePolicyCheckpoint, checkpointKey, fingerprint)

@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.134
+
+- Resume chapter expansion requests confirmed as never created when you choose Retry, using the verified original request identity instead of repeatedly looking for a missing result.
+- Preserve completed chapters and continue remaining chapter batches after recovery. Accepted or uncertain requests retain their existing recovery protections.
+
 ## v1.4.133
 
 - Finish missing images directly from Jobs. The same failed or cancelled run returns to the queue, keeps completed images and its provider/credit history, and shows its updated status immediately.

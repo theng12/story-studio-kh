@@ -185,6 +185,7 @@ export interface VideoProvider {
 
 import type { TextOutputContract } from '../lib/json-output-contract.js'
 import type { OutputBudget } from '../services/output-token-budget.js'
+import type { GenStudioRequestPreview } from '../lib/genstudio-request-preview.js'
 
 export interface TextGenerationRequest {
   model: string
@@ -211,6 +212,9 @@ export interface TextGenerationRequest {
   requestIdentity?: string
   /** Reconcile a saved durable request instead of creating a replacement. */
   recoverByIdempotencyKey?: boolean
+  /** Narrow explicit Retry path: permit same-key POST only after authoritative 404. */
+  allowUncreatedRecovery?: boolean
+  recoveryRequestPreview?: GenStudioRequestPreview
   /** Server-owned durable key used only by read-only chat recovery. */
   idempotencyKey?: string
   allowedRecoveryKeys?: string[]
