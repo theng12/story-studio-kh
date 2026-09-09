@@ -4,13 +4,17 @@
  * one era entire, at sleep length. One reservation batch (registry revision
  * 278), one receipt, eight lifecycle promotions (revisions 279-286).
  *
- * Seven of the eight declare preview assets that DO NOT EXIST YET: this control
- * Mac does not perform production image generation, and the owner authorisation
- * of 2026-09-08 named that day's run ids rather than this pass. Nothing was
- * fabricated and nothing was stubbed, so this file pins the honest state
- * instead: every declared preview path is named by the collection's
- * PREVIEW-PROVENANCE.md, and any preview byte that HAS landed must meet the
- * contract.
+ * Seven of the eight declare preview assets, and as of 2026-09-09 all twenty
+ * exist: rendered on 2026-09-08 through GenStudio `gpt-image-2` under the
+ * owner's authorisation for the whole preview programme (runs
+ * `illuminated-history-previews-1` to `-4`, 580 credits), reviewed one by one
+ * against their own prompts, and converted with a whole-image resize plus WebP.
+ * Nothing was fabricated and nothing was stubbed, so this file pins the finished
+ * state: every declared preview path is named by the collection's
+ * PREVIEW-PROVENANCE.md, EVERY ONE of them must exist, and each must meet the
+ * dimension, format and floor contract with its digest and byte count recorded.
+ * The existence assertion is deliberate — a preview silently going missing from
+ * a pack that declares it is exactly the failure a shopper sees first.
  *
  * The three-preview rule for Visual Styles, the four-preview rule for Thumbnail
  * Recipes and the one-swatch rule for Lettering Styles, all set by the owner on
@@ -367,7 +371,7 @@ test('no topic line is shared with any other authored collection', async () => {
   }
 })
 
-test('every declared preview is named by the provenance record, and any that exists meets the contract', async () => {
+test('every declared preview exists, is named by the provenance record, and meets the contract', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   const declared = new Set()
   for (const p of PACKS) {
@@ -382,7 +386,7 @@ test('every declared preview is named by the provenance record, and any that exi
     assert.ok(provenance.includes(rel.split('/').pop()), `provenance must name ${rel}`)
     assert.ok(provenance.includes(`${width}x${height}`), `provenance must state ${width}x${height}`)
     const path = join(ROOT, rel)
-    if (!await exists(path)) continue
+    assert.ok(await exists(path), `${rel} must exist: every declared preview is rendered, reviewed and filed`)
     const buf = await readFile(path)
     assert.ok(buf.byteLength > 20 * 1024, `${rel} must exceed the 20 KB floor`)
     const meta = await sharp(buf).metadata()
@@ -394,7 +398,7 @@ test('every declared preview is named by the provenance record, and any that exi
   }
 })
 
-test('the provenance record states why nothing was generated, how to generate it, and what to refuse', async () => {
+test('the provenance record states what was run, what it cost, what was refused, and what landed', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   for (const evidence of [
     'image-pool/generate',
@@ -408,6 +412,16 @@ test('the provenance record states why nothing was generated, how to generate it
   ]) {
     assert.ok(provenance.includes(evidence), `provenance must record ${evidence}`)
   }
+  // The render happened, so the record has to carry the four Story Studio job
+  // ids, the price, and the closed filename -> job -> prompt chain that makes
+  // the "Retained bytes" rows a fact rather than a claim about filenames.
+  for (const evidence of ['61524a15', '67fa3c67', '76c57bc2', 'f3a83d9d',
+    '29 credits per image', '580 credits', '.task-manifest.json', 'byte-identical']) {
+    assert.ok(provenance.includes(evidence), `provenance must record ${evidence}`)
+  }
+  assert.match(provenance, /All twenty now exist, and all twenty passed review/)
+  assert.ok(!provenance.includes('nothing has been rendered for this collection'),
+    'the empty Retained bytes placeholder must be gone once the bytes have landed')
   // The acceptance rules this collection needs. The packs let an episode name a
   // real historical figure; the PREVIEWS must not, and this pins that split.
   assert.match(provenance, /Original subjects only/)
