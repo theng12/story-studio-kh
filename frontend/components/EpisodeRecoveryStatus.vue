@@ -1,10 +1,13 @@
 <template>
-  <div v-if="verifiedRecovered || message || states.length" class="episode-recovery" :class="{ recovered: verifiedRecovered }" role="status">
-    <p v-if="verifiedRecovered"><strong>Recovered.</strong> {{ message }}</p>
+  <div v-if="diagnosticsOnly ? states.length : verifiedRecovered || message || expected || states.length" class="episode-recovery" :class="{ recovered: verifiedRecovered }" :role="diagnosticsOnly ? undefined : 'status'">
+    <template v-if="diagnosticsOnly">
+      <p v-for="state in states" :key="state.section">{{ state.section }}: {{ state.message }}</p>
+    </template>
+    <p v-else-if="verifiedRecovered"><strong>Recovered.</strong> {{ message }}</p>
     <template v-else>
       <p v-if="message">{{ message }}</p>
       <p v-if="expected">{{ expected - missing.length }}/{{ expected }} sections ready</p>
-      <p v-for="state in states" :key="state.section">{{ state.section }}: {{ state.message }}</p>
+      <p v-if="attention">{{ attention.section }}: {{ attention.message }}<template v-if="missing.length > 1"> · {{ missing.length }} sections need attention. See Technical details.</template></p>
       <form v-if="canBuy && !sent" class="subtitle-purchase" @submit.prevent="buy">
         <label>Additional subtitle credit ceiling
           <input v-model="ceiling" type="number" min="1" step="1" required :disabled="busy" />
@@ -27,7 +30,7 @@ import { computed, ref } from 'vue'
 const props = defineProps<{ job: {
   job_id: string; project_slug: string; episode_id?: string; type: string; status: string
   params?: Record<string, any>; result?: Record<string, any>
-}; verifiedRecovered?: boolean }>()
+}; verifiedRecovered?: boolean; diagnosticsOnly?: boolean }>()
 const { post } = useApi()
 const ceiling = ref('')
 const busy = ref(false)
@@ -36,6 +39,9 @@ const error = ref('')
 const missing = computed<string[]>(() => Array.isArray(props.job.result?.missing_sections) ? props.job.result.missing_sections : [])
 const expected = computed(() => Number.isSafeInteger(props.job.result?.expected_sections) ? props.job.result!.expected_sections as number : 0)
 const states = computed(() => Object.entries(props.job.params?.subtitle_recovery?.sections || {}).map(([section, state]) => ({ section, ...(state as { message?: string; manual_action?: string }) })))
+// Keep one actionable missing-section reason visible; the full history belongs in the drawer.
+const attention = computed(() => props.job.status === 'done' ? undefined
+  : states.value.find(state => missing.value.includes(state.section) && state.message))
 const message = computed(() => props.job.params?.episode_recovery?.message || '')
 const canBuy = computed(() => props.job.type === 'subtitles_transcribe' && props.job.status === 'error'
   && !props.job.params?.episode_recovery?.deferred && missing.value.length > 0
