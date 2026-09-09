@@ -290,7 +290,12 @@ test('an unresolved accepted request fences every later scene and repair request
   service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
   const job = directJob(f, 'uncertain-request')
 
-  await assert.rejects(runScenePlanJob(job), /incomplete/i)
+  await assert.rejects(runScenePlanJob(job), (error: any) => {
+    assert.match(error.message, /incomplete/i)
+    assert.match(error.message, /could not confirm whether an earlier prompt request was accepted/i)
+    assert.doesNotMatch(error.message, /Automatic GenStudio repair is exhausted/i)
+    return true
+  })
 
   assert.equal(service.providerSubmissionCount('chat'), 2)
   assert.ok(job.output_lines.some((line: string) => /still unresolved/i.test(line)))
@@ -298,6 +303,34 @@ test('an unresolved accepted request fences every later scene and repair request
   assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
   assert.match(saved.scenes[1].visual_prompt, /scene-0002/)
   assert.ok(saved.scenes.slice(2).every((scene: any) => scene.visual_prompt === ''))
+})
+
+test('a normal Scene Plan retry reclaims an ambiguous request before any replacement work', async () => {
+  service.reset()
+  const f = await fixture(2)
+  const params = { ...f.params, auto_repair_missing_prompts: false }
+  service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0002') })
+  service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
+  const original = directJob(f, 'normal-uncertain-request')
+  original.params = params
+
+  await assert.rejects(runScenePlanJob(original), /could not confirm whether an earlier prompt request was accepted/i)
+
+  assert.equal(original.params.scene_prompt_recoveries?.length, 1)
+  assert.deepEqual(original.params.scene_prompt_recoveries[0]?.scene_ids, ['scene-0003'])
+  const recoveryKey = original.params.scene_prompt_recoveries[0]?.idempotency_key
+  assert.equal(typeof recoveryKey, 'string')
+  const retry = directJob(f, 'normal-uncertain-retry')
+  retry.params = structuredClone(original.params)
+
+  await assert.rejects(runScenePlanJob(retry), /could not confirm whether an earlier prompt request was accepted/i)
+
+  assert.equal(service.providerSubmissionCount('chat'), 2)
+  assert.ok(service.requests.some(entry => entry.method === 'GET' && entry.path.endsWith(`/by-idempotency-key/${recoveryKey}`)))
+  const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
+  assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
+  assert.match(saved.scenes[1].visual_prompt, /scene-0002/)
+  assert.equal(saved.scenes[2].visual_prompt, '')
 })
 
 test('improving passes retry only the durable remainder until every prompt verifies', async () => {
@@ -519,6 +552,43 @@ test('a completed provider output can finish the repair with zero replacement PO
   const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
   assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
   assert.equal(saved.scenes[1].visual_prompt, 'Recovered without replacement.')
+})
+
+test('a saved prompt recovery performs its exact GET even when the current policy product is unavailable', async () => {
+  service.reset()
+  const recoveryKey = 'policy-unavailable-scene-prompt-key'
+  await seedCompletedPromptRequest(recoveryKey, ['scene-0002'], promptResult('scene-0002', 'Recovered despite retired policy product.'))
+  const f = await fixture(1)
+  const job = directJob(f, 'policy-unavailable-recovery')
+  job.params = {
+    ...f.params,
+    model: 'unavailable-current-policy-product',
+    pipeline_model_policy: {
+      scene_plan: {
+        mode: 'single',
+        models: ['unavailable-current-policy-product'],
+        assigned_model: 'unavailable-current-policy-product',
+      },
+    },
+    pipeline_scene_request_plan: {
+      model_id: 'unavailable-current-policy-product',
+      context_window_tokens: 128_000,
+      max_output_tokens: 4_096,
+      visual_max_tokens: 4_096,
+      active_output_budget: 4_096,
+      prompt_pack_size: 50,
+    },
+    pipeline_scene_prompt_pack_sizes: { visual: 50 },
+    scene_prompt_recoveries: [{ idempotency_key: recoveryKey, scene_ids: ['scene-0002'] }],
+  }
+
+  await runScenePlanJob(job)
+
+  assert.equal(service.providerSubmissionCount('chat'), 1, 'only the historical request was posted')
+  assert.ok(service.requests.some(entry => entry.method === 'GET' && entry.path.endsWith(`/by-idempotency-key/${recoveryKey}`)))
+  const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
+  assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
+  assert.equal(saved.scenes[1].visual_prompt, 'Recovered despite retired policy product.')
 })
 
 test('newest overlapping recovery wins and satisfied older keys are not fetched', async () => {

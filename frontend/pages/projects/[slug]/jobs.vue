@@ -635,10 +635,10 @@
         <div v-if="job.status === 'error'" class="job-error-section" :class="{ 'is-original-attempt': isVerifiedRecoveredSubtitleJob(job) }">
           <div v-if="job.error" class="error-summary">
             <span class="error-label">{{ isVerifiedRecoveredSubtitleJob(job) ? 'Original attempt:' : 'What happened:' }}</span>
-            <span class="error-summary-text">{{ firstErrorLine(customerJobText(job.error, job)) }}</span>
+            <span class="error-summary-text">{{ jobAttentionSummary(job) || firstErrorLine(customerJobText(job.error, job)) }}</span>
           </div>
           <button
-            v-if="job.error && hasMoreErrorLines(job.error)"
+            v-if="job.error && (jobAttentionLinks(job).length || hasMoreErrorLines(job.error))"
             type="button"
             class="error-toggle"
             :aria-expanded="errorExpanded === job.job_id"
@@ -650,12 +650,15 @@
           <div :id="`job-error-active-${job.job_id}`" v-if="errorExpanded === job.job_id && job.error" class="error-details">
             {{ customerJobText(job.error, job) }}
           </div>
-          <div v-if="jobAttentionLinks(job).length" class="job-attention-links">
-            <p v-if="paidReplacementAttemptMessage(job)" class="text-muted text-xs">{{ paidReplacementAttemptMessage(job) }}</p>
-            <NuxtLink v-for="link in jobAttentionLinks(job)" :key="`${link.kind}-${link.to}-${link.label}`" :to="link.to" class="inline-link">
-              {{ link.label }} →
-            </NuxtLink>
-          </div>
+          <p v-if="paidReplacementAttemptMessage(job)" class="text-muted text-xs">{{ paidReplacementAttemptMessage(job) }}</p>
+          <details v-if="jobAttentionLinks(job).length" class="job-attention-details">
+            <summary>{{ jobAttentionLinks(job).length }} affected item{{ jobAttentionLinks(job).length === 1 ? '' : 's' }} · Review affected items</summary>
+            <div class="job-attention-links">
+              <NuxtLink v-for="link in jobAttentionLinks(job)" :key="`${link.kind}-${link.to}-${link.label}`" :to="link.to" class="inline-link">
+                {{ link.label }} →
+              </NuxtLink>
+            </div>
+          </details>
         </div>
 
         <!-- Technical details. Diagnostic state and customer-safe output stay
@@ -987,10 +990,10 @@
           <div v-if="job.status === 'error'" class="job-error-section" :class="{ 'is-original-attempt': isVerifiedRecoveredSubtitleJob(job) }">
             <div v-if="job.error" class="error-summary">
               <span class="error-label">{{ isVerifiedRecoveredSubtitleJob(job) ? 'Original attempt:' : 'What happened:' }}</span>
-              <span class="error-summary-text">{{ firstErrorLine(customerJobText(job.error, job)) }}</span>
+              <span class="error-summary-text">{{ jobAttentionSummary(job) || firstErrorLine(customerJobText(job.error, job)) }}</span>
             </div>
             <button
-              v-if="job.error && hasMoreErrorLines(job.error)"
+              v-if="job.error && (jobAttentionLinks(job).length || hasMoreErrorLines(job.error))"
               type="button"
               class="error-toggle"
               :aria-expanded="errorExpanded === job.job_id"
@@ -1002,12 +1005,15 @@
             <div :id="`job-error-history-${job.job_id}`" v-if="errorExpanded === job.job_id && job.error" class="error-details">
               {{ customerJobText(job.error, job) }}
             </div>
-            <div v-if="jobAttentionLinks(job).length" class="job-attention-links">
-              <p v-if="paidReplacementAttemptMessage(job)" class="text-muted text-xs">{{ paidReplacementAttemptMessage(job) }}</p>
-              <NuxtLink v-for="link in jobAttentionLinks(job)" :key="`${link.kind}-${link.to}-${link.label}`" :to="link.to" class="inline-link">
-                {{ link.label }} →
-              </NuxtLink>
-            </div>
+            <p v-if="paidReplacementAttemptMessage(job)" class="text-muted text-xs">{{ paidReplacementAttemptMessage(job) }}</p>
+            <details v-if="jobAttentionLinks(job).length" class="job-attention-details">
+              <summary>{{ jobAttentionLinks(job).length }} affected item{{ jobAttentionLinks(job).length === 1 ? '' : 's' }} · Review affected items</summary>
+              <div class="job-attention-links">
+                <NuxtLink v-for="link in jobAttentionLinks(job)" :key="`${link.kind}-${link.to}-${link.label}`" :to="link.to" class="inline-link">
+                  {{ link.label }} →
+                </NuxtLink>
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -2511,6 +2517,41 @@ function exactLegacyIssue(itemId: unknown, state: 'missing' | 'invalid') {
     ? { item_id: itemId, state }
     : null
 }
+
+function jobAttentionSummary(job: RJob): string {
+  const count = jobAttentionLinks(job).length
+  if (!count) return ''
+  const completion = (job.result as any)?.completion
+  const completed = completion?.completed
+  const expected = completion?.expected
+  const verified = job.type === 'scene_plan_run'
+    && typeof completed === 'number' && Number.isFinite(completed) && completed >= 0
+    && typeof expected === 'number' && Number.isFinite(expected) && expected > 0
+    ? `${completed.toLocaleString()} of ${expected.toLocaleString()} prompts verified; `
+    : ''
+  const nouns = job.type === 'scene_plan_run'
+    ? ['Scene Plan prompt', 'Scene Plan prompts']
+    : job.type === 'continuity_render'
+      ? ['scene image', 'scene images']
+      : ['item', 'items']
+  const summary = `${verified}${count} ${count === 1 ? nouns[0] : nouns[1]} need attention.`
+  const cause = jobAttentionCause(job)
+  return `${summary}${cause ? ` ${cause}` : ''}`
+}
+
+function jobAttentionCause(job: RJob): string {
+  if (job.type !== 'scene_plan_run') return ''
+  const submissionUncertain = job.genstudio_jobs?.some(remote => {
+    const state = String(remote.queue_state || remote.state || '').toLowerCase()
+    return remote.operation === 'chat.response'
+      && ['failed', 'uncertain'].includes(state)
+      && remote.failure_code === 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN'
+  })
+  return submissionUncertain
+    ? 'GenStudio could not confirm the earlier prompt request. That request needs reconciliation before replacement.'
+    : ''
+}
+
 function jobAttentionLinks(job: RJob): JobAttentionLink[] {
   const subtitle = currentSubtitleAttention(job)
   if (subtitle) return [subtitle]
@@ -3742,7 +3783,11 @@ async function clearFinished() {
   font-size: 12px; color: var(--error); font-family: 'SF Mono', Monaco, monospace;
   white-space: pre-wrap; word-break: break-word;
 }
-.job-attention-links { display: grid; gap: 4px; margin-top: 8px; font-size: var(--font-xs); }
+.job-attention-details { margin-top: 8px; font-size: var(--font-xs); }
+.job-attention-details summary { color: var(--text-secondary); cursor: pointer; }
+.job-attention-details summary:hover { color: var(--text-primary); }
+.job-attention-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.job-attention-links { display: grid; gap: 4px; margin-top: 8px; }
 .job-attention-links .inline-link { width: fit-content; }
 
 /* Pagination */

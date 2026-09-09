@@ -19,6 +19,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 import {
   describeCancellation,
@@ -53,6 +54,44 @@ const template = page.slice(0, page.indexOf('<script setup'))
 const drawers = template.match(/<AdvancedDisclosure[\s\S]*?<\/AdvancedDisclosure>/g) || []
 /** Everything a customer sees WITHOUT opening anything. */
 const defaultView = drawers.reduce((rest, block) => rest.replace(block, ''), template)
+
+function extractFunction(name: string): string {
+  const start = page.indexOf(`function ${name}(`)
+  assert.notEqual(start, -1, `jobs.vue must define ${name}()`)
+  let depth = 0
+  let seenBody = false
+  for (let i = start; i < page.length; i++) {
+    if (page[i] === '{') { depth++; seenBody = true }
+    else if (page[i] === '}') {
+      depth--
+      if (seenBody && depth === 0) return page.slice(start, i + 1)
+    }
+  }
+  throw new Error(`could not find the end of ${name}()`)
+}
+
+function loadJobAttentionSummary() {
+  const source = `
+    type RJob = any
+    type JobAttentionLink = any
+    const SAFE_IMAGE_ISSUE_REASONS = {}
+    const SAFE_PROMPT_ISSUE_REASONS = { 'missing prompt': 'prompt is missing' }
+    function currentSubtitleAttention() { return null }
+    function exactLegacyIssue(itemId: unknown, state: 'missing' | 'invalid') {
+      return typeof itemId === 'string' ? { item_id: itemId, state } : null
+    }
+    function jobProjectSlug() { return 'fixture' }
+    ${extractFunction('jobAttentionSummary')}
+    ${extractFunction('jobAttentionCause')}
+    ${extractFunction('jobAttentionLinks')}
+    return jobAttentionSummary
+  `
+  const js = ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+  }).outputText
+  // eslint-disable-next-line no-new-func
+  return new Function(js)() as (job: any) => string
+}
 
 // ── 1. No raw identifiers, and no per-scene wall, in the default view ─────
 
@@ -105,6 +144,53 @@ describe('the default card view carries no raw identifiers', () => {
     assert.doesNotMatch(page, /0 recovered, \$\{missing\} left/)
     assert.match(page, /Recovered \$\{piece\(recovered\)\}; \$\{missing\} still missing/)
     assert.match(page, /Nothing to recover yet; \$\{missing\} still missing/)
+  })
+
+  test('bulk missing-item links collapse to a count, while every link remains reachable', () => {
+    const disclosures = template.match(/<details v-if="jobAttentionLinks\(job\)\.length" class="job-attention-details">[\s\S]*?<\/details>/g) || []
+    assert.equal(disclosures.length, 2, 'both active and history cards keep their affected-item lists closed by default')
+    for (const disclosure of disclosures) {
+      assert.match(disclosure, /affected item/)
+      assert.match(disclosure, /Review affected items/)
+      assert.doesNotMatch(disclosure, /jobAttentionSummary\(job\)/)
+      assert.match(disclosure, /v-for="link in jobAttentionLinks\(job\)"/)
+    }
+    assert.equal((page.match(/function jobAttentionSummary\(job: RJob\)/g) || []).length, 1)
+    assert.match(page, /Scene Plan prompt/)
+    assert.match(page, /scene images/)
+    assert.match(page, /LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN/)
+    assert.match(page, /could not confirm the earlier prompt request/)
+    const compactAttention = page.slice(page.indexOf('function jobAttentionSummary'), page.indexOf('function jobAttentionLinks'))
+    assert.match(compactAttention, /completion\?\.completed/)
+    assert.match(compactAttention, /completion\?\.expected/)
+    assert.match(compactAttention, /prompts verified/)
+    assert.doesNotMatch(compactAttention, /released_credits|retry_hint/)
+    assert.match(compactAttention, /remote\.operation === 'chat\.response'/)
+    assert.match(compactAttention, /\['failed', 'uncertain'\]/)
+    assert.equal((template.match(/job\.error && \(jobAttentionLinks\(job\)\.length \|\| hasMoreErrorLines\(job\.error\)\)/g) || []).length, 2,
+      'a compacted one-line error keeps its raw detail available in both cards')
+  })
+
+  test('the rendered summary keeps verified counts and only promotes a current uncertain chat request', () => {
+    const summary = loadJobAttentionSummary()
+    const issues = Array.from({ length: 50 }, (_, index) => ({
+      item_id: `scene-${index + 1}`,
+      state: 'missing',
+      reason: 'missing prompt',
+    }))
+    const job = {
+      type: 'scene_plan_run', episode_id: 'SS0077',
+      result: { completion: { completed: 143, expected: 193, issues } },
+      genstudio_jobs: [{ operation: 'chat.response', state: 'failed', failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' }],
+    }
+    assert.equal(summary(job), '143 of 193 prompts verified; 50 Scene Plan prompts need attention. GenStudio could not confirm the earlier prompt request. That request needs reconciliation before replacement.')
+
+    assert.equal(summary({ ...job, result: { completion: { completed: null, expected: null, issues } }, genstudio_jobs: [] }),
+      '50 Scene Plan prompts need attention.', 'null counts must not become a fabricated 0 of 0')
+    assert.equal(summary({ ...job, genstudio_jobs: [{ operation: 'chat.response', state: 'succeeded', failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' }] }),
+      '143 of 193 prompts verified; 50 Scene Plan prompts need attention.', 'stale terminal evidence is not a current uncertainty')
+    assert.equal(summary({ ...job, genstudio_jobs: [{ operation: 'image.generation', state: 'failed', failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' }] }),
+      '143 of 193 prompts verified; 50 Scene Plan prompts need attention.', 'a different operation is not a prompt-submission cause')
   })
 })
 
