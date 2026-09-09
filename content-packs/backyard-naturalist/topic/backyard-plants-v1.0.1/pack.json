@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.backyard-plants",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Successor to 1.0.0 with the same fifty plants, the same twenty chapter slots each and the same objects, settings and evidence lenses. Every mechanism line in 1.0.0 opened with the one frame \"a chapter on\" or \"a chapter that\", which the anti-padding guard measures as a template (36.9% of mechanism heads against a 5% ceiling). 1.0.1 removes that frame and states each chapter's mechanism directly; the ideas are the same thousand, and the sold bytes of 1.0.0 are untouched.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.backyard-plants",
+    "family": "com.storystudio.family.topic.backyard-plants"
+  },
+  "dependencies": []
+}

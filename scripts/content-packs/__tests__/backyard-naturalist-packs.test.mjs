@@ -412,3 +412,89 @@ test('the provenance record states under what authorisation these were rendered,
   assert.equal(bodies.length, prompts.length, 'every prompt has exactly one body')
   assert.ok(Buffer.byteLength(JSON.stringify(bodies)) < 16 * 1024, 'the request body stays under the 16 KiB cap')
 })
+
+// ---------------------------------------------------------------------------
+// The 1.0.1 successors (2026-09-09). Codex's full release verifier measured
+// both 1.0.0 Topic Packs against the anti-padding guard and found every one
+// of their 1,000 mechanism lines opening with the one frame "a chapter on" /
+// "a chapter that" — 32.6% and 36.9% of mechanism heads sharing four words,
+// against the 5% ceiling. The ideas underneath were authored one by one; the
+// frame was not. 1.0.1 removes the frame and states each mechanism directly.
+// The sold 1.0.0 bytes are immutable and stay on disk; the successor is a
+// sibling directory under its own reserved record, exactly as habits-momentum
+// 1.0.2 replaced 1.0.1.
+// ---------------------------------------------------------------------------
+
+const SUCCESSOR_RECEIPT = 'authoring:ea24855c8babb3edd844cd337f171b476ec59ff57cf95e701de9e466ffe63582'
+
+for (const slug of ['backyard-creatures', 'backyard-plants']) {
+  test(`the ${slug} 1.0.1 successor is registered, keeps every 1.0.0 line but the mechanisms, and drops the chapter frame`, async () => {
+    const registry = await json(REGISTRY)
+    const packId = `com.storystudio.pack.topic.${slug}`
+    const record = registry.records.find(r => r.pack_id === packId && r.version === '1.0.1')
+    assert.ok(record, `${packId}@1.0.1 must be registered`)
+    assert.equal(record.receipt_ref, SUCCESSOR_RECEIPT)
+    assert.equal(record.status, 'authored')
+    assert.equal(record.kind, 'topic-pack')
+    assert.equal(record.item_id, `com.storystudio.topic.${slug}`)
+    assert.equal(record.source_path, `content-packs/backyard-naturalist/topic/${slug}-v1.0.1`)
+    assert.deepEqual(record.dependencies, [])
+    // The sold 1.0.0 record is untouched: same receipt, same source, still authored.
+    const sold = registry.records.find(r => r.pack_id === packId && r.version === '1.0.0')
+    assert.equal(sold.receipt_ref, RECEIPT)
+    assert.equal(sold.status, 'authored')
+    assert.equal(sold.source_path, `content-packs/backyard-naturalist/topic/${slug}`)
+
+    const manifest = await json(join(ROOT, `topic/${slug}-v1.0.1/pack.json`))
+    const soldManifest = await json(join(ROOT, `topic/${slug}/pack.json`))
+    assert.equal(manifest.version, '1.0.1')
+    assert.match(manifest.changelog, /Successor to 1\.0\.0/)
+    assert.match(manifest.changelog, /sold bytes of 1\.0\.0 are untouched/)
+    for (const key of Object.keys(soldManifest).filter(k => !['version', 'changelog'].includes(k))) {
+      assert.deepEqual(manifest[key], soldManifest[key], `pack.json ${key} carries over unchanged`)
+    }
+
+    const doc = await json(join(ROOT, `topic/${slug}-v1.0.1/content/topic-pack.json`))
+    const soldDoc = await json(join(ROOT, `topic/${slug}/content/topic-pack.json`))
+    // Everything except the mechanism axis is byte-for-byte the 1.0.0 authorship.
+    for (const key of Object.keys(soldDoc).filter(k => !['mechanisms', 'coverage_profiles'].includes(k))) {
+      assert.deepEqual(doc[key], soldDoc[key], `${key} carries over unchanged`)
+    }
+    assert.equal(doc.coverage_profiles.length, 50)
+    doc.coverage_profiles.forEach((profile, index) => {
+      const soldProfile = soldDoc.coverage_profiles[index]
+      assert.equal(profile.subject, soldProfile.subject)
+      assert.equal(profile.tuples.length, 20)
+      profile.tuples.forEach((tuple, slot) => {
+        const soldTuple = soldProfile.tuples[slot]
+        for (const key of ['episode_object', 'time_place_scope', 'evidence_lens']) {
+          assert.equal(tuple[key], soldTuple[key], `${profile.subject} slot ${slot} keeps its ${key}`)
+        }
+        assert.match(soldTuple.mechanism, /^a chapter (on|that) /, 'the 1.0.0 line carried the frame')
+        assert.doesNotMatch(tuple.mechanism, /^a chapter /, `${profile.subject} slot ${slot} states its mechanism directly`)
+        assert.ok(tuple.mechanism.length >= 10, `${profile.subject} slot ${slot} still says something`)
+      })
+      assert.equal(new Set(profile.tuples.map(t => t.mechanism)).size, 20, `${profile.subject} mechanisms unique`)
+    })
+    assert.deepEqual(doc.mechanisms, doc.coverage_profiles.flatMap(p => p.tuples.map(t => t.mechanism)),
+      'mechanisms must be the coverage profiles flattened in order')
+    assert.equal(new Set(doc.mechanisms).size, 1000)
+
+    // The measurement the successor exists to pass, applied the way the app's
+    // guard applies it: no four-word head or tail may be shared by more than
+    // 5% of the mechanism lines.
+    const words = value => value.toLowerCase().match(/[a-z0-9']+/g) || []
+    for (const side of ['head', 'tail']) {
+      const counts = new Map()
+      for (const value of doc.mechanisms) {
+        const parts = words(value)
+        if (parts.length < 4) continue
+        const key = (side === 'head' ? parts.slice(0, 4) : parts.slice(-4)).join(' ')
+        counts.set(key, (counts.get(key) || 0) + 1)
+      }
+      const [phrase, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]
+      assert.ok(count / doc.mechanisms.length <= 0.05,
+        `${slug} 1.0.1 ${side}: "${phrase}" is shared by ${count} of 1000 mechanism lines`)
+    }
+  })
+}

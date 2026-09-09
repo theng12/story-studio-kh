@@ -1,5 +1,5 @@
 {
-  "revision": 286,
+  "revision": 289,
   "batches": [
     {
       "revision": 2,
@@ -5696,6 +5696,64 @@
           }
         ]
       }
+    },
+    {
+      "revision": 287,
+      "receipt_ref": "authoring:ea24855c8babb3edd844cd337f171b476ec59ff57cf95e701de9e466ffe63582",
+      "request": {
+        "expected_revision": 286,
+        "coordinator": {
+          "task": "backyard-topic-successors",
+          "branch": "content/backyard-topic-successors-2026-09-09"
+        },
+        "proposal_ref": "Codex handoff 2026-09-09 (_handoffs/2026-09-09_to-claude_backyard-topic-release-blocker.md): backyard-creatures 1.0.0 and backyard-plants 1.0.0 reach 1,000 mechanisms through one uniform 'a chapter on' frame (32.6% and 36.9% of mechanism heads against the 5% ceiling in topic-pack-anti-padding); immutable successors 1.0.1 with the frame removed, sold bytes of 1.0.0 preserved",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.backyard-creatures",
+            "item_id": "com.storystudio.topic.backyard-creatures",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/backyard-naturalist/topic/backyard-creatures-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.backyard-creatures",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.backyard-creatures",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.backyard-plants",
+            "item_id": "com.storystudio.topic.backyard-plants",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/backyard-naturalist/topic/backyard-plants-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.backyard-plants",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.backyard-plants",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -9803,6 +9861,40 @@
         "receipt_ref": "authoring:8c0987243c2527ee9b83e1eeb4d8d76a2ac4d6ec34044ec961ee293de83517d7",
         "pack_id": "com.storystudio.pack.topic.turning-points-and-eras",
         "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 288,
+      "transition_ref": "lifecycle:c8c8de78fdc44e8f8ad33ad230bfcb5030faf68b27270d1c7ae7b48d9afd9b0d",
+      "request": {
+        "expected_revision": 287,
+        "coordinator": {
+          "task": "backyard-topic-successors",
+          "branch": "content/backyard-topic-successors-2026-09-09"
+        },
+        "receipt_ref": "authoring:ea24855c8babb3edd844cd337f171b476ec59ff57cf95e701de9e466ffe63582",
+        "pack_id": "com.storystudio.pack.topic.backyard-creatures",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 289,
+      "transition_ref": "lifecycle:8fe51b25ab133fade3283b56ea4eb224b959e0f7768ace8f5cb6baa333a09360",
+      "request": {
+        "expected_revision": 288,
+        "coordinator": {
+          "task": "backyard-topic-successors",
+          "branch": "content/backyard-topic-successors-2026-09-09"
+        },
+        "receipt_ref": "authoring:ea24855c8babb3edd844cd337f171b476ec59ff57cf95e701de9e466ffe63582",
+        "pack_id": "com.storystudio.pack.topic.backyard-plants",
+        "version": "1.0.1",
         "changes": {
           "status": "authored"
         }
@@ -16604,6 +16696,52 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.turning-points-and-eras",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ea24855c8babb3edd844cd337f171b476ec59ff57cf95e701de9e466ffe63582",
+      "pack_id": "com.storystudio.pack.topic.backyard-creatures",
+      "item_id": "com.storystudio.topic.backyard-creatures",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/backyard-naturalist/topic/backyard-creatures-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.backyard-creatures",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.backyard-creatures",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ea24855c8babb3edd844cd337f171b476ec59ff57cf95e701de9e466ffe63582",
+      "pack_id": "com.storystudio.pack.topic.backyard-plants",
+      "item_id": "com.storystudio.topic.backyard-plants",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/backyard-naturalist/topic/backyard-plants-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.backyard-plants",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.backyard-plants",
           "status": "proposed"
         }
       }
