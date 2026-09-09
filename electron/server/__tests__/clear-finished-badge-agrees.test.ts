@@ -174,3 +174,37 @@ test('a row the clear will refuse is not counted by the badge', async () => {
   assert.equal(await jq.clearFinished(project.slug), 0)
   await settleTo(jobsFile, ['only-unsettled'], jq)
 })
+
+test('finished and failed history subsets agree with the Recovered display state', async () => {
+  const project = await pm.createProject({ name: 'Clear Finished Subsets' })
+  const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [
+    row('finished-done', 'done', [{ state: 'succeeded' }], project.slug),
+    row('finished-cancelled', 'cancelled', [{ state: 'cancelled' }], project.slug),
+    {
+      ...row('finished-recovered-subtitle', 'error', [{ state: 'succeeded' }], project.slug),
+      type: 'subtitles_transcribe',
+      params: {
+        episode_recovery_id: 'subtitle-recovery-1',
+        episode_recovery: {
+          id: 'subtitle-recovery-1',
+          completed: ['subtitle_sections', 'subtitle_stitch'],
+          first_unresolved: null,
+        },
+      },
+    },
+    row('failed-error', 'error', [{ state: 'failed' }], project.slug),
+    // An error row with active provider work stays protected even when the
+    // operator chose the failed subset.
+    row('failed-still-settling', 'error', [{ state: 'running' }], project.slug),
+  ] }))
+
+  assert.equal(await jq.clearFinished(project.slug, 'finished'), 3)
+  assert.deepEqual((await jq.getJobs(project.slug)).map(job => job.job_id).sort(), [
+    'failed-error', 'failed-still-settling',
+  ])
+
+  assert.equal(await jq.clearFinished(project.slug, 'failed'), 1)
+  assert.deepEqual((await jq.getJobs(project.slug)).map(job => job.job_id), ['failed-still-settling'])
+  await settleTo(jobsFile, ['failed-still-settling'], jq)
+})

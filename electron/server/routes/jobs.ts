@@ -15,6 +15,15 @@ const APP_SLUG = '_app_'
 const JOB_TYPE_SET = new Set<string>(JOB_TYPES)
 
 type ResumePausedBody = { project_slug?: string; type?: JobType }
+type HistoryClearQuery = { status?: jq.JobHistoryClearStatus }
+
+function parseHistoryClearQuery(query: unknown): { value: HistoryClearQuery } | { error: string } {
+  if (!query || typeof query !== 'object' || Array.isArray(query)) return { error: 'Invalid query.' }
+  const status = (query as Record<string, unknown>).status
+  if (status === undefined) return { value: {} }
+  if (status === 'finished' || status === 'failed') return { value: { status } }
+  return { error: 'status must be "finished" or "failed".' }
+}
 
 function parseResumePausedBody(
   body: unknown,
@@ -390,9 +399,11 @@ router.delete('/jobs/all/:jobId', async (req, res) => {
   res.json({ ok: true })
 })
 
-router.delete('/jobs/all', async (_req, res) => {
+router.delete('/jobs/all', async (req, res) => {
+  const parsed = parseHistoryClearQuery(req.query)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
   const scopes = await allJobScopes()
-  const cleared = await Promise.all(scopes.map(scope => jq.clearFinished(scope)))
+  const cleared = await Promise.all(scopes.map(scope => jq.clearFinished(scope, parsed.value.status)))
   res.json({ ok: true, cleared: cleared.reduce((total, count) => total + count, 0) })
 })
 
@@ -477,8 +488,10 @@ router.get('/jobs/app/:jobId', (req, res) => {
   res.json(job)
 })
 
-router.delete('/jobs/app', async (_req, res) => {
-  const count = await jq.clearFinished(APP_SLUG)
+router.delete('/jobs/app', async (req, res) => {
+  const parsed = parseHistoryClearQuery(req.query)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  const count = await jq.clearFinished(APP_SLUG, parsed.value.status)
   res.json({ ok: true, cleared: count })
 })
 
@@ -642,6 +655,8 @@ router.delete('/projects/:slug/jobs/:jobId', async (req, res) => {
 
 // Clear all finished (done/error/cancelled) jobs
 router.delete('/projects/:slug/jobs', async (req, res) => {
-  const count = await jq.clearFinished(req.params.slug)
+  const parsed = parseHistoryClearQuery(req.query)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  const count = await jq.clearFinished(req.params.slug, parsed.value.status)
   res.json({ ok: true, cleared: count })
 })

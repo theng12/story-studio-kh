@@ -266,9 +266,23 @@ router.post('/projects/:slug/assets/repair-all', async (req, res) => {
     const slug = req.params.slug
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
-    const requestedCodes: string[] | undefined = Array.isArray(req.body?.episode_codes)
-      ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c)
-      : undefined
+    // An explicit scope must never degrade into the library-wide repair. A
+    // stale Jobs row or malformed client payload is an unknown target, not
+    // permission to inspect or queue every episode in the project.
+    const hasExplicitEpisodeScope = Object.prototype.hasOwnProperty.call(req.body || {}, 'episode_codes')
+    let requestedCodes: string[] | undefined
+    if (hasExplicitEpisodeScope) {
+      if (!Array.isArray(req.body.episode_codes)) {
+        return res.status(400).json({ detail: 'episode_codes must be a non-empty array of episode codes.' })
+      }
+      const invalid = req.body.episode_codes.some((code: unknown) =>
+        typeof code !== 'string' || !code.trim(),
+      )
+      if (invalid || req.body.episode_codes.length === 0) {
+        return res.status(400).json({ detail: 'episode_codes must be a non-empty array of episode codes.' })
+      }
+      requestedCodes = [...new Set<string>((req.body.episode_codes as string[]).map(code => code.trim()))]
+    }
     const requestedModalities: Array<'audio' | 'images'> = Array.isArray(req.body?.modalities)
       ? req.body.modalities.filter((m: any) => m === 'audio' || m === 'images')
       : ['audio', 'images']
@@ -278,6 +292,15 @@ router.post('/projects/:slug/assets/repair-all', async (req, res) => {
     // the rows it did not want. The narrowing was real in its results and
     // imaginary in its cost. The filter now reaches the audit itself.
     const rows = await auditProjectAssets(slug, requestedCodes)
+    // A failed check is unknown, not proof that this episode has no gaps.
+    if (hasExplicitEpisodeScope) {
+      const failedChecks = rows.flatMap(row => Object.entries(row.errors || {})
+        .filter(([modality]) => modality === 'audio' || modality === 'images')
+        .map(([modality]) => `${row.episode_id} ${modality}`))
+      if (failedChecks.length) return res.status(409).json({
+        detail: `Could not check ${failedChecks.join(', ')}. No recovery was queued; try again.`,
+      })
+    }
     const enqueued: Array<{ episode_id: string; type: JobType; job_id: string }> = []
     const skipped: Array<{ episode_id: string; modality: string; reason: string }> = []
     const audio_queued: string[] = []
@@ -310,6 +333,10 @@ router.post('/projects/:slug/assets/repair-all', async (req, res) => {
     }
 
     res.json({
+      // Distinguishes a valid scoped episode with no gaps from a code that is
+      // not accepted in this project. Jobs must never turn the latter into an
+      // unscoped retry.
+      audited_episode_codes: rows.map(row => row.episode_id),
       enqueued,
       skipped,
       // Client-side: POST each one of these to

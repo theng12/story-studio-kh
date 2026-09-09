@@ -19,7 +19,7 @@ import { createRequire } from 'module'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
-import { initializeQueuePauseState, setQueuePaused, isQueuePaused } from '../services/job-queue.js'
+import { initializeQueuePauseState, setQueuePaused, isQueuePaused, getQueueStats } from '../services/job-queue.js'
 import { resolveAssetPath, toPortablePath, isPortablePath } from '../services/path-resolver.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { isServerMode } from '../lib/server-mode.js'
@@ -407,7 +407,7 @@ router.post('/system/reveal-folder', async (req, res) => {
 
 router.get('/system/queue/status', async (_req, res) => {
   await initializeQueuePauseState()
-  res.json({ paused: isQueuePaused() })
+  res.json({ paused: isQueuePaused(), stats: getQueueStats() })
 })
 
 router.post('/system/queue/pause', async (_req, res) => {

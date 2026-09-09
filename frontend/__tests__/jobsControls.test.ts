@@ -99,6 +99,36 @@ test('History presents one safe primary control and hides alternatives under Mor
   assert.doesNotMatch(history, /v-for="control in jobControls\(job\)"/)
 })
 
+test('Jobs keeps all seven toolbar actions available, disabled when their scoped count is zero', () => {
+  assert.match(jobs, /<section class="jobs-control-toolbar" aria-label="Job actions">/)
+  assert.match(jobs, /\{\{ actionScopeLabel \}\} · all job types and statuses/)
+  for (const action of ['recoverAllEpisodes', 'repairAllFailed', 'retryAllFailed', 'resumePausedJobs', 'clearFinished', 'clearFailed']) {
+    assert.match(jobs, new RegExp(`:disabled="[^"\\n]+"[\\s\\S]{0,240}@click="${action}`))
+  }
+  assert.match(jobs, /:disabled="changingQueueState \|\| resumingQueue \|\| \(!queuePaused && !hasQueueWork\)"[\s\S]{0,240}@click="queuePaused \? resumeQueue\(\) : pauseQueue\(\)"/)
+  assert.match(jobs, /recoverableEpisodes\.length === 0/)
+  assert.match(jobs, /repairableFailedJobs\.length === 0/)
+  assert.match(jobs, /retryAllTriage\.retry\.length === 0/)
+  assert.match(jobs, /pausedJobCount === 0/)
+  assert.match(jobs, /finishedCount === 0/)
+  assert.match(jobs, /failedCount === 0/)
+})
+
+test('toolbar scope uses only the selected project, never the visible type or status filters', () => {
+  assert.match(jobs, /const projectScopedJobs = computed\(\(\) => \{[\s\S]{0,240}job\.project_slug === projectFilter\.value/)
+  assert.match(jobs, /const typeScopedJobs = computed\(\(\) => activeFilter\.value === 'all'[\s\S]{0,160}projectScopedJobs\.value\.filter\(job => job\.type === activeFilter\.value\)/)
+  for (const name of ['repairableFailedJobs', 'failedJobsForRetryAll', 'recoverableEpisodes', 'pausedJobCount', 'removableJobs']) {
+    assert.match(jobs, new RegExp(`const ${name}[\\s\\S]{0,360}projectScopedJobs\\.value`), `${name} must ignore type and status filters`)
+  }
+})
+
+test('history cleanup uses distinct finished and failed requests while preserving files and billing evidence', () => {
+  assert.match(jobs, /function clearFinished\(\) \{ return clearHistory\('finished'\) \}/)
+  assert.match(jobs, /function clearFailed\(\) \{ return clearHistory\('failed'\) \}/)
+  assert.match(jobs, /await del<\{ cleared: number \}>\(`\$\{endpoint\}\?status=\$\{status\}`\)/)
+  assert.match(jobs, /Files and billing records are unchanged/)
+})
+
 test('Jobs reports whole-batch completed, settling, cancelled, failed, and not-submitted counts', () => {
   // v1.4.82 — these still all have to be reported; where they are reported
   // moved. The headline four (total / in-flight / finished / remaining) plus
@@ -229,7 +259,7 @@ test('normal Jobs surfaces use attention language while internal status keys sta
   assert.match(jobs, />Review jobs →<\/button>/)
   assert.match(jobs, /What happened:/)
   assert.match(jobs, /Show details/)
-  assert.match(jobs, /Repair available/)
+  assert.match(jobs, /Repair all \(\$\{repairableFailedJobs\.length\}\)/)
   assert.match(jobs, /No jobs need another try/)
   assert.match(useJobsSource, /\$\{label\} needs attention: \$\{job\.episode_id\}/)
   assert.match(batchSignals, /need.*attention/)
@@ -423,14 +453,14 @@ test('Paused status uses the same project and type scope for counts and visible 
 })
 
 test('Paused work rejoin sends only server-owned scope and gives immediate busy feedback', () => {
-  assert.match(jobs, /v-if="showBulkResume"/)
-  assert.match(jobs, /:disabled="bulkResumeBusy"/)
-  assert.match(jobs, /bulkResumeBusy \? `Rejoining \$\{bulkResumeCount\} jobs…` : `Resume paused work \(\$\{pausedJobCount\}\)`/)
+  assert.doesNotMatch(jobs, /v-if="showBulkResume"/)
+  assert.match(jobs, /:disabled="bulkActionBusy \|\| pausedJobCount === 0"/)
+  assert.match(jobs, /bulkResumeBusy \? `Resuming \$\{bulkResumeCount\}…` : `Resume paused \(\$\{pausedJobCount\}\)`/)
   assert.match(jobs, /:disabled="controlBusy\.has\(job\.job_id\)"[\s\S]*?\{\{ controlBusy\.has\(job\.job_id\) \? 'Rejoining…' : 'Resume' \}\}/)
   assert.match(jobs, /if \(controlBusy\.value\.has\(job\.job_id\)\) return[\s\S]*?controlBusy\.value = new Set\(controlBusy\.value\)\.add\(job\.job_id\)/)
-  assert.match(jobs, /if \(bulkResumeBusy\.value \|\| !showBulkResume\.value\) return[\s\S]*?bulkResumeBusy\.value = true/)
+  assert.match(jobs, /if \(bulkResumeBusy\.value \|\| pausedJobCount\.value === 0\) return[\s\S]*?bulkResumeBusy\.value = true/)
   assert.match(jobs, /const payload: \{ project_slug\?: string; type\?: string \} = \{\}/)
-  assert.match(jobs, /if \(activeFilter\.value !== 'all'\) payload\.type = activeFilter\.value/)
+  assert.doesNotMatch(jobs, /resumePausedJobs[\s\S]{0,900}payload\.type/)
   assert.match(jobs, /const endpoint = isUniversal\.value\s*\? '\/jobs\/all\/resume-paused'\s*:\s*`\/projects\/\$\{slug\.value\}\/jobs\/resume-paused`/)
   assert.match(jobs, /if \(isUniversal\.value && projectFilter\.value !== 'all'\) \{\s*payload\.project_slug = projectFilter\.value\s*\}/)
   assert.match(jobs, /await post<\{ resumed: number; skipped: number \}>\(endpoint, payload\)/)
@@ -440,7 +470,7 @@ test('Paused work rejoin sends only server-owned scope and gives immediate busy 
 
 test('Paused controls give filters and actions separate wrapping room on narrow Jobs layouts', () => {
   assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.status-filters \{ flex: 1 1 100%; min-width: 0; \}/)
-  assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.status-bar > \.btn \{ flex: 1 1 auto; \}/)
+  assert.match(jobs, /\.jobs-control-buttons \.btn \{ min-height: 44px; flex: 1 1 120px; white-space: normal; \}/)
 })
 
 test('Jobs keeps every sort control reachable on narrow layouts', () => {

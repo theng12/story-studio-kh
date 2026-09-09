@@ -122,3 +122,58 @@ describe('scoped asset audit', () => {
     assert.deepEqual(none.body.episodes, [])
   })
 })
+
+describe('scoped free asset recovery', () => {
+  test('reports exactly the accepted custom-prefix episode it audited and refuses malformed scopes', async () => {
+    const project = await pm.createProject({ name: 'Scoped free repair', episode_prefix: 'TN' })
+    const [idea] = await im.addIdeas(project.slug, [{
+      title: 'Saved provider result', logline: 'A targeted recovery fixture.', themes: ['test'],
+      suggested_chapters: 2, suggested_length: 'short', mood: 'calm',
+    }], 'test-model')
+    const accepted = await im.acceptIdea(project.slug, idea!.id, false, { override_code: 'TN0296' })
+
+    // Missing narration makes audio expectation unknowable. A scoped recovery
+    // must report that instead of treating it as evidence of no gaps.
+    const unknownAudit = await request(app)
+      .post(`/api/projects/${project.slug}/assets/repair-all`)
+      .send({ episode_codes: [accepted.episode_code] })
+    assert.equal(unknownAudit.status, 409)
+    assert.match(unknownAudit.body.detail, /Could not check TN0296 audio/)
+
+    // Give the audit an authoritative, complete audio source. No prompt
+    // manifest means there is no image expectation to invent, so this remains
+    // a free no-op audit rather than a provider submission fixture.
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+    const paths = await resolveEpisodePathsByCode(project.slug, accepted.episode_code)
+    await fs.mkdir(paths.script_dir, { recursive: true })
+    await fs.mkdir(paths.audio_dir, { recursive: true })
+    await fs.writeFile(paths.narration_docx, '# Narration\n\n## Chapter 01: Fixture\n\nSaved narration.\n')
+    await fs.writeFile(path.join(paths.audio_dir, 'TN0296_Chapter_01.mp3'), 'saved audio')
+
+    const scoped = await request(app)
+      .post(`/api/projects/${project.slug}/assets/repair-all`)
+      .send({ episode_codes: [accepted.episode_code] })
+    assert.equal(scoped.status, 200, JSON.stringify(scoped.body))
+    assert.deepEqual(scoped.body.audited_episode_codes, ['TN0296'])
+    assert.deepEqual(scoped.body.enqueued, [])
+    assert.deepEqual(scoped.body.audio_repair_candidates, [])
+
+    // A syntactically valid but unknown explicit target stays empty; it never
+    // widens to all accepted episodes.
+    const unknown = await request(app)
+      .post(`/api/projects/${project.slug}/assets/repair-all`)
+      .send({ episode_codes: ['TN9999'] })
+    assert.equal(unknown.status, 200)
+    assert.deepEqual(unknown.body.audited_episode_codes, [])
+    assert.deepEqual(unknown.body.enqueued, [])
+    assert.deepEqual(unknown.body.audio_repair_candidates, [])
+
+    for (const body of [{ episode_codes: [] }, { episode_codes: [' '] }, { episode_codes: 'TN0296' }, { episode_codes: [null] }, { episode_codes: [12] }]) {
+      const invalid = await request(app)
+        .post(`/api/projects/${project.slug}/assets/repair-all`)
+        .send(body)
+      assert.equal(invalid.status, 400)
+      assert.match(invalid.body.detail, /episode_codes must be a non-empty array/)
+    }
+  })
+})

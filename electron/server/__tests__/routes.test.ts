@@ -64,6 +64,34 @@ describe('Health & meta routes', () => {
   })
 })
 
+describe('System queue routes', () => {
+  test('GET /api/system/queue/status reports global queued work, including another project', async () => {
+    const pm = await import('../services/project-manager.js')
+    const jq = await import('../services/job-queue.js')
+    const project = await pm.createProject({ name: 'Global Queue Status Route' })
+    await jq.setQueuePaused(true)
+    const queued = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'script-only',
+      episode_id: 'GQ001',
+      title: 'global queue status fixture',
+      params: {},
+    })
+
+    try {
+      const res = await request(app).get('/api/system/queue/status')
+      assert.equal(res.status, 200)
+      assert.equal(res.body.paused, true)
+      assert.equal(typeof res.body.stats?.queued, 'number')
+      assert.equal(typeof res.body.stats?.running, 'number')
+      assert.ok(res.body.stats.queued >= 1, 'global status must include queued work outside the visible project')
+    } finally {
+      await jq.requestJobCancellation(project.slug, queued.job_id)
+      await jq.setQueuePaused(false)
+    }
+  })
+})
+
 describe('Project routes', () => {
   let projectSlug: string
 

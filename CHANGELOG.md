@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.139
+
+- Recover an episode’s saved audio and images directly from Jobs, with exact episode scope and progress on its job card. Recovery stays separate from paid Retry and never opens Production Board.
+- Keep Recover all, Repair all, Retry all, queue controls, Clear finished and Clear failed in a permanent Jobs toolbar. Ineligible actions remain visible and disabled; bulk scope follows the selected project.
+- Separate finished and recovered history from failed history while preserving files, billing records and unfinished provider-work protections. Keep bulk retries moving when one episode cannot continue.
+
 ## v1.4.138
 
 - Keep Jobs cards compact when many prompts or images need attention. Show the verified count and a concise cause; expand affected items or the full error only when needed.
