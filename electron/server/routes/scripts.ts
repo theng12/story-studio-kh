@@ -9,6 +9,7 @@ import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { callAi, callAiWithRetry, hasAnyTextProviderKey } from '../lib/ai-client.js'
 import { resolveEpisodePaths, resolveEpisodePathsForRead, resolveEpisodeTitleByCode } from '../services/utils.js'
 import { resolveReadPath, readArtifactRawText, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
+import { hasIntroductionScriptSource } from '../lib/narration-assembly.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { resolveSubfolderNames } from '../services/utils.js'
@@ -699,6 +700,15 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
     if (jq.isDuplicate(slug, req.body.episode_id, 'introduction-only')) {
       return res.status(409).json({ detail: `Introduction generation already queued/running for ${req.body.episode_id}` })
     }
+    const scriptWriter = ['script-only', 'chapter-only', 'expand_chapters']
+      .find(type => jq.isDuplicate(slug, req.body.episode_id, type))
+    if (scriptWriter) {
+      return res.status(409).json({ detail: 'Wait for this episode’s script job to finish. Resume or cancel it in Jobs if paused.' })
+    }
+    const paths = await resolveEpisodePathsForRead(slug, req.body.episode_id, title)
+    if (!await hasIntroductionScriptSource(paths.script_dir, req.body.episode_id)) {
+      return res.status(400).json({ detail: 'Generate a script first. This episode has no chapters for an introduction.' })
+    }
     const job = await jq.enqueue({
       project_slug: slug,
       type: 'introduction-only',
@@ -785,7 +795,8 @@ router.get('/projects/:slug/episodes/:episodeId/script-content', async (req, res
   const titleQuery = (req.query.title as string) || ''
   try {
     const paths = await resolveEpisodePathsForRead(slug, episodeId, titleQuery)
-    const result: any = { script: null, introduction: null }
+    const result: any = { script: null, introduction: null,
+      introduction_ready: await hasIntroductionScriptSource(paths.script_dir, episodeId) }
 
     const narrationPath = resolveReadPath(paths.narration_docx)
     if (existsSync(narrationPath)) {

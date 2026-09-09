@@ -59,10 +59,13 @@
         generate-label="Write this episode's opening"
         loading-label="Writing…"
         :generate-loading="generating"
-        :generate-disabled="!segment.enabled || !episodeId || generating || previewSaving"
+        :generate-disabled="!canGenerateIntroduction"
         :generate-status="actionStatus"
         @generate="generateForEpisode"
       />
+      <p v-if="scriptReadinessState === 'missing'" class="muted mt-1">
+        <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(episodeId)}`">Open Script Generator</NuxtLink>
+      </p>
     </div>
 
     <!-- The setting was inferred rather than chosen. Say so, and ask. -->
@@ -302,7 +305,8 @@
       :project-slug="slug"
       :episode-id="episodeId"
       :refresh-key="previewRefreshKey"
-      @saving-change="previewSaving = $event"
+      @saving-change="onPreviewSavingChange"
+      @script-readiness="scriptReadiness = $event"
     />
   </div>
 </template>
@@ -354,6 +358,11 @@ const freshIntroductionAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 
 const episodeId = ref('')
+const scriptReadiness = ref<{ projectSlug: string; episodeId: string; state: 'loading' | 'ready' | 'missing' | 'error' } | null>(null)
+const scriptReadinessState = computed(() => scriptReadiness.value?.projectSlug === slug.value
+  && scriptReadiness.value?.episodeId === episodeId.value ? scriptReadiness.value.state : 'loading')
+const canGenerateIntroduction = computed(() => segment.enabled && !!episodeId.value
+  && scriptReadinessState.value === 'ready' && !scriptWriting.value && !generating.value && !previewSaving.value && !introductionInFlight.value)
 const saving = ref(false)
 const generating = ref(false)
 const previewSaving = ref(false)
@@ -428,6 +437,10 @@ const provenanceLine = computed(() => {
 const actionStatus = computed(() => {
   if (!segment.enabled) return 'Turn the Introduction on for this channel first.'
   if (!episodeId.value) return 'Choose an episode.'
+  if (scriptWriting.value) return 'Wait for this episode’s script job to finish. Resume or cancel it in Jobs if paused.'
+  if (scriptReadinessState.value === 'loading') return 'Checking this episode’s script…'
+  if (scriptReadinessState.value === 'missing') return 'Generate a script first. This episode has no chapters yet.'
+  if (scriptReadinessState.value === 'error') return 'Could not check the script. Refresh the preview to try again.'
   return 'Writes the opening for this one episode. Its chapters must already exist — the opening introduces them.'
 })
 
@@ -573,8 +586,14 @@ async function save(): Promise<void> {
  * server, so this button and an unattended batch produce the same opening from
  * the same instructions. That was the whole defect — two paths, two shapes.
  */
+function onPreviewSavingChange(saving: boolean): void {
+  previewSaving.value = saving
+  // Saving can supersede an in-flight preview read; recheck instead of staying in 'loading'.
+  if (!saving) previewRefreshKey.value += 1
+}
+
 async function generateForEpisode(): Promise<void> {
-  if (!episodeId.value || previewSaving.value) return
+  if (!canGenerateIntroduction.value) return
   generating.value = true
   const payload = { episode_id: episodeId.value }
   const operationId = freshIntroductionAction.begin(payload)
@@ -628,6 +647,11 @@ async function generateForEpisode(): Promise<void> {
  * know the difference between "wait" and "try again".
  */
 const { jobs } = useJobs()
+// Reuse job updates to unlock the action when this episode's chapters finish.
+const scriptJobs = computed(() => jobs.value.filter(job => job.project_slug === slug.value && job.episode_id === episodeId.value
+  && ['script-only', 'chapter-only', 'expand_chapters'].includes(job.type)))
+const scriptWriting = computed(() => scriptJobs.value.some(job => ['queued', 'running', 'paused'].includes(job.status)))
+watch(() => scriptJobs.value.map(job => `${job.job_id}:${job.status}`).join('|'), () => { previewRefreshKey.value += 1 })
 const settledIntroJobs = new Set<string>()
 const introFailure = ref('')
 

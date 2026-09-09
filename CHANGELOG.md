@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.136
+
+- Disable Introduction generation until the selected episode has a usable script, with a clear explanation and a link to Script Generator. Readiness updates when chapters finish, and remains disabled while checking or when the check fails.
+- Check the same chapter prerequisite before queuing a new Introduction, so missing scripts do not create predictably failed jobs. Existing accepted requests retain their replay behavior.
+
 ## v1.4.135
 
 - Keep Jobs recovery summaries compact. Per-chapter subtitle recovery messages now appear inside Technical details instead of filling completed and active job cards. Readiness and recovery actions remain visible.

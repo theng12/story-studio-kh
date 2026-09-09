@@ -75,6 +75,31 @@ async function seedChannel(
   return project.slug
 }
 
+const CHAPTER_TEXT = 'The first chapter begins with a calm, complete piece of narration.'
+
+async function writeChapterSource(slug: string, episodeId: string, text = CHAPTER_TEXT): Promise<void> {
+  const { resolveEpisodePathsForRead } = await import('../services/utils.js')
+  const paths = await resolveEpisodePathsForRead(slug, episodeId, '')
+  await fs.mkdir(paths.script_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.script_dir, `${episodeId}_Chapter_01.md`), text)
+}
+
+async function writeUnifiedNarration(slug: string, episodeId: string, text: string): Promise<void> {
+  const { resolveEpisodePathsForRead } = await import('../services/utils.js')
+  const paths = await resolveEpisodePathsForRead(slug, episodeId, '')
+  await fs.mkdir(paths.script_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.script_dir, `${episodeId}_Script_Narration.md`), text)
+}
+
+async function seedAcceptedEpisode(slug: string): Promise<string> {
+  const im = await import('../services/idea-manager.js')
+  const [idea] = await im.addIdeas(slug, [{
+    title: 'An externally completed episode', logline: '', themes: [], suggested_chapters: 1,
+    suggested_length: '5 min', mood: 'calm',
+  }], 'test-model')
+  return (await im.acceptIdea(slug, idea!.id)).episode_code
+}
+
 /** The queued job for this episode, or undefined. */
 async function queuedJob(slug: string, episodeId: string): Promise<any> {
   const jobs = await jq.getJobs(slug)
@@ -84,6 +109,7 @@ async function queuedJob(slug: string, episodeId: string): Promise<any> {
 describe('asking for a channel opening', () => {
   test('naming only the episode is enough, and the script’s model is used', async () => {
     const slug = await seedChannel('Opening By Episode', 'the-owners-chosen-model')
+    await writeChapterSource(slug, 'EP0001')
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/introduction-only`)
       .send({ episode_id: 'EP0001' })
@@ -97,6 +123,7 @@ describe('asking for a channel opening', () => {
 
   test('an explicitly supplied model still wins, for a deliberate one-off', async () => {
     const slug = await seedChannel('Explicit Model', 'the-saved-model')
+    await writeChapterSource(slug, 'EP0002')
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/introduction-only`)
       .send({ episode_id: 'EP0002', model: 'a-deliberate-override' })
@@ -107,6 +134,7 @@ describe('asking for a channel opening', () => {
 
   test('the channel\u2019s own chosen model is used', async () => {
     const slug = await seedChannel('Own Model', 'the-script-model', 'the-openings-own-model')
+    await writeChapterSource(slug, 'EP0010')
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/introduction-only`)
       .send({ episode_id: 'EP0010' })
@@ -122,6 +150,7 @@ describe('asking for a channel opening', () => {
     // won, the control the owner asked for would do nothing on the path he
     // uses most, and he would have no way to tell.
     const slug = await seedChannel('Own Model Wins', 'the-script-model', 'the-openings-own-model')
+    await writeChapterSource(slug, 'EP0011')
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/introduction-only`)
       .send({ episode_id: 'EP0011', model: 'the-script-pages-on-screen-model' })
@@ -133,6 +162,7 @@ describe('asking for a channel opening', () => {
   test('a channel that has chosen one needs no script preset at all', async () => {
     // The refusal below exists because nothing could answer. Something can now.
     const slug = await seedChannel('Own Model No Script', null, 'the-openings-own-model')
+    await writeChapterSource(slug, 'EP0012')
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/introduction-only`)
       .send({ episode_id: 'EP0012' })
@@ -144,6 +174,7 @@ describe('asking for a channel opening', () => {
     // The default must not move. Every channel that has never opened the
     // picker is in this state, and must keep the behaviour it has today.
     const slug = await seedChannel('Blank Follows Script', 'the-script-model', '')
+    await writeChapterSource(slug, 'EP0013')
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/introduction-only`)
       .send({ episode_id: 'EP0013' })
@@ -166,6 +197,141 @@ describe('asking for a channel opening', () => {
     assert.match(res.body.detail, /Script Generator/,
       'and name where to fix it')
     assert.equal(await queuedJob(slug, 'EP0003'), undefined, 'nothing may be queued')
+  })
+
+  test('missing chapters are rejected before an Introduction job is queued', async () => {
+    const slug = await seedChannel('Missing Script', 'the-script-model')
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: 'EP0020' })
+
+    assert.equal(res.status, 400)
+    assert.equal(res.body.detail, 'Generate a script first. This episode has no chapters for an introduction.')
+    assert.equal(await queuedJob(slug, 'EP0020'), undefined, 'the invalid request must not create a failed job')
+  })
+
+  test('an empty chapter source is rejected before an Introduction job is queued', async () => {
+    const slug = await seedChannel('Empty Script', 'the-script-model')
+    await writeChapterSource(slug, 'EP0021', '')
+
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: 'EP0021' })
+
+    assert.equal(res.status, 400)
+    assert.equal(res.body.detail, 'Generate a script first. This episode has no chapters for an introduction.')
+    assert.equal(await queuedJob(slug, 'EP0021'), undefined)
+  })
+
+  test('an introduction-only narration does not satisfy the chapter prerequisite', async () => {
+    const slug = await seedChannel('Opening Without Chapters', 'the-script-model')
+    await writeUnifiedNarration(slug, 'EP0022', '# Introduction\n\nA saved opening with no story chapters.')
+
+    const preview = await request(app)
+      .get(`/api/projects/${slug}/episodes/EP0022/script-content`)
+    assert.equal(preview.status, 200)
+    assert.equal(preview.body.introduction_ready, false)
+    assert.equal(preview.body.script.content, '', 'a narration document can exist without chapter narration')
+
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: 'EP0022' })
+    assert.equal(res.status, 400)
+    assert.equal(await queuedJob(slug, 'EP0022'), undefined)
+  })
+
+  test('a legacy unified narration with chapters can queue an Introduction', async () => {
+    const slug = await seedChannel('Legacy Unified Script', 'the-script-model')
+    await writeUnifiedNarration(slug, 'EP0023', [
+      '# Legacy episode — Narration',
+      '',
+      '## Chapter 01: The First Door',
+      '',
+      CHAPTER_TEXT,
+    ].join('\n'))
+
+    const preview = await request(app)
+      .get(`/api/projects/${slug}/episodes/EP0023/script-content`)
+    assert.equal(preview.status, 200)
+    assert.equal(preview.body.introduction_ready, true)
+
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: 'EP0023' })
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    assert.ok(await queuedJob(slug, 'EP0023'))
+  })
+
+  test('manual status overrides cannot replace a real chapter source', async () => {
+    const slug = await seedChannel('Override Is Not Narration', 'the-script-model')
+    const episodeId = await seedAcceptedEpisode(slug)
+    const im = await import('../services/idea-manager.js')
+    await im.setEpisodeStatusOverrides(slug, episodeId, { script: true })
+
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: episodeId })
+
+    assert.equal(res.status, 400)
+    assert.equal(res.body.detail, 'Generate a script first. This episode has no chapters for an introduction.')
+    assert.equal(await queuedJob(slug, episodeId), undefined)
+  })
+
+  test('an active script writer blocks a new Introduction even when chapters exist', async () => {
+    const slug = await seedChannel('Script Writer Owns Narration', 'the-script-model')
+    const episodeId = 'EP0025'
+    await writeChapterSource(slug, episodeId)
+    const wasQueuePaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
+    try {
+      const writer = jq.enqueuePreparedForTest({
+        project_slug: slug,
+        type: 'script-only',
+        episode_id: episodeId,
+        title: '',
+        params: {},
+      })
+
+      const submit = () => request(app)
+        .post(`/api/projects/${slug}/generate/introduction-only`)
+        .send({ episode_id: episodeId })
+      const expectedDetail = 'Wait for this episode’s script job to finish. Resume or cancel it in Jobs if paused.'
+
+      const queued = await submit()
+      assert.equal(queued.status, 409)
+      assert.equal(queued.body.detail, expectedDetail)
+
+      assert.equal((await jq.pauseJob(writer.job_id))?.status, 'paused')
+      const paused = await submit()
+      assert.equal(paused.status, 409)
+      assert.equal(paused.body.detail, expectedDetail)
+      assert.equal(await queuedJob(slug, episodeId), undefined)
+    } finally {
+      await jq.setQueuePaused(wasQueuePaused)
+    }
+  })
+
+  test('a replay returns its accepted job even when the source disappears afterwards', async () => {
+    const slug = await seedChannel('Replay Keeps Accepted Action', 'the-script-model')
+    const episodeId = 'EP0024'
+    const actionId = '00000000-0000-4000-8000-000000000024'
+    await writeChapterSource(slug, episodeId)
+
+    const first = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: episodeId, operation_id: actionId })
+    assert.equal(first.status, 201, JSON.stringify(first.body))
+
+    const { resolveEpisodePathsForRead } = await import('../services/utils.js')
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, '')
+    await fs.unlink(path.join(paths.script_dir, `${episodeId}_Chapter_01.md`))
+
+    const replay = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: episodeId, operation_id: actionId })
+    assert.equal(replay.status, 200)
+    assert.equal(replay.body.job_id, first.body.job_id)
+    assert.equal(replay.body.reused, true)
   })
 })
 

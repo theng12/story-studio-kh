@@ -78,7 +78,9 @@
       <div v-else-if="!data?.introduction?.content" class="preview-empty">
         No introduction generated yet for this episode.
         <p class="muted mt-1" style="font-size: 12px;">
-          Generate the script first, then click "Generate Introduction" to create one.
+          {{ data?.introduction_ready
+            ? 'Use “Write this episode’s opening” above to create one.'
+            : 'Generate a script first, then write this episode’s opening.' }}
         </p>
       </div>
       <pre v-else class="preview-content">{{ displayedContent }}</pre>
@@ -95,6 +97,7 @@ type IntroductionContent = {
 }
 
 type PreviewPayload = {
+  introduction_ready?: boolean
   script: unknown
   introduction: IntroductionContent | null
 }
@@ -110,7 +113,10 @@ const props = defineProps<{
   title?: string
   refreshKey?: number
 }>()
-const emit = defineEmits<{ savingChange: [saving: boolean] }>()
+const emit = defineEmits<{
+  savingChange: [saving: boolean]
+  scriptReadiness: [readiness: { projectSlug: string; episodeId: string; state: 'loading' | 'ready' | 'missing' | 'error' }]
+}>()
 
 const { get, put } = useApi()
 const dataByEpisode = ref<Record<string, PreviewPayload>>({})
@@ -152,6 +158,7 @@ async function load() {
     return
   }
   loading.value = true
+  emit('scriptReadiness', { projectSlug: props.projectSlug, episodeId: props.episodeId, state: 'loading' })
   saveError.value = ''
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
@@ -161,9 +168,12 @@ async function load() {
     )
     if (requestSequence === loadSequence && key === activeKey.value) {
       dataByEpisode.value[key] = loaded
+      emit('scriptReadiness', { projectSlug: props.projectSlug, episodeId: props.episodeId,
+        state: loaded.introduction_ready === true ? 'ready' : 'missing' })
     }
   } catch (e) {
     if (requestSequence === loadSequence && key === activeKey.value) {
+      emit('scriptReadiness', { projectSlug: props.projectSlug, episodeId: props.episodeId, state: 'error' })
       saveError.value = errorDetail(e, 'Could not refresh the introduction. Your edits are still here.')
     }
   } finally {
