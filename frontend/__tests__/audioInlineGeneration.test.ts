@@ -42,10 +42,16 @@ describe('Audio one-chapter generation', () => {
     assert.match(audioPage, /audioJobActiveForEpisode\.value/)
   })
 
-  test('keeps all bulk actions explicit and leaves detailed controls closed by default', () => {
+  test('names the selected action from disk state without narrowing mixed bulk regeneration', () => {
     assert.match(audioPage, /:show-generate="false"/)
     assert.match(audioPage, />Generate missing/)
-    assert.match(audioPage, /audioActionLabel\(effectiveSections, 'regenerate', 'Regenerate selected'\)/)
+    assert.match(audioPage, /const selectedAudioIntent = computed\(\(\) => \{[\s\S]{0,900}audioActionLabel\(generate, 'generate', 'Generate selected'\)/)
+    assert.match(audioPage, /if \(generate\.length === 0\)[\s\S]{0,500}Regenerate selected/)
+    assert.match(audioPage, /targetSections: effectiveSections\.value,[\s\S]{0,120}mode: 'regenerate' as const,[\s\S]{0,180}Generate \/ regenerate selected/)
+    assert.match(audioPage, /summary: `Generate creates missing audio for \$\{scopeSummary\(generate\)\} and Regenerate replaces active audio for \$\{scopeSummary\(regenerate\)\}\.`/)
+    assert.match(audioPage, /@click="queueSelectedAudio"/)
+    assert.match(audioPage, /const \{ targetSections, mode \} = selectedAudioIntent\.value[\s\S]{0,100}await queueAudio\(targetSections, mode\)/)
+    assert.match(audioPage, /No sections selected\. Choose rows to generate, regenerate, or create another version\./)
     assert.match(audioPage, /audioActionLabel\(effectiveSections, 'new_version', 'Create another version'\)/)
     assert.match(audioPage, /<details class="audio-advanced">/)
     assert.match(audioPage, /<summary>Delivery and request controls/)
@@ -60,7 +66,7 @@ describe('Audio one-chapter generation', () => {
     assert.match(audioPage, /if \(revision !== quoteRevision\) return/)
     assert.match(audioPage, /if \(quoteScopeKey\.value !== sections\)/)
     assert.match(audioPage, /@click="queueAudio\(missingSections, 'generate'\)"/)
-    assert.match(audioPage, /@click="queueAudio\(effectiveSections, 'regenerate'\)"/)
+    assert.match(audioPage, /targetSections: effectiveSections\.value,[\s\S]{0,120}mode: 'regenerate' as const/)
     assert.match(audioPage, /quotedCost \? 'Selected quote' : 'Rate'/)
   })
 

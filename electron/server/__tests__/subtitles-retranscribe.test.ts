@@ -24,12 +24,14 @@ import assert from 'node:assert/strict'
 import { test, describe } from 'node:test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { selectRequestedSections } from '../generators/subtitles.js'
+import os from 'node:os'
+import { resolveActiveSubtitleChapterSources, selectRequestedSections } from '../generators/subtitles.js'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import type { Job } from '../models/types.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
+import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
 
 
 describe('re-transcribing one chapter does not re-charge the episode', () => {
@@ -75,7 +77,38 @@ describe('re-transcribing one chapter does not re-charge the episode', () => {
   })
 })
 
-test('a real 16-section generator run writes only Chapter_12 and preserves the other 15 byte-for-byte', async t => {
+test('uses Audio Assembly’s exact selected sources, including a promoted version and mixed base-plus-parts', async t => {
+  const episodeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'subtitle-active-source-'))
+  const audioDir = path.join(episodeDir, 'Audio')
+  t.after(() => fs.rm(episodeDir, { recursive: true, force: true }))
+  await fs.mkdir(audioDir)
+  const chapter = 'EP0099_Chapter_08.mp3'
+  const part = 'EP0099_Chapter_08_part1.mp3'
+  const promoted = 'EP0099_Chapter_09_v2.mp3'
+  await Promise.all([
+    fs.writeFile(path.join(audioDir, chapter), 'base chapter bytes'),
+    fs.writeFile(path.join(audioDir, part), 'continued chapter bytes'),
+    fs.writeFile(path.join(audioDir, promoted), 'promoted chapter bytes'),
+  ])
+  await fs.writeFile(path.join(episodeDir, 'audio_chapters.json'), JSON.stringify({ sections: [
+    { slug: 'Chapter_08', source_files: [chapter, part] },
+    { slug: 'Chapter_09', source_file: promoted },
+  ] }))
+
+  assert.deepEqual(await resolveActiveSubtitleChapterSources(episodeDir, audioDir), [
+    { slug: 'Chapter_08', files: [chapter, part] },
+    { slug: 'Chapter_09', files: [promoted] },
+  ], 'subtitle transcription must receive the Audio Assembly-selected bytes in their saved order')
+
+  await fs.writeFile(path.join(episodeDir, 'audio_chapters.json'), '{not json')
+  await assert.rejects(
+    resolveActiveSubtitleChapterSources(episodeDir, audioDir),
+    /active source map cannot be read.*Re-run Audio Assembly/i,
+    'a malformed selected map must not silently fall back to different directory bytes',
+  )
+})
+
+test('a stamped fresh retry reuses its accepted Chapter_12 task instead of skipping an old SRT', async t => {
   const isolated = await useTempDataDir()
   const mock = await startMockGenStudioService()
   t.after(async () => { await mock.close(); await isolated.cleanup() })
@@ -108,7 +141,14 @@ test('a real 16-section generator run writes only Chapter_12 and preserves the o
   await Promise.all([paths.script_dir, paths.audio_dir, paths.merged_audio_dir, paths.subtitles_dir].map(dir => fs.mkdir(dir, { recursive: true })))
   await fs.writeFile(paths.narration_docx, sections.map((section, index) => `## Chapter ${String(index + 1).padStart(2, '0')}: Fixture\n\nNarration for ${section}.`).join('\n\n'))
   await Promise.all(sections.map(section => fs.writeFile(path.join(paths.audio_dir, `${code}_${section}.mp3`), `audio-${section}`)))
-  await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({ gap_duration_s: 1, sections: sections.map(slug => ({ slug, duration_s: 1 })) }))
+  const selectedChapter = 'Chapter_12'
+  const selectedAudio = `${code}_${selectedChapter}_v2.mp3`
+  await fs.writeFile(path.join(paths.audio_dir, selectedAudio), 'selected chapter twelve audio')
+  await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({ gap_duration_s: 1, sections: sections.map(slug => ({
+    slug,
+    duration_s: 1,
+    source_file: slug === selectedChapter ? selectedAudio : `${code}_${slug}.mp3`,
+  })) }))
   await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.mp3`), 'merged-audio')
   await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`), JSON.stringify({ output_filename: `${code}_merged_audio.mp3`, opening: { lead_in_sec: 0, music_lead_in_sec: 0 } }))
 
@@ -120,10 +160,14 @@ test('a real 16-section generator run writes only Chapter_12 and preserves the o
     await fs.writeFile(file, bytes)
   }
 
+  const staleTarget = path.join(paths.subtitles_dir, `${code}_Chapter_12.srt`)
+  await fs.writeFile(staleTarget, '1\n00:00:00,000 --> 00:00:01,000\nA stale caption that must not short-circuit the fresh action.\n')
+  const actionId = 'fresh-subtitle-action-12'
   const job = {
     job_id: 'one-section-subtitle', project_slug: project.slug, episode_id: code,
     type: 'subtitles_transcribe', status: 'running', progress: 0, output_lines: [],
-    params: { per_chapter: true, engine: 'genstudio', model: 'mock-whisper-v1', language: 'en', force: true, sections: ['Chapter_12'] },
+    params: { per_chapter: true, engine: 'genstudio', model: 'mock-whisper-v1', language: 'en', force: true,
+      generation_action: { id: actionId, kind: 'fresh' }, sections: ['Chapter_12'] },
   } as unknown as Job
   await generateSubtitlesTranscribe(job)
 
@@ -132,7 +176,22 @@ test('a real 16-section generator run writes only Chapter_12 and preserves the o
   assert.equal((job.result as any).ready_sections, 16)
   assert.deepEqual((job.result as any).missing_sections, [])
   assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_12.srt`), 'utf8'), /Hello from mock GenStudio/)
+  const selectedHash = await hashSubtitleAudioSources([path.join(paths.audio_dir, selectedAudio)])
+  assert.ok(selectedHash)
+  const recovery = JSON.parse(await fs.readFile(path.join(paths.subtitles_dir, '.subtitle-recovery.json'), 'utf8'))
+  assert.equal(recovery.sections[`${code}_${selectedChapter}.srt`].sourceAudioHash, selectedHash,
+    'the regenerated subtitle must attest to Audio Assembly’s selected v2 bytes')
+  assert.equal(recovery.sections[`${code}_${selectedChapter}.srt`].generationActionId, actionId)
   for (const [file, bytes] of preserved) assert.deepEqual(await fs.readFile(file), bytes, path.basename(file))
+
+  const retry = {
+    ...job, job_id: 'one-section-subtitle-retry', progress: 0, output_lines: [], result: undefined,
+    params: { ...(job.params as any), force: false, subtitle_recovery: { sections: { Chapter_12: { state: 'needs_attention' } } } },
+  } as unknown as Job
+  await generateSubtitlesTranscribe(retry)
+  assert.equal(mock.providerSubmissionCount('transcription'), 1,
+    'Retry uses the same fresh action identity to recover its accepted task; it neither skips the old SRT nor posts a new task')
+  assert.match(await fs.readFile(staleTarget, 'utf8'), /Hello from mock GenStudio/)
 })
 
 test('stamped pipeline repair transcribes only malformed and gap-mapped chapters', async t => {

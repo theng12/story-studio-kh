@@ -175,11 +175,84 @@ export async function ensureRecoveryStitch(options: EnsureStitchedOptions): Prom
 export async function inspectRecoverySubtitlePrerequisites(plan: EpisodeRecoveryPlan, paths: EnsureStitchedOptions, jobs: Job[]) {
   const verified = Object.fromEntries(EPISODE_RECOVERY_ORDER.map(step => [step, false])) as Record<EpisodeRecoveryStep, boolean>
   verified.audio_merge = true // The caller establishes Audio Assembly before inspecting subtitles.
-  const wholeTrack = plan.steps.subtitle_sections?.params.per_chapter === false
+  const subtitleParams = plan.steps.subtitle_sections?.params
+  const wholeTrack = subtitleParams?.per_chapter === false
   const coverage = await inspectRecoverySubtitles(paths.episodeDir, paths.subtitlesDir, plan.episode_id, !wholeTrack)
-  verified.subtitle_sections = coverage.complete
-  const sectionMessage = `${coverage.expected.length - coverage.missing.length}/${coverage.expected.length} ${wholeTrack ? 'whole track' : 'sections'} ready`
-  if (!coverage.complete) return { verified, message: sectionMessage, missing: coverage.missing }
+  // A fresh action promises new artifacts for its saved scope. Existing SRTs
+  // can prove an ordinary recovery, but cannot turn a failed fresh request into
+  // a completed episode.
+  const normalize = (value: string) => value.trim().toLowerCase()
+  const expectedByKey = new Map(coverage.expected.map(section => [normalize(section), section]))
+  const requestedScope = subtitleParams?.generation_action?.kind === 'fresh'
+    ? Array.isArray(subtitleParams.sections) && subtitleParams.sections.length
+      ? subtitleParams.sections.filter((section: unknown): section is string => typeof section === 'string' && !!section.trim())
+      : coverage.expected
+    : []
+  const freshScope = Array.from(new Set(requestedScope.map(section => expectedByKey.get(normalize(section))).filter((section): section is string => !!section)))
+  const unknownFreshScope = requestedScope.filter(section => !expectedByKey.has(normalize(section)))
+  const actionId = typeof subtitleParams?.generation_action?.id === 'string'
+    ? subtitleParams.generation_action.id.trim()
+    : ''
+  const matchingActionJob = (jobId: string | undefined) => jobId && actionId ? jobs.find(row => row.job_id === jobId
+    && row.type === 'subtitles_transcribe'
+    && row.params?.generation_action?.kind === 'fresh'
+    && row.params.generation_action.id === actionId) : undefined
+  const sourceActionJob = matchingActionJob(plan.steps.subtitle_sections?.source_job_id)
+  const recoveryActionJob = matchingActionJob(plan.steps.subtitle_sections?.job_id)
+  const latestActionJob = recoveryActionJob || sourceActionJob
+  // A crash can preserve a raw artifact state before the retry writes a final
+  // result. Keep the saved source's failed sections until this exact retry has
+  // supplied its own terminal result.
+  const latestResultJob = recoveryActionJob?.result ? recoveryActionJob : sourceActionJob
+  const states = new Map<string, { state?: string }>()
+  for (const record of [subtitleParams?.subtitle_recovery?.sections, sourceActionJob?.params?.subtitle_recovery?.sections, recoveryActionJob?.params?.subtitle_recovery?.sections]) {
+    for (const [section, state] of Object.entries(record || {})) states.set(normalize(section), state as { state?: string })
+  }
+  const latestMissing = new Set((latestResultJob?.result?.missing_sections || [])
+    .filter((section: unknown): section is string => typeof section === 'string')
+    .map(normalize))
+  const successfulScope = new Set<string>()
+  const addSuccessfulScope = (job: Job) => {
+    if (job.result?.complete !== true) return
+    const scoped = Array.isArray(job.params?.sections) && job.params.sections.length
+      ? job.params.sections.filter((section: unknown): section is string => typeof section === 'string' && !!section.trim())
+      : coverage.expected
+    for (const section of scoped) {
+      const canonical = expectedByKey.get(normalize(section))
+      if (canonical) successfulScope.add(normalize(canonical))
+    }
+  }
+  if (latestActionJob) addSuccessfulScope(latestActionJob)
+  // A later, independently stamped fresh action may replace this failed one.
+  // It must be finished, prove a complete result, and postdate the saved source;
+  // no result from the old provider request is reclassified as successful.
+  const sourceTime = Date.parse(sourceActionJob?.created_at || '')
+  if (Number.isFinite(sourceTime)) {
+    for (const job of jobs) {
+      if (job.type !== 'subtitles_transcribe' || job.status !== 'done'
+        || job.params?.generation_action?.kind !== 'fresh'
+        || job.params.generation_action.id === actionId
+        || !Number.isFinite(Date.parse(job.created_at)) || Date.parse(job.created_at) < sourceTime) continue
+      addSuccessfulScope(job)
+    }
+  }
+  const freshMissing = [
+    ...unknownFreshScope,
+    ...freshScope.filter(section => {
+      const key = normalize(section)
+      if (successfulScope.has(key)) return false
+      // A whole-track recovery has no per-section writer after raw fetch. Its
+      // final result is the only completion proof, so a raw recovery state is
+      // never enough to release the edge.
+      if (wholeTrack) return true
+      return latestMissing.has(key) || states.get(key)?.state !== 'artifact_recovered'
+    }),
+  ]
+  const missing = Array.from(new Set([...coverage.missing, ...freshMissing]))
+  verified.subtitle_sections = coverage.complete && freshMissing.length === 0
+  const readySections = coverage.expected.filter(section => !missing.some(item => normalize(item) === normalize(section))).length
+  const sectionMessage = `${readySections}/${coverage.expected.length} ${wholeTrack ? 'whole track' : 'sections'} ready`
+  if (!verified.subtitle_sections) return { verified, message: sectionMessage, missing }
   // Never race a still-running transcription's source writes.
   if (jobs.some(job => job.type === 'subtitles_transcribe' && ['queued', 'running', 'paused'].includes(job.status))) {
     return { verified, message: `${sectionMessage}. Scene Plan waiting for subtitle stitch.` }
@@ -395,7 +468,9 @@ export async function startEpisodeRecovery(): Promise<void> {
   }
   const schedule = (job: Job) => {
     const automaticSubtitle = job.type === 'subtitles_transcribe' && job.status === 'error'
-    if (!episodeRecoveryStep(job.type) || (!job.params?.episode_recovery_id && !automaticSubtitle)
+    const completedFreshSubtitle = job.type === 'subtitles_transcribe' && job.status === 'done'
+      && job.params?.generation_action?.kind === 'fresh'
+    if (!episodeRecoveryStep(job.type) || (!job.params?.episode_recovery_id && !automaticSubtitle && !completedFreshSubtitle)
       || !['done', 'error'].includes(job.status) || job.force_abandoned) return
     const key = `${job.project_slug}:${job.episode_id}`
     pending.set(key, job)
