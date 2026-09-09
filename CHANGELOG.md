@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.133
+
+- Finish missing images directly from Jobs. The same failed or cancelled run returns to the queue, keeps completed images and its provider/credit history, and shows its updated status immediately.
+- Include missing Scene Review images in Retry all, with duplicate-click and same-episode protections. Scene Review remains available for inspection without being a required detour.
+- Resume image requests that were prepared locally but never accepted by GenStudio using their original verified request key. Accepted or uncertain work remains recoverable, while deliberate fresh regeneration keeps its separate identity.
+
 ## v1.4.132
 
 - Replenish scene-image admission requests independently of occupied standard execution lanes, with account pacing, bounded queues and cancellation preserved.

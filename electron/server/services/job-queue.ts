@@ -1303,6 +1303,16 @@ function groupOf(type: JobType, job?: Job): string {
  *  their single slot via `QueueState.running` (unchanged). */
 const groupActive: Record<string, number> = {}
 const activeImageEpisodeJobIds = new Set<string>()
+/**
+ * Synchronous admission reservations for the in-place Jobs Finish action.
+ * `mutateAuthoritativeJob` durably writes before it updates the live map, so
+ * the live-job dedupe alone has a small await window. This reservation closes
+ * that window for both competing Finish requests and ordinary enqueue calls.
+ */
+const finishMissingReservations = new Map<string, string>()
+function finishMissingReservationKey(projectSlug: string, episodeId: string): string {
+  return `${projectSlug}:${episodeId}`
+}
 /** A generous local staging cap keeps Story responsive without recreating a
  * user-facing concurrency policy that can conflict with GenStudio. */
 let llmConcurrency = 50
@@ -4289,6 +4299,10 @@ function enqueuePrepared(
   if (!queues[opts.type]) {
     throw new Error(`No queue lane registered for job type: ${opts.type}`)
   }
+  if (opts.type === 'continuity_render'
+    && finishMissingReservations.has(finishMissingReservationKey(opts.project_slug, opts.episode_id))) {
+    throw new DuplicateJobError(opts.type, opts.episode_id)
+  }
   // Cross-type atomic dedupe for the retired Scene Review batch name and the
   // canonical continuity renderer. Full renders conflict with either full
   // type; a single-scene repair also waits behind an active full render.
@@ -4469,6 +4483,144 @@ export function getJob(jobId: string): Job | null {
 export function getPublicJob(jobId: string): RendererJob | null {
   const job = jobs.get(jobId)
   return job ? serializeJob(job) : null
+}
+
+/**
+ * Requeue a failed/cancelled continuity render in place for the Jobs-page
+ * Finish missing images action.  This is deliberately separate from the
+ * generic retry path: retryTerminalJob creates a fresh history row and drops
+ * the original provider evidence, while this action must let the continuity
+ * executor recover the saved manifest identities on the same row.
+ */
+export async function finishMissingImagesInPlace(
+  projectSlug: string,
+  jobId: string,
+): Promise<{ job: Job; reused: boolean }> {
+  let reservationKey: string | undefined
+  try {
+    return await withPaidImageWaitJobMutex(jobId, async () => {
+      await loadPersistedJobs(projectSlug)
+      const authoritative = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!authoritative || authoritative.project_slug !== projectSlug) {
+        throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+      }
+      if (authoritative.type !== 'continuity_render') {
+        throw Object.assign(new Error('Finish missing images is available only for Scene Review jobs.'), { status: 409, expose: true })
+      }
+
+      const directMarker = authoritative.params?.jobs_finish_missing_images
+      const cancellationPending = Object.values(authoritative.remote_cancellations || {}).some(record => (
+        PENDING_REMOTE_CANCELLATION_STATUSES.has(record.status)
+      ))
+      if ((authoritative.status === 'queued' || authoritative.status === 'running')
+        && directMarker && typeof directMarker === 'object') {
+        if (cancellationPending) {
+          throw Object.assign(
+            new Error('This job is still being reconciled after cancellation. Wait for reconciliation before finishing missing images.'),
+            { status: 409, expose: true },
+          )
+        }
+        return { job: structuredClone(authoritative), reused: true }
+      }
+      if (authoritative.status !== 'error' && authoritative.status !== 'cancelled') {
+        throw Object.assign(new Error('Only failed or cancelled Scene Review jobs can finish missing images.'), { status: 409, expose: true })
+      }
+      if (cancellationPending) {
+        throw Object.assign(
+          new Error('This job is still being reconciled after cancellation. Wait for reconciliation before finishing missing images.'),
+          { status: 409, expose: true },
+        )
+      }
+      const params = authoritative.params && typeof authoritative.params === 'object' ? authoritative.params : {}
+      if (typeof params.model !== 'string' || !params.model.trim()) {
+        throw Object.assign(new Error('The saved Scene Review job has no model settings to reuse.'), { status: 409, expose: true })
+      }
+
+      const now = new Date().toISOString()
+      const manualActionId = randomUUID()
+      const directActionId = randomUUID()
+      const durable = await mutateAuthoritativeJob(projectSlug, jobId, current => {
+        if (current.project_slug !== projectSlug || current.type !== 'continuity_render') return null
+        if (current.status === 'queued' || current.status === 'running') {
+          const marker = current.params?.jobs_finish_missing_images
+          return marker && typeof marker === 'object' ? current : null
+        }
+        if (current.status !== 'error' && current.status !== 'cancelled') return null
+        if (Object.values(current.remote_cancellations || {}).some(record => PENDING_REMOTE_CANCELLATION_STATUSES.has(record.status))) return null
+        const active = findActiveBulkSceneRenderInternal(projectSlug, current.episode_id)
+        if (active && active.job_id !== current.job_id) return null
+        const key = finishMissingReservationKey(projectSlug, current.episode_id)
+        const reservedBy = finishMissingReservations.get(key)
+        if (reservedBy && reservedBy !== current.job_id) return null
+        finishMissingReservations.set(key, current.job_id)
+        reservationKey = key
+        const currentParams = current.params && typeof current.params === 'object' ? current.params : {}
+        if (typeof currentParams.model !== 'string' || !currentParams.model.trim()) return null
+        const next = structuredClone(current)
+        const sceneIds = Array.isArray(currentParams.scene_ids)
+          ? currentParams.scene_ids
+          : (typeof currentParams.single_scene_id === 'string' ? [currentParams.single_scene_id] : undefined)
+        next.params = {
+          ...currentParams,
+          missing_only: true,
+          // A direct Jobs action is still the same recovery-first manual path
+          // used by Scene Review. Both action ids are server-owned and never
+          // accepted from a request body.
+          manual_image_finish: {
+            action_id: manualActionId,
+            replace_uncertain: false,
+          },
+          jobs_finish_missing_images: {
+            action_id: directActionId,
+            requested_at: now,
+          },
+          ...(sceneIds?.length ? { scene_ids: sceneIds } : {}),
+        }
+        delete next.params.force
+        delete next.params.render_attempt_id
+        delete next.params.generation_action
+        delete next.params.generation_action_fingerprint
+        delete next.params.single_scene_id
+        delete next.params.pipeline_repair
+        delete next.params.pipeline_repair_request_fingerprint
+        next.status = 'queued'
+        delete next.force_abandoned
+        next.started_at = null
+        next.finished_at = null
+        next.error = null
+        next.local_execution_complete = false
+        next.pause_requested = false
+        next.pause_origin = undefined
+        next.auto_retry = undefined
+        next.progress = undefined
+        next.item_progress = undefined
+        next.result = undefined
+        next.output_lines = [
+          ...(Array.isArray(next.output_lines) ? next.output_lines : []),
+          'Finish missing images requested from Jobs — checking saved images and provider work before submitting anything new.',
+        ]
+        return next
+      })
+      if (!durable) {
+        throw Object.assign(new Error('This image job changed before Finish missing images could be queued. Refresh Jobs and try again.'), { status: 409, expose: true })
+      }
+      const live = jobs.get(jobId)
+      const queued = live || durable
+      Object.assign(queued, durable)
+      if (!('force_abandoned' in durable)) delete queued.force_abandoned
+      jobs.set(jobId, queued)
+      cancelled.delete(jobId)
+      pauseRequested.delete(jobId)
+      if (!pendingContains('continuity_render', jobId)) queues.continuity_render.pending.push(queued)
+      emitUpdate(queued)
+      pumpImageEpisodeGroup(imageEpisodeConcurrency)
+      return { job: structuredClone(queued), reused: false }
+    })
+  } finally {
+    if (reservationKey && finishMissingReservations.get(reservationKey) === jobId) {
+      finishMissingReservations.delete(reservationKey)
+    }
+  }
 }
 
 /**

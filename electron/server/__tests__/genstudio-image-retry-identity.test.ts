@@ -208,15 +208,16 @@ void test('GenStudio image retry identity is fresh after failure and stable on a
       assert.equal(service.providerSubmissionCount('image'), 1)
     })
 
-    await suite.test('a prepared key with no authoritative job requires Replace anyway', async () => {
+    await suite.test('a prepared key with no authoritative job is safe to replay under its same key', async () => {
       service.reset()
       const outcome = await tryRecoverImageFromManifestEntry(
         manifestEntry({ task_id: '', idempotency_key: 'story-image-missing-key', last_state: 'prepared' }),
         MOCK_GENSTUDIO_FULL_KEY,
         MODEL_CONFIG,
+        undefined,
+        { allowPreparedReplayOnAbsent: true },
       )
-      assert.equal(outcome.kind, 'uncertain')
-      assert.match(outcome.kind === 'uncertain' ? outcome.reason : '', /idempotency/i)
+      assert.equal(outcome.kind, 'no-saved-job')
       assert.equal(service.providerSubmissionCount('image'), 0)
     })
 

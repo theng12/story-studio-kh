@@ -504,6 +504,26 @@ router.get('/projects/:slug/jobs/:jobId', (req, res) => {
   res.json(job)
 })
 
+/**
+ * Requeue a failed/cancelled Scene Review job in place. The continuity
+ * executor reads the saved model and render settings and audits disk/provider
+ * evidence before deciding which images still need work. The request carries
+ * no settings or scene identities, so the same job row remains authoritative.
+ */
+router.post('/projects/:slug/jobs/:jobId/finish-missing-images', async (req, res) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length > 0) {
+    return res.status(400).json({ detail: 'Request body must be an empty object. Scene IDs and settings come from the saved job.' })
+  }
+  try {
+    const result = await jq.finishMissingImagesInPlace(String(req.params.slug), String(req.params.jobId))
+    const job = jq.getPublicJob(result.job.job_id)
+    if (!job) return res.status(409).json({ detail: 'This job changed after queuing. Refresh Jobs to check its current status.' })
+    return res.status(202).json({ ok: true, job, ...(result.reused ? { reused: true } : {}) })
+  } catch (error: any) {
+    return res.status(Number(error?.status) || 409).json({ detail: error?.message || 'Could not queue missing images.' })
+  }
+})
+
 // Queue-level Retry fallback. Specialized generator pages may still use their
 // own healing endpoints, but every registered job type remains recoverable
 // even when a newer executor has not yet been added to a frontend map.

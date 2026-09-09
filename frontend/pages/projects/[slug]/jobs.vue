@@ -305,24 +305,6 @@
       </button>
     </div>
 
-    <WorkspaceNotice
-      v-if="manualFinishRetryWithheld.length"
-      tone="info"
-      title="Finish missing images stays in Scene Review"
-    >
-      Retry all leaves out {{ manualFinishRetryWithheld.length }} manual Finish missing images request{{ manualFinishRetryWithheld.length === 1 ? '' : 's' }}. Open Scene Review to continue with that episode’s current settings.
-      <template #actions>
-        <NuxtLink
-          v-for="job in manualFinishRetryWithheld"
-          :key="job.job_id"
-          :to="`/projects/${jobProjectSlug(job)}/scene-review?episode_id=${encodeURIComponent(job.episode_id)}`"
-          class="btn btn-sm btn-secondary"
-        >
-          Open {{ isUniversal ? `${jobProjectSlug(job)} · ` : '' }}{{ job.episode_id }} in Scene Review
-        </NuxtLink>
-      </template>
-    </WorkspaceNotice>
-
     <!-- Sort Bar -->
     <div class="sort-bar">
       <label v-if="isUniversal" class="project-filter">
@@ -458,14 +440,15 @@
               title="PAID AUTO REPAIR — Keeps every verified prompt and submits each missing or duplicated scene alone. Continues only while verified progress improves. Pause stops new requests after any accepted request settles. GenStudio credits may be charged."
               @click="autoRepairScenePrompts(job)"
             >{{ controlBusy.has(job.job_id) ? 'Starting…' : 'Auto repair prompts · credits' }}</button>
-            <NuxtLink
+            <button
               v-if="isTerminalContinuityRender(job)"
-              :to="`/projects/${jobProjectSlug(job)}/scene-review?episode_id=${encodeURIComponent(job.episode_id)}`"
               class="btn btn-xs btn-primary"
-              title="Open this episode's current Scene Review settings and safely finish only images still missing."
+              :disabled="controlBusy.has(job.job_id)"
+              title="Queues only missing images. Existing images stay as they are; new generations may use credits."
+              @click="finishMissingImages(job)"
             >
-              Finish missing images
-            </NuxtLink>
+              {{ controlBusy.has(job.job_id) ? 'Queuing…' : 'Finish missing images' }}
+            </button>
             <button
               v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
               class="btn btn-xs btn-secondary"
@@ -825,14 +808,15 @@
                 title="PAID AUTO REPAIR — Keeps every verified prompt and submits each missing or duplicated scene alone. Continues only while verified progress improves. Pause stops new requests after any accepted request settles. GenStudio credits may be charged."
                 @click="autoRepairScenePrompts(job)"
               >{{ controlBusy.has(job.job_id) ? 'Starting…' : 'Auto repair prompts · credits' }}</button>
-              <NuxtLink
+              <button
                 v-if="isTerminalContinuityRender(job)"
-                :to="`/projects/${jobProjectSlug(job)}/scene-review?episode_id=${encodeURIComponent(job.episode_id)}`"
                 class="btn btn-xs btn-primary"
-                title="Open this episode's current Scene Review settings and safely finish only images still missing."
+                :disabled="controlBusy.has(job.job_id)"
+                title="Queues only missing images. Existing images stay as they are; new generations may use credits."
+                @click="finishMissingImages(job)"
               >
-                Finish missing images
-              </NuxtLink>
+                {{ controlBusy.has(job.job_id) ? 'Queuing…' : 'Finish missing images' }}
+              </button>
               <button
                 v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
                 class="btn btn-xs btn-secondary"
@@ -1734,8 +1718,8 @@ async function repairAllFailed() {
 // failing and its retry half firing anyway produced real duplicate charges.
 //
 // So this button is always clickable and never repairs. It sorts what is
-// failed into three piles and resubmits only the pile whose state is
-// definitely known. Everything it declines is named, with the reason, so
+// failed into three piles and requeues only the pile whose state is
+// definitely known. Continuity rows use their explicit Finish action; everything it declines is named, with the reason, so
 // declining is visible rather than silent.
 //
 // Rejected on the way here, with reasons: a confirmation popup (gets clicked
@@ -1743,26 +1727,16 @@ async function repairAllFailed() {
 // grey-out until a repair has run (wrong for the 32 job types that have no
 // repair path at all, subtitles among them).
 const retryingAllFailed = ref(false)
-function isManualFinishContinuityRender(job: RJob): boolean {
-  return isTerminalContinuityRender(job)
-    && !!job.params?.manual_image_finish
-}
 function isTerminalContinuityRender(job: RJob): boolean {
   return job.type === 'continuity_render'
     && !!job.episode_id
-    && !['queued', 'running', 'paused'].includes(job.status)
+    && (job.status === 'error' || job.status === 'cancelled')
 }
-const manualFinishRetryWithheld = computed(() =>
-  jobs.value.filter((job: RJob) =>
-    (job.status === 'error' || job.status === 'cancelled')
-    && isManualFinishContinuityRender(job)),
-)
 const failedJobsForRetryAll = computed(() =>
   jobs.value.filter((j: RJob) =>
     (j.status === 'error' || j.status === 'cancelled')
     && !isVerifiedRecoveredSubtitleJob(j)
-    && j.params?.auto_repair_missing_prompts !== true
-    && !isManualFinishContinuityRender(j))
+    && j.params?.auto_repair_missing_prompts !== true)
 )
 const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
   failedJobsForRetryAll.value as RJob[],
@@ -1786,8 +1760,9 @@ async function retryAllFailed() {
     }
     return
   }
-  const grouped = groupEpisodeRecoveryRetries(triage.retry as RJob[])
-  const snapshot = grouped.other
+  const directContinuityRetries = (triage.retry as RJob[]).filter(isTerminalContinuityRender)
+  const grouped = groupEpisodeRecoveryRetries((triage.retry as RJob[]).filter(job => !isTerminalContinuityRender(job)))
+  const snapshot = [...directContinuityRetries, ...grouped.other]
   retryingAllFailed.value = true
   info(describeRetryAllTriage(triage as any))
   try {
@@ -1810,7 +1785,9 @@ async function retryAllFailed() {
         if (idx >= snapshot.length) return
         const target = snapshot[idx]!
         try {
-          await retryJob(target)
+          if (isTerminalContinuityRender(target)) {
+            if (!await finishMissingImages(target, false)) failures++
+          } else await retryJob(target)
           // The repair we knew about belonged to the run that just failed. Once
           // it is re-queued that knowledge is stale, so it is dropped rather
           // than left to license a second retry later.
@@ -1825,7 +1802,7 @@ async function retryAllFailed() {
     if (failures > 0) showError(`${failures} of ${snapshot.length} retries could not be sent. The rest went to the queue.`)
     // retryJob surfaces its own per-job errors, so this says what was SENT
     // rather than claiming everything was accepted.
-    else success(`Advanced ${grouped.episodes.length} episode recovery plan(s); sent ${snapshot.length} other job(s) to the queue.`)
+    else success(`Advanced ${grouped.episodes.length} episode recovery plan(s); sent ${snapshot.length} job(s) to the queue.`)
   } catch (cause: any) {
     showError(cause?.data?.detail || cause?.message || 'Episode recovery could not be advanced.')
   } finally {
@@ -2854,6 +2831,32 @@ async function repairJobOnly(job: RJob) {
     showError(customerJobText(e?.data?.detail || e?.message || 'Could not check for finished work', job))
     setRepairState(job.job_id, { outcome: 'failed' })
     repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'could not check — try again', kind: 'warn' } }
+  }
+}
+
+async function finishMissingImages(job: RJob, announce = true): Promise<boolean> {
+  if (controlBusy.value.has(job.job_id)) return false
+  setRepairState(job.job_id, null)
+  controlBusy.value = new Set(controlBusy.value).add(job.job_id)
+  try {
+    const response = await post<{ job: Job }>(`${jobQueuePath(job)}/finish-missing-images`, {})
+    const next = response?.job
+    if (!next || next.job_id !== job.job_id) throw new Error('Story Studio could not confirm this existing image run was queued.')
+    // Queue refs are intentionally readonly. Apply the confirmed same-row
+    // response through both stores immediately; SSE may arrive later.
+    projectQueue.applyUpdate(next)
+    universalQueue.applyUpdate(next)
+    failureBatchFilter.value = null
+    statusFilter.value = next.status === 'running' ? 'running' : 'queued'
+    if (announce) success(`Finish missing images queued for ${job.episode_id}.`)
+    return true
+  } catch (e: any) {
+    showError(customerJobText(e?.data?.detail || e?.message || 'Could not queue the missing images.', job))
+    return false
+  } finally {
+    const next = new Set(controlBusy.value)
+    next.delete(job.job_id)
+    controlBusy.value = next
   }
 }
 
