@@ -248,6 +248,49 @@ interface BatchPreflight {
   introductionChatModel: string | null
 }
 
+interface BlockedPipelineEpisode {
+  episode_id: string
+  reason: string
+  issues: PreflightIssue[]
+}
+
+/**
+ * A bad batch setting is unsafe for every episode and therefore remains a
+ * batch-wide stop. Episode-scoped prerequisites are different: an overnight
+ * batch can still make useful progress for the other selected episodes, and
+ * each blocked episode gets its own durable reason instead of being hidden in
+ * a generic preflight failure.
+ */
+function splitPreflightIssues(issues: PreflightIssue[]): {
+  globalIssues: PreflightIssue[]
+  blocked: BlockedPipelineEpisode[]
+} {
+  const globalIssues: PreflightIssue[] = []
+  const byEpisode = new Map<string, PreflightIssue[]>()
+  for (const issue of issues) {
+    if (!issue.episode_id) {
+      globalIssues.push(issue)
+      continue
+    }
+    const episodeIssues = byEpisode.get(issue.episode_id) || []
+    episodeIssues.push(issue)
+    byEpisode.set(issue.episode_id, episodeIssues)
+  }
+  return {
+    globalIssues,
+    blocked: [...byEpisode.entries()].map(([episode_id, episodeIssues]) => ({
+      episode_id,
+      reason: episodeIssues.map(issue => issue.message).join(' '),
+      issues: episodeIssues,
+    })),
+  }
+}
+
+function eligibleEpisodeIds(episodeIds: string[], blocked: BlockedPipelineEpisode[]): string[] {
+  const blockedIds = new Set(blocked.map(episode => episode.episode_id))
+  return [...new Set(episodeIds)].filter(episodeId => !blockedIds.has(episodeId))
+}
+
 const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
   broll: ['audio_merge'],
   'introduction-only': ['script-only'],
@@ -415,7 +458,11 @@ async function preflightBatch(
     }
   }
 
-  const estimateInputs = extractEstimateInputs(presetByStep as Record<BatchStep, StoredPreset>, episodeIds.length)
+  // Blocked episodes never reach the queue, so reserve disk only for the
+  // episodes that can actually run. Otherwise two missing subtitle timelines
+  // could make an otherwise-safe eligible batch fail a global disk check.
+  const eligibleCount = eligibleEpisodeIds(episodeIds, splitPreflightIssues(issues).blocked).length
+  const estimateInputs = extractEstimateInputs(presetByStep as Record<BatchStep, StoredPreset>, eligibleCount)
   const estimatedBytes = estimateRunBatchBytes(steps as EstimateStep[], estimateInputs)
   const outputRoot = await pm.getProjectOutputRoot(slug)
   const freeBytes = await getFreeBytes(outputRoot || pm.projectsRoot())
@@ -1529,9 +1576,14 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   const steps = await applyChannelSegmentIntent(slug, requestedSteps)
   try {
     const result = await preflightBatch(slug, episodeIds, steps, force)
-    res.status(result.ok ? 200 : 422).json({
-      ok: result.ok,
+    const { globalIssues, blocked } = splitPreflightIssues(result.issues)
+    const eligible_episode_ids = eligibleEpisodeIds(episodeIds, blocked)
+    const canSubmit = globalIssues.length === 0 && eligible_episode_ids.length > 0
+    res.status(canSubmit ? 200 : 422).json({
+      ok: canSubmit,
       issues: result.issues,
+      blocked,
+      eligible_episode_ids,
       warnings: result.warnings,
       estimated_bytes: result.estimatedBytes,
       free_bytes: result.freeBytes,
@@ -1561,12 +1613,16 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   const steps = await applyChannelSegmentIntent(slug, requestedSteps)
 
   const preflight = await preflightBatch(slug, episode_ids, steps, force)
-  if (!preflight.ok) {
+  const { globalIssues, blocked } = splitPreflightIssues(preflight.issues)
+  const eligible_episode_ids = eligibleEpisodeIds(episode_ids, blocked)
+  if (globalIssues.length || !eligible_episode_ids.length) {
     return res.status(400).json({
       detail: preflight.issues.length === 1
         ? `${preflight.issues[0]!.message} Nothing was started.`
         : 'Pipeline preflight found blocking problems. Nothing was started.',
       issues: preflight.issues,
+      blocked,
+      eligible_episode_ids,
       missing: preflight.issues.filter(i => i.code === 'missing_preset').map(i => ({ step: i.step, reason: i.message })),
       warnings: preflight.warnings,
       free_bytes: preflight.freeBytes,
@@ -1662,7 +1718,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   // so the response can report "wrote continuity.json for N episode(s)".
   let characterSheetsApplied = 0
 
-  for (const episodeId of episode_ids) {
+  for (const episodeId of eligible_episode_ids) {
     const idea = ideaByCode.get(episodeId)
     if (!idea) {
       skipped.push({ episode_id: episodeId, reason: 'Not found among accepted ideas' })
@@ -1945,6 +2001,8 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     total_jobs_planned: totalEnqueuedStepCount,
     character_sheets_applied: characterSheetsApplied,
     skipped,
+    blocked,
+    issues: preflight.issues,
     steps_skipped_as_done,
     jobs: enqueued,
     reused_jobs: reused,

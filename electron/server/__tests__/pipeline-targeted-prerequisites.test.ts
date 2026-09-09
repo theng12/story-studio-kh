@@ -55,6 +55,21 @@ async function seedEpisode() {
   return { slug: project.slug, episodeId: accepted.episode_code, paths }
 }
 
+async function acceptSiblingEpisode(slug: string) {
+  const [idea] = await im.addIdeas(slug, [{
+    title: 'Eligible sibling episode',
+    logline: '',
+    themes: [],
+    suggested_chapters: 1,
+    suggested_length: 'short',
+    mood: 'calm',
+  }], 'test-model')
+  assert.ok(idea)
+  const accepted = await im.acceptIdea(slug, idea.id, false)
+  const paths = await resolveEpisodePathsByCode(slug, accepted.episode_code)
+  return { episodeId: accepted.episode_code, paths }
+}
+
 async function writeValidSubtitleTimeline(paths: Awaited<ReturnType<typeof resolveEpisodePathsByCode>>, episodeId: string) {
   const srt = '1\n00:00:00,000 --> 00:00:01,000\nA complete subtitle timeline.\n'
   const stitched = path.join(paths.subtitles_dir, `${episodeId}_stitched.srt`)
@@ -96,6 +111,9 @@ async function assertRejectedWithoutJob(
 
   assert.equal(response.status, 400, JSON.stringify(response.body))
   assert.match(response.body.detail, /Nothing was started/)
+  assert.equal(response.body.blocked?.[0]?.episode_id, episodeId)
+  assert.match(response.body.blocked?.[0]?.reason || '', new RegExp(prerequisite))
+  assert.deepEqual(response.body.eligible_episode_ids, [])
   assert.ok(
     response.body.issues?.some((issue: { code?: string; episode_id?: string; step?: string; message?: string }) => issue.code === 'missing_prerequisite'
       && issue.episode_id === episodeId
@@ -135,6 +153,63 @@ void test('targeted Scene Plan accepts a verified stitched subtitle timeline', a
   const jobs = await jq.getJobs(fixture.slug)
   assert.equal(jobs.length, 1)
   assert.equal(jobs[0]?.type, 'scene_plan_run')
+})
+
+void test('bulk Scene Plan queues eligible episodes and reports blocked subtitle prerequisites without duplicates', async () => {
+  const blocked = await seedEpisode()
+  const eligible = await acceptSiblingEpisode(blocked.slug)
+  await writeValidSubtitleTimeline(eligible.paths, eligible.episodeId)
+  const body = { episode_ids: [blocked.episodeId, eligible.episodeId], steps: ['scene_plan'] }
+  await jq.setQueuePaused(true)
+  try {
+    const first = await request(app)
+      .post(`/api/projects/${blocked.slug}/pipeline/run-batch`)
+      .send(body)
+
+    assert.equal(first.status, 201, JSON.stringify(first.body))
+    assert.equal(first.body.enqueued, 1)
+    assert.equal(first.body.jobs[0]?.episode_id, eligible.episodeId)
+    assert.equal(first.body.blocked?.[0]?.episode_id, blocked.episodeId)
+    assert.match(first.body.blocked?.[0]?.reason || '', /scene_plan needs subtitles/)
+    assert.ok(first.body.blocked?.[0]?.issues?.some((issue: { code?: string; step?: string }) =>
+      issue.code === 'missing_prerequisite' && issue.step === 'scene_plan',
+    ))
+    assert.ok(first.body.issues?.some((issue: { code?: string; episode_id?: string; step?: string }) =>
+      issue.code === 'missing_prerequisite'
+      && issue.episode_id === blocked.episodeId
+      && issue.step === 'scene_plan',
+    ))
+
+    const replay = await request(app)
+      .post(`/api/projects/${blocked.slug}/pipeline/run-batch`)
+      .send(body)
+
+    assert.equal(replay.status, 201, JSON.stringify(replay.body))
+    assert.equal(replay.body.enqueued, 0)
+    assert.equal((await jq.getJobs(blocked.slug)).filter(job => job.episode_id === eligible.episodeId).length, 1)
+    assert.deepEqual(replay.body.blocked, first.body.blocked)
+  } finally {
+    for (const job of await jq.getJobs(blocked.slug)) {
+      if (job.episode_id === eligible.episodeId) await jq.requestJobCancellation(blocked.slug, job.job_id)
+    }
+    await jq.setQueuePaused(false)
+  }
+})
+
+void test('bulk preflight admits eligible Scene Plan episodes while retaining blocked reasons', async () => {
+  const blocked = await seedEpisode()
+  const eligible = await acceptSiblingEpisode(blocked.slug)
+  await writeValidSubtitleTimeline(eligible.paths, eligible.episodeId)
+
+  const response = await request(app)
+    .post(`/api/projects/${blocked.slug}/pipeline/preflight`)
+    .send({ episode_ids: [blocked.episodeId, eligible.episodeId], steps: ['scene_plan'] })
+
+  assert.equal(response.status, 200, JSON.stringify(response.body))
+  assert.equal(response.body.ok, true)
+  assert.deepEqual(response.body.eligible_episode_ids, [eligible.episodeId])
+  assert.equal(response.body.blocked?.[0]?.episode_id, blocked.episodeId)
+  assert.match(response.body.blocked?.[0]?.reason || '', /scene_plan needs subtitles/)
 })
 
 void test('targeted Scene Review rejects a missing Scene Plan before job creation', async () => {

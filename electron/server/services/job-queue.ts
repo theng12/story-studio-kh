@@ -99,16 +99,18 @@ export async function recordGenStudioJob(
 ): Promise<void> {
   const job = jobs.get(jobId)
   if (!job) return
+  const requestKey = providerRequestKey(snapshot)
+  if (requestKey) snapshot = { ...snapshot, request_key: requestKey }
   const entries = [...(job.genstudio_jobs || [])]
-  let index = entries.findIndex(entry => entry.id === snapshot.id)
-  if (index < 0 && snapshot.request?.idempotency_key) {
+  let index = entries.findIndex(entry => entry.operation === snapshot.operation && entry.id === snapshot.id)
+  if (index < 0 && requestKey) {
     // The redacted request preview is written BEFORE submission (a request
     // that never gets an id is exactly the one a user needs to read), so it
     // lands under a deterministic `pending:<idempotency-key>` id. Once
     // GenStudio hands back the real id, adopt that entry instead of leaving a
     // duplicate orphan next to it.
-    const pendingId = pendingGenStudioEntryId(snapshot.request.idempotency_key)
-    index = entries.findIndex(entry => entry.id === pendingId)
+    const pendingId = pendingGenStudioEntryId(requestKey)
+    index = entries.findIndex(entry => entry.operation === snapshot.operation && entry.id === pendingId)
   }
   if (index >= 0) {
     const previous = entries[index]!
@@ -117,7 +119,7 @@ export async function recordGenStudioJob(
     const request = snapshot.request ?? previous.request
     entries[index] = { ...previous, ...snapshot, ...(request ? { request } : {}) }
   } else entries.push(snapshot)
-  job.genstudio_jobs = boundGenStudioRequestPreviews(entries)
+  job.genstudio_jobs = boundGenStudioRequestPreviews(coalesceExactProviderEvidence(job, entries))
   await persistJob(job)
   emitUpdate(job)
   void finalizeSettledProviderJob(job.job_id)
@@ -584,6 +586,7 @@ function mergeGenStudioReconciliationEvidence(
   entries[index] = {
     ...(isNeverCreatedProviderTask(prior) ? priorWithoutSyntheticAbsenceFields : prior),
     id: provider.id,
+    ...(recoveryKey ? { request_key: recoveryKey } : {}),
     state: provider.state,
     queue_state: provider.state === 'succeeded' ? 'succeeded'
       : provider.state === 'failed' ? 'failed'
@@ -602,7 +605,7 @@ function mergeGenStudioReconciliationEvidence(
     ...(provider.transcription_absence_verified_at ? { transcription_absence_verified_at: provider.transcription_absence_verified_at } : {}),
     updated_at: new Date().toISOString(),
   }
-  job.genstudio_jobs = coalesceExactImageProviderEvidence(job, entries)
+  job.genstudio_jobs = coalesceExactProviderEvidence(job, entries)
   if (correctedFalseTranscriptionAbsence) {
     const correction = `GenStudio later located ${operation} ${provider.id}; Story Studio corrected its earlier no-record result without submitting a new request.`
     if (!job.output_lines.includes(correction)) job.output_lines.push(correction)
@@ -1773,16 +1776,25 @@ export async function drainJobPersistenceForShutdown(timeoutMs: number): Promise
 
 type GenStudioEvidence = NonNullable<Job['genstudio_jobs']>[number]
 
+function providerRequestKey(entry: GenStudioEvidence): string | undefined {
+  const keys = [entry.request_key, entry.request?.idempotency_key,
+    entry.id.startsWith('pending:') ? entry.id.slice('pending:'.length) : undefined]
+    .filter((key): key is string => typeof key === 'string' && key.length > 0)
+  return new Set(keys).size === 1 ? keys[0] : undefined
+}
+
 /**
- * Remove a pre-submit receipt only when the current image checkpoint names
- * both its exact idempotency key and the real task that superseded it.
- * Request previews are intentionally bounded, so the durable checkpoint is
- * the ownership proof after an old preview has been pruned.
+ * Fold pre-submit receipts into their exact accepted task. Keep the small
+ * correlation key independently of the bounded request preview; otherwise
+ * merging disk evidence resurrects old placeholders after preview pruning.
+ * Legacy image checkpoints provide the same exact ownership proof.
  */
-function coalesceExactImageProviderEvidence(job: Pick<Job, 'params'>, input: GenStudioEvidence[]): GenStudioEvidence[] {
+function coalesceExactProviderEvidence(job: Pick<Job, 'params'>, input: GenStudioEvidence[]): GenStudioEvidence[] {
   const byIdentity = new Map<string, GenStudioEvidence>()
-  for (const entry of input) {
-    const identity = entry.id
+  for (let entry of input) {
+    const identity = `${entry.operation}:${entry.id}`
+    const requestKey = providerRequestKey(entry)
+    if (requestKey) entry = { ...entry, request_key: requestKey }
     const existing = byIdentity.get(identity)
     if (!existing) {
       byIdentity.set(identity, entry)
@@ -1794,6 +1806,20 @@ function coalesceExactImageProviderEvidence(job: Pick<Job, 'params'>, input: Gen
     byIdentity.set(identity, { ...older, ...newer, ...(request ? { request } : {}) })
   }
 
+  const acceptedByKey = new Map<string, GenStudioEvidence[]>()
+  for (const entry of byIdentity.values()) {
+    const requestKey = providerRequestKey(entry)
+    if (entry.id.startsWith('pending:') || !requestKey) continue
+    const identity = `${entry.operation}:${requestKey}`
+    acceptedByKey.set(identity, [...(acceptedByKey.get(identity) || []), entry])
+  }
+  for (const [identity, entry] of byIdentity) {
+    const requestKey = providerRequestKey(entry)
+    if (!entry.id.startsWith('pending:') || !requestKey) continue
+    // Conflicting task ownership must remain visible until reconciled.
+    if (acceptedByKey.get(`${entry.operation}:${requestKey}`)?.length === 1) byIdentity.delete(identity)
+  }
+
   const recovery = job.params?.genstudio_recovery
   if (recovery?.version !== 1 || recovery.route !== 'genstudio'
     || !recovery.assets || typeof recovery.assets !== 'object') return [...byIdentity.values()]
@@ -1803,13 +1829,15 @@ function coalesceExactImageProviderEvidence(job: Pick<Job, 'params'>, input: Gen
     if (asset?.operation !== 'image'
       || typeof taskId !== 'string' || !taskId.trim() || taskId.startsWith('pending:')
       || typeof idempotencyKey !== 'string' || !idempotencyKey.startsWith('story-')) continue
-    const real = byIdentity.get(taskId)
+    const real = byIdentity.get(`image.generation:${taskId}`)
     const pendingIdentity = pendingGenStudioEntryId(idempotencyKey)
-    const pending = byIdentity.get(pendingIdentity)
+    const pending = byIdentity.get(`image.generation:${pendingIdentity}`)
     if (!real || !pending || real.operation !== 'image.generation' || pending.operation !== 'image.generation'
+      || (real.request_key !== undefined && real.request_key !== idempotencyKey)
+      || (pending.request_key !== undefined && pending.request_key !== idempotencyKey)
       || (real.request?.idempotency_key !== undefined && real.request.idempotency_key !== idempotencyKey)
       || (pending.request?.idempotency_key !== undefined && pending.request.idempotency_key !== idempotencyKey)) continue
-    byIdentity.delete(pendingIdentity)
+    byIdentity.delete(`image.generation:${pendingIdentity}`)
   }
   return [...byIdentity.values()]
 }
@@ -1818,17 +1846,14 @@ function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
   if (!previous) return {
     ...incoming,
     ...(incoming.genstudio_jobs
-      ? { genstudio_jobs: coalesceExactImageProviderEvidence(incoming, incoming.genstudio_jobs) }
+      ? { genstudio_jobs: coalesceExactProviderEvidence(incoming, incoming.genstudio_jobs) }
       : {}),
   }
-  const providerById = new Map((previous.genstudio_jobs || []).map(entry => [entry.id, entry]))
+  const providerById = new Map((previous.genstudio_jobs || []).map(entry => [`${entry.operation}:${entry.id}`, entry]))
   for (const entry of incoming.genstudio_jobs || []) {
-    if (entry.request?.idempotency_key && !entry.id.startsWith('pending:')) {
-      const pendingId = pendingGenStudioEntryId(entry.request.idempotency_key)
-      if (providerById.get(pendingId)?.operation === entry.operation) providerById.delete(pendingId)
-    }
-    const existing = providerById.get(entry.id)
-    if (!existing || entry.updated_at >= existing.updated_at) providerById.set(entry.id, entry)
+    const identity = `${entry.operation}:${entry.id}`
+    const existing = providerById.get(identity)
+    if (!existing || entry.updated_at >= existing.updated_at) providerById.set(identity, entry)
   }
   const remoteCancellations = { ...(previous.remote_cancellations || {}) }
   for (const [key, record] of Object.entries(incoming.remote_cancellations || {})) {
@@ -1844,7 +1869,7 @@ function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
     ...(Object.keys(remoteCancellations).length > 0 ? { remote_cancellations: remoteCancellations } : {}),
     ...(attempts ? { paid_image_replacement_attempts: attempts } : {}),
   }
-  const providerJobs = coalesceExactImageProviderEvidence(merged, [...providerById.values()])
+  const providerJobs = coalesceExactProviderEvidence(merged, [...providerById.values()])
   return {
     ...merged,
     ...(providerJobs.length > 0 ? { genstudio_jobs: providerJobs } : {}),
@@ -2620,6 +2645,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             observePersistedRunningJobLoadStage(j, 'pause-requested')
             if (j.pause_requested === true) {
               j.status = 'paused'
+              j.pause_requested = false
               j.local_execution_complete = true
               j.finished_at = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
@@ -3872,8 +3898,6 @@ async function transitionPausedJobsToQueuedByProject(
       pausedTransitionClaims.has(job.job_id)
       && jobs.get(job.job_id) === job
       && job.status === 'paused'
-      && job.pause_requested !== true
-      && !pauseRequested.has(job.job_id)
       && !cancelled.has(job.job_id)
     ))
     if (!eligibleJobs.length) continue

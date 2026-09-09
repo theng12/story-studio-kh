@@ -2,11 +2,43 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
+import ts from 'typescript'
 
 const pipeline = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/pipeline.vue', import.meta.url)),
   'utf8',
 )
+
+function extractFunction(name: string): string {
+  const start = pipeline.indexOf(`function ${name}(`)
+  assert.notEqual(start, -1, `pipeline.vue must define ${name}()`)
+  let depth = 0
+  let seenBody = false
+  for (let i = start; i < pipeline.length; i++) {
+    if (pipeline[i] === '{') { depth++; seenBody = true }
+    else if (pipeline[i] === '}') {
+      depth--
+      if (seenBody && depth === 0) return pipeline.slice(start, i + 1)
+    }
+  }
+  throw new Error(`could not find the end of ${name}()`)
+}
+
+function loadSelectionRetainer() {
+  const source = `
+    const selectedEpisodes = new Set(['EP-blocked', 'EP-queued', 'EP-changed-during-submit'])
+    ${extractFunction('removeResolvedSubmittedEpisodes')}
+    return { selectedEpisodes, removeResolvedSubmittedEpisodes }
+  `
+  const js = ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+  }).outputText
+  // eslint-disable-next-line no-new-func
+  return new Function(js)() as {
+    selectedEpisodes: Set<string>
+    removeResolvedSubmittedEpisodes: (submitted: string[], blocked: Array<{ episode_id: string }>) => void
+  }
+}
 
 describe('Pipeline stage selection', () => {
   test('starts empty and exposes safe bulk-selection shortcuts', () => {
@@ -73,11 +105,17 @@ describe('Pipeline stage selection', () => {
     )
   })
 
-  test('shows fixed ten-episode pages with pagination in the top toolbar', () => {
-    assert.match(pipeline, /const EPISODES_PER_PAGE = 10/)
-    assert.match(pipeline, /slice\(start, start \+ EPISODES_PER_PAGE\)/)
+  test('defaults to ten-episode pages and lets users expand the page without losing selection', () => {
+    assert.match(pipeline, /const pageSize = ref\(10\)/)
+    assert.match(pipeline, /v-model\.number="pageSize"/)
+    assert.match(pipeline, /<option :value="10">10<\/option>/)
+    assert.match(pipeline, /<option :value="25">25<\/option>/)
+    assert.match(pipeline, /<option :value="50">50<\/option>/)
+    assert.match(pipeline, /<option :value="100">100<\/option>/)
+    assert.match(pipeline, /slice\(start, start \+ pageSize\.value\)/)
+    assert.match(pipeline, /watch\(totalPages, \(tp\) => \{ if \(currentPage\.value > tp\) currentPage\.value = tp \}\)/)
+    assert.match(pipeline, /Selection remains intact while you move between pages\./)
     assert.match(pipeline, /class="toolbar-pagination" aria-label="Episode pages"/)
-    assert.doesNotMatch(pipeline, /v-model\.number="pageSize"/)
 
     const toolbarIndex = pipeline.indexOf('class="toolbar-pagination"')
     const listIndex = pipeline.indexOf('class="episode-list mt-2"')
@@ -105,6 +143,23 @@ describe('Pipeline stage selection', () => {
     assert.doesNotMatch(pipeline, /episode\(s\) skipped — see Jobs tab/)
     assert.match(pipeline, /new Set\(skipped\.map\(\(s: any\) => String\(s\?\.reason \|\| ''\)\)/)
     assert.match(pipeline, /showInfo\(`Skipped — \$\{reason\}`\)/)
+  })
+
+  test('runs eligible episodes while retaining blocked selections and their reasons', () => {
+    assert.match(pipeline, /const batchBlocked = ref<BlockedEpisode\[\]>\(\[\]\)/)
+    assert.match(pipeline, /These episodes remain selected, but no work was started for them\./)
+    assert.match(pipeline, /preflightEligibleCount\.value = Array\.isArray\(result\?\.eligible_episode_ids\)/)
+    assert.match(pipeline, /batchBlocked\.value = blockedEpisodes\(r\?\.blocked\)/)
+    assert.match(pipeline, /No selected episodes were queued\. Their reasons are shown below\./)
+    assert.match(pipeline, /blocked\.length && !hasGlobalPreflightIssue\(e\?\.data\?\.issues\)/)
+    assert.match(pipeline, /View queued jobs/)
+    assert.match(pipeline, /if \(batchHasJobs\.value && !batchBlocked\.value\.length\) navigateTo/)
+  })
+
+  test('a partial response clears resolved submitted episodes, retains blockers, and preserves later selection', () => {
+    const page = loadSelectionRetainer()
+    page.removeResolvedSubmittedEpisodes(['EP-blocked', 'EP-queued'], [{ episode_id: 'EP-blocked' }])
+    assert.deepEqual([...page.selectedEpisodes], ['EP-blocked', 'EP-changed-during-submit'])
   })
 
   test('offers one explicit recover-first repair action with replay-stable authority', () => {

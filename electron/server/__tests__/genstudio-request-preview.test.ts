@@ -390,6 +390,7 @@ describe('job-queue adopts the pre-submit preview', () => {
       assert.equal(job?.genstudio_jobs?.length, 1)
       assert.deepEqual(job?.genstudio_jobs?.[0], {
         id: pendingGenStudioEntryId('story-chat-credit-preview'),
+        request_key: 'story-chat-credit-preview',
         operation: 'chat.response',
         state: 'failed',
         dispatch_state: 'pre_dispatch',
