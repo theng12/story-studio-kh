@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.138
+
+- Keep Jobs cards compact when many prompts or images need attention. Show the verified count and a concise cause; expand affected items or the full error only when needed.
+- Explain uncertain Scene Plan requests accurately instead of claiming automatic repair was exhausted. Preserve completed prompts and the exact request and scene scope for recovery before replacement work.
+
 ## v1.4.137
 
 - Resume all paused work consistently with individual Resume, including jobs paused during an app restart. Cancellation and duplicate-click protections remain in place.
