@@ -8,6 +8,7 @@ import { transform } from 'esbuild'
 import { createApp, defineComponent, h, nextTick, ref, type Component } from 'vue'
 
 type IntroPayload = {
+  introduction_ready?: boolean
   script: null
   introduction: { content: string; modifiedAt: string; wordCount: number } | null
 }
@@ -209,6 +210,138 @@ describe('IntroductionPreview inline editor', () => {
     await flush()
     assert.doesNotMatch(host.textContent || '', /Wrong project content/,
       'a late response for the previous project must not replace the active project')
+
+    app.unmount()
+    delete (globalThis as any).__introductionEditorApi
+  })
+
+  test('reports a ready script from the API flag even when the old unified script field is absent', async () => {
+    const readiness: Array<{ projectSlug: string; episodeId: string; state: string }> = []
+    ;(globalThis as any).__introductionEditorApi = {
+      get: async () => ({
+        introduction_ready: true,
+        // Chapter-only scripts deliberately have no legacy unified `script`
+        // payload. The server's readiness flag is the authority here.
+        script: null,
+        introduction: null,
+      }),
+      put: async () => { throw new Error('not used') },
+    }
+
+    const Preview = await loadComponent()
+    const Root = defineComponent({
+      setup: () => () => h(Preview, {
+        projectSlug: 'demo',
+        episodeId: 'EP0001',
+        onScriptReadiness: (value: { projectSlug: string; episodeId: string; state: string }) => readiness.push(value),
+      }),
+    })
+    document.body.innerHTML = ''
+    const host = document.body.appendChild(document.createElement('div'))
+    const app = createApp(Root)
+    app.component('LoadingSpinner', { render: () => h('span', 'Loading') })
+    app.mount(host)
+    await flush()
+
+    assert.deepEqual(readiness, [
+      { projectSlug: 'demo', episodeId: 'EP0001', state: 'loading' },
+      { projectSlug: 'demo', episodeId: 'EP0001', state: 'ready' },
+    ])
+    assert.match(host.textContent || '', /No introduction generated yet/)
+
+    app.unmount()
+    delete (globalThis as any).__introductionEditorApi
+  })
+
+  test('keeps readiness keyed to the active episode when an older read finishes late', async () => {
+    let resolveOld: ((value: IntroPayload) => void) | null = null
+    const readiness: Array<{ projectSlug: string; episodeId: string; state: string }> = []
+    ;(globalThis as any).__introductionEditorApi = {
+      get: (apiPath: string) => {
+        if (apiPath.includes('EP0001')) {
+          return new Promise<IntroPayload>((resolve) => { resolveOld = resolve })
+        }
+        return Promise.resolve({ introduction_ready: false, script: null, introduction: null })
+      },
+      put: async () => { throw new Error('not used') },
+    }
+
+    const Preview = await loadComponent()
+    const episodeId = ref('EP0001')
+    const Root = defineComponent({
+      setup: () => () => h(Preview, {
+        projectSlug: 'demo',
+        episodeId: episodeId.value,
+        onScriptReadiness: (value: { projectSlug: string; episodeId: string; state: string }) => readiness.push(value),
+      }),
+    })
+    document.body.innerHTML = ''
+    const host = document.body.appendChild(document.createElement('div'))
+    const app = createApp(Root)
+    app.component('LoadingSpinner', { render: () => h('span', 'Loading') })
+    app.mount(host)
+    await nextTick()
+
+    episodeId.value = 'EP0002'
+    await flush()
+    assert.deepEqual(readiness.slice(-2), [
+      { projectSlug: 'demo', episodeId: 'EP0002', state: 'loading' },
+      { projectSlug: 'demo', episodeId: 'EP0002', state: 'missing' },
+    ])
+
+    assert.ok(resolveOld)
+    resolveOld({ introduction_ready: true, script: null, introduction: null })
+    await flush()
+    assert.deepEqual(readiness.slice(-2), [
+      { projectSlug: 'demo', episodeId: 'EP0002', state: 'loading' },
+      { projectSlug: 'demo', episodeId: 'EP0002', state: 'missing' },
+    ], 'a delayed response for EP0001 must not overwrite EP0002 readiness')
+
+    app.unmount()
+    delete (globalThis as any).__introductionEditorApi
+  })
+
+  test('invalidates readiness when a refresh fails while retaining the previous preview', async () => {
+    let failRefresh = false
+    const readiness: Array<{ projectSlug: string; episodeId: string; state: string }> = []
+    ;(globalThis as any).__introductionEditorApi = {
+      get: async () => {
+        if (failRefresh) throw Object.assign(new Error('offline'), { data: { detail: 'Could not check the script.' } })
+        return {
+          introduction_ready: true,
+          script: null,
+          introduction: { content: 'Previously loaded opening.', modifiedAt: '2026-09-06T08:00:00Z', wordCount: 3 },
+        }
+      },
+      put: async () => { throw new Error('not used') },
+    }
+
+    const Preview = await loadComponent()
+    const Root = defineComponent({
+      setup: () => () => h(Preview, {
+        projectSlug: 'demo',
+        episodeId: 'EP0001',
+        onScriptReadiness: (value: { projectSlug: string; episodeId: string; state: string }) => readiness.push(value),
+      }),
+    })
+    document.body.innerHTML = ''
+    const host = document.body.appendChild(document.createElement('div'))
+    const app = createApp(Root)
+    app.component('LoadingSpinner', { render: () => h('span', 'Loading') })
+    app.mount(host)
+    await flush()
+    assert.match(host.textContent || '', /Previously loaded opening/)
+
+    failRefresh = true
+    click(host, 'Refresh')
+    await flush()
+    assert.deepEqual(readiness.slice(-2), [
+      { projectSlug: 'demo', episodeId: 'EP0001', state: 'loading' },
+      { projectSlug: 'demo', episodeId: 'EP0001', state: 'error' },
+    ])
+    assert.match(host.textContent || '', /Previously loaded opening/,
+      'a failed refresh must not discard the last safe preview')
+    assert.match(host.textContent || '', /Could not check the script/)
 
     app.unmount()
     delete (globalThis as any).__introductionEditorApi

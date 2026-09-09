@@ -219,7 +219,9 @@ describe('the Script page no longer keeps its own answer', () => {
 const pageDescriptor = parse(readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/introduction.vue', import.meta.url)), 'utf8')).descriptor
 const pageTemplate = pageDescriptor.template?.content ?? ''
+const pageScript = pageDescriptor.scriptSetup?.content ?? ''
 assert.ok(pageTemplate, 'introduction.vue must have a template')
+assert.ok(pageScript, 'introduction.vue must have a <script setup>')
 
 /**
  * The page's OWN provenance computeds, compiled out of the real script block.
@@ -231,8 +233,6 @@ assert.ok(pageTemplate, 'introduction.vue must have a template')
  */
 function loadProvenance(): (s: { touched: boolean; follows: boolean; formula: string })
   => { state: string; line: string } {
-  const pageScript = pageDescriptor.scriptSetup?.content ?? ''
-  assert.ok(pageScript, 'introduction.vue must have a <script setup>')
   const start = pageScript.indexOf('const provenanceState = computed')
   assert.notEqual(start, -1, 'introduction.vue must still define provenanceState')
   const end = pageScript.indexOf('const actionStatus = computed', start)
@@ -255,6 +255,64 @@ function loadProvenance(): (s: { touched: boolean; follows: boolean; formula: st
   return new Function(js)()
 }
 const provenanceFor = loadProvenance()
+
+/** Extract one real page function without maintaining a test-side copy. */
+function extractPageFunction(signature: string): string {
+  const start = pageScript.indexOf(signature)
+  assert.notEqual(start, -1, `introduction.vue must still define ${signature}`)
+  let depth = 0
+  let seenBody = false
+  for (let i = start; i < pageScript.length; i += 1) {
+    if (pageScript[i] === '{') { depth += 1; seenBody = true }
+    else if (pageScript[i] === '}') {
+      depth -= 1
+      if (seenBody && depth === 0) return pageScript.slice(start, i + 1)
+    }
+  }
+  assert.fail(`could not extract ${signature}`)
+}
+
+/**
+ * The readiness computed and submission handler compiled from the page itself.
+ * The harness supplies only Vue refs and the side effects the page depends on;
+ * it does not reproduce the gate or the handler in test code.
+ */
+function loadIntroductionReadinessGate(): any {
+  const stateStart = pageScript.indexOf("const episodeId = ref('')")
+  const stateEnd = pageScript.indexOf('const dirty = ref(false)', stateStart)
+  assert.ok(stateStart > -1 && stateEnd > stateStart,
+    'the page must keep its episode/readiness/generation state together')
+  const state = pageScript.slice(stateStart, stateEnd)
+  const generate = extractPageFunction('async function generateForEpisode')
+  const js = ts.transpileModule(`
+    const ref = (value) => ({ value })
+    const computed = (fn) => ({ get value() { return fn() } })
+    const slug = { value: 'demo' }
+    const posts = []
+    const operations = []
+    const post = async (...args) => { posts.push(args); return { ok: true } }
+    const freshIntroductionAction = {
+      begin: (payload) => { operations.push(payload); return 'introduction-operation' },
+      complete: () => undefined,
+    }
+    const success = () => undefined
+    const showError = () => undefined
+    const introFailure = ref('')
+    // The page derives this from the current episode's script jobs. Keep it
+    // mutable here so the real gate is exercised for queued/running/paused.
+    const scriptWriting = ref(false)
+    ${state}
+    const segment = { enabled: true }
+    const introductionInFlight = ref(false)
+    ${generate}
+    return {
+      episodeId, scriptReadiness, canGenerateIntroduction, generateForEpisode, posts, operations,
+      previewSaving, generating, introductionInFlight, scriptWriting,
+    }
+  `, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+  // eslint-disable-next-line no-new-func
+  return new Function(js)()
+}
 
 
 /**
@@ -553,5 +611,52 @@ describe('the page distinguishes a Formula\u2019s opening from the owner\u2019s 
     assert.doesNotMatch(p.line, /\s{2,}/, 'a missing Formula name must not leave a gap in the sentence')
     assert.match(p.line, /this channel\u2019s Formula/,
       'it falls back to naming it generically rather than rendering "the  Formula"')
+  })
+})
+
+describe('the Introduction page only submits for the checked episode script', () => {
+  test('missing, loading, failed, and mismatched readiness cannot create an operation; ready can', async () => {
+    const gate = loadIntroductionReadinessGate()
+    gate.episodeId.value = 'EP0001'
+
+    for (const state of ['loading', 'missing', 'error']) {
+      gate.scriptReadiness.value = { projectSlug: 'demo', episodeId: 'EP0001', state }
+      assert.equal(gate.canGenerateIntroduction.value, false, `${state} must keep the CTA disabled`)
+      await gate.generateForEpisode()
+    }
+
+    gate.scriptReadiness.value = { projectSlug: 'demo', episodeId: 'EP0002', state: 'ready' }
+    assert.equal(gate.canGenerateIntroduction.value, false,
+      'a ready response for another selected episode is not permission to submit this one')
+    await gate.generateForEpisode()
+
+    assert.deepEqual(gate.posts, [], 'the handler must make no POST while the gate is closed')
+    assert.deepEqual(gate.operations, [], 'the handler must not create an operation while the gate is closed')
+
+    gate.scriptReadiness.value = { projectSlug: 'demo', episodeId: 'EP0001', state: 'ready' }
+    assert.equal(gate.canGenerateIntroduction.value, true, 'the matching server readiness flag enables generation')
+
+    for (const [label, busy] of [
+      ['a queued, running, or paused script writer', gate.scriptWriting],
+      ['an introduction submission already in progress', gate.generating],
+      ['a manual preview save', gate.previewSaving],
+      ['an introduction job already in flight', gate.introductionInFlight],
+    ]) {
+      busy.value = true
+      assert.equal(gate.canGenerateIntroduction.value, false, `${label} must close an otherwise-ready gate`)
+      await gate.generateForEpisode()
+      busy.value = false
+    }
+
+    assert.deepEqual(gate.posts, [], 'busy conditions must not issue a POST even after readiness succeeds')
+    assert.deepEqual(gate.operations, [], 'busy conditions must not create an operation even after readiness succeeds')
+    assert.equal(gate.canGenerateIntroduction.value, true, 'clearing busy state restores the matching ready gate')
+    await gate.generateForEpisode()
+
+    assert.deepEqual(gate.operations, [{ episode_id: 'EP0001' }])
+    assert.deepEqual(gate.posts, [[
+      '/projects/demo/generate/introduction-only',
+      { episode_id: 'EP0001', operation_id: 'introduction-operation' },
+    ]])
   })
 })

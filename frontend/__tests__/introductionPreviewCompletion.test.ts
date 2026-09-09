@@ -131,9 +131,11 @@ describe('the page is wired to that decision', () => {
   })
 
   test('the page cannot enqueue a generated replacement while a manual save is active', () => {
-    assert.match(page, /@saving-change="previewSaving = \$event"/)
-    assert.match(page, /:generate-disabled="[^"]*previewSaving[^"]*"/)
-    assert.match(page, /if \(!episodeId\.value \|\| previewSaving\.value\) return/)
+    assert.match(page, /@saving-change="onPreviewSavingChange"/)
+    assert.match(page, /:generate-disabled="!canGenerateIntroduction"/)
+    assert.match(page, /if \(!canGenerateIntroduction\.value\) return/)
+    assert.match(page, /previewSaving.value = saving/)
+    assert.match(page, /!previewSaving.value/)
   })
 
   test('an idle page makes no requests of its own', () => {

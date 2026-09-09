@@ -1148,7 +1148,7 @@ Do not add a heading, preface, explanation, divider, or separator.`
   // legacy unified-only narration if needed so users with old episodes
   // can still run intro generation without manually re-running the
   // script step.
-  const { ensureChapterFilesMigrated, writeChapterFiles, assembleUnifiedNarration } =
+  const { ensureChapterFilesMigrated, writeChapterFiles, assembleUnifiedNarration, hasIntroductionScriptSource } =
     await import('../lib/narration-assembly.js')
   await ensureChapterFilesMigrated(paths.script_dir, episode_id, title)
 
@@ -1170,10 +1170,7 @@ Do not add a heading, preface, explanation, divider, or separator.`
   }
 
   // After potential migration, verify chapters exist.
-  let scriptDirEntries: string[] = []
-  try { scriptDirEntries = await fs.readdir(paths.script_dir) } catch { /* missing */ }
-  const hasAnyChapter = scriptDirEntries.some(n => matchChapterFile(n, episode_id) !== null)
-  if (!hasAnyChapter) {
+  if (!await hasIntroductionScriptSource(paths.script_dir, episode_id)) {
     throw new Error(
       'No chapter source files found. Generate the script (chapters) first; ' +
       'introduction is appended to the unified narration after it exists.',

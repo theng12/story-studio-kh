@@ -23,7 +23,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import { buildNarrationDocx } from './docx-builder.js'
 import { narrationDocxToMarkdown } from './docx-parser.js'
-import { matchChapterFile, resolveArtifact, resolveReadPath } from './episode-artifacts.js'
+import { matchChapterFile, resolveArtifact, resolveReadPath, readArtifactRawText } from './episode-artifacts.js'
 import { normalizeSpokenNumbers } from './tts-text.js'
 
 export interface NarrationParts {
@@ -296,6 +296,23 @@ export async function assembleUnifiedNarration(
 }
 
 // ── Eager migration for legacy episodes ────────────────────────────────────
+
+/** Read-only counterpart to chapter migration, for the Introduction prerequisite. */
+export async function hasIntroductionScriptSource(scriptDir: string, code: string): Promise<boolean> {
+  let entries: string[]
+  try { entries = await fs.readdir(scriptDir) }
+  catch (error: any) { if (error?.code === 'ENOENT') return false; throw error }
+  const chapterFiles = entries.filter(name => matchChapterFile(name, code) !== null)
+  if (chapterFiles.length) {
+    for (const name of chapterFiles) {
+      if ((await readArtifactRawText(path.join(scriptDir, name))).trim()) return true
+    }
+    return false
+  }
+  const unified = resolveArtifact(scriptDir, `${code}_Script_Narration`)
+  if (!unified) return false
+  return splitNarrationIntoChapters(await narrationDocxToMarkdown(unified)).chapters.length > 0
+}
 
 /**
  * Materialise per-chapter files from a legacy unified-only narration, if

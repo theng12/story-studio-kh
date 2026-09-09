@@ -169,9 +169,14 @@ describe('episode-aware workflow continuity', () => {
     const filename = fileURLToPath(new URL('../pages/projects/[slug]/introduction.vue', import.meta.url))
     const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
     const template = descriptor.template!.content
+    const script = descriptor.scriptSetup!.content
     assert.match(template, /<IntroductionPreview\s+v-if="episodeId"/,
       'an existing opening remains inspectable/editable for a selected episode even when generation is off')
-    assert.match(template, /:generate-disabled="!segment\.enabled \|\| !episodeId/,
-      'the policy still disables generation; visibility must not switch generation back on')
+    assert.match(template, /:generate-disabled="!canGenerateIntroduction"/,
+      'the toolbar must use the same eligibility gate as the submit handler')
+    assert.match(script, /const canGenerateIntroduction = computed\(\(\) => segment\.enabled &&/,
+      'the shared gate still starts by requiring the channel policy to be on')
+    assert.match(script, /if \(!canGenerateIntroduction\.value\) return/,
+      'a click cannot bypass the disabled CTA while the policy is off')
   })
 })
