@@ -37,6 +37,8 @@ const genstudioProvider: TextProvider = {
       outputBudget: request.outputBudget,
       requestIdentity: request.requestIdentity,
       recoverByIdempotencyKey: request.recoverByIdempotencyKey === true,
+      allowUncreatedRecovery: request.allowUncreatedRecovery === true,
+      recoveryRequestPreview: request.recoveryRequestPreview,
       idempotencyKey: request.idempotencyKey,
       allowedRecoveryKeys: request.allowedRecoveryKeys,
       outputContract: request.outputContract,

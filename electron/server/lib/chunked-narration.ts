@@ -67,6 +67,7 @@ import {
 import { matchChapterFile, resolveReadPath } from './episode-artifacts.js'
 import * as jq from '../services/job-queue.js'
 import type { Job, Format, Character } from '../models/types.js'
+import type { GenStudioRequestPreview } from './genstudio-request-preview.js'
 
 // ── Tunables ───────────────────────────────────────────────────────────────
 
@@ -669,6 +670,8 @@ export interface ChunkedNarrationParams {
   pipelineModelPolicy?: AssignedPipelineModelPolicy
   /** Durable per-request ledger used by explicit backup policies. */
   pipelinePolicyCheckpoint?: PipelinePolicyCheckpointStore
+  /** Server-owned preview proving one explicitly authorized not-created retry. */
+  genstudioChatRecoveryPreview?: GenStudioRequestPreview
 }
 
 export function policyChapterGroups(job: Job, mode: ChunkedMode, outline: OutlineEntry[], pending: OutlineEntry[], batchSize: number): OutlineEntry[][] | null {
@@ -1114,7 +1117,7 @@ function pipelineAttemptContext<T extends Record<string, any>>(
   return {
     ...context,
     ...(recovery ? {
-      recoverByIdempotencyKey: true,
+      ...(context.allowUncreatedRecovery ? {} : { recoverByIdempotencyKey: true }),
       idempotencyKey: recovery.idempotencyKey,
       allowedRecoveryKeys: [recovery.idempotencyKey],
     } : {}),
@@ -1430,6 +1433,20 @@ async function expandNarrativeSequential(
         && job.genstudio_chat_recovery_purpose !== 'narrative-repair',
       allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
     }
+    const uncreatedBatchRecovery = params.genstudioChatRecoveryPreview
+      && job.genstudio_chat_recovery_purpose === 'narrative-batch'
+      && job.genstudio_chat_recovery_key
+      && job.genstudio_chat_recovery_chapters?.length
+      && batch.length === job.genstudio_chat_recovery_chapters.length
+      && batch.every(entry => job.genstudio_chat_recovery_chapters!.includes(entry.n))
+      ? {
+          allowUncreatedRecovery: true as const,
+          recoverByIdempotencyKey: false as const,
+          recoveryRequestPreview: params.genstudioChatRecoveryPreview,
+          idempotencyKey: job.genstudio_chat_recovery_key,
+          allowedRecoveryKeys: [job.genstudio_chat_recovery_key],
+        }
+      : {}
     const recoveryChapters = job.genstudio_chat_recovery === true
       && job.genstudio_chat_recovery_purpose === 'narrative-repair'
       ? job.genstudio_chat_recovery_chapters
@@ -1475,6 +1492,7 @@ async function expandNarrativeSequential(
       const text = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) =>
         callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
           ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+          ...uncreatedBatchRecovery,
         }), {
           key: chapterCheckpointKey,
           inputFingerprint: pipelinePolicyInputFingerprint({ system: params.systemPrompt, user: prompt }),

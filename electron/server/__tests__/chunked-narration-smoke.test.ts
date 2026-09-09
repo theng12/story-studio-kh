@@ -46,6 +46,7 @@ interface FakeCall {
   outputBudget?: TextGenerationRequest['outputBudget']
   requestIdentity?: string
   recoverByIdempotencyKey?: boolean
+  allowUncreatedRecovery?: boolean
   idempotencyKey?: string
   allowedRecoveryKeys?: string[]
 }
@@ -74,6 +75,7 @@ const fakeProvider: TextProvider = {
       fakeCalls.push({
         kind: 'outline', userMessage: req.userMessage, outputBudget: req.outputBudget, requestIdentity: req.requestIdentity,
         recoverByIdempotencyKey: req.recoverByIdempotencyKey,
+        allowUncreatedRecovery: req.allowUncreatedRecovery,
         idempotencyKey: req.idempotencyKey, allowedRecoveryKeys: req.allowedRecoveryKeys,
       })
       return fakeOutlineResponse
@@ -81,6 +83,7 @@ const fakeProvider: TextProvider = {
     fakeCalls.push({
       kind: 'expansion', userMessage: req.userMessage, outputBudget: req.outputBudget, requestIdentity: req.requestIdentity,
       recoverByIdempotencyKey: req.recoverByIdempotencyKey,
+      allowUncreatedRecovery: req.allowUncreatedRecovery,
       idempotencyKey: req.idempotencyKey, allowedRecoveryKeys: req.allowedRecoveryKeys,
     })
     if (fakeIncompleteExpansion) {
@@ -234,6 +237,42 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
       true,
       'an unresolved exact replay must reach the provider as a read-only recovery',
     )
+  })
+
+  test('a verified absent normal batch resumes once, preserves completed chapters, then starts later batches normally', async () => {
+    const scriptDir = await freshDir()
+    const episodeId = 'EPNOTCREATED'
+    await writeImportedOutline(scriptDir, episodeId, Array.from({ length: 9 }, (_, index) => ({ title: `Chapter ${index + 1}` })))
+    for (const chapter of [1, 2, 3]) {
+      await fs.writeFile(path.join(scriptDir, `${episodeId}_Chapter_${String(chapter).padStart(2, '0')}.md`), `## Chapter ${String(chapter).padStart(2, '0')}: Chapter ${chapter}\n\nCompleted before Retry.\n`)
+    }
+    fakeExpansionFor = buildExpansionFor
+    const job = makeJob(scriptDir)
+    job.genstudio_chat_recovery_key = 'story-chat-ss0175-chapters-21-23'
+    job.genstudio_chat_recovery_purpose = 'narrative-batch'
+    job.genstudio_chat_recovery_chapters = [4, 5, 6]
+    job.genstudio_chat_recovery_preview = {
+      method: 'POST', path: '/v1/chat/responses', idempotency_key: job.genstudio_chat_recovery_key,
+      captured_at: new Date().toISOString(),
+    }
+
+    await expandChapters(job, {
+      episode_id: episodeId, title: 'Retry continuation', totalChapters: 9, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'system', scriptDir, model: FAKE_MODEL, apiKeys: {},
+      genstudioChatRecoveryPreview: job.genstudio_chat_recovery_preview,
+    })
+
+    const expansions = fakeCalls.filter(call => call.kind === 'expansion')
+    assert.equal(expansions.length, 2)
+    assert.equal(expansions[0]?.allowUncreatedRecovery, true)
+    assert.equal(expansions[0]?.recoverByIdempotencyKey, false)
+    assert.equal(expansions[0]?.idempotencyKey, job.genstudio_chat_recovery_key)
+    assert.equal(expansions[1]?.allowUncreatedRecovery, false)
+    assert.equal(expansions[1]?.recoverByIdempotencyKey, false)
+    assert.match(await fs.readFile(path.join(scriptDir, `${episodeId}_Chapter_01.md`), 'utf8'), /Completed before Retry/)
+    for (const chapter of [4, 5, 6, 7, 8, 9]) {
+      assert.equal(existsSync(path.join(scriptDir, `${episodeId}_Chapter_${String(chapter).padStart(2, '0')}.md`)), true)
+    }
   })
 
   test('a recovered narrative repair rewrites its original slots even when one partial chapter is already on disk', async () => {

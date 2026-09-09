@@ -10,7 +10,7 @@ import path from 'path'
 import { EventEmitter } from 'events'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
 import { deactivateSceneRenderStatus } from './scene-render-status.js'
-import { boundGenStudioRequestPreviews, pendingGenStudioEntryId } from '../lib/genstudio-request-preview.js'
+import { boundGenStudioRequestPreviews, pendingGenStudioEntryId, type GenStudioRequestPreview } from '../lib/genstudio-request-preview.js'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
 import { randomUUID } from 'node:crypto'
@@ -4266,7 +4266,7 @@ export interface EnqueueOptions {
   genstudio_chat_recovery?: true
   /** Server-extracted recovery fields. These are deliberately outside params. */
   genstudio_chat_recovery_key?: string
-  genstudio_chat_recovery_purpose?: 'outline' | 'narrative-repair'
+  genstudio_chat_recovery_purpose?: 'outline' | 'narrative-repair' | 'narrative-batch'
   genstudio_chat_recovery_chapters?: number[]
   genstudio_chat_recovery_keys?: string[]
   /** Narrow the duplicate check to jobs whose params satisfy this predicate.
@@ -4280,6 +4280,8 @@ export interface EnqueueOptions {
 /** Internal insertion-only options. Public enqueue callers cannot set policy. */
 interface EnqueuePreparedOptions extends EnqueueOptions {
   paid_image_replacement?: PaidImageReplacementPolicySnapshot
+  /** Derived from durable queue evidence; public enqueue callers cannot supply it. */
+  genstudio_chat_recovery_preview?: GenStudioRequestPreview
 }
 
 function withoutPaidImageReplacementParam(params: EnqueueOptions['params']): EnqueueOptions['params'] {
@@ -4342,6 +4344,7 @@ function enqueuePrepared(
     ...(opts.genstudio_chat_recovery_purpose ? { genstudio_chat_recovery_purpose: opts.genstudio_chat_recovery_purpose } : {}),
     ...(opts.genstudio_chat_recovery_chapters?.length ? { genstudio_chat_recovery_chapters: opts.genstudio_chat_recovery_chapters } : {}),
     ...(opts.genstudio_chat_recovery_keys?.length ? { genstudio_chat_recovery_keys: opts.genstudio_chat_recovery_keys } : {}),
+    ...(opts.genstudio_chat_recovery_preview ? { genstudio_chat_recovery_preview: opts.genstudio_chat_recovery_preview } : {}),
   }
 
   jobs.set(jobId, job)
@@ -4405,6 +4408,7 @@ export async function enqueue(
     : undefined
   const safeOpts: EnqueueOptions = { ...opts }
   delete (safeOpts as EnqueueOptions & { paid_image_replacement?: unknown }).paid_image_replacement
+  delete (safeOpts as EnqueueOptions & { genstudio_chat_recovery_preview?: unknown }).genstudio_chat_recovery_preview
   const { params, ...enqueueOpts } = safeOpts
   return enqueuePrepared({
     ...enqueueOpts,
@@ -4635,8 +4639,10 @@ export async function finishMissingImagesInPlace(
 type ChapterChatRetryMode = 'exact-replay' | 'fresh-replacement'
 type ChatRecoveryDescriptor = {
   key: string
-  purpose: 'outline' | 'narrative-repair'
+  purpose: 'outline' | 'narrative-repair' | 'narrative-batch'
   chapters?: number[]
+  preview: GenStudioRequestPreview
+  notCreated: boolean
 }
 
 function chatEntries(job: Job): NonNullable<Job['genstudio_jobs']> {
@@ -4692,22 +4698,39 @@ function terminalChatRetryScope(job: Job): string | undefined {
  */
 function provenPendingChatRecovery(job: Job): ChatRecoveryDescriptor | null {
   const candidates = chatEntries(job).flatMap<ChatRecoveryDescriptor>(entry => {
-    if (!entry.id.startsWith('pending:') || entry.state !== 'submitting') return []
+    if (!entry.id.startsWith('pending:') || (entry.state !== 'submitting' && entry.state !== 'not_created')) return []
+    const preview = entry.request
+    if (!preview || preview.messages?.some(message => message.truncated)) return []
     const key = entry.request?.idempotency_key?.trim()
     const user = entry.request?.messages?.find(message => message.role === 'user')
-    if (!key || !user || user.truncated) return []
+    if (!key || entry.id !== pendingGenStudioEntryId(key) || !user || user.truncated) return []
+    if (chatEntries(job).some(other => other !== entry && (
+      other.id === pendingGenStudioEntryId(key)
+      || other.request?.idempotency_key?.trim() === key
+    ))) return []
+    if (entry.state === 'not_created' && [
+      entry.credit_cost, entry.reserved_credits, entry.settled_credits,
+      entry.returned_credits, entry.released_credits,
+    ].some(value => value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value !== 0))) return []
     if (/^Plan (the chapter structure|a listicle \/ explainer episode)\./.test(user.text)) {
-      return [{ key, purpose: 'outline' as const }]
+      return [{ key, purpose: 'outline' as const, preview, notCreated: entry.state === 'not_created' }]
     }
-    if (!user.text.includes('RECOVERY INSTRUCTION: This is one bounded repair pass.')) return []
-    const slots = user.text.match(/SLOTS TO WRITE NOW:\n([\s\S]*?)\n(?:OUTPUT|Return)/)
+    const slots = user.text.match(/SLOTS TO WRITE NOW:\n([\s\S]*?)\n(?:OUTPUT|Output|Return)/)
     const chapters = slots
       ? [...slots[1].matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1]))
       : []
     if (!chapters.length || chapters.some(chapter => !Number.isInteger(chapter) || chapter < 1)) return []
-    return [{ key, purpose: 'narrative-repair' as const, chapters }]
+    if (user.text.includes('RECOVERY INSTRUCTION: This is one bounded repair pass.')) {
+      return [{ key, purpose: 'narrative-repair' as const, chapters, preview, notCreated: entry.state === 'not_created' }]
+    }
+    const requested = /^Write (\d+) chapter\(s\) of an in-progress episode\./.exec(user.text)
+    if (entry.state !== 'not_created' || !requested || Number(requested[1]) !== chapters.length) return []
+    return [{ key, purpose: 'narrative-batch' as const, chapters, preview, notCreated: true }]
   })
-  return candidates.length === 1 ? candidates[0]! : null
+  if (candidates.length !== 1) return null
+  const recovery = candidates[0]!
+  if (recovery.notCreated && chatEntries(job).filter(entry => !isResolvedChatEntry(entry)).length !== 1) return null
+  return recovery
 }
 
 export function hasUnresolvedTerminalChapterExpansion(projectSlug: string, episodeId: string): boolean {
@@ -4809,12 +4832,18 @@ export function retryTerminalJob(
     title: original.title,
     params: retryParams,
     ...(genstudio_chat_retry_scope ? { genstudio_chat_retry_scope } : {}),
-    ...(chapterRetryMode === 'exact-replay' ? { genstudio_chat_recovery: true as const } : {}),
+    ...(chapterRetryMode === 'exact-replay'
+      && !(recovery?.notCreated && recovery.purpose === 'narrative-batch')
+      ? { genstudio_chat_recovery: true as const }
+      : {}),
     ...(recovery ? {
       genstudio_chat_recovery_key: recovery.key,
       genstudio_chat_recovery_purpose: recovery.purpose,
       ...(recovery.chapters ? { genstudio_chat_recovery_chapters: recovery.chapters } : {}),
       ...(pendingKeys.length ? { genstudio_chat_recovery_keys: pendingKeys } : {}),
+      ...(recovery.notCreated && recovery.purpose === 'narrative-batch'
+        ? { genstudio_chat_recovery_preview: structuredClone(recovery.preview) }
+        : {}),
     } : pendingKeys.length ? { genstudio_chat_recovery_keys: pendingKeys } : {}),
   }, original.content_pack_provenance)
 

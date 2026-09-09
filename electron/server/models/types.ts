@@ -2604,9 +2604,11 @@ export interface Job {
   /** Server-extracted pending key; never accepted from a request body. */
   genstudio_chat_recovery_key?: string
   /** The proven workflow call that owns the saved pending key. */
-  genstudio_chat_recovery_purpose?: 'outline' | 'narrative-repair'
+  genstudio_chat_recovery_purpose?: 'outline' | 'narrative-repair' | 'narrative-batch'
   /** Narrative repair slots proven by the stored request preview. */
   genstudio_chat_recovery_chapters?: number[]
+  /** Server-retained proof for the one manual same-key POST after a verified absence. */
+  genstudio_chat_recovery_preview?: GenStudioRequestPreview
   /** Proven pending keys; normal/listicle calls may recover only by exact membership. */
   genstudio_chat_recovery_keys?: string[]
   queue_position?: number

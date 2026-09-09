@@ -1467,6 +1467,7 @@ ${narratorStyle}`
     generationParams,
     pipelineModelPolicy: generationParams.pipeline_model_policy,
     pipelinePolicyCheckpoint: pipelinePolicyCheckpointStore(jobParams, () => jq.checkpointJobState(job)),
+    genstudioChatRecoveryPreview: job.genstudio_chat_recovery_preview,
   }
   const mode: ChunkedMode = format.script.chaptersIndependent ? 'listicle' : 'narrative'
 

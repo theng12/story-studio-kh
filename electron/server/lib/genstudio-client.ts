@@ -2045,6 +2045,10 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
    * recovery only: a missing or unreachable lookup never falls through to POST.
    */
   recoverByIdempotencyKey?: boolean
+  /** One manual Retry may repost a server-proven never-created request. */
+  allowUncreatedRecovery?: boolean
+  /** Retained server preview that must match the newly prepared wire request exactly. */
+  recoveryRequestPreview?: GenStudioRequestPreview
   /** Server-recorded pending keys allowed to use read-only recovery. */
   allowedRecoveryKeys?: string[]
   /** Persist the derived idempotency key before a charged POST can begin. */
@@ -6187,6 +6191,21 @@ export class GenStudioChatRecoveryUnresolvedError extends Error {
   }
 }
 
+function sameChatPreview(
+  saved: GenStudioRequestPreview | undefined,
+  expected: GenStudioRequestPreview,
+): boolean {
+  if (!saved) return false
+  return saved.method === expected.method
+    && saved.path === expected.path
+    && saved.model_id === expected.model_id
+    && saved.response_format === expected.response_format
+    && saved.idempotency_key === expected.idempotency_key
+    && JSON.stringify(saved.token_limits) === JSON.stringify(expected.token_limits)
+    && JSON.stringify(saved.messages) === JSON.stringify(expected.messages)
+    && JSON.stringify(saved.fields) === JSON.stringify(expected.fields)
+}
+
 // A missing record or an ambiguous gateway failure is not enough evidence to
 // submit replacement work. Every other HTTP status is actionable GenStudio
 // feedback and must remain visible to the caller.
@@ -6203,8 +6222,9 @@ async function recoverChatByIdempotencyKey(
   request: GenStudioChatRequest,
   prepared: Pick<PreparedChatSubmission, 'outputContract'>,
   requestPreview?: GenStudioRequestPreview,
+  baseUrlOverride?: string,
 ): Promise<GenStudioChatResult> {
-  const baseUrl = await getGenStudioUrl()
+  const baseUrl = baseUrlOverride ?? await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   let initial: GenStudioChatJob
   try {
@@ -6391,8 +6411,9 @@ async function callChatViaResponses(
   apiKey: string,
   request: GenStudioChatRequest,
   prepared: PreparedChatSubmission,
+  baseUrlOverride?: string,
 ): Promise<GenStudioChatResult> {
-  const baseUrl = await getGenStudioUrl()
+  const baseUrl = baseUrlOverride ?? await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   // Written BEFORE the POST: a submission whose response never arrives still
   // leaves its idempotency key on the Story job's evidence entry (under
@@ -6412,7 +6433,7 @@ async function callChatViaResponses(
     if (request.allowedRecoveryKeys?.length && !request.allowedRecoveryKeys.includes(prepared.idempotencyKey)) {
       throw new GenStudioChatRecoveryUnresolvedError(prepared.idempotencyKey)
     }
-    return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview)
+    return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview, baseUrl)
   }
   let submitted: GenStudioChatJob
   try {
@@ -6460,7 +6481,7 @@ async function callChatViaResponses(
       && error.status !== 502
       && error.status !== 504
     ) throw error
-    return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview)
+    return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview, baseUrl)
   }
   await recordGenStudioEvidence('chat.response', chatJobEvidence(submitted), requestPreview)
   await reportQueueState(request, chatJobEvidence(submitted))
@@ -6587,11 +6608,48 @@ async function callChatWithGenStudioAdmitted(
         ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT),
     })
   }
+  // Bind the entire verified retry to one server. The catalogue shapes the
+  // exact old request too, so refuse a settings switch while it is read.
+  const uncreatedRecoveryBaseUrl = request.allowUncreatedRecovery
+    ? await getGenStudioUrl()
+    : undefined
   const prepared = await prepareChatSubmission(apiKey, request)
+  if (request.allowUncreatedRecovery) {
+    const preview = request.recoveryRequestPreview
+    const expected = buildGenStudioRequestPreview({
+      method: 'POST',
+      path: '/v1/chat/responses',
+      modelId: prepared.modelId,
+      responseFormat: prepared.responseFormat,
+      tokenLimits: { max_output_tokens: prepared.maxOutputTokens },
+      idempotencyKey: prepared.idempotencyKey,
+      messages: prepared.messages,
+      fields: chatPreviewFields(request, prepared),
+    })
+    const matches = prepared.transport === 'responses'
+      && preview?.idempotency_key === prepared.idempotencyKey
+      && (!request.allowedRecoveryKeys?.length || request.allowedRecoveryKeys.includes(prepared.idempotencyKey))
+      && sameChatPreview(preview, expected)
+    if (!matches) throw new GenStudioChatRecoveryUnresolvedError(prepared.idempotencyKey)
+    // The absence proof and its replacement POST must target one endpoint.
+    // Settings are mutable, so a later URL read could otherwise turn a 404
+    // from the original connection into a paid submission elsewhere.
+    if (await getGenStudioUrl() !== uncreatedRecoveryBaseUrl) {
+      throw new GenStudioChatRecoveryUnresolvedError(prepared.idempotencyKey)
+    }
+    try {
+      return await recoverChatByIdempotencyKey(
+        apiKey, prepared.idempotencyKey, request, prepared, undefined, uncreatedRecoveryBaseUrl,
+      )
+    } catch (error) {
+      const cause = error instanceof GenStudioChatRecoveryUnresolvedError ? error.cause : undefined
+      if (!(cause instanceof GenStudioApiError) || cause.status !== 404) throw error
+    }
+  }
   await request.onRequestPrepared?.(prepared.idempotencyKey)
   return prepared.transport === 'completions'
     ? callChatViaCompletions(apiKey, request, prepared)
-    : callChatViaResponses(apiKey, request, prepared)
+    : callChatViaResponses(apiKey, request, prepared, uncreatedRecoveryBaseUrl)
 }
 
 export async function callChatWithGenStudio(
