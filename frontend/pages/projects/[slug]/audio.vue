@@ -362,9 +362,9 @@
             type="button"
             class="btn btn-primary"
             :disabled="!effectiveSections.length || inlineGenerateDisabled"
-            :title="effectiveSections.length ? `Replace audio for ${scopeSummary(effectiveSections)}.` : 'Select at least one section.'"
-            @click="queueAudio(effectiveSections, 'regenerate')"
-          >{{ audioActionLabel(effectiveSections, 'regenerate', 'Regenerate selected') }}</button>
+            :title="selectedAudioIntent.title"
+            @click="queueSelectedAudio"
+          >{{ selectedAudioIntent.label }}</button>
           <button
             type="button"
             class="btn btn-ghost"
@@ -386,10 +386,10 @@
         <p class="audio-scope-summary" role="status">
           <template v-if="effectiveSections.length">
             Selected: <strong>{{ scopeSummary(effectiveSections) }}</strong>.
-            Regenerate replaces their active audio; Create another version keeps it.
+            {{ selectedAudioIntent.summary }} Create another version keeps active audio.
           </template>
           <template v-else>
-            No sections selected. Choose rows before regenerating or creating another version.
+            No sections selected. Choose rows to generate, regenerate, or create another version.
           </template>
         </p>
         <p v-if="quoteError" class="audio-quote-error" role="alert">{{ quoteError }}</p>
@@ -954,6 +954,44 @@ function onEffectiveSelectionChange(slugs: string[]) {
 function onMissingSectionsChange(slugs: string[]) {
   missingSections.value = slugs
 }
+const selectedAudioIntent = computed(() => {
+  const missing = new Set(missingSections.value)
+  const generate = effectiveSections.value.filter(section => missing.has(section))
+  const regenerate = effectiveSections.value.filter(section => !missing.has(section))
+  if (regenerate.length === 0) {
+    return {
+      generate,
+      regenerate,
+      targetSections: generate,
+      mode: 'generate' as const,
+      label: audioActionLabel(generate, 'generate', 'Generate selected'),
+      title: generate.length
+        ? `Generate ${scopeSummary(generate)} without replacing completed audio.`
+        : 'Select at least one section.',
+      summary: 'Generate adds their missing audio without replacing completed audio.',
+    }
+  }
+  if (generate.length === 0) {
+    return {
+      generate,
+      regenerate,
+      targetSections: regenerate,
+      mode: 'regenerate' as const,
+      label: audioActionLabel(regenerate, 'regenerate', 'Regenerate selected'),
+      title: `Replace audio for ${scopeSummary(regenerate)}.`,
+      summary: 'Regenerate replaces their active audio.',
+    }
+  }
+  return {
+    generate,
+    regenerate,
+    targetSections: effectiveSections.value,
+    mode: 'regenerate' as const,
+    label: audioActionLabel(effectiveSections.value, 'regenerate', 'Generate / regenerate selected'),
+    title: `Create missing audio for ${scopeSummary(generate)} and replace saved audio for ${scopeSummary(regenerate)}.`,
+    summary: `Generate creates missing audio for ${scopeSummary(generate)} and Regenerate replaces active audio for ${scopeSummary(regenerate)}.`,
+  }
+})
 const selectionCountLabel = computed(() => {
   const count = effectiveSections.value.length
   return count ? `${count} section${count === 1 ? '' : 's'}` : 'None selected'
@@ -1829,6 +1867,11 @@ watch(() => form.episode_id, (v) => {
 // ── Main generation ────────────────────────────────────────────────────
 async function submitSection(request: SectionAction) {
   await queueAudio([request.slug], request.mode)
+}
+
+async function queueSelectedAudio() {
+  const { targetSections, mode } = selectedAudioIntent.value
+  await queueAudio(targetSections, mode)
 }
 
 function audioRequestPayload(targetSections: string[], mode: AudioActionMode): Record<string, any> {

@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.140
+
+- Keep subtitle transcription attached to the audio files selected by Audio Assembly, including alternate versions and multipart chapters. Honor replacement audio selections during assembly; repair old mixed base-and-part mappings when saved generation fingerprints prove the replacement.
+- Resume a fresh transcription attempt without accepting older subtitle files as its result. Keep its original request identity, report unresolved chapters accurately, and advance recovery after the replacement artifacts are verified.
+- Label the audio selection action Generate, Regenerate, or Generate / regenerate according to the selected chapters’ existing audio. Mixed selections keep the full bulk action.
+
 ## v1.4.139
 
 - Recover an episode’s saved audio and images directly from Jobs, with exact episode scope and progress on its job card. Recovery stays separate from paid Retry and never opens Production Board.

@@ -262,6 +262,11 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as TranscribeSubtitlesRequest
   const code = episode_id.toUpperCase()
+  const generationActionId = req.generation_action?.kind === 'fresh'
+    && typeof req.generation_action.id === 'string' && req.generation_action.id.trim()
+    ? req.generation_action.id.trim()
+    : undefined
+  const effectiveForce = req.force === true || !!generationActionId
 
   job.progress = 0
   job.output_lines.push(`Starting transcription for ${code}`)
@@ -285,7 +290,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   // while this file guard prevents an unnecessary new Story job entirely.
   const outDir = await resolveSubtitlesDir(project_slug, code)
   const outPath = path.join(outDir, `${code}_whisper.srt`)
-  if (!req.force && await fileExistsWithContent(outPath)) {
+  if (!effectiveForce && await fileExistsWithContent(outPath)) {
     const existing = normalizeSrtOrVtt(await fs.readFile(outPath, 'utf-8'))
     if (existing.cues > 0) {
       job.output_lines.push(`Skipping — ${code}_whisper.srt already exists and ${existing.cues} cue(s) were verified. Tick "Re-run transcription" to overwrite.`)
@@ -334,7 +339,8 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
     }))
     const result = await runSubtitleTranscription({
       job, outDir, section: 'merged', manifestKey, inputHash: currentInputHash,
-      audioHash: currentAudioHash, apiKey: genstudio.apiKey, force: req.force === true,
+      audioHash: currentAudioHash, apiKey: genstudio.apiKey, force: effectiveForce,
+      generationActionId,
       manualCreditCeiling: req.subtitle_purchase?.additional_credit_ceiling,
       request: {
         audioPath: sourceAudio, modelId: genstudio.modelId, requestIdentity,
@@ -391,6 +397,71 @@ export function selectRequestedSections<T extends { slug: string }>(
   return selected
 }
 
+export interface ChapterAudioSource {
+  slug: string
+  /** Exact active source order recorded by Audio Assembly. */
+  files: string[]
+}
+
+/**
+ * Audio Assembly owns which retained chapter bytes are active.  In particular,
+ * a selected `_vN` candidate and a mixed base-plus-part chapter cannot be
+ * reconstructed safely from a directory listing.
+ *
+ * `null` is deliberately limited to legacy sidecars with no source selection
+ * at all.  Once a sidecar names any active source, an incomplete or missing
+ * selection is an error rather than permission to transcribe different bytes.
+ */
+export async function resolveActiveSubtitleChapterSources(
+  episodeDir: string,
+  audioDir: string,
+): Promise<ChapterAudioSource[] | null> {
+  let sidecar: { sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }> }
+  try {
+    sidecar = JSON.parse(await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf8'))
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return null
+    throw new Error(`Audio Assembly's active source map cannot be read. Re-run Audio Assembly before transcription: ${error?.message || String(error)}`)
+  }
+  if (!Array.isArray(sidecar.sections)) return null
+
+  const hasSourceSelection = sidecar.sections.some(section => (
+    Array.isArray(section?.source_files) || section?.source_file !== undefined
+  ))
+  if (!hasSourceSelection) return null
+  const selected: ChapterAudioSource[] = []
+  const seen = new Set<string>()
+  for (const section of sidecar.sections) {
+    const sourceList = Array.isArray(section?.source_files)
+      ? section.source_files
+      : section?.source_file !== undefined ? [section.source_file] : null
+    const slug = typeof section?.slug === 'string' ? section.slug.trim() : ''
+    if (sourceList === null) {
+      throw new Error(`Audio Assembly's active source map is missing a selected source for ${slug || 'a chapter'}. Re-run Audio Assembly before transcription.`)
+    }
+    const validFiles = sourceList.length > 0
+      && sourceList.every(file => typeof file === 'string' && file.trim() !== '' && path.basename(file) === file)
+    if (!slug || !validFiles) {
+      throw new Error(`Audio Assembly's active source map is invalid for ${slug || 'a chapter'}. Re-run Audio Assembly before transcription.`)
+    }
+    const key = slug.toLowerCase()
+    if (seen.has(key)) {
+      throw new Error(`Audio Assembly's active source map repeats ${slug}. Re-run Audio Assembly before transcription.`)
+    }
+    const files = sourceList.map(file => (file as string).trim())
+    const available = await Promise.all(files.map(async file => {
+      const stat = await fs.stat(path.join(audioDir, file)).catch(() => null)
+      return !!stat?.isFile() && stat.size > 0
+    }))
+    if (!available.every(Boolean)) {
+      throw new Error(`Audio Assembly's active source for ${slug} is missing or empty. Re-run Audio Assembly before transcription.`)
+    }
+    seen.add(key)
+    selected.push({ slug, files })
+  }
+  return selected
+}
+
 async function transcribePerChapter(
   job: Job,
   projectSlug: string,
@@ -417,9 +488,15 @@ async function transcribePerChapter(
   // chapter audio actually exists, independent of how it was chunked.
   const { getAudioStatus } = await import('../services/audio-reconciler.js')
   const status = await getAudioStatus(projectSlug, code)
-  const audioDir = status.audio_dir
+  const episodePaths = await resolveEpisodePathsByCodeWithSidecar(projectSlug, episodeId, 'audio_chapters.json')
+  const selectedSources = await resolveActiveSubtitleChapterSources(episodePaths.episode_dir, episodePaths.audio_dir)
+  // A same-code sibling with the authoritative sidecar owns its matching audio
+  // folder too. Legacy scan behavior keeps the reconciler's audio directory.
+  const audioDir = selectedSources ? episodePaths.audio_dir : status.audio_dir
 
-  // Group MP3s in the audio dir by section slug: `{code}_{slug}[_partN][_vN].mp3`.
+  // Legacy Audio Assembly sidecars only recorded durations. Keep the prior
+  // directory scan for those episodes, but current sidecars below are the
+  // authority for active chapter bytes.
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // `_vN` files are explicit alternates, not the active chapter source. A
   // transcript must stay attached to the base file until a later Audio Assembly
@@ -432,21 +509,27 @@ async function transcribePerChapter(
   } catch {
     dirFiles = []
   }
-  const bySlug = new Map<string, { slug: string; files: Array<{ name: string; part: number }> }>()
-  for (const f of dirFiles) {
-    if (/_v\d+\.mp3$/i.test(f)) continue
-    const m = f.match(partRe)
-    if (!m) continue
-    const slug = m[1]!
-    const part = m[2] ? parseInt(m[2], 10) : 1
-    const g = bySlug.get(slug) || { slug, files: [] as Array<{ name: string; part: number }> }
-    const existing = g.files.find(x => x.part === part)
-    if (!existing) {
-      g.files.push({ name: f, part })
+  let allSections: ChapterAudioSource[]
+  if (selectedSources) {
+    allSections = selectedSources
+  } else {
+    const bySlug = new Map<string, { slug: string; files: Array<{ name: string; part: number }> }>()
+    for (const f of dirFiles) {
+      if (/_v\d+\.mp3$/i.test(f)) continue
+      const m = f.match(partRe)
+      if (!m) continue
+      const slug = m[1]!
+      const part = m[2] ? parseInt(m[2], 10) : 1
+      const g = bySlug.get(slug) || { slug, files: [] as Array<{ name: string; part: number }> }
+      if (!g.files.some(file => file.part === part)) g.files.push({ name: f, part })
+      bySlug.set(slug, g)
     }
-    bySlug.set(slug, g)
+    allSections = [...bySlug.values()].map(section => ({
+      slug: section.slug,
+      files: section.files.sort((a, b) => a.part - b.part).map(file => file.name),
+    }))
   }
-  if (!bySlug.size) {
+  if (!allSections.length) {
     throw new Error('No chapter audio found — generate audio (and Audio Assembly) for this episode first.')
   }
 
@@ -462,7 +545,6 @@ async function transcribePerChapter(
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
 
-  const allSections = [...bySlug.values()]
   let sections = selectRequestedSections(allSections, req.sections)
   const repairActionId = typeof req.pipeline_repair?.action_id === 'string'
     ? req.pipeline_repair.action_id.trim()
@@ -471,7 +553,10 @@ async function transcribePerChapter(
     && typeof req.generation_action.id === 'string' && req.generation_action.id.trim()
     ? req.generation_action.id.trim()
     : undefined
-  const force = repairActionId ? false : req.force === true
+  // A queued retry clears request `force`, but the server-stamped fresh action
+  // remains its durable one-action authority. Treat it as force only inside
+  // this job so old SRTs cannot short-circuit recovery of that same action.
+  const force = repairActionId ? false : req.force === true || !!generationActionId
   const repairSections = new Set<string>()
   if (repairActionId) {
     const paths = await resolveEpisodePathsByCodeWithSidecar(projectSlug, episodeId, 'audio_chapters.json')
@@ -505,7 +590,7 @@ async function transcribePerChapter(
   )
 
   // One chapter's transcription. (The old loop's `continue`s become `return`s.)
-  async function transcribeSection(sec: { slug: string; files: Array<{ name: string; part: number }> }): Promise<void> {
+  async function transcribeSection(sec: ChapterAudioSource): Promise<void> {
     const outPath = path.join(outDir, `${code}_${sec.slug}.srt`)
     const repairSection = repairSections.has(sec.slug.toLowerCase())
     if (!force && !repairSection && await fileExistsWithContent(outPath)) {
@@ -516,17 +601,16 @@ async function transcribePerChapter(
 
     // Order this chapter's parts; concat (re-encode, so it's robust whether
     // the parts are real MP3 or legacy WAV-in-.mp3) when there's more than one.
-    sec.files.sort((a, b) => a.part - b.part)
     let audioPath: string
     let tmpConcat: string | null = null
     let tmpList: string | null = null
     if (sec.files.length === 1) {
-      audioPath = path.join(audioDir, sec.files[0]!.name)
+      audioPath = path.join(audioDir, sec.files[0]!)
     } else {
       tmpConcat = path.join(os.tmpdir(), `subt-${randomUUID()}.mp3`)
       tmpList = path.join(os.tmpdir(), `subt-${randomUUID()}.txt`)
       const listText = sec.files
-        .map(f => formatConcatFileLine(path.join(audioDir, f.name)))
+        .map(file => formatConcatFileLine(path.join(audioDir, file)))
         .join('\n') + '\n'
       await fs.writeFile(tmpList, listText)
       await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', tmpList, '-c:a', 'libmp3lame', '-b:a', '192k', tmpConcat])
@@ -550,7 +634,7 @@ async function transcribePerChapter(
     try {
       const manifestKey = path.basename(outPath)
       const sourceAudioHash = await hashSubtitleAudioSources(
-        sec.files.map(file => path.join(audioDir, file.name)),
+        sec.files.map(file => path.join(audioDir, file)),
       )
       if (!sourceAudioHash) throw new Error(`Could not fingerprint active audio for ${sec.slug}`)
       const currentAudioHash = await hashTranscriptionAudio(audioPath)
@@ -648,11 +732,16 @@ async function transcribePerChapter(
     ...coverage.missing_sections,
     ...failures.map(failure => failure.slug),
   ]))
+  // A fresh attempt may fail after an older SRT remains on disk. Physical file
+  // coverage is useful evidence, but it cannot count as ready for this job's
+  // result or Episode recovery would report a failed replacement as complete.
+  const failedKeys = new Set(failedSlugs.map(slug => slug.toLowerCase()))
+  const readySections = coverage.completed_sections.filter(section => !failedKeys.has(section.toLowerCase()))
   job.result = {
     subtitles_dir: outDir,
     complete: coverage.complete && failures.length === 0,
     expected_sections: coverage.expected_sections.length,
-    ready_sections: coverage.completed_sections.length,
+    ready_sections: readySections.length,
     generated_sections: generatedSections,
     new_cues: totalCues,
     missing_sections: failedSlugs,
@@ -664,7 +753,7 @@ async function transcribePerChapter(
       ? failedSlugs.join(', ')
       : 'coverage could not be verified; run Audio Assembly to rebuild audio_chapters.json'
     const message =
-      `Transcription incomplete: ${coverage.completed_sections.length}/${coverage.expected_sections.length} sections ready. ` +
+      `Transcription incomplete: ${readySections.length}/${coverage.expected_sections.length} sections ready. ` +
       `Missing: ${missingLabel}. Successful chapter files were saved; Retry fills only the missing sections.`
     job.output_lines.push(`✗ INCOMPLETE — ${message}`)
     throw new Error(message)

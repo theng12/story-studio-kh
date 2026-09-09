@@ -567,14 +567,15 @@ export async function generateAudioMerge(job: Job): Promise<void> {
   // sidecar map below remains the source authority for a promoted `_vN` file.
   const readiness = await requireChapterAudioReady(project_slug, code)
 
-  // `audio_chapters.json` records the active audio map. Generic disk scanning
-  // deliberately ignores `_vN` alternates, so use the complete sidecar order
-  // whenever it selects one. That keeps ordinary reopen/assembly, playback,
-  // and subtitle consumers on the exact promoted bytes until a later ordinary
-  // successful regeneration writes a new active map.
-  let selectedVersioned: string[] = []
+  // `audio_chapters.json` records the active audio map. Generic disk scans
+  // deliberately ignore `_vN` alternates, so a complete selected map wins.
+  // Normal maps are also retained; only a verified old base-plus-part map is
+  // repaired from durable normal-generation provenance below.
+  let selectedSources: string[] = []
   const refresh = req.audio_quality_refresh
   const refreshActionId = typeof refresh?.action_id === 'string' ? refresh.action_id : ''
+  const sameFiles = (left: string[] | undefined, right: string[]) =>
+    !!left && left.length === right.length && left.every((file, index) => file === right[index])
   const resolveSidecarSelection = async (requiredRefresh: boolean): Promise<string[]> => {
     let paths: Awaited<ReturnType<typeof resolveEpisodePathsByCodeWithSidecar>>
     let sidecar: { sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }> }
@@ -585,7 +586,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       if (requiredRefresh) {
         throw new Error(`Audio-quality refresh cannot read its authoritative selected audio map: ${error?.message || String(error)}`)
       }
-      return [] // Normal first assembly has no sidecar; scan base files below.
+      return [] // Normal first assembly keeps the established disk scan fallback.
     }
 
     const sections = Array.isArray(sidecar.sections) ? sidecar.sections : []
@@ -594,6 +595,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       return []
     }
     const sourcesBySlug = new Map<string, string[]>()
+    const sourceEntries: Array<{ key: string; files: string[] }> = []
     const ordered: string[] = []
     for (const section of sections) {
       const slug = typeof section.slug === 'string' ? section.slug.trim() : ''
@@ -608,12 +610,14 @@ export async function generateAudioMerge(job: Job): Promise<void> {
         if (requiredRefresh) throw new Error(`Audio-quality refresh cannot resolve its authoritative selected audio map: ${message}`)
         return []
       }
-      if (sourcesBySlug.has(slug.toLowerCase())) {
+      const key = slug.toLowerCase()
+      if (sourcesBySlug.has(key)) {
         const message = `audio_chapters.json repeats selected chapter ${slug}`
         if (requiredRefresh) throw new Error(`Audio-quality refresh cannot resolve its authoritative selected audio map: ${message}`)
         return []
       }
-      sourcesBySlug.set(slug.toLowerCase(), files)
+      sourcesBySlug.set(key, files)
+      sourceEntries.push({ key, files })
       ordered.push(...files)
     }
 
@@ -639,15 +643,35 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       for (const slug of refresh.sections) {
         const expected = refresh.promoted_files?.[slug] || action.candidate.promoted_files[slug]
         const selected = sourcesBySlug.get(slug.toLowerCase())
-        if (!expected?.length || JSON.stringify(selected) !== JSON.stringify(expected)) {
+        if (!expected?.length || !sameFiles(selected, expected)) {
           throw new Error(`Audio-quality refresh cannot resolve its authoritative selected audio map: the selected source map no longer contains the promoted ${slug} files.`)
         }
       }
-    } else if (!containsAlternate) {
-      return []
     }
 
-    const candidate = ordered.map(file => path.join(paths.audio_dir, file))
+    let activeFiles = ordered
+    if (!requiredRefresh && !containsAlternate) {
+      const provenance = await readAudioQualityProvenance(paths.episode_dir)
+      const provenanceBySlug = new Map(Object.entries(provenance.chapters)
+        .map(([slug, chapter]) => [slug.toLowerCase(), chapter] as const))
+      const hasBaseAndParts = (files: string[]) => {
+        const bases = new Set(files
+          .filter(file => !/_part\d+\.[^.]+$/i.test(file))
+          .map(file => chapterKeyOf(file, code).toLowerCase()))
+        return files.some(file => /_part\d+\.[^.]+$/i.test(file)
+          && bases.has(chapterKeyOf(file, code).toLowerCase()))
+      }
+      const repaired = await Promise.all(sourceEntries.map(async entry => {
+        const saved = provenanceBySlug.get(entry.key)
+        if (!hasBaseAndParts(entry.files) || !saved?.source_files?.length || sameFiles(entry.files, saved.source_files)) return entry.files
+        const savedPaths = saved.source_files.map(file => path.join(paths.audio_dir, file))
+        const hash = await hashSubtitleAudioSources(savedPaths)
+        return hash && hash === saved.source_audio_hash ? saved.source_files : entry.files
+      }))
+      activeFiles = repaired.flat()
+    }
+
+    const candidate = activeFiles.map(file => path.join(paths.audio_dir, file))
     const missing = candidate.filter(file => !existsSync(file))
     if (missing.length) {
       const message = `selected audio file(s) are missing: ${missing.map(file => path.basename(file)).join(', ')}`
@@ -659,16 +683,16 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     return candidate
   }
 
-  selectedVersioned = await resolveSidecarSelection(!!refresh)
-  const scanned = selectedVersioned.length ? null : await scanEpisodeAudioAssets(project_slug, code)
-  if (!selectedVersioned.length && !scanned?.chapters.length) {
+  selectedSources = await resolveSidecarSelection(!!refresh)
+  const scanned = selectedSources.length ? null : await scanEpisodeAudioAssets(project_slug, code)
+  if (!selectedSources.length && !scanned?.chapters.length) {
     throw new Error(`Audio Assembly is blocked: no chapter audio files were found for ${code}.`)
   }
-  req.chapters = selectedVersioned.length ? selectedVersioned : scanned!.chapters.map(chapter => chapter.path)
+  req.chapters = selectedSources.length ? selectedSources : scanned!.chapters.map(chapter => chapter.path)
   job.output_lines.push(
     `Audio preflight passed: ${readiness.present_files.length}/${readiness.expected_files.length} required file(s) ready`,
   )
-  job.output_lines.push(`Resolved ${req.chapters.length} ordered chapter file(s) ${selectedVersioned.length ? 'from the verified active mapping' : 'from disk'}`)
+  job.output_lines.push(`Resolved ${req.chapters.length} ordered chapter file(s) ${selectedSources.length ? 'from the verified active mapping' : 'from disk'}`)
 
   // 1. Validate chapter files exist
   const validChapters: string[] = []

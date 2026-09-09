@@ -320,6 +320,93 @@ test('subtitle source verification rejects empty and malformed chapters even bes
   } finally { await temp.cleanup() }
 })
 
+test('a failed fresh subtitle action cannot complete recovery from older SRT files', async () => {
+  const temp = await useTempDataDir()
+  try {
+    const subs = path.join(temp.dir, 'subs')
+    await fs.mkdir(subs)
+    const sections = ['Introduction', ...Array.from({ length: 20 }, (_, index) => `Chapter_${String(index + 1).padStart(2, '0')}`)]
+    const unresolved = sections.slice(0, 13)
+    await fs.writeFile(path.join(temp.dir, 'audio_chapters.json'), JSON.stringify({ sections: sections.map(slug => ({ slug, duration_s: 4 })) }))
+    const srt = '1\n00:00:00,000 --> 00:00:02,000\nOlder transcript remains on disk\n'
+    await Promise.all(sections.map(section => fs.writeFile(path.join(subs, `EP0001_${section}.srt`), srt)))
+    const states = Object.fromEntries(sections.map(section => [section, {
+      state: unresolved.includes(section) ? 'needs_attention' : 'artifact_recovered',
+      message: unresolved.includes(section) ? 'Saved fresh task needs attention.' : 'Current fresh artifact recovered.',
+    }]))
+    const fresh = {
+      ...source('subtitles_transcribe', {
+        per_chapter: true, force: false, sections,
+        generation_action: { id: 'fresh-action', kind: 'fresh' },
+        subtitle_recovery: { sections: states },
+      }),
+      result: { complete: false, expected_sections: 21, ready_sections: 8, missing_sections: unresolved },
+    }
+    const { createEpisodeRecoveryPlan, inspectRecoverySubtitles, inspectRecoverySubtitlePrerequisites, nextEpisodeRecoveryStep } = await subject()
+    const plan = createEpisodeRecoveryPlan([fresh])
+    const paths = { episodeDir: temp.dir, subtitlesDir: subs, mergedAudioDir: path.join(temp.dir, 'merged'), episodeCode: 'EP0001' }
+    const facts = await inspectRecoverySubtitlePrerequisites(plan, paths, [])
+
+    assert.equal((await inspectRecoverySubtitles(temp.dir, subs, 'EP0001')).complete, true, 'the stale files alone are physically usable')
+    assert.equal(facts.verified.subtitle_sections, false)
+    assert.deepEqual(facts.missing, unresolved)
+    assert.equal(facts.message, '8/21 sections ready')
+    assert.equal(nextEpisodeRecoveryStep(plan, facts.verified), 'subtitle_sections')
+    assert.equal(plan.first_unresolved, 'subtitle_sections')
+
+    const rawOnly = {
+      ...fresh, job_id: plan.steps.subtitle_sections!.job_id,
+      params: { ...fresh.params, subtitle_recovery: { sections: Object.fromEntries(sections.map(section => [section, {
+        state: 'artifact_recovered', message: 'Raw provider bytes were fetched.',
+      }])) } },
+      result: { complete: false, expected_sections: 21, ready_sections: 8, missing_sections: unresolved },
+    }
+    const rawFacts = await inspectRecoverySubtitlePrerequisites(plan, paths, [fresh, rawOnly])
+    assert.equal(rawFacts.verified.subtitle_sections, false, 'raw recovery state cannot override the final failed result')
+    assert.equal(rawFacts.message, '8/21 sections ready')
+
+    const laterFreshSuccess = {
+      ...fresh, job_id: 'new-fresh-action', status: 'done' as const, created_at: '2026-09-06T00:00:00Z',
+      params: {
+        ...fresh.params, sections: unresolved,
+        generation_action: { id: 'new-fresh-action', kind: 'fresh' },
+        subtitle_recovery: { sections: Object.fromEntries(unresolved.map(section => [section, {
+          state: 'artifact_recovered', message: 'New fresh artifact recovered.',
+        }])) },
+      },
+      result: { complete: true, expected_sections: 13, ready_sections: 13, missing_sections: [] },
+    }
+    const advanced = await inspectRecoverySubtitlePrerequisites(plan, paths, [fresh, laterFreshSuccess])
+    assert.equal(advanced.verified.subtitle_sections, true, 'a later verified fresh action supersedes only its covered failed scope')
+    assert.equal(nextEpisodeRecoveryStep(plan, advanced.verified), 'subtitle_stitch')
+
+    const ordinary = createEpisodeRecoveryPlan([{ ...fresh, params: { ...fresh.params, generation_action: undefined } }])
+    const ordinaryFacts = await inspectRecoverySubtitlePrerequisites(ordinary, paths, [])
+    assert.equal(ordinaryFacts.verified.subtitle_sections, true, 'ordinary imported recovery still relies on verified artifact coverage')
+  } finally { await temp.cleanup() }
+})
+
+test('a fresh whole-track action needs a verified final result after raw recovery', async () => {
+  const temp = await useTempDataDir()
+  try {
+    const subs = path.join(temp.dir, 'subs')
+    await fs.mkdir(subs)
+    await fs.writeFile(path.join(subs, 'EP0001_whisper.srt'), '1\n00:00:00,000 --> 00:00:02,000\nOld whole-track transcript\n')
+    const rawOnly = source('subtitles_transcribe', {
+      per_chapter: false, sections: ['merged'], generation_action: { id: 'whole-track-action', kind: 'fresh' },
+      subtitle_recovery: { sections: { merged: { state: 'artifact_recovered', message: 'Raw provider bytes were fetched.' } } },
+    })
+    const { createEpisodeRecoveryPlan, inspectRecoverySubtitlePrerequisites } = await subject()
+    const plan = createEpisodeRecoveryPlan([rawOnly])
+    const facts = await inspectRecoverySubtitlePrerequisites(plan, {
+      episodeDir: temp.dir, subtitlesDir: subs, mergedAudioDir: path.join(temp.dir, 'merged'), episodeCode: 'EP0001',
+    }, [rawOnly])
+    assert.equal(facts.verified.subtitle_sections, false)
+    assert.deepEqual(facts.missing, ['merged'])
+    assert.equal(facts.message, '0/1 whole track ready')
+  } finally { await temp.cleanup() }
+})
+
 test('local recovery repairs malformed stitch metadata and re-stitches changed sources before releasing the edge', async () => {
   const temp = await useTempDataDir()
   try {
