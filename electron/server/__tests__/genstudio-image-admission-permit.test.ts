@@ -745,10 +745,21 @@ test('an unresolved permit does not hold same-scope or independent replenishment
       referenceAssetIds: ['asset-1'],
     }))
     try {
-      await unrelatedEntered.promise
+      await Promise.all([
+        unrelatedEntered.promise,
+        waitFor(() => textPermitCalls === 2, {
+          label: 'same-scope permit replenishment starts while predecessor is unresolved',
+          timeoutMs: 1_000,
+        }),
+      ])
       assert.equal(textPermitCalls, 2, 'a held permit cannot monopolize same-scope replenishment')
     } finally {
       firstTextPermit.resolve(Response.json({ id: 'text-permit-1' }))
+      // Do not restore this fixture's global fetch stub while a failed
+      // assertion leaves its paid calls running. That would make the next
+      // test receive this test's requests and turn an ordering failure into
+      // unrelated idempotency failures.
+      await Promise.allSettled([first, second, unrelated])
     }
     await Promise.all([first, second, unrelated])
   }, () => accountCapacity(1))
