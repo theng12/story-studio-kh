@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-08T18:37:04.488Z",
+  "generated": "2026-09-09T02:13:03.690Z",
   "count": 203,
   "items": [
     {
@@ -1286,20 +1286,20 @@
       "kind": "topic-pack",
       "id": "com.storystudio.topic.backyard-creatures",
       "name": "Backyard Creatures",
-      "collection_dir": "backyard-naturalist/topic/backyard-creatures",
+      "collection_dir": "backyard-naturalist/topic/backyard-creatures-v1.0.1",
       "axis": "backyard wildlife, misunderstood animals, sleep nature",
       "description": "Fifty misunderstood animals of gardens and houses — spiders, insects, centipedes, woodlice, worms, birds and small mamm…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "topic-pack",
       "id": "com.storystudio.topic.backyard-plants",
       "name": "Backyard Plants",
-      "collection_dir": "backyard-naturalist/topic/backyard-plants",
+      "collection_dir": "backyard-naturalist/topic/backyard-plants-v1.0.1",
       "axis": "backyard plants, weeds and volunteers, sleep nature",
       "description": "Fifty plants that live around a house without being planned — lawn weeds, path colonists, mosses and lichens, self-sown…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {

@@ -1,7 +1,7 @@
 # Content pack index
 
 Regenerate: `npm run content-pack:index` (runs `node scripts/content-packs/index.mjs`)
-Generated: 2026-09-08
+Generated: 2026-09-09
 
 One line per pack item, deduped to the highest version per `pack_id`. Format:
 
@@ -194,8 +194,8 @@ Totals — 203 items. Visual styles: 40, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.topic.archival-ledger.states-revolutions-collapse | States, Revolutions & Collapse | paid/archival-ledger/topic/states-revolutions-collapse-v1.0.1 | states, revolutions, collapse, civil wars, political change | State formation and breakdown, revolutions, civil wars, reforms, independence movements, and constitutional turning poi… | v1.0.1 active
 - com.storystudio.topic.archival-ledger.wars-treaties-world-order | Wars, Treaties & World Order | paid/archival-ledger/topic/wars-treaties-world-order-v1.0.1 | war history, diplomacy, treaties, world order, geopolitics | Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order. | v1.0.1 active
 - com.storystudio.topic.audience-question-seeder | Audience Question Seeder | reusable-primitives/topic/audience-question-seeder-v1.0.1 | - | A duplicate-resistant Topic Pack for practical audience questions, organized by audience context, question intent, cons… | v1.0.1 active
-- com.storystudio.topic.backyard-creatures | Backyard Creatures | backyard-naturalist/topic/backyard-creatures | backyard wildlife, misunderstood animals, sleep nature | Fifty misunderstood animals of gardens and houses — spiders, insects, centipedes, woodlice, worms, birds and small mamm… | v1.0.0 active
-- com.storystudio.topic.backyard-plants | Backyard Plants | backyard-naturalist/topic/backyard-plants | backyard plants, weeds and volunteers, sleep nature | Fifty plants that live around a house without being planned — lawn weeds, path colonists, mosses and lichens, self-sown… | v1.0.0 active
+- com.storystudio.topic.backyard-creatures | Backyard Creatures | backyard-naturalist/topic/backyard-creatures-v1.0.1 | backyard wildlife, misunderstood animals, sleep nature | Fifty misunderstood animals of gardens and houses — spiders, insects, centipedes, woodlice, worms, birds and small mamm… | v1.0.1 active
+- com.storystudio.topic.backyard-plants | Backyard Plants | backyard-naturalist/topic/backyard-plants-v1.0.1 | backyard plants, weeds and volunteers, sleep nature | Fifty plants that live around a house without being planned — lawn weeds, path colonists, mosses and lichens, self-sown… | v1.0.1 active
 - com.storystudio.topic.deep-time-earth-systems | Earth Systems & Deep Change | free-starters/topic/deep-time-earth-systems-v1.0.1 | geology, Earth systems, climate history | Planetary mechanisms, climates, continents, landforms, and changing atmospheres across deep time. | v1.0.1 active
 - com.storystudio.topic.deep-time-field-record.ancient-oceans-deep-sea | Ancient Oceans & Deep Sea | paid/deep-time-field-record/topic/ancient-oceans-deep-sea | palaeoceanography, ancient oceans, deep sea, ocean chemistry, sediment cores | Evidence-led episodes about the ocean as a system through deep time - its chemistry, circulation, gateways, reefs and s… | v1.0.0 active
 - com.storystudio.topic.deep-time-field-record.human-origins-ancient-worlds | Human Origins & Ancient Worlds | paid/deep-time-field-record/topic/human-origins-ancient-worlds | palaeoanthropology, human origins, hominin fossils, archaeology, dating methods | Evidence-led episodes about the hominin record - the specimen, the site, the date and the dispute - built from named fo… | v1.0.0 active
