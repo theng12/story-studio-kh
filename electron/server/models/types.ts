@@ -2625,6 +2625,8 @@ export interface Job {
    * Historical jobs simply omit this additive field.
    */
   genstudio_jobs?: Array<{
+    /** Story pre-submit receipt identity; retained when the request preview is pruned. */
+    request_key?: string
     id: string
     operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'chat.response' | 'music.generation' | 'video.generation'
     state: string

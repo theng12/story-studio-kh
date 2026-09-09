@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.137
+
+- Resume all paused work consistently with individual Resume, including jobs paused during an app restart. Cancellation and duplicate-click protections remain in place.
+- Reconcile completed subtitle requests without retaining duplicate pending receipts, so recovered history can be cleared once GenStudio confirms the work has finished.
+- Run eligible Pipeline episodes even when other selected episodes lack prerequisites. Keep blocked episodes selected with their reasons and a link to the queued work.
+- Choose 10, 25, 50 or 100 episodes per Pipeline page. The default remains 10, and selection is preserved across pages.
+
 ## v1.4.136
 
 - Disable Introduction generation until the selected episode has a usable script, with a clear explanation and a link to Script Generator. Readiness updates when chapters finish, and remains disabled while checking or when the check fails.

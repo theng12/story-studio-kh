@@ -256,6 +256,15 @@
       <WorkspaceNotice v-if="preflightSummary" tone="success" title="Preflight passed">
         {{ preflightSummary }}
       </WorkspaceNotice>
+      <WorkspaceNotice v-if="batchBlocked.length" tone="warning" title="Some selected episodes need attention">
+        <span>These episodes remain selected, but no work was started for them. Fix the listed issue, then run the batch again.</span>
+        <span v-for="blocked in batchBlocked" :key="blocked.episode_id" class="batch-blocked-reason">
+          <strong>{{ blocked.episode_id }}</strong> — {{ blocked.reason }}
+        </span>
+        <NuxtLink v-if="batchHasJobs" :to="`/projects/${slug}/jobs`" class="btn btn-sm btn-secondary mt-2">
+          View queued jobs
+        </NuxtLink>
+      </WorkspaceNotice>
     </WorkspaceSection>
 
     <!-- ── Episodes to include ──────────────────────────────────────────── -->
@@ -388,6 +397,16 @@
             class="filter-hit-badge"
             :title="`${filteredHitCount} episode(s) match the current filter`"
           >{{ filteredHitCount }} match</span>
+        </div>
+
+        <div class="toolbar-group">
+          <label class="toolbar-label" for="pipeline-page-size">Rows</label>
+          <select id="pipeline-page-size" v-model.number="pageSize" class="select input-sm" title="Episodes shown on each page. Your selected episodes remain selected.">
+            <option :value="10">10</option>
+            <option :value="25">25</option>
+            <option :value="50">50</option>
+            <option :value="100">100</option>
+          </select>
         </div>
 
         <div class="toolbar-pagination" aria-label="Episode pages">
@@ -640,14 +659,17 @@
       <h3 id="batch-confirm-title">{{ repairMode ? 'Repair selected gaps?' : 'Run batch?' }}</h3>
       <p class="text-muted text-md mt-1">
         <template v-if="repairMode">
-          Check <strong>{{ selectedEpisodes.size }}</strong> episode(s) for gaps across
+          Check up to <strong>{{ preflightEligibleCount }}</strong> eligible episode(s) for gaps across
           <strong>{{ checkedStepCount }}</strong> selected step(s).
         </template>
         <template v-else>
-          About to queue <strong>{{ selectedEpisodes.size * checkedStepCount }}</strong> job(s):
-          <strong>{{ selectedEpisodes.size }}</strong> episodes ×
+          About to queue up to <strong>{{ preflightEligibleCount * checkedStepCount }}</strong> job(s):
+          <strong>{{ preflightEligibleCount }}</strong> eligible episode(s) ×
           <strong>{{ checkedStepCount }}</strong> step(s) each.
         </template>
+      </p>
+      <p v-if="preflightBlocked.length" class="text-muted text-sm mt-2">
+        <strong>{{ preflightBlocked.length }}</strong> selected episode(s) need attention and will not start. They remain selected after this run.
       </p>
       <div class="chain-preview">
         <span v-for="(step, i) in checkedStepsOrdered" :key="step.id" class="chain-step">
@@ -1582,7 +1604,7 @@ watch(visibleSteps, () => {
 
 const sortKey = ref<SortKey>('code-asc')
 const filterMode = ref<FilterMode>('all')
-const EPISODES_PER_PAGE = 10
+const pageSize = ref(10)
 const currentPage = ref(1)
 // Free-text search across episode_code + title. Mirrors the Ideas page's
 // search box. Pure derivation; no network call. Empty string = no filter.
@@ -1674,11 +1696,11 @@ const sortedFilteredEpisodes = computed<Episode[]>(() => {
   return sorted
 })
 
-const totalPages = computed(() => Math.max(1, Math.ceil(sortedFilteredEpisodes.value.length / EPISODES_PER_PAGE)))
+const totalPages = computed(() => Math.max(1, Math.ceil(sortedFilteredEpisodes.value.length / pageSize.value)))
 
 const paginatedEpisodes = computed<Episode[]>(() => {
-  const start = (currentPage.value - 1) * EPISODES_PER_PAGE
-  return sortedFilteredEpisodes.value.slice(start, start + EPISODES_PER_PAGE)
+  const start = (currentPage.value - 1) * pageSize.value
+  return sortedFilteredEpisodes.value.slice(start, start + pageSize.value)
 })
 
 const pendingEpisodesCount = computed(() => episodes.value.filter(ep => missingCoreSteps(ep) > 0).length)
@@ -1704,8 +1726,8 @@ const filteredHitCount = computed(() => sortedFilteredEpisodes.value.length)
 const visibleRangeText = computed(() => {
   const total = sortedFilteredEpisodes.value.length
   if (total === 0) return '0 of 0'
-  const start = (currentPage.value - 1) * EPISODES_PER_PAGE + 1
-  const end = Math.min(total, currentPage.value * EPISODES_PER_PAGE)
+  const start = (currentPage.value - 1) * pageSize.value + 1
+  const end = Math.min(total, currentPage.value * pageSize.value)
   return `Showing ${start}–${end} of ${total}`
 })
 
@@ -2140,6 +2162,45 @@ const repairMode = ref(false)
 const repairActionId = ref('')
 const runActionId = ref('')
 const preflightSummary = ref('')
+interface BlockedEpisode {
+  episode_id: string
+  reason: string
+  issues?: Array<{ message?: string }>
+}
+const preflightBlocked = ref<BlockedEpisode[]>([])
+const preflightEligibleCount = ref(0)
+const batchBlocked = ref<BlockedEpisode[]>([])
+const batchHasJobs = ref(false)
+
+function blockedEpisodes(value: unknown): BlockedEpisode[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item: any) => {
+    const episode_id = String(item?.episode_id || '').trim()
+    if (!episode_id) return []
+    const issueReasons = Array.isArray(item?.issues)
+      ? item.issues.map((issue: any) => String(issue?.message || '').trim()).filter(Boolean)
+      : []
+    return [{
+      episode_id,
+      reason: String(item?.reason || issueReasons.join(' ') || 'This episode cannot start yet.'),
+      issues: item?.issues,
+    }]
+  })
+}
+
+function hasGlobalPreflightIssue(value: unknown): boolean {
+  return Array.isArray(value) && value.some((issue: any) => !issue?.episode_id)
+}
+
+// A partial 201 resolves every submitted episode except the server's named
+// blockers. Keep those checked for the next attempt, while preserving any
+// selection the operator changed after this request began.
+function removeResolvedSubmittedEpisodes(submittedEpisodeIds: string[], blocked: BlockedEpisode[]): void {
+  const blockedIds = new Set(blocked.map(item => item.episode_id))
+  for (const episodeId of submittedEpisodeIds) {
+    if (!blockedIds.has(episodeId)) selectedEpisodes.delete(episodeId)
+  }
+}
 // Force re-run: opt-in to regenerate every selected step even if its
 // output already exists on disk. Off by default so routine batch runs
 // don't silently burn tokens on work that's already done.
@@ -2173,6 +2234,10 @@ async function openConfirm(repair: boolean) {
   if (!repair && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
   preflighting.value = true
   preflightSummary.value = ''
+  preflightBlocked.value = []
+  preflightEligibleCount.value = 0
+  batchBlocked.value = []
+  batchHasJobs.value = false
   try {
     const body = {
       episode_ids: [...selectedEpisodes],
@@ -2185,10 +2250,20 @@ async function openConfirm(repair: boolean) {
     const result = await post<any>(`/projects/${slug.value}/pipeline/preflight`, body)
     const estimated = Number(result?.estimated_bytes || 0)
     const storage = estimated > 0 ? ` Estimated workspace: ${formatFileSize(estimated)}.` : ''
-    preflightSummary.value = `${result.episodes} episode(s) and ${result.steps} step(s) are ready.${storage}`
+    preflightBlocked.value = blockedEpisodes(result?.blocked)
+    preflightEligibleCount.value = Array.isArray(result?.eligible_episode_ids)
+      ? result.eligible_episode_ids.length
+      : Number(result?.episodes || selectedEpisodes.size)
+    preflightSummary.value = `${preflightEligibleCount.value} episode(s) and ${result.steps} step(s) are ready.${storage}`
     showConfirm.value = true
   } catch (e: any) {
     if (repair) repairActionId.value = ''
+    const blocked = blockedEpisodes(e?.data?.blocked)
+    if (blocked.length && !hasGlobalPreflightIssue(e?.data?.issues)) {
+      batchBlocked.value = blocked
+      showInfo('No selected episodes are ready to start. Their reasons are shown below.')
+      return
+    }
     const issues = Array.isArray(e?.data?.issues) ? e.data.issues : []
     showError(issues.length ? issues.map((issue: any) => issue.message).join(' ') : (e?.data?.detail || 'Preflight failed'))
   } finally {
@@ -2201,8 +2276,9 @@ async function submit() {
   submitting.value = true
   try {
     if (!repairMode.value && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
+    const submittedEpisodeIds = [...selectedEpisodes]
     const body = {
-      episode_ids: [...selectedEpisodes],
+      episode_ids: submittedEpisodeIds,
       steps: checkedStepsOrdered.value.map(s => s.id),
       ...(Object.keys(modelPoliciesForRun()).length ? { model_policies: modelPoliciesForRun() } : {}),
       force: repairMode.value ? false : forceRerun.value,
@@ -2213,16 +2289,23 @@ async function submit() {
     const completedRepair = repairMode.value
     closeConfirm(true)
     const { enqueued, reused, skipped, total_jobs_planned, steps_skipped_as_done, character_sheets_applied } = r || {}
+    const queuedChains = Number(enqueued || 0)
+    const reusedChains = Number(reused || 0)
+    const totalJobsPlanned = Number(total_jobs_planned || 0)
+    batchBlocked.value = blockedEpisodes(r?.blocked)
+    removeResolvedSubmittedEpisodes(submittedEpisodeIds, batchBlocked.value)
+    batchHasJobs.value = queuedChains > 0 || reusedChains > 0
     const skipDoneCount = Array.isArray(steps_skipped_as_done) ? steps_skipped_as_done.length : 0
     const parts: string[] = []
-    parts.push(`Queued ${enqueued} chain(s) — ${total_jobs_planned} total jobs`)
-    if (reused > 0) parts.push(`${reused} active scene render(s) reused — no duplicate Hub work`)
+    if (queuedChains > 0) parts.push(`Queued ${queuedChains} chain(s) — ${totalJobsPlanned} total jobs`)
+    if (reusedChains > 0) parts.push(`${reusedChains} active scene render(s) reused — no duplicate Hub work`)
     // Character Sheet is applied inline (continuity.json written), not queued —
     // surface it separately so the count isn't silently missing from the toast.
     if (character_sheets_applied > 0) parts.push(`${character_sheets_applied} character sheet(s) applied`)
     if (skipDoneCount > 0) parts.push(`${skipDoneCount} step(s) skipped as already complete`)
     if (skipped?.length) parts.push(`${skipped.length} episode(s) skipped`)
-    success(completedRepair ? `Repair started · ${parts.join(' · ')}` : parts.join(' · '))
+    if (batchBlocked.value.length) parts.push(`${batchBlocked.value.length} selected episode(s) need attention`)
+    success(parts.length ? (completedRepair ? `Repair started · ${parts.join(' · ')}` : parts.join(' · ')) : 'Nothing new was queued.')
     // A skipped step queues NO job, so "see Jobs tab" sent the user to a
     // screen that could not explain the skip. The backend already returns a
     // reason per episode — show it. Distinct reasons only: a batch skips the
@@ -2234,8 +2317,16 @@ async function submit() {
       if (reasons.length > 3) showInfo(`…and ${reasons.length - 3} more skip reason(s).`)
     }
     // Let the user watch it unfold without manual navigation:
-    navigateTo(`/projects/${slug.value}/jobs`)
+    if (batchHasJobs.value && !batchBlocked.value.length) navigateTo(`/projects/${slug.value}/jobs`)
   } catch (e: any) {
+    const blocked = blockedEpisodes(e?.data?.blocked)
+    if (blocked.length && !hasGlobalPreflightIssue(e?.data?.issues)) {
+      batchBlocked.value = blocked
+      batchHasJobs.value = false
+      closeConfirm(true)
+      showInfo('No selected episodes were queued. Their reasons are shown below.')
+      return
+    }
     const missing = e?.data?.missing
     if (Array.isArray(missing) && missing.length) {
       showError(missing.map((m: any) => m.reason).join(' '))
@@ -2298,6 +2389,7 @@ async function submit() {
 /* "Can't start yet" problems list — bullet indent + slightly smaller
  * type than body copy. */
 .problems-list { font-size: 13px; padding-left: 18px; }
+.batch-blocked-reason { display: block; margin-top: 4px; }
 
 /* ── Steps grid ───────────────────────────────────────────────────────── */
 .steps-grid {

@@ -84,6 +84,7 @@ before(async () => {
 
   jq.registerExecutor('script-only', async () => {})
   jq.registerExecutor('audio', async () => {})
+  jq.registerExecutor('subtitles_transcribe', async () => {})
   await jq.setQueuePaused(true)
 })
 
@@ -174,6 +175,36 @@ describe('scoped bulk paused-job Resume routes', () => {
     assert.deepEqual(allProjects.body, { requested: 2, resumed: 2, skipped: 0 })
     assert.equal(jq.getJob(firstScript.job_id)?.status, 'queued')
     assert.equal(jq.getJob(secondScript.job_id)?.status, 'queued')
+  })
+
+  test('universal route resumes recovered and persisted paused jobs with stale pause requests', async () => {
+    const project = await pm.createProject({ name: 'Bulk Recovered Pause Request' })
+    const subtitle = pausedJob(project.slug, 'subtitles_transcribe', 'manual', {
+      status: 'running',
+      pause_requested: true,
+    })
+    const firstAudio = pausedJob(project.slug, 'audio', 'manual', {
+      status: 'running',
+      pause_requested: true,
+    })
+    const secondAudio = pausedJob(project.slug, 'audio', 'manual', { pause_requested: true })
+    await seedJobs(project.slug, [subtitle, firstAudio, secondAudio])
+
+    assert.deepEqual(
+      [subtitle, firstAudio, secondAudio].map(job => jq.getJob(job.job_id)?.status),
+      ['paused', 'paused', 'paused'],
+    )
+
+    const response = await request(app)
+      .post('/api/jobs/all/resume-paused')
+      .send({ project_slug: project.slug })
+      .expect(202)
+
+    assert.deepEqual(response.body, { requested: 3, resumed: 3, skipped: 0 })
+    for (const job of [subtitle, firstAudio, secondAudio]) {
+      assert.equal(jq.getJob(job.job_id)?.status, 'queued')
+      assert.equal(jq.getJob(job.job_id)?.pause_requested, false)
+    }
   })
 })
 
