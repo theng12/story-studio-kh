@@ -84,7 +84,7 @@ test('stitching refreshes planning readiness before claiming Scene Plan is ready
     path.resolve(process.cwd(), 'pages/projects/[slug]/subtitles.vue'),
     'utf-8',
   )
-  assert.match(subtitles, /await loadStatus\(\)\s+const readiness = subtitleTimelineComplete\.value/)
+  assert.match(subtitles, /await loadStatus\(\)\s+if \(episode !== episodeSequence\) return\s+const readiness = subtitleTimelineComplete\.value/)
   assert.match(subtitles, /hasBlockingCueGaps\.value/)
   assert.match(subtitles, /re-stitching alone cannot add missing cues/i)
   assert.match(subtitles, /\? ' — ready for Scene Plan\.'/)

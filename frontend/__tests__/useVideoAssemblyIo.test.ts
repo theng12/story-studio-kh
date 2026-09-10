@@ -320,3 +320,84 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.equal(body.chapter_titles.enabled, true)
   })
 })
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
+
+test('late asset scans cannot replace the newly selected episode or its title image', async () => {
+  const state = makeState()
+  const first = deferred<any>()
+  const second = deferred<any>()
+  ;(globalThis as any).$fetch = async (url: string) => {
+    if (url.includes('/health')) return { boot_complete: true }
+    return url.endsWith('/EP0001') ? first.promise : second.promise
+  }
+  const io = useVideoAssemblyIo(state as any)
+  const oldScan = io.scanAssets()
+  state.episodeId.value = 'EP0002'
+  state.selectedEpisode.value = { title: 'Second episode' }
+  const newScan = io.scanAssets()
+  second.resolve({ scenes: [{ source: 'scene_plan', path: '/second.png' }], thumbnails: [{ path: '/second-title.png' }] })
+  await newScan
+  first.resolve({ scenes: [{ source: 'scene_plan', path: '/first.png' }], thumbnails: [{ path: '/first-title.png' }] })
+  await oldScan
+  assert.equal(state.scenes.value[0]?.image_path, '/second.png')
+  assert.equal(state.titleImage.image_path, '/second-title.png')
+  assert.equal(state.titleCard.text, 'Second episode')
+  assert.equal(state.scanning.value, false)
+})
+
+test('switching episode during thumbnail normalization does not carry the old image forward', async () => {
+  const state = makeState()
+  const normalized = deferred<string>()
+  const started = deferred<void>()
+  ;(state as any).normalizePath = async () => { started.resolve(); return normalized.promise }
+  ;(globalThis as any).$fetch = async (url: string) => url.includes('/health')
+    ? { boot_complete: true }
+    : { scenes: [], thumbnails: [{ path: '/first-title.png' }] }
+  const io = useVideoAssemblyIo(state as any)
+  const pending = io.scanAssets()
+  await started.promise
+  state.episodeId.value = 'EP0002'
+  normalized.resolve('portable-first-title.png')
+  await pending
+  assert.equal(state.titleImage.image_path, '')
+  assert.equal(state.scannedAssets.value, null)
+  assert.deepEqual(state.scenes.value, [])
+  assert.equal(state.scanning.value, false)
+})
+
+test('a late queued response does not attach the previous episode job to the current episode', async () => {
+  const state = makeState()
+  const activeJobId = ref<string | null>(null)
+  const pendingJob = deferred<any>()
+  const io = useVideoAssemblyIo({ ...state, activeJobId } as any)
+  const pending = io.generateVideo({ post: () => pendingJob.promise, videoAssemblyGenerating: ref(false) })
+  state.episodeId.value = 'EP0002'
+  activeJobId.value = 'second-job'
+  pendingJob.resolve({ job_id: 'first-job' })
+  assert.equal(await pending, true)
+  assert.equal(activeJobId.value, 'second-job')
+})
+
+test('a stale failed video submission cannot clear a newer assembly pulse', async () => {
+  const state = makeState()
+  const firstPost = deferred<any>()
+  const secondPost = deferred<any>()
+  const assemblyGenerating = ref(false)
+  const io = useVideoAssemblyIo(state as any)
+  const first = io.generateVideo({ post: () => firstPost.promise, videoAssemblyGenerating: assemblyGenerating })
+  state.episodeId.value = 'EP0002'
+  state.generating.value = false // mirrors video-assembly.vue's episode watcher
+  const second = io.generateVideo({ post: () => secondPost.promise, videoAssemblyGenerating: assemblyGenerating })
+  firstPost.reject(new Error('first request failed'))
+  assert.equal(await first, false)
+  assert.equal(assemblyGenerating.value, true)
+  secondPost.reject(new Error('second request failed'))
+  assert.equal(await second, false)
+  assert.equal(assemblyGenerating.value, false)
+})

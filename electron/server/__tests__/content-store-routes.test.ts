@@ -318,10 +318,11 @@ describe('Content Store commerce routes', () => {
       await Promise.allSettled([childExited])
     })
     void childExited.catch(error => { childFailure = error })
+    // Allow cold Node/tsx startup; the lock observation below keeps its own deadline.
     await waitFor(async () => {
       if (childFailure) throw childFailure
       return fs.stat(ready).then(() => true, () => false)
-    }, { label: 'commerce lock worker to become ready', timeoutMs: 2_000, pollMs: 5 })
+    }, { label: 'commerce lock worker to become ready', timeoutMs: 5_000, pollMs: 5 })
     readyObserved = true
     const originalFetch = globalThis.fetch
     const originalReadFile = fs.readFile.bind(fs)

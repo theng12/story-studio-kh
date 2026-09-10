@@ -799,18 +799,31 @@ const mergeStatus = reactive<MergeStatusState>({
   loading: false, error: '', present: false, file: '',
 })
 
+let scanSequence = 0
+let mergeStatusSequence = 0
+let poolPeekSequence = 0
+let audioScopeSequence = 0
+let mergeSubmitSequence = 0
 async function refreshMergeStatus() {
-  if (!episodeId.value) return
+  const request = ++mergeStatusSequence
+  const episode = episodeId.value
+  const project = slug.value
+  const current = () => request === mergeStatusSequence && episode === episodeId.value && project === slug.value
+  mergeStatus.present = false
+  mergeStatus.file = ''
+  if (!episode) { mergeStatus.loading = false; return }
   mergeStatus.loading = true
   mergeStatus.error = ''
   try {
     const r = await get<any>(`/projects/${slug.value}/episodes/${episodeId.value}/audio-merge-status`)
+    if (!current()) return
     mergeStatus.present = !!r.present
     mergeStatus.file = r.file || ''
   } catch (e: any) {
+    if (!current()) return
     mergeStatus.error = e?.data?.detail || e?.message || 'Could not check merge integrity'
   } finally {
-    mergeStatus.loading = false
+    if (current()) mergeStatus.loading = false
   }
 }
 
@@ -843,7 +856,27 @@ function loadEpisodeDataDebounced() {
   }, 200)
 }
 
-watch(() => episodeId.value, (v) => { if (v) loadEpisodeDataDebounced() }, { immediate: true })
+watch([slug, episodeId], (_, previous) => {
+  audioScopeSequence++
+  scanSequence++
+  mergeStatusSequence++
+  poolPeekSequence++
+  // The immediate run precedes the form declarations; later switches clear
+  // their episode data immediately, before the debounced request begins.
+  if (previous?.length) {
+    scannedAssets.value = null
+    chapters.value = []
+    scanning.value = false
+    Object.assign(mergeStatus, { loading: false, error: '', present: false, file: '' })
+    poolPickedTrack.value = ''
+    poolPickedPath.value = ''
+    poolPickedReason.value = ''
+    poolPeekLoading.value = false
+  }
+  if (episodeLoadTimer) clearTimeout(episodeLoadTimer)
+  episodeLoadTimer = null
+  if (episodeId.value) loadEpisodeDataDebounced()
+}, { immediate: true, flush: 'sync' })
 // No loadProject watcher here: useProject() is a module-level singleton and
 // the dashboard layout this page declares already loads the project on the
 // same slug. A second watcher only repeated the same two GETs on every visit.
@@ -858,6 +891,10 @@ watch(() => audioMergeGenerating.value, (now, prev) => {
 })
 
 onUnmounted(() => {
+  scanSequence++
+  mergeStatusSequence++
+  poolPeekSequence++
+  audioScopeSequence++
   if (episodeLoadTimer) {
     clearTimeout(episodeLoadTimer)
     episodeLoadTimer = null
@@ -1138,13 +1175,23 @@ async function collapseToPortablePath(input: string): Promise<string> {
 }
 
 async function normalizeAudioMergePathsInState(): Promise<void> {
-  if (intro.file) intro.file = await collapseToPortablePath(intro.file)
-  if (backgroundNoise.custom_file) backgroundNoise.custom_file = await collapseToPortablePath(backgroundNoise.custom_file)
-  if (newMusicPath.value) newMusicPath.value = await collapseToPortablePath(newMusicPath.value)
-  music.files = await Promise.all(music.files.map(f => collapseToPortablePath(f)))
-  for (const track of ambientTracks) {
-    if (track.source_path) track.source_path = await collapseToPortablePath(track.source_path)
+  const scope = audioScopeSequence
+  const normalize = async (getPath: () => string, setPath: (value: string) => void) => {
+    const original = getPath()
+    if (!original) return
+    const portable = await collapseToPortablePath(original)
+    if (scope === audioScopeSequence && getPath() === original) setPath(portable)
   }
+  const files = [...music.files]
+  const normalizedFiles = await Promise.all(files.map(f => collapseToPortablePath(f)))
+  if (scope === audioScopeSequence && JSON.stringify(music.files) === JSON.stringify(files)) music.files = normalizedFiles
+  if (scope !== audioScopeSequence) return
+  await Promise.all([
+    normalize(() => intro.file, value => { intro.file = value }),
+    normalize(() => backgroundNoise.custom_file, value => { backgroundNoise.custom_file = value }),
+    normalize(() => newMusicPath.value, value => { newMusicPath.value = value }),
+    ...ambientTracks.map(track => normalize(() => track.source_path, value => { track.source_path = value })),
+  ])
 }
 
 function moveChapter(index: number, direction: -1 | 1) {
@@ -1384,27 +1431,40 @@ async function checkFfmpeg() {
 }
 
 async function scanAssets() {
-  if (!episodeId.value) return
+  const request = ++scanSequence
+  const episode = episodeId.value
+  const project = slug.value
+  const current = () => request === scanSequence && episode === episodeId.value && project === slug.value
+  if (!episode) return
   scanning.value = true
   scannedAssets.value = null
   chapters.value = []
   try {
-    scannedAssets.value = await get(`/projects/${slug.value}/audio-editor/scan/${episodeId.value}`)
+    const assets = await get(`/projects/${project}/audio-editor/scan/${episode}`)
+    if (!current()) return
+    scannedAssets.value = assets
     if (scannedAssets.value?.chapters?.length) {
       chapters.value = [...scannedAssets.value.chapters]
     }
   } catch (e: any) {
+    if (!current()) return
     console.error(`[audio-merge] scan failed for ${episodeId.value}:`, e)
     showError(e.data?.detail || `Failed to scan audio assets for ${episodeId.value} — check the episode folder exists.`)
   } finally {
-    scanning.value = false
+    if (current()) scanning.value = false
   }
   // After the scan, resolve the current pool selection without changing a
   // hand-picked playlist.
-  await refreshPoolPeek()
+  if (current()) await refreshPoolPeek()
 }
 
 async function refreshPoolPeek() {
+  const request = ++poolPeekSequence
+  const episode = episodeId.value
+  const project = slug.value
+  const current = () => request === poolPeekSequence && episode === episodeId.value
+    && project === slug.value && music.source === 'pool'
+
   if (!episodeId.value || music.source !== 'pool') {
     poolPickedTrack.value = ''
     poolPickedPath.value = ''
@@ -1428,8 +1488,11 @@ async function refreshPoolPeek() {
     } | null>(
       `/projects/${slug.value}/music-pool/peek-next?episode_code=${encodeURIComponent(episodeId.value)}`,
     )
+    if (!current()) return
     if (r && r.track) {
+      if (!current()) return
       const portableTrackPath = await collapseToPortablePath(r.track.path)
+      if (!current()) return
       poolPickedTrack.value = r.track.filename
       poolPickedPath.value = portableTrackPath
       poolPickedReason.value = r.reason
@@ -1441,18 +1504,21 @@ async function refreshPoolPeek() {
       poolPickedReason.value = ''
     }
   } catch {
+    if (!current()) return
     // Leave the pool source empty: the user can retry, repair the pool, or
     // deliberately switch to an episode playlist.
     poolPickedTrack.value = ''
     poolPickedPath.value = ''
     poolPickedReason.value = ''
   } finally {
-    poolPeekLoading.value = false
+    if (request === poolPeekSequence) poolPeekLoading.value = false
   }
 }
 
 function setMusicSource(source: 'pool' | 'manual') {
   if (music.source === source) return
+  poolPeekSequence++
+  poolPeekLoading.value = false
   music.source = source
   if (source === 'pool') {
     void refreshPoolPeek()
@@ -1539,89 +1605,95 @@ function onGenerateClick() {
 }
 
 async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite') {
-  await normalizeAudioMergePathsInState()
-  const payload: Record<string, any> = {
-    episode_id: episodeId.value,
-    chapters: chapters.value.map(ch => ch.path),
-    gap_duration: gapDuration.value,
-    normalize_volume: normalizeVolume.value,
-    narration_volume: narrationVolume.value / 100,
-    write_mode: writeMode,
-  }
-  // v1.0.317 — opt-in per-chunk pause for cloud TTS chunked chapters. Only
-  // sent when > 0 so the backend payload stays clean for the legacy default.
-  if (chunkSilenceSec.value > 0) payload.chunk_silence_sec = chunkSilenceSec.value
-
-  if (intro.enabled && intro.file) {
-    payload.intro = {
-      enabled: true,
-      file: intro.file,
-      volume: intro.volume / 100,
-      gap_after: intro.gap_after,
-    }
-  }
-
-  if (music.enabled && selectedMusicFiles.value.length) {
-    payload.music = {
-      enabled: true,
-      files: selectedMusicFiles.value,
-      volume: music.volume / 100,
-      post_narration_volume: music.post_narration_volume / 100,
-      fade_in: music.fade_in,
-      fade_out: music.fade_out,
-      // v1.0.397 — lead-in is a duration (seconds), not a volume — sent as-is.
-      lead_in_enabled: music.lead_in_enabled,
-      lead_in_seconds: music.lead_in_seconds,
-    }
-    // Only a real pool selection advances the project pool cursor. A
-    // manually selected playlist must never be recorded as an auto pick.
-    if (music.source === 'pool' && poolPickedTrack.value && poolPickedPath.value) {
-      payload.music_pool_track = poolPickedTrack.value
-    }
-  }
-
-  if (backgroundNoise.enabled) {
-    payload.background_noise = {
-      enabled: true,
-      mode: backgroundNoise.mode,
-      preset: backgroundNoise.preset,
-      custom_file: backgroundNoise.mode === 'custom' ? backgroundNoise.custom_file : undefined,
-      volume: backgroundNoise.volume / 100,
-      fade_in: backgroundNoise.fade_in,
-      fade_out: backgroundNoise.fade_out,
-    }
-  }
-
-  // Multi-track ambient layers — only send enabled rows with a real
-  // file path. Volume converts from UI's 0-100 scale to backend 0-1.
-  const liveAmbient = ambientTracks.filter(t => t.enabled && t.source_path)
-  if (liveAmbient.length) {
-    payload.ambient_tracks = liveAmbient.map(t => ({
-      id: t.id,
-      enabled: true,
-      source_path: t.source_path,
-      volume: Math.max(0, Math.min(1, t.volume / 100)),
-      fade_in: Math.max(0, t.fade_in),
-      fade_out: Math.max(0, t.fade_out),
-      loop: t.loop !== false,
-    }))
-  }
-
+  if (!episodeId.value || generating.value || scanning.value || !chapters.value.length) return
+  const scope = audioScopeSequence
+  const submit = ++mergeSubmitSequence
   generating.value = true
-  audioMergeGenerating.value = true
-
   try {
+    await normalizeAudioMergePathsInState()
+    if (scope !== audioScopeSequence) return
+    const payload: Record<string, any> = {
+      episode_id: episodeId.value,
+      chapters: chapters.value.map(ch => ch.path),
+      gap_duration: gapDuration.value,
+      normalize_volume: normalizeVolume.value,
+      narration_volume: narrationVolume.value / 100,
+      write_mode: writeMode,
+    }
+    // v1.0.317 — opt-in per-chunk pause for cloud TTS chunked chapters. Only
+    // sent when > 0 so the backend payload stays clean for the legacy default.
+    if (chunkSilenceSec.value > 0) payload.chunk_silence_sec = chunkSilenceSec.value
+
+    if (intro.enabled && intro.file) {
+      payload.intro = {
+        enabled: true,
+        file: intro.file,
+        volume: intro.volume / 100,
+        gap_after: intro.gap_after,
+      }
+    }
+
+    if (music.enabled && selectedMusicFiles.value.length) {
+      payload.music = {
+        enabled: true,
+        files: selectedMusicFiles.value,
+        volume: music.volume / 100,
+        post_narration_volume: music.post_narration_volume / 100,
+        fade_in: music.fade_in,
+        fade_out: music.fade_out,
+        // v1.0.397 — lead-in is a duration (seconds), not a volume — sent as-is.
+        lead_in_enabled: music.lead_in_enabled,
+        lead_in_seconds: music.lead_in_seconds,
+      }
+      // Only a real pool selection advances the project pool cursor. A
+      // manually selected playlist must never be recorded as an auto pick.
+      if (music.source === 'pool' && poolPickedTrack.value && poolPickedPath.value) {
+        payload.music_pool_track = poolPickedTrack.value
+      }
+    }
+
+    if (backgroundNoise.enabled) {
+      payload.background_noise = {
+        enabled: true,
+        mode: backgroundNoise.mode,
+        preset: backgroundNoise.preset,
+        custom_file: backgroundNoise.mode === 'custom' ? backgroundNoise.custom_file : undefined,
+        volume: backgroundNoise.volume / 100,
+        fade_in: backgroundNoise.fade_in,
+        fade_out: backgroundNoise.fade_out,
+      }
+    }
+
+    // Multi-track ambient layers — only send enabled rows with a real
+    // file path. Volume converts from UI's 0-100 scale to backend 0-1.
+    const liveAmbient = ambientTracks.filter(t => t.enabled && t.source_path)
+    if (liveAmbient.length) {
+      payload.ambient_tracks = liveAmbient.map(t => ({
+        id: t.id,
+        enabled: true,
+        source_path: t.source_path,
+        volume: Math.max(0, Math.min(1, t.volume / 100)),
+        fade_in: Math.max(0, t.fade_in),
+        fade_out: Math.max(0, t.fade_out),
+        loop: t.loop !== false,
+      }))
+    }
+
+    audioMergeGenerating.value = true
     await post<any>(`/projects/${slug.value}/generate/audio-merge`, payload)
     success('Audio merge queued!')
   } catch (e: any) {
-    console.error('[audio-merge] queue failed:', e, 'payload:', payload)
+    // The sidebar pulse is shared across episodes. A stale failed request must
+    // clear its own optimistic pulse, but never hide a newer submission.
+    if (submit === mergeSubmitSequence) audioMergeGenerating.value = false
+    if (scope !== audioScopeSequence) return
+    console.error('[audio-merge] queue failed:', e)
     const fallback = !ffmpegStatus.value?.installed
       ? 'FFmpeg is not installed — install it from Settings → FFmpeg first.'
       : 'Failed to queue audio merge. Check that all selected files exist on disk.'
     showError(e.data?.detail || fallback)
-    audioMergeGenerating.value = false
   } finally {
-    generating.value = false
+    if (scope === audioScopeSequence) generating.value = false
   }
 }
 

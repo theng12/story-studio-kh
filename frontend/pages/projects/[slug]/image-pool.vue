@@ -242,6 +242,7 @@ const genBatchCost = computed(() => describeImageBatchEstimate(
 
 const imagePools = computed(() => (broll.pools.value || []).filter((p: any) => p.media === 'image'))
 const selectedPool = computed(() => imagePools.value.find((p: any) => p.id === poolId.value) || null)
+let imagePoolScopeSequence = 0
 
 // Seed seconds/dedup from the selected pool's defaults whenever it changes.
 watch(selectedPool, (p) => {
@@ -253,12 +254,20 @@ watch(selectedPool, (p) => {
 })
 
 async function loadPoolCount(): Promise<void> {
+  const requestedPoolId = poolId.value
+  const project = slug.value
+  const scope = imagePoolScopeSequence
+  const current = () => scope === imagePoolScopeSequence && project === slug.value && poolId.value === requestedPoolId
   poolImageCount.value = null
-  if (!poolId.value || !selectedPool.value?.online) return
+  if (!requestedPoolId || !selectedPool.value?.online) return
   try {
-    const r = await broll.listClips(poolId.value)
+    const r = await broll.listClips(requestedPoolId)
+    if (!current()) return
     poolImageCount.value = (r.clips || []).filter((c: any) => !c.missing).length
-  } catch { poolImageCount.value = null }
+  } catch {
+    if (!current()) return
+    poolImageCount.value = null
+  }
 }
 
 async function saveSubscription(): Promise<void> {
@@ -341,8 +350,11 @@ async function generateIntoPool(): Promise<void> {
   }
 }
 
-// Per-episode load state resets when the episode changes.
-watch(episodeId, () => { lastLoad.value = null })
+// Project and episode changes invalidate the pool's transient selection state.
+watch([slug, episodeId], () => {
+  imagePoolScopeSequence++
+  lastLoad.value = null
+}, { flush: 'sync' })
 
 onMounted(async () => {
   void refreshGenStudioModels()

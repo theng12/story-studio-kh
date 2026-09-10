@@ -1610,6 +1610,7 @@ const thumbnailHeadlineInvents = computed<boolean>(() =>
 )
 form.scene.force = false
 
+let promptScopeSequence = 0
 // v1.0.115+ — clear the in-flight indicator on episode swap. The local
 // `generating` ref is normally true only during the POST window (reset
 // in the submit handler's `finally`), but defensively clearing it on
@@ -1617,9 +1618,10 @@ form.scene.force = false
 // "Generating prompts for [old ep]…" if the user is fast enough to swap
 // while the POST is still inflight. Symmetrical with video-assembly.vue
 // and audio-merge.vue.
-watch(() => form.episode_id, (newEp, oldEp) => {
+watch([slug, () => form.episode_id], ([, newEp], [, oldEp]) => {
+  promptScopeSequence++
   if (newEp !== oldEp) generating.value = false
-})
+}, { flush: 'sync' })
 
 // The active sub-form. Template bindings on shared-field controls use
 // this so a v-model write goes to the right kind. Computed unwraps in
@@ -2380,6 +2382,7 @@ type PromptMode = 'scenes' | 'thumbnails'
 // has the same UX latency (1.5s tick is fast enough for a 1-3 min job).
 
 const JOB_POLL_INTERVAL_MS = 1500
+let promptGenerationSequence = 0
 
 async function waitForJob(slug: string, jobId: string): Promise<any> {
   while (true) {
@@ -2392,11 +2395,15 @@ async function waitForJob(slug: string, jobId: string): Promise<any> {
 }
 
 async function runGenerate(mode: PromptMode) {
-  if (!form.episode_id) return
+  const ep = form.episode_id
+  if (!ep) return
+  const generationSlug = slug.value
+  const scope = promptScopeSequence
+  const requestSequence = ++promptGenerationSequence
   generating.value = true
   setPromptPulse(mode, true)
   const payload = {
-    episode_id: form.episode_id,
+    episode_id: ep,
     model: activeForm.value.model,
     style_tag: activeForm.value.style_tag,
     aspect_ratio: activeForm.value.aspect_ratio,
@@ -2420,7 +2427,7 @@ async function runGenerate(mode: PromptMode) {
   }
   const operationId = payload.force ? freshImagePromptsAction.begin(payload) : null
   try {
-    const job: any = await post(`/projects/${slug.value}/generate/image-prompts`, {
+    const job: any = await post(`/projects/${generationSlug}/generate/image-prompts`, {
       ...payload,
       // v1.0.87+: always multiplication. No more Custom-total mode —
       // the backend's executor multiplies scenes_per_chapter × chapter_
@@ -2443,7 +2450,8 @@ async function runGenerate(mode: PromptMode) {
     // `generating` flag keeps the button disabled + spinner showing.
     success(`Queued ${mode === 'scenes' ? 'scene prompts' : 'thumbnail prompts'} — watch progress in Jobs.`)
 
-    const completed = await waitForJob(slug.value, job.job_id)
+    const completed = await waitForJob(generationSlug, job.job_id)
+    if (scope !== promptScopeSequence || slug.value !== generationSlug || form.episode_id !== ep || requestSequence !== promptGenerationSequence) return
     if (completed.status === 'error') {
       throw new Error(completed.error || 'Job failed (see Jobs panel for details)')
     }
@@ -2454,12 +2462,13 @@ async function runGenerate(mode: PromptMode) {
 
     // Job done — executor wrote the docx to disk. Pull it back so the
     // inline-edit pane reflects the new prompts.
-    const titleParam = selectedEpisode.value?.title
-      ? `?title=${encodeURIComponent(selectedEpisode.value.title)}`
+    const titleParam = payload.title
+      ? `?title=${encodeURIComponent(payload.title)}`
       : ''
     const onDisk: any = await get(
-      `/projects/${slug.value}/episodes/${form.episode_id}/image-prompts${titleParam}`,
+      `/projects/${generationSlug}/episodes/${ep}/image-prompts${titleParam}`,
     )
+    if (scope !== promptScopeSequence || slug.value !== generationSlug || form.episode_id !== ep || requestSequence !== promptGenerationSequence) return
 
     // Merge into the inline review pane. Scene-only / thumb-only runs
     // preserve the OTHER half from whatever was already there on disk
@@ -2475,7 +2484,7 @@ async function runGenerate(mode: PromptMode) {
     }
 
     history.value.unshift({
-      episode_id: form.episode_id,
+      episode_id: ep,
       style_preset: activeForm.value.style_preset,
       aspect_ratio: activeForm.value.aspect_ratio,
       mode,
@@ -2494,14 +2503,17 @@ async function runGenerate(mode: PromptMode) {
       : `Generated ${thumbCt} thumbnail prompts`
     success(msg)
   } catch (e: any) {
+    if (scope !== promptScopeSequence || slug.value !== generationSlug || form.episode_id !== ep || requestSequence !== promptGenerationSequence) return
     // Name the pool that failed so the toast is actionable.
     const poolLabel = mode === 'scenes' ? 'scene prompts'
       : 'thumbnail prompts'
     console.error(`[image-prompts] ${poolLabel} generation failed:`, e)
     showError(e.data?.detail || e.message || `Failed to generate ${poolLabel}`)
   } finally {
-    generating.value = false
-    setPromptPulse(mode, false)
+    if (scope === promptScopeSequence && slug.value === generationSlug && form.episode_id === ep && requestSequence === promptGenerationSequence) {
+      generating.value = false
+      setPromptPulse(mode, false)
+    }
   }
 }
 

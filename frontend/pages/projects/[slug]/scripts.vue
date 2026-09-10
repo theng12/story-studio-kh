@@ -1796,14 +1796,14 @@ async function submitOutline(): Promise<boolean> {
   }
 
   if (!await confirmGeneration(slug.value, 'script', params)) return false
-  const operationId = form.force ? freshScriptAction.begin(params) : null
-  if (operationId) params.operation_id = operationId
+  const operationId = freshScriptAction.begin(params)
+  params.operation_id = operationId
 
   submitting.value = true
   scriptGenerating.value = true
   try {
     const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/outline-only`, params)
-    if (operationId) freshScriptAction.complete(operationId)
+    freshScriptAction.complete(operationId)
     success('Outline build queued — review when it finishes!')
     const ok = await waitForJob(job.job_id)
     if (ok) outlineRefreshKey.value++

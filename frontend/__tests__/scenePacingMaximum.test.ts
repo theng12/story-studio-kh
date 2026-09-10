@@ -43,8 +43,8 @@ test('Scene Review re-reads the pacing band when the episode changes', () => {
   // episode A's maximum.
   assert.match(
     sceneReview,
-    /watch\(episodeId, \(\) => \{[\s\S]*?void loadContinuityFlag\(\)[\s\S]*?\}, \{ immediate: true \}\)/,
-    'the continuity read is wired to the episode watcher, immediately',
+    /watch\(\[slug, episodeId\], \(\) => \{[\s\S]*?void loadContinuityFlag\(\)[\s\S]*?\}, \{ immediate: true, flush: 'sync' \}\)/,
+    'the continuity read is wired to the project-and-episode watcher immediately',
   )
   assert.match(
     sceneReview,

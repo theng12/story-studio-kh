@@ -71,7 +71,7 @@ test('the notice clears on a hand edit and on an episode change, and never fires
   assert.match(page, /function onAutoApproveEdited\(\): void \{ autoApproveNotice\.value = null \}/)
   // Switching episode makes the announcement stale — it described the episode
   // you just left.
-  assert.match(page, /watch\(episodeId, \(\) => \{ autoApproveNotice\.value = null; void loadTimeline\(\) \}\)/)
+  assert.match(page, /watch\(\[slug, episodeId\], \(\) => \{ cueScopeEpoch\+\+; autoApproveNotice\.value = null; void loadTimeline\(\) \}, \{ flush: 'sync' \}\)/)
   // `usePresets.load()` re-applies the active preset on every mount. That is a
   // restore, not something the customer just did, so it announces nothing.
   assert.match(page, /await cuePresets\.load\(\)[\s\S]{0,400}?autoApproveNotice\.value = null/)
@@ -106,7 +106,7 @@ test('two writes never overlap, and a stale response never overwrites what was t
   assert.match(page, /saveTail\.then\(writeTimeline, writeTimeline\)/)
   // A response that comes back to a changed timeline is dropped, not applied.
   assert.match(page, /const sentAt = editSeq/)
-  assert.match(page, /if \(editSeq !== sentAt\) return/)
+  assert.match(page, /if \(!isCurrentCueScope\(projectSlug, episode, scopeEpoch\) \|\| !stillOwnsTimeline \|\| editSeq !== sentAt\) return/)
   // The write addresses the episode the cues came from, not whichever is
   // selected by the time it fires.
   assert.match(page, /const episode = timelineEpisodeId\.value/)
@@ -135,7 +135,7 @@ test('the manual button survives auto-save: always pressable, honest about what 
   // Pressing it with nothing to save confirms that instead of doing nothing.
   assert.match(page, /if \(!dirty\.value\) \{ success\(/)
   // And it never reports success for a write that failed.
-  assert.match(page, /if \(saveError\.value\) showError\(saveError\.value\)\s*\n\s*else success\('Contextual cue timeline saved'\)/)
+  assert.match(page, /if \(saveError\.value\) showError\(saveError\.value\)\s*\n\s*else \{\s*\n\s*success\('Contextual cue timeline saved'\)/)
 })
 
 test('the page states saving/unsaved/saved rather than leaving it to be guessed', () => {

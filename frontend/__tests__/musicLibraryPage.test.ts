@@ -65,6 +65,20 @@ describe('the page tells you what costs money', () => {
 })
 
 describe('the page surfaces the things that quietly break a mix', () => {
+  test('a failed library load stays visible with a retry', () => {
+    assert.match(page, /const libraryLoadError = ref\(''\)/)
+    assert.match(page, /v-if="libraryLoadError" class="error-box mt-2" role="alert"/)
+    assert.match(page, /@click="load">Retry<\/button>/)
+    assert.match(page, /Could not load the music library\./)
+  })
+
+  test('a route change cannot apply a late library response to the next project', () => {
+    assert.match(page, /let libraryScopeEpoch = 0/)
+    assert.match(page, /let libraryLoadSequence = 0/)
+    assert.match(page, /request === libraryLoadSequence && scopeEpoch === libraryScopeEpoch && slug\.value === projectSlug/)
+    assert.match(page, /watch\(slug, \(\) => \{\s*libraryScopeEpoch\+\+/)
+  })
+
   test('tracks with no measured length are reported, not hidden', () => {
     // The mix builder skips them. Without this line the owner sees a library
     // that looks full and a video that comes out short.

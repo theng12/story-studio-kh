@@ -64,22 +64,28 @@ const data = ref<any>(null)
 const loading = ref(false)
 const copied = ref(false)
 
+let loadSequence = 0
 async function load() {
-  if (!props.episodeId) {
+  const requestSequence = ++loadSequence
+  const { projectSlug, episodeId, title } = props
+  if (!episodeId) {
     data.value = null
     emit('has-content', false)
     return
   }
   loading.value = true
   try {
-    const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
-    data.value = await get(`/projects/${props.projectSlug}/episodes/${props.episodeId}/script-content${titleParam}`)
+    const titleParam = title ? `?title=${encodeURIComponent(title)}` : ''
+    const loaded = await get(`/projects/${projectSlug}/episodes/${episodeId}/script-content${titleParam}`)
+    if (requestSequence !== loadSequence || props.projectSlug !== projectSlug || props.episodeId !== episodeId || props.title !== title) return
+    data.value = loaded
     emit('has-content', !!data.value?.script?.content)
   } catch (e) {
+    if (requestSequence !== loadSequence || props.projectSlug !== projectSlug || props.episodeId !== episodeId || props.title !== title) return
     data.value = null
     emit('has-content', false)
   } finally {
-    loading.value = false
+    if (requestSequence === loadSequence && props.projectSlug === projectSlug && props.episodeId === episodeId && props.title === title) loading.value = false
   }
 }
 

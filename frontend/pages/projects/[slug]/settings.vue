@@ -481,7 +481,7 @@
                   <button
                     class="btn btn-sm btn-secondary mt-1"
                     type="button"
-                    :disabled="artStyleSaveMessage === 'Saving…'"
+                    :disabled="artStyleSaving"
                     @click="useSuggestedProductionKitStyle"
                   >
                     Use this style
@@ -1848,7 +1848,7 @@
       <div v-if="activeTab === 'writing'" class="form-group">
         <label>Art Style <span class="text-muted" style="font-weight:normal">(auto-applied to every image prompt for this project; the style's preview image also feeds img2img renders. Overridable per run on the Image Prompts page.)</span></label>
         <div class="art-style-picker">
-          <select v-model="artStyleSelection" class="input">
+          <select v-model="artStyleSelection" class="input" :disabled="artStyleSaving">
             <option value="">— None (use format / niche default) —</option>
             <optgroup v-if="savedStylePresets.length" label="Saved styles">
               <option v-for="s in savedStylePresets" :key="s.id" :value="s.id">{{ s.name }}</option>
@@ -2428,7 +2428,7 @@ const productionKitStyleSuggestion = computed(() => {
  *  the customer uses, so the choice is recorded exactly as a manual one. */
 function useSuggestedProductionKitStyle(): void {
   const suggestion = productionKitStyleSuggestion.value
-  if (!suggestion || !suggestion.installed || suggestion.inUse) return
+  if (artStyleSaving.value || !suggestion || !suggestion.installed || suggestion.inUse) return
   artStyleSelection.value = suggestion.id
 }
 const selectedProductionKitThumbnailName = computed(() =>
@@ -4270,7 +4270,10 @@ const projectForm = reactive<{
 // catalog style resolves through its immutable Content Pack pin instead.
 const artStyleSelection = ref('')
 const artStyleSaveMessage = ref('')
+const artStyleSaving = ref(false)
 let artStyleSelectionInitialized = false
+let artStyleRollback = false
+let artStyleRouteEpoch = 0
 const savedStylePresets = computed(() =>
   Array.isArray((config.value as any)?.style_presets) ? (config.value as any).style_presets : [])
 
@@ -4291,17 +4294,17 @@ const unresolvedArtStyleId = computed(() => {
   return active
 })
 
-watch(config, (c) => {
-  if (!c) return
-  if (!artStyleSelectionInitialized) {
-    artStyleSelection.value = (c as any).active_style_preset_id || ''
-    artStyleSelectionInitialized = true
-  }
-}, { immediate: true })
-
 watch(artStyleSelection, async (next, prev) => {
+  if (artStyleRollback) {
+    artStyleRollback = false
+    return
+  }
   if (!artStyleSelectionInitialized) return
   if (next === prev) return
+  if (artStyleSaving.value) return
+  const targetSlug = slug.value
+  const routeEpoch = artStyleRouteEpoch
+  artStyleSaving.value = true
   artStyleSaveMessage.value = 'Saving…'
   try {
     const payload: Record<string, any> = {}
@@ -4330,14 +4333,41 @@ watch(artStyleSelection, async (next, prev) => {
       }
     }
     payload.active_style_preset_id = activeId
-    await put(`/projects/${slug.value}/settings/config`, payload)
-    await refreshConfig(slug.value)
+    await put(`/projects/${targetSlug}/settings/config`, payload)
+    if (slug.value !== targetSlug || artStyleRouteEpoch !== routeEpoch) return
+    await refreshConfig(targetSlug)
     artStyleSaveMessage.value = activeId ? 'Art style applied to this project' : 'Art style cleared'
     setTimeout(() => { artStyleSaveMessage.value = '' }, 2500)
   } catch (e: any) {
+    if (slug.value !== targetSlug || artStyleRouteEpoch !== routeEpoch) return
     artStyleSaveMessage.value = e?.data?.detail || e?.message || 'Failed to save art style'
     // Roll back the visible value so the dropdown matches what's persisted.
+    artStyleRollback = true
     artStyleSelection.value = prev || ''
+  } finally {
+    artStyleSaving.value = false
+  }
+})
+
+// Register the save watcher before immediate hydration: it consumes the
+// suppression flag that config hydration sets, so the first user choice is
+// never mistaken for an initial sync.
+watch(config, (c) => {
+  if (!c) return
+  const persistedStyleId = (c as any).active_style_preset_id || ''
+  if (artStyleSelection.value !== persistedStyleId) {
+    artStyleRollback = true
+    artStyleSelection.value = persistedStyleId
+  }
+  artStyleSelectionInitialized = true
+}, { immediate: true })
+
+watch(slug, () => {
+  artStyleRouteEpoch++
+  artStyleSaveMessage.value = ''
+  if (artStyleSelection.value) {
+    artStyleRollback = true
+    artStyleSelection.value = ''
   }
 })
 

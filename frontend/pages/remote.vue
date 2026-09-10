@@ -213,12 +213,20 @@ function jobSubline(job: Job): string {
 interface PendingApproval { episode_id: string; title: string; total: number; approved: number; with_image: number }
 const pendingApprovals = ref<PendingApproval[]>([])
 const approving = ref<Set<string>>(new Set())
+let projectLoadEpoch = 0
 
-async function loadApprovals(slug: string) {
+function isCurrentProjectLoad(slug: string, epoch: number): boolean {
+  return selectedSlug.value === slug && projectLoadEpoch === epoch
+}
+
+async function loadApprovals(slug: string, epoch = projectLoadEpoch) {
   try {
     const r = await get<{ pending: PendingApproval[] }>(`/projects/${slug}/pipeline/pending-approvals`)
+    if (!isCurrentProjectLoad(slug, epoch)) return
     pendingApprovals.value = r?.pending || []
-  } catch { pendingApprovals.value = [] }
+  } catch {
+    if (isCurrentProjectLoad(slug, epoch)) pendingApprovals.value = []
+  }
 }
 
 async function approve(ep: PendingApproval) {
@@ -251,28 +259,39 @@ async function loadProjects() {
   }
 }
 
-async function loadProject(slug: string) {
+async function loadProject(slug: string, epoch: number) {
   runError.value = ''
   // Format → chain.
   try {
     const f = await get<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug}/effective-format`)
+    if (!isCurrentProjectLoad(slug, epoch)) return
     visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
-  } catch { visualSource.value = 'narrated-scenes' }
+  } catch {
+    if (!isCurrentProjectLoad(slug, epoch)) return
+    visualSource.value = 'narrated-scenes'
+  }
   // Episodes (for the run scope + count).
   try {
     const data = await get<any>(`/projects/${slug}/episodes`)
+    if (!isCurrentProjectLoad(slug, epoch)) return
     const list = Array.isArray(data) ? data : (data?.episodes || [])
     episodeCodes.value = list.map((e: any) => e.episode_code).filter((c: any) => typeof c === 'string' && c)
-  } catch { episodeCodes.value = [] }
-  void loadApprovals(slug)
+  } catch {
+    if (!isCurrentProjectLoad(slug, epoch)) return
+    episodeCodes.value = []
+  }
+  void loadApprovals(slug, epoch)
 }
 
 watch(selectedSlug, (slug, prev) => {
   if (!slug || slug === prev) return
   if (import.meta.client) localStorage.setItem(LAST_KEY, slug)
   stopPolling()
+  const epoch = ++projectLoadEpoch
+  visualSource.value = 'narrated-scenes'
+  episodeCodes.value = []
   pendingApprovals.value = []
-  void loadProject(slug)
+  void loadProject(slug, epoch)
   startPolling(slug)
 })
 

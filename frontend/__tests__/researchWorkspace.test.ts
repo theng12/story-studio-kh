@@ -141,7 +141,7 @@ describe('Research workspace flow', () => {
   })
 
   test('automatic approval persists through the project settings config endpoint', () => {
-    assert.match(research, /put\(`\/projects\/\$\{slug\.value\}\/settings\/config`, \{ research_auto_approve_claims: v \}\)/)
+    assert.match(research, /const projectSlug = slug\.value[\s\S]*?put\(`\/projects\/\$\{projectSlug\}\/settings\/config`, \{ research_auto_approve_claims: v \}\)/)
     // A failed save reverts the flip, so the checkbox never shows a setting
     // the project does not actually have.
     assert.match(research, /autoApproveClaims\.value = !v/)

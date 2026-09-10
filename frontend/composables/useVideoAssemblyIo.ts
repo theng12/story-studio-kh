@@ -26,7 +26,7 @@
 // Explicit composable imports so this module is usable from plain node:test
 // (no Nuxt auto-import context). Nuxt's auto-imports remain additive inside
 // .vue files.
-import type { Ref } from 'vue'
+import { watch, type Ref } from 'vue'
 import { useApi } from './useApi.js'
 import { useToast } from './useToast.js'
 
@@ -149,36 +149,46 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     }
   }
 
-  async function scanAssets() {
-    if (!s.episodeId.value) return
-    s.scanning.value = true
+  let scopeSequence = 0
+  let scanSequence = 0
+  let videoSubmitSequence = 0
+  watch([s.slug, s.episodeId], () => {
+    scopeSequence++
+    scanSequence++
     s.scannedAssets.value = null
+    s.scenes.value = []
+    s.titleImage.image_path = ''
+    s.scanning.value = false
+  }, { flush: 'sync' })
+
+  async function scanAssets() {
+    const sequence = ++scanSequence
+    const scope = scopeSequence
+    const current = () => sequence === scanSequence && scope === scopeSequence
+    s.scannedAssets.value = null
+    s.scenes.value = []
+    s.titleImage.image_path = ''
+    s.titleCard.text = s.selectedEpisode.value?.title || ''
+    if (!s.episodeId.value) { s.scanning.value = false; return }
+    s.scanning.value = true
     try {
-      s.scannedAssets.value = await get(
+      const assets: any = await get(
         `/projects/${s.slug.value}/video-editor/scan/${s.episodeId.value}`,
       )
-      applyScenePoolMode()
-      // v1.3.4 — both of the next two used to be `if (source) assign` with no
-      // else, so a new episode that supplied no replacement silently kept the
-      // PREVIOUS episode's value — and both reach the finished video. Same
-      // shape as the `srt_path` defect this release fixes: episode-specific
-      // state surviving an episode change because the refresh only ever filled
-      // a gap instead of replacing the field. An episode with no title, or with
-      // no thumbnails yet, is now blank rather than borrowing its neighbour's.
-      s.titleCard.text = s.selectedEpisode.value?.title || ''
-      const thumbnail = s.scannedAssets.value?.thumbnails?.[0]?.path
-      s.titleImage.image_path = thumbnail
+      if (!current()) return
+      const thumbnail = assets?.thumbnails?.[0]?.path
+      const titlePath = thumbnail
         ? (s.normalizePath ? await s.normalizePath(thumbnail) : thumbnail)
         : ''
+      if (!current()) return
+      s.scannedAssets.value = assets
+      applyScenePoolMode()
+      s.titleImage.image_path = titlePath
     } catch (e: any) {
-      // The scan failed, so nothing below is known for THIS episode. Leaving
-      // the previous episode's scene list in place made the page report its
-      // count, its cycle estimate and its low-asset warning against an episode
-      // they do not describe.
-      s.scenes.value = []
-      showError(e.data?.detail || 'Failed to scan assets')
+      if (!current()) return
+      showError(e?.data?.detail || 'Could not scan video assets')
     } finally {
-      s.scanning.value = false
+      if (current()) s.scanning.value = false
     }
   }
 
@@ -413,6 +423,9 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     post: (path: string, body: any) => Promise<any>
     videoAssemblyGenerating: Ref<boolean>
   }): Promise<boolean> {
+    if (!s.episodeId.value || s.generating?.value) return false
+    const scope = scopeSequence
+    const submit = ++videoSubmitSequence
     const payload = buildPayload()
     // v1.0.514 — straight to enqueue; no cost/duration confirmation dialog
     // (free local render — see the function doc).
@@ -427,13 +440,20 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       // UI live via the jobs SSE stream (see useJobs).
       const job = await opts.post(`/projects/${s.slug.value}/generate/video-assembly`, payload) as { job_id: string }
       success('Video assembly queued!')
-      if (s.activeJobId) s.activeJobId.value = job?.job_id || null
+      if (scope === scopeSequence && s.activeJobId) s.activeJobId.value = job?.job_id || null
       return true
     } catch (e: any) {
       console.error('[video-assembly] POST failed:', e)
-      showError(e.data?.detail || 'Failed to start video generation')
-      if (s.generating) s.generating.value = false
-      if (opts.videoAssemblyGenerating) opts.videoAssemblyGenerating.value = false
+      // This flag drives a project-wide sidebar pulse. Clear only if this is
+      // still the newest submission, so an earlier failed request cannot hide
+      // a newer episode's queued render.
+      if (submit === videoSubmitSequence && opts.videoAssemblyGenerating) {
+        opts.videoAssemblyGenerating.value = false
+      }
+      if (scope === scopeSequence) showError(e.data?.detail || 'Failed to start video generation')
+      if (scope === scopeSequence) {
+        if (s.generating) s.generating.value = false
+      }
       return false
     }
     // Intentionally no `finally { generating = false }`. The caller now

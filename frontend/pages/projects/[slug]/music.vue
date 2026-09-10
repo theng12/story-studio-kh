@@ -36,6 +36,11 @@
         </span>
       </div>
 
+      <div v-if="libraryLoadError" class="error-box mt-2" role="alert">
+        {{ libraryLoadError }}
+        <button type="button" class="btn btn-sm btn-ghost" :disabled="libraryLoading" @click="load">Retry</button>
+      </div>
+
       <p v-if="library && !library.tracks.length" class="text-muted mt-2 text-sm">
         Nothing here yet. Add songs below, or drop audio files into
         <code>{{ library.folder }}</code>.
@@ -184,7 +189,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { CREDIT_BASIS_LABEL, describeMusicUnitCost, type PricedMusicModel } from '../../../utils/genstudio-credit-cost.js'
 
@@ -214,6 +219,10 @@ interface MixPlan {
 }
 
 const library = ref<LibraryState | null>(null)
+const libraryLoadError = ref('')
+const libraryLoading = ref(false)
+let libraryScopeEpoch = 0
+let libraryLoadSequence = 0
 const brief = ref('')
 const count = ref(10)
 const instrumental = ref(true)
@@ -277,8 +286,21 @@ function formatDate(iso: string): string {
 }
 
 async function load() {
-  try { library.value = await get(`/projects/${slug.value}/music-library`) }
-  catch { /* an unreachable library must not break the page */ }
+  const projectSlug = slug.value
+  const scopeEpoch = libraryScopeEpoch
+  const request = ++libraryLoadSequence
+  const current = () => request === libraryLoadSequence && scopeEpoch === libraryScopeEpoch && slug.value === projectSlug
+  libraryLoading.value = true
+  libraryLoadError.value = ''
+  try {
+    const data = await get<LibraryState>(`/projects/${projectSlug}/music-library`)
+    if (!current()) return
+    library.value = data
+  } catch (e: any) {
+    if (current()) libraryLoadError.value = e?.data?.detail || e?.message || 'Could not load the music library.'
+  } finally {
+    if (current()) libraryLoading.value = false
+  }
 }
 
 async function setEnabled(track: LibraryTrack, enabled: boolean) {
@@ -339,6 +361,14 @@ async function render() {
     renderError.value = e?.data?.detail || 'Could not start the video'
   } finally { rendering.value = false }
 }
+
+watch(slug, () => {
+  libraryScopeEpoch++
+  library.value = null
+  libraryLoadError.value = ''
+  libraryLoading.value = false
+  void load()
+}, { flush: 'sync' })
 
 onMounted(() => { void load(); void loadMusicModels() })
 </script>

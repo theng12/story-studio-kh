@@ -106,9 +106,8 @@
           <LoadingSpinner size="sm" /> Loading scene list…
         </div>
         <div v-else-if="!scenes.length" class="text-muted text-md">
-          No scene prompts found yet — generate them on the
-          <NuxtLink :to="`/projects/${projectSlug}/image-prompts?tab=scenes`">Scene Prompts</NuxtLink>
-          page first, then come back.
+          No planned scene prompts found yet. Build them in
+          <NuxtLink :to="`/projects/${projectSlug}/scene-plan`">Scene Plan</NuxtLink> first.
         </div>
         <ul v-else class="i2i-scene-list" role="list">
           <li v-for="s in scenes" :key="s.number" class="i2i-scene-row">

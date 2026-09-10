@@ -452,6 +452,7 @@ interface SubtitleStatus {
 }
 interface SectionRow { label: string; slug: string; quality?: AudioQualityEvidence }
 
+let episodeSequence = 0
 const route = useRoute()
 const router = useRouter()
 const slug = computed(() => route.params.slug as string)
@@ -528,7 +529,9 @@ const stitchedSrtFile = computed(() =>
 // the panel so it appears next to the button that opened it.
 const isStitchedPreview = computed(() => /_stitched\.srt$/i.test(previewFilename.value))
 
+let previewSequence = 0
 function closePreview(): void {
+  previewSequence++
   previewFilename.value = ''
   previewCues.value = []
   previewRaw.value = ''
@@ -539,6 +542,7 @@ function closePreview(): void {
 async function viewSrt(filename: string): Promise<void> {
   // Clicking the open file's eye toggles the panel closed.
   if (previewFilename.value === filename) { closePreview(); return }
+  const request = ++previewSequence
   previewFilename.value = filename
   previewLoading.value = true
   previewCues.value = []
@@ -549,15 +553,16 @@ async function viewSrt(filename: string): Promise<void> {
       `/projects/${slug.value}/video-editor/subtitles/content/${episodeId.value}/${encodeURIComponent(filename)}`,
     )
     // Guard against a fast toggle/episode-switch superseding this fetch.
-    if (previewFilename.value !== filename) return
+    if (request !== previewSequence) return
     previewMeta.value = r
     previewCues.value = r.cues || []
     previewRaw.value = r.raw || ''
   } catch (e: any) {
+    if (request !== previewSequence) return
     showError(e?.data?.detail || e?.message || 'Could not load subtitle content')
     closePreview()
   } finally {
-    if (previewFilename.value === filename) previewLoading.value = false
+    if (request === previewSequence) previewLoading.value = false
   }
 }
 
@@ -703,11 +708,19 @@ watch(() => route.query.section, (section) => {
     void focusPendingSection()
   }
 })
-watch(episodeId, () => {
+watch([slug, episodeId], () => {
+  episodeSequence++
+  stitchStatus.value = null
+  stitchError.value = ''
+  stitching.value = false
+  importing.value = false
+  importPath.value = ''
+  status.value = null
+  sections.value = []
   transcribing.value = false
   closePreview()   // don't show the previous episode's cues under a new episode
   void loadStatus()
-})
+}, { flush: 'sync' })
 
 // ── Stitch into the global timeline (v1.0.218 — moved here from Scene Plan
 // so subtitle creation + stitching live in one workspace). Reads/writes the
@@ -722,15 +735,21 @@ const stitchStatus = ref<StitchStatus | null>(null)
 const stitching = ref(false)
 const stitchError = ref('')
 
+let stitchLoadSequence = 0
 async function loadStitchStatus(): Promise<void> {
+  const request = ++stitchLoadSequence
+  const episode = episodeSequence
+  const current = () => request === stitchLoadSequence && episode === episodeSequence
   if (!episodeId.value) { stitchStatus.value = null; return }
   try {
-    stitchStatus.value = await get<StitchStatus>(`/projects/${slug.value}/scene-plan/${episodeId.value}`)
-  } catch { stitchStatus.value = null }
+    const result = await get<StitchStatus>(`/projects/${slug.value}/scene-plan/${episodeId.value}`)
+    if (current()) stitchStatus.value = result
+  } catch { if (current()) stitchStatus.value = null }
 }
 
 async function stitchSubtitles(): Promise<void> {
-  if (!episodeId.value) return
+  if (!episodeId.value || stitching.value) return
+  const episode = episodeSequence
   stitching.value = true
   stitchError.value = ''
   try {
@@ -740,7 +759,9 @@ async function stitchSubtitles(): Promise<void> {
     }>(
       `/projects/${slug.value}/scene-plan/${episodeId.value}/stitch-subtitles`, {},
     )
+    if (episode !== episodeSequence) return
     await loadStatus()
+    if (episode !== episodeSequence) return
     const readiness = subtitleTimelineComplete.value
       ? ' — ready for Scene Plan.'
       : hasBlockingCueGaps.value
@@ -768,10 +789,11 @@ async function stitchSubtitles(): Promise<void> {
   } catch (e: any) {
     // The stitcher now fails loudly with a diagnostic message (e.g. which
     // section slugs had no matching SRT) instead of writing a blank file.
+    if (episode !== episodeSequence) return
     stitchError.value = e?.data?.detail || e?.message || 'Subtitle stitching failed'
     showError('Stitch failed — see the details under "Stitch into the timeline".')
   } finally {
-    stitching.value = false
+    if (episode === episodeSequence) stitching.value = false
   }
 }
 
@@ -793,6 +815,7 @@ function subtitleActionLabel(sectionSlug: string | null, label: string): string 
 
 async function transcribe(): Promise<void> {
   if (!canTranscribe.value) return
+  const episode = episodeSequence
   transcribing.value = true
   const payload = subtitleRequestPayload()
   const operationId = payload.force ? freshSubtitleAction.begin(payload, 'bulk') : null
@@ -800,13 +823,15 @@ async function transcribe(): Promise<void> {
   try {
     await post(`/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`, payload)
     if (operationId) freshSubtitleAction.complete(operationId)
+    if (episode !== episodeSequence) return
     showInfo('Per-chapter transcription queued — progress shows in Jobs / the bell.')
   } catch (e: any) {
+    if (episode !== episodeSequence) return
     showError(e?.data?.detail || e?.message || (operationId
       ? 'The submission was not confirmed. Retry submission to continue this same transcription action.'
       : 'Could not start transcription'))
   } finally {
-    transcribing.value = false
+    if (episode === episodeSequence) transcribing.value = false
   }
 }
 
@@ -820,6 +845,7 @@ async function transcribe(): Promise<void> {
  */
 async function retranscribeChapter(sectionSlug: string): Promise<void> {
   if (!canTranscribe.value || transcribing.value) return
+  const episode = episodeSequence
   transcribing.value = true
   const payload = subtitleRequestPayload(sectionSlug)
   const operationId = freshSubtitleAction.begin(payload, `section:${sectionSlug}`)
@@ -827,11 +853,13 @@ async function retranscribeChapter(sectionSlug: string): Promise<void> {
   try {
     await post(`/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`, payload)
     freshSubtitleAction.complete(operationId)
+    if (episode !== episodeSequence) return
     showInfo(`Fresh transcription for ${sectionSlug} queued — progress shows in Jobs / the bell.`)
   } catch (e: any) {
+    if (episode !== episodeSequence) return
     showError(e?.data?.detail || e?.message || 'Could not start re-transcription')
   } finally {
-    transcribing.value = false
+    if (episode === episodeSequence) transcribing.value = false
   }
 }
 
@@ -863,26 +891,32 @@ watch(transcribeJobSignal, () => {
 
 async function importSrt(): Promise<void> {
   if (importing.value || !importPath.value || !episodeId.value) return
+  const episode = episodeSequence
   importing.value = true
   try {
     const r = await post<{ cues: number }>(`/projects/${slug.value}/video-editor/subtitles/import/${episodeId.value}`, { source_path: importPath.value })
+    if (episode !== episodeSequence) return
     success(`Imported subtitle (${r.cues} cue${r.cues === 1 ? '' : 's'}).`)
     importPath.value = ''
     await loadStatus()
   } catch (e: any) {
+    if (episode !== episodeSequence) return
     showError(e?.data?.detail || e?.message || 'Import failed')
   } finally {
-    importing.value = false
+    if (episode === episodeSequence) importing.value = false
   }
 }
 
 async function deleteSrt(filename: string): Promise<void> {
+  const episode = episodeSequence
   try {
     const r = await del<{ existing_srts: ExistingSrt[] }>(`/projects/${slug.value}/video-editor/subtitles/${episodeId.value}/${encodeURIComponent(filename)}`)
+    if (episode !== episodeSequence) return
     if (status.value) status.value.existing_srts = r.existing_srts || []
     if (previewFilename.value === filename) closePreview()
     success(`Deleted ${filename}`)
   } catch (e: any) {
+    if (episode !== episodeSequence) return
     showError(e?.data?.detail || e?.message || 'Delete failed')
   }
 }
