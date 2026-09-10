@@ -967,6 +967,292 @@ describe('cooperative pause and resume', () => {
     await jq.requestJobCancellation(proj.slug, manuallyHeld.job_id)
   })
 
+  test('a quick global Pause then Resume releases a running queue hold only after its safe checkpoint', async () => {
+    const project = await pm.createProject({ name: 'JQ Queue Toggle Checkpoint' })
+    const checkpoint = deferred()
+    const releaseCheckpoint = deferred()
+    let runs = 0
+    jq.registerExecutor('audio', async job => {
+      if (job.episode_id !== 'TOGGLE') return
+      runs++
+      checkpoint.resolve()
+      await releaseCheckpoint.promise
+      jq.throwIfPauseRequested(job.job_id)
+    })
+    await jq.setQueuePaused(false)
+    const job = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'audio',
+      episode_id: 'TOGGLE',
+      title: 'queue toggle checkpoint',
+      params: { provider: 'genstudio' },
+    })
+    await checkpoint.promise
+
+    // Do not await Pause before Resume: this is the rapid double-click that
+    // formerly left a cooperative safe-point hold behind after the queue was
+    // already globally resumed.
+    const pause = jq.setQueuePaused(true)
+    const resume = jq.setQueuePaused(false)
+    await Promise.all([pause, resume])
+    releaseCheckpoint.resolve()
+
+    await waitForJobStatus(job.job_id, 'done')
+    assert.equal(jq.isQueuePaused(), false)
+    assert.equal(await (await import('../services/app-settings.js')).getAppSetting('job_queue_paused'), false)
+    assert.equal(jq.getJob(job.job_id)?.pause_requested, false)
+    assert.equal(runs, 2, 'Resume requeues only after the first run saved its pause checkpoint')
+  })
+
+  test('a manual pause during global Resume keeps a running queue hold paused', async t => {
+    const project = await pm.createProject({ name: 'JQ Queue Resume Manual Supersession' })
+    const settingsFile = path.join(tempDir, 'app-settings.json')
+    const checkpoint = deferred()
+    const releaseCheckpoint = deferred()
+    const settingsWriteStarted = deferred()
+    const releaseSettingsWrite = deferred()
+    let runs = 0
+    jq.registerExecutor('audio', async job => {
+      if (job.episode_id !== 'MANUAL-WINS') return
+      runs++
+      checkpoint.resolve()
+      await releaseCheckpoint.promise
+      jq.throwIfPauseRequested(job.job_id)
+    })
+    await jq.setQueuePaused(false)
+    const job = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'audio',
+      episode_id: 'MANUAL-WINS',
+      title: 'manual pause wins after global Resume',
+      params: { provider: 'genstudio' },
+    })
+    await checkpoint.promise
+    await jq.setQueuePaused(true)
+
+    const originalRename = fs.rename.bind(fs)
+    t.mock.method(fs, 'rename', async (from: any, to: any) => {
+      if (path.resolve(String(to)) === path.resolve(settingsFile)) {
+        settingsWriteStarted.resolve()
+        await releaseSettingsWrite.promise
+      }
+      return originalRename(from, to)
+    })
+    try {
+      const resume = jq.setQueuePaused(false)
+      await settingsWriteStarted.promise
+      await jq.pauseJob(job.job_id, 'manual')
+      releaseSettingsWrite.resolve()
+      await resume
+    } finally {
+      releaseSettingsWrite.resolve()
+      t.mock.restoreAll()
+    }
+    releaseCheckpoint.resolve()
+
+    await waitForJobStatus(job.job_id, 'paused')
+    assert.equal(jq.getJob(job.job_id)?.pause_origin, 'manual')
+    assert.equal(runs, 1, 'manual supersession must prevent queue-origin requeue')
+
+    await jq.resumeJob(job.job_id)
+    await waitForJobStatus(job.job_id, 'done')
+    assert.equal(runs, 2)
+  })
+
+  test('a failed global Resume settings write keeps the running pause checkpoint and does not submit', async t => {
+    const project = await pm.createProject({ name: 'JQ Queue Resume Settings Failure' })
+    const settingsFile = path.join(tempDir, 'app-settings.json')
+    const checkpoint = deferred()
+    const releaseCheckpoint = deferred()
+    let runs = 0
+    jq.registerExecutor('audio', async job => {
+      if (job.episode_id !== 'SETTINGS-FAIL') return
+      runs++
+      job.progress = 41
+      job.output_lines.push('worker progress before failed queue Resume')
+      checkpoint.resolve()
+      await releaseCheckpoint.promise
+      jq.throwIfPauseRequested(job.job_id)
+    })
+    await jq.setQueuePaused(false)
+    const job = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'audio',
+      episode_id: 'SETTINGS-FAIL',
+      title: 'settings failure checkpoint',
+      params: { provider: 'genstudio' },
+    })
+    await checkpoint.promise
+    await jq.setQueuePaused(true)
+
+    const originalRename = fs.rename.bind(fs)
+    t.mock.method(fs, 'rename', async (from: any, to: any) => {
+      if (path.resolve(String(to)) === path.resolve(settingsFile)) throw new Error('forced global-resume settings failure')
+      return originalRename(from, to)
+    })
+    try {
+      await assert.rejects(jq.setQueuePaused(false), /forced global-resume settings failure/)
+      assert.equal(jq.isQueuePaused(), true)
+      assert.equal(jq.isPauseRequested(job.job_id), true)
+      assert.equal(jq.getJob(job.job_id)?.pause_requested, true)
+      assert.equal(jq.getJob(job.job_id)?.pause_origin, 'queue')
+      assert.equal(runs, 1)
+    } finally {
+      t.mock.restoreAll()
+      releaseCheckpoint.resolve()
+    }
+
+    await waitForJobStatus(job.job_id, 'paused')
+    assert.equal(jq.getJob(job.job_id)?.progress, 41)
+    assert.match(jq.getJob(job.job_id)?.output_lines.join('\n') || '', /worker progress before failed queue Resume/)
+    assert.equal(runs, 1, 'failed Resume must not admit a second run')
+    await jq.setQueuePaused(false)
+    await waitForJobStatus(job.job_id, 'done')
+  })
+
+  test('a failed running pause checkpoint after global Resume retains progress and does not admit new work', async t => {
+    const project = await pm.createProject({ name: 'JQ Queue Resume Checkpoint Failure' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const checkpoint = deferred()
+    const releaseCheckpoint = deferred()
+    const failedCheckpointWrite = deferred()
+    let runs = 0
+    jq.registerExecutor('audio', async job => {
+      if (job.episode_id !== 'CHECKPOINT-FAIL') return
+      runs++
+      job.progress = 53
+      job.output_lines.push('worker progress before failed durable pause checkpoint')
+      checkpoint.resolve()
+      await releaseCheckpoint.promise
+      jq.throwIfPauseRequested(job.job_id)
+    })
+    await jq.setQueuePaused(false)
+    const job = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'audio',
+      episode_id: 'CHECKPOINT-FAIL',
+      title: 'failed queue pause checkpoint',
+      params: { provider: 'genstudio' },
+    })
+    await checkpoint.promise
+    await jq.setQueuePaused(true)
+
+    const originalRename = fs.rename.bind(fs)
+    let failedWrites = 0
+    t.mock.method(fs, 'rename', async (from: any, to: any) => {
+      if (path.resolve(String(to)) === path.resolve(jobsFile) && failedWrites++ === 0) {
+        failedCheckpointWrite.resolve()
+        throw new Error('forced running pause checkpoint persistence failure')
+      }
+      return originalRename(from, to)
+    })
+    try {
+      await jq.setQueuePaused(false)
+      assert.equal(jq.isQueuePaused(), false)
+      assert.equal(jq.isPauseRequested(job.job_id), true)
+      releaseCheckpoint.resolve()
+      await failedCheckpointWrite.promise
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+      assert.equal(jq.getJob(job.job_id)?.progress, 53)
+      assert.match(jq.getJob(job.job_id)?.output_lines.join('\n') || '', /worker progress before failed durable pause checkpoint/)
+      assert.equal(runs, 1, 'a failed checkpoint must not submit a replacement run')
+      const persisted = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs as Job[]
+      assert.equal(persisted.find(candidate => candidate.job_id === job.job_id)?.pause_requested, true)
+    } finally {
+      t.mock.restoreAll()
+    }
+
+    await jq.setQueuePaused(false)
+    await waitForJobStatus(job.job_id, 'done')
+    assert.equal(runs, 2)
+  })
+
+  test('single Resume never admits a job when its durable paused-to-queued write fails', async t => {
+    const project = await pm.createProject({ name: 'JQ Single Resume Rollback' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const executed: string[] = []
+    jq.registerExecutor('broll_assemble', async job => { executed.push(job.episode_id) })
+    await jq.setQueuePaused(true)
+    const held = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'broll_assemble',
+      episode_id: 'HELD',
+      title: 'held single resume',
+      params: {},
+    })
+    await jq.pauseJob(held.job_id, 'manual')
+    const originalRename = fs.rename.bind(fs)
+    const originalWarn = console.warn.bind(console)
+    let failedWrites = 0
+    t.mock.method(fs, 'rename', async (from: any, to: any) => {
+      if (path.resolve(String(to)) === path.resolve(jobsFile)) {
+        failedWrites++
+        throw new Error('forced single-resume persistence failure')
+      }
+      return originalRename(from, to)
+    })
+    t.mock.method(console, 'warn', (...args: any[]) => {
+      if (args[0] === '[job-queue] failed to persist paused-job release') return
+      originalWarn(...args)
+    })
+    try {
+      await assert.rejects(
+        jq.resumeJob(held.job_id),
+        (error: any) => error?.status === 503 && /remains paused/i.test(error?.message || ''),
+      )
+      assert.equal(failedWrites, 1)
+      assert.equal(jq.getJob(held.job_id)?.status, 'paused')
+      assert.equal(jq.getJob(held.job_id)?.pause_origin, 'manual')
+      const persisted = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs as Job[]
+      assert.equal(persisted.find(job => job.job_id === held.job_id)?.status, 'paused')
+
+      // A competing lane admission must not discover a failed single Resume
+      // in pending work.  Manual intent remains paused through global Resume.
+      t.mock.restoreAll()
+      const marker = jq.enqueuePreparedForTest({
+        project_slug: project.slug,
+        type: 'broll_assemble',
+        episode_id: 'MARKER',
+        title: 'resume rollback marker',
+        params: {},
+      })
+      await jq.setQueuePaused(false)
+      await waitForJobStatus(marker.job_id, 'done')
+      assert.deepEqual(executed, ['MARKER'])
+      assert.equal(jq.getJob(held.job_id)?.status, 'paused')
+      assert.equal(jq.getJob(held.job_id)?.pause_origin, 'manual')
+    } finally {
+      t.mock.restoreAll()
+      if (jq.getJob(held.job_id)?.status === 'paused') await jq.requestJobCancellation(project.slug, held.job_id)
+    }
+  })
+
+  test('single Resume names an unavailable executor and leaves the job paused', async () => {
+    const project = await pm.createProject({ name: 'JQ Single Resume Missing Executor' })
+    await jq.setQueuePaused(true)
+    const held = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'music_video',
+      episode_id: 'NO-EXECUTOR',
+      title: 'unavailable resume lane',
+      params: {},
+    })
+    await jq.pauseJob(held.job_id, 'manual')
+    try {
+      await assert.rejects(
+        jq.resumeJob(held.job_id),
+        (error: any) => error?.status === 409 && /unavailable/i.test(error?.message || ''),
+      )
+      assert.equal(jq.getJob(held.job_id)?.status, 'paused')
+      assert.equal(jq.getJob(held.job_id)?.pause_origin, 'manual')
+    } finally {
+      await jq.requestJobCancellation(project.slug, held.job_id)
+      await jq.setQueuePaused(false)
+    }
+  })
+
   test('global Resume releases a loaded queue-origin pause when the queue was already running', async () => {
     const project = await pm.createProject({ name: 'JQ Idempotent Global Resume' })
     const blockerStarted = deferred()

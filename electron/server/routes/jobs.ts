@@ -91,6 +91,29 @@ function sendTerminalOnlyConflict(res: import('express').Response, job: Job): vo
   })
 }
 
+/** Retry-only repair intent derived from durable job state, never a client form. */
+function retryReplacementParams(job: Job): Record<string, any> | undefined {
+  if (job.type !== 'image_prompts') return undefined
+  // Prompt retries keep all saved identity/configuration and ask the generator
+  // to fill only the thumbnail slots still absent from disk.
+  return { ...job.params, fill_gaps: true }
+}
+
+/** Retired jobs keep their terminal record; Retry must not replace it with the same known failure. */
+function retryAdmissionError(job: Job): string | null {
+  const type = job.type as string
+  if (type === 'image_prompts' && job.params?.mode && job.params.mode !== 'thumbnails') {
+    return 'Legacy Scene Prompts are retired. Generate visual prompts in Scene Plan.'
+  }
+  // v1.4.41 retired the scene-image lane. The older combined `images` lane
+  // still means thumbnails when mode is absent or `thumbs`, and can safely
+  // migrate at Retry into the current thumbnail executor.
+  if (type === 'images' && job.params?.mode !== undefined && job.params.mode !== 'thumbs') {
+    return 'Legacy Scene Images are retired. Render planned scenes in Scene Review.'
+  }
+  return null
+}
+
 const SCENE_PROMPT_WRITER_FLAGS = [
   'force',
   'prompt_limit',
@@ -335,10 +358,12 @@ router.post('/jobs/all/resume-paused', async (req, res) => {
 router.post('/jobs/all/:jobId/retry', async (req, res) => {
   const existing = jq.getJob(req.params.jobId)
   if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  const admissionError = retryAdmissionError(existing)
+  if (admissionError) return res.status(409).json({ detail: admissionError })
   if (episodeRecoveryStep(existing.type)) {
     return res.status(202).json({ ok: true, plan: await recoverEpisode(existing.project_slug, existing.episode_id, true, [existing.job_id]) })
   }
-  const job = jq.retryTerminalJob(existing.project_slug, req.params.jobId)
+  const job = jq.retryTerminalJob(existing.project_slug, req.params.jobId, retryReplacementParams(existing))
   res.status(202).json({ ok: true, job })
 })
 
@@ -554,10 +579,15 @@ router.post('/projects/:slug/jobs/recover-episode/:episodeId', async (req, res) 
 
 router.post('/projects/:slug/jobs/:jobId/retry', async (req, res) => {
   const existing = jq.getJob(req.params.jobId)
+  if (existing?.project_slug === req.params.slug) {
+    const admissionError = retryAdmissionError(existing)
+    if (admissionError) return res.status(409).json({ detail: admissionError })
+  }
   if (existing?.project_slug === req.params.slug && episodeRecoveryStep(existing.type)) {
     return res.status(202).json({ ok: true, plan: await recoverEpisode(req.params.slug, existing.episode_id, true, [existing.job_id]) })
   }
-  const job = jq.retryTerminalJob(req.params.slug, req.params.jobId)
+  const retryParams = existing?.project_slug === req.params.slug ? retryReplacementParams(existing) : undefined
+  const job = jq.retryTerminalJob(req.params.slug, req.params.jobId, retryParams)
   res.status(202).json({ ok: true, job })
 })
 

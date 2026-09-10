@@ -418,6 +418,7 @@ const cancellationReconciling = new Set<string>()
 const cancellationReconcileTimers = new Map<string, NodeJS.Timeout>()
 const cancelled = new Set<string>()
 const pauseRequested = new Set<string>()
+const queuePauseReleaseCheckpoints = new Set<string>()
 const pausedTransitionClaims = new Set<string>()
 const loadedProjects = new Set<string>()
 const loadingProjects = new Map<string, Promise<void>>()
@@ -985,6 +986,7 @@ let queuePaused = false
 let queuePauseLoaded = false
 let queuePauseInitialization: Promise<void> | null = null
 const QUEUE_PAUSED_KEY = 'job_queue_paused'
+const QUEUE_PAUSE_TRANSITION_LOCK = 'job-queue:pause-transition'
 
 export class JobPausedError extends Error {
   constructor() {
@@ -3322,6 +3324,23 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     jobs.set(job.job_id, job)
     await persistJob(job)
     emitUpdate(job)
+    // Resume may have been accepted while this worker was already crossing a
+    // queue-origin safe point.  The global release scan cannot see a paused
+    // row until this final checkpoint is durable, so release it here rather
+    // than leaving a globally-resumed queue with one stranded paused job.
+    if (
+      job.status === 'paused'
+      && job.pause_origin === 'queue'
+      && queuePauseReleaseCheckpoints.has(job.job_id)
+      && !queuePaused
+      && !pauseRequested.has(job.job_id)
+    ) {
+      const transitioned = await transitionPausedJobsToQueuedByProject([job], {
+        allowWhileQueuePaused: true,
+        requireExecutor: true,
+      })
+      for (const lane of transitioned.lanes) pump(lane)
+    }
     if (TERMINAL_JOB_STATUSES.has(job.status)) clearPaidImageWaitTimer(job.job_id)
     if (job.status === 'running' && hasUnsettledProviderWork(job)) scheduleCancellationReconciliation(job.job_id)
     // v1.2.6 — a job can finish while one recorded provider task was still
@@ -3329,6 +3348,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     // history row nobody can ever dismiss.
     else if (needsHistoryEvidenceRefresh(job)) scheduleHistoryEvidenceRefresh(job.job_id)
   } finally {
+    queuePauseReleaseCheckpoints.delete(job.job_id)
     releaseSlot(type, job)
   }
 }
@@ -3360,11 +3380,19 @@ export function initializeQueuePauseState(): Promise<void> {
   return queuePauseInitialization
 }
 
-export async function setQueuePaused(paused: boolean): Promise<void> {
+export function setQueuePaused(paused: boolean): Promise<void> {
+  // Pause and Resume each have a durable phase plus a cooperative worker
+  // phase.  Serializing only app-settings writes lets an older Pause request
+  // install a safe-point hold after a newer Resume has already scanned for
+  // paused rows.  Keep the whole intent transition ordered instead.
+  return withLock(QUEUE_PAUSE_TRANSITION_LOCK, () => setQueuePausedUnlocked(paused))
+}
+
+async function setQueuePausedUnlocked(paused: boolean): Promise<void> {
   await initializeQueuePauseState()
-  queuePaused = paused
-  await setAppSetting(QUEUE_PAUSED_KEY, paused)
   if (paused) {
+    queuePaused = true
+    await setAppSetting(QUEUE_PAUSED_KEY, true)
     // The global hold prevents every queued item from being submitted. For
     // GenStudio-backed work already running, request a cooperative safe-point
     // pause: accepted items finish downloading, but workers claim no new item.
@@ -3372,15 +3400,35 @@ export async function setQueuePaused(paused: boolean): Promise<void> {
       remoteCancellationAudited: hasJobCancellationAuditor(job.type),
     }).some(control => control.action === 'pause-submissions' && control.enabled))
     await Promise.all(pausable.map(job => pauseJob(job.job_id, 'queue')))
+    return
   }
-  if (!paused) {
-    await transitionPausedJobsToQueuedByProject([...jobs.values()].filter(job => (
-      job.status === 'paused' && job.pause_origin === 'queue'
-    )))
-    // Kick every type so queued jobs that never started while held can run.
-    for (const type of Object.keys(queues) as JobType[]) {
-      pump(type)
-    }
+
+  // A queue-origin pause of an already-running job is cooperative. Keep its
+  // durable and runtime pause request in place until the worker writes its
+  // normal paused checkpoint. The marker makes that checkpoint requeue once
+  // the global release is durable, without admitting work across a failed
+  // settings write or overriding a later manual pause.
+  const pendingQueuePauseCheckpoints = [...jobs.values()].filter(job => (
+    job.status === 'running'
+    && job.pause_requested === true
+    && job.pause_origin === 'queue'
+  ))
+  await setAppSetting(QUEUE_PAUSED_KEY, false)
+  for (const job of pendingQueuePauseCheckpoints) {
+    if (
+      job.status === 'running'
+      && job.pause_requested === true
+      && job.pause_origin === 'queue'
+      && pauseRequested.has(job.job_id)
+    ) queuePauseReleaseCheckpoints.add(job.job_id)
+  }
+  queuePaused = false
+  await transitionPausedJobsToQueuedByProject([...jobs.values()].filter(job => (
+    job.status === 'paused' && job.pause_origin === 'queue'
+  )))
+  // Kick every type so queued jobs that never started while held can run.
+  for (const type of Object.keys(queues) as JobType[]) {
+    pump(type)
   }
 }
 
@@ -4068,19 +4116,26 @@ export async function pauseJobForStall(jobId: string, reason: string): Promise<J
 export async function resumeJob(jobId: string): Promise<Job | null> {
   const job = jobs.get(jobId)
   if (!job || job.status !== 'paused') return null
-  pauseRequested.delete(jobId)
-  job.pause_requested = false
-  job.pause_origin = undefined
-  job.status = 'queued'
-  if (!IMAGE_EPISODE_TYPES.has(job.type)) job.started_at = null
-  job.finished_at = null
-  job.error = null
-  job.output_lines.push('Resume requested — verifying saved assets and accepted provider tasks before submitting missing work.')
-  queues[job.type].pending.push(job)
-  await persistJob(job)
-  emitUpdate(job)
-  pump(job.type)
-  return serializeJob(job)
+  const transitioned = await transitionPausedJobsToQueuedByProject([job], {
+    allowWhileQueuePaused: true,
+    requireExecutor: true,
+  })
+  if (transitioned.persistenceFailed.some(candidate => candidate.job_id === jobId)) {
+    throw Object.assign(
+      new Error('Story Studio could not save this Resume request. The job remains paused; try again after storage is available.'),
+      { status: 503, expose: true },
+    )
+  }
+  if (transitioned.noExecutor.some(candidate => candidate.job_id === jobId)) {
+    throw Object.assign(
+      new Error('This job type is unavailable in the current queue, so it remains paused.'),
+      { status: 409, expose: true },
+    )
+  }
+  for (const type of transitioned.lanes) pump(type)
+  return transitioned.resumed.find(candidate => candidate.job_id === jobId)
+    ? serializeJob(job)
+    : null
 }
 
 /**
@@ -4845,13 +4900,27 @@ export function retryTerminalJob(
   }
 
   const retryParams = structuredClone(replacementParams || original.params || {})
+  // v1.4.41 retired the old combined image lane. Its thumbnail shape remains
+  // a supported customer action, so move only that exact legacy shape onto the
+  // current lane. Scene modes stay rejected before either history mutation.
+  const originalType = original.type as string
+  let retryType: JobType = original.type
+  if (originalType === 'images') {
+    if (retryParams.mode !== undefined && retryParams.mode !== 'thumbs') {
+      throw Object.assign(
+        new Error('Legacy Scene Images are retired. Render planned scenes in Scene Review.'),
+        { status: 409, expose: true },
+      )
+    }
+    retryType = 'thumb_images'
+  }
   // A manual Finish/Replace nonce authorizes only its original action. Generic
   // retry machinery may retain ordinary continuity behavior, but cannot copy
   // that explicit paid intent into a new queue identity.
   if (original.type === 'continuity_render') delete retryParams.manual_image_finish
   const retried = enqueuePrepared({
     project_slug: original.project_slug,
-    type: original.type,
+    type: retryType,
     episode_id: original.episode_id,
     title: original.title,
     params: retryParams,

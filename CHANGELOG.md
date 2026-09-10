@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.141
+
+- Retry failed Jobs through the queue using their saved settings and generation intent. Keep the original history when retry is refused; metadata and thumbnail retries no longer depend on incomplete generator forms.
+- Order overlapping queue Pause and Resume actions, and keep a paused job out of execution if saving its Resume fails.
+- Keep Jobs updates attached to the current subscription when switching projects or reconnecting. Show a refresh notice when repeated requests fail, and preserve other jobs’ completion notifications.
+- Match All Jobs counts to the selected project, count paused work in type tabs, expose missing job types, and keep history on a valid page after clearing rows.
+
 ## v1.4.140
 
 - Keep subtitle transcription attached to the audio files selected by Audio Assembly, including alternate versions and multipart chapters. Honor replacement audio selections during assembly; repair old mixed base-and-part mappings when saved generation fingerprints prove the replacement.

@@ -94,10 +94,23 @@ void test('image and music routes retain one paid provider request per operation
     await fs.writeFile(path.join(paths.thumb_prompts_dir, `${episodeId}_Thumbnail_Prompts.md`),
       '# Thumbnail Prompts\n\n## Thumbnail 1: Lantern\n\nA lantern in a quiet archive.\n')
 
-    const terminal = async (jobId: string, label: string) => waitFor(() => {
-      const status = jq.getJob(jobId)?.status
-      return status === 'done' || status === 'error' || status === 'cancelled'
-    }, { label, timeoutMs: 10_000 })
+    const terminal = async (jobId: string, label: string) => {
+      try {
+        await waitFor(() => {
+          const status = jq.getJob(jobId)?.status
+          return status === 'done' || status === 'error' || status === 'cancelled'
+        }, { label, timeoutMs: 10_000 })
+      } catch (error) {
+        const current = jq.getJob(jobId)
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\nCurrent job: ${JSON.stringify({
+          job_id: current?.job_id,
+          status: current?.status,
+          error: current?.error,
+          output_lines: current?.output_lines,
+          item_progress: current?.item_progress,
+        })}`)
+      }
+    }
 
     const imageBody = (operationId: string, force = true) => ({
       episode_id: episodeId, model: 'mock-image-v1', mode: 'thumbs', aspect_ratio: '16:9', force,
@@ -179,29 +192,30 @@ void test('image and music routes retain one paid provider request per operation
     })
     const continuityAction = '66666666-6666-4666-8666-666666666666'
     const continuityBefore = service.providerSubmissionCount('image')
-    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'provider_error' })
-    const [continuityFirst, continuityReplay] = await Promise.all([
-      request(app).post(`/api/projects/${project.slug}/scene-review/${episodeId}/continuity-render`).send(continuityBody(continuityAction)),
-      request(app).post(`/api/projects/${project.slug}/scene-review/${episodeId}/continuity-render`).send(continuityBody(continuityAction)),
-    ])
-    assert.equal(continuityFirst.status, 201, JSON.stringify(continuityFirst.body))
-    assert.equal(continuityReplay.status, 201, JSON.stringify(continuityReplay.body))
-    assert.equal(continuityFirst.body.job_id, continuityReplay.body.job_id, 'same continuity action rejoined one queue owner')
-    const continuityMismatch = await request(app).post(`/api/projects/${project.slug}/scene-review/${episodeId}/continuity-render`).send(continuityBody(continuityAction, true))
-    assert.equal(continuityMismatch.status, 409, 'approval behavior is part of a forced continuity action scope')
-    await terminal(continuityFirst.body.job_id, 'first continuity action to settle')
-    assert.equal(service.providerSubmissionCount('image'), continuityBefore + 1, 'same continuity action made one image provider POST')
-    await waitFor(() => !jq.isDuplicate(project.slug, episodeId, 'continuity_render', (params: any) =>
-      params?.single_scene_id === 'scene-001',
-    ), { label: 'terminal continuity action to release its active queue slot', timeoutMs: 10_000 })
-
     const releasedJobIds = new Set<string>()
+    // A terminal status is published before runJob's finally block releases
+    // the shared image slot. Observe the release before queuing its successor.
     const stopObservingPumps = jq._observeQueuePumpsForTesting((_type, releasedJobId) => {
       if (releasedJobId) releasedJobIds.add(releasedJobId)
     })
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'provider_error' })
     try {
-      // Register before retrying: a fast mocked executor may release its slot
-      // before the HTTP response hands this test the successor id.
+      const [continuityFirst, continuityReplay] = await Promise.all([
+        request(app).post(`/api/projects/${project.slug}/scene-review/${episodeId}/continuity-render`).send(continuityBody(continuityAction)),
+        request(app).post(`/api/projects/${project.slug}/scene-review/${episodeId}/continuity-render`).send(continuityBody(continuityAction)),
+      ])
+      assert.equal(continuityFirst.status, 201, JSON.stringify(continuityFirst.body))
+      assert.equal(continuityReplay.status, 201, JSON.stringify(continuityReplay.body))
+      assert.equal(continuityFirst.body.job_id, continuityReplay.body.job_id, 'same continuity action rejoined one queue owner')
+      const continuityMismatch = await request(app).post(`/api/projects/${project.slug}/scene-review/${episodeId}/continuity-render`).send(continuityBody(continuityAction, true))
+      assert.equal(continuityMismatch.status, 409, 'approval behavior is part of a Scene Review action scope')
+      await terminal(continuityFirst.body.job_id, 'first continuity action to settle')
+      assert.equal(service.providerSubmissionCount('image'), continuityBefore + 1, 'same continuity action made one image provider POST')
+      await waitFor(() => releasedJobIds.has(continuityFirst.body.job_id), {
+        label: 'terminal continuity action to release its shared image slot', timeoutMs: 10_000,
+      })
+      // The observer is already active: a fast mocked executor may release its
+      // slot before the HTTP response hands this test the successor id.
       const continuityRetry = await request(app).post(`/api/projects/${project.slug}/jobs/${continuityFirst.body.job_id}/retry`)
       assert.equal(continuityRetry.status, 202, JSON.stringify(continuityRetry.body))
       const continuityRecoveryJobId = continuityRetry.body.plan.steps.continuity_render.job_id

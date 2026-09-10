@@ -81,7 +81,10 @@ test('terminal visual Scene Plan rows offer explicit paid prompt repair without 
   assert.match(jobs, /\.job-actions \{ margin-left: 0; width: 100%; justify-content: flex-start; \}/)
   assert.match(jobs, /:aria-label="`Auto repair missing prompts for \$\{job\.episode_id\}; GenStudio credits may be charged`"/)
   assert.match(jobs, /\/auto-repair-scene-prompts`[\s\S]*\{\},/)
-  assert.equal((jobs.match(/(?:job|j)\.params\?\.auto_repair_missing_prompts !== true/g) || []).length, 3)
+  assert.match(jobs, /function canRetryJob\(job: RJob\): boolean/)
+  assert.match(jobs, /function canRetryJob[\s\S]*job\.params\?\.auto_repair_missing_prompts === true\) return false/)
+  assert.match(jobs, /const canReplaySavedChat = job\.type === 'outline_only' \|\| job\.type === 'expand_chapters'/)
+  assert.equal((jobs.match(/v-if="canRetryJob\(job\)"/g) || []).length, 2)
   assert.match(jobs, /const failedJobsForRetryAll = computed[\s\S]*j\.params\?\.auto_repair_missing_prompts !== true/)
   const paidAction = jobs.indexOf('class="btn btn-xs btn-primary prompt-auto-repair-btn"')
   const ordinaryRetry = jobs.indexOf(':title="retryTooltip(job)"', paidAction)
@@ -187,18 +190,18 @@ test('Jobs explains GenStudio 1.2 waits and retries from provider-published fiel
   assert.match(jobs, /remote\.stall_recovery_at/)
 })
 
-test('Jobs retries Motion work through the durable queue without reposting legacy params', () => {
+test('Jobs retries every non-episode job through the durable queue without reposting legacy params', () => {
   assert.match(
     jobs,
-    /job\.type === 'expand_chapters' \|\| job\.type === 'scene_clip_generate' \|\| job\.type === 'scene_clips_batch'/,
+    /const response = await post<\{ job\?: Job \}>\(`\$\{jobQueuePath\(job\)\}\/retry`, \{\}\)/,
   )
-  assert.match(
-    jobs,
-    /await post\(`\$\{jobQueuePath\(job\)\}\/retry`, \{\}\)/,
-  )
-  const retry = jobs.match(/async function retryJob\(job: RJob\) \{([\s\S]*?)\n\}/)?.[1] || ''
-  const motionBranch = retry.match(/if \(job\.type === 'expand_chapters'[\s\S]*?\n  \}/)?.[0] || ''
-  assert.doesNotMatch(motionBranch, /await del\(jobQueuePath\(job\)\)/)
+  const retryStart = jobs.indexOf('async function retryJob(')
+  const retry = jobs.slice(retryStart, jobs.indexOf('async function autoRepairScenePrompts', retryStart))
+  assert.doesNotMatch(retry, /await del\(jobQueuePath\(job\)\)/)
+  assert.doesNotMatch(retry, /endpointMap|pipeline\/run-batch|\/generate\//)
+  assert.match(retry, /isConfirmedRetryReplacement\(job, next\)/)
+  const replacement = jobs.slice(jobs.indexOf('function isConfirmedRetryReplacement('), retryStart)
+  assert.match(replacement, /job\.type === 'images' \? 'thumb_images' : job\.type/)
 })
 
 test('Jobs renders exact GenStudio account facts only for a verified live snapshot', () => {
