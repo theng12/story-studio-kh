@@ -32,6 +32,7 @@ function makeState() {
   return {
     slug: ref('proj-x'),
     episodeId: ref('EP0001'),
+    visualSource: ref<'scene_plan' | 'image_pool'>('scene_plan'),
     selectedEpisode: ref<any>(null),
     ffmpegStatus: ref<any>(null),
     scannedAssets: ref<any>({
@@ -319,6 +320,24 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.equal(body.scenes, undefined)
     assert.equal(body.chapter_titles.enabled, true)
   })
+})
+
+test('image pool source changes the authoritative scene mode and scan selection', async () => {
+  const state = makeState()
+  state.visualSource.value = 'image_pool'
+  ;(globalThis as any).$fetch = async (url: string) => url.includes('/health')
+    ? { boot_complete: true }
+    : {
+        scenes: [
+          { source: 'scene_plan', path: '/plan.png' },
+          { source: 'image_pool', path: '/pool.png' },
+        ],
+        thumbnails: [],
+      }
+  const io = useVideoAssemblyIo(state as any)
+  await io.scanAssets()
+  assert.equal(io.buildPayload().scene_pool_mode, 'image_pool')
+  assert.deepEqual(state.scenes.value.map(scene => scene.image_path), ['/pool.png'])
 })
 
 function deferred<T>() {

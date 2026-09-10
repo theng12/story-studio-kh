@@ -77,5 +77,5 @@ test('image workflows pin project scope as well as episode scope across same-cod
   assert.match(sceneReview, /async function loadContinuityFlag[\s\S]*?const project = slug\.value[\s\S]*?scope === reviewScopeSequence[\s\S]*?projects\/\$\{project\}\/effective-format[\s\S]*?projects\/\$\{project\}\/continuity\/\$\{ep\}/)
   assert.match(sceneReview, /async function pollUntilImageReady\(sceneId: string, ep: string, project: string, scope: number\)[\s\S]*?scope === reviewScopeSequence/)
   assert.match(sceneReview, /async function pollUntilAllPresent\(ep: string, project: string, scope: number\)[\s\S]*?scope === reviewScopeSequence/)
-  assert.match(imagePool, /let imagePoolScopeSequence = 0[\s\S]*?watch\(\[slug, episodeId\][\s\S]*?imagePoolScopeSequence\+\+/)
+  assert.match(imagePool, /let imagePoolScopeSequence = 0[\s\S]*?watch\(\[slug, episodeId, poolId\][\s\S]*?imagePoolScopeSequence\+\+/)
 })

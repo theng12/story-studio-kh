@@ -36,6 +36,7 @@ import { useToast } from './useToast.js'
 export interface VideoAssemblyIoState {
   slug: Ref<string>
   episodeId: Ref<string>
+  visualSource?: Ref<'scene_plan' | 'image_pool'>
   selectedEpisode: Ref<any>
   ffmpegStatus: Ref<{
     installed: boolean
@@ -196,7 +197,8 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     const all = Array.isArray(s.scannedAssets.value?.scenes)
       ? s.scannedAssets.value.scenes
       : []
-    const planned = all.filter((img: any) => img.source === 'scene_plan')
+    const source = s.visualSource?.value === 'image_pool' ? 'image_pool' : 'scene_plan'
+    const planned = all.filter((img: any) => img.source === source)
     s.scenes.value = planned.map((img: any, i: number) => ({
       image_path: img.path || '',
       filename: img.filename || `scene_${i + 1}.png`,
@@ -249,7 +251,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
   function buildPayload(): Record<string, any> {
     const payload: Record<string, any> = {
       episode_id: s.episodeId.value,
-      scene_pool_mode: 'scene_plan',
+      scene_pool_mode: s.visualSource?.value === 'image_pool' ? 'image_pool' : 'scene_plan',
       transition: s.transition.type,
       transition_duration: s.transition.type === 'none' ? 0 : s.transition.duration,
       transition_pool: s.transition.pool,

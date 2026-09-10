@@ -295,6 +295,9 @@ router.post('/broll-pools/:id/clips/:filename/normalize', async (req, res) => {
   try {
     const pool = await bp.getPool(req.params.id)
     if (!pool) return res.status(404).json({ detail: 'Pool not found' })
+    if (bp.poolMedia(pool) !== 'video') {
+      return res.status(400).json({ detail: `Pool '${req.params.id}' is not a video pool.` })
+    }
     const job = await jq.enqueue({
       project_slug: '_app_',
       type: 'broll_normalize' as JobType,
@@ -333,6 +336,9 @@ router.post('/broll-pools/:id/normalize-all', async (req, res) => {
   try {
     const pool = await bp.getPool(req.params.id)
     if (!pool) return res.status(404).json({ detail: 'Pool not found' })
+    if (bp.poolMedia(pool) !== 'video') {
+      return res.status(400).json({ detail: `Pool '${req.params.id}' is not a video pool.` })
+    }
     const clips = await bp.listClips(pool.id, { includeMissing: false })
     const unnormalized = clips.filter(c => !c.normalized)
     let queued = 0

@@ -22,6 +22,9 @@
     </WorkspaceHero>
 
     <div v-if="loading" class="muted">Loading pools…</div>
+    <div v-else-if="poolLoadError" class="offline-banner" role="alert">
+      {{ poolLoadError }} <button class="btn btn-sm btn-secondary" @click="loadAndSelect">Retry</button>
+    </div>
 
     <EmptyState
       v-else-if="!pools.length"
@@ -71,9 +74,9 @@
           <div>
             <h2>{{ selectedPool.name }}</h2>
             <div class="text-muted text-xs">
-              {{ selectedPool.folder_path }} ·
-              auto-normalize <strong>{{ selectedPool.auto_normalize ? 'ON' : 'OFF' }}</strong> ·
-              target <strong>{{ selectedPool.fps_target }}fps · 1080p</strong>
+              {{ selectedPool.folder_path }}
+              <template v-if="isVideoPool"> · auto-normalize <strong>{{ selectedPool.auto_normalize ? 'ON' : 'OFF' }}</strong> ·
+                target <strong>{{ selectedPool.fps_target }}fps · 1080p</strong></template>
             </div>
           </div>
           <div class="pool-actions">
@@ -88,6 +91,7 @@
               {{ scanning ? 'Scanning…' : 'Re-scan' }}
             </button>
             <button
+              v-if="isVideoPool"
               class="btn btn-sm btn-secondary"
               :disabled="!selectedPool.online || normalizingAll || !unnormalizedCount"
               :title="!selectedPool.online ? 'Pool offline' : !unnormalizedCount ? 'All clips already normalised' : `Queue normalize jobs for the ${unnormalizedCount} clip(s) that haven't been re-encoded to 1080p ${selectedPool.fps_target}fps yet.`"
@@ -104,6 +108,7 @@
               ✏ Bulk rename
             </button>
             <button
+              v-if="isVideoPool"
               class="btn btn-ghost btn-sm"
               :title="'Toggle auto-normalize on new clips for this pool. When on, the next scan auto-queues normalize jobs for clips it newly indexed. Turn off if you want manual control or your SSD is slow.'"
               @click="toggleAutoNormalize"
@@ -200,6 +205,9 @@
 
         <div v-if="clipsLoading" class="muted">Loading clips…</div>
 
+        <div v-else-if="clipsLoadError" class="offline-banner" role="alert">
+          {{ clipsLoadError }} <button class="btn btn-sm btn-secondary" @click="loadClips()">Retry</button>
+        </div>
         <div v-else-if="!clips.length" class="empty">
           No {{ selectedPool.media === 'image' ? 'images' : selectedPool.media === 'audio' ? 'sound effects' : 'clips' }} indexed yet. Drop
           {{ selectedPool.media === 'image' ? 'image files (jpg/png/webp…)' : selectedPool.media === 'audio' ? 'audio files (mp3/wav/m4a/ogg…)' : 'video files' }} into
@@ -232,8 +240,8 @@
                   loading="lazy"
                   @error="onThumbError"
                 />
-                <span class="clip-duration">{{ formatDuration(clip.duration) }}</span>
-                <span v-if="clip.normalized" class="clip-normalized" :title="`Normalized to ${selectedPool.fps_target}fps 1080p`">✓ {{ selectedPool.fps_target }}fps</span>
+                <span v-if="isVideoPool" class="clip-duration">{{ formatDuration(clip.duration) }}</span>
+                <span v-if="isVideoPool && clip.normalized" class="clip-normalized" :title="`Normalized to ${selectedPool.fps_target}fps 1080p`">✓ {{ selectedPool.fps_target }}fps</span>
                 <span v-if="clip.missing" class="clip-missing-badge">missing</span>
               </template>
             </div>
@@ -241,7 +249,7 @@
               <div class="clip-filename" :title="clip.filename">{{ clip.filename }}</div>
               <div class="clip-meta text-muted text-xs">
                 <template v-if="isAudioPool">{{ formatDuration(clip.duration) }} · {{ formatBytes(clip.size_bytes) }}</template>
-                <template v-else>{{ clip.width }}×{{ clip.height }} · {{ clip.fps }}fps · {{ formatBytes(clip.size_bytes) }}</template>
+                <template v-else>{{ clip.width }}×{{ clip.height }}<template v-if="isVideoPool"> · {{ clip.fps }}fps</template> · {{ formatBytes(clip.size_bytes) }}</template>
               </div>
               <ChipInput
                 :model-value="clip.tags"
@@ -253,7 +261,7 @@
               />
               <div class="clip-actions">
                 <button
-                  v-if="!clip.normalized"
+                  v-if="isVideoPool && !clip.normalized"
                   class="btn btn-ghost btn-sm"
                   :disabled="!selectedPool.online"
                   :title="'Re-encode this clip to ' + selectedPool.fps_target + 'fps 1080p H.264. Runs as a queued job — see Jobs panel.'"
@@ -746,7 +754,8 @@ async function onBrowseEditFolder() {
 }
 
 async function submitEdit(): Promise<void> {
-  if (!selectedPool.value) return
+  if (!selectedPool.value || editing.value) return
+  const scope = poolScope
   editing.value = true
   editError.value = ''
   try {
@@ -755,10 +764,11 @@ async function submitEdit(): Promise<void> {
       name: editDraft.value.name.trim(),
       folder_path: editDraft.value.folder_path.trim(),
     })
+    if (scope !== poolScope) return
     editModalOpen.value = false
     success(repointed ? 'Pool updated — click ↻ Re-scan to index the new folder.' : 'Pool updated.')
   } catch (e: any) {
-    editError.value = e?.data?.detail || e?.message || 'Failed to update pool'
+    if (scope === poolScope) editError.value = e?.data?.detail || e?.message || 'Failed to update pool'
   } finally {
     editing.value = false
   }
@@ -774,6 +784,10 @@ const pools = broll.pools
 const loading = broll.loading
 
 const selectedPoolId = ref<string>('')
+const poolLoadError = ref('')
+const clipsLoadError = ref('')
+let poolScope = 0
+let clipsRequest = 0
 const selectedPool = computed(() => pools.value.find(p => p.id === selectedPoolId.value) || null)
 
 // v1.0.405 — media filter so image / audio pools have a clear "tab".
@@ -788,6 +802,7 @@ const filteredPools = computed(() =>
 )
 // True when the selected pool holds audio (SFX) — drives the inline <audio>
 // player + hides video-only controls (thumbnail, normalize, vision auto-tag).
+const isVideoPool = computed(() => !!selectedPool.value && poolMediaOf(selectedPool.value) === 'video')
 const isAudioPool = computed(() => poolMediaOf(selectedPool.value || {}) === 'audio')
 
 const clips = ref<any[]>([])
@@ -797,7 +812,7 @@ const scanResult = ref<any | null>(null)
 const normalizingAll = ref(false)
 
 const unnormalizedCount = computed(() =>
-  clips.value.filter(c => !c.normalized && !c.missing).length,
+  isVideoPool.value ? clips.value.filter(c => !c.normalized && !c.missing).length : 0,
 )
 
 // ── Pool jobs panel + auto-refresh ────────────────────────────────────
@@ -876,15 +891,7 @@ onMounted(() => {
 onBeforeUnmount(() => { if (unsubDone) unsubDone() })
 
 async function refreshClipsAfterJob(): Promise<void> {
-  if (!selectedPoolId.value) return
-  try {
-    const r = await broll.listClips(selectedPoolId.value)
-    clips.value = r.clips
-    // v1.0.122+: refresh provenance too so a freshly-fetched clip's
-    // sidecar shows up in the Asset Log and hover tooltips without
-    // requiring a tab toggle / page refresh.
-    void loadProvenance()
-  } catch { /* tolerate */ }
+  await loadClips()
 }
 
 // ── v1.0.122+ Pool tab nav (Clips / Fetch / Asset Log) ──────────────────
@@ -953,18 +960,21 @@ function provenanceTooltip(filename: string): string {
 }
 
 let _provenanceLoadedFor = ''
+let provenanceRequest = 0
 async function loadProvenance(): Promise<void> {
-  if (!selectedPoolId.value) {
-    provenance.value = []
-    return
-  }
+  const id = selectedPoolId.value
+  const scope = poolScope
+  const request = ++provenanceRequest
+  const current = () => scope === poolScope && request === provenanceRequest && id === selectedPoolId.value
+  provenance.value = []
+  if (!id) return
   try {
-    const r = await apiGet<{ records: ProvenanceRow[] }>(`/broll-pools/${selectedPoolId.value}/provenance`)
+    const r = await apiGet<{ records: ProvenanceRow[] }>(`/broll-pools/${id}/provenance`)
+    if (!current()) return
     provenance.value = r.records || []
-    _provenanceLoadedFor = selectedPoolId.value
+    _provenanceLoadedFor = id
   } catch {
-    // Provenance is best-effort UX — never block the page on a load failure.
-    provenance.value = []
+    if (current()) provenance.value = []
   }
 }
 async function loadProvenanceOnce(): Promise<void> {
@@ -973,7 +983,7 @@ async function loadProvenanceOnce(): Promise<void> {
 }
 
 // Refresh provenance whenever the selected pool changes.
-watch(selectedPoolId, () => { void loadProvenance() }, { immediate: false })
+
 
 // ── v1.0.122+ Asset Log filtering + sorting ─────────────────────────────
 const logSearch = ref('')
@@ -1059,9 +1069,14 @@ function formatLocalDateTime(iso: string): string {
 // ── Pool selection ─────────────────────────────────────────────────────
 
 async function loadAndSelect(): Promise<void> {
-  await broll.loadPools()
-  if (!selectedPoolId.value && pools.value.length) {
-    selectedPoolId.value = pools.value[0]!.id
+  poolLoadError.value = ''
+  try {
+    await broll.loadPools()
+    if (!pools.value.some(p => p.id === selectedPoolId.value)) {
+      selectedPoolId.value = pools.value[0]?.id || ''
+    }
+  } catch (e: any) {
+    poolLoadError.value = e?.data?.detail || e?.message || 'Could not load the media pools.'
   }
 }
 
@@ -1069,20 +1084,40 @@ async function selectPool(id: string): Promise<void> {
   selectedPoolId.value = id
 }
 
-watch(selectedPoolId, async (id) => {
-  if (!id) return
-  scanResult.value = null
+async function loadClips(): Promise<void> {
+  const id = selectedPoolId.value
+  const scope = poolScope
+  const request = ++clipsRequest
+  const current = () => scope === poolScope && request === clipsRequest && id === selectedPoolId.value
+  clipsLoadError.value = ''
+  if (!id) { clips.value = []; clipsLoading.value = false; return }
   clipsLoading.value = true
   try {
     const r = await broll.listClips(id)
+    if (!current()) return
     clips.value = r.clips
+    void loadProvenance()
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to load clips')
+    if (!current()) return
+    clipsLoadError.value = e?.data?.detail || e?.message || 'Failed to load clips'
     clips.value = []
   } finally {
-    clipsLoading.value = false
+    if (current()) clipsLoading.value = false
   }
-}, { immediate: false })
+}
+
+watch(selectedPoolId, () => {
+  poolScope++
+  scanResult.value = null
+  clips.value = []
+  provenance.value = []
+  scanning.value = false
+  normalizingAll.value = false
+  editModalOpen.value = false
+  renameOneOpen.value = false
+  bulkRenameOpen.value = false
+  void loadClips()
+}, { flush: 'sync' })
 
 watch(() => null, loadAndSelect, { immediate: true })
 
@@ -1090,24 +1125,26 @@ watch(() => null, loadAndSelect, { immediate: true })
 
 async function runScan(): Promise<void> {
   if (!selectedPoolId.value || scanning.value) return
+  const id = selectedPoolId.value
+  const scope = poolScope
   scanning.value = true
   scanResult.value = null
   try {
-    const r = await broll.scanPool(selectedPoolId.value)
+    const r = await broll.scanPool(id)
+    if (scope !== poolScope) return
     scanResult.value = r
-    // Refresh the clip grid so newly-indexed clips show up.
-    const fresh = await broll.listClips(selectedPoolId.value)
-    clips.value = fresh.clips
-    success(`Scan complete — +${r.added.length} new, ${r.updated.length} updated`)
+    await loadClips()
+    if (scope === poolScope) success(`Scan complete — +${r.added.length} new, ${r.updated.length} updated`)
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Scan failed')
+    if (scope === poolScope) showError(e?.data?.detail || e?.message || 'Scan failed')
   } finally {
-    scanning.value = false
+    if (scope === poolScope) scanning.value = false
   }
 }
 
 async function runNormalizeAll(): Promise<void> {
-  if (!selectedPoolId.value || normalizingAll.value) return
+  if (!selectedPoolId.value || !isVideoPool.value || normalizingAll.value) return
+  const scope = poolScope
   normalizingAll.value = true
   try {
     const r = await broll.normalizeAll(selectedPoolId.value)
@@ -1115,12 +1152,12 @@ async function runNormalizeAll(): Promise<void> {
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to queue normalize')
   } finally {
-    normalizingAll.value = false
+    if (scope === poolScope) normalizingAll.value = false
   }
 }
 
 async function normalizeOne(filename: string): Promise<void> {
-  if (!selectedPoolId.value) return
+  if (!selectedPoolId.value || !isVideoPool.value) return
   try {
     await broll.normalizeClip(selectedPoolId.value, filename)
     success(`Queued normalize for ${filename}`)
@@ -1131,7 +1168,7 @@ async function normalizeOne(filename: string): Promise<void> {
 
 
 async function toggleAutoNormalize(): Promise<void> {
-  if (!selectedPool.value) return
+  if (!selectedPool.value || !isVideoPool.value) return
   try {
     await broll.updatePool(selectedPool.value.id, {
       auto_normalize: !selectedPool.value.auto_normalize,
@@ -1143,16 +1180,17 @@ async function toggleAutoNormalize(): Promise<void> {
 
 async function confirmDeletePool(): Promise<void> {
   if (!selectedPool.value) return
+  const target = selectedPool.value
   const ok = await ask({
-    title: `Unregister pool "${selectedPool.value.name}"?`,
+    title: `Unregister pool "${target.name}"?`,
     body: 'Removes the pool from the app registry. Clip files and the on-folder sidecar JSON stay on disk — you can re-register the same folder later and tags will be intact.',
     confirmLabel: 'Unregister',
     danger: true,
   })
   if (!ok) return
   try {
-    await broll.deletePool(selectedPool.value.id)
-    selectedPoolId.value = pools.value[0]?.id || ''
+    await broll.deletePool(target.id)
+    if (selectedPoolId.value === target.id) selectedPoolId.value = pools.value[0]?.id || ''
     success('Pool unregistered')
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Delete failed')
@@ -1163,8 +1201,11 @@ async function confirmDeletePool(): Promise<void> {
 
 async function saveTags(filename: string, tags: string[]): Promise<void> {
   if (!selectedPoolId.value) return
+  const id = selectedPoolId.value
+  const scope = poolScope
   try {
-    const updated = await broll.setClipTags(selectedPoolId.value, filename, tags)
+    const updated = await broll.setClipTags(id, filename, tags)
+    if (scope !== poolScope) return
     const idx = clips.value.findIndex(c => c.filename === filename)
     if (idx >= 0) clips.value[idx] = updated
   } catch (e: any) {
@@ -1226,7 +1267,10 @@ function closeRenameOne(): void {
 }
 
 async function submitRenameOne(): Promise<void> {
-  if (!selectedPoolId.value) return
+  if (!selectedPoolId.value || renameOneBusy.value) return
+  const scope = poolScope
+  const id = selectedPoolId.value
+  const original = renameOneOld.value
   const next = renameOneNew.value.trim()
   if (!next || next === renameOneOld.value) return
   const err = validateNewFilename(next)
@@ -1234,15 +1278,16 @@ async function submitRenameOne(): Promise<void> {
   renameOneBusy.value = true
   renameOneError.value = ''
   try {
-    const updated = await broll.renameClip(selectedPoolId.value, renameOneOld.value, next)
-    const idx = clips.value.findIndex(c => c.filename === renameOneOld.value)
+    const updated = await broll.renameClip(id, original, next)
+    if (scope !== poolScope) return
+    const idx = clips.value.findIndex(c => c.filename === original)
     if (idx >= 0) clips.value[idx] = updated
     success(`Renamed → ${updated.filename}`)
     renameOneOpen.value = false
     renameOneOld.value = ''
     renameOneNew.value = ''
   } catch (e: any) {
-    renameOneError.value = e?.data?.detail || e?.message || 'Failed to rename'
+    if (scope === poolScope) renameOneError.value = e?.data?.detail || e?.message || 'Failed to rename'
   } finally {
     renameOneBusy.value = false
   }
@@ -1324,7 +1369,8 @@ const bulkRenamePreview = computed<Array<{ old: string; next: string; error: str
 })
 
 async function submitBulkRename(): Promise<void> {
-  if (!selectedPoolId.value) return
+  if (!selectedPoolId.value || bulkRenameBusy.value) return
+  const scope = poolScope
   const template = bulkRenameTemplate.value.trim()
   if (!template) return
   bulkRenameBusy.value = true
@@ -1342,6 +1388,7 @@ async function submitBulkRename(): Promise<void> {
       filenames,
       { start_index: bulkRenameStart.value },
     )
+    if (scope !== poolScope) return
     const renamed = rows.filter(r => r.status === 'renamed').length
     const skipped = rows.filter(r => r.status === 'skipped').length
     const errorRows = rows.filter(r => r.status === 'error')
@@ -1363,7 +1410,7 @@ async function submitBulkRename(): Promise<void> {
       success('No changes — every clip already matches the template')
     }
   } catch (e: any) {
-    bulkRenameError.value = e?.data?.detail || e?.message || 'Bulk rename failed'
+    if (scope === poolScope) bulkRenameError.value = e?.data?.detail || e?.message || 'Bulk rename failed'
   } finally {
     bulkRenameBusy.value = false
   }

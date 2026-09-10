@@ -65,6 +65,7 @@ import {
   type PipelineModelPolicies,
   type PipelineModelPolicyStage,
 } from '../lib/pipeline-model-policy.js'
+import { readVideoVisualSource, resolveImagePoolSelection } from '../services/video-visual-source.js'
 
 export const router = Router()
 
@@ -426,6 +427,21 @@ async function preflightBatch(
       issues.push({ code: 'episode_not_accepted', episode_id: episodeId, message: `${episodeId} is not an accepted episode.` })
       continue
     }
+    let visualSource: 'scene_plan' | 'image_pool' = 'scene_plan'
+    if (steps.includes('video_assembly')) {
+      try {
+        const sourceState = await readVideoVisualSource(slug, episodeId)
+        visualSource = sourceState.source
+        if (visualSource === 'image_pool') await resolveImagePoolSelection(slug, episodeId)
+      } catch (error: any) {
+        issues.push({
+          code: 'invalid_preset',
+          episode_id: episodeId,
+          step: 'video_assembly',
+          message: `${episodeId}: ${error?.message || 'Image Pool visual source is not ready.'}`,
+        })
+      }
+    }
     const status = await computeEpisodeStatus(slug, episodeId)
     const available = new Set<BatchStep>()
     for (const step of VALID_STEPS) {
@@ -445,7 +461,10 @@ async function preflightBatch(
       // held back; one with an unresolved proposal still is.
       const cueReviewPending = contextualCuesEnabled
         && (steps.includes('contextual_cues') || status.contextual_cues === false)
-      const missing = prerequisitesForStep(step, cueReviewPending).filter(required => !available.has(required))
+      const prerequisites = step === 'video_assembly' && visualSource === 'image_pool'
+        ? ['audio_merge' as BatchStep]
+        : prerequisitesForStep(step, cueReviewPending)
+      const missing = prerequisites.filter(required => !available.has(required))
       for (const required of missing) {
         issues.push({
           code: 'missing_prerequisite',

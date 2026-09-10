@@ -3573,8 +3573,8 @@ export interface GenerateVideoRequest {
   timeline_clips?: VideoTimelineClip[]
   title_image?: VideoTitleImageConfig
   scene_recycling: VideoSceneRecycling
-  /** Unified assembly always hydrates this to `scene_plan` before rendering. */
-  scene_pool_mode?: 'scene_plan'
+  /** Unified assembly hydrates this from the episode's persisted source. */
+  scene_pool_mode?: 'scene_plan' | 'image_pool'
   music?: VideoMusicConfig
   /** @deprecated v1.0.354 — Target Duration removed. The video body always
    *  equals the narration; an optional post-audio tail is the only extension.

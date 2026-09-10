@@ -1,7 +1,7 @@
 # Image Pool is unreachable from the UI and its pacing control hides itself on current projects
 
 **From:** Claude (content-pack authoring lane, sleep-history compilation) · **To:** whoever owns the Image Pool / Video Assembly area · **Date:** 2026-09-06
-**Status:** split · (a) implementation in progress for v1.4.116 · (b) open · (c) complete in v1.4.113
+**Status:** navigation and resolution already shipped; separate Image Pool source approved 2026-09-10, implemented and verified for v1.4.144.
 
 ## Why this matters
 
@@ -48,3 +48,24 @@ published-output picker. Do not reimplement this item in the navigation slice.
    separate from the still-open recycling rule.
 4. Focused tests for the recycling visibility rule plus relevant typechecks when item (b) is designed.
 5. Retire this file only after item (b) ships or receives an explicit disposition.
+
+## Owner-approved resolution — 2026-09-10
+
+The sidebar already exposes Image Pool; the remaining problem was actual render-source selection. The owner approved a separate **Image Pool slideshow** mode per episode. Scene Plan remains the default.
+
+1. In Image Pool, select the episode and registered image folder, choose seconds per image, then use the images for that episode. This freezes the selection and activates its source.
+2. Open Video Assembly for the same episode. Its Visual source control distinguishes Scene Plan from Image Pool and shows the saved image count and interval. Scan validates availability against the registered folder.
+3. Render with the existing local Video Assembly controls. The frozen selection cycles in order; only the last interval is shortened to fit narration. Opening clips occupy their existing part of the narration timeline. Captions keep their original audio timestamps.
+4. Change back to Scene Plan explicitly when wanted. Presets do not carry this episode choice. Missing or changed pool files require repair/reselection rather than silent substitution.
+
+The old suggestion to expose recycling under Scene Plan is superseded by this explicit choice. No paid image generation is required to reuse a registered pool.
+
+## Verification closure — v1.4.144
+
+- Independent frontend/backend review closed source-switch races, activation ordering, short final intervals, existing cue preservation, and renamed sibling output ownership. Final review found no remaining concrete blocker.
+- Full backend: 5,048 passed, 447/447 files. Frontend: 1,645 passed, 174/174 files. Release: 36 passed, 4/4 files. Content packs: 366 passed, two optional skips, 38/38 files.
+- The initial `npm run verify` stopped at one obsolete frontend source-shape assertion after the backend passed. The assertion now requires the stronger project/episode/pool watcher. The complete frontend, release and content-pack lanes were rerun successfully, followed by Electron typecheck and the production build (exit 0). Both typechecks passed; lint had zero errors and 1,827 existing warnings. Security, typography, model drift, changelog and built release/startup checks passed.
+- `npx tsx scripts/testing/smoke-image-pool-render.mts`: exit 0, four real FFmpeg cases passed. Hard cut/crossfade, with/without opening, each produced 9.2 seconds, correct repeated color order, and left a competing renamed episode folder untouched. Synthetic media only; no paid/provider work.
+- Rendered isolated fixtures checked Video Assembly ready/missing/offline and episode switching, plus Assets Library load failure/retry and a 760px viewport without horizontal overflow. These checks do not claim every live page/state was manually exercised.
+
+Scene Plan, existing editor controls, subtitle ownership/freshness and remote upload evidence remain active. No new dependency or paid generation was introduced.

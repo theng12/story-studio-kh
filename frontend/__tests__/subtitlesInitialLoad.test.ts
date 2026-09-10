@@ -15,14 +15,12 @@ async function loadPageScript(): Promise<Component> {
   const script = compileScript(descriptor, { id: 'subtitles-initial-load' })
   const vueUrl = await import.meta.resolve('vue')
   const freshActionUrl = await import.meta.resolve('../composables/useFreshGenerationAction.ts')
+  const languageUrl = import.meta.resolve('../utils/transcription-language.ts')
   const support = `
     import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, ref, unref, watch } from ${JSON.stringify(vueUrl)}
     import { useFreshGenerationAction } from ${JSON.stringify(freshActionUrl)}
-    const DEFAULT_TRANSCRIPTION_LANGUAGE = 'en'
-    const defaultTranscriptionLanguage = () => 'en'
-    const isTranscriptionLanguageUsable = () => true
-    const transcriptionLanguageControl = () => ({ options: [] })
-    const transcriptionLanguageRequestFields = () => ({})
+    import { DEFAULT_TRANSCRIPTION_LANGUAGE, defaultTranscriptionLanguage, isTranscriptionLanguageUsable,
+      transcriptionLanguageControl, transcriptionLanguageRequestFields } from ${JSON.stringify(languageUrl)}
     const hasQualityFindings = () => false
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
@@ -166,4 +164,21 @@ test('subtitle gap review targets source audio and clears playback on episode ch
     assert.ok(source.includes('>Listen to {{ section.replaceAll'))
     assert.ok(source.includes('Regenerate subtitles'))
   } finally { app.unmount(); container.remove() }
+})
+
+
+test('disabled subtitle actions keep rendering while model language capabilities are unavailable', async () => {
+  ;(globalThis as any).__subtitlesInitialRouterReplace = () => undefined
+  ;(globalThis as any).__subtitlesInitialApi = {
+    get: async (path: string) => path.endsWith('/audio-sections') ? { sections: [] } : { existing_srts: [] },
+  }
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(await loadPageScript())
+  app.mount(host)
+  try {
+    const state = (globalThis as any).__subtitlesInitialState
+    assert.equal(state.canTranscribe.value, false)
+    assert.equal(state.subtitleActionLabel('Chapter_13', 'Regenerate subtitles'), 'Regenerate subtitles')
+    assert.equal(state.subtitleActionLabel(null, 'Transcribe chapters'), 'Transcribe chapters')
+  } finally { app.unmount(); host.remove() }
 })

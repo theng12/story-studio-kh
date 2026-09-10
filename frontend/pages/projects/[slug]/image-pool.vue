@@ -1,11 +1,8 @@
 <!--
-  v1.0.411 — Image Pool (slideshow) page, now the "load images" front door for
-  the unified Video Assembly pivot. Picks still images from an Image Pool
-  (random, sized to narration, cross-episode no-repeat) and materializes them as
-  the episode's SCENE IMAGES (`POST /image-pool/materialize`), so the full Video Assembly
-  Video Assembly editor handles motion/overlays/logo/effects/subtitles/export and
-  the standard video_assembly status. Also hosts "Grow this pool" (generate
-  images). The bespoke slideshow assembler (pick/assemble) is retired.
+  Image Pool (slideshow) selection. Picks still images from an Image Pool
+  (random, sized to narration, cross-episode no-repeat) and freezes the
+  selection sidecar for Video Assembly. The editor then handles
+  motion/overlays/logo/effects/subtitles/export and the standard final render.
 -->
 <template>
   <div>
@@ -55,16 +52,16 @@
       </p>
     </section>
 
-    <!-- 2. Load images into Video Assembly (the pivot bridge) -->
+    <!-- 2. Freeze a selection for Video Assembly -->
     <section v-if="poolId && episodeId" class="card mt-3">
-      <h3>2. Load images into Video Assembly</h3>
+      <h3>2. Pick images for this episode</h3>
       <p class="text-muted text-sm mt-1">
-        Picks the images and sets them as this episode's <strong>scenes</strong>. Then open the
-        <strong>🎞 Video Assembly</strong> tab above to add motion / overlays / logo / effects / subtitles and render —
-        the slideshow gets the full editor (and the standard final video shows on the board + upload).
+        Saves an image sequence and makes Image Pool the visual source for this episode.
+        Then open the <strong>🎞 Video Assembly</strong> tab to add motion, overlays, logo, effects,
+        subtitles, and export settings.
       </p>
       <div class="ip-row mt-2">
-        <label class="ip-inline-label" title="Drives how many images are loaded (narration ÷ this). You set the actual on-screen pacing in the Video Assembly tab's recycling control.">
+        <label class="ip-inline-label" title="Drives how many stills are frozen into this episode (narration ÷ this).">
           Seconds / image
           <input type="number" min="1" max="60" step="1" class="input ip-num" v-model.number="secondsPerImage" />
         </label>
@@ -74,12 +71,12 @@
         </label>
       </div>
       <div class="ip-actions mt-3">
-        <button class="btn btn-primary" :disabled="loadingScenes || !selectedPool?.online" @click="loadIntoVideoAssembly">
-          {{ loadingScenes ? 'Loading…' : '📥 Load images as scenes' }}
+        <button class="btn btn-primary" :disabled="pickingImages || !selectedPool?.online" @click="pickImagesForEpisode">
+          {{ pickingImages ? 'Picking…' : '🖼 Use these images for this episode' }}
         </button>
         <span v-if="lastLoad" class="text-muted text-sm">
-          ✓ Loaded {{ lastLoad.count }} image(s) (~{{ Math.round(lastLoad.target_duration) }}s of narration).
-          <NuxtLink :to="`/projects/${slug}/video-assembly`" class="text-accent">Open the Video Assembly tab →</NuxtLink>
+          ✓ Saved {{ lastLoad.count }} image(s) (~{{ Math.round(lastLoad.target_duration) }}s of narration).
+          <NuxtLink :to="{ path: `/projects/${slug}/video-assembly`, query: { episode_id: episodeId } }" class="text-accent">Open the Video Assembly tab →</NuxtLink>
         </span>
       </div>
       <p class="text-muted text-xs mt-2">
@@ -191,12 +188,17 @@ const { success, error: showError } = useToast()
 const broll = useBrollPools()
 const { config, reload: reloadConfig } = useProject() as any
 
-const episodeId = ref('')
+const initialEpisodeId = typeof route.query.episode_id === 'string'
+  ? route.query.episode_id
+  : typeof route.query.episode === 'string'
+    ? route.query.episode
+    : ''
+const episodeId = ref(initialEpisodeId)
 const poolId = ref('')
 const secondsPerImage = ref<number>(8)
 const dedupLookback = ref<number>(20)
 const poolImageCount = ref<number | null>(null)
-const loadingScenes = ref(false)
+const pickingImages = ref(false)
 const lastLoad = ref<{ count: number; target_duration: number } | null>(null)
 
 // v1.0.410 — "Grow this pool" (generate images into the pool).
@@ -282,12 +284,18 @@ async function saveSubscription(): Promise<void> {
   }
 }
 
-async function loadIntoVideoAssembly(): Promise<void> {
-  if (!poolId.value || !episodeId.value) return
-  loadingScenes.value = true
+async function pickImagesForEpisode(): Promise<void> {
+  if (!poolId.value || !episodeId.value || pickingImages.value) return
+  const request = ++imagePoolScopeSequence
+  const project = slug.value
+  const episode = episodeId.value
+  const pool = poolId.value
+  const current = () => request === imagePoolScopeSequence
+    && project === slug.value && episode === episodeId.value && pool === poolId.value
+  pickingImages.value = true
   try {
-    const r = await post<{ count: number; target_duration: number }>(
-      `/projects/${slug.value}/image-pool/materialize`,
+    const r = await post<{ selection?: any[]; images?: number; target_duration?: number; warnings?: string[] }>(
+      `/projects/${slug.value}/image-pool/pick`,
       {
         episode_id: episodeId.value,
         pool_id: poolId.value,
@@ -295,12 +303,17 @@ async function loadIntoVideoAssembly(): Promise<void> {
         dedup_lookback: dedupLookback.value,
       },
     )
-    lastLoad.value = { count: r.count, target_duration: r.target_duration }
-    success(`Loaded ${r.count} image(s) as scenes for ${episodeId.value} — open the Video Assembly tab to finish.`)
+    if (!current()) return
+    const count = Number(r.images ?? r.selection?.length ?? 0)
+    for (const warning of r.warnings || []) showError(warning)
+    await put(`/projects/${slug.value}/video-editor/visual-source/${encodeURIComponent(episodeId.value)}`, { source: 'image_pool' })
+    if (!current()) return
+    lastLoad.value = { count, target_duration: Number(r.target_duration || 0) }
+    success(`Saved ${count} image(s) for ${episodeId.value} — Image Pool is now active in Video Assembly.`)
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to load images')
+    if (current()) showError(e?.data?.detail || e?.message || 'Failed to pick images')
   } finally {
-    loadingScenes.value = false
+    if (current()) pickingImages.value = false
   }
 }
 
@@ -351,9 +364,10 @@ async function generateIntoPool(): Promise<void> {
 }
 
 // Project and episode changes invalidate the pool's transient selection state.
-watch([slug, episodeId], () => {
+watch([slug, episodeId, poolId], () => {
   imagePoolScopeSequence++
   lastLoad.value = null
+  pickingImages.value = false
 }, { flush: 'sync' })
 
 onMounted(async () => {
