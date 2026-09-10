@@ -404,6 +404,7 @@ const emit = defineEmits<{
 }>()
 
 const { get, post, put } = useApi()
+const freshOutlineExpansionAction = useFreshGenerationAction()
 const freshOutlineChapterAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 const { jobs } = useJobs()
@@ -674,17 +675,21 @@ function relativeTime(iso: string | null): string {
   } catch { return '' }
 }
 
+let outlineLoadSequence = 0
 async function loadOutline() {
-  if (!props.episodeId) {
+  const requestSequence = ++outlineLoadSequence
+  const { projectSlug, episodeId, title } = props
+  if (!episodeId) {
     loaded.value = false
     outline.value = []
     return
   }
   try {
-    const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
+    const titleParam = title ? `?title=${encodeURIComponent(title)}` : ''
     const data = await get<OutlineResponse>(
-      `/projects/${props.projectSlug}/episodes/${props.episodeId}/outline${titleParam}`,
+      `/projects/${projectSlug}/episodes/${episodeId}/outline${titleParam}`,
     )
+    if (requestSequence !== outlineLoadSequence || props.projectSlug !== projectSlug || props.episodeId !== episodeId || props.title !== title) return
     outline.value = (data.outline || []).map(e => ({ ...e }))
     // v1.0.103+ — seed the per-row text buffers as soon as the outline
     // is in place. Without this, the textareas render empty on first
@@ -727,6 +732,7 @@ async function loadOutline() {
     // outline render on it — the call runs in parallel.
     if (chaptersDone.value.length > 0) void loadChapterStats()
   } catch (e: any) {
+    if (requestSequence !== outlineLoadSequence || props.projectSlug !== projectSlug || props.episodeId !== episodeId || props.title !== title) return
     // 404 = no sidecar yet (user hasn't run outline-only). Hide the panel
     // — scripts.vue shows the Generate Outline button instead.
     if (e?.status === 404 || /no outline/i.test(e?.data?.detail || '')) {
@@ -963,10 +969,12 @@ async function postExpand(chapters: number[] | null): Promise<void> {
     // mixed/pending chat source replays its exact historical params and key.
     const terminalRetry = chapters === null ? terminalExpansionRetryJob() : undefined
     if (terminalRetry) body.terminal_retry_job_id = terminalRetry.job_id
+    const operationId = freshOutlineExpansionAction.begin(body, chapters ? `expand:${chapters.join(',')}` : 'expand:all')
     const resp = await post<{ job_id: string }>(
       `/projects/${props.projectSlug}/generate/expand-chapters`,
-      body,
+      { ...body, operation_id: operationId },
     )
+    freshOutlineExpansionAction.complete(operationId)
     success(chapters
       ? `Queued expansion for chapter${chapters.length === 1 ? '' : 's'} ${chapters.join(', ')}`
       : `Queued expansion for ${pendingCount.value} chapter(s)`,

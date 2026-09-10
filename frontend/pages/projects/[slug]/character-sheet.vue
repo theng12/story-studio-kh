@@ -411,25 +411,38 @@ function toggleAnchor(id: string): void {
   config.value.references.characters = ids.length > 0
 }
 
+let characterScopeSequence = 0
+
 async function loadCharacters(): Promise<void> {
-  if (!episodeId.value) { characters.value = []; return }
+  const ep = episodeId.value
+  const project = slug.value
+  const scope = characterScopeSequence
+  const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
+  if (!ep) { characters.value = []; return }
   charsLoading.value = true
   try {
-    characters.value = await cm.listForEpisode(episodeId.value)
+    const loaded = await cm.listForEpisode(ep)
+    if (!current()) return
+    characters.value = loaded
   } catch (e: any) {
-    if (!e?.__slugRace) showError(e?.data?.detail || 'Failed to load characters')
+    if (current() && !e?.__slugRace) showError(e?.data?.detail || 'Failed to load characters')
   } finally {
-    charsLoading.value = false
+    if (current()) charsLoading.value = false
   }
 }
 
 async function loadConfig(): Promise<void> {
-  if (!episodeId.value) { config.value = continuityDefaults(); return }
+  const ep = episodeId.value
+  const project = slug.value
+  const scope = characterScopeSequence
+  const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
+  if (!ep) { config.value = continuityDefaults(); return }
   try {
     const [r, format] = await Promise.all([
-      get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${slug.value}/continuity/${episodeId.value}`),
-      get<{ script?: { visualPacingProfile?: FormulaPacingProfile } }>(`/projects/${slug.value}/effective-format`),
+      get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${project}/continuity/${ep}`),
+      get<{ script?: { visualPacingProfile?: FormulaPacingProfile } }>(`/projects/${project}/effective-format`),
     ])
+    if (!current()) return
     const profile = format?.script?.visualPacingProfile
     formulaPacingProfile.value = profile && Number.isFinite(profile.opening_duration_sec)
       ? profile
@@ -440,7 +453,7 @@ async function loadConfig(): Promise<void> {
       config.value = normalizeContinuityConfig(profile ? { pacing: formulaPacingConfig(profile) } : undefined)
     }
   } catch (e: any) {
-    if (!e?.__slugRace) config.value = continuityDefaults()
+    if (current() && !e?.__slugRace) config.value = continuityDefaults()
   }
 }
 
@@ -473,22 +486,28 @@ function fileToBase64(file: File): Promise<string> {
 
 async function onSheetFiles(files: File[]): Promise<void> {
   const file = files[0]
-  if (!file) return
+  const ep = episodeId.value
+  const project = slug.value
+  const scope = characterScopeSequence
+  const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
+  if (!file || !ep) return
   uploadingSheet.value = true
   try {
     const data_base64 = await fileToBase64(file)
-    await post(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/master`, {
+    if (!current()) return
+    await post(`/projects/${project}/episodes/${ep}/img2img-references/master`, {
       filename: file.name,
       data_base64,
     })
+    if (!current()) return
     masterVersion.value++       // cache-bust the preview
     masterExists.value = true
     episodeAnchorEnabled.value = true
     success('Episode visual anchor uploaded')
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to upload episode sheet')
+    if (current()) showError(e?.data?.detail || 'Failed to upload episode sheet')
   } finally {
-    uploadingSheet.value = false
+    if (current()) uploadingSheet.value = false
   }
 }
 
@@ -505,14 +524,20 @@ const compositionUrl = computed(() =>
 
 async function onCompositionFiles(files: File[]): Promise<void> {
   const file = files[0]
-  if (!file) return
+  const ep = episodeId.value
+  const project = slug.value
+  const scope = characterScopeSequence
+  const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
+  if (!file || !ep) return
   uploadingComposition.value = true
   try {
     const data_base64 = await fileToBase64(file)
-    await post(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/composition`, {
+    if (!current()) return
+    await post(`/projects/${project}/episodes/${ep}/img2img-references/composition`, {
       filename: file.name,
       data_base64,
     })
+    if (!current()) return
     compositionVersion.value++
     compositionExists.value = true
     // Uploading one is the customer saying they want it used. The flag is
@@ -520,9 +545,9 @@ async function onCompositionFiles(files: File[]): Promise<void> {
     config.value.references.composition = true
     success('Composition template uploaded')
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to upload composition template')
+    if (current()) showError(e?.data?.detail || 'Failed to upload composition template')
   } finally {
-    uploadingComposition.value = false
+    if (current()) uploadingComposition.value = false
   }
 }
 
@@ -571,30 +596,39 @@ async function removeSheet(): Promise<void> {
 // Authoritative existence check for the episode visual anchor. This avoids a
 // fragile hidden-image probe and keeps the compact preview truthful.
 async function loadRefs(): Promise<void> {
-  if (!episodeId.value) { masterExists.value = false; compositionExists.value = false; return }
+  const ep = episodeId.value
+  const project = slug.value
+  const scope = characterScopeSequence
+  const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
+  if (!ep) { masterExists.value = false; compositionExists.value = false; return }
   try {
     const r = await get<{ master?: { url: string }; composition?: { url: string } }>(
-      `/projects/${slug.value}/episodes/${episodeId.value}/img2img-references`,
+      `/projects/${project}/episodes/${ep}/img2img-references`,
     )
+    if (!current()) return
     masterExists.value = !!r.master
     compositionExists.value = !!r.composition
   } catch (e: any) {
-    if (!e?.__slugRace) { masterExists.value = false; compositionExists.value = false }
+    if (current() && !e?.__slugRace) { masterExists.value = false; compositionExists.value = false }
   }
 }
 
 // Reload everything on episode change.
-watch(episodeId, () => {
+watch([slug, episodeId], () => {
+  characterScopeSequence++
   masterExists.value = null
   masterVersion.value++
   compositionExists.value = null
   compositionVersion.value++
+  charsLoading.value = false
+  uploadingSheet.value = false
+  uploadingComposition.value = false
   onPacingEdited()   // the last apply said nothing about the episode now open
   void loadCharacters()
   void loadConfig()
   void loadRefs()
   void pagePresets.load()
-}, { immediate: true })
+}, { immediate: true, flush: 'sync' })
 </script>
 
 <style scoped>

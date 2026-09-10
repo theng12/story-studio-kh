@@ -320,8 +320,8 @@
           </li>
         </ul>
         <div v-if="!activePromptRows.length" class="text-muted text-md">
-          No prompts found yet. Generate them on the
-          <NuxtLink :to="`/projects/${slug}/image-prompts?tab=scenes`">Scene Prompts</NuxtLink> page first.
+          No planned scene prompts found yet. Build them in
+          <NuxtLink :to="`/projects/${slug}/scene-plan`">Scene Plan</NuxtLink> first.
         </div>
       </template>
     </div>
@@ -929,6 +929,8 @@ const promptList = reactive<{
   scenes: PromptRow[]
   thumbnails: PromptRow[]
 }>({ loading: false, error: null, scenes: [], thumbnails: [] })
+let promptListLoadSequence = 0
+let imageScopeSequence = 0
 
 interface PreviewState {
   loading: boolean
@@ -946,7 +948,12 @@ function previewKey(kind: 'scene' | 'thumbnail', number: number): string {
 }
 
 async function loadPrompts(): Promise<void> {
-  if (!form.episode_id || !slug.value) return
+  const ep = form.episode_id
+  const project = slug.value
+  const scope = imageScopeSequence
+  const requestSequence = ++promptListLoadSequence
+  const current = () => scope === imageScopeSequence && project === slug.value && ep === form.episode_id
+  if (!ep || !project) return
   promptList.loading = true
   promptList.error = null
   promptList.scenes = []
@@ -960,11 +967,13 @@ async function loadPrompts(): Promise<void> {
       ? `?title=${encodeURIComponent(selectedEpisode.value.title)}`
       : ''
     const data = await get<{ scenes: PromptRow[]; thumbnails: PromptRow[] }>(
-      `/projects/${slug.value}/episodes/${form.episode_id}/image-prompts${titleParam}`,
+      `/projects/${project}/episodes/${ep}/image-prompts${titleParam}`,
     )
+    if (requestSequence !== promptListLoadSequence || !current()) return
     promptList.scenes = Array.isArray(data?.scenes) ? data.scenes : []
     promptList.thumbnails = Array.isArray(data?.thumbnails) ? data.thumbnails : []
   } catch (e: any) {
+    if (requestSequence !== promptListLoadSequence || !current()) return
     if (e?.status === 404) {
       promptList.error = e?.data?.detail
         || `No prompts found yet. Generate them on the ${promptPageLabel.value} page first.`
@@ -972,7 +981,7 @@ async function loadPrompts(): Promise<void> {
       promptList.error = e?.data?.detail || e?.message || 'Failed to load prompts'
     }
   } finally {
-    promptList.loading = false
+    if (requestSequence === promptListLoadSequence && current()) promptList.loading = false
   }
 }
 
@@ -994,7 +1003,8 @@ function onPreviewToggle(): void {
 // even though the card defaults to open — without immediate, the
 // open-by-default would render with an empty list until the user
 // re-selected the episode.
-watch(() => form.episode_id, () => {
+watch([slug, () => form.episode_id], () => {
+  imageScopeSequence++
   // Wipe per-prompt preview state too; the previous episode's renders
   // don't apply here.
   for (const k of Object.keys(previewState)) delete previewState[k]
@@ -1275,16 +1285,22 @@ function getConfirmationType(): 'scene_images' | 'thumb_images' {
 // happily say "✓ 7 scenes present" even though the user expects 20.
 const outlineChapterCount = ref<number | null>(null)
 async function loadOutlineChapterCount() {
+  const ep = form.episode_id
+  const project = slug.value
+  const scope = imageScopeSequence
+  const current = () => scope === imageScopeSequence && project === slug.value && ep === form.episode_id
   outlineChapterCount.value = null
-  if (!form.episode_id || !slug.value) return
+  if (!ep || !project) return
   try {
     const data = await get<{ total_chapters?: number }>(
-      `/projects/${slug.value}/episodes/${form.episode_id}/outline`,
+      `/projects/${project}/episodes/${ep}/outline`,
     )
+    if (!current()) return
     if (typeof data?.total_chapters === 'number' && data.total_chapters > 0) {
       outlineChapterCount.value = data.total_chapters
     }
   } catch {
+    if (!current()) return
     // No sidecar yet — leave null so the integrity card just shows the
     // existing prompt-vs-image comparison without the new tier.
   }
@@ -1336,6 +1352,7 @@ const imageStatus = reactive<ImageStatusState>({
   hasMissing: false, totalMissing: 0,
   missingScenesList: '', missingThumbsList: '',
 })
+let imageStatusLoadSequence = 0
 
 // v1.0.306 — the integrity card is scoped to the ACTIVE generator pool. The
 // Thumbnail Generator and Scene Generator are separate pages; each shows +
@@ -1385,16 +1402,22 @@ watch(() => lastRepairJob.value?.status, (status) => {
 })
 
 async function refreshImageStatus() {
-  if (!form.episode_id) return
+  const ep = form.episode_id
+  const project = slug.value
+  const scope = imageScopeSequence
+  const requestSequence = ++imageStatusLoadSequence
+  const current = () => scope === imageScopeSequence && project === slug.value && ep === form.episode_id
+  if (!ep || !project) return
   imageStatus.loading = true
   imageStatus.error = ''
   try {
     const [r, repair] = await Promise.all([
-      get<any>(`/projects/${slug.value}/episodes/${form.episode_id}/image-status`),
+      get<any>(`/projects/${project}/episodes/${ep}/image-status`),
       get<{ scene: RepairPoolStatus; thumb: RepairPoolStatus }>(
-        `/projects/${slug.value}/episodes/${form.episode_id}/images-repair-status`,
+        `/projects/${project}/episodes/${ep}/images-repair-status`,
       ),
     ])
+    if (requestSequence !== imageStatusLoadSequence || !current()) return
     imageStatus.scenes = r.scenes ?? null
     imageStatus.thumbnails = r.thumbnails ?? null
     imageStatus.hasAny = !!(r.scenes || r.thumbnails)
@@ -1407,9 +1430,10 @@ async function refreshImageStatus() {
     repairStatus.scene = repair.scene
     repairStatus.thumb = repair.thumb
   } catch (e: any) {
+    if (requestSequence !== imageStatusLoadSequence || !current()) return
     imageStatus.error = e?.data?.detail || e?.message || 'Could not check image integrity'
   } finally {
-    imageStatus.loading = false
+    if (requestSequence === imageStatusLoadSequence && current()) imageStatus.loading = false
   }
 }
 
@@ -1459,6 +1483,7 @@ const editScenes = ref<ScannedImage[]>([])
 const editThumbs = ref<ScannedImage[]>([])
 const editScanLoading = ref(false)
 const editScanError = ref('')
+let editScanLoadSequence = 0
 const activeEditImages = computed(() => form.mode === 'thumbs' ? editThumbs.value : editScenes.value)
 
 // v1.0.87+: cache-bust key for the new ImageGeneratorPanel components.
@@ -1482,13 +1507,19 @@ function onPanelRefresh() {
 }
 
 async function loadEditScan() {
-  if (!form.episode_id) return
+  const ep = form.episode_id
+  const project = slug.value
+  const scope = imageScopeSequence
+  const requestSequence = ++editScanLoadSequence
+  const current = () => scope === imageScopeSequence && project === slug.value && ep === form.episode_id
+  if (!ep || !project) return
   editScanLoading.value = true
   editScanError.value = ''
   try {
     const r = await get<{ scenes?: ScannedImage[]; thumbnails?: ScannedImage[] }>(
-      `/projects/${slug.value}/video-editor/scan/${form.episode_id}`,
+      `/projects/${project}/video-editor/scan/${ep}`,
     )
+    if (requestSequence !== editScanLoadSequence || !current()) return
     editScenes.value = (r.scenes || []).slice().sort(
       (a, b) => (a.scene_number ?? 999) - (b.scene_number ?? 999),
     )
@@ -1504,10 +1535,11 @@ async function loadEditScan() {
     // re-renders / external file moves.
     void loadThumbnailPinState()
   } catch (e: any) {
+    if (requestSequence !== editScanLoadSequence || !current()) return
     console.error('[images/edit-scan] failed:', e)
     editScanError.value = e?.data?.detail || e?.message || 'Could not list existing images'
   } finally {
-    editScanLoading.value = false
+    if (requestSequence === editScanLoadSequence && current()) editScanLoading.value = false
   }
 }
 
@@ -1570,8 +1602,11 @@ const pinnedThumbnailFilename = ref<string | null>(null)
 const autoThumbnailFilename = ref<string | null>(null)
 
 async function loadThumbnailPinState() {
-  const code = form.episode_id
-  if (!code) {
+  const ep = form.episode_id
+  const project = slug.value
+  const scope = imageScopeSequence
+  const current = () => scope === imageScopeSequence && project === slug.value && ep === form.episode_id
+  if (!ep) {
     pinnedThumbnailFilename.value = null
     autoThumbnailFilename.value = null
     return
@@ -1583,10 +1618,12 @@ async function loadThumbnailPinState() {
       pinned_missing: boolean
       resolved: string
       auto_pick: string
-    }>(`/projects/${slug.value}/episodes/${code}/thumbnails?platform=youtube`)
+    }>(`/projects/${project}/episodes/${ep}/thumbnails?platform=youtube`)
+    if (!current()) return
     pinnedThumbnailFilename.value = r.pinned
     autoThumbnailFilename.value = r.auto_pick || null
   } catch {
+    if (!current()) return
     // Non-fatal — fall back to "no pin known", grid still renders fine.
     pinnedThumbnailFilename.value = null
     autoThumbnailFilename.value = null
@@ -1627,7 +1664,7 @@ function getImagePreviewUrlImages(path: string): string {
 // Episode-id watcher MUST come after the editScenes/editThumbs
 // declarations above — `{ immediate: true }` fires this synchronously
 // during setup, and the else-branch reads those refs. See comment above.
-watch(() => form.episode_id, (v) => {
+watch([slug, () => form.episode_id], ([, v]) => {
   lastRepairJobId.value = ''
   repairStatus.scene = null
   repairStatus.thumb = null

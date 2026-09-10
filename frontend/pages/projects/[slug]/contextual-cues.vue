@@ -342,10 +342,14 @@ const config = ref<CueConfig>({ enabled: false, auto_approve_cues: false })
 const form = ref<CueProposalForm>({ model: '', density: 'restrained', placement: 'top-right', position_x_pct: null, position_y_pct: null, auto_approve: false })
 useRememberedForm('contextual-cues', slug, form, { include: ['model', 'density', 'placement', 'position_x_pct', 'position_y_pct', 'auto_approve'], version: 1 })
 const timeline = ref<Timeline | null>(null)
-// Which episode the loaded timeline belongs to. `episodeId` is the SELECTION
-// and can move while a write is in flight; a save must address the episode its
-// cues came from, never whichever one is selected by the time it fires.
+// Which project and episode the loaded timeline belongs to. The selection can
+// move while a write is in flight; a save must address the timeline it came
+// from, never whichever route happens to be selected by the time it fires.
+const timelineProjectSlug = ref('')
 const timelineEpisodeId = ref('')
+let cueScopeEpoch = 0
+let cueProjectEpoch = 0
+let timelineLoadSequence = 0
 const proposalProgress = ref<ProposalProgress | null>(null)
 const validation = ref<Array<{ cue_id?: string; detail: string; severity?: 'error' | 'warning' }>>([])
 const loadError = ref('')
@@ -563,23 +567,55 @@ function setTransition(cue: Cue, value: string): void {
   cue.exit = transition
   markDirty()
 }
-async function loadConfig(): Promise<void> { try { config.value = await get<CueConfig>(`/projects/${slug.value}/contextual-cues/config`) } catch (e: any) { showError(e?.data?.detail || 'Could not load contextual cue settings') } }
-async function saveConfig(): Promise<void> { savingConfig.value = true; try { config.value = await put<CueConfig>(`/projects/${slug.value}/contextual-cues/config`, config.value); success(config.value.enabled ? 'Contextual Cues enabled' : 'Contextual Cues disabled — Video Assembly is no longer gated.') } catch (e: any) { showError(e?.data?.detail || 'Could not save contextual cue settings') } finally { savingConfig.value = false } }
+function isCurrentCueScope(projectSlug: string, episode: string, scopeEpoch: number): boolean {
+  return cueScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === episode
+}
+async function loadConfig(): Promise<void> {
+  const projectSlug = slug.value
+  const projectEpoch = cueProjectEpoch
+  try {
+    const data = await get<CueConfig>(`/projects/${projectSlug}/contextual-cues/config`)
+    if (cueProjectEpoch !== projectEpoch || slug.value !== projectSlug) return
+    config.value = data
+  } catch (e: any) {
+    if (cueProjectEpoch === projectEpoch && slug.value === projectSlug) showError(e?.data?.detail || 'Could not load contextual cue settings')
+  }
+}
+async function saveConfig(): Promise<void> {
+  const projectSlug = slug.value
+  const projectEpoch = cueProjectEpoch
+  const payload = { ...config.value }
+  savingConfig.value = true
+  try {
+    const data = await put<CueConfig>(`/projects/${projectSlug}/contextual-cues/config`, payload)
+    if (cueProjectEpoch !== projectEpoch || slug.value !== projectSlug) return
+    config.value = data
+    success(data.enabled ? 'Contextual Cues enabled' : 'Contextual Cues disabled — Video Assembly is no longer gated.')
+  } catch (e: any) {
+    if (cueProjectEpoch === projectEpoch && slug.value === projectSlug) showError(e?.data?.detail || 'Could not save contextual cue settings')
+  } finally { savingConfig.value = false }
+}
 // v1.0.796 — "Approve cues automatically", persisted per project beside
 // `enabled` above. Optimistic like saveConfig, but with its own revert and
 // toast so flipping this doesn't misreport as an enabled/disabled change.
 async function setAutoApproveCues(v: boolean): Promise<void> {
+  const projectSlug = slug.value
+  const projectEpoch = cueProjectEpoch
   const previous = config.value.auto_approve_cues
   config.value.auto_approve_cues = v
   savingConfig.value = true
   try {
-    config.value = await put<CueConfig>(`/projects/${slug.value}/contextual-cues/config`, config.value)
+    const data = await put<CueConfig>(`/projects/${projectSlug}/contextual-cues/config`, { ...config.value })
+    if (cueProjectEpoch !== projectEpoch || slug.value !== projectSlug) return
+    config.value = data
     success(v
       ? 'Cues will be approved automatically once they clear every structural check. Anything that fails stays here for review.'
       : 'Manual review is back on — every proposed cue needs your approval again.')
   } catch (e: any) {
-    config.value.auto_approve_cues = previous
-    showError(e?.data?.detail || 'Could not save the setting')
+    if (cueProjectEpoch === projectEpoch && slug.value === projectSlug) {
+      config.value.auto_approve_cues = previous
+      showError(e?.data?.detail || 'Could not save the setting')
+    }
   } finally {
     savingConfig.value = false
   }
@@ -588,25 +624,46 @@ async function loadTimeline(): Promise<void> {
   // Never read over unsaved work. Every caller — the episode picker, the
   // enable switch, a finished proposal job — used to wipe `dirty` and discard
   // whatever had not been written yet.
+  const projectSlug = slug.value
+  const episode = episodeId.value
+  const scopeEpoch = cueScopeEpoch
   await saveNow()
-  timeline.value = null; timelineEpisodeId.value = ''; proposalProgress.value = null; validation.value = []; loadError.value = ''; dirty.value = false; saveError.value = ''; savedAt.value = ''
-  if (!episodeId.value || !config.value.enabled) return
-  try { const data = await get<any>(`/projects/${slug.value}/contextual-cues/${episodeId.value}`); timeline.value = data.timeline; timelineEpisodeId.value = episodeId.value; proposalProgress.value = data.proposal_progress || null; validation.value = data.validation || [] } catch (e: any) { loadError.value = e?.data?.detail || 'Could not load the episode cue timeline.' }
+  if (!isCurrentCueScope(projectSlug, episode, scopeEpoch)) return
+  if (dirty.value || saveError.value) {
+    loadError.value = `Changes to ${timelineProjectSlug.value}/${timelineEpisodeId.value} are still on this page. Save them before loading ${projectSlug}/${episode}.`
+    return
+  }
+  timeline.value = null; timelineProjectSlug.value = ''; timelineEpisodeId.value = ''; proposalProgress.value = null; validation.value = []; loadError.value = ''; dirty.value = false; saveError.value = ''; savedAt.value = ''
+  if (!episode || !config.value.enabled) return
+  const request = ++timelineLoadSequence
+  try {
+    const data = await get<any>(`/projects/${projectSlug}/contextual-cues/${episode}`)
+    if (request !== timelineLoadSequence || !isCurrentCueScope(projectSlug, episode, scopeEpoch)) return
+    timeline.value = data.timeline; timelineProjectSlug.value = projectSlug; timelineEpisodeId.value = episode; proposalProgress.value = data.proposal_progress || null; validation.value = data.validation || []
+  } catch (e: any) {
+    if (request === timelineLoadSequence && isCurrentCueScope(projectSlug, episode, scopeEpoch)) loadError.value = e?.data?.detail || 'Could not load the episode cue timeline.'
+  }
 }
 async function propose(): Promise<void> {
   if (!episodeId.value || !config.value.enabled || !form.value.model) return
+  const projectSlug = slug.value
+  const episode = episodeId.value
+  const scopeEpoch = cueScopeEpoch
   proposing.value = true
   const payload = { ...form.value }
   const operationId = freshCueAction.begin(payload)
   try {
-    await post(`/projects/${slug.value}/contextual-cues/${episodeId.value}/propose`, {
+    await post(`/projects/${projectSlug}/contextual-cues/${episode}/propose`, {
       ...payload,
       operation_id: operationId,
     })
     freshCueAction.complete(operationId)
+    if (!isCurrentCueScope(projectSlug, episode, scopeEpoch)) return
     success('Contextual cue proposal queued. Review the timeline when the job completes.')
-    setTimeout(() => { void loadTimeline() }, 1200)
-  } catch (e: any) { showError(e?.data?.detail || 'The submission was not confirmed. Retry submission to continue this cue action.') } finally { proposing.value = false }
+    setTimeout(() => { if (isCurrentCueScope(projectSlug, episode, scopeEpoch)) void loadTimeline() }, 1200)
+  } catch (e: any) {
+    if (isCurrentCueScope(projectSlug, episode, scopeEpoch)) showError(e?.data?.detail || 'The submission was not confirmed. Retry submission to continue this cue action.')
+  } finally { proposing.value = false }
 }
 // ── Saving ──────────────────────────────────────────────────────────────────
 //
@@ -668,25 +725,31 @@ function saveNow(): Promise<void> {
 }
 
 async function writeTimeline(): Promise<void> {
-  if (!timeline.value || !timelineEpisodeId.value || !dirty.value) return
+  if (!timeline.value || !timelineProjectSlug.value || !timelineEpisodeId.value || !dirty.value) return
   const sentAt = editSeq
+  const projectSlug = timelineProjectSlug.value
   const episode = timelineEpisodeId.value
+  const scopeEpoch = cueScopeEpoch
   const cues = JSON.parse(JSON.stringify(timeline.value.cues))
   saving.value = true
   try {
-    const data = await put<any>(`/projects/${slug.value}/contextual-cues/${episode}`, { cues })
-    saveError.value = ''
-    savedAt.value = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    if (editSeq !== sentAt) return   // edited mid-flight; `dirty` stays true and the next write covers it
-    if (timelineEpisodeId.value !== episode) return
+    const data = await put<any>(`/projects/${projectSlug}/contextual-cues/${episode}`, { cues })
+    const stillOwnsTimeline = timelineProjectSlug.value === projectSlug && timelineEpisodeId.value === episode
+    if (stillOwnsTimeline && editSeq === sentAt) {
+      // A route switch may be waiting on this write. Mark the captured timeline
+      // clean even then, but never hydrate its response into the new route.
+      saveError.value = ''
+      savedAt.value = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      dirty.value = false
+    }
+    if (!isCurrentCueScope(projectSlug, episode, scopeEpoch) || !stillOwnsTimeline || editSeq !== sentAt) return
     timeline.value = data.timeline
     validation.value = data.validation || []
-    dirty.value = false
   } catch (e: any) {
     // Keep the edits. `dirty` stays true, so the next edit or Save changes
     // retries — but nothing retries on a timer, because a backend that is down
     // would then be asked every 800ms forever.
-    saveError.value = e?.data?.detail || 'Could not save the cue timeline.'
+    if (timelineProjectSlug.value === projectSlug && timelineEpisodeId.value === episode) saveError.value = e?.data?.detail || 'Could not save the cue timeline.'
   } finally {
     saving.value = false
   }
@@ -699,10 +762,15 @@ async function writeTimeline(): Promise<void> {
  */
 async function saveTimeline(): Promise<void> {
   if (!timeline.value) return
+  const savedProjectSlug = timelineProjectSlug.value
+  const savedEpisode = timelineEpisodeId.value
   if (!dirty.value) { success(saveError.value ? 'Nothing left to save.' : 'Everything here is already saved.'); return }
   await saveNow()
   if (saveError.value) showError(saveError.value)
-  else success('Contextual cue timeline saved')
+  else {
+    success('Contextual cue timeline saved')
+    if (slug.value !== savedProjectSlug || episodeId.value !== savedEpisode) void loadTimeline()
+  }
 }
 
 const saveState = computed<'saving' | 'error' | 'unsaved' | 'saved'>(() => {
@@ -724,7 +792,8 @@ onBeforeUnmount(() => { void saveNow() })
 
 // A different episode makes the last preset's announcement stale — it
 // described something that happened on the episode you just left.
-watch(episodeId, () => { autoApproveNotice.value = null; void loadTimeline() })
+watch(slug, () => { cueProjectEpoch++; void loadConfig() }, { flush: 'sync' })
+watch([slug, episodeId], () => { cueScopeEpoch++; autoApproveNotice.value = null; void loadTimeline() }, { flush: 'sync' })
 watch(() => config.value.enabled, () => { void loadTimeline() })
 watch(() => config.value.auto_approve_cues, () => { void loadTimeline() })
 watch(cueJobActive, (active, wasActive) => {

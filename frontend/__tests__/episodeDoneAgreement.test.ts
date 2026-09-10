@@ -116,7 +116,7 @@ describe('a mutation invalidates the episode it mutated', () => {
     assert.match(board, /revalidateAfterMutation\(ep\.episode_code\)/)
     assert.match(selector, /revalidateAfterMutation\(ep\.episode_code\)/)
     assert.match(sceneReview, /revalidateAfterMutation\(episodeCode\)/)
-    assert.match(research, /refreshEpisodes\(episodeId\.value\)/)
+    assert.match(research, /const ep = episodeId\.value[\s\S]*?await refreshEpisodes\(ep\)/)
     // A code-less call cannot fix a stale entry, so none may remain.
     assert.doesNotMatch(board, /revalidateAfterMutation\(\)/)
     assert.doesNotMatch(selector, /revalidateAfterMutation\(\)/)

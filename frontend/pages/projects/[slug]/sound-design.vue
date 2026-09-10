@@ -74,17 +74,17 @@
       <WorkspaceNotice v-else-if="timeline" tone="success" title="Sound Design ready">{{ approvedCount }} approved cue{{ approvedCount === 1 ? '' : 's' }} will be mixed into Final Video. Excluded cues will not be used.</WorkspaceNotice>
 
       <section v-if="timeline" class="card sound-timeline">
-        <div class="timeline-heading"><div><span class="section-kicker">Reviewed timeline</span><h2>{{ timeline.cues.length }} cue{{ timeline.cues.length === 1 ? '' : 's' }}</h2></div><div class="timeline-actions"><button class="btn btn-secondary btn-sm" @click="addBed">+ Ambient bed</button><button class="btn btn-secondary btn-sm" @click="addSpot">+ Spot effect</button><button class="btn btn-primary btn-sm" :disabled="saving || !dirty" @click="saveTimeline">{{ saving ? 'Saving…' : 'Save Sound Design' }}</button></div></div>
+        <div class="timeline-heading"><div><span class="section-kicker">Reviewed timeline</span><h2>{{ timeline.cues.length }} cue{{ timeline.cues.length === 1 ? '' : 's' }}</h2></div><div class="timeline-actions"><button class="btn btn-secondary btn-sm" @click="addBed">+ Ambient bed</button><button class="btn btn-secondary btn-sm" @click="addSpot">+ Spot effect</button><button class="btn btn-primary btn-sm" :disabled="saving || !dirty" @click="saveTimeline()">{{ saving ? 'Saving…' : 'Save Sound Design' }}</button></div></div>
         <p v-if="!timeline.cues.length" class="text-muted">No sound cues yet. Silence is valid; add only the moments that improve the episode.</p>
         <article v-for="cue in timeline.cues" :key="cue.id" class="sound-cue" :class="`is-${cue.status}`">
           <div class="cue-time">{{ time(cue.start_sec) }}<template v-if="cue.kind === 'bed'">–{{ time(cue.end_sec || cue.start_sec) }}</template></div>
           <div class="cue-icon">{{ cue.kind === 'bed' ? '〰️' : '🔔' }}</div>
           <div class="cue-fields">
             <select v-model="cue.kind" class="select select-sm" @change="onKindChange(cue)"><option value="bed">Ambient bed</option><option value="spot">Spot effect</option></select>
-            <input v-model="cue.label" class="input" maxlength="120" placeholder="e.g. quiet city traffic, page turn, distant train" @input="dirty = true" />
-            <label>Start <input v-model.number="cue.start_sec" class="input input-time" type="number" min="0" :max="duration" step="0.1" @input="dirty = true" /></label>
-            <label v-if="cue.kind === 'bed'">End <input v-model.number="cue.end_sec" class="input input-time" type="number" min="0" :max="duration" step="0.1" @input="dirty = true" /></label>
-            <label>Gain <input v-model.number="cue.gain_db" class="input input-gain" type="number" min="-45" max="-3" step="1" @input="dirty = true" /> dB</label>
+            <input v-model="cue.label" class="input" maxlength="120" placeholder="e.g. quiet city traffic, page turn, distant train" @input="markSoundDirty()" />
+            <label>Start <input v-model.number="cue.start_sec" class="input input-time" type="number" min="0" :max="duration" step="0.1" @input="markSoundDirty()" /></label>
+            <label v-if="cue.kind === 'bed'">End <input v-model.number="cue.end_sec" class="input input-time" type="number" min="0" :max="duration" step="0.1" @input="markSoundDirty()" /></label>
+            <label>Gain <input v-model.number="cue.gain_db" class="input input-gain" type="number" min="-45" max="-3" step="1" @input="markSoundDirty()" /> dB</label>
             <select :value="cueKey(cue)" class="select clip-picker" @change="onClipChange(cue, $event)"><option value="">— choose a local sound asset —</option><option v-for="candidate in candidates" :key="candidate.pool_id + '/' + candidate.filename" :value="candidate.pool_id + '/' + candidate.filename">{{ candidate.filename }}<template v-if="candidate.tags.length"> · {{ candidate.tags.join(', ') }}</template></option></select>
           </div>
           <div class="cue-actions"><span class="cue-status">{{ statusLabel(cue) }}</span><button class="btn btn-sm" :class="cue.status === 'approved' ? 'btn-primary' : 'btn-secondary'" :disabled="!cue.clip" @click="setStatus(cue, 'approved')">Approve</button><button class="btn btn-sm btn-secondary" @click="setStatus(cue, 'excluded')">Exclude</button><button class="btn btn-sm btn-danger" @click="removeCue(cue.id)">Remove</button></div>
@@ -95,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useApi } from '../../../composables/useApi.js'
 import { usePresets } from '../../../composables/usePresets.js'
@@ -113,7 +113,8 @@ type Config = { enabled: boolean }
 type Candidate = { pool_id: string; filename: string; tags: string[] }
 
 const route = useRoute(); const slug = computed(() => String(route.params.slug)); const { get, put } = useApi(); const { success, error } = useToast()
-const episodeId = ref(''); const config = ref<Config>({ enabled: false }); const timeline = ref<Timeline | null>(null); const candidates = ref<Candidate[]>([]); const validation = ref<Array<{ cue_id?: string; detail: string }>>([]); const duration = ref(0); const loadError = ref(''); const saving = ref(false); const savingConfig = ref(false); const dirty = ref(false); const loadingTimeline = ref(false)
+const episodeId = ref(''); const config = ref<Config>({ enabled: false }); const timeline = ref<Timeline | null>(null); const timelineProjectSlug = ref(''); const timelineEpisodeId = ref(''); const candidates = ref<Candidate[]>([]); const validation = ref<Array<{ cue_id?: string; detail: string }>>([]); const duration = ref(0); const loadError = ref(''); const saving = ref(false); const savingConfig = ref(false); const dirty = ref(false); const loadingTimeline = ref(false)
+let soundScopeEpoch = 0; let soundProjectEpoch = 0; let soundLoadSequence = 0; let soundEditSeq = 0
 const settings = ref<Settings>({ density: 'minimal', max_spots_per_minute: 3, default_bed_gain_db: -20, default_spot_gain_db: -12, ducking_profile: 'gentle' })
 useRememberedForm('sound-design', slug, settings, { include: ['density', 'max_spots_per_minute', 'default_bed_gain_db', 'default_spot_gain_db', 'ducking_profile'], version: 1 })
 const presets = usePresets<Settings>({ slug: slug.value, configKey: 'sound_design', presetType: 'sound-design', snapshot: () => ({ ...settings.value }), apply: data => { settings.value = { ...settings.value, ...data } } })
@@ -122,23 +123,124 @@ const unresolvedCount = computed(() => timeline.value?.cues.filter(cue => cue.st
 const actionStatus = computed(() => !config.value.enabled ? 'Enable Sound Design for this project first.' : !episodeId.value ? 'Choose an episode first.' : 'Add a sparse, reviewable cue to this episode.')
 
 function blankTimeline(): Timeline { return { schema_version: 1, generated_at: new Date().toISOString(), source_scene_plan_generated_at: '', settings: { ...settings.value }, cues: [] } }
+function markSoundDirty(): void { dirty.value = true; soundEditSeq++ }
 function id(): string { return `sound-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
 function time(value: number): string { const whole = Math.max(0, Math.floor(value || 0)); return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}` }
 function cueKey(cue: Cue): string { return cue.pool_id && cue.clip ? `${cue.pool_id}/${cue.clip}` : '' }
 function statusLabel(cue: Cue): string { if (cue.status === 'approved') return 'approved'; if (cue.status === 'excluded') return 'excluded'; return cue.clip ? 'ready to review' : 'needs asset' }
-function ensureTimeline(): Timeline { if (!timeline.value) timeline.value = blankTimeline(); return timeline.value }
-function addSpot(): void { const target = ensureTimeline(); target.cues.push({ id: id(), kind: 'spot', label: '', start_sec: 0, clip: '', gain_db: settings.value.default_spot_gain_db, status: 'proposed', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }); dirty.value = true }
-function addBed(): void { const target = ensureTimeline(); target.cues.push({ id: id(), kind: 'bed', label: '', start_sec: 0, end_sec: Math.min(20, duration.value || 20), clip: '', gain_db: settings.value.default_bed_gain_db, status: 'proposed', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }); dirty.value = true }
-function onKindChange(cue: Cue): void { if (cue.kind === 'bed' && !cue.end_sec) cue.end_sec = Math.min((cue.start_sec || 0) + 20, duration.value || (cue.start_sec || 0) + 20); if (cue.kind === 'spot') delete cue.end_sec; cue.status = cue.clip ? 'matched' : 'proposed'; dirty.value = true }
-function onClipChange(cue: Cue, event: Event): void { const key = (event.target as HTMLSelectElement).value; if (!key) { cue.pool_id = undefined; cue.clip = ''; cue.status = 'proposed' } else { const divider = key.indexOf('/'); cue.pool_id = key.slice(0, divider); cue.clip = key.slice(divider + 1); cue.status = 'matched' }; dirty.value = true }
-function setStatus(cue: Cue, status: Status): void { if (status === 'approved' && !cue.clip) return; cue.status = status; dirty.value = true }
-function removeCue(cueId: string): void { if (!timeline.value) return; timeline.value.cues = timeline.value.cues.filter(cue => cue.id !== cueId); dirty.value = true }
-async function loadConfig(): Promise<void> { try { config.value = await get<Config>(`/projects/${slug.value}/sound-design/config`) } catch (cause: any) { error(cause?.data?.detail || 'Could not load Sound Design setting') } }
-async function saveConfig(): Promise<void> { savingConfig.value = true; try { config.value = await put<Config>(`/projects/${slug.value}/sound-design/config`, config.value); success(config.value.enabled ? 'Sound Design enabled' : 'Sound Design disabled — Final Video will use original audio.') } catch (cause: any) { error(cause?.data?.detail || 'Could not save Sound Design setting') } finally { savingConfig.value = false } }
-async function loadEpisode(): Promise<void> { timeline.value = null; validation.value = []; loadError.value = ''; dirty.value = false; if (!episodeId.value) return; loadingTimeline.value = true; try { const [data, assets] = await Promise.all([get<any>(`/projects/${slug.value}/sound-design/${episodeId.value}`), get<{ candidates: Candidate[] }>(`/projects/${slug.value}/sound-design/${episodeId.value}/candidates`)]); timeline.value = data.timeline; validation.value = data.validation || []; duration.value = data.duration_sec || 0; candidates.value = assets.candidates || []; if (data.timeline?.settings) settings.value = { ...settings.value, ...data.timeline.settings } } catch (cause: any) { loadError.value = cause?.data?.detail || 'Could not load Sound Design timeline.' } finally { loadingTimeline.value = false } }
-async function saveTimeline(): Promise<void> { if (!timeline.value) return; saving.value = true; try { const data = await put<any>(`/projects/${slug.value}/sound-design/${episodeId.value}`, { cues: timeline.value.cues, settings: settings.value }); timeline.value = data.timeline; validation.value = data.validation || []; dirty.value = false; success('Sound Design timeline saved') } catch (cause: any) { const issue = cause?.data?.issues?.[0]?.detail; error(issue || cause?.data?.detail || 'Could not save Sound Design timeline') } finally { saving.value = false } }
-watch(settings, () => { if (timeline.value && !loadingTimeline.value) dirty.value = true }, { deep: true, flush: 'sync' })
-watch(episodeId, loadEpisode); onMounted(async () => { await Promise.all([loadConfig(), presets.load()]) })
+function ensureTimeline(): Timeline { if (!timeline.value) { timeline.value = blankTimeline(); timelineProjectSlug.value = slug.value; timelineEpisodeId.value = episodeId.value }; return timeline.value }
+function addSpot(): void { const target = ensureTimeline(); target.cues.push({ id: id(), kind: 'spot', label: '', start_sec: 0, clip: '', gain_db: settings.value.default_spot_gain_db, status: 'proposed', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }); markSoundDirty() }
+function addBed(): void { const target = ensureTimeline(); target.cues.push({ id: id(), kind: 'bed', label: '', start_sec: 0, end_sec: Math.min(20, duration.value || 20), clip: '', gain_db: settings.value.default_bed_gain_db, status: 'proposed', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }); markSoundDirty() }
+function onKindChange(cue: Cue): void { if (cue.kind === 'bed' && !cue.end_sec) cue.end_sec = Math.min((cue.start_sec || 0) + 20, duration.value || (cue.start_sec || 0) + 20); if (cue.kind === 'spot') delete cue.end_sec; cue.status = cue.clip ? 'matched' : 'proposed'; markSoundDirty() }
+function onClipChange(cue: Cue, event: Event): void { const key = (event.target as HTMLSelectElement).value; if (!key) { cue.pool_id = undefined; cue.clip = ''; cue.status = 'proposed' } else { const divider = key.indexOf('/'); cue.pool_id = key.slice(0, divider); cue.clip = key.slice(divider + 1); cue.status = 'matched' }; markSoundDirty() }
+function setStatus(cue: Cue, status: Status): void { if (status === 'approved' && !cue.clip) return; cue.status = status; markSoundDirty() }
+function removeCue(cueId: string): void { if (!timeline.value) return; timeline.value.cues = timeline.value.cues.filter(cue => cue.id !== cueId); markSoundDirty() }
+function isCurrentSoundScope(projectSlug: string, episode: string, scopeEpoch: number): boolean { return soundScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === episode }
+async function loadConfig(): Promise<void> {
+  const projectSlug = slug.value
+  const projectEpoch = soundProjectEpoch
+  try {
+    const data = await get<Config>(`/projects/${projectSlug}/sound-design/config`)
+    if (soundProjectEpoch !== projectEpoch || slug.value !== projectSlug) return
+    config.value = data
+  } catch (cause: any) {
+    if (soundProjectEpoch === projectEpoch && slug.value === projectSlug) error(cause?.data?.detail || 'Could not load Sound Design setting')
+  }
+}
+async function saveConfig(): Promise<void> {
+  const projectSlug = slug.value
+  const projectEpoch = soundProjectEpoch
+  const payload = { ...config.value }
+  savingConfig.value = true
+  try {
+    const data = await put<Config>(`/projects/${projectSlug}/sound-design/config`, payload)
+    if (soundProjectEpoch !== projectEpoch || slug.value !== projectSlug) return
+    config.value = data
+    success(data.enabled ? 'Sound Design enabled' : 'Sound Design disabled — Final Video will use original audio.')
+  } catch (cause: any) {
+    if (soundProjectEpoch === projectEpoch && slug.value === projectSlug) error(cause?.data?.detail || 'Could not save Sound Design setting')
+  } finally { savingConfig.value = false }
+}
+async function loadEpisode(): Promise<void> {
+  const projectSlug = slug.value
+  const episode = episodeId.value
+  const scopeEpoch = soundScopeEpoch
+  const request = ++soundLoadSequence
+  await saveTimeline(false)
+  if (!isCurrentSoundScope(projectSlug, episode, scopeEpoch)) return
+  if (dirty.value) {
+    loadingTimeline.value = false
+    loadError.value = `Changes to ${timelineProjectSlug.value}/${timelineEpisodeId.value} are still on this page. Save them before loading ${projectSlug}/${episode}.`
+    return
+  }
+  timeline.value = null
+  timelineProjectSlug.value = ''
+  timelineEpisodeId.value = ''
+  validation.value = []
+  candidates.value = []
+  duration.value = 0
+  loadError.value = ''
+  loadingTimeline.value = false
+  if (!episode) return
+  loadingTimeline.value = true
+  try {
+    const [data, assets] = await Promise.all([
+      get<any>(`/projects/${projectSlug}/sound-design/${episode}`),
+      get<{ candidates: Candidate[] }>(`/projects/${projectSlug}/sound-design/${episode}/candidates`),
+    ])
+    if (request !== soundLoadSequence || !isCurrentSoundScope(projectSlug, episode, scopeEpoch)) return
+    timeline.value = data.timeline
+    timelineProjectSlug.value = projectSlug
+    timelineEpisodeId.value = episode
+    validation.value = data.validation || []
+    duration.value = data.duration_sec || 0
+    candidates.value = assets.candidates || []
+    if (data.timeline?.settings) settings.value = { ...settings.value, ...data.timeline.settings }
+  } catch (cause: any) {
+    if (request === soundLoadSequence && isCurrentSoundScope(projectSlug, episode, scopeEpoch)) loadError.value = cause?.data?.detail || 'Could not load Sound Design timeline.'
+  } finally {
+    if (request === soundLoadSequence && isCurrentSoundScope(projectSlug, episode, scopeEpoch)) loadingTimeline.value = false
+  }
+}
+let soundSaveTail: Promise<void> = Promise.resolve()
+function saveTimeline(announce = true): Promise<void> {
+  const run = soundSaveTail.then(() => writeTimeline(announce), () => writeTimeline(announce))
+  soundSaveTail = run.then(() => undefined, () => undefined)
+  return run
+}
+async function writeTimeline(announce: boolean): Promise<void> {
+  if (!timeline.value || !timelineProjectSlug.value || !timelineEpisodeId.value || !dirty.value) return
+  const projectSlug = timelineProjectSlug.value
+  const episode = timelineEpisodeId.value
+  const scopeEpoch = soundScopeEpoch
+  const sentAt = soundEditSeq
+  const cues = JSON.parse(JSON.stringify(timeline.value.cues))
+  const timelineSettings = { ...settings.value }
+  saving.value = true
+  try {
+    const data = await put<any>(`/projects/${projectSlug}/sound-design/${episode}`, { cues, settings: timelineSettings })
+    const stillOwnsTimeline = timelineProjectSlug.value === projectSlug && timelineEpisodeId.value === episode
+    if (!stillOwnsTimeline || soundEditSeq !== sentAt) return
+    dirty.value = false
+    if (!isCurrentSoundScope(projectSlug, episode, scopeEpoch)) {
+      if (announce) void loadEpisode()
+      return
+    }
+    timeline.value = data.timeline
+    validation.value = data.validation || []
+    if (announce) success('Sound Design timeline saved')
+  } catch (cause: any) {
+    if (timelineProjectSlug.value === projectSlug && timelineEpisodeId.value === episode && announce) {
+      const issue = cause?.data?.issues?.[0]?.detail
+      error(issue || cause?.data?.detail || 'Could not save Sound Design timeline')
+    }
+  } finally { saving.value = false }
+}
+watch(settings, () => { if (timeline.value && !loadingTimeline.value) markSoundDirty() }, { deep: true, flush: 'sync' })
+watch(slug, () => { soundProjectEpoch++; void loadConfig() }, { flush: 'sync' })
+watch([slug, episodeId], () => { soundScopeEpoch++; void loadEpisode() }, { flush: 'sync' })
+onBeforeUnmount(() => { void saveTimeline(false) })
+onMounted(async () => { await Promise.all([loadConfig(), presets.load()]) })
 </script>
 
 <style scoped>

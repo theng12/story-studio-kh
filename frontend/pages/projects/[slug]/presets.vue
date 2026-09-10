@@ -6,7 +6,7 @@
       :description="`Every preset saved for ${projectName || 'this channel'}, grouped by where it is used. All presets are local, with one clear source of truth.`"
     >
       <template #aside>
-        <button class="btn btn-sm btn-secondary" :disabled="loading" @click="loadAll">
+        <button class="btn btn-sm btn-secondary" :disabled="loading || hasSavingGroups" @click="loadAll">
           <LoadingSpinner v-if="loading" size="sm" />
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
@@ -52,19 +52,20 @@
                 v-if="editing && editing.groupKey === group.key && editing.id === p.id"
                 v-model="editing.name"
                 class="input input-sm"
+                :disabled="isGroupSaving(group.key)"
                 @keydown.enter="confirmRename"
                 @keydown.escape="cancelRename"
                 @blur="confirmRename"
               />
-              <button v-else class="label-btn" @click="startRename(group.key, p)">{{ p.name }}</button>
+              <button v-else class="label-btn" :disabled="isGroupSaving(group.key)" @click="startRename(group.key, p)">{{ p.name }}</button>
             </td>
             <td>
               <span class="type-chip">{{ p.type || 'legacy' }}</span>
             </td>
             <td class="col-actions">
-              <button class="btn btn-sm btn-ghost" @click="duplicate(group.key, p)" title="Create a copy of this preset">Duplicate</button>
+              <button class="btn btn-sm btn-ghost" :disabled="isGroupSaving(group.key)" @click="duplicate(group.key, p)" title="Create a copy of this preset">Duplicate</button>
               <button class="btn btn-sm btn-ghost" @click="exportJson(group.key, p)" title="Download this preset as JSON">Export</button>
-              <button class="btn btn-sm btn-danger" @click="remove(group.key, p)">Delete</button>
+              <button class="btn btn-sm btn-danger" :disabled="isGroupSaving(group.key)" @click="remove(group.key, p)">Delete</button>
             </td>
           </tr>
         </tbody>
@@ -224,15 +225,28 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
 const groups = ref<PresetGroup[]>(groupsMeta.map(g => ({ ...g, items: [] })))
 const loading = ref(false)
 const error = ref('')
+const savingGroups = ref(new Set<string>())
 
 const totalCount = computed(() => groups.value.reduce((n, g) => n + g.items.length, 0))
 const groupsWithItems = computed(() => groups.value.filter(g => g.items.length).length)
+const hasSavingGroups = computed(() => savingGroups.value.size > 0)
+
+function isGroupSaving(groupKey: string): boolean { return savingGroups.value.has(groupKey) }
+function setGroupSaving(groupKey: string, saving: boolean) {
+  const next = new Set(savingGroups.value)
+  if (saving) next.add(groupKey)
+  else next.delete(groupKey)
+  savingGroups.value = next
+}
 
 async function loadAll() {
+  if (loading.value || hasSavingGroups.value) return
+  const requestedSlug = slug.value
   loading.value = true
   error.value = ''
   try {
-    const config = await get<any>(`/projects/${slug.value}/settings/config`)
+    const config = await get<any>(`/projects/${requestedSlug}/settings/config`)
+    if (slug.value !== requestedSlug) return
     for (const g of groups.value) {
       const list: PresetRecord[] = Array.isArray(config[`${g.configKey}_presets`])
         ? config[`${g.configKey}_presets`].map(normalizePreset)
@@ -257,10 +271,11 @@ async function loadAll() {
 async function persist(groupKey: string, nextList: PresetRecord[]) {
   const g = groups.value.find(x => x.key === groupKey)
   if (!g) return
+  const targetSlug = slug.value
   // Merge: the stored list is potentially wider than the filtered `items`
   // (typeFilter only shows this group's type). Re-read, overlay, write.
   try {
-    const config = await get<any>(`/projects/${slug.value}/settings/config`)
+    const config = await get<any>(`/projects/${targetSlug}/settings/config`)
     const storedKey = `${g.configKey}_presets`
     const stored: PresetRecord[] = Array.isArray(config[storedKey])
       ? config[storedKey].map(normalizePreset)
@@ -290,7 +305,7 @@ async function persist(groupKey: string, nextList: PresetRecord[]) {
     } else {
       merged = nextList
     }
-    await put(`/projects/${slug.value}/settings/config`, {
+    await put(`/projects/${targetSlug}/settings/config`, {
       [storedKey]: merged.map(normalizePreset),
     })
   } catch (e: any) {
@@ -299,15 +314,28 @@ async function persist(groupKey: string, nextList: PresetRecord[]) {
   }
 }
 
+async function saveGroup(groupKey: string, nextList: PresetRecord[]) {
+  if (isGroupSaving(groupKey)) return false
+  setGroupSaving(groupKey, true)
+  try {
+    await persist(groupKey, nextList)
+    return true
+  } finally {
+    setGroupSaving(groupKey, false)
+  }
+}
+
 // ── Rename ──
 const editing = ref<{ groupKey: string; id: string; name: string } | null>(null)
 function startRename(groupKey: string, p: PresetRecord) {
+  if (isGroupSaving(groupKey)) return
   editing.value = { groupKey, id: p.id, name: p.name }
 }
 function cancelRename() { editing.value = null }
 async function confirmRename() {
   const e = editing.value
   if (!e) return
+  if (isGroupSaving(e.groupKey)) return
   const name = e.name.trim()
   editing.value = null
   if (!name) return
@@ -315,15 +343,20 @@ async function confirmRename() {
   if (!g) return
   const target = g.items.find(p => p.id === e.id)
   if (!target || target.name === name) return
+  const priorName = target.name
   target.name = name
   try {
-    await persist(e.groupKey, [...g.items])
+    if (!await saveGroup(e.groupKey, [...g.items])) {
+      target.name = priorName
+      return
+    }
     success(`Renamed to "${name}"`)
-  } catch { /* persist already toasted */ }
+  } catch { target.name = priorName }
 }
 
 // ── Duplicate ──
 async function duplicate(groupKey: string, p: PresetRecord) {
+  if (isGroupSaving(groupKey)) return
   const g = groups.value.find(x => x.key === groupKey)
   if (!g) return
   const copy: PresetRecord = {
@@ -333,7 +366,10 @@ async function duplicate(groupKey: string, p: PresetRecord) {
   }
   g.items = [...g.items, copy]
   try {
-    await persist(groupKey, g.items)
+    if (!await saveGroup(groupKey, g.items)) {
+      g.items = g.items.filter(x => x.id !== copy.id)
+      return
+    }
     success(`Duplicated as "${copy.name}"`)
   } catch { /* rollback */
     g.items = g.items.filter(x => x.id !== copy.id)
@@ -342,6 +378,7 @@ async function duplicate(groupKey: string, p: PresetRecord) {
 
 // ── Delete ──
 async function remove(groupKey: string, p: PresetRecord) {
+  if (isGroupSaving(groupKey)) return
   const ok = await ask({
     title: `Delete preset "${p.name}"?`,
     message: `This removes the preset from the project. Any content you generated using it stays on disk.`,
@@ -354,7 +391,10 @@ async function remove(groupKey: string, p: PresetRecord) {
   const prior = g.items
   g.items = g.items.filter(x => x.id !== p.id)
   try {
-    await persist(groupKey, g.items)
+    if (!await saveGroup(groupKey, g.items)) {
+      g.items = prior
+      return
+    }
     success(`Deleted "${p.name}"`)
   } catch {
     g.items = prior

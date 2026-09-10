@@ -2900,13 +2900,21 @@ const introHold = ref<{
   hold_sec: number
   intro_label: string | null
 } | null>(null)
+let introHoldSequence = 0
 async function loadIntroHold() {
+  const request = ++introHoldSequence
+  const project = slug.value
+  const episode = episodeId.value
+  const introPath = intro.enabled ? intro.video_path : ''
+  const current = () => request === introHoldSequence && project === slug.value && episode === episodeId.value
+    && introPath === (intro.enabled ? intro.video_path : '')
   if (!episodeId.value) { introHold.value = null; return }
   try {
     const q = new URLSearchParams({ episode_id: episodeId.value })
     if (intro.enabled && intro.video_path) q.set('intro_video_path', intro.video_path)
-    introHold.value = await get(`/projects/${slug.value}/video-editor/intro-hold?${q.toString()}`)
-  } catch { introHold.value = null }
+    const result = await get(`/projects/${project}/video-editor/intro-hold?${q.toString()}`)
+    if (current()) introHold.value = result
+  } catch { if (current()) introHold.value = null }
 }
 watch([() => episodeId.value, () => intro.enabled, () => intro.video_path], () => { loadIntroHold() })
 
@@ -3816,10 +3824,15 @@ const pinningSubtitle = ref(false)
  * why the announcement banner went with it — nothing changes under the customer
  * any more, so there is nothing to announce.
  */
+let subtitleStatusSequence = 0
 async function loadSubtitlesStatus() {
-  if (!episodeId.value) return
+  const request = ++subtitleStatusSequence
+  const episode = episodeId.value
+  const project = slug.value
+  if (!episode) { subtitlesStatus.value = null; return }
   try {
-    subtitlesStatus.value = await get(`/projects/${slug.value}/video-editor/subtitles/status/${episodeId.value}`)
+    const result = await get(`/projects/${project}/video-editor/subtitles/status/${episode}`)
+    if (request === subtitleStatusSequence && episode === episodeId.value && project === slug.value) subtitlesStatus.value = result
   } catch { /* non-fatal */ }
 }
 
@@ -3832,21 +3845,25 @@ async function loadSubtitlesStatus() {
  * is stored rather than by remembering to clear it.
  */
 async function pinSubtitle(filename: string) {
-  if (!episodeId.value) return
+  if (!episodeId.value || pinningSubtitle.value) return
+  const scope = videoEpisodeSequence
   pinningSubtitle.value = true
   try {
     await put(`/projects/${slug.value}/video-editor/subtitles/select/${episodeId.value}`, { filename })
+    if (scope !== videoEpisodeSequence) return
     // Re-read rather than assuming: the backend decides what a pin means, and a
     // pin naming a file it will not burn must not be displayed as if it won.
     await loadSubtitlesStatus()
+    if (scope !== videoEpisodeSequence) return
     // The three frames described the previous choice. Making the customer look
     // again is the point of the check.
     resetSubtitlePreflight()
     success(filename ? `Burning ${filename} for this episode` : 'Back to automatic subtitle selection')
   } catch (e: any) {
+    if (scope !== videoEpisodeSequence) return
     showError(e?.data?.detail || e?.message || 'Could not change the subtitle file')
   } finally {
-    pinningSubtitle.value = false
+    if (scope === videoEpisodeSequence) pinningSubtitle.value = false
   }
 }
 
@@ -3898,19 +3915,27 @@ const preflightConfirmed = ref(false)
 /** Frames are overwritten in place, so the browser must be told they changed. */
 const preflightCacheKey = ref(0)
 
+let preflightRequestSequence = 0
 function resetSubtitlePreflight() {
+  preflightRequestSequence++
+  preflightRunning.value = false
   subtitlePreflight.value = null
   preflightConfirmed.value = false
 }
 
 async function runSubtitlePreflight(): Promise<boolean> {
-  if (!episodeId.value) return false
+  if (!episodeId.value || preflightRunning.value) return false
+  const request = ++preflightRequestSequence
+  const scope = videoEpisodeSequence
+  const current = () => request === preflightRequestSequence && scope === videoEpisodeSequence
   preflightRunning.value = true
   try {
-    subtitlePreflight.value = await post(
+    const result = await post<NonNullable<typeof subtitlePreflight.value>>(
       `/projects/${slug.value}/video-editor/subtitle-preflight/${episodeId.value}`,
       buildVideoAssemblyPayload(),
     )
+    if (!current()) return false
+    subtitlePreflight.value = result
     preflightCacheKey.value = Date.now()
     preflightStale.value = false
     // Nothing to look at — subtitles are off, or this episode has none. There is
@@ -3918,6 +3943,7 @@ async function runSubtitlePreflight(): Promise<boolean> {
     if (subtitlePreflight.value?.skipped) preflightConfirmed.value = true
     return true
   } catch (e: any) {
+    if (!current()) return false
     // The backend refuses here for the same reasons it would refuse the render:
     // a stale stitch it could not rebuild, an intro it could not measure, a
     // transcript belonging to another episode. Showing that now costs a click
@@ -3925,7 +3951,7 @@ async function runSubtitlePreflight(): Promise<boolean> {
     showError(e?.data?.detail || e?.message || 'Caption check failed')
     return false
   } finally {
-    preflightRunning.value = false
+    if (current()) preflightRunning.value = false
   }
 }
 
@@ -3954,6 +3980,7 @@ async function checkPreflightFreshness(): Promise<void> {
       `/projects/${slug.value}/video-editor/subtitle-preflight/${episodeId.value}/fingerprint`
       + `?path=${encodeURIComponent(path)}`,
     )
+    if (subtitlePreflight.value !== current) return
     const now = res?.fingerprint
     const changed = !now || now.mtime_ms !== known.mtime_ms || now.size !== known.size
     if (changed) {
@@ -3968,7 +3995,9 @@ async function checkPreflightFreshness(): Promise<void> {
 if (typeof window !== 'undefined') {
   // On return to the window, because the usual way this goes stale is the owner
   // re-stitching in another tab and coming back to a panel that looks current.
-  window.addEventListener('focus', () => { void checkPreflightFreshness() })
+  const refreshPreflight = () => { void checkPreflightFreshness() }
+  window.addEventListener('focus', refreshPreflight)
+  onUnmounted(() => window.removeEventListener('focus', refreshPreflight))
 }
 
 function preflightFrameUrl(frame: SubtitlePreflightFrame): string {
@@ -4105,6 +4134,7 @@ watch(
     exportSettings.resolution, exportSettings.aspect_ratio,
   ].join('|'),
   () => resetSubtitlePreflight(),
+  { flush: 'sync' },
 )
 
 /**
@@ -5615,8 +5645,13 @@ function handleWizardShortcut(e: KeyboardEvent) {
 // selected episode (instead of forcing the user to wait for the
 // fingerprint watcher below to opportunistically pick it up — which it
 // wouldn't, because `activeJobId` was still pointing at the old job).
-watch(episodeId, (newEp, oldEp) => {
-  if (newEp === oldEp) return
+let videoEpisodeSequence = 0
+watch([slug, episodeId], ([, newEp]) => {
+  videoEpisodeSequence++
+  subtitleStatusSequence++
+  subtitlesStatus.value = null
+  pinningSubtitle.value = false
+  resetSubtitlePreflight()
   generating.value = false
   activeJobId.value = null
   jobOutput.value = []
@@ -5634,7 +5669,7 @@ watch(episodeId, (newEp, oldEp) => {
     jobOutput.value = [...(job.output_lines || [])]
     activeJobProgress.value = typeof job.progress === 'number' ? job.progress : 0
   }
-})
+}, { flush: 'sync' })
 
 // Mirror the active video-assembly job onto the wizard's in-flight panel.
 // useJobs() streams updates via SSE, so every push to `output_lines` on

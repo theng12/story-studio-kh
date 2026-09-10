@@ -237,3 +237,37 @@ test('the caption frames are inline and there are three of them', () => {
   assert.ok(page.includes('frame.cue_text'), 'each frame must show the caption text it proves')
   assert.ok(page.includes('formatPreflightTime(frame.time_sec)'), 'each frame must state its timestamp')
 })
+
+test('an old caption check cannot confirm or replace evidence after an episode switch', async () => {
+  const { transform } = await import('esbuild')
+  const page = readFileSync(pagePath, 'utf8')
+  const start = page.indexOf('let preflightRequestSequence = 0')
+  const end = page.indexOf('\n/**', start)
+  assert.ok(start > 0 && end > start)
+  const code = await transform(page.slice(start, end), { loader: 'ts', format: 'esm' })
+  const script = `
+    let videoEpisodeSequence = 0
+    const episodeId = { value: 'EP0001' }, slug = { value: 'project' }
+    const subtitlePreflight = { value: null }, preflightConfirmed = { value: false }
+    const preflightRunning = { value: false }, preflightCacheKey = { value: 0 }, preflightStale = { value: false }
+    const buildVideoAssemblyPayload = () => ({ episode_id: episodeId.value })
+    const showError = () => undefined
+    ${code.code}
+    return {
+      runSubtitlePreflight, subtitlePreflight, preflightConfirmed, preflightRunning,
+      switchEpisode() { episodeId.value = 'EP0002'; videoEpisodeSequence++; resetSubtitlePreflight() }
+    }
+  `
+  let finishOld!: (value: any) => void
+  const pending = new Promise(done => { finishOld = done })
+  let calls = 0
+  const state = new Function('post', script)(async () => ++calls === 1 ? pending : { skipped: false, frames: ['new-frame'] })
+  const first = state.runSubtitlePreflight()
+  state.switchEpisode()
+  assert.equal(await state.runSubtitlePreflight(), true)
+  finishOld({ skipped: true, frames: [] })
+  assert.equal(await first, false)
+  assert.equal(state.preflightConfirmed.value, false)
+  assert.deepEqual(state.subtitlePreflight.value.frames, ['new-frame'])
+  assert.equal(state.preflightRunning.value, false)
+})

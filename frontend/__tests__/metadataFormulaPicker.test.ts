@@ -60,11 +60,13 @@ test('episode override defaults to "use channel default" and omits metadata_form
 
   // That conditional spread must land inside the same generate/metadata POST
   // call the page already makes (not some unrelated body).
-  const genCallIndex = finalizerPage.indexOf('/generate/metadata`,')
+  const genCallIndex = finalizerPage.indexOf('/projects/${projectSlug}/generate/metadata`,')
   const spreadIndex = finalizerPage.indexOf('metadata_formula_id: metadataFormulaSelection.value')
   const saveCallIndex = finalizerPage.indexOf('/generate/metadata/save`')
   assert.ok(genCallIndex !== -1 && spreadIndex !== -1 && saveCallIndex !== -1)
-  assert.ok(spreadIndex > genCallIndex && spreadIndex < saveCallIndex, 'override must be wired into the generation call, not the autosave call')
+  const payloadIndex = finalizerPage.lastIndexOf('const payload = {', genCallIndex)
+  assert.ok(payloadIndex >= 0 && spreadIndex > payloadIndex && spreadIndex < genCallIndex && genCallIndex < saveCallIndex, 'override must belong to the generation payload, not the autosave body')
+  assert.match(finalizerPage.slice(genCallIndex, genCallIndex + 180), /\{ \.\.\.payload, operation_id: operationId \}/)
 
   // The outline preview only renders once a real formula (not the sentinel,
   // not "None") is selected, and shows each section id with its header text

@@ -16,6 +16,8 @@ import { getEffectiveFormat } from '../services/format-loader.js'
 import type { GenerateIdeasRequest, StoryIdea } from '../models/types.js'
 import { filterGenerated, type SimilarityCandidate } from '../services/idea-similarity.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { withLock } from '../lib/atomic-store.js'
+import { findFreshActionJob, readOptionalOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { invalidateProjectUploadCaches } from '../services/upload-caches.js'
 import { previewCompact, compactAcceptedEpisodes } from '../services/upload-compact.js'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
@@ -96,25 +98,50 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
       return res.status(400).json({ detail: 'Choose a Series Formula before adding Topic Packs.' })
     }
 
-    const campaignId = `idea-campaign-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-    const params = {
+    let operationId: string | null
+    try {
+      operationId = readOptionalOperationId(req.body)
+    } catch (error) {
+      return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
+    }
+    const requestParams: Record<string, unknown> = {
       ...req.body,
       count,
       model,
-      campaign_id: campaignId,
       series_formula_id: seriesFormulaId,
       topic_pack_ids: topicPackIds,
     }
-    delete (params as any).niche_id
+    delete requestParams.niche_id
+    delete requestParams.operation_id
+    delete requestParams.generation_action
+    delete requestParams.generation_action_fingerprint
 
-    const job = await jq.enqueue({
-      project_slug: slug,
-      type: 'idea_campaign',
-      episode_id: 'ideas',
-      title: `Idea Campaign — ${count} ideas`,
-      params,
+    const enqueue = async (params: Record<string, unknown>) => {
+      const job = await jq.enqueue({
+        project_slug: slug,
+        type: 'idea_campaign',
+        episode_id: 'ideas',
+        title: `Idea Campaign — ${count} ideas`,
+        params: {
+          ...params,
+          campaign_id: `idea-campaign-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        },
+      })
+      return res.status(201).json(job)
+    }
+
+    if (!operationId) return enqueue(requestParams)
+    const params = stampFreshGenerationAction(requestParams, operationId)
+    return withLock(`fresh-idea-campaign:${slug}:${operationId}`, async () => {
+      const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
+      if (previous) {
+        if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
+          return res.status(409).json({ detail: 'This operation_id already belongs to a different idea campaign.' })
+        }
+        return res.status(200).json({ ...previous, reused: true })
+      }
+      return enqueue(params)
     })
-    return res.status(201).json(job)
   } catch (e: any) {
     if (e instanceof jq.DuplicateJobError) {
       return res.status(409).json({

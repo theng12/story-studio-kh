@@ -117,9 +117,10 @@ test('Jobs keeps all seven toolbar actions available, disabled when their scoped
   assert.match(jobs, /failedCount === 0/)
 })
 
-test('toolbar scope uses only the selected project, never the visible type or status filters', () => {
+test('toolbar scope uses only the selected project; hiding affects cards but never bulk actions', () => {
   assert.match(jobs, /const projectScopedJobs = computed\(\(\) => \{[\s\S]{0,240}job\.project_slug === projectFilter\.value/)
-  assert.match(jobs, /const typeScopedJobs = computed\(\(\) => activeFilter\.value === 'all'[\s\S]{0,160}projectScopedJobs\.value\.filter\(job => job\.type === activeFilter\.value\)/)
+  assert.match(jobs, /const presentationScopedJobs = computed\(\(\) => showHidden\.value[\s\S]{0,180}projectScopedJobs\.value\.filter\(job => !isJobHidden\(job\)\)/)
+  assert.match(jobs, /const typeScopedJobs = computed\(\(\) => activeFilter\.value === 'all'[\s\S]{0,160}presentationScopedJobs\.value\.filter\(job => job\.type === activeFilter\.value\)/)
   for (const name of ['repairableFailedJobs', 'failedJobsForRetryAll', 'recoverableEpisodes', 'pausedJobCount', 'removableJobs']) {
     assert.match(jobs, new RegExp(`const ${name}[\\s\\S]{0,360}projectScopedJobs\\.value`), `${name} must ignore type and status filters`)
   }

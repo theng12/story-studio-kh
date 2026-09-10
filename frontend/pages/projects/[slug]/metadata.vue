@@ -238,10 +238,12 @@ useAppTitle('YouTube Finalizer')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
+const freshMetadataAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 const { metaGenerating } = useGenerating()
 
 const episodeId = ref('')
+let metadataScopeEpoch = 0
 // A live GenStudio catalog picker chooses the first usable model. Never seed
 // a retired direct-provider id into saved metadata settings.
 const model = ref('')
@@ -274,6 +276,7 @@ interface FinalizationStatus {
 }
 const finalizationStatus = ref<FinalizationStatus | null>(null)
 const finalizationChecking = ref(false)
+let finalizationLoadSequence = 0
 const finalizerGateReason = computed(() => {
   if (scriptGateReason.value) return scriptGateReason.value
   if (!episodeId.value) return ''
@@ -287,6 +290,9 @@ const finalizerGateReason = computed(() => {
 })
 
 async function loadFinalizationStatus() {
+  const requestSequence = ++finalizationLoadSequence
+  const scopeEpoch = metadataScopeEpoch
+  const projectSlug = slug.value
   if (!episodeId.value) {
     finalizationStatus.value = null
     return
@@ -295,17 +301,18 @@ async function loadFinalizationStatus() {
   const code = episodeId.value
   try {
     const status = await get<FinalizationStatus>(
-      `/projects/${slug.value}/episodes/${encodeURIComponent(code)}/youtube-finalization-status`,
+      `/projects/${projectSlug}/episodes/${encodeURIComponent(code)}/youtube-finalization-status`,
     )
-    if (episodeId.value === code) finalizationStatus.value = status
+    if (requestSequence === finalizationLoadSequence && metadataScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === code) finalizationStatus.value = status
   } catch {
-    if (episodeId.value === code) finalizationStatus.value = null
+    if (requestSequence === finalizationLoadSequence && metadataScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === code) finalizationStatus.value = null
   } finally {
-    if (episodeId.value === code) finalizationChecking.value = false
+    if (requestSequence === finalizationLoadSequence && metadataScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === code) finalizationChecking.value = false
   }
 }
 
 const genAll = ref(false)
+let metadataGenerationSequence = 0
 
 // v1.0.115+ — per-episode "is a metadata job in flight" computed. The
 // existing `genAll` ref stays true through the whole job (waitForJob
@@ -355,8 +362,9 @@ const lastGenResult = ref<null | { kind: 'success' | 'error' | 'cancelled'; mess
 // is still tracking the OLD episode's job in the background; this just
 // stops it from gating the new episode's UI. Also clear the stale result
 // banner — it belonged to the episode we just left.
-watch(episodeId, (newEp, oldEp) => {
-  if (newEp !== oldEp) {
+watch([slug, episodeId], ([projectSlug, newEp], [previousSlug, oldEp]) => {
+  if (projectSlug !== previousSlug || newEp !== oldEp) {
+    metadataGenerationSequence++
     genAll.value = false
     lastGenResult.value = null
     // Override is per-episode-run only — never carry one episode's explicit
@@ -731,14 +739,20 @@ const researchCitations = ref<SrcCitation[]>([])
 const researchClaims = ref<Array<{ status: string; citation_indices: number[] }>>([])
 const researchLoaded = ref(false)
 const savingResearch = ref(false)
+let researchSourcesLoadSequence = 0
 
 async function loadResearchForSources(): Promise<void> {
+  const requestSequence = ++researchSourcesLoadSequence
+  const scopeEpoch = metadataScopeEpoch
+  const projectSlug = slug.value
+  const code = episodeId.value
   researchCitations.value = []
   researchClaims.value = []
   researchLoaded.value = false
-  if (!episodeId.value) return
+  if (!code) return
   try {
-    const r = await get<{ exists: boolean; research?: any }>(`/projects/${slug.value}/research/${episodeId.value}`)
+    const r = await get<{ exists: boolean; research?: any }>(`/projects/${projectSlug}/research/${code}`)
+    if (requestSequence !== researchSourcesLoadSequence || metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
     if (r.exists && r.research) {
       researchCitations.value = r.research.citations || []
       researchClaims.value = r.research.claims || []
@@ -759,18 +773,23 @@ const includedSrcPreview = computed(() => researchCitations.value.filter(c => c.
 
 async function persistResearchIncludes(): Promise<void> {
   if (!episodeId.value || !researchLoaded.value) return
+  const scopeEpoch = metadataScopeEpoch
+  const projectSlug = slug.value
+  const code = episodeId.value
+  const citations = researchCitations.value.map(c => c.include_in_description)
   savingResearch.value = true
   try {
     // Re-read then patch only the include flags so we never clobber the
     // claims/edits the Research page owns.
-    const r = await get<{ exists: boolean; research?: any }>(`/projects/${slug.value}/research/${episodeId.value}`)
+    const r = await get<{ exists: boolean; research?: any }>(`/projects/${projectSlug}/research/${code}`)
+    if (metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
     if (!r.exists || !r.research) return
     const fresh = r.research
     fresh.citations = (fresh.citations || []).map((c: any, i: number) => ({
       ...c,
-      include_in_description: researchCitations.value[i]?.include_in_description,
+      include_in_description: citations[i],
     }))
-    await put(`/projects/${slug.value}/research/${episodeId.value}`, fresh)
+    await put(`/projects/${projectSlug}/research/${code}`, fresh)
   } catch { /* best-effort — the picks still apply for this session */ } finally {
     savingResearch.value = false
   }
@@ -967,13 +986,19 @@ function onEpisodeSelected(ep: any) {
   selectedEpisode.value = ep
 }
 
+let metadataLoadSequence = 0
 async function loadExistingMetadata() {
-  if (!episodeId.value) return
+  const requestSequence = ++metadataLoadSequence
+  const scopeEpoch = metadataScopeEpoch
+  const projectSlug = slug.value
+  const code = episodeId.value
+  if (!code) return
   try {
     const title = selectedEpisode.value?.title || ''
     const data = await get<{ versions: typeof versions.value }>(
-      `/projects/${slug.value}/episodes/${episodeId.value}/metadata?title=${encodeURIComponent(title)}`
+      `/projects/${projectSlug}/episodes/${code}/metadata?title=${encodeURIComponent(title)}`
     )
+    if (requestSequence !== metadataLoadSequence || metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
     versions.value = data.versions || []
     if (versions.value.length) {
       const latest = versions.value[versions.value.length - 1]!
@@ -986,6 +1011,7 @@ async function loadExistingMetadata() {
       preview.tags = []
     }
   } catch {
+    if (requestSequence !== metadataLoadSequence || metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
     versions.value = []
   }
 }
@@ -1017,7 +1043,9 @@ async function generateAll() {
   // navigated to. The EpisodeSelector confirm dialog already prompts the
   // user before the swap (it sees the queued/running 'metadata' job), but
   // they're still allowed to switch on confirm.
+  const projectSlug = slug.value
   const startedEpisodeId = episodeId.value
+  const generationSequence = ++metadataGenerationSequence
   const startedTitle = selectedEpisode.value?.title || ''
   genAll.value = true
   metaGenerating.value = true
@@ -1027,9 +1055,7 @@ async function generateAll() {
     // /generate/audio, etc.) so navigating away no longer cancels the
     // perceived work — the executor keeps running, writes the metadata
     // sidecar on completion, and useJobs() streams status updates.
-    const job = await post<{ job_id: string }>(
-      `/projects/${slug.value}/generate/metadata`,
-      {
+    const payload = {
         episode_id: startedEpisodeId,
         title: startedTitle,
         model: model.value,
@@ -1066,9 +1092,15 @@ async function generateAll() {
             }
           : undefined,
       }
+    const operationId = freshMetadataAction.begin(payload)
+    const job = await post<{ job_id: string }>(
+      `/projects/${projectSlug}/generate/metadata`,
+      { ...payload, operation_id: operationId },
     )
+    freshMetadataAction.complete(operationId)
     success(`Metadata queued. You can switch episodes; we'll keep generating in the background.`)
-    const completed = await waitForJob(job.job_id)
+    const completed = await waitForJob(projectSlug, job.job_id)
+    if (generationSequence !== metadataGenerationSequence || slug.value !== projectSlug || episodeId.value !== startedEpisodeId) return
     if (completed.status === 'cancelled') {
       lastGenResult.value = { kind: 'cancelled', message: `YouTube finalization cancelled for ${startedEpisodeId}.` }
       showError('YouTube finalization cancelled')
@@ -1081,7 +1113,7 @@ async function generateAll() {
     // looking at the same episode they kicked off, refresh the preview;
     // otherwise just leave their current view alone (the new version is on
     // disk and they'll see it when they navigate back).
-    if (episodeId.value === startedEpisodeId) {
+    if (slug.value === projectSlug && episodeId.value === startedEpisodeId) {
       sessionVersion.value = null
       await suppressAutoSaveDuring(() => loadExistingMetadata())
       await loadFinalizationStatus()
@@ -1092,13 +1124,17 @@ async function generateAll() {
       success(`YouTube package for ${startedEpisodeId} finalized — switch back to view.`)
     }
   } catch (e: any) {
+    if (generationSequence !== metadataGenerationSequence || slug.value !== projectSlug || episodeId.value !== startedEpisodeId) return
     console.error('[metadata] generate all failed:', e)
     const msg = e.data?.detail || e?.message || `Failed to finalize the YouTube package (model=${model.value}). Check the Jobs panel for details.`
     lastGenResult.value = { kind: 'error', message: msg }
     showError(msg)
   } finally {
-    genAll.value = false
-    metaGenerating.value = false
+    if (generationSequence === metadataGenerationSequence
+      && slug.value === projectSlug && episodeId.value === startedEpisodeId) {
+      genAll.value = false
+      metaGenerating.value = false
+    }
   }
 }
 
@@ -1106,9 +1142,9 @@ async function generateAll() {
 // ImageGeneratorPanel uses — useJobs() also streams updates globally, but a
 // direct poll is the simplest way to await one specific job.
 const JOB_POLL_INTERVAL_MS = 1500
-async function waitForJob(jobId: string): Promise<any> {
+async function waitForJob(projectSlug: string, jobId: string): Promise<any> {
   while (true) {
-    const job: any = await get(`/projects/${slug.value}/jobs/${jobId}`)
+    const job: any = await get(`/projects/${projectSlug}/jobs/${jobId}`)
     if (job?.status === 'done' || job?.status === 'error' || job?.status === 'cancelled') return job
     await new Promise(r => setTimeout(r, JOB_POLL_INTERVAL_MS))
   }
@@ -1196,9 +1232,12 @@ const autoSave = useAutoSave({
     if (!episodeId.value) return
     // Skip if there's nothing meaningful to persist yet
     if (!preview.title && !preview.description && !preview.tags.length) return
+    const projectSlug = slug.value
+    const code = episodeId.value
+    const scopeEpoch = metadataScopeEpoch
     const writingTo = sessionVersion.value
-    const data = await post<{ version: number }>(`/projects/${slug.value}/generate/metadata/save`, {
-      episode_id: episodeId.value,
+    const data = await post<{ version: number }>(`/projects/${projectSlug}/generate/metadata/save`, {
+      episode_id: code,
       title: selectedEpisode.value?.title || '',
       metadata_title: preview.title,
       // Round-trip the AI-generated title alternatives so an overwrite save
@@ -1213,9 +1252,11 @@ const autoSave = useAutoSave({
       save_mode: writingTo == null ? 'new' : 'overwrite',
       version: writingTo ?? undefined,
     })
+    if (metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
     sessionVersion.value = data.version
     // Refresh the version dropdown without re-triggering autosave.
     await suppressAutoSaveDuring(() => loadExistingMetadata())
+    if (metadataScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== code) return
     selectedVersion.value = data.version
   },
 })
@@ -1238,8 +1279,10 @@ watch([() => preview.title, () => preview.description, () => preview.tags], () =
 
 // ── Watchers ───────────────────────────────────────────────────────────────
 
-watch(episodeId, async () => {
+watch([slug, episodeId], async ([projectSlug, code]) => {
+  metadataScopeEpoch++
   await suppressAutoSaveDuring(() => loadExistingMetadata())
+  if (slug.value !== projectSlug || episodeId.value !== code) return
   resetAutoSaveSession()
   void loadFinalizationStatus()
 })

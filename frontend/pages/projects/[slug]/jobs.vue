@@ -275,6 +275,17 @@
           {{ s.label }}<span v-if="s.count > 0" class="status-count">{{ s.count }}</span>
         </button>
       </div>
+      <div v-if="hiddenJobsInScope.length" class="hidden-jobs" role="status">
+        <span v-if="!showHidden && hiddenSettlingCount" class="hidden-settling-count">
+          {{ hiddenSettlingCount }} hidden {{ hiddenSettlingCount === 1 ? 'job is' : 'jobs are' }} still settling
+        </span>
+        <button
+          type="button"
+          class="btn btn-xs btn-ghost"
+          :aria-pressed="showHidden"
+          @click="toggleHiddenJobs"
+        >{{ showHidden ? 'Hide hidden' : `Show hidden (${hiddenJobsInScope.length})` }}</button>
+      </div>
     </div>
 
     <!-- Sort Bar -->
@@ -806,6 +817,17 @@
               >
                 Retry
               </button>
+              <button
+                v-if="showHidden && isJobHidden(job)"
+                class="btn btn-xs btn-ghost"
+                @click="restoreJob(job)"
+              >Restore</button>
+              <button
+                v-else-if="canHideJob(job)"
+                class="btn btn-xs btn-ghost"
+                title="Hide this completed card from Jobs. Work, receipts, and settlement checks continue."
+                @click="hideJob(job)"
+              >Hide from Jobs</button>
             </div>
           </div>
           <EpisodeRecoveryStatus :job="job" :verified-recovered="isVerifiedRecoveredSubtitleJob(job)" />
@@ -1060,7 +1082,7 @@ const jobs = computed(() => isUniversal.value ? universalQueue.jobs.value : proj
 const queueStats = computed(() => isUniversal.value ? universalQueue.stats.value : projectQueue.stats.value)
 const jobsStale = computed(() => isUniversal.value ? universalQueue.jobsStale.value : projectQueue.jobsStale.value)
 const jobsRefreshError = computed(() => isUniversal.value ? universalQueue.lastRefreshError.value : projectQueue.lastRefreshError.value)
-const { success, error: showError, info } = useToast()
+const { success, error: showError, info, successUndoable } = useToast()
 
 interface ProjectOption { slug: string; name: string }
 interface GenStudioServiceTier {
@@ -1867,6 +1889,64 @@ const projectScopedJobs = computed(() => {
   if (!isUniversal.value || projectFilter.value === 'all') return jobs.value
   return jobs.value.filter(job => job.project_slug === projectFilter.value)
 })
+const HIDDEN_JOBS_KEY = 'story-studio:hidden-jobs:v1'
+const showHidden = ref(false)
+const hiddenJobIds = ref(new Set(loadHiddenJobIds()))
+
+function loadHiddenJobIds(): string[] {
+  try {
+    const saved = typeof localStorage === 'undefined' ? null : localStorage.getItem(HIDDEN_JOBS_KEY)
+    const parsed = saved ? JSON.parse(saved) : []
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []
+  } catch { return [] }
+}
+
+function saveHiddenJobIds(next: Set<string>) {
+  hiddenJobIds.value = next
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(HIDDEN_JOBS_KEY, JSON.stringify([...next]))
+  } catch { /* hiding stays local to this visit */ }
+}
+
+function isJobHidden(job: RJob): boolean { return hiddenJobIds.value.has(job.job_id) }
+function canHideJob(job: RJob): boolean { return ['done', 'recovered'].includes(jobDisplayStatus(job)) }
+function restoreJob(job: RJob) {
+  const next = new Set(hiddenJobIds.value)
+  next.delete(job.job_id)
+  saveHiddenJobIds(next)
+}
+function hideJob(job: RJob) {
+  if (isJobHidden(job) || !canHideJob(job)) return
+  const next = new Set(hiddenJobIds.value)
+  next.add(job.job_id)
+  saveHiddenJobIds(next)
+  successUndoable({ message: 'Hidden from Jobs.', onUndo: () => restoreJob(job) })
+}
+
+// A hidden card never hides a new actionable failure. Recovered subtitle
+// attempts retain their raw error for diagnostics, so the display status is
+// the authority for whether the row needs attention.
+function isActionableHiddenFailure(job: RJob): boolean {
+  return isJobHidden(job) && jobDisplayStatus(job) === 'error'
+}
+function restoreActionableFailures(jobIds: readonly string[]) {
+  if (!jobIds.length) return
+  const next = new Set(hiddenJobIds.value)
+  for (const jobId of jobIds) next.delete(jobId)
+  saveHiddenJobIds(next)
+}
+const actionableHiddenFailureIds = computed(() => jobs.value
+  .filter(isActionableHiddenFailure)
+  .map(job => job.job_id))
+watch(actionableHiddenFailureIds, restoreActionableFailures)
+
+const hiddenJobsInScope = computed(() => projectScopedJobs.value.filter(isJobHidden))
+const hiddenSettlingCount = computed(() => hiddenJobsInScope.value.filter(job =>
+  Boolean(job.genstudio_jobs?.length) && !summariseSettlement(settledRemoteJobs(job)).confirmed,
+).length)
+const presentationScopedJobs = computed(() => showHidden.value
+  ? projectScopedJobs.value
+  : projectScopedJobs.value.filter(job => !isJobHidden(job)))
 const stats = computed(() => {
   const scoped = projectScopedJobs.value
   const recovered = scoped.filter(job => jobDisplayStatus(job) === 'recovered').length
@@ -1882,10 +1962,18 @@ const stats = computed(() => {
   }
 })
 const typeScopedJobs = computed(() => activeFilter.value === 'all'
-  ? projectScopedJobs.value
-  : projectScopedJobs.value.filter(job => job.type === activeFilter.value))
+  ? presentationScopedJobs.value
+  : presentationScopedJobs.value.filter(job => job.type === activeFilter.value))
 // v1.0.x — status filter (independent of the type tabs).
 const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled'>('all')
+function toggleHiddenJobs() {
+  showHidden.value = !showHidden.value
+  if (showHidden.value) {
+    activeFilter.value = 'all'
+    statusFilter.value = 'all'
+    failureBatchFilter.value = null
+  }
+}
 const failureBatchFilter = ref<string | null>(null)
 const historySection = ref<HTMLElement | null>(null)
 const historyHeading = ref<HTMLElement | null>(null)
@@ -1954,12 +2042,16 @@ const filterTabs = computed(() => {
 
 const filterLabel = computed(() => filterTabs.value.find(t => t.type === activeFilter.value)?.label || '')
 
-const emptyTitle = computed(() => activeFilter.value === 'all' ? 'No jobs yet' : `No ${filterLabel.value} jobs`)
-const emptyMessage = computed(() => activeFilter.value === 'all'
-  ? (isUniversal.value
-      ? 'Jobs from every project appear here automatically as soon as they are queued.'
-      : 'Start generating scripts, images, or audio to see this project’s background jobs here.')
-  : 'Try switching to the All tab to see other jobs.')
+const emptyTitle = computed(() => hiddenJobsInScope.value.length && !showHidden.value
+  ? 'No visible jobs'
+  : activeFilter.value === 'all' ? 'No jobs yet' : `No ${filterLabel.value} jobs`)
+const emptyMessage = computed(() => hiddenJobsInScope.value.length && !showHidden.value
+  ? 'Show hidden jobs to restore them. Work and settlement checks continue in the background.'
+  : activeFilter.value === 'all'
+    ? (isUniversal.value
+        ? 'Jobs from every project appear here automatically as soon as they are queued.'
+        : 'Start generating scripts, images, or audio to see this project’s background jobs here.')
+    : 'Try switching to the All tab to see other jobs.')
 
 // Auto-select tab for most recent active type
 watch(jobs, (list) => {
@@ -3748,6 +3840,8 @@ function clearFailed() { return clearHistory('failed') }
 .btn-xs { padding: 3px 10px; font-size: var(--font-xs); }
 .status-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
 .status-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.hidden-jobs { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--font-xs); color: var(--text-muted); }
+.hidden-settling-count { overflow-wrap: anywhere; }
 .status-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border, #333); background: none; color: var(--text-muted, #999); cursor: pointer; }
 .status-chip:hover { border-color: var(--accent, #6ab0f3); }
 .status-chip.active { background: var(--accent, #6ab0f3); color: #fff; border-color: var(--accent, #6ab0f3); }

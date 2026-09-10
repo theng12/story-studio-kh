@@ -602,14 +602,17 @@ watch(projectConfig, (c) => {
   autoApproveClaims.value = ((c as any)?.research_auto_approve_claims) === true
 })
 async function setAutoApproveClaims(v: boolean): Promise<void> {
+  const projectSlug = slug.value
   autoApproveClaims.value = v
   try {
-    await put(`/projects/${slug.value}/settings/config`, { research_auto_approve_claims: v })
+    await put(`/projects/${projectSlug}/settings/config`, { research_auto_approve_claims: v })
+    if (slug.value !== projectSlug) return
     if (projectConfig.value) (projectConfig.value as any).research_auto_approve_claims = v
     success(v
       ? 'New research runs will approve every claim automatically and pass them to the Script Generator, recorded as auto-approved.'
       : 'New research runs will wait for your Verified / Ignore decisions again.')
   } catch (e: any) {
+    if (slug.value !== projectSlug) return
     autoApproveClaims.value = !v
     showError(e?.data?.detail || e?.message || 'Could not save the setting')
   }
@@ -988,8 +991,11 @@ const serverResult = ref<string>('')  // JSON snapshot of last save for diff
 // DIFFERENT episode the user switches to mid-job. Keying it to the episode makes
 // `researching` true only when the in-flight episode is the one on screen.
 // (See auto-memory: per-episode-inflight-gating.md — recurring pattern.)
-const researchingEpisode = ref<string | null>(null)
-const researching = computed(() => researchingEpisode.value === episodeId.value)
+const researchingTarget = ref<{ projectSlug: string; episodeId: string } | null>(null)
+const researching = computed(() => {
+  const target = researchingTarget.value
+  return target?.projectSlug === slug.value && target?.episodeId === episodeId.value
+})
 // v1.0.307 — also reflect a research_run already queued/running for this
 // episode. `researching` only covers the brief enqueue window (it resets when
 // the POST returns), so without this the button re-enabled while the job ran.
@@ -1187,16 +1193,23 @@ function bulkSources(mode: 'all' | 'verified' | 'none'): void {
   })
 }
 
+let researchScopeEpoch = 0
+let loadExistingSequence = 0
 async function loadExisting(): Promise<void> {
-  if (!episodeId.value) {
+  const requestSequence = ++loadExistingSequence
+  const scopeEpoch = researchScopeEpoch
+  const projectSlug = slug.value
+  const ep = episodeId.value
+  if (!ep) {
     result.value = null
     serverResult.value = ''
     return
   }
   try {
     const r = await get<{ exists: boolean; research?: ResearchOutput }>(
-      `/projects/${slug.value}/research/${episodeId.value}`,
+      `/projects/${projectSlug}/research/${ep}`,
     )
+    if (requestSequence !== loadExistingSequence || researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
     if (r.exists && r.research) {
       result.value = r.research
       serverResult.value = JSON.stringify(r.research)
@@ -1243,6 +1256,7 @@ async function loadExisting(): Promise<void> {
       form.value.specific_questions = ''
     }
   } catch (e: any) {
+    if (requestSequence !== loadExistingSequence || researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
     if (e?.__slugRace) return
     // Non-fatal — the empty-state card renders.
   }
@@ -1251,8 +1265,10 @@ async function loadExisting(): Promise<void> {
 async function runResearch(): Promise<void> {
   const selectedModel = modelReadiness.value.model
   if (!canRun.value || !selectedModel) return
+  const scopeEpoch = researchScopeEpoch
+  const projectSlug = slug.value
   const ep = episodeId.value          // pin the episode this run belongs to
-  researchingEpisode.value = ep
+  researchingTarget.value = { projectSlug, episodeId: ep }
   const payload = {
     topic: form.value.topic.trim(),
     specific_questions: form.value.specific_questions.trim() || undefined,
@@ -1269,44 +1285,51 @@ async function runResearch(): Promise<void> {
     // Domain filters are sent only in web mode; the backend drops them again
     // unless the SELECTED model advertises domain filters, so a filter the
     // provider would ignore never looks like it was applied.
-    await post<{ job_id: string }>(`/projects/${slug.value}/research/${ep}/run`, { ...payload, operation_id: operationId })
+    await post<{ job_id: string }>(`/projects/${projectSlug}/research/${ep}/run`, { ...payload, operation_id: operationId })
     freshResearchAction.complete(operationId)
     success('Research job queued — watch the Jobs panel for progress')
     // The job runs async; poll for completion by re-loading every 3s
     // until research.json shows up + matches the topic we just sent.
-    await pollUntilLoaded(form.value.topic.trim(), ep)
+    await pollUntilLoaded(form.value.topic.trim(), scopeEpoch, projectSlug, ep)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'The submission was not confirmed. Retry submission to continue this research action.')
   } finally {
     // Only clear if a LATER run for another episode hasn't taken over.
-    if (researchingEpisode.value === ep) researchingEpisode.value = null
+    if (researchingTarget.value?.projectSlug === projectSlug && researchingTarget.value.episodeId === ep) {
+      researchingTarget.value = null
+    }
   }
 }
 
-async function pollUntilLoaded(expectedTopic: string, ep: string): Promise<void> {
+async function pollUntilLoaded(expectedTopic: string, scopeEpoch: number, projectSlug: string, ep: string): Promise<void> {
   const start = Date.now()
   const timeoutMs = 90_000
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
     // User switched episodes — stop polling; that episode's own loader owns its
     // state now, and this poll must not overwrite it via loadExisting().
-    if (episodeId.value !== ep) return
+    if (researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
     await loadExisting()
     if (result.value && result.value.topic === expectedTopic) return
   }
-  if (episodeId.value === ep) showError('Research job is taking longer than 90s — check the Jobs panel for details.')
+  if (researchScopeEpoch === scopeEpoch && slug.value === projectSlug && episodeId.value === ep) showError('Research job is taking longer than 90s — check the Jobs panel for details.')
 }
 
 async function saveResearch(): Promise<void> {
   if (!result.value || !episodeId.value) return
+  const scopeEpoch = researchScopeEpoch
+  const projectSlug = slug.value
+  const ep = episodeId.value
+  const savedResult = result.value
   saving.value = true
   try {
     // The backend derives the review record from what this save changed, so
     // adopt what it wrote back rather than guessing locally.
     const r = await put<{ review: ResearchReviewRecord | null }>(
-      `/projects/${slug.value}/research/${episodeId.value}`,
-      result.value,
+      `/projects/${projectSlug}/research/${ep}`,
+      savedResult,
     )
+    if (researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep || result.value !== savedResult) return
     if (result.value) {
       if (r?.review) result.value.review = r.review
       else delete result.value.review
@@ -1314,11 +1337,13 @@ async function saveResearch(): Promise<void> {
     serverResult.value = JSON.stringify(result.value)
     // Completion may have just flipped — refresh the rows the selector, the
     // pending filter and the Production Board read.
-    await refreshEpisodes(episodeId.value)
+    await refreshEpisodes(ep)
+    if (researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep || result.value !== savedResult) return
     success(reviewComplete.value
       ? 'Review saved — every claim decided'
       : 'Research saved')
   } catch (e: any) {
+    if (researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
     showError(e?.data?.detail || 'Failed to save research')
   } finally {
     saving.value = false
@@ -1327,6 +1352,9 @@ async function saveResearch(): Promise<void> {
 
 async function deleteResearch(): Promise<void> {
   if (!episodeId.value) return
+  const scopeEpoch = researchScopeEpoch
+  const projectSlug = slug.value
+  const ep = episodeId.value
   const ok = await ask({
     title: 'Delete research?',
     message: 'Removes research.json + research.md from the episode dir. The next Run starts fresh.',
@@ -1334,13 +1362,16 @@ async function deleteResearch(): Promise<void> {
     danger: true,
   })
   if (!ok) return
+  if (researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
   deleting.value = true
   try {
-    await del(`/projects/${slug.value}/research/${episodeId.value}`)
+    await del(`/projects/${projectSlug}/research/${ep}`)
+    if (researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
     result.value = null
     serverResult.value = ''
     success('Research deleted')
   } catch (e: any) {
+    if (researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
     showError(e?.data?.detail || 'Failed to delete research')
   } finally {
     deleting.value = false
@@ -1371,7 +1402,10 @@ onMounted(async () => {
     researchPresets.load(),
   ])
 })
-watch(episodeId, () => { void loadExisting() }, { immediate: true })
+watch([slug, episodeId], () => {
+  researchScopeEpoch++
+  void loadExisting()
+}, { immediate: true })
 
 // v1.0.148+ — race guard for the topic seed: useEpisodes may resolve
 // AFTER loadExisting() already returned with no saved research. In

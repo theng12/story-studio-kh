@@ -730,6 +730,7 @@ const renderedScenes = computed(() => scenes.value.slice(0, renderedSceneLimit.v
 const sceneLoadSentinel = ref<HTMLElement | null>(null)
 let sceneLoadObserver: IntersectionObserver | null = null
 let reviewLoadSequence = 0
+let reviewScopeSequence = 0
 function loadMoreScenes(): void {
   renderedSceneLimit.value = Math.min(scenes.value.length, renderedSceneLimit.value + SCENE_RENDER_BATCH)
 }
@@ -1142,7 +1143,11 @@ function seekTo(sec: number): void {
 // ── Data fetch ──────────────────────────────────────────────────────
 async function loadReview(): Promise<void> {
   const ep = episodeId.value
+  const project = slug.value
+  const scope = reviewScopeSequence
   const requestSequence = ++reviewLoadSequence
+  const current = () => requestSequence === reviewLoadSequence && scope === reviewScopeSequence
+    && project === slug.value && ep === episodeId.value
   if (!ep) {
     plan.value = null
     scenes.value = []
@@ -1165,8 +1170,8 @@ async function loadReview(): Promise<void> {
       prompt_integrity?: PromptIntegrity
       subtitle_integrity?: SubtitleIntegrity
     }
-    const r = await get<ReviewResponse>(`/projects/${slug.value}/scene-review/${ep}`)
-    if (requestSequence !== reviewLoadSequence || episodeId.value !== ep) return
+    const r = await get<ReviewResponse>(`/projects/${project}/scene-review/${ep}`)
+    if (!current()) return
     plan.value = r.scene_plan
     scenes.value = r.scenes
     audioPath.value = r.audio_path
@@ -1179,9 +1184,9 @@ async function loadReview(): Promise<void> {
   } catch (e: any) {
     if (e?.__slugRace) return
   } finally {
-    if (requestSequence === reviewLoadSequence && episodeId.value === ep) loading.value = false
+    if (current()) loading.value = false
   }
-  if (loaded && requestSequence === reviewLoadSequence && episodeId.value === ep) await focusPendingScene()
+  if (loaded && current()) await focusPendingScene()
 }
 
 // ── Actions ─────────────────────────────────────────────────────────
@@ -1196,6 +1201,8 @@ async function generateOne(scene: ReviewScene): Promise<void> {
     return
   }
   const ep = episodeId.value
+  const project = slug.value
+  const scope = reviewScopeSequence
   regeneratingId.value = scene.id
   try {
     if (isContinuity.value) {
@@ -1229,7 +1236,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
       })
       freshSceneImageAction.complete(operationId)
       success(`Queued scene ${scene.scene_index} — watch the Jobs panel`)
-      await pollUntilImageReady(scene.id, ep)
+      await pollUntilImageReady(scene.id, ep, project, scope)
     }
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to queue scene image')
@@ -1266,21 +1273,27 @@ async function uploadOne(scene: ReviewScene): Promise<void> {
   input.accept = 'image/*'
   input.onchange = async () => {
     const file = input.files?.[0]
-    if (!file) return
+    const ep = episodeId.value
+    const project = slug.value
+    const scope = reviewScopeSequence
+    const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
+    if (!file || !ep) return
     regeneratingId.value = scene.id
     try {
       const data_base64 = await fileToBase64(file)
-      await post(`/projects/${slug.value}/scene-review/${episodeId.value}/upload-image/${scene.id}`, {
+      if (!current()) return
+      await post(`/projects/${project}/scene-review/${ep}/upload-image/${scene.id}`, {
         filename: file.name,
         data_base64,
       })
+      if (!current()) return
       success(`Uploaded image for scene ${scene.scene_index}`)
       cacheBuster.value = Date.now()
       await loadReview()
     } catch (e: any) {
-      showError(e?.data?.detail || e?.message || 'Failed to upload image')
+      if (current()) showError(e?.data?.detail || e?.message || 'Failed to upload image')
     } finally {
-      regeneratingId.value = null
+      if (current()) regeneratingId.value = null
     }
   }
   input.click()
@@ -1295,24 +1308,29 @@ async function uploadClipOne(scene: ReviewScene): Promise<void> {
   input.accept = 'video/mp4'
   input.onchange = async () => {
     const file = input.files?.[0]
-    if (!file) return
+    const ep = episodeId.value
+    const project = slug.value
+    const scope = reviewScopeSequence
+    const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
+    if (!file || !ep) return
     animatingId.value = scene.id
     try {
       const resp = await fetch(
-        `/api/projects/${slug.value}/scene-review/${episodeId.value}/upload-clip/${scene.id}`,
+        `/api/projects/${project}/scene-review/${ep}/upload-clip/${scene.id}`,
         { method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: file },
       )
       if (!resp.ok) {
         const j = await resp.json().catch(() => ({} as any))
         throw new Error(j.detail || `Upload failed (${resp.status})`)
       }
+      if (!current()) return
       success(`Uploaded clip for scene ${scene.scene_index}`)
       cacheBuster.value = Date.now()
       await loadReview()
     } catch (e: any) {
-      showError(e?.message || 'Failed to upload clip')
+      if (current()) showError(e?.message || 'Failed to upload clip')
     } finally {
-      animatingId.value = null
+      if (current()) animatingId.value = null
     }
   }
   input.click()
@@ -1336,6 +1354,8 @@ function nextManualFinishActionId(action: typeof finishAction, context: Omit<Man
 async function finishMissingImages(): Promise<void> {
   if (!canBulkGenerate.value || reviewJobActive.value) return
   const ep = episodeId.value
+  const project = slug.value
+  const scope = reviewScopeSequence
   const projectSlug = slug.value
   const actionId = nextManualFinishActionId(finishAction, { slug: projectSlug, episodeId: ep })
   if (!actionId) return
@@ -1356,7 +1376,7 @@ async function finishMissingImages(): Promise<void> {
       : `Finish is checking ${r.queued} missing image${r.queued === 1 ? '' : 's'} (${r.skipped} already saved).`)
     if (finishAction.value?.id === actionId) finishAction.value = null
     // Re-load every 4s while images are landing.
-    await pollUntilAllPresent(ep)
+    await pollUntilAllPresent(ep, project, scope)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Could not finish missing images')
   } finally {
@@ -1370,19 +1390,25 @@ const continuityRendering = computed(() => renderingEpisode.value === episodeId.
 
 async function loadContinuityFlag(): Promise<void> {
   const ep = episodeId.value
+  const project = slug.value
+  const scope = reviewScopeSequence
+  const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
   continuityPacing.value = null
   try {
-    const fmt = await get<{ visualSource?: string }>(`/projects/${slug.value}/effective-format`)
+    const fmt = await get<{ visualSource?: string }>(`/projects/${project}/effective-format`)
+    if (!current()) return
     isContinuity.value = fmt?.visualSource === 'continuity-chain'
     // v1.4.82 — the same continuity read Scene Plan does, so the "Ns long"
     // health flag uses the band the user actually chose instead of a constant.
     if (!isContinuity.value || !ep) return
     const r = await get<{ config?: { pacing?: { min_sec: number; max_sec: number } } }>(
-      `/projects/${slug.value}/continuity/${ep}`,
+      `/projects/${project}/continuity/${ep}`,
     )
-    if (episodeId.value !== ep) return
+    if (!current()) return
     continuityPacing.value = r?.config?.pacing || null
-  } catch { isContinuity.value = false }
+  } catch {
+    if (current()) isContinuity.value = false
+  }
 }
 
 async function renderContinuity(opts: { sceneIds?: string[] } = {}): Promise<void> {
@@ -1488,6 +1514,8 @@ async function replaceUncertainImages(): Promise<void> {
   if (!source || replacingUncertain.value) return
   const projectSlug = slug.value
   const ep = episodeId.value
+  const project = slug.value
+  const scope = reviewScopeSequence
   const sourceJobId = source.job_id
   if (!await ask({
     title: 'Replace uncertain image request?',
@@ -1520,7 +1548,7 @@ async function replaceUncertainImages(): Promise<void> {
       ? 'Already checking this replacement action — reused its existing work.'
       : `Replacing ${r.queued} uncertain image${r.queued === 1 ? '' : 's'} (${r.skipped} already saved).`)
     if (replaceAction.value?.id === actionId) replaceAction.value = null
-    await pollUntilAllPresent(ep)
+    await pollUntilAllPresent(ep, project, scope)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Could not replace uncertain images')
   } finally {
@@ -1588,13 +1616,15 @@ watch(isRendering, (active) => {
 }, { immediate: true })
 onBeforeUnmount(() => { if (renderPollTimer) clearInterval(renderPollTimer) })
 
-async function pollUntilImageReady(sceneId: string, ep: string): Promise<void> {
+async function pollUntilImageReady(sceneId: string, ep: string, project: string, scope: number): Promise<void> {
+  const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
   const start = Date.now()
   const timeoutMs = 120_000
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
-    if (episodeId.value !== ep) return  // switched away — stop; don't reload another episode
+    if (!current()) return
     await loadReview()
+    if (!current()) return
     const found = scenes.value.find(s => s.id === sceneId)
     if (found?.image_filename) {
       cacheBuster.value = Date.now()  // force img reload
@@ -1602,13 +1632,15 @@ async function pollUntilImageReady(sceneId: string, ep: string): Promise<void> {
     }
   }
 }
-async function pollUntilAllPresent(ep: string): Promise<void> {
+async function pollUntilAllPresent(ep: string, project: string, scope: number): Promise<void> {
+  const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
   const start = Date.now()
   const timeoutMs = 300_000  // 5 min for bulk
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 4000))
-    if (episodeId.value !== ep) return  // switched away — stop
+    if (!current()) return
     await loadReview()
+    if (!current()) return
     if (activeRenderJob.value?.status === 'paused') return
     cacheBuster.value = Date.now()
     if (stats.value && stats.value.with_image >= stats.value.total_scenes) return
@@ -1739,14 +1771,19 @@ watch(() => route.query.scene_id, (sceneId) => {
     void focusPendingScene()
   }
 })
-watch(episodeId, () => {
+watch([slug, episodeId], () => {
+  reviewScopeSequence++
   renderedSceneLimit.value = SCENE_RENDER_BATCH
+  regeneratingId.value = null
+  animatingId.value = null
+  isContinuity.value = false
+  continuityPacing.value = null
   void loadReview()
   // v1.4.82 — the pacing band is per-episode, so re-read it on every switch.
   // Loading it only onMounted left the "Ns long" flag judging episode B against
   // episode A's maximum.
   void loadContinuityFlag()
-}, { immediate: true })
+}, { immediate: true, flush: 'sync' })
 </script>
 
 <style scoped>

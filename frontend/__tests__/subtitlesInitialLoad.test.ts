@@ -93,3 +93,47 @@ test('an initial subtitle deep link loads its status without waiting for the epi
   app.unmount()
   container.remove()
 })
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
+test('a late stitch-status read and delete response cannot overwrite a newly selected episode', async () => {
+  const oldStitch = deferred<any>()
+  const oldDelete = deferred<any>()
+  const calls: string[] = []
+  ;(globalThis as any).__subtitlesInitialRouterReplace = () => undefined
+  ;(globalThis as any).__subtitlesInitialApi = {
+    get: async (path: string) => {
+      calls.push(path)
+      if (path.includes('/scene-plan/EP0083')) return oldStitch.promise
+      if (path.includes('/scene-plan/')) return { audio_merged: true, audio_merge_gap_s: 2, stitched_srt: null }
+      if (path.endsWith('/audio-sections')) return { sections: [] }
+      return { existing_srts: [{ filename: path.endsWith('/EP0083') ? 'old.srt' : 'new.srt' }] }
+    },
+    post: async () => ({}),
+    del: () => oldDelete.promise,
+  }
+  const app = createApp(await loadPageScript())
+  const container = document.createElement('div')
+  document.body.append(container)
+  app.mount(container)
+  try {
+    await waitFor(() => calls.some(path => path.endsWith('/scene-plan/EP0083')), { label: 'initial stitch read' })
+    const state = (globalThis as any).__subtitlesInitialState
+    const deleting = state.deleteSrt('old.srt')
+    state.episodeId.value = 'EP0084'
+    await waitFor(() => state.stitchStatus.value?.audio_merge_gap_s === 2, { label: 'new episode timeline' })
+    oldStitch.resolve({ audio_merge_gap_s: 99, audio_merged: false, stitched_srt: null })
+    oldDelete.resolve({ existing_srts: [] })
+    await deleting
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(state.stitchStatus.value.audio_merge_gap_s, 2)
+    assert.deepEqual(state.status.value.existing_srts.map((file: any) => file.filename), ['new.srt'])
+  } finally {
+    app.unmount()
+    container.remove()
+  }
+})

@@ -260,46 +260,63 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     ...expansionRequest,
     ...(expansionModel ? { model: expansionModel } : {}),
   }
-
-  // Keep the paid-work boundary ahead of both normal enqueue and a terminal
-  // replacement. enqueue() also defends this invariant atomically, but this
-  // route must not begin terminal-retry handling while another expansion owns
-  // the episode.
-  if (jq.isDuplicate(slug, episode_id, 'expand_chapters')) {
-    return res.status(409).json({ detail: `Chapter expansion already queued/running for ${episode_id}` })
+  const actionRequest = {
+    ...validatedParams,
+    ...(terminalRetryJobId ? { terminal_retry_job_id: terminalRetryJobId } : {}),
   }
 
-  // Full Script-page Resume sends a terminal source reference alongside its
-  // current form fields. The queue chooses exact replay while any chat batch
-  // is unresolved, and can mint a replacement scope only after all settle.
-  // The body itself is never trusted to supply a provider identity.
-  if (terminalRetryJobId !== undefined) {
-    if (typeof terminalRetryJobId !== 'string' || !terminalRetryJobId) {
-      return res.status(400).json({ detail: 'terminal_retry_job_id must be a job ID.' })
+  let action
+  try {
+    action = await prepareExplicitScriptAction(slug, actionRequest, 'optional')
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
+  }
+  if (action.conflict) return res.status(409).json({ detail: 'This operation_id already belongs to a different chapter expansion.' })
+  if (action.previous) return res.status(200).json({ ...action.previous, reused: true })
+
+  return withExplicitActionReplay(slug, action.params, res, 'This operation_id already belongs to a different chapter expansion.', async () => {
+    // Keep the paid-work boundary ahead of both normal enqueue and a terminal
+    // replacement. enqueue() also defends this invariant atomically, but this
+    // route must not begin terminal-retry handling while another expansion owns
+    // the episode.
+    if (jq.isDuplicate(slug, episode_id, 'expand_chapters')) {
+      return res.status(409).json({ detail: `Chapter expansion already queued/running for ${episode_id}` })
     }
-    const job = jq.retryTerminalChapterExpansion(
-      slug,
-      terminalRetryJobId,
+
+    // Full Script-page Resume sends a terminal source reference alongside its
+    // current form fields. The queue chooses exact replay while any chat batch
+    // is unresolved, and can mint a replacement scope only after all settle.
+    // The body itself is never trusted to supply a provider identity.
+    if (terminalRetryJobId !== undefined) {
+      if (typeof terminalRetryJobId !== 'string' || !terminalRetryJobId) {
+        return res.status(400).json({ detail: 'terminal_retry_job_id must be a job ID.' })
+      }
+      const retryParams = { ...action.params }
+      delete retryParams.terminal_retry_job_id
+      const job = jq.retryTerminalChapterExpansion(
+        slug,
+        terminalRetryJobId,
+        episode_id,
+        retryParams,
+      )
+      return res.status(201).json(job)
+    }
+
+    if (jq.hasUnresolvedTerminalChapterExpansion(slug, episode_id)) {
+      return res.status(409).json({
+        detail: 'A terminal chapter expansion has unresolved GenStudio chat evidence. Resume that job before starting another expansion.',
+      })
+    }
+
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'expand_chapters',
       episode_id,
-      validatedParams,
-    )
-    return res.status(201).json(job)
-  }
-
-  if (jq.hasUnresolvedTerminalChapterExpansion(slug, episode_id)) {
-    return res.status(409).json({
-      detail: 'A terminal chapter expansion has unresolved GenStudio chat evidence. Resume that job before starting another expansion.',
+      title: title || '',
+      params: action.params,
     })
-  }
-
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'expand_chapters',
-    episode_id,
-    title: title || '',
-    params: validatedParams,
+    return res.status(201).json(job)
   })
-  res.status(201).json(job)
 })
 
 router.get('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
@@ -1623,18 +1640,29 @@ router.post('/projects/:slug/generate/metadata', async (req, res) => {
     })
   }
 
-  if (jq.isDuplicate(slug, episode_id, 'metadata')) {
-    return res.status(409).json({ detail: `YouTube finalization already queued/running for ${episode_id}` })
+  let action
+  try {
+    action = await prepareExplicitScriptAction(slug, req.body, 'optional')
+  } catch (error) {
+    return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
+  if (action.conflict) return res.status(409).json({ detail: 'This operation_id already belongs to a different YouTube finalization request.' })
+  if (action.previous) return res.status(200).json({ ...action.previous, reused: true })
 
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'metadata',
-    episode_id,
-    title: `YouTube Finalizer — ${episode_id}`,
-    params: req.body,
+  return withExplicitActionReplay(slug, action.params, res, 'This operation_id already belongs to a different YouTube finalization request.', async () => {
+    if (jq.isDuplicate(slug, episode_id, 'metadata')) {
+      return res.status(409).json({ detail: `YouTube finalization already queued/running for ${episode_id}` })
+    }
+
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'metadata',
+      episode_id,
+      title: `YouTube Finalizer — ${episode_id}`,
+      params: action.params,
+    })
+    return res.status(201).json(job)
   })
-  res.status(201).json(job)
 })
 
 // ── 5) Save / Load metadata ───────────────────────────────────────────────

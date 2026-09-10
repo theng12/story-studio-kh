@@ -444,6 +444,40 @@ describe('POST /expand-chapters — chapters[] validation', () => {
     const jq = await import('../services/job-queue.js')
     if (res.body.job_id) await clearExpandJob(res.body.job_id)
   })
+
+  test('replays an accepted expansion, rejects a changed replay, and permits a new action', async () => {
+    await createSidecar({ approved: true })
+    const jq = await import('../services/job-queue.js')
+    const wasPaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
+    const firstAction = '10000000-0000-4000-8000-000000000001'
+    const secondAction = '20000000-0000-4000-8000-000000000002'
+    const submit = (operation_id: string, chapters_to_expand: number[]) => request(app)
+      .post(`/api/projects/${slug}/generate/expand-chapters`)
+      .send({ episode_id: EPISODE_ID, title: TITLE, chapters_to_expand, operation_id })
+
+    try {
+      const first = await submit(firstAction, [1])
+      assert.equal(first.status, 201, JSON.stringify(first.body))
+
+      const replay = await submit(firstAction, [1])
+      assert.equal(replay.status, 200, JSON.stringify(replay.body))
+      assert.equal(replay.body.job_id, first.body.job_id)
+      assert.equal(replay.body.reused, true)
+
+      const changedReplay = await submit(firstAction, [2])
+      assert.equal(changedReplay.status, 409)
+      assert.match(changedReplay.body.detail, /operation_id already belongs to a different chapter expansion/i)
+
+      await clearExpandJob(first.body.job_id)
+      const newAction = await submit(secondAction, [2])
+      assert.equal(newAction.status, 201, JSON.stringify(newAction.body))
+      assert.notEqual(newAction.body.job_id, first.body.job_id)
+      await clearExpandJob(newAction.body.job_id)
+    } finally {
+      await jq.setQueuePaused(wasPaused)
+    }
+  })
 })
 
 describe('POST /expand-chapters — terminal manual retry', () => {

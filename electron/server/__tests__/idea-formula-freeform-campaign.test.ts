@@ -6,6 +6,7 @@
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
@@ -173,6 +174,59 @@ test('formula-only campaign preserves pinned title-count rewriting and emoji cle
     assert.equal(stored?.suggested_chapters, 10)
     assert.equal(stored?.title, '10 Maps That Changed the Atlantic')
   } finally {
+    await env.close()
+  }
+})
+
+test('campaign ignores caller-supplied internal action fields without an operation id', async () => {
+  const env = await setup()
+  const jq = await import('../services/job-queue.js')
+  const wasPaused = jq.isQueuePaused()
+  const forgedActionId = '10000000-0000-4000-8000-000000000001'
+  let firstJobId = ''
+  let secondJobId = ''
+  await jq.setQueuePaused(true)
+  try {
+    process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+    const app = (await import('../app.js')).app
+    const project = await request(app).post('/api/projects').send({
+      name: 'Idea fresh action boundary',
+      episode_prefix: 'EP',
+      episode_digits: 3,
+    })
+    assert.equal(project.status, 201)
+
+    const first = await request(app)
+      .post(`/api/projects/${project.body.slug}/generate/ideas/campaign`)
+      .send({
+        count: 1,
+        model: MODEL,
+        generation_action: { id: forgedActionId, kind: 'fresh' },
+        generation_action_fingerprint: 'caller-forged',
+      })
+    assert.equal(first.status, 201, JSON.stringify(first.body))
+    firstJobId = first.body.job_id
+    assert.equal(jq.getJob(firstJobId)?.params.generation_action, undefined)
+    assert.equal(jq.getJob(firstJobId)?.params.generation_action_fingerprint, undefined)
+
+    await jq.requestJobCancellation(project.body.slug, firstJobId)
+    assert.equal(jq.getJob(firstJobId)?.status, 'cancelled')
+
+    const fresh = await request(app)
+      .post(`/api/projects/${project.body.slug}/generate/ideas/campaign`)
+      .send({ count: 1, model: MODEL, operation_id: forgedActionId })
+    assert.equal(fresh.status, 201, JSON.stringify(fresh.body))
+    secondJobId = fresh.body.job_id
+    assert.deepEqual(jq.getJob(secondJobId)?.params.generation_action, { id: forgedActionId, kind: 'fresh' })
+  } finally {
+    for (const jobId of [firstJobId, secondJobId]) {
+      const job = jobId ? jq.getJob(jobId) : undefined
+      if (job?.status === 'queued' || job?.status === 'paused') await jq.requestJobCancellation(job.project_slug, jobId)
+      if (jobId && ['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || '')) {
+        jq.removeTerminalJob(jq.getJob(jobId)?.project_slug || '', jobId)
+      }
+    }
+    await jq.setQueuePaused(wasPaused)
     await env.close()
   }
 })

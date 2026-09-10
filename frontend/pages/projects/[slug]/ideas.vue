@@ -1209,6 +1209,7 @@ const route = useRoute()
 const _router = useRouter()
 const slug = computed(() => projectSlug(route.params.slug))
 const { get, post, del, patch } = useApi()
+const freshIdeaCampaignAction = useFreshGenerationAction()
 const { success, error: showError, successUndoable } = useToast()
 const { jobs: ideaJobs, isJobActiveFor } = useJobs()
 const ideaCampaignActive = computed(() => isJobActiveFor('ideas', ['idea_campaign']))
@@ -2711,7 +2712,9 @@ async function generate() {
     // Pattern system. The title template is a plain string that can't
     // "fail to load", so there's nothing to warn about; a normal POST
     // is enough.
-    await post(`/projects/${slug.value}/generate/ideas/campaign`, body)
+    const operationId = freshIdeaCampaignAction.begin(body)
+    await post(`/projects/${slug.value}/generate/ideas/campaign`, { ...body, operation_id: operationId })
+    freshIdeaCampaignAction.complete(operationId)
     success(`Idea Campaign queued for ${form.count} idea${form.count === 1 ? '' : 's'}. You can leave this page and track it in Jobs.`)
   } catch (e: any) { showError(e.data?.detail || 'Failed to queue Idea Campaign') }
   finally { generating.value = false }

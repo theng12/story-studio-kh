@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.142
+
+- Hide completed or recovered Jobs without deleting their files, receipts, or unfinished settlement tracking. Restore hidden cards, undo a hide, and surface new failures automatically.
+- Keep subtitle previews, stitching, Audio Assembly scans and music choices, and Video Assembly scenes, title images and caption checks attached to the selected episode when requests finish out of order.
+- Reuse accepted submissions when retrying an uncertain Ideas campaign, outline, chapter expansion or YouTube Finalizer request. A new intentional action still starts a new generation.
+- Keep writing previews, thumbnail generation, Character Sheet, Image Pool and Scene Review uploads scoped to their original episode. Direct old scene-prompt links to Scene Plan.
+- Prevent overlapping preset and visual-style saves from losing edits, and keep Remote Control data attached to the selected project.
+- Keep Contextual Cues and Sound Design edits attached to their original project and episode during navigation and saving. Show Music Library loading failures with a retry action.
+
 ## v1.4.141
 
 - Retry failed Jobs through the queue using their saved settings and generation intent. Keep the original history when retry is refused; metadata and thumbnail retries no longer depend on incomplete generator forms.
