@@ -49,8 +49,13 @@ describe('force-abandon on the Jobs page', () => {
   })
 
   it('re-running is reachable from ordinary cancelled rows without disguising paid auto-repair as Retry', () => {
-    const retryButtons = jobsPage.match(/v-if="\(job\.status === 'error' \|\| job\.status === 'cancelled'\) && !isVerifiedRecoveredSubtitleJob\(job\) && !isTerminalContinuityRender\(job\) && job\.params\?\.auto_repair_missing_prompts !== true"/g) || []
+    const retryButtons = jobsPage.match(/v-if="canRetryJob\(job\)"/g) || []
     assert.equal(retryButtons.length, 2, 'both the active and the history lists must offer Retry for ordinary jobs')
+    const eligibility = jobsPage.slice(jobsPage.indexOf('function canRetryJob('), jobsPage.indexOf('function customerJobText('))
+    assert.match(eligibility, /\['error', 'cancelled'\]\.includes\(job\.status\)/)
+    assert.match(eligibility, /isVerifiedRecoveredSubtitleJob\(job\)/)
+    assert.match(eligibility, /isTerminalContinuityRender\(job\)/)
+    assert.match(eligibility, /auto_repair_missing_prompts === true\) return false/)
     assert.equal((jobsPage.match(/v-if="isTerminalContinuityRender\(job\)"/g) || []).length, 2,
       'both lists must offer Finish missing images for failed continuity renders')
     assert.equal((jobsPage.match(/@click="finishMissingImages\(job\)"/g) || []).length, 2)

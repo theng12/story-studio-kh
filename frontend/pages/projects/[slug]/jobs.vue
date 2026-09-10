@@ -129,6 +129,12 @@
       New Story jobs are held before submission. Running GenStudio jobs finish saving already accepted items, then pause safely.
 
     </WorkspaceNotice>
+    <WorkspaceNotice v-if="jobsStale" tone="warning" title="Jobs may be out of date">
+      {{ jobsRefreshMessage }}
+      <button class="btn btn-sm btn-secondary" :disabled="refreshingJobs" @click="refreshVisibleJobs">
+        {{ refreshingJobs ? 'Refreshing jobs…' : 'Refresh jobs' }}
+      </button>
+    </WorkspaceNotice>
 
     <!-- Restart-recovery banner: surfaces when one or more jobs got
          marked as "Interrupted by app restart" (job-queue.ts boots running
@@ -418,7 +424,7 @@
               {{ controlBusy.has(job.job_id) ? 'Queuing…' : 'Finish missing images' }}
             </button>
             <button
-              v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
+              v-if="canRetryJob(job)"
               class="btn btn-xs btn-secondary"
               :disabled="controlBusy.has(job.job_id) || repairingJobs.has(job.job_id) || episodeRecoveryBusy(job)"
               @click="retryJob(job)"
@@ -792,7 +798,7 @@
                 {{ controlBusy.has(job.job_id) ? 'Queuing…' : 'Finish missing images' }}
               </button>
               <button
-                v-if="(job.status === 'error' || job.status === 'cancelled') && !isVerifiedRecoveredSubtitleJob(job) && !isTerminalContinuityRender(job) && job.params?.auto_repair_missing_prompts !== true"
+                v-if="canRetryJob(job)"
                 class="btn btn-xs btn-secondary"
                 :disabled="controlBusy.has(job.job_id) || repairingJobs.has(job.job_id) || episodeRecoveryBusy(job)"
                 @click="retryJob(job)"
@@ -1052,10 +1058,8 @@ const genStudioModels = useGenStudioModelDisplay()
 const isUniversal = computed(() => route.query.scope === 'all')
 const jobs = computed(() => isUniversal.value ? universalQueue.jobs.value : projectQueue.jobs.value)
 const queueStats = computed(() => isUniversal.value ? universalQueue.stats.value : projectQueue.stats.value)
-const stats = computed(() => {
-  const recovered = jobs.value.filter(job => jobDisplayStatus(job) === 'recovered').length
-  return { ...queueStats.value, recovered, error: Math.max(0, queueStats.value.error - recovered) }
-})
+const jobsStale = computed(() => isUniversal.value ? universalQueue.jobsStale.value : projectQueue.jobsStale.value)
+const jobsRefreshError = computed(() => isUniversal.value ? universalQueue.lastRefreshError.value : projectQueue.lastRefreshError.value)
 const { success, error: showError, info } = useToast()
 
 interface ProjectOption { slug: string; name: string }
@@ -1110,6 +1114,21 @@ async function loadProjects() {
   if (projects.value.length) return
   try { projects.value = await get<ProjectOption[]>('/projects') }
   catch { projects.value = [] }
+}
+
+const refreshingJobs = ref(false)
+const jobsRefreshMessage = computed(() => jobsRefreshError.value || 'Live updates are unavailable. Refresh to get the latest queue state.')
+async function refreshVisibleJobs() {
+  if (refreshingJobs.value) return
+  refreshingJobs.value = true
+  try {
+    if (isUniversal.value) await universalQueue.refresh()
+    else await projectQueue.fetchJobs(slug.value)
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Could not refresh jobs')
+  } finally {
+    refreshingJobs.value = false
+  }
 }
 
 watch(isUniversal, enabled => {
@@ -1825,6 +1844,8 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   broll_select: 'B-roll selection',
   broll_assemble: 'B-roll assembly',
   broll_autotag: 'B-roll tags',
+  music_generate: 'Music generation',
+  music_video: 'Music video',
 }
 function jobTypeLabel(type: string): string {
   return JOB_TYPE_LABELS[type] || type
@@ -1845,6 +1866,20 @@ const activeFilter = ref('all')
 const projectScopedJobs = computed(() => {
   if (!isUniversal.value || projectFilter.value === 'all') return jobs.value
   return jobs.value.filter(job => job.project_slug === projectFilter.value)
+})
+const stats = computed(() => {
+  const scoped = projectScopedJobs.value
+  const recovered = scoped.filter(job => jobDisplayStatus(job) === 'recovered').length
+  return {
+    ...queueStats.value,
+    running: scoped.filter(job => job.status === 'running').length,
+    queued: scoped.filter(job => job.status === 'queued').length,
+    paused: scoped.filter(job => job.status === 'paused').length,
+    done: scoped.filter(job => job.status === 'done').length,
+    error: Math.max(0, scoped.filter(job => job.status === 'error').length - recovered),
+    total: scoped.length,
+    recovered,
+  }
 })
 const typeScopedJobs = computed(() => activeFilter.value === 'all'
   ? projectScopedJobs.value
@@ -1903,11 +1938,17 @@ const filterTabs = computed(() => {
     { type: 'subtitles_transcribe', label: 'Subtitles' },
     { type: 'youtube_upload',       label: 'YouTube' },
   ]
+  const knownTypes = new Set(types.map(tab => tab.type))
+  for (const type of projectScopedJobs.value.map(job => job.type)) {
+    if (knownTypes.has(type)) continue
+    knownTypes.add(type)
+    types.push({ type, label: jobTypeLabel(type) })
+  }
   return types.map(t => ({
     ...t,
     count: t.type === 'all'
-      ? projectScopedJobs.value.filter(j => j.status === 'running' || j.status === 'queued').length
-      : projectScopedJobs.value.filter(j => j.type === t.type && (j.status === 'running' || j.status === 'queued')).length,
+      ? projectScopedJobs.value.filter(j => ['running', 'queued', 'paused'].includes(j.status)).length
+      : projectScopedJobs.value.filter(j => j.type === t.type && ['running', 'queued', 'paused'].includes(j.status)).length,
   }))
 })
 
@@ -2013,6 +2054,7 @@ const paginatedHistory = computed(() => {
 watch(activeFilter, () => { currentPage.value = 1 })
 watch(statusFilter, () => { currentPage.value = 1 })
 watch(projectFilter, () => { currentPage.value = 1 })
+watch(historyTotalPages, total => { currentPage.value = Math.min(currentPage.value, total) })
 
 const removableJobs = computed(() => projectScopedJobs.value.filter(job =>
   ['done', 'error', 'cancelled'].includes(job.status)
@@ -2261,6 +2303,18 @@ function primaryJobControl(job: RJob): JobControl | null {
 
 function secondaryJobControls(job: RJob): JobControl[] {
   return job.status === 'paused' ? jobControls(job) : secondaryControls(jobControls(job))
+}
+
+function canRetryJob(job: RJob): boolean {
+  if (!['error', 'cancelled'].includes(job.status)
+    || isVerifiedRecoveredSubtitleJob(job)
+    || isTerminalContinuityRender(job)
+    || job.params?.auto_repair_missing_prompts === true) return false
+  // The queue can replay this saved chat identity without submitting a fresh
+  // provider request. Keep Retry available beside Recheck for that exact path.
+  const canReplaySavedChat = job.type === 'outline_only' || job.type === 'expand_chapters'
+  return canReplaySavedChat || !jobControls(job).some(control =>
+    control.action === 'recheck-provider-status' || control.action === 'return-later')
 }
 
 function customerJobText(value: unknown, job: RJob): string {
@@ -2876,144 +2930,46 @@ async function finishMissingImages(job: RJob, announce = true): Promise<boolean>
   }
 }
 
+function isConfirmedRetryReplacement(job: RJob, next: Job | undefined): next is Job {
+  return !!next
+    && typeof next.job_id === 'string'
+    && !!next.job_id.trim()
+    && next.job_id !== job.job_id
+    && next.project_slug === jobProjectSlug(job)
+    && next.episode_id === job.episode_id
+    && next.type === (job.type === 'images' ? 'thumb_images' : job.type)
+}
+
 async function retryJob(job: RJob): Promise<boolean> {
-  if (repairingJobs.value.has(job.job_id) || episodeRecoveryBusy(job)) return false
+  if (controlBusy.value.has(job.job_id) || repairingJobs.value.has(job.job_id) || episodeRecoveryBusy(job)) return false
   // v1.4.32 — whatever a repair found belonged to the run that just failed.
   // Re-running makes it stale, so it is dropped here rather than left behind to
   // license a later Retry all.
   setRepairState(job.job_id, null)
-  const projectSlug = jobProjectSlug(job)
-  if (isEpisodeRecoveryType(job.type)) {
-    try {
+  controlBusy.value = new Set(controlBusy.value).add(job.job_id)
+  try {
+    const projectSlug = jobProjectSlug(job)
+    if (isEpisodeRecoveryType(job.type)) {
       const response = await post<{ plan: { message: string } }>(`/projects/${projectSlug}/jobs/recover-episode/${job.episode_id}`, { source_job_ids: [job.job_id] })
       info(response.plan.message)
       return true
-    } catch (cause: any) {
-      showError(cause?.data?.detail || cause?.message || 'Episode recovery could not be advanced.')
-      return false
     }
-  }
-  // These queue-owned jobs must preserve their exact durable request params.
-  // Motion jobs without a saved pair are historical jobs: the executor alone
-  // may select today's cheapest published option. Reposting through a fresh
-  // Motion Review route would reject that legacy shape after deleting history.
-  if (job.type === 'expand_chapters' || job.type === 'scene_clip_generate' || job.type === 'scene_clips_batch') {
-    try {
-      await post(`${jobQueuePath(job)}/retry`, {})
-      success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
-      return true
-    } catch (e: any) {
-      showError(customerJobText(e?.data?.detail || e?.message || 'Failed to retry job', job))
-      return false
-    }
-  }
-  // Every job type the queue knows about needs an entry here — otherwise
-  // a failed 20-minute video-assembly becomes un-retryable with a cryptic
-  // "Cannot retry job type: X" toast. When a new generator is added, this
-  // map is the one frontend hook to update.
-  const endpointMap: Record<string, { url: string; params: any }> = {
-    // M1: legacy 'script' job type was removed. Retry now routes the two
-    // independent jobs to their respective endpoints.
-    'script-only':       { url: `/projects/${projectSlug}/generate/script-only`,       params: job.params },
-    'introduction-only': { url: `/projects/${projectSlug}/generate/introduction-only`, params: job.params },
-    'chapter-only':      { url: `/projects/${projectSlug}/generate/chapter-only`,      params: job.params },
-    outline_only:        { url: `/projects/${projectSlug}/generate/outline-only`,       params: job.params },
-    expand_chapters:     { url: `/projects/${projectSlug}/generate/expand-chapters`,    params: job.params },
-    // v1.0.308 — image_prompts Retry is now SMART: it routes to the dedicated
-    // /generate/image-prompts route with fill_gaps=true, so the generator
-    // regenerates ONLY missing prompt entries for the job's mode and merges
-    // them into existing files (preserving the ones that already succeeded). Previously this went
-    // through pipeline/run-batch which regenerated all N from scratch.
-    image_prompts:   { url: `/projects/${projectSlug}/generate/image-prompts`, params: { ...job.params, fill_gaps: true } },
-    scene_images:    { url: `/projects/${projectSlug}/generate/images`,  params: { ...job.params, mode: 'scenes' } },
-    thumb_images:    { url: `/projects/${projectSlug}/generate/images`,  params: { ...job.params, mode: 'thumbs' } },
-    images:          { url: `/projects/${projectSlug}/generate/images`,  params: job.params },
-    audio:           { url: `/projects/${projectSlug}/generate/audio`,   params: job.params },
-    video:           { url: `/projects/${projectSlug}/generate/video`,         params: job.params },
-    video_assembly:  { url: `/projects/${projectSlug}/generate/video-assembly`, params: job.params },
-    images_repair:   { url: `/projects/${projectSlug}/generate/images-repair`,  params: { episode_id: job.episode_id } },
-    scene_image_generate: {
-      url: `/projects/${projectSlug}/scene-review/${job.episode_id}/generate-image`,
-      params: job.params,
-    },
-    composition_generate: {
-      url: `/projects/${projectSlug}/episodes/${job.episode_id}/img2img-references/composition/generate`,
-      params: job.params,
-    },
-    image_pool_generate: {
-      url: `/projects/${projectSlug}/image-pool/generate`,
-      params: job.params,
-    },
-    scene_clip_generate: {
-      url: `/projects/${projectSlug}/scene-review/${job.episode_id}/generate-clip`,
-      params: job.params,
-    },
-    scene_clips_batch: {
-      url: `/projects/${projectSlug}/scene-review/${job.episode_id}/generate-clips-batch`,
-      params: job.params,
-    },
-  }
-  // Batch-only types — `metadata` and `image_prompts` are enqueued exclusively
-  // via pipeline.ts (no dedicated `/generate/<type>` queue route exists), so
-  // a retry has to go back through the same path. We reuse run-batch with
-  // force=true so the pipeline's isStepAlreadyDone gate doesn't filter the
-  // step out (the user clicked retry because they want it to run again),
-  // and run-batch's preset resolution picks up any preset edits the user
-  // made between the failure and the retry.
-  // metadata stays batch-only (no partial concept — it's one document, and it
-  // has no dedicated /generate route on the retry path). image_prompts moved to
-  // the endpointMap above so its Retry can pass fill_gaps=true (see v1.0.308).
-  const BATCH_ONLY_TYPES = new Set<string>(['metadata'])
-  if (BATCH_ONLY_TYPES.has(job.type)) {
-    try {
-      const resp = await post<{ jobs: Array<{ job_id: string }>; skipped?: Array<{ reason: string }> }>(
-        `/projects/${projectSlug}/pipeline/run-batch`,
-        { episode_ids: [job.episode_id], steps: [job.type], force: true },
-      )
-      if (!resp?.jobs?.length) {
-        const reason = resp?.skipped?.[0]?.reason || 'Pipeline did not enqueue the job'
-        showError(customerJobText(reason, job))
-        return false
-      }
-      await del(jobQueuePath(job))
-      success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
-      return true
-    } catch (e: any) {
-      showError(customerJobText(e?.data?.detail || 'Failed to retry job', job))
-      return false
-    }
-  }
-
-  const target = endpointMap[job.type]
-  if (!target) {
-    try {
-      await post(projectSlug === '_app_' ? `/jobs/all/${job.job_id}/retry` : `/projects/${projectSlug}/jobs/${job.job_id}/retry`, {})
-      success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
-      return true
-    } catch (e: any) {
-      showError(customerJobText(e?.data?.detail || e?.message || 'Failed to retry job', job))
-      return false
-    }
-  }
-
-  // v1.0.114 — Retry is now RESUBMIT-ONLY. The previous Repair-then-Retry
-  // combined path was split out into repairJobOnly() above, exposed as
-  // its own button on the Jobs page. The Generator's per-chunk skip-when-
-  // on-disk guards STILL prevent duplicates IF the user clicked Repair
-  // first (recommended for audio/images/video) and any in-flight provider
-  // results landed on disk before this retry runs. But Retry no longer
-  // auto-invokes Repair, because the combined path had a footgun: if
-  // Repair failed/timed out, Retry still fired and resubmitted, causing
-  // duplicate provider charges on every "retry until it works" click.
-  // Now both actions are deliberate solo clicks; nothing combines them.
-  try {
-    await del(jobQueuePath(job))
-    await post(target.url, target.params)
+    const response = await post<{ job?: Job }>(`${jobQueuePath(job)}/retry`, {})
+    const next = response.job
+    if (!isConfirmedRetryReplacement(job, next)) throw new Error('Story Studio could not confirm this job was re-queued.')
+    // The queue creates a fresh history row for Retry. Retire the old terminal
+    // row only after its confirmed replacement has the same durable scope.
+    projectQueue.replaceJob(job.job_id, next)
+    universalQueue.replaceJob(job.job_id, next)
     success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
     return true
   } catch (e: any) {
     showError(customerJobText(e?.data?.detail || e?.message || 'Failed to retry job', job))
     return false
+  } finally {
+    const next = new Set(controlBusy.value)
+    next.delete(job.job_id)
+    controlBusy.value = next
   }
 }
 

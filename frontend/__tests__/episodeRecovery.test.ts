@@ -29,7 +29,7 @@ test('cancelled subtitle, Scene Plan, and Scene Review retries use saved source 
   assert.deepEqual(grouped.other, [])
   assert.deepEqual(grouped.episodes, [{ project_slug: 'p', episode_id: 'EP0001', source_job_ids: jobs.map(job => job.job_id) }])
   const page = readFileSync(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url), 'utf8')
-  const retry = page.slice(page.indexOf('async function retryJob('), page.indexOf('const endpointMap:', page.indexOf('async function retryJob(')))
+  const retry = page.slice(page.indexOf('async function retryJob('), page.indexOf('async function autoRepairScenePrompts', page.indexOf('async function retryJob(')))
   assert.match(retry, /if \(isEpisodeRecoveryType\(job.type\)\)/)
   assert.match(retry, /source_job_ids: \[job.job_id\]/)
   assert.doesNotMatch(retry, /status !== 'cancelled'/)

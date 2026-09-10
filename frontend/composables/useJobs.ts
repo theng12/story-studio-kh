@@ -91,6 +91,7 @@ let source: EventSource | null = null
 let pollInterval: ReturnType<typeof setInterval> | null = null
 let currentSlug: string | null = null
 let streamFailures = 0
+let transportEpoch = 0
 
 const MAX_STREAM_FAILURES = 3
 const FALLBACK_POLL_MS = 10_000
@@ -102,6 +103,8 @@ function resetJobsState() {
   jobs.value = []
   stats.value = { ...EMPTY_STATS }
   previousStatuses.clear()
+  refreshFailures.value = 0
+  lastRefreshError.value = ''
 }
 
 function recomputeStats(): JobStats {
@@ -195,7 +198,19 @@ function applyUpdate(job: Job, slug = currentSlug) {
   const idx = next.findIndex(j => j.job_id === job.job_id)
   if (idx >= 0) next[idx] = job
   else next.unshift(job)
-  announceTransitions([job])
+  announceTransitions(next)
+  jobs.value = next
+  stats.value = recomputeStats()
+}
+
+/** Apply a confirmed replacement without leaving its retired terminal row visible. */
+function replaceJob(replacedJobId: string, job: Job, slug = currentSlug) {
+  if (currentSlug !== slug || job.project_slug !== slug) return
+  const next = jobs.value.filter(existing => existing.job_id !== replacedJobId)
+  const idx = next.findIndex(existing => existing.job_id === job.job_id)
+  if (idx >= 0) next[idx] = job
+  else next.unshift(job)
+  announceTransitions(next)
   jobs.value = next
   stats.value = recomputeStats()
 }
@@ -206,14 +221,16 @@ async function refreshFull(slug: string) {
   // briefly undefined or the literal "undefined" string (template-
   // literal artifact). Skip — /projects/undefined/jobs is always 404.
   if (!slug || slug === 'undefined') return
+  const epoch = transportEpoch
   const { get } = useApi()
   try {
     const data = await get<JobListResponse>(`/projects/${slug}/jobs`)
-    if (currentSlug !== slug) return
+    if (currentSlug !== slug || epoch !== transportEpoch) return
     applySnapshot(data, slug)
     refreshFailures.value = 0
     lastRefreshError.value = ''
   } catch (e: any) {
+    if (currentSlug !== slug || epoch !== transportEpoch) return
     // Don't toast on every retry — that's noise fatigue. Bump a counter
     // instead; the UI surfaces a "data may be stale" badge once we cross
     // STALE_THRESHOLD, so a single network hiccup stays quiet but a
@@ -236,7 +253,9 @@ function startStream(slug: string) {
     return
   }
 
+  const stream = source
   source.addEventListener('snapshot', (ev: MessageEvent) => {
+    if (source !== stream) return
     streamFailures = 0
     try {
       const payload = JSON.parse(ev.data) as JobListResponse
@@ -253,6 +272,7 @@ function startStream(slug: string) {
   })
 
   source.addEventListener('update', (ev: MessageEvent) => {
+    if (source !== stream) return
     streamFailures = 0
     try {
       const payload = JSON.parse(ev.data) as Job
@@ -269,6 +289,7 @@ function startStream(slug: string) {
   })
 
   source.addEventListener('cleared', (ev: MessageEvent) => {
+    if (source !== stream) return
     // Reconcile locally instead of downloading and re-rendering the full job
     // history after every dismissal. The server sends the exact removed ids.
     try {
@@ -284,6 +305,7 @@ function startStream(slug: string) {
   })
 
   source.onerror = () => {
+    if (source !== stream) return
     // EventSource auto-reconnects; this fires on every reconnect attempt
     // including brief hiccups. Only flip to polling after repeated failures.
     streamFailures++
@@ -295,6 +317,7 @@ function startStream(slug: string) {
 }
 
 function startFallbackPolling(slug: string) {
+  transportEpoch++
   if (source) {
     try { source.close() } catch {}
     source = null
@@ -305,6 +328,7 @@ function startFallbackPolling(slug: string) {
 }
 
 function stopTransport() {
+  transportEpoch++
   if (source) {
     try { source.close() } catch {}
     source = null
@@ -370,6 +394,7 @@ export function useJobs() {
     jobsStale,
     lastRefreshError: readonly(lastRefreshError),
     applyUpdate,
+    replaceJob,
     isJobActiveFor,
     fetchJobs,
     startPolling,

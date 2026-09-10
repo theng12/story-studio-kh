@@ -20,7 +20,7 @@ async function loadJobs(): Promise<Component> {
     import { computed, defineComponent as _defineComponent, h, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from ${JSON.stringify(vueUrl)}
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
-    const useRoute = () => ({ params: { slug: 'fixture-project' }, query: {} })
+    const useRoute = () => globalThis.__jobsRoute
     const useApi = () => globalThis.__jobsApi
     const useJobs = () => globalThis.__jobsProjectQueue
     const useAllJobs = () => globalThis.__jobsUniversalQueue
@@ -74,12 +74,20 @@ async function loadJobs(): Promise<Component> {
   ).toString('base64')}`)).default
 }
 
-async function mount(jobs: any[], postReply?: (path: string, body: unknown) => Promise<unknown>) {
+async function mount(
+  jobs: any[],
+  postReply?: (path: string, body: unknown) => Promise<unknown>,
+  routeQuery: Record<string, string> = {},
+) {
   const posts: Array<{ path: string; body: unknown }> = []
   const toasts: Array<{ kind: 'success' | 'error' | 'info'; message: string }> = []
   function makeReadonlyQueue(seed: any[]) {
     const jobRows = ref(seed)
     const queueStats = ref({ running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 })
+    const jobsStale = ref(false)
+    const lastRefreshError = ref('')
+    let refreshCalls = 0
+    let fetchCalls = 0
     const refreshStats = () => {
       const next = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: jobRows.value.length }
       for (const job of jobRows.value) if (job.status in next) (next as any)[job.status]++
@@ -88,7 +96,7 @@ async function mount(jobs: any[], postReply?: (path: string, body: unknown) => P
     const calls: any[] = []
     refreshStats()
     return {
-      jobs: readonly(jobRows), stats: readonly(queueStats), calls,
+      jobs: readonly(jobRows), stats: readonly(queueStats), jobsStale: readonly(jobsStale), lastRefreshError: readonly(lastRefreshError), jobsStaleState: jobsStale, lastRefreshErrorState: lastRefreshError, calls,
       applyUpdate(next: any) {
         calls.push(next)
         const rows = [...jobRows.value]
@@ -98,11 +106,24 @@ async function mount(jobs: any[], postReply?: (path: string, body: unknown) => P
         jobRows.value = rows
         refreshStats()
       },
+      replaceJob(replacedJobId: string, next: any) {
+        calls.push(next)
+        const rows = jobRows.value.filter(job => job.job_id !== replacedJobId)
+        const index = rows.findIndex(job => job.job_id === next.job_id)
+        if (index >= 0) rows[index] = next
+        else rows.unshift(next)
+        jobRows.value = rows
+        refreshStats()
+      },
       start: () => undefined, stop: () => undefined,
+      refresh: async () => { refreshCalls++ },
+      fetchJobs: async () => { fetchCalls++ },
+      transportCalls: () => ({ refreshCalls, fetchCalls }),
     }
   }
   const projectQueue = makeReadonlyQueue(jobs)
   const universalQueue = makeReadonlyQueue(jobs)
+  ;(globalThis as any).__jobsRoute = { params: { slug: 'fixture-project' }, query: routeQuery }
   ;(globalThis as any).__jobsProjectQueue = projectQueue
   ;(globalThis as any).__jobsUniversalQueue = universalQueue
   ;(globalThis as any).__jobsApi = {
@@ -198,7 +219,7 @@ test('mounted Retry all continues after one grouped episode recovery is rejected
   ], async (path) => {
     if (path.endsWith('/EP0001')) throw new Error('The first provider request still needs reconciliation.')
     if (path.endsWith('/EP0002')) return { plan: { message: 'EP0002 queued' } }
-    if (path.endsWith('/generate/audio')) throw new Error('The independent retry was rejected.')
+    if (path.endsWith('/ordinary-failure/retry')) throw new Error('The independent retry was rejected.')
     throw new Error(`unexpected request: ${path}`)
   })
   try {
@@ -206,7 +227,7 @@ test('mounted Retry all continues after one grouped episode recovery is rejected
     assert.deepEqual(mounted.posts.map(call => call.path), [
       '/projects/fixture-project/jobs/recover-episode/EP0001',
       '/projects/fixture-project/jobs/recover-episode/EP0002',
-      '/projects/fixture-project/generate/audio',
+      '/projects/fixture-project/jobs/ordinary-failure/retry',
     ])
     assert.deepEqual(mounted.toasts[mounted.toasts.length - 1], {
       kind: 'error',
@@ -299,5 +320,115 @@ test('mounted Jobs holds a duplicate episode click until its free recovery settl
     settle?.({ audited_episode_codes: ['SS0077'], enqueued: [], skipped: [], audio_repair_candidates: [] })
     assert.equal(await first, true)
     assert.equal(mounted.posts.length, 1)
+  } finally { mounted.unmount() }
+})
+
+test('mounted Jobs scopes metrics, keeps paused type counts, and clamps history after an SSE update', async () => {
+  const history = Array.from({ length: 11 }, (_, index) => ({
+    job_id: `history-${index}`,
+    project_slug: 'other-project',
+    episode_id: `EP${index}`,
+    type: 'music_generate',
+    status: 'done',
+    params: {},
+  }))
+  const selected = {
+    job_id: 'selected-paused', project_slug: 'fixture-project', episode_id: 'EP-selected',
+    type: 'music_generate', status: 'paused', params: {},
+  }
+  const mounted = await mount([...history, selected], undefined, { scope: 'all' })
+  try {
+    mounted.state.projectFilter.value = 'fixture-project'
+    await nextTick()
+    assert.equal(mounted.state.stats.value.paused, 1)
+    assert.equal(mounted.state.stats.value.done, 0)
+    assert.equal(mounted.state.filterTabs.value.find((tab: any) => tab.type === 'music_generate')?.label, 'Music generation')
+    assert.equal(mounted.state.filterTabs.value.find((tab: any) => tab.type === 'music_generate')?.count, 1)
+
+    mounted.state.projectFilter.value = 'all'
+    mounted.state.currentPage.value = 2
+    mounted.universalQueue.applyUpdate({ ...history[10], status: 'queued' })
+    await nextTick()
+    assert.equal(mounted.state.historyTotalPages.value, 1)
+    assert.equal(mounted.state.currentPage.value, 1)
+  } finally { mounted.unmount() }
+})
+
+test('mounted Jobs retries non-episode rows through the queue and retains failures', async () => {
+  const staleThumbnail = {
+    job_id: 'thumbnail-stale', project_slug: 'fixture-project', episode_id: 'EP0001',
+    type: 'thumb_images', status: 'error', params: { obsolete: 'must-not-be-reposted', force: true },
+  }
+  let resolveRetry: ((value: unknown) => void) | undefined
+  const mounted = await mount([staleThumbnail], (path, body) => {
+    assert.equal(path, '/projects/fixture-project/jobs/thumbnail-stale/retry')
+    assert.deepEqual(body, {})
+    return new Promise(resolve => { resolveRetry = resolve })
+  })
+  try {
+    assert.equal(mounted.state.canRetryJob({ ...staleThumbnail, controls: [{ action: 'return-later', enabled: true }] }), false)
+    assert.equal(mounted.state.canRetryJob({ ...staleThumbnail, controls: [{ action: 'recheck-provider-status', enabled: true }] }), false)
+    for (const type of ['outline_only', 'expand_chapters']) {
+      assert.equal(
+        mounted.state.canRetryJob({ ...staleThumbnail, type, controls: [{ action: 'recheck-provider-status', enabled: true }] }),
+        true,
+        `${type} keeps Retry for the server-owned exact replay of saved chat evidence`,
+      )
+    }
+    assert.equal(mounted.state.canRetryJob(staleThumbnail), true)
+    const first = mounted.state.retryJob(mounted.state.jobs.value[0])
+    assert.equal(await mounted.state.retryJob(mounted.state.jobs.value[0]), false, 'busy retry does not issue a second request')
+    assert.equal(mounted.posts.length, 1)
+    resolveRetry?.({ job: {
+      ...staleThumbnail,
+      job_id: 'thumbnail-retry-1',
+      status: 'queued',
+      params: { server_owned: true },
+    } })
+    assert.equal(await first, true)
+    assert.deepEqual(mounted.state.jobs.value.map((job: any) => job.job_id), ['thumbnail-retry-1'])
+    assert.equal(mounted.state.jobs.value[0].status, 'queued')
+    assert.equal(mounted.projectQueue.calls.length, 1)
+    assert.equal(mounted.universalQueue.calls.length, 1)
+  } finally { mounted.unmount() }
+
+  const legacyImages = { ...staleThumbnail, job_id: 'legacy-images-thumbnail', type: 'images', params: {} }
+  const legacy = await mount([legacyImages], async () => ({
+    job: { ...legacyImages, job_id: 'legacy-thumbnail-retry', type: 'thumb_images', status: 'queued' },
+  }))
+  try {
+    assert.equal(await legacy.state.retryJob(legacy.state.jobs.value[0]), true)
+    assert.deepEqual(legacy.state.jobs.value.map((job: any) => job.job_id), ['legacy-thumbnail-retry'])
+    assert.equal(legacy.state.jobs.value[0].type, 'thumb_images')
+  } finally { legacy.unmount() }
+
+  const mismatched = await mount([staleThumbnail], async () => ({
+    job: { ...staleThumbnail, job_id: 'wrong-episode-retry', episode_id: 'EP0002', status: 'queued' },
+  }))
+  try {
+    assert.equal(await mismatched.state.retryJob(mismatched.state.jobs.value[0]), false)
+    assert.deepEqual(mismatched.state.jobs.value.map((job: any) => job.job_id), ['thumbnail-stale'])
+    assert.equal(mismatched.projectQueue.calls.length, 0)
+    assert.equal(mismatched.universalQueue.calls.length, 0)
+  } finally { mismatched.unmount() }
+
+  const rejected = await mount([staleThumbnail], async () => { throw new Error('Retry is not available yet.') })
+  try {
+    assert.equal(await rejected.state.retryJob(rejected.state.jobs.value[0]), false)
+    assert.equal(rejected.state.jobs.value.length, 1)
+    assert.equal(rejected.state.jobs.value[0].status, 'error')
+  } finally { rejected.unmount() }
+})
+
+test('mounted Jobs exposes stale state from the selected queue and refreshes that queue', async () => {
+  const mounted = await mount([])
+  try {
+    mounted.projectQueue.jobsStaleState.value = true
+    mounted.projectQueue.lastRefreshErrorState.value = 'The live stream was interrupted.'
+    await nextTick()
+    assert.equal(mounted.state.jobsStale.value, true)
+    assert.equal(mounted.state.jobsRefreshMessage.value, 'The live stream was interrupted.')
+    await mounted.state.refreshVisibleJobs()
+    assert.deepEqual(mounted.projectQueue.transportCalls(), { refreshCalls: 0, fetchCalls: 1 })
   } finally { mounted.unmount() }
 })

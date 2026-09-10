@@ -284,3 +284,31 @@ describe('image repair completion notices', () => {
     assert.match(notice.message, /2 images need fresh generation/)
   })
 })
+
+
+describe('useJobs — closed transport isolation', () => {
+  test('old cleared/error frames cannot erase or disconnect a newly selected project', () => {
+    reset('old-project')
+    const old = FakeEventSource.last!
+    const queue = useJobs()
+    queue.startPolling('new-project')
+    const current = FakeEventSource.last!
+    current.fire('snapshot', mkSnapshot([mkJob({ job_id: 'same-id', project_slug: 'new-project' })]))
+    old.fire('cleared', { job_ids: ['same-id'] })
+    for (let n = 0; n < 3; n++) old.onerror?.()
+    assert.deepEqual(queue.jobs.value.map(job => job.job_id), ['same-id'])
+    assert.equal(current.closed, false)
+    queue.stopPolling()
+  })
+
+  test('a closed stream for the same project cannot overwrite its replacement', () => {
+    reset('same-project')
+    const old = FakeEventSource.last!
+    const queue = useJobs()
+    queue.startPolling('same-project')
+    FakeEventSource.last!.fire('snapshot', mkSnapshot([mkJob({ job_id: 'new', project_slug: 'same-project' })]))
+    old.fire('snapshot', mkSnapshot([mkJob({ job_id: 'old', project_slug: 'same-project' })]))
+    assert.deepEqual(queue.jobs.value.map(job => job.job_id), ['new'])
+    queue.stopPolling()
+  })
+})
