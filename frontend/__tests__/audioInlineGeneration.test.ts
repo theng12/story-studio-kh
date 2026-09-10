@@ -84,7 +84,7 @@ describe('Audio one-chapter generation', () => {
   test('drops old episode targets and ignores late section responses', () => {
     assert.match(audioPage, /effectiveSections\.value = \[\][\s\S]{0,80}missingSections\.value = \[\]/)
     assert.match(chapterSelector, /const revision = \+\+refreshRevision/)
-    assert.match(chapterSelector, /if \(revision !== refreshRevision\) return/)
+    assert.match(chapterSelector, /if \(revision !== refreshRevision \|\| props\.projectSlug !== projectSlug \|\| props\.episodeId !== episodeId \|\| props\.model !== model \|\| props\.requestedSection\?\.trim\(\) !== requested\) return/)
   })
 
   test('surfaces downstream subtitle freshness supplied by the backend', () => {

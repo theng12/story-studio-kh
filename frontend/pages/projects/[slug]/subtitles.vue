@@ -83,11 +83,11 @@
               v-if="subtitleTimelineIntegrity && !subtitleTimelineIntegrity.complete"
               tone="error"
               :title="hasBlockingCueGaps ? 'Subtitle coverage gap' : 'Subtitle timeline verification is incomplete'"
-              class="mt-2"
+              class="mt-2 sub-gap-notice"
             >
               <p v-if="hasBlockingCueGaps">
                 The stitched timeline has an interval with no subtitle cues. Re-stitching alone cannot add the missing cues.
-                Transcribe the attributed chapter, then stitch again.
+                Listen to the chapter audio. If the audio is wrong, regenerate it in Audio Generator; if it sounds correct, regenerate its subtitles. Then stitch again.
               </p>
               <p v-else-if="planningSourceRevalidationRequired">
                 This is the current raw timeline. Scene Plan will revalidate the corrected timeline before any provider work.
@@ -107,16 +107,22 @@
                   :to="`/projects/${slug}/scene-plan?episode_id=${encodeURIComponent(episodeId)}`"
                   class="btn btn-sm btn-secondary"
                 >Open Scene Plan</NuxtLink>
-                <NuxtLink
-                  v-for="section in gapActionSections"
-                  :key="section"
-                  :to="subtitleSectionLink(section)"
-                  class="btn btn-sm btn-secondary"
-                >Open {{ section }}</NuxtLink>
+                <div v-for="section in gapActionSections" :key="section" class="sub-gap-actions">
+                  <button type="button" class="btn btn-sm btn-secondary" @click="reviewChapterAudio(section, true)">Listen to {{ section.replaceAll('_', ' ') }}</button>
+                  <NuxtLink :to="audioSectionLink(section)" class="btn btn-sm btn-secondary">Open Audio Generator · {{ section.replaceAll('_', ' ') }}</NuxtLink>
+                  <NuxtLink :to="subtitleSectionLink(section)" class="inline-link">Review subtitles</NuxtLink>
+                </div>
               </template>
             </WorkspaceNotice>
+            <div v-if="audioReview" ref="audioReviewPanel" tabindex="-1">
+              <ChapterAudioPreview
+                :key="`${slug}:${episodeId}:${audioReview.section}:${audioReview.startSeconds}`"
+                :project-slug="slug" :episode-id="episodeId" :section="audioReview.section"
+                :start-seconds="audioReview.startSeconds" @close="audioReview = null"
+              />
+            </div>
             <p v-if="sections.length" class="text-muted text-xs mt-2">
-              Generate or regenerate one chapter at a time. Each action starts a new GenStudio request for only that chapter; its current quote may be charged.
+              Generate or regenerate subtitles for one chapter at a time. Each action starts a new GenStudio request for only that chapter; its current quote may be charged.
             </p>
             <ul v-if="sections.length" class="sub-chapter-list mt-2">
               <li v-for="s in sections" :id="`sub-section-${s.slug}`" :key="s.slug" class="sub-chapter-row" tabindex="-1">
@@ -134,10 +140,12 @@
                 <NuxtLink
                   v-if="s.quality && s.quality.state !== 'not_checked'"
                   :class="['audio-quality-link', `tone-${audioQualityTone(s.quality.state)}`]"
-                  :to="`/projects/${slug}/audio?episode_id=${encodeURIComponent(episodeId)}`"
+                  :to="audioSectionLink(s.slug)"
                   :title="s.quality.reason || 'Open Audio to review the source and transcript evidence.'"
                 >Audio: {{ audioQualityLabel(s.quality.state) }}</NuxtLink>
                 <div class="sub-chapter-action">
+                  <button type="button" class="btn btn-xs btn-secondary" :aria-label="`Listen to ${s.label} audio`" @click="reviewChapterAudio(s.slug)">Listen</button>
+                  <NuxtLink :to="audioSectionLink(s.slug)" class="btn btn-xs btn-secondary" :aria-label="`Open Audio Generator for ${s.label}`">Audio Generator</NuxtLink>
                   <button
                     :class="['btn', 'btn-xs', chapterHasSrt(s.slug) ? 'btn-secondary' : 'btn-primary']"
                     type="button"
@@ -145,7 +153,7 @@
                     :aria-label="`${chapterHasSrt(s.slug) ? 'Regenerate' : 'Generate'} ${s.label} subtitles`"
                     :title="canTranscribe ? `Starts a fresh GenStudio request for ${s.label} only.` : transcribeDisabledReason"
                     @click="retranscribeChapter(s.slug)"
-                  >{{ subtitleActionLabel(s.slug, chapterHasSrt(s.slug) ? 'Regenerate this chapter' : 'Generate this chapter') }}</button>
+                  >{{ subtitleActionLabel(s.slug, chapterHasSrt(s.slug) ? 'Regenerate subtitles' : 'Generate subtitles') }}</button>
                 </div>
               </li>
             </ul>
@@ -468,6 +476,8 @@ const episodeId = ref(initialEpisodeId)
 const pendingSectionDeepLink = ref(typeof route.query.section === 'string' ? route.query.section : '')
 const status = ref<SubtitleStatus | null>(null)
 const sections = ref<SectionRow[]>([])
+const audioReview = ref<{ section: string; startSeconds: number } | null>(null)
+const audioReviewPanel = ref<HTMLElement | null>(null)
 const loading = ref(false)
 
 const force = ref(false)
@@ -622,6 +632,20 @@ function gapLabel(gap: NonNullable<NonNullable<SubtitleStatus['timeline_integrit
   const chapters = gap.section_slugs.join(', ') || 'unmapped chapter'
   return `${chapters}: ${formatSeconds(gap.previous_end_sec)}–${formatSeconds(gap.next_start_sec)} (${gap.gap_sec.toFixed(1)}s)`
 }
+function audioSectionLink(section: string): string {
+  return `/projects/${encodeURIComponent(slug.value)}/audio?episode_id=${encodeURIComponent(episodeId.value)}&section=${encodeURIComponent(section)}`
+}
+async function reviewChapterAudio(section: string, atGap = false): Promise<void> {
+  const scope = episodeSequence
+  const gap = atGap ? subtitleTimelineIntegrity.value?.blocking_cue_gaps?.find(gap =>
+    gap.section_slugs.length === 1 && normalizedSectionSlug(gap.section_slugs[0] || '') === normalizedSectionSlug(section),
+  ) : undefined
+  audioReview.value = { section, startSeconds: Math.max(0, (gap?.section_local_start_sec || 0) - 2) }
+  await nextTick()
+  if (scope !== episodeSequence) return
+  audioReviewPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  audioReviewPanel.value?.focus({ preventScroll: true })
+}
 function subtitleSectionLink(section: string): string {
   return `/projects/${slug.value}/subtitles?episode_id=${encodeURIComponent(episodeId.value)}&section=${encodeURIComponent(section)}`
 }
@@ -684,7 +708,7 @@ async function loadStatus(): Promise<void> {
     ])
     if (myToken !== loadToken) return   // a newer load (episode switch) superseded this one
     status.value = st
-    sections.value = (secs.sections || []).map((s: any) => ({ label: s.label, slug: s.slug }))
+    sections.value = (secs.sections || []).map((s: any) => ({ label: s.label, slug: s.slug, ...(s.quality ? { quality: s.quality } : {}) }))
     loaded = true
     void loadStitchStatus()
   } catch (e: any) {
@@ -710,6 +734,7 @@ watch(() => route.query.section, (section) => {
 })
 watch([slug, episodeId], () => {
   episodeSequence++
+  audioReview.value = null
   stitchStatus.value = null
   stitchError.value = ''
   stitching.value = false
@@ -1003,6 +1028,8 @@ onMounted(async () => {
 .sub-coverage-bar { flex: 0 0 140px; height: 8px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; }
 .sub-coverage-fill { display: block; height: 100%; background: rgb(74, 222, 128); transition: width 0.2s; }
 
+.sub-gap-notice :deep(.workspace-notice-actions) { grid-column: 2 / -1; flex-wrap: wrap; align-items: flex-start; }
+.sub-gap-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .sub-gap-list { margin: 8px 0 0; padding-left: 18px; font-size: var(--font-xs); }
 .sub-chapter-list, .sub-file-list { list-style: none; margin: 0; padding: 0; }
 .sub-chapter-row, .sub-file-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }

@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.143
+
+- Subtitle gap warnings now offer chapter audio playback and a direct Audio Generator link with that episode and chapter selected. Playback seeks near the gap and follows the active audio parts without generating or replacing anything.
+- Chapter rows separate Listen, Audio Generator and Generate/Regenerate subtitles actions, and retain the server's audio-quality findings.
+- Audio previews preserve active version selection and numeric multipart order. Playback errors offer Retry, and switching episodes stops the old player.
+
 ## v1.4.142
 
 - Hide completed or recovered Jobs without deleting their files, receipts, or unfinished settlement tracking. Restore hidden cards, undo a hide, and surface new failures automatically.

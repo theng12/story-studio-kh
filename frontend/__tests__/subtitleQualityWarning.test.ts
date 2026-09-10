@@ -79,8 +79,8 @@ describe('the warning is advisory, never a gate', () => {
 })
 
 describe('the app never edits anyone\'s subtitles', () => {
-  test('the only remedy offered is re-transcription, never a rewrite', () => {
-    assert.match(subtitlesPage, /Regenerate this chapter/)
+  test('subtitle regeneration re-transcribes, never rewrites the transcript', () => {
+    assert.match(subtitlesPage, /Regenerate subtitles/)
     for (const page of [subtitlesPage, scenePlanPage, videoAssemblyPage, component]) {
       assert.doesNotMatch(page, /\b(clean up|auto-?fix|strip|sanitiz|repair) (the )?(subtitle|cue|transcript)/i)
     }
@@ -98,7 +98,7 @@ describe('the app never edits anyone\'s subtitles', () => {
 
   test('every chapter exposes the scoped fresh-generation action with honest price language', () => {
     assert.match(subtitlesPage, /@click="retranscribeChapter\(s\.slug\)"/)
-    assert.match(subtitlesPage, /chapterHasSrt\(s\.slug\) \? 'Regenerate this chapter' : 'Generate this chapter'/)
+    assert.match(subtitlesPage, /chapterHasSrt\(s\.slug\) \? 'Regenerate subtitles' : 'Generate subtitles'/)
     assert.match(subtitlesPage, /:aria-label="`\$\{chapterHasSrt\(s\.slug\) \? 'Regenerate' : 'Generate'\} \$\{s\.label\} subtitles`"/)
     assert.match(subtitlesPage, /Starts a fresh GenStudio request for \$\{s\.label\} only/)
     assert.match(subtitlesPage, /current quote[^<]*may be charged/i)

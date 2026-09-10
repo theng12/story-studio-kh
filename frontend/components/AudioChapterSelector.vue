@@ -77,9 +77,11 @@
       <li
         v-for="s in sections"
         :key="s.slug"
+        :id="`audio-section-${s.slug}`"
         class="cs-item"
         :class="[`status-${runtimeStatus(s)}`, { selected: selectedSet.has(s.slug) }]"
         :aria-selected="selectedSet.has(s.slug)"
+        tabindex="-1"
       >
         <div class="cs-row">
           <input
@@ -248,6 +250,9 @@
         {{ effectiveSelected.length }} section{{ effectiveSelected.length === 1 ? '' : 's' }} selected
       </span>
     </div>
+    <p v-if="unavailableRequestedSection" class="cs-inline-reason" role="status">
+      {{ unavailableRequestedSection }} is not available for this episode. Choose another chapter.
+    </p>
     <p v-if="inlineGenerateDisabled && inlineGenerateDisabledReason" class="cs-inline-reason" role="status">
       {{ inlineGenerateDisabledReason }}
     </p>
@@ -293,6 +298,8 @@ const props = withDefaults(defineProps<{
   episodeId: string
   /** Comma-joined slug list (mirrors the backend contract). */
   selected: string
+  /** A one-shot deep-link target that replaces the default missing selection. */
+  requestedSection?: string
   /** Bump to force a refetch (e.g. after a generation finishes). */
   refreshKey?: number
   /**
@@ -320,6 +327,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   'update:selected': [value: string]
+  'requested-section-selected': [slug: string]
+  'requested-section-dismissed': []
   'generate-section': [request: SectionAction]
   /** Selection resolved against the current episode rows. */
   'update:effective-selected': [slugs: string[]]
@@ -335,6 +344,7 @@ const { error: showError } = useToast()
 
 const sections = ref<SectionRow[]>([])
 const loading = ref(false)
+const unavailableRequestedSection = ref('')
 let refreshRevision = 0
 
 // ── In-app playback ─────────────────────────────────────────────────────
@@ -500,18 +510,27 @@ function toggle(slug: string, on: boolean) {
   // Preserve the original section order in the emitted string so the
   // backend processes Introduction → Chapter 1 → Chapter 2 in order.
   const ordered = sections.value.map(s => s.slug).filter(s => next.has(s))
+  dismissUnavailableRequest()
   emit('update:selected', ordered.join(','))
 }
 
 function selectAll() {
+  dismissUnavailableRequest()
   emit('update:selected', sections.value.map(s => s.slug).join(','))
 }
-function selectNone() { emit('update:selected', '') }
+function selectNone() { dismissUnavailableRequest(); emit('update:selected', '') }
 function selectMissing() {
   const slugs = sections.value
     .filter(s => s.status !== 'generated')
     .map(s => s.slug)
+  dismissUnavailableRequest()
   emit('update:selected', slugs.join(','))
+}
+
+function dismissUnavailableRequest() {
+  if (!unavailableRequestedSection.value) return
+  unavailableRequestedSection.value = ''
+  emit('requested-section-dismissed')
 }
 
 const hasMissing = computed(() =>
@@ -662,7 +681,11 @@ watch(missingSections, v => emit('update:missing-sections', v), { immediate: tru
 
 async function refresh() {
   const revision = ++refreshRevision
-  if (!props.episodeId) {
+  const episodeId = props.episodeId
+  const projectSlug = props.projectSlug
+  const model = props.model
+  const requested = props.requestedSection?.trim()
+  if (!episodeId) {
     sections.value = []
     loading.value = false
     return
@@ -670,11 +693,34 @@ async function refresh() {
   loading.value = true
   try {
     const r = await get<{ sections: SectionRow[] }>(
-      `/projects/${props.projectSlug}/episodes/${props.episodeId}/audio-sections`
-      + (props.model ? `?model=${encodeURIComponent(props.model)}` : '')
+      `/projects/${projectSlug}/episodes/${episodeId}/audio-sections`
+      + (model ? `?model=${encodeURIComponent(model)}` : '')
     )
-    if (revision !== refreshRevision) return
+    if (revision !== refreshRevision || props.projectSlug !== projectSlug || props.episodeId !== episodeId || props.model !== model || props.requestedSection?.trim() !== requested) return
     sections.value = r.sections || []
+    if (requested && sections.value.some(section => section.slug === requested)) {
+      unavailableRequestedSection.value = ''
+      // A deep link is a deliberate request. It must win over the usual
+      // missing-section default so the quoted action stays chapter-scoped.
+      emit('update:selected', requested)
+      loading.value = false
+      await nextTick()
+      if (revision !== refreshRevision || props.projectSlug !== projectSlug || props.episodeId !== episodeId || props.model !== model || props.requestedSection?.trim() !== requested) return
+      const target = typeof document === 'undefined'
+        ? null
+        : document.getElementById(`audio-section-${requested}`)
+      if (!target) return
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      target.focus({ preventScroll: true })
+      emit('requested-section-selected', requested)
+      return
+    }
+    if (requested) {
+      unavailableRequestedSection.value = requested
+      if (props.selected) emit('update:selected', '')
+      return
+    }
+    unavailableRequestedSection.value = ''
     // On landing or episode switch, pre-select each section that needs audio.
     // The page still requires this resolved, non-empty list before submission.
     if (sections.value.length && !props.selected) {
@@ -691,8 +737,21 @@ async function refresh() {
 }
 
 // A model change moves the request boundary, so the predicted split has to be
-// recomputed — not just the episode or an explicit refresh.
-watch(() => [props.episodeId, props.refreshKey, props.model], refresh, { immediate: true })
+// recomputed — not just the episode or an explicit refresh. One watcher keeps
+// an episode change that also reveals a deep-link target to a single scan;
+// clearing that target after focus deliberately does not scan again.
+watch(
+  () => [props.projectSlug, props.episodeId, props.refreshKey, props.model, props.requestedSection] as const,
+  ([projectSlug, episodeId, refreshKey, model, requested], previous) => {
+    const scopeChanged = !previous
+      || previous[0] !== projectSlug
+      || previous[1] !== episodeId
+      || previous[2] !== refreshKey
+      || previous[3] !== model
+    if (scopeChanged || requested?.trim()) void refresh()
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>

@@ -1213,7 +1213,14 @@ router.get('/projects/:slug/episodes/:code/audio-file', async (req, res) => {
     // Match this section's chunk filenames: `<CODE>_<section>[_partN][_vN].mp3`
     // (the optional `_vN` is appended by "save as new version" audio runs).
     const re = new RegExp(`^${esc(code)}_${esc(section)}(?:_part\\d+)?(?:_v\\d+)?\\.mp3$`, 'i')
-    let matches = (status.present || []).filter((f: string) => re.test(f)).sort()
+    // The reconciler's present list is the fallback when no verified active
+    // mapping is available. Keep multi-part files in numeric order: lexical
+    // ordering would put `_part10` before `_part2`.
+    const compareParts = (left: string, right: string) => left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+    let matches = (status.present || []).filter((f: string) => re.test(f)).sort(compareParts)
     // A promoted verified candidate is selected through audio_chapters.json.
     // Prefer that exact active mapping over directory ordering, which would
     // otherwise play the historical base file beside its retained `_vN` copy.
@@ -1225,15 +1232,46 @@ router.get('/projects/:slug/episodes/:code/audio-file', async (req, res) => {
       }
       const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
       const selected = (sidecar.sections || []).find(row => typeof row.slug === 'string' && normalized(row.slug) === normalized(section))
-      const listed = Array.isArray(selected?.source_files)
-        ? selected.source_files.filter((file): file is string => typeof file === 'string' && path.basename(file) === file)
-        : []
+      const sourceFiles = Array.isArray(selected?.source_files) ? selected.source_files : null
+      // An active list is all-or-nothing. Ignoring an unsafe member would turn
+      // a damaged selected map into a shorter, plausible playlist.
+      const invalidListed = !!sourceFiles?.some(file => typeof file !== 'string' || path.basename(file) !== file)
+      const listed: string[] = sourceFiles && !invalidListed ? sourceFiles as string[] : []
       const source = typeof selected?.source_file === 'string' && path.basename(selected.source_file) === selected.source_file
         ? [selected.source_file] : []
       const mapped = listed.length ? listed : source
-      if (mapped.length && mapped.every(file => matches.includes(file))) matches = mapped
+      // The reconciler reports expected filenames, so a promoted `_vN` file
+      // may be present on disk without appearing in `status.present`. Check
+      // the active map against the real audio directory instead; that lets an
+      // exact verified selection win without admitting another section or a
+      // path outside the episode's audio folder.
+      const mappedPresent = await Promise.all(mapped.map(async file => {
+        if (!re.test(file)) return false
+        try {
+          return (await fsp.stat(path.join(status.audio_dir, file))).isFile()
+        } catch {
+          return false
+        }
+      }))
+      const sidecarSelectsAudio = sourceFiles !== null || typeof selected?.source_file === 'string'
+      if (sidecarSelectsAudio) {
+        // Do not quietly play a retained base version when the authoritative
+        // selection is incomplete. The customer needs to repair or regenerate
+        // the selected audio, not hear a plausible but superseded recording.
+        if (invalidListed || !mapped.length || !mappedPresent.every(Boolean)) {
+          return res.status(404).json({ detail: 'The selected active audio for this section is unavailable on disk' })
+        }
+        matches = mapped
+      }
     } catch { /* Fall back to the ordinary reconciled file list. */ }
     if (!matches.length) return res.status(404).json({ detail: 'No generated audio for this section yet' })
+
+    // A read-only manifest lets native chapter playback queue every chunk
+    // before opening the first one. It intentionally exposes only filenames:
+    // callers keep using this route for bytes, so no filesystem path leaks.
+    if (req.query.info === '1') {
+      return res.json({ parts: matches.map((filename, part) => ({ part, filename })) })
+    }
 
     const partRaw = typeof req.query.part === 'string' ? parseInt(req.query.part, 10) : 0
     const idx = Number.isFinite(partRaw) ? Math.max(0, Math.min(partRaw, matches.length - 1)) : 0
