@@ -166,6 +166,7 @@
         :project-slug="slug"
         :episode-id="form.episode_id"
         v-model:selected="form.sections"
+        :requested-section="requestedAudioSectionForEpisode"
         :model="form.model"
         :refresh-key="audioStatus.total + sectionRefreshKey"
         :inline-generate-disabled="inlineGenerateDisabled"
@@ -175,6 +176,8 @@
         :quality-approval-disabled="qualityHeldApprovalDisabled"
         @update:effective-selected="onEffectiveSelectionChange"
         @update:missing-sections="onMissingSectionsChange"
+        @requested-section-selected="onRequestedAudioSectionSelected"
+        @requested-section-dismissed="dismissRequestedAudioSection"
         @generate-section="submitSection"
         @check-quality="checkQualitySection"
         @approve-quality="approveHeldQualityRepair"
@@ -649,7 +652,9 @@ import type { AudioQualityActiveCheckQuote, AudioQualityCandidateQuote, AudioQua
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Generator')
 const route = useRoute()
+const router = useRouter()
 const slug = computed(() => route.params.slug as string)
+const requestedAudioSection = ref(typeof route.query.section === 'string' ? route.query.section : '')
 const { post, get } = useApi()
 const { ask } = useConfirm()
 const freshAudioAction = useFreshGenerationAction()
@@ -776,6 +781,14 @@ const form = reactive({
   // tags into the narration before submission. Provider controls come from the
   // model's published `controls[]` and live in `controls` above.
   fish_autopace: false,
+})
+
+// A section deep link belongs to the episode named in the URL. If the user
+// switches the picker before its rows load, do not carry that chapter choice
+// into the newly selected episode.
+const requestedAudioSectionForEpisode = computed(() => {
+  const episode = typeof route.query.episode_id === 'string' ? route.query.episode_id : ''
+  return episode && episode !== form.episode_id ? '' : requestedAudioSection.value
 })
 
 // v1.0.259 — remember the voice + tuning across reloads. `sections` is
@@ -948,6 +961,19 @@ interface SectionAction { slug: string; mode: 'generate' | 'regenerate' }
 const effectiveSections = ref<string[]>([])
 const missingSections = ref<string[]>([])
 const sectionRefreshKey = ref(0)
+async function onRequestedAudioSectionSelected(section: string) {
+  if (requestedAudioSection.value !== section) return
+  await dismissRequestedAudioSection()
+}
+async function dismissRequestedAudioSection() {
+  if (!requestedAudioSection.value) return
+  requestedAudioSection.value = ''
+  const { section: _section, ...query } = route.query
+  await router.replace({ query })
+}
+watch(() => route.query.section, (section) => {
+  requestedAudioSection.value = typeof section === 'string' ? section : ''
+})
 function onEffectiveSelectionChange(slugs: string[]) {
   effectiveSections.value = slugs
 }

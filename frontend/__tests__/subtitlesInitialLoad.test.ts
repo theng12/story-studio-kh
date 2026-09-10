@@ -137,3 +137,33 @@ test('a late stitch-status read and delete response cannot overwrite a newly sel
     container.remove()
   }
 })
+
+
+test('subtitle gap review targets source audio and clears playback on episode change', async () => {
+  ;(globalThis as any).__subtitlesInitialRouterReplace = () => undefined
+  ;(globalThis as any).__subtitlesInitialApi = {
+    get: async (path: string) => {
+      if (path.endsWith('/audio-sections')) return { sections: [{ label: 'Chapter 13', slug: 'Chapter_13', quality: { state: 'review_needed' } }] }
+      return { existing_srts: [], timeline_integrity: { complete: false, missing_sections: [], blocking_cue_gaps: [
+        { previous_end_sec: 1822.5, next_start_sec: 1856.1, gap_sec: 33.6, section_slugs: ['Chapter_13'], section_local_start_sec: 31.2, section_local_end_sec: 64.8 },
+      ] } }
+    }, post: async () => { throw new Error('Playback must not submit generation') }, del: async () => ({}),
+  }
+  const app = createApp(await loadPageScript())
+  const container = document.createElement('div')
+  document.body.append(container)
+  try {
+    app.mount(container)
+    const state = (globalThis as any).__subtitlesInitialState
+    await waitFor(() => state.sections.value.length === 1, { label: 'gap chapter available' })
+    assert.equal(state.sections.value[0].quality.state, 'review_needed')
+    assert.equal(state.audioSectionLink('Chapter_13'), '/projects/task15-fixture/audio?episode_id=EP0083&section=Chapter_13')
+    await state.reviewChapterAudio('Chapter_13', true)
+    assert.equal(state.audioReview.value.section, 'Chapter_13')
+    assert.equal(state.audioReview.value.startSeconds, 29.2)
+    state.episodeId.value = 'EP0179'
+    assert.equal(state.audioReview.value, null)
+    assert.ok(source.includes('>Listen to {{ section.replaceAll'))
+    assert.ok(source.includes('Regenerate subtitles'))
+  } finally { app.unmount(); container.remove() }
+})
