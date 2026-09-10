@@ -57,6 +57,7 @@ async function mount(input: {
   confirmAnswer?: boolean
   confirmOverride?: (options: any) => Promise<boolean>
   initialSlug?: string
+  initialEpisode?: string
   getOverride?: (path: string) => Promise<any> | any
   postOverride?: (path: string, body: any) => Promise<any> | any
   jobs?: any[]
@@ -67,6 +68,7 @@ async function mount(input: {
   scheduleResponse?: any
 }): Promise<{
   el: HTMLElement; text: () => string; calls: Recorded[]
+  setEpisode: (episode: string) => Promise<void>
   confirms: any[]; setSlug: (slug: string) => Promise<void>; setJobs: (jobs: any[]) => Promise<void>; destroy: () => void
 }> {
   const calls: Recorded[] = []
@@ -77,7 +79,7 @@ async function mount(input: {
     if (input.confirmOverride) return input.confirmOverride(options)
     return input.confirmAnswer !== false
   }
-  const routeState = reactive({ params: { slug: input.initialSlug ?? 'demo-project' } })
+  const routeState = reactive({ params: { slug: input.initialSlug ?? 'demo-project' }, query: { episode_id: input.initialEpisode ?? '' } })
   ;(globalThis as any).__ucRoute = routeState
   const jobsRef = ref(input.jobs ?? [])
   ;(globalThis as any).__ucJobsRef = jobsRef
@@ -181,6 +183,7 @@ async function mount(input: {
   for (let i = 0; i < 6; i++) await nextTick()
   return {
     el, text: () => el.textContent || '', calls, confirms,
+    setEpisode: async (episode: string) => { routeState.query.episode_id = episode; for (let i = 0; i < 4; i++) await nextTick() },
     setSlug: async (nextSlug: string) => { routeState.params.slug = nextSlug; for (let i = 0; i < 4; i++) await nextTick() },
     setJobs: async (nextJobs: any[]) => { jobsRef.value = nextJobs; for (let i = 0; i < 6; i++) await nextTick() },
     destroy: () => { app.unmount(); el.remove() },
@@ -1559,4 +1562,23 @@ describe('Upload Center Publish boundaries', () => {
   test('never renders a token, secret, or session url', () => {
     assert.doesNotMatch(source, /access_token|refresh_token|client_secret|session_url/)
   })
+})
+
+
+test('Jobs deep links reveal the requested upload episode without starting work', async () => {
+  const mounted = await mount({ initialEpisode: 'EP0002', episodes: [
+    { episode_code: 'EP0001', title: 'First', has_video: true },
+    { episode_code: 'EP0002', title: 'Second', has_video: true },
+  ] })
+  try {
+    assert.match(mounted.text(), /EP0002/)
+    assert.doesNotMatch(mounted.text(), /EP0001/)
+    await mounted.setEpisode('EP0001')
+    assert.match(mounted.text(), /EP0001/)
+    assert.doesNotMatch(mounted.text(), /EP0002/)
+    await mounted.setSlug('other-project')
+    assert.match(mounted.text(), /EP0001/)
+    assert.doesNotMatch(mounted.text(), /EP0002/)
+    assert.equal(mounted.calls.filter(call => call.method === 'POST').length, 0)
+  } finally { mounted.destroy() }
 })

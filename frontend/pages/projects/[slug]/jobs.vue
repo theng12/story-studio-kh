@@ -353,6 +353,12 @@
             <span v-if="job.title" class="job-title text-muted" :title="job.title">- {{ job.title }}</span>
           </div>
           <div class="job-actions">
+              <NuxtLink
+                v-if="jobWorkspaceLink(job)"
+                :to="jobWorkspaceLink(job)!.to"
+                class="btn btn-xs btn-ghost"
+                :aria-label="jobWorkspaceLink(job)!.ariaLabel"
+              >{{ jobWorkspaceLink(job)!.label }}</NuxtLink>
             <button
               v-if="job.status === 'paused'"
               class="btn btn-xs btn-primary"
@@ -744,6 +750,12 @@
               <span v-if="job.title" class="job-title text-muted" :title="job.title">- {{ job.title }}</span>
             </div>
             <div class="job-actions">
+              <NuxtLink
+                v-if="jobWorkspaceLink(job)"
+                :to="jobWorkspaceLink(job)!.to"
+                class="btn btn-xs btn-ghost"
+                :aria-label="jobWorkspaceLink(job)!.ariaLabel"
+              >{{ jobWorkspaceLink(job)!.label }}</NuxtLink>
               <button
                 v-if="primaryJobControl(job)"
                 class="btn btn-xs btn-secondary"
@@ -1061,6 +1073,7 @@ import {
   filterJobsForView,
   isVerifiedLiveCapacity,
   jobRequestIds,
+  jobWorkspaceLink,
   primaryControl,
   secondaryControls,
 } from '~/utils/job-presentation'
