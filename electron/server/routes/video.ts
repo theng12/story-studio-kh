@@ -63,6 +63,7 @@ import {
   requireAudioAssemblyReady,
 } from '../services/audio-workflow-readiness.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { readVideoVisualSource, setVideoVisualSource } from '../services/video-visual-source.js'
 
 export const router = Router()
 
@@ -85,6 +86,30 @@ router.get('/projects/:slug/video-editor/scan/:episodeId', async (req, res) => {
     res.json(assets)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Asset scan failed'))
+  }
+})
+
+// The source is durable episode state. Missing/legacy source flags resolve to
+// Scene Plan so existing episodes keep their established behaviour.
+router.get('/projects/:slug/video-editor/visual-source/:episodeId', async (req, res) => {
+  try {
+    const state = await readVideoVisualSource(req.params.slug, req.params.episodeId)
+    res.json({ source: state.source, image_pool: state.image_pool })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not read Video Assembly visual source'))
+  }
+})
+
+router.put('/projects/:slug/video-editor/visual-source/:episodeId', async (req, res) => {
+  try {
+    const source = req.body?.source
+    if (source !== 'scene_plan' && source !== 'image_pool') {
+      return res.status(400).json({ detail: 'source must be scene_plan or image_pool' })
+    }
+    const state = await setVideoVisualSource(req.params.slug, req.params.episodeId, source)
+    res.json({ source: state.source, image_pool: state.image_pool })
+  } catch (e: any) {
+    res.status(409).json(humanizeBackendError(e, 'Could not set Video Assembly visual source'))
   }
 })
 
@@ -1785,12 +1810,15 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
   const { episode_id, scene_recycling, duration } = req.body
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
   try {
-    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_id, SCENE_PLAN_FILENAME)
-    await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
-    const planPath = await resolveScenePlanPath(slug, episode_id, paths.episode_dir)
-    if (!existsSync(planPath)) throw new Error('No Scene Plan timeline was found.')
-    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-    assertScenePromptsRenderable(plan.scenes)
+    const source = await readVideoVisualSource(slug, episode_id)
+    if (source.source === 'scene_plan') {
+      const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_id, SCENE_PLAN_FILENAME)
+      await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
+      const planPath = await resolveScenePlanPath(slug, episode_id, paths.episode_dir)
+      if (!existsSync(planPath)) throw new Error('No Scene Plan timeline was found.')
+      const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      assertScenePromptsRenderable(plan.scenes)
+    }
     await prepareUnifiedVideoAssemblyInputs(slug, episode_id, req.body)
   } catch (e: any) {
     return res.status(409).json({

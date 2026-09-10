@@ -36,9 +36,10 @@ import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { bindInvalidator, ensureProjectWatcher, watcherTrustedSince } from './episode-folder-watcher.js'
 import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-paths.js'
 
-// v13 — thumbnail-image counts now travel with the cached status so `/episodes`
-// can report them without a second filesystem scan. Discard v12 rows.
-export const SCHEMA_VERSION = 13 as const
+// v14 — visual-source sidecars are watched directly so an Image Pool pick or
+// source switch invalidates render readiness in place. Discard v13 rows whose
+// watched-mtime snapshot predates that file.
+export const SCHEMA_VERSION = 14 as const
 const MAX_ENTRIES = 1000
 /**
  * Watcher-backed reads (see `trusted()`): how long an entry may be served
@@ -189,6 +190,7 @@ async function resolveWatchedFolders(
     paths.thumb_dir,          // thumbnails
     paths.audio_dir,          // audio
     path.join(paths.episode_dir, 'audio_chapters.json'), // expected subtitle sections
+    path.join(paths.episode_dir, 'broll-selection.json'), // visual source + frozen Image Pool selection (rewritten in place)
     paths.subtitles_dir,      // per-section/full-track subtitle completion
     paths.merged_audio_dir,   // merged_audio
     paths.video_dir,          // video + video_assembly

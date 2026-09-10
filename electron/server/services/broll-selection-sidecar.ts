@@ -18,6 +18,8 @@ export interface BrollSelectionSidecar {
   schema_version: 1
   episode_code: string
   pool_id: string
+  /** Explicit Video Assembly source. Missing keeps legacy Scene Plan mode. */
+  source?: 'scene_plan' | 'image_pool'
   /** v1.0.404 — 'image' = Image Pool slideshow (still-image assembler);
    *  absent/'video' = B-Roll clips. Lets the assembler pick the right path. */
   media?: 'video' | 'image'

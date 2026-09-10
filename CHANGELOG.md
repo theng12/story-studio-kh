@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.144
+
+- Choose Image Pool slideshow as an episode's visual source in Video Assembly. Reuse the saved still-image selection in order at its chosen interval through the full narration; Scene Plan keeps its existing timing mode.
+- Keep Assets Library files, scans, tags, edits and unregister confirmations attached to the selected pool when requests overlap. Loading failures show a retry action.
+- Offer video normalization only for video pools; image and sound pools retain their original media.
+- Keep Subtitles usable while transcription model language capabilities are unavailable, with disabled actions and an explanation instead of a rendering error.
+
 ## v1.4.143
 
 - Subtitle gap warnings now offer chapter audio playback and a direct Audio Generator link with that episode and chapter selected. Playback seeks near the gap and follows the active audio parts without generating or replacing anything.

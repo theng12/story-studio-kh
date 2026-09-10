@@ -834,6 +834,8 @@ function subtitleRequestPayload(sectionSlug?: string): Record<string, any> {
 }
 
 function subtitleActionLabel(sectionSlug: string | null, label: string): string {
+  // Disabled buttons still render while the catalogue is loading or unavailable.
+  if (!isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)) return label
   const payload = subtitleRequestPayload(sectionSlug || undefined)
   return payload.force && freshSubtitleAction.isRetry(payload, sectionSlug ? `section:${sectionSlug}` : 'bulk') ? 'Retry submission' : label
 }

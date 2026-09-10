@@ -55,6 +55,7 @@ import { inspectScenePlanCoverage } from './scene-planner.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
 import { DEFAULT_SOUND_DESIGN_SETTINGS, normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
+import { readVideoVisualSource, videoAssemblySourceStampPath, type VideoAssemblySourceStamp } from './video-visual-source.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -101,6 +102,23 @@ async function safeReaddirRich(dir: string): Promise<SafeReaddirResult> {
     // just couldn't enumerate them. Don't let the cache freeze that.
     return { files: [], errored: true }
   }
+}
+
+function sourceStampMatches(
+  stamp: VideoAssemblySourceStamp,
+  source: Awaited<ReturnType<typeof readVideoVisualSource>>,
+): boolean {
+  if (stamp.schema_version !== 1 || stamp.source !== source.source) return false
+  if (source.source !== 'image_pool') return true
+  const current = source.image_pool
+  const saved = stamp.image_pool
+  if (!current || !saved || saved.pool_id !== current.pool_id
+    || Math.abs(saved.seconds_per_image - current.seconds_per_image) > 0.001
+    || saved.selected_images.length !== current.selected_images.length) return false
+  return saved.selected_images.every((row, index) => {
+    const currentRow = current.selected_images[index]
+    return !!currentRow && row.filename === currentRow.filename && row.sha256 === currentRow.sha256
+  })
 }
 
 /**
@@ -1468,9 +1486,38 @@ export async function computeEpisodeStatus(
       } catch { /* external root unset or unreadable → leave false */ }
     }
 
+    // An explicit visual-source selection is part of the render's identity.
+    // New Image Pool picks and source switches rewrite broll-selection.json;
+    // a prior final must not keep the episode looking complete unless the
+    // render left a matching source stamp beside that final. Legacy Scene
+    // Plan finals without a stamp remain compatible with the old status rule.
+    let sourceStampValid = true
+    if (finalVideoAbsPath && (hasFinalInVideoDir || hasFinalAtExternalRoot)) {
+      try {
+        const source = await readVideoVisualSource(slug, CODE)
+        const stampPath = videoAssemblySourceStampPath(finalVideoAbsPath, CODE)
+        const stampRaw = await fs.readFile(stampPath, 'utf8').catch(() => null)
+        if (stampRaw) {
+          const stamp = JSON.parse(stampRaw) as VideoAssemblySourceStamp
+          const finalStat = await fs.stat(finalVideoAbsPath)
+          sourceStampValid = sourceStampMatches(stamp, source)
+            && (!stamp.final_video
+              || (stamp.final_video.size === finalStat.size
+                && stamp.final_video.mtime_ms === Math.round(finalStat.mtimeMs)))
+        } else if (source.source === 'image_pool') {
+          // Explicit Image Pool renders are required to carry a stamp. This
+          // fails closed for an old final whose selected stills are unknown.
+          sourceStampValid = false
+        }
+      } catch {
+        sourceStampValid = false
+      }
+    }
+
     status.video_assembly = hasFinalInVideoDir
       || hasUsableRemote
       || hasFinalAtExternalRoot
+    status.video_assembly = status.video_assembly && sourceStampValid
 
     // Surface file size for whichever local path matched. Sidecar-only
     // (path D) leaves this undefined — by design, since the local file

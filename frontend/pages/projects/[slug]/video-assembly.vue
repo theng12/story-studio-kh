@@ -108,6 +108,39 @@
       <h3>Step 1: Select &amp; Validate Assets</h3>
       <p class="text-muted mt-1">Choose an episode and scan for available scene media and audio</p>
 
+      <fieldset class="visual-source-panel mt-2" :disabled="visualSourceLoading || visualSourceSaving || !episodeId">
+        <legend>Visual source</legend>
+        <p class="text-muted text-sm mt-1">Choose the images and timing for this episode.</p>
+        <div class="visual-source-options">
+          <label class="visual-source-option">
+            <input v-model="visualSource" type="radio" value="scene_plan" @change="saveVisualSource">
+            <span><strong>Scene Plan</strong><small>Approved stills in plan order and timing.</small></span>
+          </label>
+          <label class="visual-source-option">
+            <input v-model="visualSource" type="radio" value="image_pool" @change="saveVisualSource">
+            <span><strong>Image Pool</strong><small>Saved images cycle at their saved seconds per image.</small></span>
+          </label>
+        </div>
+        <p v-if="visualSourceLoading" class="text-muted text-sm mt-1">Loading visual source…</p>
+        <div v-if="visualSource === 'image_pool'" class="visual-source-summary mt-2" aria-live="polite">
+          <template v-if="imagePoolSource">
+            <strong>{{ imagePoolSummary.count }} stills</strong>
+            <span>· {{ imagePoolSummary.seconds }}s/image</span>
+            <span>· {{ imagePoolSummary.cycles }} cycle{{ imagePoolSummary.cycles === 1 ? '' : 's' }}</span>
+            <span :class="imagePoolSummary.missing ? 'text-danger' : imagePoolAvailability === 'Available' ? 'text-success' : 'text-muted'">· {{ imagePoolAvailability }}</span>
+          </template>
+          <span v-else class="text-muted">No saved Image Pool selection for this episode.</span>
+        </div>
+        <p v-if="visualSource === 'image_pool' && imagePoolSource?.warnings?.length" class="text-muted text-xs hint-line">
+          {{ imagePoolSource.warnings.join(' · ') }}
+        </p>
+        <p v-if="visualSource === 'image_pool' && imagePoolNeedsRecovery" class="text-muted text-sm hint-line">
+          Open <NuxtLink :to="{ path: `/projects/${slug}/image-pool`, query: { episode_id: episodeId } }" class="text-accent">Image Pool</NuxtLink>
+          and pick images for this episode first.
+        </p>
+        <p v-if="visualSourceError" class="validation-msg mt-1" role="alert">{{ visualSourceError }}</p>
+      </fieldset>
+
       <div class="ffmpeg-status mt-2" v-if="ffmpegStatus">
         <span v-if="ffmpegStatus.installed" class="badge badge-success">
           FFmpeg installed{{ ffmpegStatus.version ? ` (v${ffmpegStatus.version})` : '' }}
@@ -171,14 +204,17 @@
         <!-- Scene assets -->
         <div class="asset-section mt-1">
           <div class="asset-section-header">
-            <label>Approved Scene Plan Assets ({{ sceneSourceCounts.scene_plan }})</label>
+            <label>{{ visualSource === 'image_pool' ? 'Saved Image Pool Images' : 'Approved Scene Plan Assets' }} ({{ activeSceneSourceCount }})</label>
           </div>
-          <p class="text-muted text-xs hint-line">
+          <p v-if="visualSource === 'scene_plan'" class="text-muted text-xs hint-line">
             Exact Scene Plan order and timestamps are always used. Approved motion clips replace only their matching still scene.
           </p>
-          <div class="thumb-grid mt-1" v-if="sceneSourceCounts.scene_plan">
+          <p v-else class="text-muted text-xs hint-line">
+            These saved images cycle in their saved order at the Image Pool seconds-per-image setting until narration ends.
+          </p>
+          <div class="thumb-grid mt-1" v-if="activeSceneSourceCount">
             <button
-              v-for="(img, i) in plannedSceneAssets"
+              v-for="(img, i) in activeSceneAssets"
               :key="i"
               type="button"
               class="scene-thumb-small scene-thumb-openable"
@@ -188,10 +224,10 @@
               {{ img.number || Number(i) + 1 }}
             </button>
           </div>
-          <p v-if="sceneSourceCounts.scene_plan" class="text-muted text-xs hint-line">
+          <p v-if="activeSceneSourceCount" class="text-muted text-xs hint-line">
             Click any scene number to see the picture before you render.
           </p>
-          <p v-else class="text-muted text-md">No approved Scene Plan assets found</p>
+          <p v-else class="text-muted text-md">No {{ visualSource === 'image_pool' ? 'saved Image Pool images' : 'approved Scene Plan assets' }} found</p>
         </div>
 
         <div v-if="hasIncompletePlannedScenes" class="scene-coverage-warning mt-2">
@@ -480,7 +516,7 @@
     <!-- ============ STEP 3: Title & Timeline ============ -->
     <div v-if="currentStep === 3" class="card workspace-section assembly-step-panel">
       <h3>Step 3: Title &amp; Timeline</h3>
-      <p class="text-muted mt-1">Configure title image, scene recycling, and transitions</p>
+      <p class="text-muted mt-1">Configure title image, {{ visualSource === 'image_pool' ? 'Image Pool timing, ' : 'scene recycling, ' }}and transitions</p>
 
       <PresetPicker
         label="Timeline preset"
@@ -600,11 +636,20 @@
         </div>
       </div>
 
-      <div class="settings-section mt-2">
+      <div v-if="visualSource === 'scene_plan'" class="settings-section mt-2">
         <p class="text-muted text-sm hint-line">
           Scene Plan timestamps are the single timing source. Transitions and animation are applied inside those exact windows.
         </p>
         <SceneTimingPanel :timing="scannedAssets?.scene_plan_timing" />
+      </div>
+      <div v-else class="settings-section mt-2 image-pool-timing-panel">
+        <h4>Image Pool timing</h4>
+        <p v-if="imagePoolSource" class="text-muted text-sm hint-line">
+          {{ imagePoolSummary.count }} saved images cycle in order at {{ imagePoolSummary.seconds }}s per image
+          for {{ formatDurationLong(imagePoolNarrationDuration) }} of narration ({{ imagePoolSummary.cycles }} cycle{{ imagePoolSummary.cycles === 1 ? '' : 's' }}).
+        </p>
+        <p v-else class="text-muted text-sm hint-line">Pick an Image Pool sequence before rendering.</p>
+        <p class="text-muted text-xs hint-line">Change the pool and seconds per image on the Image Pool page. Motion, transitions, and all presentation settings below still apply.</p>
       </div>
 
       <!-- Transition Settings -->
@@ -745,7 +790,7 @@
         <h4>Video Length</h4>
         <div class="summary-bar mt-1">
           <template v-if="totalAudioDuration > 0">
-            Follows the narration — ~{{ formatDurationLong(totalAudioDuration) }}{{ (isSentenceTimed || isPlanStrict) ? '' : ` (scenes cycle ~${estimatedCycles}×)` }}.
+            Follows the narration — ~{{ formatDurationLong(totalAudioDuration) }}{{ visualSource === 'image_pool' ? ` (Image Pool cycles ~${imagePoolSummary.cycles}×)` : (isSentenceTimed || isPlanStrict) ? '' : ` (scenes cycle ~${estimatedCycles}×)` }}.
           </template>
           <template v-else>
             Follows the narration — scan an episode with merged audio to see the exact length.
@@ -753,7 +798,9 @@
         </div>
         <p class="text-muted text-sm hint-line">
           The old Target Duration control is gone — there's no padding or random range.
-          {{ isSentenceTimed
+          {{ visualSource === 'image_pool'
+            ? 'Frozen Image Pool stills cycle in order at the saved seconds-per-image setting.'
+            : isSentenceTimed
             ? 'Scenes are transcript-timed, so each holds for exactly its planned span.'
             : isPlanStrict
               ? 'Scenes follow the Scene Plan — each holds for exactly its planned window, no repeats.'
@@ -2526,6 +2573,7 @@
           <div class="summary-row">
             <span class="text-muted">Pacing</span>
             <span v-if="isSentenceTimed">Transcript-timed (per-scene)</span>
+            <span v-else-if="visualSource === 'image_pool'">{{ imagePoolSummary.seconds }}s/image, {{ imagePoolSummary.cycles }} cycle{{ imagePoolSummary.cycles === 1 ? '' : 's' }}</span>
             <!-- v1.3.4 — `shuffle` and `excluded_scenes` are hardcoded off in
                  the render payload (useVideoAssemblyIo, `scene_recycling`) and
                  this page has no control for either any more, so reporting a
@@ -2720,6 +2768,22 @@ const initialEpisodeId = typeof route.query.episode_id === 'string'
     : ''
 const episodeId = ref(initialEpisodeId)
 const selectedEpisode = ref<any>(null)
+type VisualSource = 'scene_plan' | 'image_pool'
+type ImagePoolSource = {
+  pool_id: string
+  selected_images: Array<{ filename?: string; path?: string; missing?: boolean; available?: boolean }>
+  seconds_per_image: number
+  target_duration: number
+  generated_at: string
+  warnings?: string[]
+}
+const visualSource = ref<VisualSource>('scene_plan')
+const imagePoolSource = ref<ImagePoolSource | null>(null)
+const visualSourceLoading = ref(false)
+const visualSourceSaving = ref(false)
+const visualSourceError = ref('')
+const visualSourceLoaded = ref(false)
+let visualSourceSequence = 0
 
 // v1.0.307 — keep Generate disabled for the WHOLE queued render, not just the
 // brief enqueue POST that flips `generating` (see useJobs.isJobActiveFor).
@@ -2727,11 +2791,32 @@ const assemblyJobActiveForEpisode = computed(() => isJobActiveFor(episodeId.valu
 const ffmpegStatus = ref<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean; hw_encoders?: { h264: boolean; h265: boolean }; check_error?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
-const sceneSourceCounts = computed(() => ({
-  classic: Number(scannedAssets.value?.scene_sources?.classic || 0),
-  scene_plan: Number(scannedAssets.value?.scene_sources?.scene_plan || 0),
-}))
-
+const imagePoolNarrationDuration = computed(() => Number(
+  scannedAssets.value?.merged_audio?.[0]?.duration
+  || scannedAssets.value?.narration_full?.duration
+  || imagePoolSource.value?.target_duration
+  || 0,
+))
+const imagePoolScanReady = computed(() => visualSource.value === 'image_pool'
+  && scannedAssets.value?.visual_source === 'image_pool')
+const imagePoolSummary = computed(() => {
+  const source = imagePoolSource.value
+  const images = source?.selected_images || []
+  const missing = images.filter(image => image.missing === true || image.available === false).length
+  const seconds = Number(source?.seconds_per_image || 0)
+  const target = imagePoolNarrationDuration.value
+  const cycles = images.length && seconds > 0 ? Math.max(1, Math.ceil(target / (images.length * seconds))) : 0
+  return { count: images.length, seconds: seconds || '—', cycles, missing }
+})
+const imagePoolAvailability = computed(() => {
+  if (!imagePoolSource.value) return 'Not checked'
+  if (!imagePoolScanReady.value) return 'Check needed'
+  return imagePoolSummary.value.missing ? `${imagePoolSummary.value.missing} missing` : 'Available'
+})
+const imagePoolNeedsRecovery = computed(() => !imagePoolSource.value
+  || !imagePoolSource.value.selected_images?.length
+  || imagePoolSummary.value.missing > 0
+  || (!imagePoolScanReady.value && !visualSourceLoading.value))
 // ── Step 1 asset preview (v1.3.2) ──────────────────────────────────────────
 //
 // The owner could see 130 numbered chips and open none of them: *"i can see
@@ -2743,9 +2828,10 @@ const sceneSourceCounts = computed(() => ({
 // lightbox is the index of the row that chip is rendering. Filtering inline in
 // the template (as the grid used to) would silently drift the two apart the
 // moment either side changed.
-const plannedSceneAssets = computed<any[]>(() =>
-  (scannedAssets.value?.scenes || []).filter((row: any) => row.source === 'scene_plan'),
+const activeSceneAssets = computed<any[]>(() =>
+  (scannedAssets.value?.scenes || []).filter((row: any) => row.source === visualSource.value),
 )
+const activeSceneSourceCount = computed(() => activeSceneAssets.value.length)
 
 /**
  * The carousel's flat list: every scene, then every thumbnail. The lightbox
@@ -2755,7 +2841,7 @@ const plannedSceneAssets = computed<any[]>(() =>
  * Only paths and labels; no image is fetched until the lightbox mounts one.
  */
 const assetPreviewImages = computed(() => [
-  ...plannedSceneAssets.value.map((row: any, i: number) => ({
+  ...activeSceneAssets.value.map((row: any, i: number) => ({
     filename: String(row.filename || ''),
     path: String(row.path || ''),
     section: 'scenes' as const,
@@ -2776,7 +2862,7 @@ const assetPreviewIndex = ref(0)
 watch(episodeId, () => { assetPreviewOpen.value = false })
 
 function openAssetPreview(section: 'scenes' | 'thumbnails', indexWithinSection: number) {
-  const offset = section === 'thumbnails' ? plannedSceneAssets.value.length : 0
+  const offset = section === 'thumbnails' ? activeSceneAssets.value.length : 0
   const target = offset + indexWithinSection
   if (target < 0 || target >= assetPreviewImages.value.length) return
   assetPreviewIndex.value = target
@@ -2814,8 +2900,10 @@ const missingPlannedSceneSummary = computed(() => {
   const shown = unique.slice(0, 12).map((row: any) => `#${row.scene_index} ${row.reason}`)
   return shown.join(', ') + (unique.length > shown.length ? `, +${unique.length - shown.length} more` : '')
 })
-const unifiedTimingReady = computed(() => scannedAssets.value?.scene_plan_timing?.complete === true)
-const isPlanStrict = computed(() => !!scannedAssets.value?.scene_plan_timing)
+const unifiedTimingReady = computed(() => visualSource.value === 'image_pool'
+  ? imagePoolScanReady.value && !!imagePoolSource.value?.selected_images?.length && imagePoolSummary.value.missing === 0
+  : scannedAssets.value?.scene_plan_timing?.complete === true)
+const isPlanStrict = computed(() => visualSource.value === 'scene_plan' && !!scannedAssets.value?.scene_plan_timing)
 
 /**
  * Say WHICH part of the timing check failed, in the episode's own numbers.
@@ -4753,6 +4841,10 @@ const estimatedCycles = computed(() => {
 // Heuristic warning: many cycles with few scenes = very obvious repetition.
 // Fires when scenes are about to recycle more than ~8 times.
 const lowAssetWarning = computed(() => {
+  if (visualSource.value === 'image_pool') {
+    if (!imagePoolSummary.value.count || imagePoolSummary.value.cycles < 8) return null
+    return `Heads up — ${imagePoolSummary.value.count} saved Image Pool images will cycle ~${imagePoolSummary.value.cycles} times to fill the narration.`
+  }
   const sceneCount = activeSceneCount.value
   const cycles = estimatedCycles.value
   if (sceneCount < 1 || cycles < 8) return null
@@ -5052,6 +5144,8 @@ function onQualityChange() {
 
 const step1Valid = computed(() => {
   return scannedAssets.value
+    && visualSourceLoaded.value
+    && !visualSourceError.value
     && scannedAssets.value.scenes?.length > 0
     && (scannedAssets.value.merged_audio?.length > 0
         || scannedAssets.value.audio_sections?.length > 0)
@@ -5519,7 +5613,7 @@ async function normalizeVideoAssemblyPathsInState(): Promise<void> {
 // The composable mutates the reactive state we pass in, so the template below
 // still binds to the same refs.
 const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo, buildPayload: buildVideoAssemblyPayload } = useVideoAssemblyIo({
-  slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenes,
+  slug, episodeId, selectedEpisode, visualSource, ffmpegStatus, scannedAssets, scanning, scenes,
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
   colorGrading, vignette, filmGrain, agedArchiveFilm, letterbox, frame, chromaKey, sceneEffects,
@@ -5539,6 +5633,85 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo, buildPayload: 
   subtitles, generating, jobOutput, activeJobId,
 })
 
+function isCurrentVisualSourceScope(project: string, episode: string, scope = videoEpisodeSequence): boolean {
+  return scope === videoEpisodeSequence && project === slug.value && episode === episodeId.value
+}
+
+async function loadVisualSource(): Promise<void> {
+  const request = ++visualSourceSequence
+  const project = slug.value
+  const episode = episodeId.value
+  const scope = videoEpisodeSequence
+  if (!episode) {
+    visualSource.value = 'scene_plan'
+    imagePoolSource.value = null
+    visualSourceError.value = ''
+    visualSourceLoaded.value = false
+    return
+  }
+  visualSourceLoading.value = true
+  try {
+    const result = await get<{ source?: VisualSource; image_pool?: ImagePoolSource | null }>(
+      `/projects/${project}/video-editor/visual-source/${encodeURIComponent(episode)}`,
+    )
+    if (request !== visualSourceSequence || !isCurrentVisualSourceScope(project, episode, scope)) return
+    const persistedSource = result?.source
+    if (persistedSource !== 'image_pool' && persistedSource !== 'scene_plan') {
+      visualSource.value = 'scene_plan'
+      imagePoolSource.value = null
+      visualSourceLoaded.value = false
+      visualSourceError.value = 'The saved visual source is unavailable. Choose Scene Plan or pick an Image Pool selection again.'
+      await scanAssets()
+      return
+    }
+    visualSource.value = persistedSource
+    imagePoolSource.value = result?.image_pool || null
+    visualSourceError.value = ''
+    visualSourceLoaded.value = true
+    await scanAssets()
+  } catch (e: any) {
+    if (request !== visualSourceSequence || !isCurrentVisualSourceScope(project, episode, scope)) return
+    visualSource.value = 'scene_plan'
+    imagePoolSource.value = null
+    visualSourceLoaded.value = false
+    visualSourceError.value = e?.data?.detail || e?.message || 'Could not load visual source'
+    await scanAssets()
+    showError(visualSourceError.value)
+  } finally {
+    if (request === visualSourceSequence && isCurrentVisualSourceScope(project, episode, scope)) {
+      visualSourceLoading.value = false
+    }
+  }
+}
+
+async function saveVisualSource(): Promise<void> {
+  if (!episodeId.value || visualSourceSaving.value) return
+  const project = slug.value
+  const episode = episodeId.value
+  const source = visualSource.value
+  const scope = videoEpisodeSequence
+  visualSourceSaving.value = true
+  visualSourceError.value = ''
+  visualSourceLoaded.value = false
+  try {
+    await put(`/projects/${project}/video-editor/visual-source/${encodeURIComponent(episode)}`, { source })
+    if (!isCurrentVisualSourceScope(project, episode, scope)) return
+    await loadVisualSource()
+    if (isCurrentVisualSourceScope(project, episode)) success(`${source === 'image_pool' ? 'Image Pool' : 'Scene Plan'} selected for ${episode}.`)
+  } catch (e: any) {
+    if (isCurrentVisualSourceScope(project, episode, scope)) {
+      const detail = e?.data?.detail || e?.message || 'Could not save visual source'
+      visualSourceError.value = detail
+      showError(detail)
+      // Keep a failed Image Pool choice visible so the recovery link remains
+      // in reach when the saved selection is missing or offline.
+      if (source !== 'image_pool') void loadVisualSource()
+    }
+  } finally {
+    if (isCurrentVisualSourceScope(project, episode, scope)) visualSourceSaving.value = false
+  }
+}
+
 function onEpisodeSelected(ep: any) {
   selectedEpisode.value = ep
   // v1.4.0 — the frames describe the episode that produced them. Carrying a
@@ -5553,7 +5726,7 @@ function onEpisodeSelected(ep: any) {
   if (ep?.title) {
     titleCard.text = ep.title
   }
-  scanAssets()
+  void loadVisualSource()
   loadSubtitlesStatus()
 }
 
@@ -5648,6 +5821,15 @@ function handleWizardShortcut(e: KeyboardEvent) {
 let videoEpisodeSequence = 0
 watch([slug, episodeId], ([, newEp]) => {
   videoEpisodeSequence++
+  // Episode-owned source metadata must never stand while another episode is
+  // on screen. Reset immediately; the scoped GET below rehydrates the new record.
+  visualSourceSequence++
+  visualSource.value = 'scene_plan'
+  imagePoolSource.value = null
+  visualSourceError.value = ''
+  visualSourceLoaded.value = false
+  visualSourceLoading.value = !!newEp
+  visualSourceSaving.value = false
   subtitleStatusSequence++
   subtitlesStatus.value = null
   pinningSubtitle.value = false
@@ -5780,6 +5962,9 @@ async function applyVideoFormatDefaultsIfNoPreset() {
 }
 
 onMounted(async () => {
+  // Load the episode's persisted visual source before scanning assets. The
+  // backend owns the fresh selection sidecar; this page never carries it in a preset.
+  void loadVisualSource()
   // Kick off the ffmpeg probe immediately but keep the promise — we need
   // its `hw_encoders` result to seed the hardware export default below,
   // and that must happen BEFORE saved presets/bundles load so the user's
@@ -5846,6 +6031,55 @@ onUnmounted(() => {
 
 .assembly-step-panel {
   margin-top: var(--workspace-section-gap);
+}
+
+.visual-source-panel {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+.visual-source-panel legend {
+  padding: 0 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+.visual-source-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.visual-source-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+.visual-source-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.visual-source-option span { display: grid; gap: 2px; min-width: 0; }
+.visual-source-option small { color: var(--text-muted); line-height: 1.35; }
+.visual-source-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 13px;
+}
+.text-success { color: var(--success); }
+.text-danger { color: var(--error); }
+
+@media (max-width: 680px) {
+  .visual-source-options { grid-template-columns: 1fr; }
 }
 
 /* ── Inline-style sweep helpers (2026-05-02) ─────────────────────────────

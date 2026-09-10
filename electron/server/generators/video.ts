@@ -84,6 +84,13 @@ import {
   describeMergedAudioOpening,
   type MergedAudioOpening,
 } from '../services/merged-audio-opening.js'
+import {
+  buildImagePoolPlayOrder,
+  readVideoVisualSource,
+  resolveImagePoolSelection,
+  writeVideoAssemblySourceStamp,
+  type VideoVisualSource,
+} from '../services/video-visual-source.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
@@ -488,7 +495,7 @@ export interface ScannedAssets {
     number: number
     width?: number
     height?: number
-    source?: 'classic' | 'scene_plan'
+    source?: 'classic' | 'scene_plan' | 'image_pool'
     planned_scene_index?: number
     plan_scene_id?: string
     /** v1.0.435 — scene_plan renders are surfaced regardless of approval; this
@@ -502,7 +509,16 @@ export interface ScannedAssets {
     end_sec?: number
     duration_sec?: number
   }>
-  scene_sources?: { classic: number; scene_plan: number }
+  scene_sources?: { classic: number; scene_plan: number; image_pool?: number }
+  visual_source?: VideoVisualSource
+  image_pool?: {
+    pool_id: string
+    selected_images: Array<{ filename: string; sha256: string; target_duration: number }>
+    seconds_per_image: number
+    target_duration: number
+    generated_at: string
+    warnings: string[]
+  }
   /** Planned-image coverage is separate from the returned pool: the pool only
    * contains files that exist, while this records how many files should exist. */
   scene_plan_coverage?: {
@@ -591,8 +607,14 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     if (match?.title) titleHint = match.title
   } catch { /* fall back to code-only match */ }
 
-  const episodeDir = await findEpisodeDir(outputRoot, code, { titleHint })
+  let episodeDir = await findEpisodeDir(outputRoot, code, { titleHint })
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
+
+  // The source choice is episode state. A selection sidecar in a renamed
+  // sibling wins over the title-derived path, just like Scene Plan sidecars.
+  const visualSourceState = await readVideoVisualSource(slug, code)
+  if (visualSourceState.sidecar) episodeDir = visualSourceState.episode_dir
+  const visualSource = visualSourceState.source
 
   // Media-aware (Level B): heavy subfolders may live under an external media
   // root when the project opts in; for non-split projects these resolve to the
@@ -616,6 +638,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     episode_dir: episodeDir,
     video_dir: videoDir || path.join(episodeDir, names.video),
     skip_chapters: false,
+    visual_source: visualSource,
   }
 
   // Continuity projects render reviewed images into
@@ -631,7 +654,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     : ''
   const legacySceneDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
   let scannedPlan: ScenePlan | null = null
-  if (existsSync(planPath)) {
+  if (visualSource === 'scene_plan' && existsSync(planPath)) {
     try {
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
       scannedPlan = plan
@@ -830,6 +853,30 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       mergedDurationSec: entry.duration,
       episodeDir,
     })
+  }
+
+  if (visualSource === 'image_pool') {
+    const narrationDuration = Number(result.merged_audio[0]?.duration || result.narration_full?.duration || 0)
+    const imagePool = await resolveImagePoolSelection(slug, code, narrationDuration > 0 ? narrationDuration : undefined)
+    result.image_pool = {
+      pool_id: imagePool.pool_id,
+      selected_images: imagePool.selected_images,
+      seconds_per_image: imagePool.seconds_per_image,
+      target_duration: imagePool.target_duration,
+      generated_at: imagePool.generated_at,
+      warnings: imagePool.warnings,
+    }
+    const playOrder = buildImagePoolPlayOrder(imagePool, narrationDuration || imagePool.target_duration)
+    result.scenes = playOrder.map((item, index) => ({
+      filename: item.filename,
+      path: item.path,
+      number: index + 1,
+      source: 'image_pool' as const,
+      media_type: 'still' as const,
+      still_path: item.path,
+      duration_sec: item.duration,
+    }))
+    result.scene_sources!.image_pool = result.scenes.length
   }
 
   if (scannedPlan) {
@@ -1156,6 +1203,52 @@ export async function prepareUnifiedVideoAssemblyInputs(
   job?: Job,
 ): Promise<ScannedAssets> {
   const assets = await scanEpisodeAssets(slug, episodeId)
+  if (assets.visual_source === 'image_pool') {
+    const merged = assets.merged_audio[0]
+    if (!merged?.path || !existsSync(merged.path)) {
+      throw new Error('Video Assembly is blocked: merged audio is missing. Run Audio Assembly, then retry.')
+    }
+    const narrationDuration = Number(merged.duration || 0)
+    const imagePool = await resolveImagePoolSelection(slug, episodeId, narrationDuration)
+    const playOrder = buildImagePoolPlayOrder(imagePool, narrationDuration)
+    if (!playOrder.length) {
+      throw new Error('Video Assembly is blocked: Image Pool selection cannot cover the merged narration. Pick images again, then retry.')
+    }
+    req.scenes = playOrder.map((item, index) => ({
+      image_path: item.path,
+      duration: item.duration,
+      scene_number: index + 1,
+      title: `Image ${index + 1}`,
+      show_title: false,
+      clip_shortfall_mode: 'hold',
+    }))
+    req.scene_pool_mode = 'image_pool'
+    req.merged_audio_path = merged.path
+    req.narration_path = merged.path
+    req.scene_recycling = {
+      ...(req.scene_recycling || {}),
+      seconds_per_scene: imagePool.seconds_per_image,
+      shuffle: false,
+      excluded_scenes: [],
+      broll_natural_duration: false,
+    }
+
+    // Captions keep the episode's own audio timeline. Existing optional cues
+    // retain their validated timestamps when a Scene Plan record is present.
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, 'broll-selection.json')
+    await resolveEpisodeSubtitleFile(episodeId, paths.subtitles_dir, req, job, {
+      episodeDir: paths.episode_dir,
+      mergedAudioDir: paths.merged_audio_dir,
+      audioDir: paths.audio_dir,
+    })
+    await assertSubtitleFileBelongsToEpisode(slug, episodeId, paths.episode_dir, req, job)
+    await hydrateEpisodeRenderCues(slug, episodeId, req, job, true)
+    job?.output_lines.push(
+      `Image Pool source: ${imagePool.selected_images.length} frozen image(s), `
+      + `cycled at ${imagePool.seconds_per_image.toFixed(2)}s intervals to ${narrationDuration.toFixed(2)}s merged narration (final interval may be partial).`,
+    )
+    return assets
+  }
   const timing = assets.scene_plan_timing
   const coverage = assets.scene_plan_coverage
   if (!timing || !coverage || coverage.total === 0) {
@@ -1209,7 +1302,6 @@ export async function prepareUnifiedVideoAssemblyInputs(
   req.merged_audio_path = merged.path
   req.narration_path = merged.path
   req.scene_recycling ||= { seconds_per_scene: 10, shuffle: false, excluded_scenes: [] }
-  const cueConfig = normalizeContextualCueConfig((await pm.getConfig(slug))?.contextual_cues)
   const cuePaths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
   await resolveEpisodeSubtitleFile(episodeId, cuePaths.subtitles_dir, req, job, {
     episodeDir: cuePaths.episode_dir,
@@ -1217,7 +1309,21 @@ export async function prepareUnifiedVideoAssemblyInputs(
     audioDir: cuePaths.audio_dir,
   })
   await assertSubtitleFileBelongsToEpisode(slug, episodeId, cuePaths.episode_dir, req, job)
+  await hydrateEpisodeRenderCues(slug, episodeId, req, job)
+  return assets
+}
+
+async function hydrateEpisodeRenderCues(
+  slug: string, episodeId: string, req: GenerateVideoRequest, job?: Job, allowMissing = false,
+): Promise<void> {
+  const cueConfig = normalizeContextualCueConfig((await pm.getConfig(slug))?.contextual_cues)
+  const cuePaths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
   const planPath = await resolveScenePlanPath(slug, episodeId, cuePaths.episode_dir)
+  if (allowMissing && !existsSync(planPath)) {
+    req.contextual_cues = undefined
+    req.sound_design = undefined
+    return
+  }
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
   const cueTimeline = await readContextualCueTimeline(planPath)
   req.contextual_cues = assertContextualCueReadiness(cueConfig, cueTimeline, plan, req.subtitles)
@@ -1251,7 +1357,6 @@ export async function prepareUnifiedVideoAssemblyInputs(
         ducking_profile: soundTimeline?.settings.ducking_profile ?? DEFAULT_SOUND_DESIGN_SETTINGS.ducking_profile,
       }
     : undefined
-  return assets
 }
 
 // ── Generate Video (multi-pass pipeline) ──────────────────────────────────
@@ -1350,7 +1455,7 @@ export async function generateVideo(job: Job): Promise<void> {
     const match = ideas.find(i => i.episode_code === code)
     if (match?.title) titleHint = match.title
   } catch { /* fall back to code-only match */ }
-  const episodeDir = await findEpisodeDir(outputRoot, code, { titleHint })
+  const episodeDir = authoritativeAssets.episode_dir || await findEpisodeDir(outputRoot, code, { titleHint })
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
   // Sound Design is preflighted before final assembly. Once enabled, approved
@@ -1378,21 +1483,25 @@ export async function generateVideo(job: Job): Promise<void> {
   // Unified Video Assembly has one authoritative timing source. The preflight
   // above already replaced every browser/Pipeline scene with the approved plan
   // row, so no secondary bridge or legacy pool mode may reinterpret it here.
-  const planStrict = true
-  const planCoverageScenes = authoritativeAssets.scene_plan_timing!.scenes.map(scene => ({
+  const planStrict = authoritativeAssets.visual_source !== 'image_pool'
+  // Image Pool has no Scene Plan coverage checks, but its expanded selection
+  // is still exact: no shuffle, exclusions, fit-trim, or implicit recycling.
+  const exactSceneTiming = planStrict || authoritativeAssets.visual_source === 'image_pool'
+  const planCoverageScenes = authoritativeAssets.scene_plan_timing?.scenes.map(scene => ({
     id: scene.id,
     start_sec: scene.start_sec,
     end_sec: scene.end_sec,
-  }))
-  const planOpeningReservedSec = authoritativeAssets.scene_plan_timing!.opening_reserved_sec
+  })) || []
+  const planOpeningReservedSec = authoritativeAssets.scene_plan_timing?.opening_reserved_sec || 0
   // v1.3.1 — a plan whose reserve was PROBED from the real opening clips
   // already equals `preSceneDuration`, so the render just plays those clips.
   // A legacy plan's reserve is a number someone typed, which the render still
   // repairs by stretching the intro to fill it. See the guard below.
-  const planOpeningMeasured = authoritativeAssets.scene_plan_timing!.opening_source === 'measured'
+  const planOpeningMeasured = authoritativeAssets.scene_plan_timing?.opening_source === 'measured'
   job.output_lines.push(
-    `Scene Plan timing: ${req.scenes.length} scene(s), exact order + duration; ` +
-    'recycling, shuffle, and chapter alignment are disabled.',
+    planStrict
+      ? `Scene Plan timing: ${req.scenes.length} scene(s), exact order + duration; recycling, shuffle, and chapter alignment are disabled.`
+      : `Image Pool timing: ${req.scenes.length} frozen still interval(s); cyclic selection is resolved from the persisted pool sidecar.`,
   )
 
   // Validate narration — merged audio takes priority, then chapters, then single narration
@@ -1734,6 +1843,12 @@ export async function generateVideo(job: Job): Promise<void> {
 
       compResolvedPath = await selfHealFinalPromotion(compResolvedPath, compProjectTreeFinalPath, compFinalName, job)
       await verifyFinalVideo(job, compResolvedPath, compFinalName)
+      await writeVideoAssemblySourceStamp(
+        compResolvedPath,
+        code,
+        authoritativeAssets.visual_source || 'scene_plan',
+        authoritativeAssets.image_pool,
+      )
       job.progress = 100
       job.output_lines.push(`Video saved: ${path.basename(compResolvedPath)}`)
       job.output_lines.push(`Full path: ${compResolvedPath}`)
@@ -1801,7 +1916,9 @@ export async function generateVideo(job: Job): Promise<void> {
     const brollNaturalDuration = !!req.scene_recycling?.broll_natural_duration
     const isVideoScenePath = (p?: string) => /\.(mp4|mov|webm|mkv|m4v)$/i.test(p || '')
     let naturalBrollCount = 0
-    const sceneClipDurations = await Promise.all(req.scenes.map(async (scene, i) => {
+    let sceneClipDurations = authoritativeAssets.visual_source === 'image_pool'
+      ? []
+      : await Promise.all(req.scenes.map(async (scene, i) => {
       if (brollNaturalDuration && isVideoScenePath(scene.image_path)) {
         const natural = await getAudioDuration(scene.image_path).catch(() => undefined)
         if (typeof natural === 'number' && Number.isFinite(natural) && natural > 0) {
@@ -1821,7 +1938,7 @@ export async function generateVideo(job: Job): Promise<void> {
             ? explicitSceneDuration
             : defaultSceneDuration
       return Math.max(0.5, durationCandidate)
-    }))
+      }))
     if (brollNaturalDuration) {
       job.output_lines.push(
         `B-roll natural length: ON — ${naturalBrollCount} video scene(s) play their full clip duration; ` +
@@ -1877,9 +1994,9 @@ export async function generateVideo(job: Job): Promise<void> {
     // (>= 2 scenes AFTER exclusions: a single-clip body never xfades, and the
     // non-xfade concat path uses the clip verbatim — a baked tail there would
     // overrun the window.)
-    const planExcluded = new Set(req.scene_recycling?.excluded_scenes || [])
+    const planExcluded = exactSceneTiming ? new Set<number>() : new Set(req.scene_recycling?.excluded_scenes || [])
     const planEffectiveScenes = req.scenes.filter((_, i) => !planExcluded.has(i + 1)).length
-    if (planStrict && planEffectiveScenes >= 2 && req.transition && req.transition !== 'none' && getTransition(req.transition)?.xfade) {
+    if (exactSceneTiming && sceneClipDurations.length > 0 && planEffectiveScenes >= 2 && req.transition && req.transition !== 'none' && getTransition(req.transition)?.xfade) {
       const minWindow = Math.min(...sceneClipDurations)
       planTransitionTail = Math.min(
         Math.max(0.1, req.transition_duration || 1.5),
@@ -1887,21 +2004,24 @@ export async function generateVideo(job: Job): Promise<void> {
       )
     }
 
-    const sceneClips = await prepareSceneClips(
-      req.scenes, resolvedSceneAnimation!.settings, req.chapter_titles, resW, resH, quality, tempDir, canDrawtext, req.scene_recycling, job,
-      {
-        pool: resolvedSceneAnimation!.pool,
-        randomizeMode: resolvedSceneAnimation!.randomize_mode,
-        seed: resolvedSceneAnimation!.seed,
-        picks: resolvedSceneAnimation!.picks,
-      },
-      sceneClipDurations,
-      planTransitionTail,
-      sceneEffectLibrary!.scene_motions,
-      videoAssemblyCheckpoint && renderFingerprint
-        ? { checkpoint: videoAssemblyCheckpoint, renderFingerprint }
-        : undefined,
-    )
+    let sceneClips: string[] = []
+    if (authoritativeAssets.visual_source !== 'image_pool') {
+      sceneClips = await prepareSceneClips(
+        req.scenes, resolvedSceneAnimation!.settings, req.chapter_titles, resW, resH, quality, tempDir, canDrawtext, req.scene_recycling, job,
+        {
+          pool: resolvedSceneAnimation!.pool,
+          randomizeMode: resolvedSceneAnimation!.randomize_mode,
+          seed: resolvedSceneAnimation!.seed,
+          picks: resolvedSceneAnimation!.picks,
+        },
+        sceneClipDurations,
+        exactSceneTiming ? planTransitionTail : 0,
+        sceneEffectLibrary!.scene_motions,
+        videoAssemblyCheckpoint && renderFingerprint
+          ? { checkpoint: videoAssemblyCheckpoint, renderFingerprint }
+          : undefined,
+      )
+    }
 
     const storyStartSec = planOpeningReservedSec
     // Whether captions should sit out the opening is decided by whether there
@@ -2126,6 +2246,60 @@ export async function generateVideo(job: Job): Promise<void> {
         timelineClipsByAnchor.after_outro.push({ path: cardPath, duration })
       }
     }
+    // Image Pool intervals begin after any measured opening clips. The merged
+    // narration remains the clock, so the frozen cyclic body covers only the
+    // narration seconds still available after before/intro/title/after-intro
+    // content. This keeps the final interval partial at the true boundary.
+    const preSceneDuration = await measureOpeningSec({
+      before_intro: timelineClipsByAnchor.before_intro.map(c => ({ duration_sec: c.duration })),
+      intro: introClipPath ? { path: introClipPath, fallback_sec: 5, label: 'intro' } : null,
+      title: titleClipPath ? { path: titleClipPath, fallback_sec: 5, label: 'title' } : null,
+      after_intro: timelineClipsByAnchor.after_intro.map(c => ({ duration_sec: c.duration })),
+    }, getAudioDuration)
+    if (authoritativeAssets.visual_source === 'image_pool') {
+      const bodyDuration = Math.max(0, narrationDuration - preSceneDuration)
+      if (bodyDuration <= 0) {
+        throw new Error('Video Assembly is blocked: the configured opening is as long as the merged narration, so Image Pool has no scene time left.')
+      }
+      const imagePool = await resolveImagePoolSelection(project_slug, code, bodyDuration)
+      const playOrder = buildImagePoolPlayOrder(imagePool, bodyDuration)
+      req.scenes = playOrder.map((item, index) => ({
+        image_path: item.path,
+        duration: item.duration,
+        scene_number: index + 1,
+        title: `Image ${index + 1}`,
+        show_title: false,
+        clip_shortfall_mode: 'hold',
+      }))
+      job.output_lines.push(
+        `Image Pool body: ${playOrder.length} frozen interval(s) cover ${bodyDuration.toFixed(2)}s after a measured ${preSceneDuration.toFixed(2)}s opening.`,
+      )
+      sceneClipDurations = req.scenes.map(scene => Math.max(1 / quality.fps, Number(scene.duration) || imagePool.seconds_per_image))
+      planTransitionTail = 0
+      if (exactSceneTiming && sceneClipDurations.length >= 2 && req.transition && req.transition !== 'none' && getTransition(req.transition)?.xfade) {
+        const minWindow = Math.min(...sceneClipDurations)
+        planTransitionTail = Math.min(
+          Math.max(0.1, req.transition_duration || 1.5),
+          Math.max(0.1, minWindow - 0.1),
+        )
+      }
+      sceneClips = await prepareSceneClips(
+        req.scenes, resolvedSceneAnimation!.settings, req.chapter_titles, resW, resH, quality, tempDir, canDrawtext, req.scene_recycling, job,
+        {
+          pool: resolvedSceneAnimation!.pool,
+          randomizeMode: resolvedSceneAnimation!.randomize_mode,
+          seed: resolvedSceneAnimation!.seed,
+          picks: resolvedSceneAnimation!.picks,
+        },
+        sceneClipDurations,
+        planTransitionTail,
+        sceneEffectLibrary!.scene_motions,
+        videoAssemblyCheckpoint && renderFingerprint
+          ? { checkpoint: videoAssemblyCheckpoint, renderFingerprint }
+          : undefined,
+        1 / quality.fps,
+      )
+    }
     // Bucket totals drive head-of-video (preSceneDuration) vs tail
     // (totalRenderDuration) math below. Sum once here, reuse below.
     const afterScenesDur = timelineClipsByAnchor.after_scenes.reduce((s, c) => s + c.duration, 0)
@@ -2171,13 +2345,6 @@ export async function generateVideo(job: Job): Promise<void> {
     // measurements of "what precedes the scenes" is how the drift below
     // recurs; one shared function with a required key per bucket means a new
     // head bucket is a compile error in both places.
-    const preSceneDuration = await measureOpeningSec({
-      before_intro: timelineClipsByAnchor.before_intro.map(c => ({ duration_sec: c.duration })),
-      intro: introClipPath ? { path: introClipPath, fallback_sec: 5, label: 'intro' } : null,
-      title: titleClipPath ? { path: titleClipPath, fallback_sec: 5, label: 'title' } : null,
-      after_intro: timelineClipsByAnchor.after_intro.map(c => ({ duration_sec: c.duration })),
-    }, getAudioDuration)
-
     // ── The one derived intro offset ────────────────────────────────────────
     //
     // `preSceneDuration` above is where the SCENE TRACK actually begins in the
@@ -2341,14 +2508,15 @@ export async function generateVideo(job: Job): Promise<void> {
         // v1.0.521 — plan-strict clamps T against the shortest PLAN window
         // (matches the +T tail baked into the prepared clips); the legacy
         // clamp against seconds_per_scene only applies to recycled pools.
-        durationSec: planStrict && planTransitionTail > 0
+        durationSec: exactSceneTiming && planTransitionTail > 0
           ? planTransitionTail
           : Math.max(0.2, Math.min(req.transition_duration || 1.5, req.scene_recycling.seconds_per_scene - 0.5)),
         seed: (req as any).transition_seed,
       } : undefined,
       outroClipPath,
       timelineClipsByAnchor,
-      planStrict,
+      exactSceneTiming,
+      authoritativeAssets.visual_source === 'image_pool' ? 1 / quality.fps : 0.5,
     )
 
     // 11. Pre-mix all audio into a single WAV file. Length must match the
@@ -2493,6 +2661,12 @@ export async function generateVideo(job: Job): Promise<void> {
 
     resolvedOutputPath = await selfHealFinalPromotion(resolvedOutputPath, projectTreeFinalPath, finalName, job)
     await verifyFinalVideo(job, resolvedOutputPath, finalName)
+    await writeVideoAssemblySourceStamp(
+      resolvedOutputPath,
+      code,
+      authoritativeAssets.visual_source || 'scene_plan',
+      authoritativeAssets.image_pool,
+    )
     job.progress = 100
     job.output_lines.push(`Video saved: ${path.basename(resolvedOutputPath)}`)
     job.output_lines.push(`Full path: ${resolvedOutputPath}`)
@@ -2849,6 +3023,7 @@ export async function prepareSceneClips(
   extraTailSec?: number,
   motionLibrary: SceneMotionLibrary = [],
   recovery?: VideoAssemblySceneClipRecovery,
+  minimumDurationSec = 0.5,
 ): Promise<string[]> {
   // v1.0.515 — filled by index (scenes render in a parallel pool; order must hold).
   const clipPaths: string[] = new Array(scenes.length)
@@ -2876,7 +3051,7 @@ export async function prepareSceneClips(
       : (typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0)
           ? explicitSceneDuration
           : defaultDuration
-    const duration = Math.max(0.5, durationCandidate)
+    const duration = Math.max(minimumDurationSec, durationCandidate)
     return { duration, renderDuration: duration + Math.max(0, extraTailSec || 0) }
   }
   const expectedRecoveryClips: VideoAssemblyCompletedSceneClip[] = scenes.map((_, i) => ({
@@ -3722,6 +3897,7 @@ async function buildConcatList(
    *  prepared clips carry a +transition tail) so transitions never eat
    *  into a scene's planned window. */
   planStrict?: boolean,
+  minimumDurationSec = 0.5,
 ): Promise<{ listPath: string; sceneEndTime: number }> {
   const listPath = path.join(tempDir, 'concat_list.txt')
   const lines: string[] = []
@@ -3776,7 +3952,7 @@ async function buildConcatList(
   const availableClips = sceneClips.filter((_, idx) => !excludedSet.has(idx + 1))
   const availableDurations = (sceneClipDurations || sceneClips.map(() => sceneDuration))
     .filter((_, idx) => !excludedSet.has(idx + 1))
-    .map(d => (Number.isFinite(d) && d > 0 ? Math.max(0.5, d) : sceneDuration))
+    .map(d => (Number.isFinite(d) && d > 0 ? Math.max(minimumDurationSec, d) : sceneDuration))
   if (availableClips.length === 0) {
     throw new Error('No scene clips available after applying exclusions')
   }
