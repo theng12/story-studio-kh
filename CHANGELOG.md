@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.145 — 2026-09-10
+
+- Failed and cancelled jobs now offer a small, named link to their work tab, opening the job’s own project and episode directly from Project Jobs or All Jobs. Repair and Retry continue to work in place.
+
 ## v1.4.144
 
 - Choose Image Pool slideshow as an episode's visual source in Video Assembly. Reuse the saved still-image selection in order at its chosen interval through the full narration; Scene Plan keeps its existing timing mode.

@@ -229,7 +229,7 @@ const instrumental = ref(true)
 const generating = ref(false)
 const genError = ref('')
 
-const episodeId = ref('')
+const episodeId = ref(typeof route.query.episode_id === 'string' ? route.query.episode_id : '')
 const targetMinutes = ref(60)
 const siblingGap = ref(5)
 const backgroundPath = ref('')
@@ -361,6 +361,10 @@ async function render() {
     renderError.value = e?.data?.detail || 'Could not start the video'
   } finally { rendering.value = false }
 }
+
+watch(() => [slug.value, route.query.episode_id], () => {
+  episodeId.value = typeof route.query.episode_id === 'string' ? route.query.episode_id : ''
+})
 
 watch(slug, () => {
   libraryScopeEpoch++

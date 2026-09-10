@@ -594,7 +594,7 @@ const loadError = ref('')
 const busy = ref('')
 const episodes = ref<PublishableEpisode[]>([])
 const total = ref(0)
-const filter = ref('')
+const filter = ref(typeof route.query.episode_id === 'string' ? route.query.episode_id : '')
 const statusFilter = ref<StatusFilter>('all')
 const sort = ref<SortMode>('episode_newest')
 const rowResults = reactive<Record<string, { kind: 'ok' | 'warn' | 'err'; message: string }>>({})
@@ -1632,6 +1632,11 @@ watch(
   (next, previous) => { if (next && next !== previous) void load() },
 )
 
+watch(() => route.query.episode_id, (episode) => {
+  filter.value = typeof episode === 'string' ? episode : ''
+  statusFilter.value = 'all'
+})
+
 watch(slug, () => {
   actionRevision += 1
   busy.value = ''
@@ -1644,7 +1649,7 @@ watch(slug, () => {
   quotaUnavailableReason.value = ''
   quotaExhausted.value = false
   uploadQuotaExhausted.value = false
-  filter.value = ''
+  filter.value = typeof route.query.episode_id === 'string' ? route.query.episode_id : ''
   statusFilter.value = 'all'
   planResult.value = null
   selectedUploadCodes.value = []
