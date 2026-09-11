@@ -94,7 +94,7 @@
               title="Recheck recorded provider tasks for the eligible jobs and download available output. No new generation or credits."
               @click="repairAllFailed">{{ repairingAllFailed ? 'Repairing…' : `Repair all (${repairableFailedJobs.length})` }}</button>
             <button class="btn btn-sm btn-secondary retry-all-btn" :disabled="bulkActionBusy || retryAllTriage.retry.length === 0"
-              :title="retryAllTooltip" @click="retryAllFailed">{{ retryingAllFailed ? 'Sending…' : `Retry all (${retryAllTriage.retry.length})` }}</button>
+              :title="retryAllTooltip" @click="retryAllFailed">{{ retryAllButtonLabel }}</button>
           </div>
         </div>
         <div class="jobs-control-group" role="group" aria-label="Queue controls">
@@ -120,7 +120,16 @@
         </div>
       </div>
       <p class="jobs-control-help">Recover checks an episode’s audio and images. Repair checks a job’s recorded requests. Retry continues unfinished work and may use credits.</p>
-      <p v-if="bulkActionMessage" class="jobs-control-result" role="status">{{ bulkActionMessage }}</p>
+      <p v-if="retryAllStatusMessage" class="jobs-control-result" role="status">{{ retryAllStatusMessage }}</p>
+      <details v-if="retryAllAttentionResults.length" class="retry-all-details">
+        <summary>{{ retryAllAttentionResults.length }} retry action{{ retryAllAttentionResults.length === 1 ? ' needs' : 's need' }} attention</summary>
+        <ul>
+          <li v-for="result in retryAllAttentionResults" :key="result.key">
+            <strong>{{ result.label }}</strong>
+            <span>{{ retryAllAttentionLabel(result) }} — {{ result.reason }}</span>
+          </li>
+        </ul>
+      </details>
     </section>
 
     <!-- Durable Story-side queue hold. Queued work has not been submitted;
@@ -1722,7 +1731,31 @@ async function repairAllFailed() {
 // through, and cannot tell "proved missing" from "never checked"); a global
 // grey-out until a repair has run (wrong for the 32 job types that have no
 // repair path at all, subtitles among them).
+interface RetryAllAction {
+  index: number
+  key: string
+  label: string
+  projectSlug: string
+  episodeId: string
+  sourceJobIds?: string[]
+  job?: RJob
+}
+interface RetryAllResult {
+  index: number
+  key: string
+  label: string
+  kind: 'sent' | 'already-complete' | 'needs-attention'
+  status: string
+  reason: string
+}
+
 const retryingAllFailed = ref(false)
+const retryAllRun = ref<{
+  total: number
+  completed: number
+  current: Array<{ key: string; label: string }>
+  results: RetryAllResult[]
+} | null>(null)
 function isTerminalContinuityRender(job: RJob): boolean {
   return job.type === 'continuity_render'
     && !!job.episode_id
@@ -1740,9 +1773,37 @@ const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
   (jobId: string) => repairState.value[jobId],
 ))
 const retryAllTooltip = computed(() => describeRetryAllTriage(retryAllTriage.value as any))
+const retryAllCurrentEpisodes = computed(() => retryAllRun.value?.current.map(item => item.label) || [])
+const retryAllCounts = computed(() => {
+  const results = retryAllRun.value?.results || []
+  return {
+    sent: results.filter(result => result.kind === 'sent').length,
+    alreadyComplete: results.filter(result => result.kind === 'already-complete').length,
+    needsAttention: results.filter(result => result.kind === 'needs-attention').length,
+  }
+})
+const retryAllAttentionResults = computed(() => (retryAllRun.value?.results || [])
+  .filter(result => result.kind === 'needs-attention')
+  .sort((a, b) => a.index - b.index))
+const retryAllButtonLabel = computed(() => retryingAllFailed.value && retryAllRun.value
+  ? `Retrying ${retryAllRun.value.completed}/${retryAllRun.value.total}…`
+  : `Retry all (${retryAllTriage.value.retry.length})`)
+const retryAllStatusMessage = computed(() => {
+  const run = retryAllRun.value
+  if (!retryingAllFailed.value || !run) return bulkActionMessage.value
+  const current = retryAllCurrentEpisodes.value
+  return `Retry all: ${run.completed} of ${run.total} finished${current.length ? ` · working on ${current.join(', ')}.` : '.'}`
+})
+
+function retryAllAttentionLabel(result: RetryAllResult): string {
+  if (result.status === 'paused') return 'Paused'
+  if (result.status === 'blocked') return 'Blocked'
+  if (result.status === 'unconfirmed') return 'Result unconfirmed'
+  return 'Could not send'
+}
 
 async function retryAllFailed() {
-  if (bulkActionBusy.value) return
+  if (bulkActionBusy.value) return false
   const triage = retryAllTriage.value
   if (triage.retry.length === 0) {
     // Never silently do nothing. If everything is held back, say so and point
@@ -1754,61 +1815,90 @@ async function retryAllFailed() {
     } else {
       info('No jobs need another try.')
     }
-    return
+    return false
   }
   const directContinuityRetries = (triage.retry as RJob[]).filter(isTerminalContinuityRender)
   const grouped = groupEpisodeRecoveryRetries((triage.retry as RJob[]).filter(job => !isTerminalContinuityRender(job)))
   const snapshot = [...directContinuityRetries, ...grouped.other]
+  const actions: RetryAllAction[] = [
+    ...grouped.episodes.map(episode => ({
+      projectSlug: episode.project_slug,
+      episodeId: episode.episode_id,
+      sourceJobIds: episode.source_job_ids,
+      job: undefined,
+    })),
+    ...snapshot.map(job => ({ projectSlug: jobProjectSlug(job), episodeId: job.episode_id, sourceJobIds: undefined, job })),
+  ].map((action, index) => ({
+    ...action,
+    index,
+    key: action.job ? `job:${action.job.job_id}` : `episode:${action.projectSlug}:${action.episodeId}`,
+    label: isUniversal.value ? `${projectName(action.projectSlug)} / ${action.episodeId}` : action.episodeId,
+  }))
   retryingAllFailed.value = true
+  retryAllRun.value = { total: actions.length, completed: 0, current: [], results: [] }
+  bulkActionMessage.value = ''
   info(describeRetryAllTriage(triage as any))
   try {
-    // Dependent rows share one server-owned plan. No per-row POST or delete
-    // may race its prerequisite, even when a downstream row already failed.
-    let submitted = 0
-    let failures = 0
-    for (const episode of grouped.episodes) {
-      try {
-        await post(`/projects/${episode.project_slug}/jobs/recover-episode/${episode.episode_id}`, { source_job_ids: episode.source_job_ids })
-        submitted++
-      } catch (e: any) {
-        failures++
-        console.warn('[retry-all] episode recovery failed:', e?.message || e)
-      }
-    }
-    // Bounded the same way Repair-all is. Posting is not running — each retry
-    // enqueues a job and the queue paces execution (the episode lane is bounded
-    // at 2 since 1.4.27, the writing lane at 8), which is what stops a repeat of
-    // the 30-episodes-at-once flood of 2026-08-22. This cap only stops us
-    // firing thirty HTTP requests in the same tick.
+    // Grouped episode plans and ordinary retries share the same request pool.
+    // One episode plan still owns all dependent rows for that episode.
     const CONCURRENCY = 3
     let cursor = 0
     async function worker() {
-      while (cursor < snapshot.length) {
+      while (cursor < actions.length) {
         const idx = cursor++
-        if (idx >= snapshot.length) return
-        const target = snapshot[idx]!
-        try {
-          const sent = isTerminalContinuityRender(target)
-            ? await finishMissingImages(target, false)
-            : await retryJob(target)
-          if (sent) submitted++
-          else failures++
-          // The repair we knew about belonged to the run that just failed. Once
-          // it is re-queued that knowledge is stale, so it is dropped rather
-          // than left to license a second retry later.
-          setRepairState(target.job_id, null)
-        } catch (e: any) {
-          failures++
-          console.warn('[retry-all] retry failed:', e?.message || e)
+        if (idx >= actions.length) return
+        const action = actions[idx]!
+        retryAllRun.value!.current.push({ key: action.key, label: action.label })
+        const result: RetryAllResult = {
+          index: action.index,
+          key: action.key,
+          label: action.label,
+          kind: 'needs-attention',
+          status: 'request-failed',
+          reason: 'Story Studio could not confirm this retry was queued.',
         }
+        try {
+          if (action.sourceJobIds) {
+            const response = await post<{ plan?: {
+              dispatch_status?: 'queued' | 'running' | 'paused' | 'blocked' | 'complete'
+              message?: string
+            } }>(`/projects/${action.projectSlug}/jobs/recover-episode/${action.episodeId}`, { source_job_ids: action.sourceJobIds })
+            const status = response?.plan?.dispatch_status
+            result.status = status || 'unconfirmed'
+            result.reason = customerSafeJobText(response?.plan?.message, action.sourceJobIds)
+              || 'Story Studio accepted the request but did not confirm what happened next.'
+            if (status === 'queued' || status === 'running') result.kind = 'sent'
+            else if (status === 'complete') result.kind = 'already-complete'
+          } else {
+            const sent = isTerminalContinuityRender(action.job!)
+              ? await finishMissingImages(action.job!, false)
+              : await retryJob(action.job!)
+            if (sent) {
+              result.kind = 'sent'
+              result.status = 'queued'
+              result.reason = 'Queued.'
+            }
+          }
+        } catch (e: any) {
+          const message = e?.data?.detail || e?.message || 'Story Studio could not send this retry.'
+          result.reason = action.job
+            ? customerJobText(message, action.job)
+            : customerSafeJobText(message, action.sourceJobIds || [])
+          console.warn('[retry-all] retry failed:', result.reason)
+        }
+        const run = retryAllRun.value!
+        run.current.splice(run.current.findIndex(item => item.key === action.key), 1)
+        run.results.push(result)
+        run.completed++
       }
     }
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, () => worker()))
-    const total = grouped.episodes.length + snapshot.length
-    if (failures > 0) showError(`${failures} of ${total} retry action(s) could not be sent. ${submitted} was sent to the queue.`)
-    else success(`Advanced ${grouped.episodes.length} episode recovery plan(s); sent ${snapshot.length} job(s) to the queue.`)
-  } catch (cause: any) {
-    showError(cause?.data?.detail || cause?.message || 'Episode recovery could not be advanced.')
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, actions.length) }, () => worker()))
+    await refreshVisibleJobs()
+    const { sent, alreadyComplete, needsAttention } = retryAllCounts.value
+    bulkActionMessage.value = `Retry all finished: ${sent} queued or running; ${alreadyComplete} already complete; ${needsAttention} need attention. Original failed rows may remain in history.`
+    if (retryAllCounts.value.needsAttention > 0) showError(bulkActionMessage.value)
+    else success(bulkActionMessage.value)
+    return true
   } finally {
     retryingAllFailed.value = false
   }
@@ -3175,6 +3265,10 @@ function clearFailed() { return clearHistory('failed') }
 .jobs-control-buttons .btn:disabled { color: var(--text-muted); background: var(--bg-tertiary); border-color: var(--border); cursor: not-allowed; opacity: .65; }
 .jobs-control-help { margin: 12px 0 0; line-height: 1.5; }
 .jobs-control-result { margin: 8px 0 0; font-size: var(--font-sm); overflow-wrap: anywhere; }
+.retry-all-details { margin-top: 8px; font-size: var(--font-xs); }
+.retry-all-details summary { color: var(--text-secondary); cursor: pointer; }
+.retry-all-details ul { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 20px; }
+.retry-all-details li span { display: block; color: var(--text-secondary); overflow-wrap: anywhere; }
 @media (max-width: 1000px) { .jobs-control-groups { grid-template-columns: 1fr; gap: 16px; } }
 .job-control-primary { border-color: var(--accent); color: var(--accent); }
 .job-control-reason {
