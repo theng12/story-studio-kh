@@ -4,7 +4,9 @@ Living roadmaps and backlogs. Items here change state as work happens — `[ ]` 
 
 ## Contents
 
-No active plans. Completed plans are retained in [`../history/`](../history/).
+- [Episode visual workflow and app audit](../superpowers/plans/2026-09-11-visual-workflow-and-app-audit.md) — planning baseline: preserve uniform pacing, add optional variable pacing/scoped motion, consolidate episode visual choices, and verify the complete workflow. Implementation has not started.
+
+Completed plans are retained in [`../history/`](../history/).
 
 ## When to update
 
