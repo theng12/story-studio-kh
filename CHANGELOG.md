@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.148 — 2026-09-11
+
+- Start Video Assembly on the first Generate click when the caption check requires no review. Show “Checking captions…” and disable repeat clicks while checking; real caption previews still require confirmation.
+
 ## v1.4.147 — 2026-09-11
 
 - Choose Scene Plan or Image Pool per episode from Pipeline and Scene Plan. Mixed batches skip inapplicable visual steps, and the Board and completion filters follow each episode’s source.

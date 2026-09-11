@@ -24,11 +24,11 @@
         v-model:episode-id="episodeId"
         filter-field="video_assembly"
         generate-label="Generate Video"
-        loading-label="Rendering…"
-        :generate-loading="generating || assemblyJobActiveForEpisode"
+        :generate-loading-label="preflightRunning ? 'Checking captions…' : 'Rendering…'"
+        :generate-loading="preflightRunning || generating || assemblyJobActiveForEpisode"
         :generate-disabled="!episodeId || !step1Valid || currentStep !== 6"
         :show-generate="currentStep === 6"
-        :generate-status="(generating || assemblyJobActiveForEpisode) ? `Rendering video for ${selectedEpisode?.title || episodeId}…${activeJobProgress > 0 ? ` (${activeJobProgress}%)` : ''}` : ''"
+        :generate-status="preflightRunning ? 'Checking captions before rendering…' : (generating || assemblyJobActiveForEpisode) ? `Rendering video for ${selectedEpisode?.title || episodeId}…${activeJobProgress > 0 ? ` (${activeJobProgress}%)` : ''}` : ''"
         @generate="generateVideo"
         @episode-selected="onEpisodeSelected"
         @preset-applied="onBundleApplied"
@@ -5771,9 +5771,13 @@ async function generateVideo() {
     // produce the same frames beside the finished file instead.
     if (!preflightConfirmed.value) {
       const ok = await runSubtitlePreflight()
+      if (!ok) return
       // Show him what he is being asked about, wherever he clicked from.
-      if (ok && !preflightConfirmed.value) currentStep.value = 5
-      return
+      if (!preflightConfirmed.value) {
+        currentStep.value = 5
+        return
+      }
+      // A skipped check has no captions to review. Continue this same click.
     }
     await runGenerateVideo({ post, videoAssemblyGenerating })
   } catch (e: any) {
