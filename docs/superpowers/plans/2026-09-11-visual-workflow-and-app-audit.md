@@ -39,6 +39,7 @@
 - **Image Pool:** retain selection/order/seconds-per-image and recycling. It has no AI-motion scope in this batch. Generated opening clips followed by an Image Pool remainder is a separate future feature.
 - **Video Assembly:** show the selected source, actual timeline, and approved clip/still mixture. Do not maintain another pacing editor that contradicts Scene Plan timestamps. Keep existing Image Pool timing controls connected to its saved selection.
 - **Jobs/Board:** use the episode's chosen branch and requested scene IDs for counts, readiness, retry, links, and completion. Generated-but-unselected clips remain assets, not a request to use them.
+- **Mixed-source Board layout:** retain the existing table with the union of applicable visual columns, label each episode's source, and show “Not used” in branch-inapplicable cells. Row completion and summary denominators count only applicable requirements; a project-level format cannot mark an Image Pool row incomplete for missing Scene Plan assets. Apply the same rule to dashboard and Ideas completion filters.
 
 ### Recommended timing and state rules
 
@@ -64,6 +65,9 @@
 | Uniform and two-phase pacing exist; the general custom editor only exposes one band | `services/scene-planner.ts`; `frontend/composables/useContinuityConfig.ts`; `electron/server/routes/continuity.ts` | Extend existing contract, preserve uniform results |
 | Bulk motion prompt controls are Next N/All pending, and clip eligibility has no time scope | `frontend/pages/projects/[slug]/scene-plan.vue`; `motion-review.vue`; `electron/server/routes/scene-review.ts` | Share scope resolution before either paid stage |
 | Pipeline checks Image Pool mainly when Video Assembly is selected | `electron/server/routes/pipeline.ts` | Resolve branch before validating/planning all visual stages |
+| Uniform defaults diverge: the canonical pacing contract resolves 1–3 seconds, while a generator fallback uses 3–12 when pacing is absent | `services/scene-plan-pacing.ts`; `generators/scene-plan.ts` | One canonical resolver for new planning; preserve existing plan timings |
+| Motion generation still reads project-wide enable/intensity values and assigns formula profiles automatically | `generators/scene-plan.ts` | Explicit episode settings govern new work; preserve submitted job snapshots |
+| Board columns and Ideas completion derive from project format; motion readiness examines all scenes | `frontend/pages/projects/[slug]/board.vue`; `frontend/composables/useProjectFlow.ts`; `electron/server/routes/ideas.ts`; `services/asset-status.ts` | Make row completion, applicable counts, and motion readiness episode-aware |
 | Renderer already selects current approved clips or exact stills, with duration fitting | `electron/server/generators/video.ts` | Reuse; verify short clips and mixed output |
 | Older internal source names remain, while `canonicalFormatId()` currently resolves every format ID to Continuity | `electron/server/services/format-loader.ts` | Trace actual reachability; names alone do not prove dead behavior or an extra customer mode |
 
@@ -90,6 +94,7 @@
 - [ ] Add failing regression fixtures for selecting an empty Image Pool, a saved uniform band, explicit legacy two-phase pacing, a preset with no band, malformed state, and rapid episode switches.
 - [ ] Extend existing records rather than introducing a parallel project configuration. Reading an old episode must not write/backfill files. Existing explicit settings and saved plan timings win.
 - [ ] Remove formula-as-implicit-default from production resolution. Keep legacy explicit episode two-phase values readable and offer their editable equivalent; keep signed pack bytes unchanged.
+- [ ] Make the canonical pacing resolver supply the current uniform contract for new planning in every supported entry path. Remove the divergent 3–12-second generator fallback rather than replacing saved episode bands or existing plan timings.
 - [ ] Preserve preset semantics: stored pacing applies with a notice; absent/partial pacing leaves current choice untouched. Update the repository's control-location instructions while retaining the owner's preset rule.
 - [ ] Validate source choice independently from readiness; a missing pool selection is a clear unready state, not a switch back to Scene Plan.
 - [ ] Run focused tests, review, and checkpoint the completed change.
@@ -141,6 +146,7 @@ const scenes = [
 
 - [ ] Add regression tests proving prompt and clip dispatch receive the same scoped IDs, including empty/off scope and a stale selected ID.
 - [ ] Apply the helper before LLM prompt packing and before image-to-video job creation, including individual, bulk, and Pipeline paths. Keep manual explicit per-scene actions labelled with their scope.
+- [ ] Remove project-wide motion enable/intensity and formula auto-assignment as implicit decisions for new work. Existing submitted jobs retain their own request parameters; missing episode scope does not authorize new paid work through a project toggle.
 - [ ] Store scope/IDs in existing job parameters so retries and restarts cannot expand the batch after settings changes. Retry only unfinished required items; recovery reconnects accepted work.
 - [ ] Recompute variant choices and quotes when model changes. Show actual eligible counts and duration fitting; retain existing hold-final-frame/manual-loop behavior with explicit labels.
 - [ ] Make Use still and Use clip deliberate output choices. Applying a narrower scope to existing clips shows what will change; files and paid receipts remain.
@@ -157,6 +163,8 @@ const scenes = [
 - [ ] Keep manual stage selection. A branch choice does not authorize automatically generating every stage; missing prerequisites remain actionable for that episode.
 - [ ] Ensure stale queued work is not retargeted when source/settings change. Use existing snapshots and revalidation, with a clear stale-settings reason rather than silently doing different work.
 - [ ] Align Board cells, Jobs badges, pending filters, completion checks, repair targets, and deep links with the chosen branch and scoped required artifacts.
+- [ ] Update `all_motion_reviewed`, motion pending counts, and Ideas/dashboard `all_done` to use only applicable scoped requirements. Off-scope scenes do not need placeholder clips or artificial approvals. Verify the mixed-source Board layout defined above.
+- [ ] Preserve explicit optional Contextual Cues/Sound Design behavior during source changes: do not drop enabled, valid episode effects merely because Image Pool is selected, and do not make a Scene Plan mandatory for Image Pool because a historical plan happens to exist. Validate enabled effects against their actual timing/source dependencies and report any stale dependency explicitly.
 - [ ] Render fixture videos for uniform stills, variable stills, mixed motion/stills, and Image Pool recycling using local fixture media. Verify duration, order, boundary frames, audio/caption alignment, short-clip fitting, subtitle-off output, and correct source stamps.
 - [ ] Preserve upload render freshness checks so changing a draft setting alone cannot falsely replace or reclassify an existing finished video. Review and checkpoint.
 
@@ -234,6 +242,7 @@ Routine technical choices and confirmed fixes proceed during execution. Bring a 
 ## Progress
 
 - [x] Accepted requirements consolidated and current source paths inspected (2026-09-11).
+- [x] Independent read-only planning review completed; source/default, project-motion, scoped-status, mixed-row, and optional-effects findings incorporated (2026-09-11).
 - [ ] Milestone 1: baseline/inventory complete.
 - [ ] Milestone 2: episode settings complete.
 - [ ] Milestone 3: pacing editor/planner complete.
