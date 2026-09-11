@@ -9,7 +9,9 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
-import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting } from '../services/app-settings.js'
+import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getPaidAudioReplacementSetting, getPaidWritingReplacementSetting, withPaidAudioConfirmation, withPaidWritingConfirmation } from '../services/app-settings.js'
+import { balancedReplacementSettlement, generationReplacementKey, replacementAllowance, type ReplacementKind } from '../services/generation-paid-replacement.js'
+import type { GenerationReplacementAttempt, Job } from '../models/types.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
 import {
   GenStudioAdmissionPool,
@@ -153,6 +155,8 @@ export type GenStudioQueueState =
   | 'cancelled'
 
 interface GenStudioOperationContext {
+  /** Internal automatic replacement cap; only sent after a fresh server support check. */
+  replacementChargeLimit?: number
   /** Called after admission/waits and immediately before each physical POST. */
   beforePost?: () => void | Promise<void>
   /** Optional per-attempt gate around the physical submission, not its retry wait. */
@@ -1407,6 +1411,7 @@ export interface GenStudioMusicModel extends GenStudioCatalogLock {
  * missing figure is reported, never replaced.
  */
 export interface GenStudioTtsQuote {
+  maximum_credits?: number | null
   model_id?: string | null
   model_name?: string | null
   /** The control values GenStudio priced, echoed back from the request. */
@@ -2698,6 +2703,10 @@ async function recordGenStudioEvidence(
     ...(isValidSettlement(job.released_credits) ? { released_credits: job.released_credits } : {}),
     price_version: job.price_version,
     failure_code: job.failure_code,
+    failure_class: job.failure_class,
+    ...(job.failure_reason === null || (typeof job.failure_reason === 'string' && job.failure_reason.trim())
+      ? { failure_reason: typeof job.failure_reason === 'string' ? customerSafeRemoteDetail(job.failure_reason) : job.failure_reason }
+      : {}),
     ...(job.cancellable !== undefined ? { cancellable: job.cancellable } : {}),
     ...(job.cancelled !== undefined ? { cancelled: job.cancelled } : {}),
     ...(job.cancellation_requested !== undefined ? { cancellation_requested: job.cancellation_requested } : {}),
@@ -4428,6 +4437,7 @@ export async function requestGenStudioTtsQuote(
     estimated_duration_ms: optionalCount(payload?.estimated_duration_ms) ?? null,
     maximum_input_characters: optionalCount(payload?.maximum_input_characters) ?? null,
     credits: optionalCount(payload?.credits) ?? null,
+    maximum_credits: optionalCount(payload?.maximum_credits) ?? null,
     credits_per_1000_characters: optionalCount(payload?.credits_per_1000_characters) ?? null,
     price_version: typeof payload?.price_version === 'string' ? payload.price_version : '',
     output_format: typeof payload?.output_format === 'string' ? payload.output_format : '',
@@ -5570,6 +5580,7 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
     request_identity: request.requestIdentity?.trim() || null,
     input_image: request.inputImage ? { asset_id: request.inputImage.assetId, detail: request.inputImage.detail } : null,
     output_contract: digestOutputContract(outputContract),
+    ...(request.webSearch ? { web_search: request.webSearch } : {}),
     // The WIRE format, not a re-derivation of it. See wireFormatDigestComponent.
     ...wireFormatDigestComponent(outputContract),
   })).digest('hex')
@@ -6362,14 +6373,236 @@ async function recoverChatJobAdmitted(
   return waitForChatJob(baseUrl, apiKey, initial, request, deadline)
 }
 
+/** One confirmed failed request, one durable bounded replacement; never a whole-job replay. */
+function isUncertainGenerationCode(code: string | null | undefined): boolean {
+  return code === 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' || code === 'CLOUD_SUBMISSION_UNCERTAIN'
+}
+
+function replacementConnectionFingerprint(baseUrl: string, apiKey: string): string {
+  return createHash('sha256').update(JSON.stringify([apiBase(baseUrl), apiKey])).digest('hex')
+}
+
+/** Restore the immutable cap after restart, even when the asset checkpoint only has its key. */
+async function restoreReplacementRequest<R extends GenStudioOperationContext>(
+  kind: ReplacementKind, apiKey: string, key: string, itemKey: string, request: R,
+): Promise<{ request: R; taskId?: string; key: string }> {
+  const queue = await import('../services/job-queue.js')
+  const job = queue.getJob(queue.currentJobId() || '')
+  const isManualReplacementKey = job?.manual_failed_item_replacement?.requests.some(item => item.replacement_idempotency_key === key)
+  const attempt = job?.generation_replacement_attempts?.find(item => item.kind === kind
+    && (item.idempotency_key === key || (!isManualReplacementKey && item.item_key === itemKey && item.state !== 'failed')))
+  if (!job || !attempt) return { request, key }
+  key = attempt.idempotency_key
+  const baseUrl = await getGenStudioUrl()
+  if (attempt.connection_fingerprint !== replacementConnectionFingerprint(baseUrl, apiKey)) {
+    throw new Error('The GenStudio connection changed since this replacement was prepared. Restore its original connection to recover the saved request; no new work was submitted.')
+  }
+  const operation = kind === 'audio' ? 'voice.tts' : 'chat.response'
+  // Read before POST, including a crash between physical acceptance and the
+  // caller's manifest checkpoint. Recovery is allowed with automatic spending Off.
+  try {
+    const accepted = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, key, request, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
+    if (attempt.task_id && attempt.task_id !== accepted.id) throw new Error('Replacement recovery returned a different provider task.')
+    await queue.mutateAuthoritativeJob(job.project_slug, job.job_id, authoritative => {
+      authoritative.generation_replacement_attempts = (authoritative.generation_replacement_attempts || []).map(item => {
+        if (item.idempotency_key !== key) return item
+        const settled = balancedReplacementSettlement(accepted)
+        return { ...item, task_id: accepted.id, revision: item.revision + 1,
+          state: accepted.state === 'succeeded' ? 'succeeded' : accepted.state === 'failed' ? 'failed' : 'submitted',
+          ...(settled !== null && settled <= item.max_credits ? { settled_credits: settled } : {}) }
+      })
+      return authoritative
+    })
+    return { request: { ...request, replacementChargeLimit: attempt.max_credits }, taskId: accepted.id, key }
+  } catch (error) {
+    if (!(error instanceof GenStudioApiError) || error.status !== 404 || attempt.state !== 'committed') throw error
+  }
+  const setting = kind === 'audio' ? getPaidAudioReplacementSetting : getPaidWritingReplacementSetting
+  const gate = kind === 'audio' ? withPaidAudioConfirmation : withPaidWritingConfirmation
+  const support: any = await requestJsonWithRetry(`${apiBase(baseUrl)}/v1/account/overview`, { headers: authorization(apiKey) }, request,
+    Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, apiKey, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], true, 1)
+  if (!Array.isArray(support?.max_charge_credits_supported_operations) || !support.max_charge_credits_supported_operations.includes(operation)) throw new Error('GenStudio spending-limit support must be available before replacement can resume.')
+  return { key, request: { ...request, replacementChargeLimit: attempt.max_credits,
+    withPost: post => gate(async () => {
+      const policy = await setting()
+      const live = await queue.loadAuthoritativeJob(job.project_slug, job.job_id)
+      if (!policy.enabled || !live || live.status !== 'running' || live.pause_requested
+        || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl
+        || replacementAllowance((live.generation_replacement_attempts || []).filter(item => item.idempotency_key !== key), kind, policy.additional_credit_ceiling ?? 0) < attempt.max_credits) {
+        throw new Error('Automatic replacement stopped before submission: disabled, paused, cancelled, or spending limit changed.')
+      }
+      return post()
+    }),
+  } }
+}
+
+async function replaceConfirmedGeneration<T>(
+  kind: ReplacementKind,
+  apiKey: string,
+  originalKey: string,
+  itemKey: string,
+  error: unknown,
+  request: GenStudioOperationContext,
+  submit: (key: string, cap: number, hooks: GenStudioOperationContext) => Promise<T>,
+  quoteMaximum?: () => Promise<number | null>,
+): Promise<T> {
+  if (!(error instanceof GenStudioTerminalFailureError)
+    || error.failureClass !== 'provider_transient' || error.cancelled
+    || isUncertainGenerationCode(error.failureCode)
+    || !originalKey || request.replacementChargeLimit !== undefined) throw error
+  const queue = await import('../services/job-queue.js')
+  const storyJob = queue.getJob(queue.currentJobId() || '')
+  // The Jobs action already consumed this exact failed item's one deliberate
+  // replacement. It must never start a second automatic replacement chain.
+  if (!storyJob || storyJob.params?.jobs_replace_failed_items) throw error
+  const setting = kind === 'audio' ? getPaidAudioReplacementSetting : getPaidWritingReplacementSetting
+  const gate = kind === 'audio' ? withPaidAudioConfirmation : withPaidWritingConfirmation
+  if (!(await setting()).enabled) throw error
+  const operation = kind === 'audio' ? 'voice.tts' : 'chat.response'
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS
+  const notice = async (state: string, reason: string) => {
+    await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
+      job.result = { ...job.result, automatic_replacement: { kind, state, reason } }
+      return job
+    })
+  }
+  const refuse = async (reason: string): Promise<never> => {
+    await notice('blocked', reason)
+    throw new Error(`${error.message} Automatic ${kind} replacement: ${reason}`, { cause: error })
+  }
+  await notice('checking', 'Checking the previous request before replacement.')
+  let original: GenStudioJob
+  try {
+    original = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, originalKey, request, deadline)
+  } catch { return refuse('The previous request could not be verified. Recover or check it again first.') }
+  if (original.id !== error.jobId || original.state !== 'failed' || original.cancelled
+    || original.failure_class !== 'provider_transient'
+    || isUncertainGenerationCode(original.failure_code)
+    || balancedReplacementSettlement(original) === null) {
+    return refuse('The previous request is not a confirmed eligible failure with settled credits.')
+  }
+  // Uncached and authenticated. An old API may ignore unknown request fields;
+  // only explicit support allows the cap to be sent as spending authority.
+  let support: any
+  try {
+    support = await requestJsonWithRetry(`${apiBase(baseUrl)}/v1/account/overview`,
+      { headers: authorization(apiKey) }, request, deadline, apiKey, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], true, 1)
+  } catch { return refuse('GenStudio spending-limit support could not be checked.') }
+  if (!Array.isArray(support?.max_charge_credits_supported_operations)
+    || !support.max_charge_credits_supported_operations.includes(operation)) {
+    return refuse('This GenStudio API does not yet support bounded automatic replacement. Manual Retry remains available.')
+  }
+  let quotedMaximum: number | null = null
+  if (quoteMaximum) {
+    try { quotedMaximum = await quoteMaximum() } catch { return refuse('The current audio price could not be verified.') }
+    if (quotedMaximum === null || !Number.isSafeInteger(quotedMaximum) || quotedMaximum < 0) {
+      return refuse('GenStudio did not publish a valid maximum audio quote.')
+    }
+  }
+  let attempt: GenerationReplacementAttempt | undefined
+  let blocked = 'The replacement allowance is exhausted, or this item already used its one replacement.'
+  await gate(async () => {
+    const policy = await setting()
+    if (!policy.enabled || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
+      blocked = 'Replacement was disabled, cancelled, or the GenStudio connection changed.'
+      return
+    }
+    await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
+      if (job.status !== 'running' || job.pause_requested) return null
+      const attempts = job.generation_replacement_attempts || []
+      const existing = attempts.find(item => item.kind === kind && (item.item_key === itemKey
+        || item.idempotency_key === originalKey || item.task_id === original.id))
+      if (existing) {
+        if (existing.original_idempotency_key === originalKey && existing.state !== 'failed') attempt = existing
+        return null
+      }
+      const available = replacementAllowance(attempts, kind, policy.additional_credit_ceiling ?? 0)
+      const cap = quotedMaximum ?? available
+      if (available <= 0 || cap > available) return null
+      attempt = {
+        kind, item_key: itemKey, connection_fingerprint: replacementConnectionFingerprint(baseUrl, apiKey),
+        original_task_id: original.id, original_idempotency_key: originalKey,
+        idempotency_key: generationReplacementKey(kind, originalKey), max_credits: cap, state: 'committed', revision: 1,
+      }
+      job.generation_replacement_attempts = [...attempts, attempt]
+      return job
+    })
+  })
+  if (!attempt) return refuse(blocked)
+  const committed = attempt
+  const checkpoint = async (update: Partial<GenerationReplacementAttempt>) => {
+    await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
+      job.generation_replacement_attempts = (job.generation_replacement_attempts || []).map(item =>
+        item.idempotency_key === committed.idempotency_key ? { ...item, ...update, revision: item.revision + 1 } : item)
+      return job
+    })
+  }
+  const hooks: GenStudioOperationContext = {
+    replacementChargeLimit: committed.max_credits,
+    withPost: post => gate(async () => {
+      const policy = await setting()
+      const live = await queue.loadAuthoritativeJob(storyJob.project_slug, storyJob.job_id)
+      if (!policy.enabled || !live || live.status !== 'running' || live.pause_requested
+        || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl
+        || replacementAllowance((live.generation_replacement_attempts || []).filter(item => item.idempotency_key !== committed.idempotency_key), kind, policy.additional_credit_ceiling ?? 0) < committed.max_credits) {
+        throw new Error('Automatic replacement stopped before submission: disabled, paused, cancelled, or spending limit changed.')
+      }
+      return request.withPost ? request.withPost(post) : post()
+    }),
+  }
+  await notice('queued', 'One failed item is being replaced within your additional-credit limit.')
+  try {
+    const result = await submit(committed.idempotency_key, committed.max_credits, hooks)
+    await checkpoint({ state: 'succeeded' })
+    await notice('complete', 'Replacement finished; saved results are being verified.')
+    return result
+  } catch (replacementError) {
+    await notice('blocked', 'Replacement did not complete. Its saved request will be recovered before any further work.')
+    // Do not let a caller's narrower free-capacity retry start another chain
+    // after this item's explicitly bounded paid replacement already ran.
+    throw new Error(`Automatic ${kind} replacement did not complete: ${replacementError instanceof Error ? replacementError.message : String(replacementError)}`, { cause: replacementError })
+  } finally {
+    // A lost response keeps the entire cap held. Only the authoritative ledger
+    // releases unused allowance, including input, output/reasoning and search.
+    try {
+      const current = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, committed.idempotency_key, {}, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
+      const settled = balancedReplacementSettlement(current)
+      await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted',
+        ...(settled !== null && settled <= committed.max_credits ? { settled_credits: settled } : {}) })
+    } catch { /* Unknown outcome retains its durable cap and identity. */ }
+  }
+}
+
 export async function recoverChatWithGenStudio(
   apiKey: string,
   jobId: string,
   request: GenStudioChatRequest,
 ): Promise<GenStudioChatResult> {
   const prepared = await prepareChatSubmission(apiKey, request)
-  const completed = await recoverChatJobAdmitted(apiKey, jobId, request)
-  return finishChatJob(apiKey, request, prepared, completed)
+  const restored = await restoreReplacementRequest('writing', apiKey, prepared.idempotencyKey, chatReplacementItemKey(prepared, request), request)
+  if (restored.key !== prepared.idempotencyKey) {
+    return callChatViaResponses(apiKey, restored.request, { ...prepared, idempotencyKey: restored.key })
+  }
+  try {
+    const completed = await recoverChatJobAdmitted(apiKey, jobId, request)
+    return finishChatJob(apiKey, request, prepared, completed)
+  } catch (error) {
+    return replaceFailedChat(apiKey, request, prepared, error)
+  }
+}
+
+function replaceFailedChat(apiKey: string, request: GenStudioChatRequest, prepared: PreparedChatSubmission, error: unknown): Promise<GenStudioChatResult> {
+  return replaceConfirmedGeneration('writing', apiKey, prepared.idempotencyKey, chatReplacementItemKey(prepared, request), error, request,
+    async (key, _cap, hooks) => {
+      await request.onRequestPrepared?.(key)
+      return callChatViaResponses(apiKey, { ...request, ...hooks, recoverByIdempotencyKey: false }, { ...prepared, idempotencyKey: key })
+    })
+}
+
+function chatReplacementItemKey(prepared: PreparedChatSubmission, request: GenStudioChatRequest): string {
+  return createHash('sha256').update(JSON.stringify({ model: prepared.modelId, messages: prepared.messages,
+    format: prepared.responseFormat, sampling: prepared.samplingFields, max: prepared.maxOutputTokens, web_search: request.webSearch })).digest('hex')
 }
 
 /** Validate a settled language job and shape the caller's result. */
@@ -6413,6 +6646,26 @@ async function callChatViaResponses(
   prepared: PreparedChatSubmission,
   baseUrlOverride?: string,
 ): Promise<GenStudioChatResult> {
+  try {
+    return await callChatViaResponsesOnce(apiKey, request, prepared, baseUrlOverride)
+  } catch (error) {
+    return replaceFailedChat(apiKey, request, prepared, error)
+  }
+}
+
+async function callChatViaResponsesOnce(
+  apiKey: string,
+  request: GenStudioChatRequest,
+  prepared: PreparedChatSubmission,
+  baseUrlOverride?: string,
+): Promise<GenStudioChatResult> {
+  const restored = await restoreReplacementRequest('writing', apiKey, prepared.idempotencyKey, chatReplacementItemKey(prepared, request), request)
+  request = restored.request
+  prepared = { ...prepared, idempotencyKey: restored.key }
+  if (restored.taskId) {
+    await request.onJobAccepted?.(restored.taskId, prepared.idempotencyKey)
+    return finishChatJob(apiKey, request, prepared, await recoverChatJobAdmitted(apiKey, restored.taskId, request))
+  }
   const baseUrl = baseUrlOverride ?? await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   // Written BEFORE the POST: a submission whose response never arrives still
@@ -6457,6 +6710,7 @@ async function callChatViaResponses(
           // Only the sampling fields this product publishes. Never `top_p`.
           ...prepared.samplingFields,
           max_output_tokens: prepared.maxOutputTokens,
+          ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}),
           // Present only for a deliberate web-search request. `web_search` is
           // available on this route too, so web research is durable as well.
           ...(request.webSearch ? { web_search: request.webSearch } : {}),
@@ -6585,6 +6839,46 @@ async function callChatViaCompletions(
 }
 
 /**
+ * Resolve the only provider key a server-created manual failed-item job may
+ * use. Recorded successes keep their old key so GenStudio replays them for
+ * free; a recorded failure receives its one persisted replacement key. A
+ * changed prompt/grouping cannot silently widen the paid scope.
+ */
+export function manualFailedItemChatRequestKey(job: Job | null | undefined, originalKey: string): string {
+  const scope = job?.manual_failed_item_replacement
+  if (!scope) return originalKey
+
+  const automatic = job.generation_replacement_attempts?.find(attempt => (
+    attempt.kind === 'writing' && attempt.original_idempotency_key === originalKey
+  ))
+  if (automatic) {
+    if (automatic.state === 'failed') {
+      const deliberateFollowUp = scope.requests.find(item => (
+        item.original_idempotency_key === automatic.idempotency_key
+        && (item.prepared_idempotency_key || automatic.original_idempotency_key) === originalKey
+      ))
+      if (deliberateFollowUp) return deliberateFollowUp.replacement_idempotency_key
+      throw new Error('This writing request already used its one replacement. No provider work was submitted.')
+    }
+    // The automatic recovery helper restores its committed/submitted request
+    // after this function, including across an application restart.
+    return originalKey
+  }
+
+  const replacement = scope.requests.find(item => (
+    (item.prepared_idempotency_key || item.original_idempotency_key) === originalKey
+  ))
+  if (replacement) return replacement.replacement_idempotency_key
+
+  const exactSuccess = job.genstudio_jobs?.some(item => item.operation === 'chat.response'
+    && item.state === 'succeeded'
+    && (item.request_key === originalKey || item.request?.idempotency_key === originalKey))
+  if (exactSuccess) return originalKey
+
+  throw new Error('The saved failed-item scope no longer matches this writing request. No provider work was submitted.')
+}
+
+/**
  * Execute one exact published language product through GenStudio's product API.
  *
  * The guards run FIRST and identically for both routes; the transport decision
@@ -6613,7 +6907,13 @@ async function callChatWithGenStudioAdmitted(
   const uncreatedRecoveryBaseUrl = request.allowUncreatedRecovery
     ? await getGenStudioUrl()
     : undefined
-  const prepared = await prepareChatSubmission(apiKey, request)
+  let prepared = await prepareChatSubmission(apiKey, request)
+  const queue = await import('../services/job-queue.js')
+  const storyJob = queue.getJob(queue.currentJobId() || '')
+  prepared = {
+    ...prepared,
+    idempotencyKey: manualFailedItemChatRequestKey(storyJob, prepared.idempotencyKey),
+  }
   if (request.allowUncreatedRecovery) {
     const preview = request.recoveryRequestPreview
     const expected = buildGenStudioRequestPreview({
@@ -7960,7 +8260,33 @@ export async function recoverTtsToFile(
   jobId: string,
   request: GenStudioTtsRequest,
 ): Promise<void> {
-  return recoverTtsToFileAdmitted(apiKey, outPath, jobId, request)
+  if (request.modelId && request.maxInputCharacters && request.voiceId) {
+    const submission = buildGenStudioSubmission(request)
+    const key = request.idempotencyKey?.trim() || submission.idempotencyKey
+    const itemKey = createHash('sha256').update(outPath + JSON.stringify(submission.body)).digest('hex')
+    const restored = await restoreReplacementRequest('audio', apiKey, key, itemKey, request)
+    if (restored.key !== key) {
+      return generateTtsToFileAdmitted(apiKey, outPath, { ...restored.request, idempotencyKey: restored.key, modelId: request.modelId, maxInputCharacters: request.maxInputCharacters })
+    }
+  }
+  try {
+    return await recoverTtsToFileAdmitted(apiKey, outPath, jobId, request)
+  } catch (error) {
+    return replaceFailedTts(apiKey, outPath, request, error)
+  }
+}
+
+function replaceFailedTts(apiKey: string, outPath: string, request: GenStudioTtsRequest, error: unknown): Promise<void> {
+  if (!request.modelId || !request.maxInputCharacters || !request.voiceId) return Promise.reject(error)
+  const submitRequest: GenStudioTtsSubmitRequest = { ...request, modelId: request.modelId, maxInputCharacters: request.maxInputCharacters }
+  const originalKey = request.idempotencyKey?.trim() || buildGenStudioSubmission(submitRequest).idempotencyKey
+  const itemKey = createHash('sha256').update(outPath + JSON.stringify(buildGenStudioSubmission(submitRequest).body)).digest('hex')
+  return replaceConfirmedGeneration('audio', apiKey, originalKey, itemKey, error, request,
+    (key, _cap, hooks) => generateTtsToFileAdmitted(apiKey, outPath, { ...submitRequest, ...hooks, idempotencyKey: key }),
+    async () => {
+      const quote = await requestGenStudioTtsQuote(apiKey, { modelId: request.modelId!, voiceId: request.voiceId!, text: request.text, speed: request.speed, controls: request.controls })
+      return quote.maximum_credits ?? null
+    })
 }
 
 /** Generate a GenStudio API TTS job, then convert its private WAV response to Story's MP3 contract. */
@@ -7972,7 +8298,15 @@ async function generateTtsToFileAdmitted(
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
   const submission = buildGenStudioSubmission(request)
-  const idempotencyKey = request.idempotencyKey?.trim() || submission.idempotencyKey
+  let idempotencyKey = request.idempotencyKey?.trim() || submission.idempotencyKey
+  const itemKey = createHash('sha256').update(outPath + JSON.stringify(submission.body)).digest('hex')
+  const restored = await restoreReplacementRequest('audio', apiKey, idempotencyKey, itemKey, request)
+  request = restored.request
+  idempotencyKey = restored.key
+  if (restored.taskId) {
+    await request.onJobAccepted?.(restored.taskId, idempotencyKey)
+    return recoverTtsToFileAdmitted(apiKey, outPath, restored.taskId, request)
+  }
   // Narration text is deliberately summarised as a character count rather than
   // stored: a single request carries up to the model's published
   // maximum_input_characters, and the operator's question here is
@@ -8005,7 +8339,7 @@ async function generateTtsToFileAdmitted(
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
       },
-      body: wellFormedJson(submission.body),
+      body: wellFormedJson({ ...submission.body, ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}) }),
     },
     request,
     deadline,
@@ -8032,5 +8366,9 @@ export async function generateTtsToFile(
   outPath: string,
   request: GenStudioTtsSubmitRequest,
 ): Promise<void> {
-  return generateTtsToFileAdmitted(apiKey, outPath, request)
+  try {
+    return await generateTtsToFileAdmitted(apiKey, outPath, request)
+  } catch (error) {
+    return replaceFailedTts(apiKey, outPath, request, error)
+  }
 }

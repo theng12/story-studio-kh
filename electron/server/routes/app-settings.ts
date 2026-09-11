@@ -21,6 +21,8 @@ import {
   getGenStudioUrl, setGenStudioUrl, DEFAULT_GENSTUDIO_URL,
   getPaidImageReplacementSetting, setPaidImageReplacementSetting,
   getPaidSubtitleReplacementSetting, setPaidSubtitleReplacementSetting,
+  getPaidAudioReplacementSetting, setPaidAudioReplacementSetting,
+  getPaidWritingReplacementSetting, setPaidWritingReplacementSetting,
   setAppSetting,
 } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -75,6 +77,38 @@ router.put('/app-settings/paid-subtitle-replacement', async (req, res) => {
     res.json(await setPaidSubtitleReplacementSetting(req.body))
   } catch (e: any) {
     res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save paid subtitle replacement setting'))
+  }
+})
+
+router.get('/app-settings/paid-audio-replacement', async (_req, res) => {
+  try {
+    res.json(await getPaidAudioReplacementSetting())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load paid audio replacement setting'))
+  }
+})
+
+router.put('/app-settings/paid-audio-replacement', async (req, res) => {
+  try {
+    res.json(await setPaidAudioReplacementSetting(req.body))
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save paid audio replacement setting'))
+  }
+})
+
+router.get('/app-settings/paid-writing-replacement', async (_req, res) => {
+  try {
+    res.json(await getPaidWritingReplacementSetting())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load paid writing replacement setting'))
+  }
+})
+
+router.put('/app-settings/paid-writing-replacement', async (req, res) => {
+  try {
+    res.json(await setPaidWritingReplacementSetting(req.body))
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save paid writing replacement setting'))
   }
 })
 

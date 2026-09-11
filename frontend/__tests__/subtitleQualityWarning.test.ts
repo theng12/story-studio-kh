@@ -99,7 +99,7 @@ describe('the app never edits anyone\'s subtitles', () => {
   test('every chapter exposes the scoped fresh-generation action with honest price language', () => {
     assert.match(subtitlesPage, /@click="retranscribeChapter\(s\.slug\)"/)
     assert.match(subtitlesPage, /chapterHasSrt\(s\.slug\) \? 'Regenerate subtitles' : 'Generate subtitles'/)
-    assert.match(subtitlesPage, /:aria-label="`\$\{chapterHasSrt\(s\.slug\) \? 'Regenerate' : 'Generate'\} \$\{s\.label\} subtitles`"/)
+    assert.match(subtitlesPage, /:aria-label="`\$\{chapterIsStale\(s\.slug\) \? 'Update' : chapterHasSrt\(s\.slug\) \? 'Regenerate' : 'Generate'\} \$\{s\.label\} subtitles`"/)
     assert.match(subtitlesPage, /Starts a fresh GenStudio request for \$\{s\.label\} only/)
     assert.match(subtitlesPage, /current quote[^<]*may be charged/i)
   })

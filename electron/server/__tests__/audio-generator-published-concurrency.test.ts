@@ -14,6 +14,7 @@ const { setApiKey } = await import('../services/app-secrets-store.js')
 const { setGenStudioUrl } = await import('../services/app-settings.js')
 const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
 const { hashInput, recordTaskStrict } = await import('../services/task-manifest.js')
+const jq = await import('../services/job-queue.js')
 
 function ttsModel(id: string, providerSubmitConcurrency: number): Record<string, unknown> {
   return {
@@ -93,6 +94,120 @@ void test('audio generation honors selected-model fanout and independent New ver
 
     assert.equal(await generate('EP001', 'model-one', 1), 1)
     assert.equal(await generate('EP002', 'model-three', 3), 3)
+
+    service.reset()
+    service.ttsModels = [ttsModel('model-uncertain', 1)]
+    clearGenStudioCatalogCache()
+    service.queueScenario('tts', { states: ['failed'], failureCode: 'CLOUD_SUBMISSION_UNCERTAIN' })
+    const uncertainEpisode = 'EP004'
+    const uncertainNarrationDir = path.join(outputRoot!, `${uncertainEpisode} - Script`)
+    await fs.mkdir(uncertainNarrationDir, { recursive: true })
+    await fs.writeFile(path.join(uncertainNarrationDir, `${uncertainEpisode}_Script_Narration.md`), [
+      '# Narration',
+      '## Chapter 1: One', 'The request outcome must be reconciled.',
+    ].join('\n\n'))
+    const uncertainSource: any = {
+      job_id: 'audio-uncertain-source', project_slug: project.slug, type: 'audio', episode_id: uncertainEpisode,
+      title: 'Uncertain ordinary retry', status: 'running', created_at: new Date().toISOString(),
+      started_at: new Date().toISOString(), finished_at: null, error: null, output_lines: [],
+      params: {
+        episode_id: uncertainEpisode, model: 'model-uncertain', voice: 'mock-voice', sections: 'all',
+        speed: 1, force: false, no_overwrite: false,
+      },
+    }
+    await assert.rejects(generateAudio(uncertainSource), /1 section\(s\) failed/)
+    assert.equal(service.providerSubmissionCount('tts'), 1)
+    const uncertainSubmission = service.submissions.find(item => item.operation === 'tts')!
+    assert.ok(uncertainSubmission)
+
+    const contradictoryRetry = structuredClone(uncertainSource)
+    contradictoryRetry.job_id = 'audio-uncertain-contradictory'
+    contradictoryRetry.output_lines = []
+    contradictoryRetry.genstudio_jobs = [{
+      id: uncertainSubmission.jobId,
+      operation: 'voice.tts',
+      state: 'failed',
+      failure_code: 'CLOUD_SUBMISSION_UNCERTAIN',
+      request_key: 'story-different-request-key',
+      updated_at: new Date().toISOString(),
+    }]
+    await assert.rejects(generateAudio(contradictoryRetry), /Saved GenStudio task identity does not match/)
+    assert.equal(service.providerSubmissionCount('tts'), 1, 'contradictory task/key evidence stops before a fresh POST')
+
+    const wasPaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
+    let executionRetry: any
+    let queuedRetryId = ''
+    try {
+      const incompleteParams = structuredClone(uncertainSource.params)
+      incompleteParams.jobs_replace_failed_items = {
+        version: 1, source_job_id: 'manual-incomplete-source', item_count: 2,
+      }
+      incompleteParams.genstudio_recovery.assets['EP004_Chapter_02.mp3'] = {
+        operation: 'tts', job_id: 'missing-evidence-task', idempotency_key: 'story-missing-evidence-key', state: 'failed',
+      }
+      const incomplete = jq.enqueuePreparedForTest({
+        project_slug: project.slug, type: 'audio', episode_id: 'EP004-INCOMPLETE',
+        title: 'Incomplete uncertain evidence', params: incompleteParams,
+      })
+      await jq.forceAbandonJob(project.slug, incomplete.job_id)
+      await jq.mutateAuthoritativeJob(project.slug, incomplete.job_id, current => ({
+        ...current,
+        status: 'error',
+        force_abandoned: undefined,
+        finished_at: new Date().toISOString(),
+        error: 'partial uncertainty evidence',
+        genstudio_jobs: [{
+          id: uncertainSubmission.jobId,
+          operation: 'voice.tts',
+          state: 'failed',
+          failure_code: 'CLOUD_SUBMISSION_UNCERTAIN',
+          request_key: uncertainSubmission.idempotencyKey,
+          updated_at: new Date().toISOString(),
+        }],
+      }))
+      assert.throws(
+        () => jq.retryTerminalJob(project.slug, incomplete.job_id),
+        /does not exactly match every current task identity/,
+      )
+      assert.equal(jq.getJob(incomplete.job_id)?.status, 'error', 'failed exactness check keeps the original row')
+      assert.equal(service.providerSubmissionCount('tts'), 1)
+
+      const queued = jq.enqueuePreparedForTest({
+        project_slug: project.slug, type: 'audio', episode_id: uncertainEpisode,
+        title: 'Uncertain ordinary retry', params: structuredClone(uncertainSource.params),
+      })
+      await jq.forceAbandonJob(project.slug, queued.job_id)
+      await jq.mutateAuthoritativeJob(project.slug, queued.job_id, current => ({
+        ...current,
+        status: 'error',
+        force_abandoned: undefined,
+        finished_at: new Date().toISOString(),
+        error: 'submission outcome uncertain',
+        genstudio_jobs: [{
+          id: uncertainSubmission.jobId,
+          operation: 'voice.tts',
+          state: 'failed',
+          failure_code: 'CLOUD_SUBMISSION_UNCERTAIN',
+          request_key: uncertainSubmission.idempotencyKey,
+          updated_at: new Date().toISOString(),
+        }],
+      }))
+      const retried = jq.retryTerminalJob(project.slug, queued.job_id)
+      queuedRetryId = retried.job_id
+      executionRetry = jq.getJob(retried.job_id)
+      assert.ok(executionRetry?.genstudio_jobs?.some((entry: any) => (
+        entry.id === uncertainSubmission.jobId && entry.request_key === uncertainSubmission.idempotencyKey
+      )), 'ordinary Retry carries the exact uncertainty evidence into its child')
+      executionRetry.status = 'running'
+      executionRetry.output_lines = []
+      await assert.rejects(generateAudio(executionRetry), /1 section\(s\) failed/)
+      assert.equal(service.providerSubmissionCount('tts'), 1, 'ordinary Retry reconnects the uncertain task with zero fresh POSTs')
+    } finally {
+      if (queuedRetryId && jq.getJob(queuedRetryId)) await jq.forceAbandonJob(project.slug, queuedRetryId)
+      if (!wasPaused) await jq.setQueuePaused(false)
+      await jq._waitForJobPersistenceForTesting()
+    }
 
     service.reset()
     service.ttsModels = [ttsModel('model-versioned', 3)]

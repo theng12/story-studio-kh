@@ -194,6 +194,65 @@ test('a stamped fresh retry reuses its accepted Chapter_12 task instead of skipp
   assert.match(await fs.readFile(staleTarget, 'utf8'), /Hello from mock GenStudio/)
 })
 
+test('a changed active chapter source is re-transcribed instead of reusing its old provider output', async t => {
+  const isolated = await useTempDataDir()
+  const mock = await startMockGenStudioService()
+  t.after(async () => { await mock.close(); await isolated.cleanup() })
+
+  const settings = await import('../services/app-settings.js')
+  const secrets = await import('../services/app-secrets-store.js')
+  const client = await import('../lib/genstudio-client.js')
+  const pm = await import('../services/project-manager.js')
+  const ideas = await import('../services/idea-manager.js')
+  const utils = await import('../services/utils.js')
+  const { recordSubtitleSourceEvidence } = await import('../services/subtitle-recovery.js')
+  const { generateSubtitlesTranscribe } = await import('../generators/subtitles.js')
+
+  await settings.setGenStudioUrl(mock.baseUrl)
+  await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+  client.clearGenStudioCatalogCache()
+  const project = await pm.createProject({ name: 'Stale subtitle source fixture', episode_prefix: 'EP', episode_digits: 4 })
+  const [idea] = await ideas.addIdeas(project.slug, [{
+    title: 'One chapter', logline: 'A fixture.', themes: [], suggested_chapters: 1,
+    suggested_length: 'short', mood: 'measured',
+  }], 'mock-chat-v1')
+  const accepted = await ideas.acceptIdea(project.slug, idea!.id, false)
+  const code = accepted.episode_code
+  const paths = await utils.resolveEpisodePathsByCode(project.slug, code)
+  const section = 'Chapter_01'
+  const sourceName = `${code}_${section}.mp3`
+  const source = path.join(paths.audio_dir, sourceName)
+  const srtName = `${code}_${section}.srt`
+  const srtPath = path.join(paths.subtitles_dir, srtName)
+  await Promise.all([paths.script_dir, paths.audio_dir, paths.merged_audio_dir, paths.subtitles_dir].map(dir => fs.mkdir(dir, { recursive: true })))
+  await fs.writeFile(paths.narration_docx, '## Chapter 01: Fixture\n\nA short line for the mock audio request.\n')
+  await fs.writeFile(source, 'old chapter bytes')
+  await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
+    gap_duration_s: 1,
+    sections: [{ slug: section, duration_s: 1, source_file: sourceName }],
+  }))
+  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.mp3`), 'merged-audio')
+  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`), JSON.stringify({
+    output_filename: `${code}_merged_audio.mp3`, opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
+  }))
+  await fs.writeFile(srtPath, '1\n00:00:00,000 --> 00:00:01,000\nOld captions must not be reused.\n')
+  await recordSubtitleSourceEvidence(paths.subtitles_dir, srtName, (await hashSubtitleAudioSources([source]))!, 'mock-whisper-v1')
+
+  await fs.writeFile(source, 'new chapter bytes')
+  const job = {
+    job_id: 'changed-source-subtitle', project_slug: project.slug, episode_id: code,
+    type: 'subtitles_transcribe', status: 'running', progress: 0, output_lines: [],
+    params: { per_chapter: true, engine: 'genstudio', model: 'mock-whisper-v1', language: 'en', force: false, sections: [section] },
+  } as unknown as Job
+  await generateSubtitlesTranscribe(job)
+
+  assert.equal(mock.providerSubmissionCount('transcription'), 1, 'the changed source must make a fresh provider request')
+  assert.equal((job.result as any).generated_sections, 1)
+  assert.match(await fs.readFile(srtPath, 'utf8'), /Hello from mock GenStudio/)
+  const recovery = JSON.parse(await fs.readFile(path.join(paths.subtitles_dir, '.subtitle-recovery.json'), 'utf8'))
+  assert.equal(recovery.sections[srtName].sourceAudioHash, await hashSubtitleAudioSources([source]))
+})
+
 test('stamped pipeline repair transcribes only malformed and gap-mapped chapters', async t => {
   const isolated = await useTempDataDir()
   const mock = await startMockGenStudioService()

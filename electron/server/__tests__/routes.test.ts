@@ -363,7 +363,7 @@ describe('Ideas routes', () => {
     const stitched = path.join(subtitlesDir, `${code}_stitched.srt`)
     await fs.writeFile(stitched, srt)
     await fs.writeFile(`${stitched}.json`, JSON.stringify({
-      complete: true, missing_sections: [], total_cues: cues.length, timeline: stampFromCues(cues),
+      complete: true, generated_at: '2026-09-11T16:25:00.000Z', missing_sections: [], total_cues: cues.length, timeline: stampFromCues(cues),
       sections: [{ slug: 'Chapter_15', source_srt: `${code}_Chapter_15.srt`, offset_sec: 0, duration_sec: 90, cues_added: 2 }],
     }))
 
@@ -376,6 +376,7 @@ describe('Ideas routes', () => {
     assert.deepEqual(status.body.timeline_integrity.blocking_cue_gaps[0].section_slugs, ['Chapter_15'])
     assert.equal(status.body.planning_transcript_source, 'raw')
     assert.equal(status.body.planning_source_revalidation_required, true)
+    assert.equal(status.body.last_stitched_at, '2026-09-11T16:25:00.000Z', 'stitch recency comes from the stitch sidecar, not this status read')
   })
 
   test('GET /episodes reports thumbnail counts after thumbnail files go missing or are deleted', async () => {

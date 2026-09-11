@@ -136,6 +136,68 @@
       </div>
     </section>
 
+    <section v-if="section === 'all' || section === 'performance'" class="panel paid-audio-replacement">
+      <div>
+        <h4>Automatically buy one replacement for a confirmed failed audio item</h4>
+        <p>
+          Off by default and after upgrades. Story Studio reconnects to the original GenStudio task first.
+          When your connected provider supports replacement recovery and confirms an eligible failed item, it may buy one replacement.
+          Automatic replacement requires the hard per-Story-job credit limit you save here.
+        </p>
+      </div>
+      <label class="paid-audio-replacement-choice">
+        <span>Automatic replacement</span>
+        <select name="paid-audio-replacement-enabled" :value="paidAudioReplacementLoaded ? (paidAudioReplacementEnabled ? 'true' : 'false') : '__unknown'" :disabled="!paidAudioReplacementLoaded || paidAudioReplacementSaving" @change="setPaidAudioReplacementEnabled">
+          <option v-if="!paidAudioReplacementLoaded" value="__unknown" disabled>{{ paidAudioReplacementResult ? 'Saved state unavailable' : 'Loading saved setting…' }}</option>
+          <option value="false">Off</option>
+          <option value="true">On</option>
+        </select>
+      </label>
+      <label v-if="paidAudioReplacementEnabled" class="paid-audio-replacement-ceiling">
+        <span>Maximum additional credits per Story job</span>
+        <input v-model="paidAudioReplacementCeiling" name="paid-audio-replacement-ceiling" type="number" min="1" step="1" required inputmode="numeric" :disabled="!paidAudioReplacementLoaded || paidAudioReplacementSaving" aria-describedby="paid-audio-replacement-limits" />
+      </label>
+      <p id="paid-audio-replacement-limits" class="hint">Maximum 1 replacement per confirmed failed audio item</p>
+      <p v-if="!paidAudioReplacementLoaded && !paidAudioReplacementResult" class="hint" aria-live="polite">Loading saved paid audio replacement setting…</p>
+      <p v-if="paidAudioReplacementResult" :class="['result', paidAudioReplacementResult.kind]" aria-live="polite">{{ paidAudioReplacementResult.message }}</p>
+      <div class="paid-audio-replacement-actions">
+        <button class="btn btn-sm btn-primary" type="button" :disabled="!paidAudioReplacementLoaded || paidAudioReplacementSaving" @click="savePaidAudioReplacement">
+          {{ paidAudioReplacementSaving ? 'Saving…' : 'Save' }}
+        </button>
+      </div>
+    </section>
+
+    <section v-if="section === 'all' || section === 'performance'" class="panel paid-writing-replacement">
+      <div>
+        <h4>Automatically buy one replacement for a confirmed failed writing item</h4>
+        <p>
+          Off by default and after upgrades. Story Studio reconnects to the original GenStudio task first.
+          When your connected provider supports replacement recovery and confirms an eligible failed item, it may buy one replacement.
+          Automatic replacement requires the hard per-Story-job credit limit you save here.
+        </p>
+      </div>
+      <label class="paid-writing-replacement-choice">
+        <span>Automatic replacement</span>
+        <select name="paid-writing-replacement-enabled" :value="paidWritingReplacementLoaded ? (paidWritingReplacementEnabled ? 'true' : 'false') : '__unknown'" :disabled="!paidWritingReplacementLoaded || paidWritingReplacementSaving" @change="setPaidWritingReplacementEnabled">
+          <option v-if="!paidWritingReplacementLoaded" value="__unknown" disabled>{{ paidWritingReplacementResult ? 'Saved state unavailable' : 'Loading saved setting…' }}</option>
+          <option value="false">Off</option>
+          <option value="true">On</option>
+        </select>
+      </label>
+      <label v-if="paidWritingReplacementEnabled" class="paid-writing-replacement-ceiling">
+        <span>Maximum additional credits per Story job</span>
+        <input v-model="paidWritingReplacementCeiling" name="paid-writing-replacement-ceiling" type="number" min="1" step="1" required inputmode="numeric" :disabled="!paidWritingReplacementLoaded || paidWritingReplacementSaving" aria-describedby="paid-writing-replacement-limits" />
+      </label>
+      <p id="paid-writing-replacement-limits" class="hint">Maximum 1 replacement per confirmed failed writing item</p>
+      <p v-if="!paidWritingReplacementLoaded && !paidWritingReplacementResult" class="hint" aria-live="polite">Loading saved paid writing replacement setting…</p>
+      <p v-if="paidWritingReplacementResult" :class="['result', paidWritingReplacementResult.kind]" aria-live="polite">{{ paidWritingReplacementResult.message }}</p>
+      <div class="paid-writing-replacement-actions">
+        <button class="btn btn-sm btn-primary" type="button" :disabled="!paidWritingReplacementLoaded || paidWritingReplacementSaving" @click="savePaidWritingReplacement">
+          {{ paidWritingReplacementSaving ? 'Saving…' : 'Save' }}
+        </button>
+      </div>
+    </section>
+
     <section v-if="section === 'all' || section === 'appearance'" class="panel appearance">
       <div>
         <span class="eyebrow">Display</span>
@@ -271,6 +333,16 @@ const paidSubtitleReplacementCeiling = ref('')
 const paidSubtitleReplacementLoaded = ref(false)
 const paidSubtitleReplacementSaving = ref(false)
 const paidSubtitleReplacementResult = ref<{ kind: 'ok' | 'err'; message: string } | null>(null)
+const paidAudioReplacementEnabled = ref(false)
+const paidAudioReplacementCeiling = ref('')
+const paidAudioReplacementLoaded = ref(false)
+const paidAudioReplacementSaving = ref(false)
+const paidAudioReplacementResult = ref<{ kind: 'ok' | 'err'; message: string } | null>(null)
+const paidWritingReplacementEnabled = ref(false)
+const paidWritingReplacementCeiling = ref('')
+const paidWritingReplacementLoaded = ref(false)
+const paidWritingReplacementSaving = ref(false)
+const paidWritingReplacementResult = ref<{ kind: 'ok' | 'err'; message: string } | null>(null)
 const result = ref<{
   kind: 'ok' | 'warn' | 'err'
   message: string
@@ -300,6 +372,22 @@ async function load(): Promise<void> {
     paidSubtitleReplacementLoaded.value = true
   } catch {
     paidSubtitleReplacementResult.value = { kind: 'err', message: 'Could not load the paid subtitle replacement setting. It remains unavailable until its saved state is confirmed.' }
+  }
+  try {
+    const paidAudioReplacement = await get<PaidImageReplacementSetting>('/app-settings/paid-audio-replacement')
+    if (!isPaidImageReplacementSetting(paidAudioReplacement)) throw new Error('Saved setting was invalid.')
+    applyPaidAudioReplacementSetting(paidAudioReplacement)
+    paidAudioReplacementLoaded.value = true
+  } catch {
+    paidAudioReplacementResult.value = { kind: 'err', message: 'Could not load the paid audio replacement setting. It remains unavailable until its saved state is confirmed.' }
+  }
+  try {
+    const paidWritingReplacement = await get<PaidImageReplacementSetting>('/app-settings/paid-writing-replacement')
+    if (!isPaidImageReplacementSetting(paidWritingReplacement)) throw new Error('Saved setting was invalid.')
+    applyPaidWritingReplacementSetting(paidWritingReplacement)
+    paidWritingReplacementLoaded.value = true
+  } catch {
+    paidWritingReplacementResult.value = { kind: 'err', message: 'Could not load the paid writing replacement setting. It remains unavailable until its saved state is confirmed.' }
   }
   // Best-effort: the emoji switch must never be what stops this panel loading.
   try {
@@ -390,6 +478,84 @@ async function savePaidSubtitleReplacement(): Promise<void> {
     paidSubtitleReplacementResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not save that.' }
   } finally {
     paidSubtitleReplacementSaving.value = false
+  }
+}
+
+function applyPaidAudioReplacementSetting(setting: PaidImageReplacementSetting): void {
+  paidAudioReplacementEnabled.value = setting.enabled
+  paidAudioReplacementCeiling.value = setting.enabled ? String(setting.additional_credit_ceiling) : ''
+}
+
+function setPaidAudioReplacementEnabled(event: Event): void {
+  paidAudioReplacementEnabled.value = (event.target as HTMLSelectElement).value === 'true'
+  paidAudioReplacementResult.value = null
+}
+
+function paidAudioReplacementCeilingValue(): number | null {
+  const value = Number(paidAudioReplacementCeiling.value)
+  return Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+async function savePaidAudioReplacement(): Promise<void> {
+  if (!paidAudioReplacementLoaded.value) return
+  const ceiling = paidAudioReplacementCeilingValue()
+  paidAudioReplacementResult.value = null
+  if (paidAudioReplacementEnabled.value && ceiling === null) {
+    paidAudioReplacementResult.value = { kind: 'err', message: 'Enter a positive whole number of additional credits.' }
+    return
+  }
+  paidAudioReplacementSaving.value = true
+  try {
+    const saved = await put<PaidImageReplacementSetting>('/app-settings/paid-audio-replacement', {
+      enabled: paidAudioReplacementEnabled.value,
+      additional_credit_ceiling: paidAudioReplacementEnabled.value ? ceiling : null,
+    })
+    if (!isPaidImageReplacementSetting(saved)) throw new Error('The saved setting was invalid.')
+    applyPaidAudioReplacementSetting(saved)
+    paidAudioReplacementResult.value = { kind: 'ok', message: 'Paid audio replacement setting saved.' }
+  } catch (error: any) {
+    paidAudioReplacementResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not save that.' }
+  } finally {
+    paidAudioReplacementSaving.value = false
+  }
+}
+
+function applyPaidWritingReplacementSetting(setting: PaidImageReplacementSetting): void {
+  paidWritingReplacementEnabled.value = setting.enabled
+  paidWritingReplacementCeiling.value = setting.enabled ? String(setting.additional_credit_ceiling) : ''
+}
+
+function setPaidWritingReplacementEnabled(event: Event): void {
+  paidWritingReplacementEnabled.value = (event.target as HTMLSelectElement).value === 'true'
+  paidWritingReplacementResult.value = null
+}
+
+function paidWritingReplacementCeilingValue(): number | null {
+  const value = Number(paidWritingReplacementCeiling.value)
+  return Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+async function savePaidWritingReplacement(): Promise<void> {
+  if (!paidWritingReplacementLoaded.value) return
+  const ceiling = paidWritingReplacementCeilingValue()
+  paidWritingReplacementResult.value = null
+  if (paidWritingReplacementEnabled.value && ceiling === null) {
+    paidWritingReplacementResult.value = { kind: 'err', message: 'Enter a positive whole number of additional credits.' }
+    return
+  }
+  paidWritingReplacementSaving.value = true
+  try {
+    const saved = await put<PaidImageReplacementSetting>('/app-settings/paid-writing-replacement', {
+      enabled: paidWritingReplacementEnabled.value,
+      additional_credit_ceiling: paidWritingReplacementEnabled.value ? ceiling : null,
+    })
+    if (!isPaidImageReplacementSetting(saved)) throw new Error('The saved setting was invalid.')
+    applyPaidWritingReplacementSetting(saved)
+    paidWritingReplacementResult.value = { kind: 'ok', message: 'Paid writing replacement setting saved.' }
+  } catch (error: any) {
+    paidWritingReplacementResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not save that.' }
+  } finally {
+    paidWritingReplacementSaving.value = false
   }
 }
 
@@ -798,6 +964,14 @@ onMounted(() => { void load(); void loadConcurrency() })
 .paid-subtitle-replacement-choice, .paid-subtitle-replacement-ceiling { display: grid; gap: 4px; max-width: 360px; }
 .paid-subtitle-replacement-choice > span, .paid-subtitle-replacement-ceiling > span { font-size: 13px; color: var(--text-secondary); }
 .paid-subtitle-replacement-actions { display: flex; gap: 12px; }
+.paid-audio-replacement { display: grid; gap: 10px; }
+.paid-audio-replacement-choice, .paid-audio-replacement-ceiling { display: grid; gap: 4px; max-width: 360px; }
+.paid-audio-replacement-choice > span, .paid-audio-replacement-ceiling > span { font-size: 13px; color: var(--text-secondary); }
+.paid-audio-replacement-actions { display: flex; gap: 12px; }
+.paid-writing-replacement { display: grid; gap: 10px; }
+.paid-writing-replacement-choice, .paid-writing-replacement-ceiling { display: grid; gap: 4px; max-width: 360px; }
+.paid-writing-replacement-choice > span, .paid-writing-replacement-ceiling > span { font-size: 13px; color: var(--text-secondary); }
+.paid-writing-replacement-actions { display: flex; gap: 12px; }
 
 .emoji-toggle {
   display: flex;

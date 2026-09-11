@@ -419,6 +419,19 @@
             <span v-if="repairOutcome[job.job_id]" class="repair-chip" :class="`rc-${repairOutcome[job.job_id].kind}`">
               {{ repairOutcome[job.job_id].text }}
             </span>
+            <button
+              v-if="canReplaceFailedItems(job)"
+              class="btn btn-xs btn-primary"
+              :disabled="controlBusy.has(job.job_id)"
+              title="Checks the saved provider tasks first, then queues only confirmed failed audio sections or writing requests. Existing successful output stays in place; replacement work may use credits."
+              @click="replaceFailedItems(job)"
+            >{{ failedItemReplacementOutcome(job)?.state === 'checking' ? 'Checking failed items…' : 'Replace failed items' }}</button>
+            <span v-if="failedItemReplacementOutcome(job)" class="repair-chip" :class="`rc-${failedItemReplacementOutcome(job)?.kind}`">
+              {{ failedItemReplacementOutcome(job)?.text }}
+            </span>
+            <span v-if="automaticReplacementOutcome(job)" class="repair-chip" :class="`rc-${automaticReplacementOutcome(job)?.kind}`">
+              {{ automaticReplacementOutcome(job)?.text }}
+            </span>
             <!-- v1.2.8 — targeted recovery for the job types the per-job
                  Repair above does not cover. Same machinery, one episode:
                  scanning the whole library to fix the episode you are looking
@@ -801,6 +814,19 @@
               </button>
               <span v-if="repairOutcome[job.job_id]" class="repair-chip" :class="`rc-${repairOutcome[job.job_id].kind}`">
                 {{ repairOutcome[job.job_id].text }}
+              </span>
+              <button
+                v-if="canReplaceFailedItems(job)"
+                class="btn btn-xs btn-primary"
+                :disabled="controlBusy.has(job.job_id)"
+                title="Checks the saved provider tasks first, then queues only confirmed failed audio sections or writing requests. Existing successful output stays in place; replacement work may use credits."
+                @click="replaceFailedItems(job)"
+              >{{ failedItemReplacementOutcome(job)?.state === 'checking' ? 'Checking failed items…' : 'Replace failed items' }}</button>
+              <span v-if="failedItemReplacementOutcome(job)" class="repair-chip" :class="`rc-${failedItemReplacementOutcome(job)?.kind}`">
+                {{ failedItemReplacementOutcome(job)?.text }}
+              </span>
+              <span v-if="automaticReplacementOutcome(job)" class="repair-chip" :class="`rc-${automaticReplacementOutcome(job)?.kind}`">
+                {{ automaticReplacementOutcome(job)?.text }}
               </span>
               <!-- v1.2.8 — targeted recovery (mirror of the expanded view). -->
               <button
@@ -1569,6 +1595,11 @@ const errorExpanded = ref<string | null>(null)
 // Persistent per-job repair result so the user can see WHICH cards they've
 // repaired and the outcome (the toast is transient; the card stays red).
 const repairOutcome = ref<Record<string, { text: string; kind: string }>>({})
+const replacementOutcome = ref<Record<string, {
+  state: 'checking' | 'queued' | 'blocked' | 'complete'
+  text: string
+  kind: string
+}>>({})
 // v1.4.32 — the same repair, kept as NUMBERS rather than as the sentence above.
 // "Retry all" decides from this, and a decision about spending money must not be
 // made by parsing a chip string back into a state.
@@ -1765,7 +1796,8 @@ const failedJobsForRetryAll = computed(() =>
   projectScopedJobs.value.filter((j: RJob) =>
     (j.status === 'error' || j.status === 'cancelled')
     && !isVerifiedRecoveredSubtitleJob(j)
-    && j.params?.auto_repair_missing_prompts !== true)
+    && j.params?.auto_repair_missing_prompts !== true
+    && (!j.params?.jobs_replace_failed_items || canRetryManualFailedItemExactly(j)))
 )
 const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
   failedJobsForRetryAll.value as RJob[],
@@ -2507,11 +2539,62 @@ function canRetryJob(job: RJob): boolean {
     || isVerifiedRecoveredSubtitleJob(job)
     || isTerminalContinuityRender(job)
     || job.params?.auto_repair_missing_prompts === true) return false
+  if (job.params?.jobs_replace_failed_items) return canRetryManualFailedItemExactly(job)
   // The queue can replay this saved chat identity without submitting a fresh
   // provider request. Keep Retry available beside Recheck for that exact path.
   const canReplaySavedChat = job.type === 'outline_only' || job.type === 'expand_chapters'
   return canReplaySavedChat || !jobControls(job).some(control =>
     control.action === 'recheck-provider-status' || control.action === 'return-later')
+}
+
+function canRetryManualFailedItemExactly(job: RJob): boolean {
+  if (!job.params?.jobs_replace_failed_items) return false
+  if (job.type !== 'audio') {
+    return (job.genstudio_jobs || []).some(entry => entry.operation === 'chat.response')
+  }
+  const assets = job.params?.genstudio_recovery?.assets
+  if (!assets || typeof assets !== 'object') return false
+  const current = Object.values(assets as Record<string, any>)
+    .filter((entry: any) => entry?.operation === 'tts')
+    .map((entry: any) => (job.genstudio_jobs || []).find(evidence => evidence.operation === 'voice.tts'
+      && ((entry.job_id && evidence.id === entry.job_id)
+        || (entry.idempotency_key && (evidence.request_key === entry.idempotency_key
+          || evidence.request?.idempotency_key === entry.idempotency_key)))))
+  return current.length > 0 && current.every(entry => !!entry && (entry.state !== 'failed'
+    || entry.failure_code === 'CLOUD_SUBMISSION_UNCERTAIN'
+    || entry.failure_code === 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN'))
+}
+
+function canReplaceFailedItems(job: RJob): boolean {
+  if (job.status !== 'error') return false
+  return job.type === 'audio'
+    || (job.genstudio_jobs || []).some(entry => entry.operation === 'chat.response')
+}
+
+function failedItemReplacementOutcome(job: RJob) {
+  const local = replacementOutcome.value[job.job_id]
+  if (local?.state === 'checking' || (local?.state === 'blocked' && job.status !== 'done') || (local && job.status !== 'done'
+    && job.status !== 'error' && job.status !== 'cancelled')) return local
+  if (!job.params?.jobs_replace_failed_items) return null
+  if (job.status === 'done') return { state: 'complete' as const, text: 'Replacement complete', kind: 'ok' }
+  if (job.status === 'error' || job.status === 'cancelled') {
+    return { state: 'blocked' as const, text: 'Replacement blocked', kind: 'warn' }
+  }
+  return { state: 'queued' as const, text: 'Replacement queued', kind: 'busy' }
+}
+
+function automaticReplacementOutcome(job: RJob) {
+  const replacement = job.result?.automatic_replacement
+  if (!replacement || typeof replacement !== 'object') return null
+  const state = typeof replacement.state === 'string' ? replacement.state : ''
+  const reason = typeof replacement.reason === 'string'
+    ? customerJobText(replacement.reason, job) : ''
+  const label = state === 'complete' ? 'Automatic replacement complete'
+    : state === 'blocked' ? 'Automatic replacement blocked'
+    : state === 'queued' ? 'Automatic replacement queued'
+    : state === 'checking' ? 'Checking automatic replacement'
+    : 'Automatic replacement update'
+  return { text: reason ? `${label}: ${reason}` : label, kind: state === 'complete' ? 'ok' : state === 'blocked' ? 'warn' : 'busy' }
 }
 
 function customerJobText(value: unknown, job: RJob): string {
@@ -3124,6 +3207,48 @@ async function finishMissingImages(job: RJob, announce = true): Promise<boolean>
     const next = new Set(controlBusy.value)
     next.delete(job.job_id)
     controlBusy.value = next
+  }
+}
+
+async function replaceFailedItems(job: RJob): Promise<boolean> {
+  if (controlBusy.value.has(job.job_id)) return false
+  replacementOutcome.value = {
+    ...replacementOutcome.value,
+    [job.job_id]: { state: 'checking', text: 'Checking failed items…', kind: 'busy' },
+  }
+  controlBusy.value = new Set(controlBusy.value).add(job.job_id)
+  try {
+    const response = await post<{ job?: Job }>(`${jobQueuePath(job)}/replace-failed-items`, {})
+    const next = response.job
+    const marker = next?.params?.jobs_replace_failed_items
+    if (!isConfirmedRetryReplacement(job, next)
+      || marker?.source_job_id !== job.job_id
+      || !Number.isSafeInteger(marker?.item_count)
+      || marker.item_count < 1) {
+      throw new Error('Story Studio could not confirm the failed-item replacement scope.')
+    }
+    const outcomes = { ...replacementOutcome.value }
+    delete outcomes[job.job_id]
+    outcomes[next.job_id] = { state: 'queued', text: 'Replacement queued', kind: 'ok' }
+    replacementOutcome.value = outcomes
+    projectQueue.replaceJob(job.job_id, next)
+    universalQueue.replaceJob(job.job_id, next)
+    failureBatchFilter.value = null
+    statusFilter.value = next.status === 'running' ? 'running' : 'queued'
+    success(`Replacement queued for ${marker.item_count} confirmed failed item${marker.item_count === 1 ? '' : 's'}.`)
+    return true
+  } catch (e: any) {
+    const detail = customerJobText(e?.data?.detail || e?.message || 'Failed items could not be replaced.', job)
+    replacementOutcome.value = {
+      ...replacementOutcome.value,
+      [job.job_id]: { state: 'blocked', text: `Replacement blocked: ${detail}`, kind: 'warn' },
+    }
+    showError(detail)
+    return false
+  } finally {
+    const nextBusy = new Set(controlBusy.value)
+    nextBusy.delete(job.job_id)
+    controlBusy.value = nextBusy
   }
 }
 

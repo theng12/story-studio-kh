@@ -8,6 +8,8 @@ import { transform } from 'esbuild'
 
 const settingsPath = '/app-settings/paid-image-replacement'
 const subtitleSettingsPath = '/app-settings/paid-subtitle-replacement'
+const audioSettingsPath = '/app-settings/paid-audio-replacement'
+const writingSettingsPath = '/app-settings/paid-writing-replacement'
 
 interface PaidImageReplacementSetting {
   enabled: boolean
@@ -60,7 +62,7 @@ async function mountSettings(
   const saves: Array<{ path: string; body: unknown }> = []
   apiHost.__paidImageRecoverySettingsApi = {
     async get<T>(path: string): Promise<T> {
-      if (path === settingsPath || path === subtitleSettingsPath) {
+      if ([settingsPath, subtitleSettingsPath, audioSettingsPath, writingSettingsPath].includes(path)) {
         if (options.paidSettingError) throw options.paidSettingError
         return setting as T
       }
@@ -77,7 +79,7 @@ async function mountSettings(
     },
     async put<T>(path: string, body: unknown): Promise<T> {
       saves.push({ path, body })
-      if (path !== settingsPath && path !== subtitleSettingsPath) throw new Error(`unexpected PUT ${path}`)
+      if (![settingsPath, subtitleSettingsPath, audioSettingsPath, writingSettingsPath].includes(path)) throw new Error(`unexpected PUT ${path}`)
       return (options.savedSetting || { enabled: true, additional_credit_ceiling: 50 }) as T
     },
     async del(): Promise<void> {},
@@ -190,6 +192,46 @@ test('This Mac keeps paid subtitle replacement separately off until its own ceil
       path: subtitleSettingsPath,
       body: { enabled: true, additional_credit_ceiling: 17 },
     }])
+  } finally {
+    rendered.unmount()
+    delete apiHost.__paidImageRecoverySettingsApi
+  }
+})
+
+test('This Mac keeps paid audio and writing replacement separately off until each hard ceiling is saved', async () => {
+  const rendered = await mountSettings(
+    { enabled: false, additional_credit_ceiling: null },
+    { savedSetting: { enabled: true, additional_credit_ceiling: 23 } },
+  )
+  try {
+    for (const replacement of [
+      { className: '.paid-audio-replacement', path: audioSettingsPath, name: 'audio' },
+      { className: '.paid-writing-replacement', path: writingSettingsPath, name: 'writing' },
+    ]) {
+      const section = rendered.host.querySelector<HTMLElement>(replacement.className)
+      assert.ok(section, `${replacement.name} recovery is separately visible`)
+      assert.match(section.textContent || '', new RegExp(`Automatically buy one replacement for a confirmed failed ${replacement.name}`, 'i'))
+      assert.match(section.textContent || '', /reconnects to the original GenStudio task first/i)
+      assert.match(section.textContent || '', /Maximum 1 replacement per confirmed failed/i)
+      const enabled = section.querySelector<HTMLSelectElement>('select')
+      assert.equal(enabled?.value, 'false')
+      enabled!.value = 'true'
+      enabled!.dispatchEvent(new Event('change', { bubbles: true }))
+      await nextTick()
+      const ceiling = section.querySelector<HTMLInputElement>('input[type="number"]')
+      assert.ok(ceiling, `${replacement.name} needs an explicit hard ceiling when enabled`)
+      section.querySelector<HTMLButtonElement>('button')!.click()
+      await flush()
+      assert.equal(rendered.saves.filter(save => save.path === replacement.path).length, 0, 'a missing ceiling cannot submit')
+      ceiling.value = '23'
+      ceiling.dispatchEvent(new Event('input', { bubbles: true }))
+      section.querySelector<HTMLButtonElement>('button')!.click()
+      await flush()
+    }
+    assert.deepEqual(rendered.saves, [
+      { path: audioSettingsPath, body: { enabled: true, additional_credit_ceiling: 23 } },
+      { path: writingSettingsPath, body: { enabled: true, additional_credit_ceiling: 23 } },
+    ])
   } finally {
     rendered.unmount()
     delete apiHost.__paidImageRecoverySettingsApi

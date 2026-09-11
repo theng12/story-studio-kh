@@ -196,24 +196,24 @@ async function resolveMergedAudioName(slug: string, code: string): Promise<strin
 
 /**
  * Decide the filename for a merged output.
- * - 'overwrite': always `{code}_merged_audio.mp3` (replaces existing v1)
+ * - 'overwrite': replace the highest existing version (or create v1)
  * - 'new': pick the next `{code}_merged_audio_vN.mp3` that doesn't exist
  */
-async function resolveMergedOutputName(
+export async function resolveMergedOutputName(
   dir: string, code: string, mode: 'overwrite' | 'new',
 ): Promise<string> {
   const base = `${code}_merged_audio`
-  if (mode === 'overwrite') return `${base}.mp3`
   const existing = await safeReaddir(dir)
   const re = new RegExp(`^${code}_merged_audio(?:_v(\\d+))?\\.mp3$`)
-  let max = 0
+  let latest: { version: number; filename: string } | null = null
   for (const f of existing) {
     const m = f.match(re)
     if (!m) continue
     const v = m[1] ? parseInt(m[1], 10) : 1
-    if (v > max) max = v
+    if (!latest || v > latest.version) latest = { version: v, filename: f }
   }
-  const next = Math.max(2, max + 1) // first "new" is v2, since base = v1
+  if (mode === 'overwrite') return latest?.filename || `${base}.mp3`
+  const next = Math.max(2, (latest?.version || 0) + 1) // first "new" is v2, since base = v1
   return `${base}_v${next}.mp3`
 }
 

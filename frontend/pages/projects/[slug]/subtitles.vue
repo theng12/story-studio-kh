@@ -16,8 +16,8 @@
     >
       <template #aside>
         <div class="workspace-metrics" aria-label="Subtitle readiness">
-          <span class="workspace-metric" :data-tone="coverage.total && coverage.done === coverage.total ? 'success' : 'warning'">
-            <strong>{{ coverage.done }}/{{ coverage.total }}</strong> chapters
+          <span class="workspace-metric" :data-tone="!subtitleFreshnessUnavailable && coverage.total && coverage.done === coverage.total ? 'success' : 'warning'">
+            <strong>{{ subtitleFreshnessUnavailable ? '?' : coverage.done }}/{{ coverage.total }}</strong> chapters
           </span>
           <span class="workspace-metric" :data-tone="episodeId ? 'info' : 'warning'">
             <strong>{{ episodeId || 'No episode' }}</strong> target
@@ -70,15 +70,22 @@
           <div v-else class="mt-2 text-sm">
             <div class="sub-coverage">
               <span class="sub-coverage-bar" aria-hidden="true">
-                <span class="sub-coverage-fill" :style="{ width: coveragePct + '%' }" />
+                <span class="sub-coverage-fill" :style="{ width: subtitleFreshnessUnavailable ? '0%' : coveragePct + '%' }" />
               </span>
               <span class="text-muted">
-                <strong>{{ coverage.done }}/{{ coverage.total }}</strong> chapter(s) transcribed
-                <template v-if="coverage.total && coverage.done === coverage.total && subtitleTimelineComplete"> — ready for Scene Plan ✓</template>
-                <template v-else-if="coverage.total && coverage.done === coverage.total && planningSourceRevalidationRequired"> — chapters transcribed; Scene Plan will revalidate the corrected timeline before any provider work</template>
-                <template v-else-if="coverage.total && coverage.done === coverage.total"> — chapter files exist; check the timeline below</template>
+                <strong>{{ subtitleFreshnessUnavailable ? '?' : coverage.done }}/{{ coverage.total }}</strong>
+                {{ subtitleFreshnessUnavailable ? 'chapter freshness unavailable' : 'chapter(s) current' }}
+                <template v-if="!subtitleFreshnessUnavailable && coverage.total && coverage.done === coverage.total && subtitleTimelineComplete"> — ready for Scene Plan ✓</template>
+                <template v-else-if="!subtitleFreshnessUnavailable && coverage.total && coverage.done === coverage.total && planningSourceRevalidationRequired"> — chapters transcribed; Scene Plan will revalidate the corrected timeline before any provider work</template>
+                <template v-else-if="!subtitleFreshnessUnavailable && coverage.total && coverage.done === coverage.total"> — chapter files exist; check the timeline below</template>
               </span>
             </div>
+            <WorkspaceNotice v-if="status?.stale_sections?.length" tone="warning" title="Chapter audio changed" class="mt-2">
+              <p>{{ status.stale_sections.map(section => section.replaceAll('_', ' ')).join(', ') }} needs updated subtitles. Other chapter transcripts are still current.</p>
+            </WorkspaceNotice>
+            <WorkspaceNotice v-if="status?.freshness_unavailable" tone="warning" title="Subtitle freshness unavailable" class="mt-2">
+              <p>{{ status.freshness_reason || 'Could not verify the selected chapter audio sources.' }} Refresh status before transcribing or stitching.</p>
+            </WorkspaceNotice>
             <WorkspaceNotice
               v-if="subtitleTimelineIntegrity && !subtitleTimelineIntegrity.complete"
               tone="error"
@@ -130,11 +137,11 @@
             </p>
             <ul v-if="sections.length" class="sub-chapter-list mt-2">
               <li v-for="s in sections" :id="`sub-section-${s.slug}`" :key="s.slug" class="sub-chapter-row" tabindex="-1">
-                <span class="sub-chapter-mark" :class="{ ok: chapterHasSrt(s.slug) }" aria-hidden="true">
-                  {{ chapterHasSrt(s.slug) ? '✓' : '○' }}
+                <span class="sub-chapter-mark" :class="{ ok: chapterHasCurrentSrt(s.slug), stale: chapterIsStale(s.slug) }" aria-hidden="true">
+                  {{ chapterHasCurrentSrt(s.slug) ? '✓' : chapterIsStale(s.slug) ? '!' : '○' }}
                 </span>
                 <span class="sub-chapter-name">{{ s.label }}</span>
-                <span class="text-muted text-xs">{{ chapterHasSrt(s.slug) ? 'transcribed' : 'no SRT yet' }}</span>
+                <span class="text-muted text-xs">{{ subtitleFreshnessUnavailable ? 'freshness unavailable' : chapterIsStale(s.slug) ? 'audio changed — update subtitles' : chapterHasSrt(s.slug) ? 'transcribed' : 'no SRT yet' }}</span>
                 <!-- v1.2.2 — readiness is not only "is there an SRT" but "is the
                      SRT usable". A transcribed chapter full of hallucinated
                      script is worse than a missing one, because it looks done. -->
@@ -151,13 +158,13 @@
                   <button type="button" class="btn btn-xs btn-secondary" :aria-label="`Listen to ${s.label} audio`" @click="reviewChapterAudio(s.slug)">Listen</button>
                   <NuxtLink :to="audioSectionLink(s.slug)" class="btn btn-xs btn-secondary" :aria-label="`Open Audio Generator for ${s.label}`">Audio Generator</NuxtLink>
                   <button
-                    :class="['btn', 'btn-xs', chapterHasSrt(s.slug) ? 'btn-secondary' : 'btn-primary']"
+                    :class="['btn', 'btn-xs', chapterHasCurrentSrt(s.slug) ? 'btn-secondary' : 'btn-primary']"
                     type="button"
                     :disabled="!canTranscribe || transcribing"
-                    :aria-label="`${chapterHasSrt(s.slug) ? 'Regenerate' : 'Generate'} ${s.label} subtitles`"
+                    :aria-label="`${chapterIsStale(s.slug) ? 'Update' : chapterHasSrt(s.slug) ? 'Regenerate' : 'Generate'} ${s.label} subtitles`"
                     :title="canTranscribe ? `Starts a fresh GenStudio request for ${s.label} only.` : transcribeDisabledReason"
                     @click="retranscribeChapter(s.slug)"
-                  >{{ subtitleActionLabel(s.slug, chapterHasSrt(s.slug) ? 'Regenerate subtitles' : 'Generate subtitles') }}</button>
+                  >{{ subtitleActionLabel(s.slug, chapterIsStale(s.slug) ? 'Update subtitles' : chapterHasSrt(s.slug) ? 'Regenerate subtitles' : 'Generate subtitles') }}</button>
                 </div>
               </li>
             </ul>
@@ -169,7 +176,7 @@
       <WorkspaceSection
         eyebrow="Create"
         title="Transcribe chapter audio"
-        description="Completed chapter files are preserved, so retries fill only missing sections."
+        description="Current chapter subtitles are preserved. Transcription updates only missing or outdated sections unless you choose to re-run them all."
       >
         <div class="mt-2">
           <div v-if="genstudioModelsLoading" class="text-muted text-sm">
@@ -226,7 +233,7 @@
 
         <div class="mt-2">
           <button class="btn btn-sm btn-primary" :disabled="!canTranscribe" @click="transcribe">
-            {{ transcribeJobActive ? 'Queued — check the Jobs panel' : subtitleActionLabel(null, coverage.done && !force ? 'Transcribe missing chapters' : 'Transcribe chapters') }}
+            {{ transcribeJobActive ? 'Queued — check the Jobs panel' : subtitleActionLabel(null, coverage.done && !force ? 'Transcribe missing or outdated chapters' : 'Transcribe chapters') }}
           </button>
           <span v-if="transcribeJobActive" class="text-muted text-xs ml-1">Running… progress shows in Jobs / the bell.</span>
           <p v-if="subtitleRetryPending" class="text-muted text-xs mt-1" role="status">
@@ -333,6 +340,13 @@
           ⚠ Run <NuxtLink :to="`/projects/${slug}/audio-merge`" class="inline-link">Audio Assembly</NuxtLink>
           first — stitching needs the per-section durations + gap.
         </p>
+        <p v-else-if="status?.freshness_unavailable" class="validation-msg text-sm mt-2">
+          ⚠ {{ status.freshness_reason || 'Could not verify the selected chapter audio sources.' }} Refresh status before stitching.
+        </p>
+        <p v-else-if="staleSubtitleSections.size" class="validation-msg text-sm mt-2">
+          ⚠ {{ staleSubtitleSections.size }} chapter {{ staleSubtitleSections.size === 1 ? 'has' : 'have' }} changed audio and needs updated subtitles.
+          Update the affected chapters above before stitching; their old SRTs cannot be used with the current audio.
+        </p>
         <p v-else-if="coverage.total && coverage.done < coverage.total" class="validation-msg text-sm mt-2">
           ⚠ Only {{ coverage.done }}/{{ coverage.total }} chapters transcribed. Stitch will skip the
           missing ones — transcribe them all above for complete subtitles.
@@ -343,11 +357,12 @@
           <strong>{{ stitchStatus.stitched_srt.meta?.total_cues ?? '?' }} cues</strong>
           across <strong>{{ stitchStatus.stitched_srt.meta?.sections?.length ?? '?' }} section(s)</strong>,
           <strong>{{ stitchStatus.stitched_srt.meta?.total_duration_sec?.toFixed(1) ?? '?' }}s</strong> total.
+          <span class="text-muted text-xs">Last stitched: <time v-if="status?.last_stitched_at" :datetime="status.last_stitched_at" :title="nativeStitchTime(status.last_stitched_at)">{{ formatLastStitchedAt(status.last_stitched_at) }}</time><span v-else>time unavailable</span>.</span>
         </div>
         <p v-else class="text-muted text-sm mt-2">Not stitched yet.</p>
 
         <div class="mt-2 flex gap-2 items-center">
-          <button class="btn btn-sm btn-primary" :disabled="stitching || !status?.has_merged_audio" @click="stitchSubtitles">
+          <button class="btn btn-sm btn-primary" :disabled="stitching || !status?.has_merged_audio || status?.freshness_unavailable || staleSubtitleSections.size > 0" @click="stitchSubtitles">
             {{ stitching ? 'Stitching…' : (stitchStatus?.stitched_srt ? 'Re-stitch' : 'Stitch subtitles') }}
           </button>
           <button
@@ -437,6 +452,10 @@ interface SubtitleStatus {
   audio_assembly_ready: boolean
   audio_assembly_issues: string[]
   existing_srts: ExistingSrt[]
+  stale_sections?: string[]
+  freshness_unavailable?: boolean
+  freshness_reason?: string | null
+  last_stitched_at?: string | null
   planning_transcript_source?: 'raw' | 'corrected' | null
   planning_source_revalidation_required?: boolean
   timeline_integrity?: {
@@ -543,6 +562,21 @@ const stitchedSrtFile = computed(() =>
 // the panel so it appears next to the button that opened it.
 const isStitchedPreview = computed(() => /_stitched\.srt$/i.test(previewFilename.value))
 
+function formatLastStitchedAt(value: string): string {
+  const at = new Date(value)
+  if (Number.isNaN(at.getTime())) return 'Unavailable'
+  try {
+    return at.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
+  } catch {
+    return at.toLocaleString()
+  }
+}
+
+function nativeStitchTime(value: string): string {
+  const at = new Date(value)
+  return Number.isNaN(at.getTime()) ? 'Unavailable' : at.toString()
+}
+
 let previewSequence = 0
 function closePreview(): void {
   previewSequence++
@@ -596,6 +630,17 @@ function chapterHasSrt(secSlug: string): boolean {
   }
   return srtNames.value.has(`${codeUpper.value}_${secSlug}.srt`.toLowerCase())
 }
+const staleSubtitleSections = computed(() => new Set((status.value?.stale_sections || []).map(section =>
+  section.toLowerCase().replace(/[^a-z0-9]/g, ''),
+)))
+const subtitleFreshnessUnavailable = computed(() => status.value?.freshness_unavailable === true)
+function chapterIsStale(secSlug: string): boolean {
+  return staleSubtitleSections.value.has(secSlug.toLowerCase().replace(/[^a-z0-9]/g, ''))
+}
+function chapterHasCurrentSrt(secSlug: string): boolean {
+  if (status.value?.freshness_unavailable) return false
+  return chapterHasSrt(secSlug) && !chapterIsStale(secSlug)
+}
 /** Quality report for a chapter's own transcript, if one is on disk. */
 function chapterQuality(secSlug: string): SubtitleQualityReport | null {
   const wanted = `${codeUpper.value}_${secSlug}.srt`.toLowerCase()
@@ -608,7 +653,7 @@ function chapterIsGarbled(secSlug: string): boolean {
 
 const coverage = computed(() => {
   const total = sections.value.length
-  const done = sections.value.filter(s => chapterHasSrt(s.slug)).length
+  const done = sections.value.filter(s => chapterHasCurrentSrt(s.slug)).length
   return { total, done }
 })
 const coveragePct = computed(() => coverage.value.total ? Math.round((coverage.value.done / coverage.value.total) * 100) : 0)
@@ -675,6 +720,7 @@ const transcribeLabel = computed(() => 'Transcribe')
 
 const canTranscribe = computed(() => {
   if (!episodeId.value || !status.value?.has_chapter_audio || !status.value?.audio_assembly_ready) return false
+  if (status.value?.freshness_unavailable) return false
   if (transcribing.value || transcribeJobActive.value) return false
   return genstudioModelReady.value && isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)
 })
@@ -682,6 +728,7 @@ const transcribeDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!status.value?.has_chapter_audio) return 'No chapter audio — generate audio first'
   if (!status.value?.audio_assembly_ready) return 'Run Audio Assembly before transcription'
+  if (status.value?.freshness_unavailable) return 'Subtitle source freshness is unavailable. Refresh status before transcribing.'
   if (genstudioModelsLoading.value) return 'Loading transcription models'
   if (genstudioModelsError.value) return genstudioModelsError.value
   if (!genstudioModel.value) return 'No transcription model is available'
@@ -1039,6 +1086,7 @@ onMounted(async () => {
 .sub-chapter-row:last-child, .sub-file-row:last-child { border-bottom: none; }
 .sub-chapter-mark { width: 16px; text-align: center; color: var(--text-muted); }
 .sub-chapter-mark.ok { color: rgb(34, 197, 94); }
+.sub-chapter-mark.stale { color: rgb(202, 138, 4); font-weight: 700; }
 .sub-chapter-name { flex: 1; color: var(--text-primary); }
 .sub-chapter-action { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--font-xs); }
 

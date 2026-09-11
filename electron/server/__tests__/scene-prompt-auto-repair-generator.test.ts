@@ -445,15 +445,32 @@ test('unsettled provider evidence blocks a fresh paid repair identity', async ()
 })
 
 test('provider settlement during the disk audit is re-read into exact recovery before replacement', async () => {
+  service.reset()
   const f = await fixture(1)
   const responseFormat = JSON.stringify(promptResponseFormat(['scene-0002']))
+  service.queueScenario('chat', { states: ['running', 'running', 'succeeded'] })
+  const providerResponse = await fetch(`${service.baseUrl}/v1/chat/responses`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': 'audit-settlement-key',
+    },
+    body: JSON.stringify({ model_id: 'mock-chat-v1', messages: [], response_format: JSON.parse(responseFormat) }),
+  })
+  assert.equal(providerResponse.status, 202)
+  const provider = await providerResponse.json() as { id: string }
   await seedTerminalJob(f, 'audit-settlement-route', f.params, {
     genstudio_jobs: [{
-      id: 'chat-audit-settlement', operation: 'chat.response', state: 'running',
+      id: provider.id, operation: 'chat.response', state: 'running',
       updated_at: '2026-09-06T00:01:00.000Z',
       request: { method: 'POST', path: '/v1/chat/responses', idempotency_key: 'audit-settlement-key', response_format: responseFormat, captured_at: '2026-09-06T00:00:00.000Z' },
     }],
   })
+  // Let the automatic history audit observe the real still-running provider
+  // task first. The update below then models a later settlement callback that
+  // lands while the route is awaiting its Scene Plan disk read.
+  await jq.recheckJobProviderStatus(f.project.slug, 'audit-settlement-route')
   const mutableFs = fs as any
   const readFile = mutableFs.readFile.bind(mutableFs)
   let settled = false
@@ -461,8 +478,8 @@ test('provider settlement during the disk audit is re-read into exact recovery b
     if (!settled && String(args[0]) === f.planPath) {
       settled = true
       await jq.recordGenStudioJob('audit-settlement-route', {
-        id: 'chat-audit-settlement', operation: 'chat.response', state: 'succeeded',
-        updated_at: '2026-09-06T00:02:00.000Z',
+        id: provider.id, operation: 'chat.response', state: 'succeeded',
+        updated_at: new Date().toISOString(),
         request: { method: 'POST', path: '/v1/chat/responses', idempotency_key: 'audit-settlement-key', response_format: responseFormat, captured_at: '2026-09-06T00:00:00.000Z' },
       })
     }

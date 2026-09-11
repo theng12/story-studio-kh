@@ -102,6 +102,9 @@ function retryReplacementParams(job: Job): Record<string, any> | undefined {
 /** Retired jobs keep their terminal record; Retry must not replace it with the same known failure. */
 function retryAdmissionError(job: Job): string | null {
   const type = job.type as string
+  if (job.params?.jobs_replace_failed_items && !jq.canRetryManualFailedItemExactly(job)) {
+    return 'This manual replacement has a confirmed provider failure. Use Replace failed items to make another deliberate attempt.'
+  }
   if (type === 'image_prompts' && job.params?.mode && job.params.mode !== 'thumbnails') {
     return 'Legacy Scene Prompts are retired. Generate visual prompts in Scene Plan.'
   }
@@ -367,6 +370,25 @@ router.post('/jobs/all/:jobId/retry', async (req, res) => {
   res.status(202).json({ ok: true, job })
 })
 
+router.post('/jobs/all/:jobId/replace-failed-items', async (req, res) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length) {
+    return res.status(400).json({ detail: 'Request body must be an empty object. Failed-item scope comes from the saved job and GenStudio evidence.' })
+  }
+  const existing = await findUniversalJob(req.params.jobId)
+  if (!existing) {
+    const child = (await allJobsSnapshot()).jobs.find(job => (
+      job.params?.jobs_replace_failed_items?.source_job_id === req.params.jobId
+    ))
+    if (child) return res.status(202).json({ ok: true, job: child })
+    return res.status(404).json({ detail: 'Job not found' })
+  }
+  try {
+    return res.status(202).json({ ok: true, job: await jq.replaceFailedItems(existing.project_slug, req.params.jobId) })
+  } catch (error: any) {
+    return res.status(Number(error?.status) || 409).json({ detail: error?.message || 'Failed items could not be replaced.' })
+  }
+})
+
 router.post('/jobs/all/:jobId/pause', async (req, res) => {
   const job = await jq.pauseJob(req.params.jobId)
   if (!job) return res.status(409).json({ detail: 'Only queued, running, or paused jobs can be paused.' })
@@ -559,6 +581,17 @@ router.post('/projects/:slug/jobs/:jobId/finish-missing-images', async (req, res
     return res.status(202).json({ ok: true, job, ...(result.reused ? { reused: true } : {}) })
   } catch (error: any) {
     return res.status(Number(error?.status) || 409).json({ detail: error?.message || 'Could not queue missing images.' })
+  }
+})
+
+router.post('/projects/:slug/jobs/:jobId/replace-failed-items', async (req, res) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length) {
+    return res.status(400).json({ detail: 'Request body must be an empty object. Failed-item scope comes from the saved job and GenStudio evidence.' })
+  }
+  try {
+    return res.status(202).json({ ok: true, job: await jq.replaceFailedItems(String(req.params.slug), String(req.params.jobId)) })
+  } catch (error: any) {
+    return res.status(Number(error?.status) || 409).json({ detail: error?.message || 'Failed items could not be replaced.' })
   }
 })
 

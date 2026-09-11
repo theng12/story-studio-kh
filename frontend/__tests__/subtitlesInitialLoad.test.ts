@@ -182,3 +182,50 @@ test('disabled subtitle actions keep rendering while model language capabilities
     assert.equal(state.subtitleActionLabel(null, 'Transcribe chapters'), 'Transcribe chapters')
   } finally { app.unmount(); host.remove() }
 })
+
+test('a subtitle whose selected audio changed is shown as stale while other chapters stay current', async () => {
+  ;(globalThis as any).__subtitlesInitialRouterReplace = () => undefined
+  ;(globalThis as any).__subtitlesInitialApi = {
+    get: async (path: string) => path.endsWith('/audio-sections')
+      ? { sections: [{ label: 'Chapter 01', slug: 'Chapter_01' }, { label: 'Chapter 02', slug: 'Chapter_02' }] }
+      : { existing_srts: [], stale_sections: ['Chapter_01'], completion: { mode: 'per-section', completed_sections: ['Chapter_01', 'Chapter_02'] } },
+  }
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(await loadPageScript())
+  app.mount(host)
+  try {
+    const state = (globalThis as any).__subtitlesInitialState
+    await waitFor(() => state.sections.value.length === 2, { label: 'subtitle chapter freshness status' })
+    assert.equal(state.chapterIsStale('Chapter_01'), true)
+    assert.equal(state.chapterIsStale('Chapter_02'), false)
+  } finally { app.unmount(); host.remove() }
+})
+
+test('the Stitch action explains stale audio and blocks the guaranteed failing request', () => {
+  assert.match(
+    source,
+    /v-else-if="staleSubtitleSections\.size"[\s\S]*?Update the affected chapters above before stitching/i,
+  )
+  assert.match(
+    source,
+    /:disabled="stitching \|\| !status\?\.has_merged_audio \|\| status\?\.freshness_unavailable \|\| staleSubtitleSections\.size > 0"/,
+  )
+})
+
+test('subtitle stitching shows the source timestamp in local time without using recency as freshness', () => {
+  assert.match(source, /Last stitched:/)
+  assert.match(source, /last_stitched_at\?: string \| null/)
+  assert.match(source, /toLocaleString\(undefined, \{ dateStyle: 'medium', timeStyle: 'medium' \}\)/)
+  assert.match(source, /Last stitched:[\s\S]*?time unavailable/i)
+  assert.match(source, /staleSubtitleSections\.size > 0/)
+  assert.match(source, /v-else-if="coverage\.total && coverage\.done < coverage\.total"[\s\S]*?<\/p>\s*\n\s*<div v-if="stitchStatus\?\.stitched_srt"/)
+})
+
+test('subtitle actions fail closed when selected-source freshness cannot be inspected', () => {
+  assert.match(source, /freshness_unavailable\?: boolean/)
+  assert.match(source, /Subtitle source freshness is unavailable\. Refresh status before transcribing\./)
+  assert.match(source, /stitching \|\| !status\?\.has_merged_audio \|\| status\?\.freshness_unavailable \|\| staleSubtitleSections\.size > 0/)
+  assert.match(source, /Subtitle freshness unavailable/)
+  assert.match(source, /if \(status\.value\?\.freshness_unavailable\) return false/)
+  assert.match(source, /subtitleFreshnessUnavailable \? '\?' : coverage\.done/)
+})
