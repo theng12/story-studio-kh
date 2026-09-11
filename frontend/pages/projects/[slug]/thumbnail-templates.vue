@@ -32,6 +32,7 @@
           v-if="effectiveTemplate && hasProjectOverride"
           type="button"
           class="btn btn-sm btn-ghost"
+          :disabled="templateMutationBusy"
           @click="clearProjectOverride"
         >
           Clear project override
@@ -43,6 +44,7 @@
       <h2 class="tt-section-head">All thumbnail formats</h2>
       <button
         v-if="!editingId"
+        :disabled="templateMutationBusy"
         type="button"
         class="btn btn-sm btn-primary"
         @click="onCreateTemplate"
@@ -114,7 +116,7 @@
  * No new endpoints needed. The compose endpoint already reads this
  * resolution chain at compose time.
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useApi } from '~/composables/useApi'
 import { useToast } from '~/composables/useToast'
@@ -133,6 +135,12 @@ const effectiveTemplate = ref<any | null>(null)
 const effectiveSource = ref('') // 'project override' | 'niche default' | 'legacy inline'
 const hasProjectOverride = ref(false)
 const effectiveLoading = ref(true)
+const editingId = ref('')
+let thumbnailTemplateScope = 0
+let thumbnailTemplateLoadRequest = 0
+let editingScope = 0
+let thumbnailTemplateMutation = 0
+const templateMutationBusy = ref(false)
 
 // Static hint string — the actual path is OS-specific (lives under
 // PROJECTS_ROOT/.thumbnail-templates), but the user knows what
@@ -140,15 +148,35 @@ const effectiveLoading = ref(true)
 // to display a directory hint.
 const userTemplatesDirHint = '~/Documents/Story Studio KH/.thumbnail-templates/'
 
+function resetThumbnailTemplateState() {
+  projectName.value = ''
+  nicheId.value = ''
+  selectedId.value = ''
+  effectiveTemplate.value = null
+  effectiveSource.value = ''
+  hasProjectOverride.value = false
+  effectiveLoading.value = true
+  editingId.value = ''
+  editingScope = 0
+  thumbnailTemplateMutation++
+  templateMutationBusy.value = false
+}
+
 async function loadAll() {
+  const projectSlug = slug.value
+  const scope = thumbnailTemplateScope
+  const request = ++thumbnailTemplateLoadRequest
+  const current = () => projectSlug === slug.value
+    && scope === thumbnailTemplateScope && request === thumbnailTemplateLoadRequest
   effectiveLoading.value = true
   try {
     const [project, niche, eff, cfg] = await Promise.all([
-      get<{ name?: string }>(`/projects/${slug.value}`),
-      get<{ niche: any | null }>(`/projects/${slug.value}/effective-niche`),
-      get<{ template: any | null }>(`/projects/${slug.value}/effective-thumbnail-template`),
-      get<Record<string, any>>(`/projects/${slug.value}/settings/config`),
+      get<{ name?: string }>(`/projects/${projectSlug}`),
+      get<{ niche: any | null }>(`/projects/${projectSlug}/effective-niche`),
+      get<{ template: any | null }>(`/projects/${projectSlug}/effective-thumbnail-template`),
+      get<Record<string, any>>(`/projects/${projectSlug}/settings/config`),
     ])
+    if (!current()) return
     projectName.value = project?.name || ''
     nicheId.value = niche?.niche?.id || ''
     effectiveTemplate.value = eff?.template || null
@@ -166,30 +194,45 @@ async function loadAll() {
       effectiveSource.value = ''
     }
   } catch (e: any) {
+    if (!current()) return
     toastError(e?.data?.detail || 'Could not load thumbnail templates page')
   } finally {
-    effectiveLoading.value = false
+    if (current()) effectiveLoading.value = false
   }
 }
 
 async function onTemplateChange(t: { id: string; name: string }) {
+  if (templateMutationBusy.value) {
+    selectedId.value = effectiveTemplate.value?.id || ''
+    return
+  }
+  const projectSlug = slug.value
+  const scope = thumbnailTemplateScope
+  const mutation = ++thumbnailTemplateMutation
+  const current = () => projectSlug === slug.value && scope === thumbnailTemplateScope && mutation === thumbnailTemplateMutation
+  templateMutationBusy.value = true
   try {
-    await put(`/projects/${slug.value}/settings/config`, {
+    await put(`/projects/${projectSlug}/settings/config`, {
       thumbnail_template_id: t.id,
     })
+    if (!current()) return
     toastSuccess(`Set "${t.name}" as the default for this project`)
     // Re-resolve so the "Active" card updates without a hard reload.
     await loadAll()
   } catch (e: any) {
+    if (!current()) return
     toastError(e?.data?.detail || 'Could not save template choice')
+  }
+  finally {
+    if (current()) templateMutationBusy.value = false
   }
 }
 
 // v1.0.108+ — inline visual editor state. When non-empty, the
 // gallery is replaced by the editor for that template id.
-const editingId = ref('')
-
 function onEditTemplate(id: string) {
+  if (templateMutationBusy.value) return
+  editingScope = thumbnailTemplateScope
   editingId.value = id
 }
 
@@ -197,21 +240,37 @@ function onEditTemplate(id: string) {
 // sentinel 'new', starts from defaults, and POSTs a new user-library template
 // on save (onEditorSaved then sets it as the project default).
 function onCreateTemplate() {
+  if (templateMutationBusy.value) return
+  editingScope = thumbnailTemplateScope
   editingId.value = 'new'
 }
 
 async function onEditorSaved(savedId: string) {
+  if (templateMutationBusy.value) return
+  const projectSlug = slug.value
+  const scope = editingScope
+  const mutation = ++thumbnailTemplateMutation
+  const current = () => projectSlug === slug.value && scope === thumbnailTemplateScope && mutation === thumbnailTemplateMutation
+  if (!current()) return
   editingId.value = ''
+  templateMutationBusy.value = true
   // The save may have forked a built-in to a new id. Switch the
   // project default to the saved id so the next compose uses the
   // edited copy. Also refreshes the gallery so the new card appears.
-  selectedId.value = savedId
   try {
-    await put(`/projects/${slug.value}/settings/config`, {
+    await put(`/projects/${projectSlug}/settings/config`, {
       thumbnail_template_id: savedId,
     })
-  } catch { /* non-fatal */ }
-  await loadAll()
+    if (!current()) return
+    selectedId.value = savedId
+  } catch (e: any) {
+    if (!current()) return
+    toastError(e?.data?.detail || e?.message || 'Could not set the edited template as this project’s default')
+  } finally {
+    if (!current()) return
+    await loadAll()
+    if (current()) templateMutationBusy.value = false
+  }
 }
 
 function onEditorCancelled() {
@@ -219,18 +278,33 @@ function onEditorCancelled() {
 }
 
 async function clearProjectOverride() {
+  if (templateMutationBusy.value) return
+  const projectSlug = slug.value
+  const scope = thumbnailTemplateScope
+  const mutation = ++thumbnailTemplateMutation
+  const current = () => projectSlug === slug.value && scope === thumbnailTemplateScope && mutation === thumbnailTemplateMutation
+  templateMutationBusy.value = true
   try {
-    await put(`/projects/${slug.value}/settings/config`, {
+    await put(`/projects/${projectSlug}/settings/config`, {
       thumbnail_template_id: '',
     })
+    if (!current()) return
     toastSuccess('Project override cleared — falling back to the niche default')
     await loadAll()
   } catch (e: any) {
+    if (!current()) return
     toastError(e?.data?.detail || 'Could not clear override')
+  } finally {
+    if (current()) templateMutationBusy.value = false
   }
 }
 
-onMounted(loadAll)
+watch(slug, () => {
+  thumbnailTemplateScope++
+  thumbnailTemplateLoadRequest++
+  resetThumbnailTemplateState()
+  void loadAll()
+}, { immediate: true })
 </script>
 
 <style scoped>

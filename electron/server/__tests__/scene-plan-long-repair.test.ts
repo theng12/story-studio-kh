@@ -6,6 +6,7 @@ import {
   repairPlanCoverageWithSubtitleCues,
 } from '../services/scene-planner.js'
 import type { ScenePlanEntry } from '../models/types.js'
+import type { ScenePacing } from '../contracts/pacing.js'
 
 describe('deterministic long-scene repair', () => {
   test('splits only the long range and preserves unaffected scene assets', () => {
@@ -76,6 +77,45 @@ describe('deterministic long-scene repair', () => {
     })
     assert.equal(result.repairedCount, 0)
     assert.deepEqual(result.scenes, [scene])
+  })
+
+  test('uses each saved pacing period at the scene start and leaves legacy repair thresholds unchanged', () => {
+    const scenes: ScenePlanEntry[] = [
+      { id: 'opening', scene_index: 1, start_sec: 0, end_sec: 9, transcript_segment: 'Opening', visual_prompt: 'Keep opening', image_path: '/images/opening.png', approved: true },
+      { id: 'settled', scene_index: 2, start_sec: 20, end_sec: 35, transcript_segment: 'Settled', visual_prompt: 'Keep settled', image_path: '/images/settled.png', approved: true },
+    ]
+    const cues = [
+      { index: 1, start_sec: 0, end_sec: 3, text: 'One' },
+      { index: 2, start_sec: 3, end_sec: 6, text: 'Two' },
+      { index: 3, start_sec: 6, end_sec: 9, text: 'Three' },
+      { index: 4, start_sec: 20, end_sec: 25, text: 'Four' },
+      { index: 5, start_sec: 25, end_sec: 30, text: 'Five' },
+      { index: 6, start_sec: 30, end_sec: 35, text: 'Six' },
+    ]
+    const savedPacing: ScenePacing = {
+      mode: 'variable', min_sec: 3, max_sec: 3,
+      periods: [
+        { start_sec: 0, end_sec: 10, min_sec: 3, max_sec: 3 },
+        { start_sec: 10, end_sec: null, min_sec: 10, max_sec: 15 },
+      ],
+    }
+
+    const legacy = repairOverlongScenesDeterministically({
+      scenes, cues, threshold_sec: 20, min_sec: 3, max_sec: 12,
+    })
+    const repaired = repairOverlongScenesDeterministically({
+      scenes, cues, threshold_sec: 20, min_sec: 3, max_sec: 12, pacing: savedPacing,
+    })
+
+    assert.equal(legacy.repairedCount, 0, 'plans without a pacing snapshot keep the old threshold behavior')
+    assert.deepEqual(repaired.repairedIds, ['opening'])
+    assert.deepEqual(repaired.scenes.map(scene => [scene.start_sec, scene.end_sec]), [
+      [0, 3], [3, 6], [6, 9], [20, 35],
+    ])
+    assert.equal(repaired.scenes[0]?.id, 'opening')
+    assert.match(repaired.scenes[1]?.id || '', /^scene_/)
+    assert.match(repaired.scenes[2]?.id || '', /^scene_/)
+    assert.equal(repaired.scenes.at(-1)?.image_path, '/images/settled.png')
   })
 
   test('coverage repair restores a skipped narrated chapter instead of creating one frozen hold', () => {

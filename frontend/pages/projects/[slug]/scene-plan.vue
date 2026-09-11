@@ -56,6 +56,24 @@
       </TopActionBar>
     </div>
 
+    <EpisodeVisualSource
+      v-if="episodeId"
+      :slug="slug"
+      :episode-id="episodeId"
+      :source="episodeVisualSource"
+      @changed="episodeVisualSource = $event"
+    />
+    <p v-if="visualSourceError" role="alert" class="validation-msg">{{ visualSourceError }}</p>
+    <VisualTimingMotion
+      v-if="episodeId && episodeVisualSource === 'scene_plan'"
+      id="visual-timing"
+      :episode-id="episodeId"
+      :scenes="plan?.scenes || []"
+      :plan-pacing="plan?.pacing"
+      @saved="applyVisualSettings"
+    />
+    <p v-if="visualSettingsError" role="alert" class="validation-msg">{{ visualSettingsError }}</p>
+
     <!-- Step 1: Subtitles (created + stitched in the Subtitles workspace) -->
     <WorkspaceSection
       eyebrow="Prerequisite"
@@ -211,12 +229,13 @@
                cap sat on top of the derivation and bound for every model
                publishing 20,000 output tokens or more. The cap is gone, and the
                copy now states the two things that actually decide the number. -->
-          <p class="scene-setting-help">
+          <p v-if="hasPublishedPromptBudget" class="scene-setting-help">
             Automatic sends this channel’s default of {{ promptBatchSizeDefault }} scenes per request, reduced only if
             the selected GenStudio model cannot return that many complete in one response. Its published output
             limit is the only ceiling — {{ maximumPromptPackSize.toLocaleString() }} scenes on the model chosen now.
           </p>
-          <div class="scene-batch-summary">
+          <p v-else class="scene-setting-help">Choose a prompt model to see its published output allowance and safe batch size.</p>
+          <div v-if="hasPublishedPromptBudget" class="scene-batch-summary">
             <span><strong>{{ effectivePromptPackSize }} scenes</strong> per request</span>
             <span>up to {{ effectivePromptTokenBudget.toLocaleString() }} output tokens</span>
           </div>
@@ -229,15 +248,15 @@
             <div class="scene-compact-fields mt-1">
               <div class="form-group">
                 <label>Output allowance</label>
-                <select v-model="form.prompt_max_tokens" class="select">
-                  <option value="auto">Automatic · model maximum</option>
+                <select v-model="form.prompt_max_tokens" class="select" :disabled="!hasPublishedPromptBudget">
+                  <option value="auto">{{ hasPublishedPromptBudget ? 'Automatic · model maximum' : 'Choose a model' }}</option>
                   <option v-for="budget in availableOutputBudgets" :key="budget" :value="budget">{{ budget.toLocaleString() }} tokens</option>
                 </select>
               </div>
               <div class="form-group">
                 <label>Scenes per request</label>
-                <select v-model="promptPackPickerValue" class="select">
-                  <option value="auto">Automatic · {{ automaticPromptPackSize }} scenes</option>
+                <select v-model="promptPackPickerValue" class="select" :disabled="!hasPublishedPromptBudget">
+                  <option value="auto">{{ hasPublishedPromptBudget ? `Automatic · ${automaticPromptPackSize} scenes` : 'Choose a model' }}</option>
                   <option v-for="size in availablePromptPackPresets" :key="size" :value="String(size)">{{ size }} scenes</option>
                   <option value="custom">Custom…</option>
                 </select>
@@ -246,7 +265,8 @@
                      than silently rewritten to a smaller one. -->
                 <div v-if="promptPackPickerValue === 'custom'" class="scene-pack-custom">
                   <input v-model.number="customPromptPackSize" class="input" type="number" min="1" step="1" @change="applyCustomPromptPackSize" />
-                  <span class="text-xs text-muted">Any whole number. This model returns up to {{ maximumPromptPackSize.toLocaleString() }} complete.</span>
+                  <span v-if="hasPublishedPromptBudget" class="text-xs text-muted">Any whole number. This model returns up to {{ maximumPromptPackSize.toLocaleString() }} complete.</span>
+                  <span v-else class="text-xs text-muted">Choose a model before checking this batch size.</span>
                 </div>
                 <p v-if="promptPackReductionNotice" class="scene-setting-warn">{{ promptPackReductionNotice }}</p>
               </div>
@@ -277,7 +297,7 @@
               measured yet. Raise it once it has, or give requests longer in This Mac → Throughput.
               <button type="button" class="btn btn-ghost btn-xs" @click="resetBatchTuning">Reset to defaults</button>
             </p>
-            <p class="scene-setting-help mt-1">Context: {{ selectedModelContextLabel }} · Output is the response limit, so it—not context—sets the safe batch size.</p>
+            <p v-if="hasPublishedPromptBudget" class="scene-setting-help mt-1">Context: {{ selectedModelContextLabel }} · Output is the response limit, so it—not context—sets the safe batch size.</p>
           </details>
         </div>
 
@@ -399,36 +419,6 @@
 
         <div class="scene-setting-card">
           <div class="scene-setting-head">
-            <strong>Motion prompts <em>optional</em></strong>
-            <label class="scene-switch-label">
-              <input v-model="form.generate_motion_prompts" type="checkbox" @change="setMotionEnabled(form.generate_motion_prompts)" />
-              {{ form.generate_motion_prompts ? 'On' : 'Off' }}
-            </label>
-          </div>
-          <div class="scene-motion-controls" :class="{ 'is-disabled': !form.generate_motion_prompts }">
-            <div v-if="formulaMotionProfile" class="formula-motion-profile">
-              <span class="formula-motion-kicker">Formula-owned profile</span>
-              <strong>{{ formulaMotionProfile.label }}</strong>
-              <p>{{ formulaMotionProfile.description }}</p>
-              <div class="formula-motion-mix">
-                <span>First {{ Math.round(formulaMotionProfile.opening_duration_sec / 60) }} min: {{ formulaMotionProfile.opening.still }}% still · {{ formulaMotionProfile.opening.gentle }}% gentle · {{ formulaMotionProfile.opening.limited }}% limited</span>
-                <span>Then: {{ formulaMotionProfile.settled.still }}% still · {{ formulaMotionProfile.settled.gentle }}% gentle · {{ formulaMotionProfile.settled.limited }}% limited</span>
-              </div>
-            </div>
-            <div v-else class="intensity-picker">
-              <span>Motion intensity <strong>{{ motionMeta?.label }}</strong></span>
-              <div role="radiogroup" aria-label="Motion intensity" class="intensity-options">
-                <button v-for="level in MOTION_LEVELS" :key="level.value" type="button" class="intensity-option" :class="{ active: form.motion_level === level.value }" role="radio" :aria-checked="form.motion_level === level.value" :disabled="!form.generate_motion_prompts" @click="form.motion_level = level.value; setMotionLevel(level.value)">
-                  {{ level.label }}
-                </button>
-              </div>
-            </div>
-            <p class="scene-setting-help">{{ form.generate_motion_prompts ? (formulaMotionProfile ? 'Scene role wins over the ratio: maps, fossils, specimens, and other evidence views stay still; landscapes drift gently; only genuine phenomena receive limited animation.' : motionMeta?.hint) : 'Enable motion prompts to use this intensity.' }}</p>
-          </div>
-        </div>
-
-        <div class="scene-setting-card">
-          <div class="scene-setting-head">
             <strong>Avoid readable text in images</strong>
             <label class="scene-switch-label">
               <input v-model="form.avoid_legible_text" type="checkbox" @change="setAvoidLegibleText(form.avoid_legible_text)" />
@@ -539,9 +529,12 @@
           <strong>1. Timeline</strong>
           <span>{{ plan?.scenes?.length || 0 }} scenes · no LLM</span>
           <span class="stage-built">{{ timelineBuiltLabel }}</span>
+          <span v-if="plan?.pacing" class="stage-setting">
+            Saved plan: {{ pacingSummary(plan.pacing) }}
+          </span>
           <span v-if="continuityPacing" class="stage-setting">
-            Pacing: {{ continuityPacing.min_sec }}–{{ continuityPacing.max_sec }} seconds
-            <NuxtLink :to="`/projects/${slug}/character-sheet`">Change</NuxtLink>
+            Next build: {{ pacingSummary(continuityPacing) }}
+            <a href="#visual-timing">Change</a>
           </span>
           <button class="btn btn-secondary mt-2" :disabled="!canPlan || planning || planJobActive" @click="planScenes">
             {{ plan?.scenes?.length ? 'Rebuild timeline' : 'Build timeline' }}
@@ -552,19 +545,21 @@
           <span>{{ visualDoneCount }}/{{ plan?.scenes?.length || 0 }} ready</span>
           <span class="stage-setting">Full detail · 110–150 words per scene</span>
           <div class="flex gap-1 mt-2 flex-wrap">
-            <button class="btn btn-primary" :disabled="!subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
-            <button class="btn btn-secondary" :disabled="!subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual')">All pending</button>
+            <button v-if="hasPublishedPromptBudget" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
+            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual')">All pending</button>
           </div>
-          <small>{{ effectivePromptPackSize }} scenes per GenStudio request. GenStudio queues and distributes eligible requests at your available concurrency.</small>
+          <small v-if="hasPublishedPromptBudget">{{ effectivePromptPackSize }} scenes per GenStudio request. GenStudio queues and distributes eligible requests at your available concurrency.</small>
+          <small v-else>Choose a prompt model to see a model-backed Next batch size. All pending remains available after a model is selected.</small>
         </div>
         <div class="stage-step" :class="{ optional: true }">
           <strong>3. Motion prompts <em>optional</em></strong>
           <span>{{ motionDoneCount }}/{{ motionTargetCount }} animated · {{ motionStillCount }} held still</span>
           <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
-            <button class="btn btn-primary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
-            <button class="btn btn-secondary" :disabled="!subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
+            <button v-if="hasPublishedPromptBudget" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
+            <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
           </div>
-          <small v-if="form.generate_motion_prompts">Uses the same {{ effectivePromptPackSize }}-scene request size saved for visual prompts. Held-still scenes stay valid in final assembly without an image-to-video render.</small>
+          <small v-if="form.generate_motion_prompts && hasPublishedPromptBudget">Uses the same {{ effectivePromptPackSize }}-scene request size saved for visual prompts. Held-still scenes stay valid in final assembly without an image-to-video render.</small>
+          <small v-else-if="form.generate_motion_prompts">Choose a prompt model to see a model-backed Next batch size. All pending remains available after a model is selected.</small>
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
         </div>
       </div>
@@ -612,7 +607,7 @@
             </button>
             <template #content>
               <div class="popover-title">Repair out-of-range scenes</div>
-              <p><strong>Use when:</strong> one or more scenes exceed the selected continuity pacing maximum, especially after changing the pace on Character Sheet.</p>
+              <p><strong>Use when:</strong> one or more scenes exceed the selected continuity pacing maximum, when explicitly applying a new pace from Visual timing & motion.</p>
               <p><strong>What it does:</strong> splits only those ranges against the verified subtitle text at safe word boundaries. No LLM is used and unaffected prompts, images, and approvals stay in place.</p>
               <p><strong>Next:</strong> run Visual prompts → All pending, then generate the new missing images in Scene Review.</p>
             </template>
@@ -722,7 +717,7 @@
             <div class="bulk-buttons" v-if="emptyPromptCount > 0">
               <button
                 class="btn btn-sm btn-primary"
-                :disabled="!subtitleTimelineComplete || !form.model || planning || bulkReplan.active"
+                :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || planning || bulkReplan.active"
                 :title="!form.model
                   ? 'Pick a model above first'
                   : `Regenerate the ${emptyPromptCount} missing or duplicated visual prompts. Time ranges and transcripts stay unchanged.`"
@@ -862,7 +857,7 @@
               />
               <button
                 class="btn-icon mt-1"
-                :disabled="!form.model || regenMotionId === scene.id || planning || !scene.visual_prompt?.trim()"
+                :disabled="scenePlanGenerationUnavailable || !form.model || regenMotionId === scene.id || planning || !scene.visual_prompt?.trim()"
                 :title="!form.model
                   ? 'Pick a model above first'
                   : !scene.visual_prompt?.trim()
@@ -880,7 +875,7 @@
               >Fix subtitles first</NuxtLink>
               <button
                 class="btn-icon"
-                :disabled="!subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planning || bulkReplan.active || !scene.transcript_segment?.trim()"
+                :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planning || bulkReplan.active || !scene.transcript_segment?.trim()"
                 :title="!subtitleTimelineComplete
                   ? 'Complete the subtitle timeline first'
                   : !form.model
@@ -892,7 +887,7 @@
               >{{ regenPromptId === scene.id && !rewordingPrompt ? '⏳ Regenerating…' : '✨ Prompt only' }}</button>
               <button
                 class="btn-icon"
-                :disabled="!subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planning || bulkReplan.active || !scene.transcript_segment?.trim() || !scene.visual_prompt?.trim()"
+                :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || regenPromptId === scene.id || planning || bulkReplan.active || !scene.transcript_segment?.trim() || !scene.visual_prompt?.trim()"
                 :title="!scene.visual_prompt?.trim()
                   ? 'Nothing to reword yet — write or generate the prompt first.'
                   : !form.model
@@ -979,7 +974,9 @@ import {
 } from '../../../utils/prompt-char-cap.js'
 import { readRememberedImageModelId } from '../../../utils/project-image-model.js'
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
-import { DEFAULT_SCENE_PACING } from '@shared/pacing'
+import { pacingBandAt, type ScenePacing } from '@shared/pacing'
+import { resolveMotionScope, type MotionScope } from '@shared/motion-scope'
+import type { ContinuityConfig } from '~/composables/useContinuityConfig'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 
 definePageMeta({ layout: 'dashboard' })
@@ -1030,38 +1027,40 @@ async function refreshMeasuredOpening() {
   }
 }
 
-// Image-to-video prompt settings are optional and persisted per project.
-const motionEnabled = ref<boolean>(((projectConfig.value as any)?.motion_prompts_enabled) === true)
-const motionLevel = ref<number>(Number((projectConfig.value as any)?.default_motion_level) || 2)
-watch(projectConfig, (c) => {
-  motionEnabled.value = ((c as any)?.motion_prompts_enabled) === true
-  motionLevel.value = Number((c as any)?.default_motion_level) || 2
-  form.value.generate_motion_prompts = motionEnabled.value
-  form.value.motion_level = motionLevel.value
-})
-async function setMotionEnabled(v: boolean) {
-  motionEnabled.value = v
+const episodeMotionScope = ref<MotionScope>({ mode: 'off' })
+const visualSettingsError = ref('')
+const episodeVisualSource = ref<'scene_plan' | 'image_pool' | null>(null)
+const visualSourceError = ref('')
+let visualSourceLoadSequence = 0
+async function loadVisualSource(): Promise<void> {
+  const sequence = ++visualSourceLoadSequence
+  const ep = episodeId.value
+  const project = slug.value
+  episodeVisualSource.value = null
+  visualSourceError.value = ''
+  if (!ep) return
   try {
-    await put(`/projects/${slug.value}/settings/config`, { motion_prompts_enabled: v })
-    if (projectConfig.value) (projectConfig.value as any).motion_prompts_enabled = v
-    success(v ? 'Motion prompts will be generated for new scene plans.' : 'Motion prompts are off for this project.')
-  } catch (e: any) {
-    motionEnabled.value = !v
-    showError(e?.data?.detail || e?.message || 'Could not save the setting')
+    const result = await get<{ source: 'scene_plan' | 'image_pool' }>(`/projects/${project}/video-editor/visual-source/${encodeURIComponent(ep)}`)
+    if (sequence !== visualSourceLoadSequence || ep !== episodeId.value || project !== slug.value) return
+    if (result.source !== 'scene_plan' && result.source !== 'image_pool') throw new Error('Saved visual source is unavailable')
+    episodeVisualSource.value = result.source
+  } catch (error: any) {
+    if (sequence !== visualSourceLoadSequence || ep !== episodeId.value || project !== slug.value) return
+    visualSourceError.value = error?.data?.detail || error?.message || 'Could not load visual source'
   }
 }
-async function setMotionLevel(v: number) {
-  const lvl = Math.max(1, Math.min(4, Math.round(v) || 2))
-  const prev = motionLevel.value
-  motionLevel.value = lvl
-  try {
-    await put(`/projects/${slug.value}/settings/config`, { default_motion_level: lvl })
-    if (projectConfig.value) (projectConfig.value as any).default_motion_level = lvl
-    success(`Motion level set to ${lvl}.`)
-  } catch (e: any) {
-    motionLevel.value = prev
-    showError(e?.data?.detail || e?.message || 'Could not save the setting')
-  }
+
+const scopedMotionIds = computed(() => {
+  try { return new Set(resolveMotionScope(plan.value?.scenes || [], episodeMotionScope.value).scene_ids) }
+  catch { return new Set<string>() }
+})
+function applyVisualSettings(config: ContinuityConfig) {
+  continuityPacing.value = config.pacing
+  episodeMotionScope.value = config.motion_scope
+  form.value.generate_motion_prompts = config.motion_scope.mode !== 'off'
+  form.value.motion_level = config.motion_level ?? 2
+  characterSheetStyleBible.value = (config.style_bible || '').trim()
+  visualSettingsError.value = ''
 }
 
 // v1.0.794 — "Avoid readable text in images", SCENE prompts only (never
@@ -1272,6 +1271,7 @@ interface ScenePlanEntry {
   // v1.0.468 — image-to-video motion instruction for this scene.
   motion_prompt?: string
   motion_mode?: 'still' | 'gentle' | 'limited'
+  motion_choice?: 'still' | 'clip'
   // v1.0.336 — continuity: what the scene depicts. 'character' includes the
   // guide; the rest render without him. Unset → treated as 'character'.
   scene_type?: SceneType
@@ -1322,6 +1322,7 @@ const SCENE_TYPE_OPTIONS: Array<{ value: SceneType; emoji: string; label: string
   { value: 'artifact', emoji: '📜', label: 'Artifact' },
 ]
 interface ScenePlan {
+  pacing?: ScenePacing
   schema_version: 1
   generated_at: string
   timeline_built_at?: string
@@ -1482,16 +1483,7 @@ const deleting = ref(false)
 // v1.0.193 — continuity-chain density-pacing indicator. When this project is
 // continuity-chain, surface the active scene-length band (set on the Character
 // Sheet page) so the user knows the planner paces for a "live" feel.
-const continuityPacing = ref<{ min_sec: number; max_sec: number } | null>(null)
-interface FormulaMotionProfile {
-  id: string
-  label: string
-  description: string
-  opening_duration_sec: number
-  opening: { still: number; gentle: number; limited: number }
-  settled: { still: number; gentle: number; limited: number }
-}
-const formulaMotionProfile = ref<FormulaMotionProfile | null>(null)
+const continuityPacing = ref<ScenePacing | null>(null)
 // For continuity-chain the canonical look is the Character Sheet's continuity
 // Style Bible. Scene Plan displays it read-only so there is no competing style
 // editor or chance for the two steps to drift.
@@ -1503,21 +1495,19 @@ async function loadContinuity(): Promise<void> {
   const ep = episodeId.value
   const requestSequence = ++continuityLoadSequence
   continuityPacing.value = null
-  formulaMotionProfile.value = null
+  episodeMotionScope.value = { mode: 'off' }
+  form.value.generate_motion_prompts = false
+  visualSettingsError.value = ''
   characterSheetStyleBible.value = ''
   if (!ep) return
   try {
-    const fmt = await get<{ visualSource?: string; script?: { motionProfile?: FormulaMotionProfile } }>(`/projects/${slug.value}/effective-format`)
+    const r = await get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${slug.value}/continuity/${ep}`)
     if (requestSequence !== continuityLoadSequence || episodeId.value !== ep) return
-    formulaMotionProfile.value = fmt?.script?.motionProfile || null
-    if (fmt?.visualSource !== 'continuity-chain') return
-    const r = await get<{ exists: boolean; config: { pacing?: { min_sec: number; max_sec: number }; style_bible?: string } }>(
-      `/projects/${slug.value}/continuity/${ep}`,
-    )
+    applyVisualSettings(r.config)
+  } catch (error: any) {
     if (requestSequence !== continuityLoadSequence || episodeId.value !== ep) return
-    continuityPacing.value = r.config?.pacing || DEFAULT_SCENE_PACING
-    characterSheetStyleBible.value = (r.config?.style_bible || '').trim()
-  } catch { /* non-continuity project or fetch failed — no chip */ }
+    visualSettingsError.value = error?.data?.detail || 'Could not load this episode’s visual settings.'
+  }
 }
 
 /** Set a scene's type and lock it so deterministic repairs keep the choice. The
@@ -1545,13 +1535,6 @@ const PROMPT_PACK_MIN = 1
  * anywhere is `maximumPromptPackSize`, which is derived from the SELECTED
  * model's published output allowance and the channel's own tuning below.
  */
-/**
- * Used ONLY before the catalogue has been read, or when the selected product
- * published no usable allowance, purely so the local batch-size estimate has
- * something to work with. It is not a cap: once GenStudio publishes a number
- * for the selected product, that number is what is offered and enforced.
- */
-const FALLBACK_OUTPUT_TOKENS = 8192
 /**
  * Defaults only — mirrors `services/scene-prompt-batching.ts`. Each is
  * overridden by the channel's own saved value (`scene_prompt_*` in project
@@ -1648,7 +1631,7 @@ const form = ref({
   prompt_char_cap: 'auto' as PromptCharCapSetting,
   // v1.0.468 — image-to-video motion prompt: whether to generate one per scene,
   // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
-  generate_motion_prompts: ((projectConfig.value as any)?.motion_prompts_enabled) === true,
+  generate_motion_prompts: false,
   motion_level: 2,
   // v1.0.794 — SCENE prompts only; see avoidLegibleText above. Default ON.
   avoid_legible_text: ((projectConfig.value as any)?.avoid_legible_text_in_scenes) !== false,
@@ -1754,7 +1737,8 @@ const liveModelLimits = computed<SelectedModelMeta | null>(() =>
 /** Published `max_output_tokens`. No local ceiling: a product publishing
  *  128,000 is offered 128,000. */
 const publishedMaxOutput = computed(() => publishedMaxOutputTokens(liveModelLimits.value))
-const selectedModelMaxOutput = computed(() => publishedMaxOutput.value || FALLBACK_OUTPUT_TOKENS)
+const selectedModelMaxOutput = computed(() => publishedMaxOutput.value || 0)
+const hasPublishedPromptBudget = computed(() => !!form.value.model && selectedModelMaxOutput.value > 0)
 /** Published `context_window_tokens`, falling back to the deprecated
  *  `context_limit_tokens` alias only when the current field is absent. */
 const selectedModelContextWindow = computed(() => contextWindowTokens(liveModelLimits.value))
@@ -1775,6 +1759,7 @@ const availableInputBudgetLabel = computed(() =>
 )
 const automaticTokenBudget = computed<number>(() => selectedModelMaxOutput.value)
 const effectivePromptTokenBudget = computed<number>(() => {
+  if (!hasPublishedPromptBudget.value) return 0
   const requested = form.value.prompt_max_tokens === 'auto'
     ? automaticTokenBudget.value : Number(form.value.prompt_max_tokens)
   return Math.min(selectedModelMaxOutput.value, Math.max(1, requested))
@@ -1783,6 +1768,7 @@ const effectivePromptTokenBudget = computed<number>(() => {
  *  allowance can return complete, at this channel's own tuning. Derived, never
  *  declared — a bigger model means a bigger number, with nothing capping it. */
 const maximumPromptPackSize = computed<number>(() => {
+  if (!hasPublishedPromptBudget.value) return 0
   const scenes = Math.floor((effectivePromptTokenBudget.value * promptSafetyFraction.value) / promptTokensPerScene.value)
   return Math.max(PROMPT_PACK_MIN, scenes)
 })
@@ -1792,6 +1778,7 @@ const automaticPromptPackSize = computed<number>(() =>
   Math.min(promptBatchSizeDefault.value, maximumPromptPackSize.value),
 )
 const effectivePromptPackSize = computed<number>(() => {
+  if (!hasPublishedPromptBudget.value) return 0
   const requested = form.value.prompt_pack_size === 'auto'
     ? automaticPromptPackSize.value : Number(form.value.prompt_pack_size)
   return Math.min(Math.max(PROMPT_PACK_MIN, requested), maximumPromptPackSize.value)
@@ -1799,6 +1786,7 @@ const effectivePromptPackSize = computed<number>(() => {
 /** Said out loud when an explicit choice cannot be honoured by the chosen
  *  model. The number is never silently rewritten behind the operator's back. */
 const promptPackReductionNotice = computed<string>(() => {
+  if (!hasPublishedPromptBudget.value) return ''
   if (form.value.prompt_pack_size === 'auto') return ''
   const requested = Number(form.value.prompt_pack_size)
   if (!Number.isFinite(requested) || requested <= maximumPromptPackSize.value) return ''
@@ -1838,7 +1826,7 @@ async function loadRequestTimeout(): Promise<void> {
 // of this page's derivations, so it can be tested directly rather than through
 // a rendered component.
 const promptBatchTimeoutWarning = computed<string>(() => batchTimeoutWarning({
-  packSize: effectivePromptPackSize.value,
+  packSize: hasPublishedPromptBudget.value ? effectivePromptPackSize.value : 0,
   tokensPerScene: promptTokensPerScene.value,
   timeoutMinutes: languageTimeoutMinutes.value,
   floorTokensPerSecond: floorTokensPerSecond.value,
@@ -1848,6 +1836,13 @@ const availablePromptPackPresets = computed(() => PROMPT_PACK_PRESETS.filter(siz
 /** Derived from the SELECTED product's published `max_output_tokens`, never
  *  from a fixed list. The product's own maximum is always the top option. */
 const availableOutputBudgets = computed(() => outputAllowanceOptions(selectedModelMaxOutput.value))
+
+function pacingSummary(pacing: ScenePacing): string {
+  if (pacing.mode === 'variable') {
+    return `Variable · ${pacing.periods.length} period${pacing.periods.length === 1 ? '' : 's'} · ${pacing.periods.map(period => `${period.min_sec}–${period.max_sec}s`).join(' → ')}`
+  }
+  return `Uniform · ${pacing.min_sec}–${pacing.max_sec}s`
+}
 
 // ── Prompt character ceiling ────────────────────────────────────────────────
 // An LLM writes these prompts; a separately chosen image model renders them.
@@ -1960,25 +1955,24 @@ watch(publishedMaxOutput, (maximum) => {
   form.value.prompt_max_tokens = clampOutputAllowance(form.value.prompt_max_tokens, maximum)
 })
 
-// v1.0.468 — labels for the motion-intensity slider stops. Every level stays
-// slow/smooth; the scale only controls how much movement is allowed.
-const MOTION_LEVELS = [
-  { value: 1, label: 'Still', hint: 'Almost a living photo — faint ambient drift only, no subject motion.' },
-  { value: 2, label: 'Gentle', hint: 'Slow pan / push-in + soft ambient motion. Calm and hypnotic — the sleep-story default.' },
-  { value: 3, label: 'Moderate', hint: 'Subtle script-driven subject motion (walking, turning, pointing) + gentle camera.' },
-  { value: 4, label: 'Lively', hint: 'Clear but smooth movement and more active ambient elements — never fast or abrupt.' },
-]
-const motionMeta = computed(() => MOTION_LEVELS.find(m => m.value === form.value.motion_level) ?? MOTION_LEVELS[1])
-
+const scenePlanGenerationUnavailable = computed(() => episodeVisualSource.value !== 'scene_plan')
+const subtitleTimelineBlocker = computed(() => {
+  if (!status.value?.audio_merged) return 'Generate and assemble audio first'
+  if (!status.value?.stitched_srt) return 'Stitch subtitles first (step 1)'
+  if (subtitleTimelineComplete.value) return ''
+  return missingSubtitleSections.value.length
+    ? `Transcribe missing subtitles: ${missingSubtitleSections.value.join(', ')}`
+    : 'Repair and re-stitch the subtitle timeline first'
+})
 const canPlan = computed(() => {
-  if (!episodeId.value) return false
-  return subtitleTimelineComplete.value
+  if (!episodeId.value || episodeVisualSource.value !== 'scene_plan' || visualSettingsError.value) return false
+  return !subtitleTimelineBlocker.value
 })
 const planDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
-  if (!status.value?.stitched_srt) return 'Stitch subtitles first (step 1)'
-  if (!subtitleTimelineComplete.value) return `Transcribe missing subtitles: ${missingSubtitleSections.value.join(', ')}`
-  return ''
+  if (episodeVisualSource.value !== 'scene_plan') return visualSourceError.value || 'Choose Scene Plan as this episode’s visual source to build a timeline'
+  if (visualSettingsError.value) return visualSettingsError.value
+  return subtitleTimelineBlocker.value
 })
 const sceneDiagnostics = computed(() => {
   const scenes = plan.value?.scenes || []
@@ -2001,16 +1995,17 @@ const sceneDiagnostics = computed(() => {
     const scene = scenes[i]!
     const visualReady = !!scene.visual_prompt?.trim() && !duplicates.has(scene.id)
     if (visualReady) visualDone++
-    if (visualReady && scene.motion_mode === 'still') motionStill++
+    if (visualReady && (!scopedMotionIds.value.has(scene.id) || scene.motion_choice === 'still')) motionStill++
     else if (visualReady && scene.motion_prompt?.trim()) motionDone++
     else if (visualReady) motionPending++
     const duration = scene.end_sec - scene.start_sec
-    if (duration > pacingMaximumSec.value + 0.001) overlong++
+    const scenePacingMax = plan.value?.pacing ? pacingBandAt(plan.value.pacing, scene.start_sec).max_sec : Infinity
+    if (duration > scenePacingMax + 0.001) overlong++
     const reasons: string[] = []
     if (!scene.visual_prompt?.trim()) reasons.push('no prompt')
     else if (duplicates.has(scene.id)) reasons.push('duplicate prompt')
     if (sceneOverlapsMissingSubtitles(scene)) reasons.push('missing subtitle narration')
-    else if (duration > pacingMaximumSec.value + 0.001) reasons.push(`${duration.toFixed(0)}s exceeds pace`)
+    else if (duration > scenePacingMax + 0.001) reasons.push(`${duration.toFixed(0)}s exceeds pace`)
     if (reasons.length) {
       problems.push({ scene, index: i + 1, reasons })
       problemIds.add(scene.id)
@@ -2059,14 +2054,17 @@ const headerPrimaryLoadingLabel = computed(() => {
   return 'Generating visual prompts…'
 })
 const headerPrimaryDisabled = computed(() => {
+  if (episodeVisualSource.value !== 'scene_plan') return true
+  if (headerPrimaryStage.value !== 'visual' && visualSettingsError.value) return true
   if (headerPrimaryStage.value === 'ready') return true
   if (headerPrimaryStage.value === 'timeline') return !canPlan.value
-  return !subtitleTimelineComplete.value || !form.value.model || !plan.value
+  return !!subtitleTimelineBlocker.value || !form.value.model || !plan.value
 })
 const headerPrimaryStatus = computed(() => {
+  if (episodeVisualSource.value !== 'scene_plan') return visualSourceError.value || 'Image Pool visuals are configured in Video Assembly. Saved Scene Plan assets remain here.'
   if (planning.value || planJobActive.value) return `Scene Plan is working on ${episodeId.value}…`
   if (headerPrimaryStage.value === 'timeline') return canPlan.value ? '' : planDisabledReason.value
-  if (!subtitleTimelineComplete.value) return `Transcribe missing subtitles: ${missingSubtitleSections.value.join(', ')}`
+  if (subtitleTimelineBlocker.value) return subtitleTimelineBlocker.value
   if (!form.value.model) return 'Choose the visual and motion prompt model first'
   if (headerPrimaryStage.value === 'visual') return `${visualPendingCount.value} scene prompts still need to be generated`
   if (headerPrimaryStage.value === 'motion') return `${motionPendingCount.value} optional motion prompts still need to be generated`
@@ -2110,7 +2108,9 @@ async function loadStatus(): Promise<void> {
   } catch (e: any) {
     if (requestSequence !== statusLoadSequence || episodeId.value !== ep) return
     if (e?.__slugRace) return
-    // Non-fatal — empty-state renders.
+    status.value = null
+    plan.value = null
+    showError(e?.data?.detail || e?.message || 'Could not load this episode’s scene plan')
   }
 }
 
@@ -2143,8 +2143,9 @@ async function planScenes(): Promise<void> {
 }
 
 async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number): Promise<void> {
-  if (!subtitleTimelineComplete.value) {
-    showError(`Complete the missing subtitle chapters first: ${missingSubtitleSections.value.join(', ')}`)
+  if (scenePlanGenerationUnavailable.value || (stage === 'motion' && visualSettingsError.value)) return
+  if (subtitleTimelineBlocker.value) {
+    showError(subtitleTimelineBlocker.value)
     return
   }
   if (!form.value.model || !plan.value) return
@@ -2237,7 +2238,6 @@ async function pollUntilPlanLanded(
 // ── Plan health + deterministic repair guidance ─────────────────────────
 // Flag scenes that look broken so they're findable without scrolling. An exact
 // duplicate is pending work, not a valid prompt for another scene.
-const pacingMaximumSec = computed(() => continuityPacing.value?.max_sec || 20)
 const problemScenes = computed(() => sceneDiagnostics.value.problems)
 const problemIds = computed(() => sceneDiagnostics.value.problemIds)
 const overlongSceneCount = computed(() => sceneDiagnostics.value.overlong)
@@ -2266,6 +2266,7 @@ const regenPromptId = ref<string | null>(null)
 // was pressed shows its busy label.
 const rewordingPrompt = ref(false)
 async function regenerateScenePrompt(scene: ScenePlanEntry, opts: { reword?: boolean } = {}): Promise<void> {
+  if (scenePlanGenerationUnavailable.value) return
   if (!subtitleTimelineComplete.value) { showError('Complete and stitch every subtitle chapter first.'); return }
   if (!form.value.model) { showError('Pick a model above first'); return }
   if (!scene.transcript_segment?.trim()) { showError('Scene has no transcript_segment to base a prompt on.'); return }
@@ -2334,6 +2335,7 @@ async function saveMotionPrompt(scene: ScenePlanEntry): Promise<void> {
   }
 }
 async function regenMotionPrompt(scene: ScenePlanEntry): Promise<void> {
+  if (scenePlanGenerationUnavailable.value) return
   if (!form.value.model) { showError('Pick a model above first'); return }
   if (!scene.visual_prompt?.trim()) { showError('Write the visual prompt first — the motion prompt animates that image.'); return }
   const ep = episodeId.value
@@ -2362,6 +2364,7 @@ async function regenMotionPrompt(scene: ScenePlanEntry): Promise<void> {
 
 /** Repair every missing or duplicated prompt in bounded GenStudio packs. */
 async function regenAllEmptyPrompts(): Promise<void> {
+  if (scenePlanGenerationUnavailable.value) return
   if (!form.value.model) { showError('Pick a model above first'); return }
   if (bulkReplan.value.active) return
   const empty = (plan.value?.scenes || []).filter(
@@ -2501,7 +2504,7 @@ async function repairLongScenes(): Promise<void> {
   if (!episodeId.value || repairingLongScenes.value || !subtitleTimelineComplete.value) return
   const ok = await ask({
     title: `Repair ${overlongSceneCount.value} out-of-range scene${overlongSceneCount.value === 1 ? '' : 's'}?`,
-    message: `Uses the subtitle text to split only scenes over the selected ${pacingMaximumSec.value}-second pacing cap. No LLM is used. Every unaffected scene, prompt, image, and approval stays in place; newly uncovered scenes will need visual prompts and images.`,
+    message: `Uses the subtitle text to split only scenes beyond their saved plan pacing. Plans without saved pacing use the existing repair threshold. No LLM is used. Every unaffected scene, prompt, image, and approval stays in place; newly uncovered scenes will need visual prompts and images.`,
     confirmLabel: 'Repair scenes',
   })
   if (!ok) return
@@ -2749,7 +2752,7 @@ const planPresets = usePresets<any>({
 })
 
 watch([slug, episodeId], () => {
-  void Promise.all([loadStatus(), loadContinuity()])
+  void Promise.all([loadStatus(), loadContinuity(), loadVisualSource()])
 }, { immediate: true })
 onMounted(() => {
   void planPresets.load()

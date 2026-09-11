@@ -157,7 +157,11 @@ describe('scene plan wiring', () => {
   test('every scene-prompt endpoint accepts the resolved ceiling', () => {
     assert.match(scenePlanRoutes, /import \{ parsePromptCharCap \} from '\.\.\/services\/prompt-char-cap\.js'/)
     assert.equal(scenePlanRoutes.match(/parsePromptCharCap\(body\.prompt_char_cap\)/g)?.length, 3)
-    assert.equal(scenePlanRoutes.match(/prompt_char_cap: promptCharCap,/g)?.length, 3)
+    assert.equal(
+      scenePlanRoutes.match(/prompt_char_cap: promptCharCap,/g)?.length,
+      4,
+      'the three request handlers forward the ceiling, and accepted single-scene replays retain it as request identity',
+    )
   })
 
   test('a token allowance is never reused as a character ceiling', () => {

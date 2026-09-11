@@ -21,6 +21,8 @@ import { describe, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
+import { effectiveGenStudioTaskState } from '../../electron/server/contracts/provider-task-state.js'
+
 import {
   describeCancellation,
   describeFreshness,
@@ -90,7 +92,7 @@ function loadJobAttentionSummary() {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText
   // eslint-disable-next-line no-new-func
-  return new Function(js)() as (job: any) => string
+  return new Function('effectiveGenStudioTaskState', js)(effectiveGenStudioTaskState) as (job: any) => string
 }
 
 // ── 1. No raw identifiers, and no per-scene wall, in the default view ─────
@@ -606,6 +608,32 @@ describe('settlement presence', () => {
       queue_state: 'failed', reserved_credits: null, settled_credits: null, released_credits: null,
     }]), {
       confirmed: false, charged: 0, returned: 0, held: 0,
+    })
+  })
+
+  test('settles provider-confirmed no-record work despite an old running queue hint', () => {
+    const settled = Array.from({ length: 294 }, (_, index) => ({
+      id: `settled-${index}`,
+      state: 'succeeded',
+      queue_state: 'succeeded',
+      reserved_credits: 9,
+      settled_credits: 9,
+      released_credits: 0,
+    }))
+    const absent = Array.from({ length: 15 }, (_, index) => ({
+      id: `absent-${index}`,
+      state: 'not_created',
+      queue_state: 'running',
+      reserved_credits: 0,
+      settled_credits: 0,
+      released_credits: 0,
+    }))
+
+    assert.deepEqual(summariseSettlement([...settled, ...absent]), {
+      confirmed: true,
+      charged: 2646,
+      returned: 0,
+      held: 0,
     })
   })
 

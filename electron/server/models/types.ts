@@ -5,6 +5,8 @@
 import type { GenStudioRequestPreview } from '../lib/genstudio-request-preview.js'
 import type { ContentPackProvenance } from '../content-packs/runtime-types.js'
 import type { ContentPackItemKind } from '../content-packs/types.js'
+import type { MotionScope } from '../contracts/motion-scope.js'
+import type { ScenePacing, ScenePacingPeriod } from '../contracts/pacing.js'
 import type { ContextualCueCorner } from '../contracts/contextual-cue-position.js'
 import type { AssignedPipelineModelPolicy, PipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 
@@ -2662,7 +2664,7 @@ export interface Job {
     queue_reason?: 'provider_pace' | null
     location?: string
     queue_state?: 'waiting_local' | 'submitting' | 'accepted' | 'waiting_account_capacity'
-      | 'running' | 'completing' | 'succeeded' | 'failed' | 'waiting_credits' | 'cancelled'
+      | 'running' | 'completing' | 'succeeded' | 'failed' | 'not_created' | 'waiting_credits' | 'cancelled'
     updated_at: string
     /**
      * Redacted preview of the request Story Studio submitted for this call.
@@ -4098,18 +4100,16 @@ export interface ContinuityConfig {
   /** Also use the per-episode uploaded sheet (img2img-references/master.png)
    *  as a reference for every scene. */
   use_episode_sheet: boolean
-  /** User-set pacing guardrails (seconds). The paced planner cuts scenes so
-   *  each lands within [min_sec, max_sec]; the LLM picks where to cut, denser
-   *  where the narration is busy ("feels live"). */
-  pacing: {
-    min_sec: number
-    max_sec: number
-    /** Optional Formula-derived phase boundary. Existing simple ranges remain valid. */
+  /** Explicit episode pacing for the next plan. Existing plan times stay unchanged. */
+  pacing: ScenePacing & {
     opening_duration_sec?: number
-    /** Optional slower range after `opening_duration_sec`. */
     settled_min_sec?: number
     settled_max_sec?: number
   }
+  /** Optional for legacy records; new bulk motion work defaults to off. */
+  motion_scope?: MotionScope
+  /** Prompt direction intensity, 1–4; independent of provider clip duration. */
+  motion_level?: number
   /** Which references each scene's sequential render attaches (independent
    *  toggles, matching images.ts reference_sources). */
   references: {
@@ -4291,6 +4291,9 @@ export interface SceneMotionProfile {
 }
 
 export interface ScenePlan {
+  /** Settings used to build these timestamps; draft changes do not rewrite them. */
+  pacing?: ScenePacing
+
   schema_version: 1
   /** Last time any plan content was updated. ISO8601. */
   generated_at: string
@@ -4556,7 +4559,8 @@ export interface ScenePlanRunOptions {
   pacing?: {
     min_sec: number
     max_sec: number
-    mode?: 'live' | 'documentary'
+    mode?: 'live' | 'documentary' | 'variable'
+    periods?: ScenePacingPeriod[]
     /** Optional Formula-owned handoff from a denser opening to ambient holds. */
     opening_duration_sec?: number
     settled_min_sec?: number

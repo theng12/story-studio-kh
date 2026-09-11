@@ -42,6 +42,7 @@ import {
 } from '../generators/images.js'
 import { resolveSceneImagesDir, SCENE_IMAGES_SUBFOLDER } from '../generators/scene-image.js'
 import { resolveVideoAssetsDir } from '../generators/scene-clip.js'
+import { resolveEpisodeMotionSceneIds } from './episode-motion-scope.js'
 import { getAudioStatus } from './audio-reconciler.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
@@ -1321,7 +1322,8 @@ export async function computeEpisodeStatus(
           status.scene_plan,
         ).complete
         const clipsDir = await resolveVideoAssetsDir(slug, code.toUpperCase(), byCode.episode_dir)
-        const motionReady = await Promise.all(scenes.map(async (s: any) => {
+        const scopedMotion = await resolveEpisodeMotionSceneIds(slug, code, scenes, byCode.episode_dir)
+        const motionReady = await Promise.all(scenes.filter((s: any) => scopedMotion.scene_ids.includes(s.id)).map(async (s: any) => {
           if (s?.motion_choice === 'still') return true
           const hasClip = typeof s?.id === 'string' && await fileHasContent(path.join(clipsDir, `${s.id}.mp4`))
           if (!hasClip || s?.motion_choice === 'pending') return false
@@ -1329,7 +1331,7 @@ export async function computeEpisodeStatus(
           if (typeof s?.image_version === 'string' && s.clip_source_image_version !== s.image_version) return false
           return s?.motion_choice === 'clip' || s?.motion_choice == null
         }))
-        status.motion_review = scenes.length > 0 && motionReady.every(Boolean)
+        status.motion_review = status.scene_plan && motionReady.every(Boolean)
       }
     } catch { /* unresolved / unreadable plan → leave both false */ }
 

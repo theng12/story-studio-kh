@@ -5,6 +5,7 @@ import path from 'path'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 import { buildImagePoolPlayOrder, readVideoVisualSource, resolveImagePoolSelection, writeVideoAssemblySourceStamp } from '../services/video-visual-source.js'
+import { getSelectionSidecar, saveSelectionSidecar } from '../services/broll-selection-sidecar.js'
 import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 
 let tmp: { dir: string; cleanup: () => Promise<void> }
@@ -127,6 +128,64 @@ describe('Video Assembly visual source', () => {
     assert.deepEqual(response.body, { source: 'scene_plan', image_pool: null })
   })
 
+  test('reads a legacy selection sidecar without backfilling a source', async () => {
+    const seeded = await seedImagePoolEpisode('legacy-selection')
+    const sidecarPath = path.join(seeded.episodeDir, 'broll-selection.json')
+    const legacy = JSON.parse(await fs.readFile(sidecarPath, 'utf8'))
+    delete legacy.source
+    await fs.writeFile(sidecarPath, JSON.stringify(legacy))
+    const before = await fs.readFile(sidecarPath, 'utf8')
+
+    const state = await readVideoVisualSource('legacy-selection', EPISODE)
+
+    assert.equal(state.source, 'scene_plan')
+    assert.equal(state.image_pool, null)
+    assert.equal(await fs.readFile(sidecarPath, 'utf8'), before)
+  })
+
+  test('records an Image Pool choice before an image selection exists', async () => {
+    const projectDir = path.join(tmp.dir, 'projects', 'unready-image-pool')
+    const episodeDir = path.join(projectDir, 'episodes', 'Season 001', `${EPISODE} - Unready`)
+    await fs.mkdir(episodeDir, { recursive: true })
+    await fs.writeFile(path.join(projectDir, 'project.json'), JSON.stringify({
+      slug: 'unready-image-pool', name: 'Unready Image Pool', episode_prefix: 'EP', season_size: 20,
+      season_prefix: 'Season', folder_template: '{season_prefix} {season_num}/{code} - {title}/',
+    }))
+    await fs.writeFile(path.join(projectDir, 'ideas.json'), JSON.stringify({
+      ideas: [{ id: 'i1', title: 'Unready', status: 'accepted', episode_code: EPISODE }],
+    }))
+
+    const { app } = await import('../app.js')
+    const response = await request(app)
+      .put(`/api/projects/unready-image-pool/video-editor/visual-source/${EPISODE}`)
+      .send({ source: 'image_pool' })
+
+    assert.deepEqual(response.body, { source: 'image_pool', image_pool: null })
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(episodeDir, 'broll-selection.json'), 'utf8')), {
+      schema_version: 1, episode_code: EPISODE, source: 'image_pool',
+    })
+    assert.equal(await getSelectionSidecar('unready-image-pool', EPISODE, 'Unready'), null)
+    await assert.rejects(() => resolveImagePoolSelection('unready-image-pool', EPISODE), /selection is missing/i)
+
+    await saveSelectionSidecar('unready-image-pool', EPISODE, 'Unready', {
+      schema_version: 1, episode_code: EPISODE, pool_id: 'images', media: 'image', selection_mode: 'random',
+      pacing_mode: 'timed', broll_volume: 0,
+      selection: [{ filename: 'one.png', sha256: IMAGE_HASH, target_duration: 4 }],
+      target_duration: 4, generated_at: 'now',
+    })
+    const picked = JSON.parse(await fs.readFile(path.join(episodeDir, 'broll-selection.json'), 'utf8'))
+    assert.equal(picked.source, 'image_pool')
+
+    const frozen = await fs.readFile(path.join(episodeDir, 'broll-selection.json'), 'utf8')
+    await assert.rejects(() => saveSelectionSidecar('unready-image-pool', EPISODE, 'Unready', {
+      schema_version: 1, episode_code: EPISODE, pool_id: 'video-pool', selection_mode: 'random',
+      pacing_mode: 'timed', broll_volume: 0,
+      selection: [{ filename: 'clip.mp4', sha256: 'video-hash', target_duration: 4 }],
+      target_duration: 4, generated_at: 'now',
+    }), /B-Roll selection is not used for Image Pool/i)
+    assert.equal(await fs.readFile(path.join(episodeDir, 'broll-selection.json'), 'utf8'), frozen)
+  })
+
   test('malformed source sidecars are blocked instead of defaulting to Scene Plan', async () => {
     const projectDir = path.join(tmp.dir, 'projects', 'malformed-source')
     const episodeDir = path.join(projectDir, 'episodes', 'Season 001', `${EPISODE} - Broken`)
@@ -141,6 +200,42 @@ describe('Video Assembly visual source', () => {
     const response = await request(app).get(`/api/projects/malformed-source/video-editor/visual-source/${EPISODE}`)
     assert.equal(response.status, 500)
     assert.match(response.body.detail, /malformed/i)
+    const sidecarPath = path.join(episodeDir, 'broll-selection.json')
+    await assert.rejects(() => saveSelectionSidecar('malformed-source', EPISODE, 'Broken', {
+      schema_version: 1, episode_code: EPISODE, pool_id: 'images', selection_mode: 'random', pacing_mode: 'timed',
+      broll_volume: 0, selection: [], target_duration: 0, generated_at: 'now',
+    }), /malformed/i)
+    assert.equal(await fs.readFile(sidecarPath, 'utf8'), '{not-json')
+  })
+
+  test('rejects JSON-valid invalid source sidecars without replacing their bytes', async () => {
+    const { app } = await import('../app.js')
+    for (const [slug, title, raw] of [
+      ['invalid-source-array', 'Array', '[]'],
+      ['invalid-source-value', 'Value', '{"source":"bogus"}'],
+      ['invalid-source-null', 'Null', '{"source":null}'],
+    ]) {
+      const projectDir = path.join(tmp.dir, 'projects', slug)
+      const episodeDir = path.join(projectDir, 'episodes', 'Season 001', `${EPISODE} - ${title}`)
+      const sidecarPath = path.join(episodeDir, 'broll-selection.json')
+      await fs.mkdir(episodeDir, { recursive: true })
+      await fs.writeFile(path.join(projectDir, 'project.json'), JSON.stringify({
+        slug, name: title, episode_prefix: 'EP', season_size: 20,
+        season_prefix: 'Season', folder_template: '{season_prefix} {season_num}/{code} - {title}/',
+      }))
+      await fs.writeFile(path.join(projectDir, 'ideas.json'), JSON.stringify({
+        ideas: [{ id: 'i1', title, status: 'accepted', episode_code: EPISODE }],
+      }))
+      await fs.writeFile(sidecarPath, raw)
+
+      const response = await request(app).get(`/api/projects/${slug}/video-editor/visual-source/${EPISODE}`)
+      assert.equal(response.status, 500)
+      await assert.rejects(() => saveSelectionSidecar(slug, EPISODE, title, {
+        schema_version: 1, episode_code: EPISODE, pool_id: 'images', selection_mode: 'random', pacing_mode: 'timed',
+        broll_volume: 0, selection: [], target_duration: 0, generated_at: 'now',
+      }), /malformed|source/i)
+      assert.equal(await fs.readFile(sidecarPath, 'utf8'), raw)
+    }
   })
 
   test('rejects empty, missing, offline, and changed Image Pool assets', async () => {
@@ -158,6 +253,17 @@ describe('Video Assembly visual source', () => {
     const changed = await seedImagePoolEpisode('changed-selection')
     await fs.writeFile(path.join(changed.poolDir, 'one.png'), 'changed')
     await assert.rejects(() => resolveImagePoolSelection('changed-selection', EPISODE), /bytes changed/i)
+  })
+
+  test('does not expose a partial Image Pool selection when one saved entry is malformed', async () => {
+    await seedImagePoolEpisode('malformed-selection', [
+      { filename: 'one.png', sha256: IMAGE_HASH, target_duration: 4 },
+      { filename: 'invalid.png', sha256: '', target_duration: 4 },
+    ])
+    const state = await readVideoVisualSource('malformed-selection', EPISODE)
+    assert.equal(state.source, 'image_pool')
+    assert.equal(state.image_pool, null)
+    await assert.rejects(() => resolveImagePoolSelection('malformed-selection', EPISODE), /empty or malformed/i)
   })
 
   test('promotes a picked image selection only after pool ownership validation', async () => {
@@ -197,6 +303,26 @@ describe('Video Assembly visual source', () => {
     assert.equal(response.body.source, 'image_pool')
     assert.equal(response.body.image_pool.pool_id, 'images')
     assert.equal(response.body.image_pool.selected_images[0].filename, 'one.png')
+  })
+
+  test('switching sources keeps the saved Image Pool selection intact', async () => {
+    const seeded = await seedImagePoolEpisode('source-switch')
+    const before = JSON.parse(await fs.readFile(path.join(seeded.episodeDir, 'broll-selection.json'), 'utf8'))
+    const { app } = await import('../app.js')
+
+    const scenePlan = await request(app)
+      .put(`/api/projects/source-switch/video-editor/visual-source/${EPISODE}`)
+      .send({ source: 'scene_plan' })
+    assert.deepEqual(scenePlan.body, { source: 'scene_plan', image_pool: null })
+    const afterScenePlan = JSON.parse(await fs.readFile(path.join(seeded.episodeDir, 'broll-selection.json'), 'utf8'))
+    assert.deepEqual(afterScenePlan.selection, before.selection)
+
+    const imagePool = await request(app)
+      .put(`/api/projects/source-switch/video-editor/visual-source/${EPISODE}`)
+      .send({ source: 'image_pool' })
+    assert.equal(imagePool.status, 200)
+    const afterImagePool = JSON.parse(await fs.readFile(path.join(seeded.episodeDir, 'broll-selection.json'), 'utf8'))
+    assert.deepEqual(afterImagePool.selection, before.selection)
   })
 
   test('uses persisted source when the render request tries to forge Scene Plan mode', async () => {

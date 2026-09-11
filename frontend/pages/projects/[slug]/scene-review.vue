@@ -44,11 +44,18 @@
         :generate-label="finishMissingLabel"
         loading-label="Finishing…"
         :generate-loading="(bulkQueuing && !isRenderPaused) || isRendering"
-        :generate-disabled="!canBulkGenerate || reviewJobActive"
-        :generate-status="bulkStatus"
+        :generate-disabled="usesImagePool || !canBulkGenerate || reviewJobActive"
+        :generate-status="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : bulkStatus"
         @generate="finishMissingImages"
       />
     </div>
+
+    <WorkspaceNotice v-if="usesImagePool" tone="info" title="Scene Review is not used for Image Pool">
+      This episode assembles its saved Image Pool selection. Any historical Scene Plan images remain available below for reference.
+      <template #actions>
+        <NuxtLink :to="`/projects/${slug}/video-assembly?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-sm btn-secondary">Open Video Assembly</NuxtLink>
+      </template>
+    </WorkspaceNotice>
 
     <WorkspaceNotice
       v-if="subtitleIntegrity && !subtitleIntegrity.complete"
@@ -106,7 +113,7 @@
     </WorkspaceNotice>
 
     <!-- Greenlight panel -->
-    <section v-if="stats" class="card mt-3 sr-control-deck" :class="{ 'is-greenlit': stats.all_approved }">
+    <section v-if="stats && !usesImagePool" class="card mt-3 sr-control-deck" :class="{ 'is-greenlit': stats.all_approved }">
       <div class="sr-greenlight-head">
         <div class="sr-status-copy">
           <span class="sr-status-kicker">Episode readiness</span>
@@ -280,7 +287,7 @@
 
     <!-- Render presets are owned by the page-level TopActionBar. -->
 
-    <section v-if="!stats && !plan && !loading" class="card mt-3">
+    <section v-if="!usesImagePool && !stats && !plan && !loading" class="card mt-3">
       <p class="text-muted text-sm">
         <strong>No scene plan yet.</strong>
         Open the <NuxtLink :to="`/projects/${slug}/scene-plan`" class="text-accent">Scene Plan</NuxtLink>
@@ -418,11 +425,11 @@
             </div>
             <div
               v-else
-              :class="['review-thumb-empty', { 'is-disabled': reviewJobActive }]"
+              :class="['review-thumb-empty', { 'is-disabled': usesImagePool || reviewJobActive }]"
               :style="{ aspectRatio: thumbAspect }"
-              :aria-disabled="reviewJobActive"
-              :title="reviewJobActive ? sceneRenderBlockReason(scene) : 'Generate image'"
-              @click="!reviewJobActive && generateOne(scene)"
+              :aria-disabled="usesImagePool || reviewJobActive"
+              :title="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : reviewJobActive ? sceneRenderBlockReason(scene) : 'Generate image'"
+              @click="!usesImagePool && !reviewJobActive && generateOne(scene)"
             >
               <span>No image yet</span>
               <small v-if="isSceneQueuedForRepair(scene)">Queued for repair</small>
@@ -430,6 +437,7 @@
               <small v-else-if="isQueuedRender">Image job queued</small>
               <small v-else-if="isRenderPaused">Image job paused</small>
               <small v-else-if="isRendering">Image job running</small>
+              <small v-else-if="usesImagePool">Image Pool selection is used</small>
               <small v-else>(click to generate)</small>
             </div>
           </div>
@@ -471,9 +479,9 @@
           <div class="review-actions-cell">
             <button
               class="btn btn-sm btn-secondary"
-              :disabled="!form.model || regeneratingId === scene.id || reviewJobActive"
+              :disabled="usesImagePool || !form.model || regeneratingId === scene.id || reviewJobActive"
               @click="generateOne(scene)"
-              :title="!form.model ? 'Pick a model in the Render settings first' : reviewJobActive ? sceneRenderBlockReason(scene) : 'Generate or regenerate this scene image with GenStudio'"
+              :title="usesImagePool ? 'Scene Review is not used for Image Pool episodes' : !form.model ? 'Pick a model in the Render settings first' : reviewJobActive ? sceneRenderBlockReason(scene) : 'Generate or regenerate this scene image with GenStudio'"
             >
               {{ regeneratingId === scene.id ? '⏳' : (scene.image_filename ? '↻' : '✦') }}
               {{ scene.image_filename ? 'Regenerate image' : 'Generate image' }}
@@ -487,6 +495,7 @@
               {{ approvingId === scene.id ? '⏳' : (scene.approved ? '✓ Approved' : 'Approve') }}
             </button>
             <OverflowMenu
+              v-if="!usesImagePool"
               :items="sceneOverflowItems(scene)"
               :aria-label="`More actions for scene ${scene.scene_index}`"
             />
@@ -561,7 +570,7 @@
             >{{ savingPrompt ? '⏳' : '💾 Save prompt' }}</button>
             <button
               class="btn btn-sm btn-secondary"
-              :disabled="!form.model || regeneratingId === previewScene.id || reviewJobActive"
+              :disabled="usesImagePool || !form.model || regeneratingId === previewScene.id || reviewJobActive"
               @click.stop="regenerateFromPreview(previewScene)"
               :title="!form.model ? 'Pick a model in the Greenlight panel first' : reviewJobActive ? sceneRenderBlockReason(previewScene) : 'Re-render this image (saves your prompt edit first)'"
             >{{ regeneratingId === previewScene.id ? '⏳ Rendering…' : '🔄 Regenerate' }}</button>
@@ -613,8 +622,11 @@ import { resolveActiveSceneRenderJob } from '~/utils/scene-render-job-state'
 import { findOutputOption, publishedOutputOptions, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
+import { pacingBandAt, type ScenePacing } from '@shared/pacing'
 
-definePageMeta({ layout: 'dashboard' })
+// usePresets captures the project slug at setup. Recreate this page for a
+// project navigation so saved render controls cannot target the prior project.
+definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
 useAppTitle('Scene Review')
 
 const route = useRoute()
@@ -710,6 +722,7 @@ interface PlanMeta {
   planner_model?: string
   total_duration_sec: number
   research_used: boolean
+  pacing?: ScenePacing
 }
 interface RenderStatus {
   active: boolean
@@ -736,6 +749,8 @@ function loadMoreScenes(): void {
 }
 const audioPath = ref<string | null>(null)
 const stats = ref<ReviewStats | null>(null)
+const visualSource = ref<'scene_plan' | 'image_pool'>('scene_plan')
+const usesImagePool = computed(() => visualSource.value === 'image_pool')
 const promptIntegrity = ref<PromptIntegrity | null>(null)
 const subtitleIntegrity = ref<SubtitleIntegrity | null>(null)
 const subtitleGapSections = computed(() => Array.from(new Set(
@@ -929,12 +944,12 @@ const currentSceneId = computed(() => {
 
 // Plan health mirrors the backend's prompt-integrity result. Later copies of an
 // exact prompt are pending work and may not be rendered as another scene.
-// v1.4.82 — this was a hardcoded `OVERLONG_SEC = 20`, so Scene Review flagged
-// scenes the episode's OWN pacing band considers perfectly fine, and stayed
-// silent about ones it considers too long. Read the configured maximum the way
-// Scene Plan does (see scene-plan.vue's `pacingMaximumSec`).
-const continuityPacing = ref<{ min_sec: number; max_sec: number } | null>(null)
-const pacingMaximumSec = computed(() => continuityPacing.value?.max_sec || 20)
+// Judge the timestamps against the pacing snapshot that created this plan.
+// A changed draft applies only after deliberate replanning, and variable plans
+// resolve the band active at each scene's narration start.
+function pacingMaximumSecAt(scene: ReviewScene): number {
+  return plan.value?.pacing ? pacingBandAt(plan.value.pacing, scene.start_sec).max_sec : Infinity
+}
 const duplicatePromptIds = computed(() => new Set(promptIntegrity.value?.duplicate_ids || []))
 const problemScenes = computed(() => {
   const list: Array<{ scene: ReviewScene; index: number; reasons: string[] }> = []
@@ -943,7 +958,7 @@ const problemScenes = computed(() => {
     const dur = s.end_sec - s.start_sec
     if (!s.visual_prompt || !s.visual_prompt.trim()) reasons.push('no prompt')
     else if (duplicatePromptIds.value.has(s.id)) reasons.push('duplicate prompt')
-    if (dur > pacingMaximumSec.value) reasons.push(`${dur.toFixed(0)}s long`)
+    if (dur > pacingMaximumSecAt(s)) reasons.push(`${dur.toFixed(0)}s long`)
     if (reasons.length) list.push({ scene: s, index: s.scene_index ?? i + 1, reasons })
   })
   return list
@@ -1153,6 +1168,7 @@ async function loadReview(): Promise<void> {
     scenes.value = []
     audioPath.value = null
     stats.value = null
+    visualSource.value = 'scene_plan'
     promptIntegrity.value = null
     subtitleIntegrity.value = null
     return
@@ -1169,6 +1185,7 @@ async function loadReview(): Promise<void> {
       active_render_job?: any | null
       prompt_integrity?: PromptIntegrity
       subtitle_integrity?: SubtitleIntegrity
+      visual_source?: 'scene_plan' | 'image_pool'
     }
     const r = await get<ReviewResponse>(`/projects/${project}/scene-review/${ep}`)
     if (!current()) return
@@ -1176,6 +1193,7 @@ async function loadReview(): Promise<void> {
     scenes.value = r.scenes
     audioPath.value = r.audio_path
     stats.value = r.stats
+    visualSource.value = r.visual_source === 'image_pool' ? 'image_pool' : 'scene_plan'
     promptIntegrity.value = r.prompt_integrity || null
     subtitleIntegrity.value = r.subtitle_integrity || null
     renderStatus.value = r.render_status || null
@@ -1191,6 +1209,7 @@ async function loadReview(): Promise<void> {
 
 // ── Actions ─────────────────────────────────────────────────────────
 async function generateOne(scene: ReviewScene): Promise<void> {
+  if (usesImagePool.value) return
   if (reviewJobActive.value) return
   if (!sceneInputsComplete.value) {
     showError('Complete subtitles and repair every missing or duplicated prompt before rendering images.')
@@ -1268,6 +1287,7 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 async function uploadOne(scene: ReviewScene): Promise<void> {
+  if (usesImagePool.value) return
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'image/*'
@@ -1393,25 +1413,17 @@ async function loadContinuityFlag(): Promise<void> {
   const project = slug.value
   const scope = reviewScopeSequence
   const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
-  continuityPacing.value = null
   try {
     const fmt = await get<{ visualSource?: string }>(`/projects/${project}/effective-format`)
     if (!current()) return
     isContinuity.value = fmt?.visualSource === 'continuity-chain'
-    // v1.4.82 — the same continuity read Scene Plan does, so the "Ns long"
-    // health flag uses the band the user actually chose instead of a constant.
-    if (!isContinuity.value || !ep) return
-    const r = await get<{ config?: { pacing?: { min_sec: number; max_sec: number } } }>(
-      `/projects/${project}/continuity/${ep}`,
-    )
-    if (!current()) return
-    continuityPacing.value = r?.config?.pacing || null
   } catch {
     if (current()) isContinuity.value = false
   }
 }
 
 async function renderContinuity(opts: { sceneIds?: string[] } = {}): Promise<void> {
+  if (usesImagePool.value) return
   if (reviewJobActive.value) return
   if (!sceneInputsComplete.value) {
     showError('Complete subtitles and repair every missing or duplicated prompt before rendering images.')
@@ -1777,11 +1789,7 @@ watch([slug, episodeId], () => {
   regeneratingId.value = null
   animatingId.value = null
   isContinuity.value = false
-  continuityPacing.value = null
   void loadReview()
-  // v1.4.82 — the pacing band is per-episode, so re-read it on every switch.
-  // Loading it only onMounted left the "Ns long" flag judging episode B against
-  // episode A's maximum.
   void loadContinuityFlag()
 }, { immediate: true, flush: 'sync' })
 </script>

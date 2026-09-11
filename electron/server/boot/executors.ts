@@ -51,6 +51,18 @@ import { assertDecodableImage } from '../lib/image-validation.js'
 import fs from 'fs/promises'
 import path from 'path'
 
+function withoutDeliberateStillScenes(plan: any, ids: string[]): string[] {
+  const scenesById = new Map<string, { motion_choice?: unknown }>(
+    (Array.isArray(plan?.scenes) ? plan.scenes : [])
+      .map((scene: any) => [String(scene?.id || ''), scene] as const),
+  )
+  // A frozen batch never changes its request boundary. A scene can, however,
+  // be deliberately changed to Still while that batch is paused or recovering;
+  // it no longer needs a motion asset or prompt. Missing rows stay in the audit
+  // so a replan cannot turn an invalid saved request into a false completion.
+  return ids.filter(id => scenesById.get(id)?.motion_choice !== 'still')
+}
+
 async function auditSceneImages(job: any): Promise<'complete' | 'repair-required'> {
   const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
   const planPath = await resolveScenePlanPath(job.project_slug, job.episode_id, paths.episode_dir)
@@ -62,14 +74,24 @@ async function auditSceneImages(job: any): Promise<'complete' | 'repair-required
   return audit.completed === audit.expected ? 'complete' : 'repair-required'
 }
 
-async function auditSceneClips(job: any): Promise<'complete' | 'repair-required'> {
+export async function auditSceneClips(job: any): Promise<'complete' | 'repair-required'> {
   const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
   const planPath = await resolveScenePlanPath(job.project_slug, job.episode_id, paths.episode_dir)
-  const ids = Array.isArray(job.params?.scene_ids) && job.params.scene_ids.length
+  // A queued motion batch owns this frozen request boundary. In particular,
+  // [] is an intentional off-scope snapshot, not a missing field that may
+  // expand to whichever scenes happen to need clips after a later plan edit.
+  const snapshotIds = Array.isArray(job.params?.motion_scene_ids)
+    ? job.params.motion_scene_ids.map(String)
+    : undefined
+  const ids = snapshotIds ?? (Array.isArray(job.params?.scene_ids) && job.params.scene_ids.length
     ? job.params.scene_ids.map(String)
-    : [job.params?.scene_id].filter(Boolean).map(String)
-  if (!ids.length) return 'repair-required'
-  const audit = await auditSceneClipCompletion(planPath, ids, job.output_dir || paths.video_assets_dir)
+    : [job.params?.scene_id].filter(Boolean).map(String))
+  if (!ids.length) return snapshotIds ? 'complete' : 'repair-required'
+  const auditIds = snapshotIds === undefined
+    ? ids
+    : withoutDeliberateStillScenes(JSON.parse(await fs.readFile(planPath, 'utf8')), ids)
+  if (!auditIds.length) return 'complete'
+  const audit = await auditSceneClipCompletion(planPath, auditIds, job.output_dir || paths.video_assets_dir)
   return audit.completed === audit.expected ? 'complete' : 'repair-required'
 }
 
@@ -82,17 +104,24 @@ export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repa
     || params.regenerate_motion_prompt_scene_id
     ? 'motion'
     : 'visual'
+  const motionSnapshotIds = stage === 'motion' && Array.isArray(params.motion_scene_ids)
+    ? params.motion_scene_ids.map(String)
+    : undefined
   const singleId = stage === 'motion'
     ? params.regenerate_motion_prompt_scene_id
     : params.regenerate_prompt_scene_id || params.replan_scene_id
-  const ids = singleId
+  const ids = motionSnapshotIds ?? (singleId
     ? [String(singleId)]
     : (Array.isArray(plan?.scenes) ? plan.scenes : [])
       .filter((scene: any) => stage === 'visual' || (!!scene?.visual_prompt?.trim() && scene?.motion_mode !== 'still'))
       .map((scene: any) => String(scene?.id || ''))
-      .filter(Boolean)
-  if (!ids.length) return 'repair-required'
-  const audit = await auditScenePromptCompletion(planPath, ids, stage)
+      .filter(Boolean))
+  if (!ids.length) return motionSnapshotIds ? 'complete' : 'repair-required'
+  const auditIds = motionSnapshotIds === undefined
+    ? ids
+    : withoutDeliberateStillScenes(plan, ids)
+  if (!auditIds.length) return 'complete'
+  const audit = await auditScenePromptCompletion(planPath, auditIds, stage)
   return audit.missing_ids.length === 0 ? 'complete' : 'repair-required'
 }
 

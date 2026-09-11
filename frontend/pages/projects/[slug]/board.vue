@@ -7,9 +7,9 @@
   each cell a status chip (✓ done · ✓̣ manual · ○ pending · 🔄 generating).
   Click any cell to jump to that step's page for that episode.
 
-  - Columns come from flowForVisualSource() — the SAME format-aware step list
-    that drives the sidebar + flow ribbon, so the board never drifts from the
-    real nav. Only steps with a detectable per-episode status are shown.
+  - Columns are the union of the selected episode branches over the same
+    project flow that drives the sidebar + ribbon. Only steps with a detectable
+    per-episode status are shown; branch-inapplicable cells say Not used.
   - Status is read straight off the shared /episodes data (useEpisodes), so it
     reflects file-detection AND manual mark-done overrides, and costs no extra
     backend work. Built to stay smooth at 300+ episodes (CSS row virtualization
@@ -33,6 +33,10 @@
       </template>
     </WorkspaceHero>
 
+    <WorkspaceNotice v-if="formatError" tone="warning" title="Production flow unavailable">
+      {{ formatError }} Board stage counts and source-dependent actions stay unavailable until the project format can be read.
+    </WorkspaceNotice>
+
     <div class="workspace-command-surface board-command-surface">
       <div class="board-tools">
         <!-- Click-mode switch: Open (jump to the step) vs Mark done (toggle a
@@ -42,6 +46,7 @@
             type="button"
             class="board-mode-btn"
             :class="{ active: mode === 'open' }"
+            :disabled="!visualSource"
             title="Click a cell to open that step for that episode."
             @click="mode = 'open'"
           >↗ Open</button>
@@ -49,6 +54,7 @@
             type="button"
             class="board-mode-btn"
             :class="{ active: mode === 'mark' }"
+            :disabled="!visualSource"
             title="Click a pending cell to mark it done by hand (for results you imported from outside the app). Click a hand-marked cell to undo."
             @click="mode = 'mark'"
           >✓ Mark done</button>
@@ -194,7 +200,7 @@
                 <span class="step-h-icon">{{ col.icon }}</span>
                 <span class="step-h-label">{{ col.label }}</span>
                 <span v-if="col.optional" class="step-h-optional">optional</span>
-                <span class="step-h-count">{{ doneCount(col) }}/{{ episodes.length }}</span>
+                <span class="step-h-count">{{ doneCount(col) }}/{{ eligibleCount(col) }}</span>
               </button>
             </th>
           </tr>
@@ -210,6 +216,7 @@
                     <span v-if="ep.marked_done" class="ep-donepill" title="Whole episode marked done">done</span>
                   </span>
                   <span class="ep-title" :title="ep.title">{{ ep.title }}</span>
+                  <span class="ep-source" :data-source="episodeVisualSource(ep)">{{ sourceLabel(ep) }}</span>
                 </div>
                 <button
                   type="button"
@@ -225,8 +232,13 @@
               :key="col.key"
               class="col-step"
             >
+              <span
+                v-if="!isColumnApplicable(ep, col)"
+                class="cell cell-not-used"
+                :title="`${col.label} is not used by this episode’s ${sourceLabel(ep)} branch.`"
+              >Not used</span>
               <NuxtLink
-                v-if="mode === 'open'"
+                v-else-if="mode === 'open'"
                 :to="routeFor(col, ep.episode_code)"
                 class="cell"
                 :class="cellClass(ep, col)"
@@ -257,6 +269,7 @@
       <span><b class="lg-done">✓</b> done (detected)</span>
       <span><b class="lg-manual">✓</b> marked done by hand</span>
       <span><b class="lg-pending">○</b> pending</span>
+      <span><b class="lg-not-used">—</b> not used by this episode source</span>
       <span>🔄 generating now</span>
       <span class="board-legend-hint">
         · <template v-if="mode === 'open'">click any cell to open that step for that episode</template>
@@ -294,7 +307,18 @@
 </template>
 
 <script setup lang="ts">
-import { FLOW_PHASES, STEP_STATUS_FIELD, isEpisodeDone, normalizeVisualSource, flowForVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
+import {
+  FLOW_PHASES,
+  STEP_STATUS_FIELD,
+  isEpisodeDone,
+  isFlowStepApplicable,
+  normalizeEpisodeVisualSource,
+  parseVisualSource,
+  unionFlowForEpisodeSources,
+  type EpisodeVisualSource,
+  type FlowStep,
+  type VisualSource,
+} from '~/composables/useProjectFlow'
 import AssetImportDialog from '~/components/AssetImportDialog.vue'
 import RepairAssetsDialog from '~/components/RepairAssetsDialog.vue'
 
@@ -366,18 +390,41 @@ function onImported() {
 
 interface BoardCol extends FlowStep { field: string }
 
-const visualSource = ref<VisualSource>('narrated-scenes')
+const visualSource = ref<VisualSource | null>(null)
+const formatError = ref('')
+let formatRequest = 0
 async function loadVisualSource() {
-  if (!slug.value) return
+  const projectSlug = slug.value
+  const request = ++formatRequest
+  visualSource.value = null
+  formatError.value = ''
+  if (!projectSlug) return
   try {
-    const f = await get<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug.value}/effective-format`)
-    visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
-  } catch { /* keep default */ }
+    const f = await get<{ visualSource?: unknown }>(`/projects/${projectSlug}/effective-format`)
+    if (request !== formatRequest || projectSlug !== slug.value) return
+    const source = parseVisualSource(f?.visualSource)
+    if (!source) {
+      formatError.value = 'The project returned an unknown production format. Refresh this project before using Board workflow actions.'
+      return
+    }
+    visualSource.value = source
+  } catch (error: any) {
+    if (request !== formatRequest || projectSlug !== slug.value) return
+    formatError.value = error?.data?.detail || error?.message || 'Could not load this project’s production format.'
+  }
 }
 watch(slug, loadVisualSource, { immediate: true })
 
+function episodeVisualSource(ep: any): EpisodeVisualSource {
+  return normalizeEpisodeVisualSource(ep?.visual_source ?? ep?.status?.visual_source)
+}
+
+function sourceLabel(ep: any): string {
+  return episodeVisualSource(ep) === 'image_pool' ? 'Image Pool' : 'Scene Plan'
+}
+
 const columns = computed<BoardCol[]>(() =>
-  flowForVisualSource(visualSource.value)
+  (visualSource.value ? unionFlowForEpisodeSources(visualSource.value, episodes.value.map(episodeVisualSource)) : [])
     .filter(s => !!STEP_STATUS_FIELD[s.key])
     .map(s => ({ ...s, field: STEP_STATUS_FIELD[s.key] })))
 const columnPhases = computed(() => FLOW_PHASES.map(phase => ({
@@ -385,11 +432,13 @@ const columnPhases = computed(() => FLOW_PHASES.map(phase => ({
   count: columns.value.filter(column => column.phase === phase.key).length,
 })).filter(phase => phase.count > 0))
 const columnDoneCounts = computed(() => {
-  const counts: Record<string, number> = {}
-  for (const col of columns.value) counts[col.field] = 0
+  const counts: Record<string, { done: number; eligible: number }> = {}
+  for (const col of columns.value) counts[col.field] = { done: 0, eligible: 0 }
   for (const ep of episodes.value) {
-    for (const field of Object.keys(counts)) {
-      if (ep.status?.[field] === true) counts[field]++
+    for (const col of columns.value) {
+      if (!isColumnApplicable(ep, col)) continue
+      counts[col.field].eligible++
+      if (ep.status?.[col.field] === true) counts[col.field].done++
     }
   }
   return counts
@@ -418,7 +467,12 @@ watch(columns, cols => {
 
 const visibleEpisodes = computed(() => {
   let list = episodes.value
-  if (stepFilter.value) list = list.filter(ep => ep.status?.[stepFilter.value!] !== true)
+  if (stepFilter.value) {
+    const col = stepFilterCol.value
+    list = col
+      ? list.filter(ep => isColumnApplicable(ep, col) && ep.status?.[col.field] !== true)
+      : list
+  }
   if (needsWorkOnly.value) list = list.filter(ep => !isFullyDone(ep))
   if (searchActive.value) {
     const q = search.value.trim().toLowerCase()
@@ -461,7 +515,7 @@ watch(totalPages, pages => {
  * v1.4.82 — shared with the Dashboard and the selector's Steps chip, so the
  * three surfaces cannot disagree about the same episode. */
 function isFullyDone(ep: any): boolean {
-  return isEpisodeDone(ep?.status, visualSource.value)
+  return !!visualSource.value && isEpisodeDone(ep?.status, visualSource.value, episodeVisualSource(ep))
 }
 
 // ── Active jobs (row-level 🔄) ─────────────────────────────────────────────
@@ -482,6 +536,9 @@ function isGenerating(code: string): boolean {
 function isManual(ep: any, field: string): boolean {
   const o = ep.status_overrides
   return !!o && typeof o === 'object' && o[field] !== undefined
+}
+function isColumnApplicable(ep: any, col: BoardCol): boolean {
+  return isFlowStepApplicable(col, episodeVisualSource(ep))
 }
 function cellClass(ep: any, col: BoardCol): Record<string, boolean> {
   const done = ep.status?.[col.field] === true
@@ -523,7 +580,10 @@ function cellTitle(ep: any, col: BoardCol): string {
   return `${ep.episode_code} · ${col.label}${col.optional ? ' (optional)' : ''}: ${state}${note} — click to open`
 }
 function doneCount(col: BoardCol): number {
-  return columnDoneCounts.value[col.field] || 0
+  return columnDoneCounts.value[col.field]?.done || 0
+}
+function eligibleCount(col: BoardCol): number {
+  return columnDoneCounts.value[col.field]?.eligible || 0
 }
 function markTitle(ep: any, col: BoardCol): string {
   const detected = ep.status?.[col.field] === true
@@ -896,6 +956,20 @@ async function markCell(ep: any, col: BoardCol) {
   text-overflow: ellipsis;
   max-width: 280px;
 }
+.ep-source {
+  width: fit-content;
+  margin-top: 2px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.2;
+}
+.ep-source[data-source='image_pool'] {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
 
 .cell {
   display: flex;
@@ -922,6 +996,15 @@ async function markCell(ep: any, col: BoardCol) {
 .cell-done { color: var(--success, #22c55e); }
 .cell-pending { color: var(--text-muted); opacity: 0.55; }
 .cell-optional.cell-pending { opacity: 0.32; }
+.cell-not-used {
+  background: color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.1;
+  cursor: default;
+  opacity: 0.65;
+}
+.cell-not-used:hover { background: color-mix(in srgb, var(--bg-tertiary) 72%, transparent); }
 /* Manual override — dashed underline ring echoes the EpisodeSelector chips. */
 .cell-manual {
   text-decoration: underline dashed;
@@ -940,6 +1023,7 @@ async function markCell(ep: any, col: BoardCol) {
 .board-legend b { font-style: normal; }
 .lg-done { color: var(--success, #22c55e); }
 .lg-manual { color: var(--success, #22c55e); text-decoration: underline dashed; text-underline-offset: 2px; }
+.lg-not-used { color: var(--text-muted); }
 .lg-pending { opacity: 0.55; }
 .board-legend-hint { opacity: 0.8; }
 

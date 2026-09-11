@@ -70,3 +70,15 @@ test('preset and model sit above the disclosure, per-batch overrides stay inside
   assert.ok(count, 'refinementCount is missing')
   assert.doesNotMatch(count, /form\.items_per_listicle/)
 })
+
+test('custom suggestions and dismiss actions expose failed writes and prevent duplicate submissions', () => {
+  assert.match(ideas, /const customListsLoaded = ref\(false\)/)
+  assert.match(ideas, /if \(!customListsLoaded\.value\)[\s\S]*?Custom suggestions are not loaded yet/)
+  assert.match(ideas, /await persistCustomLists\(\)[\s\S]*?target\.splice\(index, 1\)[\s\S]*?Could not save the custom suggestion/)
+  assert.doesNotMatch(ideas, /persistCustomLists\(\)\.catch\(\(\) => \{\}\)/)
+
+  assert.match(ideas, /const dismissingIds = ref\(new Set<string>\(\)\)/)
+  assert.match(ideas, /if \(dismissingIds\.value\.has\(id\)\) return/)
+  assert.match(ideas, /Could not dismiss this idea/)
+  assert.match(ideas, /:disabled="dismissingIds\.has\(idea\.id\)"/)
+})

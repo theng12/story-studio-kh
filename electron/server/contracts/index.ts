@@ -776,7 +776,7 @@ export interface JobEnqueuedResponse {
     queue_reason?: 'provider_pace' | null
     location?: string
     queue_state?: 'waiting_local' | 'submitting' | 'accepted' | 'waiting_account_capacity'
-      | 'running' | 'completing' | 'succeeded' | 'failed' | 'waiting_credits' | 'cancelled'
+      | 'running' | 'completing' | 'succeeded' | 'failed' | 'not_created' | 'waiting_credits' | 'cancelled'
     updated_at: string
     /**
      * Redacted preview of the request Story Studio submitted for this call —

@@ -564,7 +564,12 @@
               <td class="text-muted td-date">{{ shortDate(idea.generated_at) }}</td>
               <td class="td-actions" @click.stop>
                 <button v-if="idea.status === 'new'" class="btn btn-sm btn-primary" @click="showAcceptDialog(idea)">Accept</button>
-                <button v-if="idea.status === 'new'" class="btn btn-sm btn-secondary" @click="dismiss(idea.id)">Dismiss</button>
+                <button
+                  v-if="idea.status === 'new'"
+                  class="btn btn-sm btn-secondary"
+                  :disabled="dismissingIds.has(idea.id)"
+                  @click="dismiss(idea.id)"
+                >{{ dismissingIds.has(idea.id) ? 'Dismissing…' : 'Dismiss' }}</button>
                 <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-secondary" @click="openRenumberDialog(idea)" title="Change this episode's code (renames folder + asset files)">Renumber</button>
                 <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-danger" @click="resetIdea(idea)">Reset</button>
                 <button class="btn-icon" @click="openEditIdea(idea)" aria-label="Edit idea" title="Edit idea">✎</button>
@@ -1203,7 +1208,7 @@ import { resolveInitialIdeaModel } from '~/utils/idea-model-preference'
 import { projectSlug } from '~/utils/project-slug'
 import { scriptDeepLinkQuery } from '~/utils/scriptSizing'
 
-definePageMeta({ layout: 'dashboard' })
+definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
 useAppTitle('Ideas')
 const route = useRoute()
 const _router = useRouter()
@@ -2032,10 +2037,10 @@ const allMoods = computed(() => Array.from(new Set([...vocabFor('mood'), ...cust
 const allThemes = computed(() => Array.from(new Set([...vocabFor('theme'), ...customThemes.value])).sort())
 const allKeywords = computed(() => Array.from(new Set([...vocabFor('keyword'), ...customKeywords.value])).sort())
 
-function onAddGenre(v: string) { if (!customGenres.value.includes(v)) { customGenres.value.push(v); persistCustomLists().catch(() => {}) } }
-function onAddMood(v: string) { if (!customMoods.value.includes(v)) { customMoods.value.push(v); persistCustomLists().catch(() => {}) } }
-function onAddTheme(v: string) { if (!customThemes.value.includes(v)) { customThemes.value.push(v); persistCustomLists().catch(() => {}) } }
-function onAddKeyword(v: string) { if (!customKeywords.value.includes(v)) { customKeywords.value.push(v); persistCustomLists().catch(() => {}) } }
+function onAddGenre(v: string) { void addCustomValue(customGenres.value, v) }
+function onAddMood(v: string) { void addCustomValue(customMoods.value, v) }
+function onAddTheme(v: string) { void addCustomValue(customThemes.value, v) }
+function onAddKeyword(v: string) { void addCustomValue(customKeywords.value, v) }
 
 // ── Randomize / Surprise Me ───────────────────────────────────────────────
 // Randomize fills the creative fields (genre, theme, mood, audience, keywords)
@@ -2167,8 +2172,7 @@ async function saveEditor() {
     editorOpen.value = false
     // Remember new custom genre/mood for future autocomplete (mood only — genre isn't on an idea)
     if (payload.mood && !allMoods.value.includes(payload.mood)) {
-      customMoods.value.push(payload.mood)
-      persistCustomLists().catch(() => {})
+      void addCustomValue(customMoods.value, payload.mood)
     }
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to save idea')
@@ -2177,6 +2181,8 @@ async function saveEditor() {
   }
 }
 
+const customListsLoaded = ref(false)
+
 async function loadCustomLists() {
   try {
     const config = await get<any>(`/projects/${slug.value}/settings/config`)
@@ -2184,7 +2190,11 @@ async function loadCustomLists() {
     customMoods.value = Array.isArray(config.custom_moods) ? config.custom_moods : []
     customThemes.value = Array.isArray(config.custom_themes) ? config.custom_themes : []
     customKeywords.value = Array.isArray(config.custom_keywords) ? config.custom_keywords : []
-  } catch {}
+    customListsLoaded.value = true
+  } catch (e: any) {
+    customListsLoaded.value = false
+    showError(e?.data?.detail || 'Could not load your saved custom suggestions')
+  }
 }
 
 async function persistCustomLists() {
@@ -2195,6 +2205,23 @@ async function persistCustomLists() {
     custom_themes: customThemes.value,
     custom_keywords: customKeywords.value,
   })
+}
+
+async function addCustomValue(target: string[], value: string) {
+  const normalized = value.trim()
+  if (!normalized || target.includes(normalized)) return
+  if (!customListsLoaded.value) {
+    showError('Custom suggestions are not loaded yet. Reload this page before adding one.')
+    return
+  }
+  target.push(normalized)
+  try {
+    await persistCustomLists()
+  } catch (e: any) {
+    const index = target.indexOf(normalized)
+    if (index >= 0) target.splice(index, 1)
+    showError(e?.data?.detail || 'Could not save the custom suggestion')
+  }
 }
 
 onMounted(loadCustomLists)
@@ -2883,7 +2910,19 @@ async function batchAccept() {
     success('Batch accepted!')
   } catch (e: any) { showError(e.data?.detail || 'Failed') }
 }
-async function dismiss(id: string) { await post(`/projects/${slug.value}/ideas/${id}/dismiss`); await loadIdeas() }
+const dismissingIds = ref(new Set<string>())
+async function dismiss(id: string) {
+  if (dismissingIds.value.has(id)) return
+  dismissingIds.value.add(id)
+  try {
+    await post(`/projects/${slug.value}/ideas/${id}/dismiss`)
+    await loadIdeas()
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Could not dismiss this idea')
+  } finally {
+    dismissingIds.value.delete(id)
+  }
+}
 function formatRelativeTime(iso: string | null): string {
   if (!iso) return ''
   const then = new Date(iso).getTime()

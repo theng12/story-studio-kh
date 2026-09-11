@@ -162,10 +162,12 @@ describe('scene path — source wiring', () => {
 
   test('routes/scene-plan.ts forwards avoid_legible_text on every scene-prompt entry point', async () => {
     const src = await fs.readFile(path.join(serverRoot, 'routes/scene-plan.ts'), 'utf-8')
+    const requestValues = src.match(/const avoidLegibleText = typeof body\.avoid_legible_text === 'boolean' \? body\.avoid_legible_text : undefined/g) || []
     const occurrences = src.match(/avoid_legible_text: avoidLegibleText/g) || []
+    assert.equal(requestValues.length, 3, '/run, /regenerate-prompt, and /regenerate-empty-prompts each accept the per-request override')
     assert.equal(
-      occurrences.length, 3,
-      '/run, /regenerate-prompt, and /regenerate-empty-prompts must all forward the toggle (3 entry points into the scene packed writer / single-scene regen)',
+      occurrences.length, 4,
+      '/run and both repair handlers forward the toggle; the accepted single-scene replay also retains it as request identity',
     )
   })
 })

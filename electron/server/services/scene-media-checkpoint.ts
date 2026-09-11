@@ -103,6 +103,9 @@ export async function auditSceneClipCompletion(
       issues.push({ item_id: sceneId, state: 'invalid', reason: 'missing from scene plan' })
       continue
     }
+    // A saved scope snapshot remains immutable across later editorial changes.
+    // Choosing Still deliberately satisfies that scene without a paid clip.
+    if (scene.motion_choice === 'still') continue
     const clipPath = path.join(clipsDirectory, `${sceneId}.mp4`)
     const stat = await fs.stat(clipPath).catch(() => null)
     if (!stat?.isFile()) {
@@ -192,7 +195,10 @@ export async function checkpointSceneClip(
     scene.clip_path = clipPath
     scene.rendered_motion_prompt = renderedMotionPrompt
     scene.clip_source_image_version = sourceImageVersion
-    scene.motion_choice = approveClip ? 'clip' : 'pending'
+    // The provider may finish after the editor has explicitly chosen Still.
+    // Keep the verified artifact and receipt for later reuse, but do not let a
+    // stale completion reverse that newer output decision.
+    if (scene.motion_choice !== 'still') scene.motion_choice = approveClip ? 'clip' : 'pending'
     if (receipt.requested_duration_seconds === undefined) delete scene.clip_requested_duration_seconds
     else scene.clip_requested_duration_seconds = receipt.requested_duration_seconds
     scene.clip_duration_seconds = durationSeconds

@@ -3041,12 +3041,11 @@ export async function prepareSceneClips(
 
   const durationFor = (i: number): { duration: number; renderDuration: number } => {
     const scene = scenes[i]
-    const hasScenePlanDuration = !!(scene as any).__scene_plan_duration
     const sceneOverride = perSceneDurations?.[i]
     const explicitSceneDuration = scene?.duration
-    const durationCandidate = hasScenePlanDuration && typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0
-      ? explicitSceneDuration
-      : (typeof sceneOverride === 'number' && Number.isFinite(sceneOverride) && sceneOverride > 0)
+    // Already resolved from the authoritative plan above, including any
+    // narration-tail coverage correction. Do not undo that correction here.
+    const durationCandidate = (typeof sceneOverride === 'number' && Number.isFinite(sceneOverride) && sceneOverride > 0)
       ? sceneOverride
       : (typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0)
           ? explicitSceneDuration
@@ -3948,7 +3947,7 @@ async function buildConcatList(
   }
 
   // Filter out excluded scenes — excluded_scenes contains 1-based scene numbers
-  const excludedSet = new Set(recycling.excluded_scenes || [])
+  const excludedSet = new Set(planStrict ? [] : (recycling.excluded_scenes || []))
   const availableClips = sceneClips.filter((_, idx) => !excludedSet.has(idx + 1))
   const availableDurations = (sceneClipDurations || sceneClips.map(() => sceneDuration))
     .filter((_, idx) => !excludedSet.has(idx + 1))
@@ -5483,9 +5482,18 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     }
     try {
       const info = await getMediaInfo(outputFile)
-      if (!info.hasVideo || info.durationSec < 1) {
+      // The container duration can follow the longer premixed audio track,
+      // even when the visual stream stopped early. Use the independently
+      // probed video duration whenever ffprobe supplies it so a short concat
+      // cannot be promoted as a complete render.
+      const videoEndsEarly = info.videoDurationSec !== undefined
+        && info.videoDurationSec < targetDuration - 0.25
+      if (!info.hasVideo || info.durationSec < 1 || videoEndsEarly) {
         const err: any = new Error(
           `Encoder exited 0 but output is unusable: ${summarizeMedia(info)}`
+            + (videoEndsEarly
+              ? ` (video ${info.videoDurationSec!.toFixed(3)}s, expected ${targetDuration.toFixed(3)}s)`
+              : '')
         )
         err.stderr = 'output validation failed'
         throw err

@@ -110,11 +110,10 @@
           </div>
           <template v-if="activeEpisode">
             <div class="popover-status">
-              <span class="item" :class="episodeStatusClass(activeEpisode, 'script')">script {{ episodeStatusIcon(activeEpisode, 'script') }}</span>
-              <span class="item" :class="episodeStatusClass(activeEpisode, 'images')">images {{ episodeStatusIcon(activeEpisode, 'images') }}</span>
-              <span class="item" :class="episodeStatusClass(activeEpisode, 'audio')">audio {{ episodeStatusIcon(activeEpisode, 'audio') }}</span>
-              <span class="item" :class="episodeStatusClass(activeEpisode, 'merged_audio')">merged {{ episodeStatusIcon(activeEpisode, 'merged_audio') }}</span>
-              <span class="item" :class="episodeStatusClass(activeEpisode, 'video')">video {{ episodeStatusIcon(activeEpisode, 'video') }}</span>
+              <span v-for="row in episodeStatusRows" :key="row.field" class="item" :class="episodeStatusClass(activeEpisode, row.field)">
+                {{ row.label }} {{ episodeStatusIcon(activeEpisode, row.field) }}
+              </span>
+              <span v-if="!episodeVisualSource(activeEpisode)" class="item pending">visual source unavailable</span>
             </div>
           </template>
           <template v-else>
@@ -236,6 +235,7 @@ import Modal from './Modal.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import Popover from './Popover.vue'
 import { useToast } from '../composables/useToast.js'
+import { STEP_STATUS_FIELD, type EpisodeVisualSource } from '../composables/useProjectFlow.js'
 
 // `presets` is the full object returned by usePresets() on the page.
 // Typed loosely to avoid pulling the composable's type graph into here;
@@ -351,6 +351,14 @@ function onEpisodeSelected(ep: any) {
   activeEpisode.value = ep
   emit('episode-selected', ep)
 }
+
+watch(() => props.projectSlug, () => {
+  activeEpisode.value = null
+})
+
+watch(() => props.episodeId, (episodeId) => {
+  if (!episodeId || activeEpisode.value?.episode_code !== episodeId) activeEpisode.value = null
+})
 
 // ── Preset summary for the hover popover ────────────────────────────────
 const activePreset = computed(() => {
@@ -510,6 +518,29 @@ function episodeStatusIcon(ep: any, key: string) {
 function episodeStatusClass(ep: any, key: string) {
   return episodeStatusDone(ep, key) ? 'ok' : 'pending'
 }
+
+function episodeVisualSource(ep: any): EpisodeVisualSource | null {
+  const source = ep?.visual_source ?? ep?.status?.visual_source
+  return source === 'scene_plan' || source === 'image_pool' ? source : null
+}
+
+const episodeStatusRows = computed(() => {
+  const source = episodeVisualSource(activeEpisode.value)
+  const shared = [
+    { label: 'Script', field: STEP_STATUS_FIELD.script },
+    { label: 'Audio', field: STEP_STATUS_FIELD.audio },
+    { label: 'Audio merge', field: STEP_STATUS_FIELD['audio-merge'] },
+  ]
+  const visual = source === 'image_pool'
+    ? [{ label: 'Image Pool', field: STEP_STATUS_FIELD['image-pool'] }]
+    : source === 'scene_plan'
+      ? [
+          { label: 'Scene Plan', field: STEP_STATUS_FIELD['scene-plan'] },
+          { label: 'Scene Review', field: STEP_STATUS_FIELD['scene-review'] },
+        ]
+      : []
+  return [...shared, ...visual, { label: 'Final video', field: STEP_STATUS_FIELD['video-assembly'] }]
+})
 
 // A <details> menu does not close on an outside click by itself.
 useDismissableDetails()

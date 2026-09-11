@@ -40,7 +40,7 @@
     <section class="card mt-3">
       <h3>Description formula</h3>
       <span class="hint">Choose the section architecture every episode's YouTube description follows by default. An episode can still override this for a single run on the YouTube Finalizer page.</span>
-      <select v-model="selectedFormulaId" class="select mt-1" :disabled="formulasLoading">
+      <select v-model="selectedFormulaId" class="select mt-1" :disabled="saving || metadataTemplateLoading || !!metadataTemplateLoadError">
         <option value="">None — build sections manually (current behaviour)</option>
         <option v-for="f in formulas" :key="f.id" :value="f.id">{{ f.name }}</option>
       </select>
@@ -59,36 +59,40 @@
     <section class="card mt-3">
       <h3>Optional title wrapper</h3>
       <span class="hint">Leave empty to keep the approved episode title exactly as the Formula created it. Use only for a durable channel prefix or suffix.</span>
-      <input v-model="tpl.title" class="input mt-1" placeholder="e.g. The Economics of {topic}" />
+      <input v-model="tpl.title" class="input mt-1" :disabled="saving || metadataTemplateLoading || !!metadataTemplateLoadError" placeholder="e.g. The Economics of {topic}" />
     </section>
 
     <section class="card mt-3">
       <h3>Recurring description blocks</h3>
       <span class="hint">Put <code>{summary}</code> near the top, then add stable links, credits, CTA, disclosure, or channel information below it.</span>
-      <textarea v-model="tpl.description" rows="10" class="input mt-1" placeholder="e.g.&#10;{summary}&#10;&#10;Subscribe for more clear business explainers.&#10;Business enquiries: hello@example.com&#10;&#10;#Business #Economics" />
+      <textarea v-model="tpl.description" rows="10" class="input mt-1" :disabled="saving || metadataTemplateLoading || !!metadataTemplateLoadError" placeholder="e.g.&#10;{summary}&#10;&#10;Subscribe for more clear business explainers.&#10;Business enquiries: hello@example.com&#10;&#10;#Business #Economics" />
     </section>
 
     <section class="card mt-3">
       <h3>Recurring YouTube tags</h3>
       <span class="hint">One tag per line. Formula-specific episode tags are added alongside these. Empty results are dropped.</span>
-      <textarea v-model="tagsText" rows="8" class="input mt-1" placeholder="{topic_tag}&#10;{keywords}&#10;business economics&#10;business explained" />
+      <textarea v-model="tagsText" rows="8" class="input mt-1" :disabled="saving || metadataTemplateLoading || !!metadataTemplateLoadError" placeholder="{topic_tag}&#10;{keywords}&#10;business economics&#10;business explained" />
     </section>
 
     <div class="actions mt-3">
-      <button class="btn btn-primary" :disabled="saving" @click="save">
+      <button class="btn btn-primary" :disabled="saving || metadataTemplateLoading || !!metadataTemplateLoadError" @click="save">
         <LoadingSpinner v-if="saving" size="sm" />
         Save publishing profile
       </button>
-      <button class="btn btn-ghost" :disabled="saving" @click="clearTpl">Clear profile (use Formula defaults)</button>
+      <button class="btn btn-ghost" :disabled="saving || metadataTemplateLoading || !!metadataTemplateLoadError" @click="clearTpl">Clear profile (use Formula defaults)</button>
       <NuxtLink :to="`/projects/${slug}/metadata`" class="text-sm ml-auto">← Back to YouTube Finalizer</NuxtLink>
     </div>
 
     <div v-if="saveMessage" :class="['save-msg', saveMessage.ok ? 'is-ok' : 'is-err']">{{ saveMessage.text }}</div>
+    <WorkspaceNotice v-if="metadataTemplateLoadError" tone="warning" title="Publishing profile unavailable" class="mt-3">
+      {{ metadataTemplateLoadError }}
+      <template #actions><button type="button" class="btn btn-secondary btn-sm" @click="reload">Retry</button></template>
+    </WorkspaceNotice>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Channel Metadata Template')
@@ -105,6 +109,25 @@ const tpl = reactive({
 const tagsText = ref('')
 const saving = ref(false)
 const saveMessage = ref<{ ok: boolean; text: string } | null>(null)
+const metadataTemplateLoadError = ref('')
+const metadataTemplateConfigLoading = ref(false)
+const metadataFormulasLoading = ref(false)
+const metadataTemplateLoading = computed(() => metadataTemplateConfigLoading.value || metadataFormulasLoading.value)
+let metadataTemplateScope = 0
+let metadataTemplateConfigRequest = 0
+let metadataFormulaRequest = 0
+
+function resetMetadataTemplate() {
+  tpl.title = ''
+  tpl.description = ''
+  tagsText.value = ''
+  formulas.value = []
+  selectedFormulaId.value = ''
+  formulasError.value = ''
+  metadataTemplateLoadError.value = ''
+  saveMessage.value = null
+  saving.value = false
+}
 
 // ── Description formula (2026-08-27) ────────────────────────────────────────
 // A metadata formula owns the description's section architecture, title
@@ -132,37 +155,73 @@ const formulasError = ref('')
 const selectedFormula = computed(() => formulas.value.find(f => f.id === selectedFormulaId.value) || null)
 
 async function loadFormulas(): Promise<void> {
+  const projectSlug = slug.value
+  const scope = metadataTemplateScope
+  const request = ++metadataFormulaRequest
+  const current = () => projectSlug === slug.value && scope === metadataTemplateScope && request === metadataFormulaRequest
   formulasLoading.value = true
+  metadataFormulasLoading.value = true
   formulasError.value = ''
   try {
     const data = await get<{ channel_default_id: string; formulas: MetadataFormula[] }>(
-      `/projects/${slug.value}/metadata/formulas`,
+      `/projects/${projectSlug}/metadata/formulas`,
     )
+    if (!current()) return
     formulas.value = Array.isArray(data?.formulas) ? data.formulas : []
     selectedFormulaId.value = data?.channel_default_id || ''
   } catch (e: any) {
+    if (!current()) return
     formulasError.value = e?.data?.detail || e?.message || 'unknown'
+    metadataTemplateLoadError.value = `Could not load description formulas: ${formulasError.value}`
   } finally {
-    formulasLoading.value = false
+    if (current()) {
+      formulasLoading.value = false
+      metadataFormulasLoading.value = false
+    }
   }
 }
 
 async function load(): Promise<void> {
+  const projectSlug = slug.value
+  const scope = metadataTemplateScope
+  const request = ++metadataTemplateConfigRequest
+  const current = () => projectSlug === slug.value && scope === metadataTemplateScope && request === metadataTemplateConfigRequest
+  metadataTemplateConfigLoading.value = true
   try {
-    const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
+    const cfg = await get<any>(`/projects/${projectSlug}/settings/config`)
+    if (!current()) return
     const t = cfg?.metadata_template || {}
     tpl.title = t.title || ''
     tpl.description = t.description || ''
     tagsText.value = Array.isArray(t.tags) ? t.tags.join('\n') : ''
-  } catch { /* tolerate */ }
+  } catch (e: any) {
+    if (!current()) return
+    metadataTemplateLoadError.value = e?.data?.detail || e?.message || 'Could not load this publishing profile.'
+  } finally {
+    if (current()) metadataTemplateConfigLoading.value = false
+  }
 }
 
-onMounted(() => {
+function reload() {
+  resetMetadataTemplate()
   void load()
   void loadFormulas()
-})
+}
+
+watch(slug, () => {
+  metadataTemplateScope++
+  metadataTemplateConfigRequest++
+  metadataFormulaRequest++
+  resetMetadataTemplate()
+  void load()
+  void loadFormulas()
+}, { immediate: true })
 
 async function save(): Promise<void> {
+  if (saving.value || metadataTemplateLoading.value || metadataTemplateLoadError.value) return
+  const projectSlug = slug.value
+  const scope = metadataTemplateScope
+  const current = () => projectSlug === slug.value && scope === metadataTemplateScope
   saving.value = true
   saveMessage.value = null
   try {
@@ -171,17 +230,19 @@ async function save(): Promise<void> {
     if (tpl.title.trim()) template.title = tpl.title.trim()
     if (tpl.description.trim()) template.description = tpl.description.trim()
     if (tags.length) template.tags = tags
-    await put(`/projects/${slug.value}/settings/config`, {
+    await put(`/projects/${projectSlug}/settings/config`, {
       metadata_template: Object.keys(template).length ? template : undefined,
       metadata_formula_id: selectedFormulaId.value,
     })
+    if (!current()) return
     saveMessage.value = { ok: true, text: 'Saved. The next YouTube package will use this recurring channel copy.' }
     success('Publishing profile saved')
   } catch (e: any) {
+    if (!current()) return
     saveMessage.value = { ok: false, text: e?.data?.detail || e?.message || 'Save failed' }
     showError(saveMessage.value.text)
   } finally {
-    saving.value = false
+    if (current()) saving.value = false
   }
 }
 

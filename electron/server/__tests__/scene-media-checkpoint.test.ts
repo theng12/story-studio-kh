@@ -7,6 +7,7 @@ import { afterEach, describe, it } from 'node:test'
 import { auditSceneClipCompletion, auditSceneImageCompletion, checkpointSceneClip, checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import type { ScenePlan } from '../models/types.js'
 import { tinyVideoBytes } from './fixtures/tiny-video.js'
+import { withLock } from '../lib/atomic-store.js'
 
 const tempDirs: string[] = []
 const ONE_PIXEL_PNG = Buffer.from(
@@ -16,6 +17,12 @@ const ONE_PIXEL_PNG = Buffer.from(
 
 async function writeValidImage(filePath: string): Promise<void> {
   await fs.writeFile(filePath, ONE_PIXEL_PNG)
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => { resolve = done })
+  return { promise, resolve }
 }
 
 async function fixture(): Promise<{ dir: string; planPath: string }> {
@@ -114,6 +121,43 @@ describe('scene media checkpoints', () => {
     assert.equal(saved.scenes[0]?.motion_choice, 'clip')
   })
 
+  it('keeps a Still choice saved while an auto-approved clip completion is deferred', async () => {
+    const { dir, planPath } = await fixture()
+    const clip = path.join(dir, 'scene-1.mp4')
+    await fs.writeFile(clip, tinyVideoBytes())
+    const choiceWriteEntered = deferred()
+    const releaseChoiceWrite = deferred()
+    const chooseStill = withLock(planPath, async () => {
+      choiceWriteEntered.resolve()
+      await releaseChoiceWrite.promise
+      const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      plan.scenes[0]!.motion_choice = 'still'
+      await fs.writeFile(planPath, JSON.stringify(plan))
+    })
+    await choiceWriteEntered.promise
+
+    const completion = checkpointSceneClip(
+      planPath,
+      'scene-1',
+      clip,
+      'Slow push in',
+      'image-v1',
+      true,
+      { requested_duration_seconds: 1, duration_seconds: 1, shortfall_mode: 'hold' },
+    )
+    releaseChoiceWrite.resolve()
+    await Promise.all([chooseStill, completion])
+
+    const saved = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    assert.equal(saved.scenes[0]?.motion_choice, 'still')
+    assert.equal(saved.scenes[0]?.clip_path, clip)
+    assert.equal(saved.scenes[0]?.rendered_motion_prompt, 'Slow push in')
+    assert.equal(saved.scenes[0]?.clip_source_image_version, 'image-v1')
+    assert.equal(saved.scenes[0]?.clip_requested_duration_seconds, 1)
+    assert.equal(saved.scenes[0]?.clip_duration_seconds, 1)
+    assert.equal(saved.scenes[0]?.clip_shortfall_mode, 'hold')
+  })
+
   it('records a Follow narration clip receipt and its required final-frame hold', async () => {
     const { dir, planPath } = await fixture()
     const clip = path.join(dir, 'scene-1.mp4')
@@ -177,6 +221,25 @@ describe('scene media checkpoints', () => {
         { item_id: 'scene-1', state: 'invalid', reason: 'stale motion prompt' },
         { item_id: 'scene-2', state: 'invalid', reason: 'empty clip' },
       ],
+    })
+  })
+
+  it('treats a scoped scene changed to Still as complete without a clip', async () => {
+    const { dir, planPath } = await fixture()
+    const clipsDir = path.join(dir, 'clips')
+    await fs.mkdir(clipsDir)
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    plan.scenes[0]!.motion_choice = 'still'
+    await fs.writeFile(planPath, JSON.stringify(plan))
+
+    const audit = await auditSceneClipCompletion(planPath, ['scene-1'], clipsDir)
+
+    assert.deepEqual(audit, {
+      expected: 1,
+      completed: 1,
+      missing: [],
+      invalid: [],
+      issues: [],
     })
   })
 })

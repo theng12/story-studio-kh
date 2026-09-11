@@ -21,6 +21,7 @@ import { describe, it } from 'node:test'
 
 const root = resolve(process.cwd(), '..')
 const read = (path: string): string => readFileSync(resolve(root, path), 'utf8')
+const providerTaskStateModule = pathToFileURL(resolve(root, 'electron/server/contracts/provider-task-state.ts')).href
 
 /** Lift a `function name(...) { ... }` declaration out of a source file verbatim. */
 function extractFunction(source: string, name: string): string {
@@ -60,7 +61,7 @@ let moduleSeq = 0
 async function loadLifted(prelude: string, declarations: string[], exports: string[]): Promise<any> {
   const dir = mkdtempSync(join(tmpdir(), 'story-credit-'))
   const file = join(dir, `lifted-${moduleSeq++}.ts`)
-  writeFileSync(file, `${prelude}\n${declarations.join('\n\n')}\nexport { ${exports.join(', ')} }\n`, 'utf8')
+  writeFileSync(file, `import { effectiveGenStudioTaskState } from ${JSON.stringify(providerTaskStateModule)}\n${prelude}\n${declarations.join('\n\n')}\nexport { ${exports.join(', ')} }\n`, 'utf8')
   return import(pathToFileURL(file).href)
 }
 
@@ -228,6 +229,95 @@ describe('GenStudio released reservations are never shown as held', () => {
     assert.equal(preview.displayState(remote), 'Accepted')
     assert.equal(ledger.displayState(remote), 'Accepted')
     assert.equal(jobs.genStudioQueueLabel(remote), 'Accepted')
+  })
+
+  it('treats provider-confirmed no-record evidence as terminal despite a stale running queue hint', async () => {
+    const remote = { state: 'not_created', queue_state: 'running' }
+    const previewSource = read('frontend/components/GenStudioRequestPreview.vue')
+    const preview = await loadLifted(
+      'type RemoteJob = any',
+      [
+        extractObject(previewSource, 'QUEUE_LABELS'),
+        extractFunction(previewSource, 'effectiveState'),
+        extractFunction(previewSource, 'displayState'),
+        extractFunction(previewSource, 'stateClass'),
+      ],
+      ['displayState', 'stateClass'],
+    )
+    const ledgerSource = read('frontend/components/GenStudioBatchLedger.vue')
+    const ledger = await loadLifted(
+      'type RemoteJob = any',
+      [
+        extractObject(ledgerSource, 'QUEUE_LABELS'),
+        extractFunction(ledgerSource, 'effectiveState'),
+        extractFunction(ledgerSource, 'stateBucket'),
+        extractFunction(ledgerSource, 'displayState'),
+      ],
+      ['stateBucket', 'displayState'],
+    )
+    const hintSource = read('frontend/components/GenStudioCreditSettlementHint.vue')
+    const hint = await loadLifted(
+      'type RemoteJob = any',
+      [extractFunction(hintSource, 'stateBucket')],
+      ['stateBucket'],
+    )
+
+    assert.equal(preview.displayState(remote), 'Not created — no request sent or charged')
+    assert.equal(preview.stateClass(remote), 'is-terminal')
+    assert.equal(ledger.displayState(remote), 'Not created')
+    assert.equal(ledger.stateBucket(remote), 'not_created')
+    assert.equal(hint.stateBucket(remote), 'not_created')
+
+    const reconciledRows = [
+      ...Array.from({ length: 294 }, () => ({ state: 'succeeded', queue_state: 'succeeded' })),
+      ...Array.from({ length: 15 }, () => remote),
+    ]
+    assert.deepEqual(reconciledRows.reduce((counts, row) => {
+      const bucket = ledger.stateBucket(row)
+      counts[bucket] = (counts[bucket] || 0) + 1
+      return counts
+    }, {} as Record<string, number>), {
+      settled: 294,
+      not_created: 15,
+    })
+  })
+
+  it('does not retain no-record work as active, queued, or on hold in the Jobs page', async () => {
+    const remote = {
+      id: 'missing-provider-request',
+      state: 'not_created',
+      queue_state: 'running',
+      reserved_credits: 13,
+      settled_credits: 0,
+      released_credits: 0,
+    }
+    const source = read('frontend/pages/projects/[slug]/jobs.vue')
+    const jobs = await loadLifted(
+      [
+        'type RJob = any',
+        'type GenStudioSettlement = { reserved_credits?: number; settled_credits?: number; released_credits?: number }',
+        'const genStudioSettlement: { value: Record<string, GenStudioSettlement> } = { value: {} }',
+      ].join('\n'),
+      [
+        extractObject(source, 'GENSTUDIO_QUEUE_LABELS'),
+        ...[
+          'genStudioQueueLabel',
+          'latestActiveGenStudioRequest',
+          'genStudioNumeric',
+          'genStudioCreditState',
+          'genStudioSettled',
+          'genStudioTerminalFailure',
+          'genStudioChargedCredits',
+          'genStudioReturnedCredits',
+          'genStudioHeldCredits',
+        ].map(name => extractFunction(source, name)),
+      ],
+      ['genStudioQueueLabel', 'latestActiveGenStudioRequest', 'genStudioHeldCredits'],
+    )
+
+    assert.equal(jobs.genStudioQueueLabel(remote), 'Not created')
+    assert.equal(jobs.latestActiveGenStudioRequest({ genstudio_jobs: [remote] }), undefined)
+    assert.equal(jobs.genStudioHeldCredits(remote), 0)
   })
 
   it('labels provider-confirmed customer cancellations as Cancelled rather than Failed', async () => {

@@ -7,6 +7,7 @@ import { selectBroll } from '../lib/broll-selector.js'
 import { saveSelectionSidecar } from './broll-selection-sidecar.js'
 import { resolveEpisodePaths } from './utils.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
+import { readVideoVisualSource } from './video-visual-source.js'
 import type { BrollUsageEntry } from '../models/types.js'
 
 export interface BrollSelectionParams {
@@ -45,6 +46,9 @@ async function narrationDuration(slug: string, episodeId: string, title: string)
 }
 
 export async function pickBrollForEpisode(slug: string, episodeId: string, params: BrollSelectionParams): Promise<{ count: number; warnings: string[]; title: string }> {
+  if ((await readVideoVisualSource(slug, episodeId)).source === 'image_pool') {
+    throw new Error('B-Roll selection is not used for Image Pool episodes. Keep the saved Image Pool picks or switch this episode to Scene Plan first.')
+  }
   const config = await pm.getConfig(slug)
   if (!config) throw new Error('Project config not found')
   const poolId = params.pool_id || (config as any).broll_pool_id

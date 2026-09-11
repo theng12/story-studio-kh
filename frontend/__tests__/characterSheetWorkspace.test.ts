@@ -23,10 +23,11 @@ const scenePlanPage = source('../pages/projects/[slug]/scene-plan.vue')
 const pacingConstant = source('../../electron/server/contracts/pacing.ts')
 
 describe('Character Sheet workspace', () => {
-  test('uses the compact visual anchors, style library, and scene rhythm flow without retired controls', () => {
+  test('uses compact visual anchors and style controls, with Scene Plan owning timing and motion', () => {
     assert.match(characterSheet, /<h3>Visual anchors<\/h3>/)
     assert.match(characterSheet, /<h3>Visual art style<\/h3>/)
-    assert.match(characterSheet, /<h3>Scene rhythm<\/h3>/)
+    assert.match(characterSheet, /<h3>Visual timing & motion<\/h3>/)
+    assert.match(characterSheet, /Open Scene Plan/)
     assert.match(characterSheet, /Episode visual anchor/)
     assert.doesNotMatch(characterSheet, />3\. Style reference</)
     assert.doesNotMatch(characterSheet, />4\. Continuity settings</)
@@ -129,22 +130,31 @@ describe('Character Sheet workspace', () => {
  */
 describe('Continuity Engine default scene pacing — single source of truth', () => {
   test('routes/continuity.ts imports the shared default instead of hardcoding it', () => {
-    assert.match(continuityRoute, /import \{ DEFAULT_SCENE_PACING \} from '\.\.\/contracts\/pacing\.js'/)
+    assert.match(continuityRoute, /import \{[^}]*\bDEFAULT_SCENE_PACING\b[^}]*\} from '\.\.\/contracts\/pacing\.js'/)
     assert.match(continuityRoute, /pacing: \{ \.\.\.DEFAULT_SCENE_PACING \}/)
     // The PUT coercion fallback (an omitted min_sec/max_sec) must fall back
     // to the SAME default, not a second hardcoded number -- this is the
     // "coercion fallback of the form `|| 4`" instance of the bug.
-    assert.match(continuityRoute, /Number\(b\.pacing\?\.min_sec\) \|\| defaults\.pacing\.min_sec/)
-    assert.match(continuityRoute, /Number\(b\.pacing\?\.max_sec\) \|\| defaults\.pacing\.max_sec/)
+    assert.match(continuityRoute, /parseScenePacing\(b\.pacing\)/)
+    assert.doesNotMatch(continuityRoute, /Number\(b\.pacing\?\./)
     assert.doesNotMatch(continuityRoute, /pacing:\s*\{\s*min_sec:\s*\d+,\s*max_sec:\s*\d+\s*\}/)
   })
 
   test('Scene Plan resolves the shared default through its readiness pacing service', () => {
-    assert.match(scenePlanPacing, /import \{ DEFAULT_SCENE_PACING \} from '\.\.\/contracts\/pacing\.js'/)
+    assert.match(scenePlanPacing, /import \{[^}]*\bDEFAULT_SCENE_PACING\b[^}]*\} from '\.\.\/contracts\/pacing\.js'/)
     assert.match(scenePlanPacing, /pacing: ScenePlanPacing = \{ \.\.\.DEFAULT_SCENE_PACING, mode: 'live' \}/)
     assert.match(scenePlanGenerator, /import \{ allowedSubtitleCueGapSec, resolveScenePlanPacing/)
     assert.match(scenePlanGenerator, /await resolveScenePlanPacing\(job\.project_slug, paths\.episode_dir\)/)
     assert.doesNotMatch(scenePlanGenerator, /pacing\s*=\s*\{\s*min_sec:\s*\d+,\s*max_sec:\s*\d+/)
+  })
+
+  test('snapshotless repair uses a named legacy band without becoming a planning default', () => {
+    assert.match(pacingConstant, /export const LEGACY_SNAPSHOTLESS_REPAIR_PACING = \{ min_sec: 3, max_sec: 12 \} as const/)
+    assert.match(scenePlanPacing, /import \{[^}]*\bLEGACY_SNAPSHOTLESS_REPAIR_PACING\b[^}]*\} from '\.\.\/contracts\/pacing\.js'/)
+    assert.equal((scenePlanPacing.match(/return \{ \.\.\.LEGACY_SNAPSHOTLESS_REPAIR_PACING \}/g) || []).length, 2)
+    assert.doesNotMatch(continuityRoute, /LEGACY_SNAPSHOTLESS_REPAIR_PACING/)
+    assert.doesNotMatch(continuityConfig, /LEGACY_SNAPSHOTLESS_REPAIR_PACING/)
+    assert.doesNotMatch(scenePlanGenerator, /LEGACY_SNAPSHOTLESS_REPAIR_PACING/)
   })
 
   test('all four planning and readiness surfaces share the fixed subtitle cue-gap guard', () => {
@@ -161,14 +171,13 @@ describe('Continuity Engine default scene pacing — single source of truth', ()
   })
 
   test('useContinuityConfig.ts imports the shared default instead of hardcoding it', () => {
-    assert.match(continuityConfig, /import \{ DEFAULT_SCENE_PACING \} from '@shared\/pacing'/)
+    assert.match(continuityConfig, /import \{[^}]*\bDEFAULT_SCENE_PACING\b[^}]*\} from '@shared\/pacing'/)
     assert.match(continuityConfig, /pacing: \{ \.\.\.DEFAULT_SCENE_PACING \}/)
     assert.doesNotMatch(continuityConfig, /pacing:\s*\{\s*min_sec:\s*\d+,\s*max_sec:\s*\d+\s*\}/)
   })
 
-  test('scene-plan.vue imports the shared default instead of hardcoding it', () => {
-    assert.match(scenePlanPage, /import \{ DEFAULT_SCENE_PACING \} from '@shared\/pacing'/)
-    assert.match(scenePlanPage, /continuityPacing\.value = r\.config\?\.pacing \|\| DEFAULT_SCENE_PACING/)
+  test('scene-plan.vue uses the normalized episode pacing instead of hardcoding a default', () => {
+    assert.match(scenePlanPage, /continuityPacing\.value = config\.pacing/)
     assert.doesNotMatch(scenePlanPage, /\{\s*min_sec:\s*\d+,\s*max_sec:\s*\d+\s*\}/)
   })
 

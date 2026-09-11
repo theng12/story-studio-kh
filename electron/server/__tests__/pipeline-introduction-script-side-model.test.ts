@@ -122,7 +122,19 @@ describe('run-batch wires introduction-only to the script-side model, not the ca
         return !(t.startsWith('//') || t.startsWith('*') || t.startsWith('/*'))
       })
       .join('\n')
-    assert.match(code, /if \(steps\.includes\('metadata'\)\) \{/)
-    assert.doesNotMatch(code, /steps\.includes\('introduction-only'\) \|\| steps\.includes\('metadata'\)/)
+    const defaultResolverStart = code.indexOf('let batchDefaultChatModel')
+    const defaultResolverEnd = code.indexOf('let pipelineTranscriptionParams', defaultResolverStart)
+    assert.ok(defaultResolverStart >= 0, 'batch default model state not found')
+    assert.ok(defaultResolverEnd > defaultResolverStart, 'batch default model block not bounded')
+    const defaultResolver = code.slice(defaultResolverStart, defaultResolverEnd)
+    // Selection is now filtered per episode, so `steps.includes` is no longer
+    // the source of truth. The saved metadata preset is the only trigger that
+    // resolves a live catalogue default for the batch.
+    assert.match(defaultResolver, /if \(presetByStep\.metadata\) \{/)
+    assert.doesNotMatch(
+      defaultResolver,
+      /presetByStep(?:\.introduction|\[['"]introduction-only['"]\])/,
+      'the introduction must not trigger catalogue-default resolution',
+    )
   })
 })

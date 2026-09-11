@@ -314,16 +314,18 @@ test('the format wizard no longer restores a hardcoded paid model list', () => {
   })
 })
 
-test('Character Sheet exposes strict visual-pacing presets with a custom range', () => {
+test('Scene Plan owns strict episode timing while Character Sheet links to it', () => {
   const characterSheet = source('../pages/projects/[slug]/character-sheet.vue')
-  // The bands moved into useContinuityConfig so the preset-boundary tests can
-  // import and exercise them; the control itself still lives on the page.
-  const continuityConfig = source('../composables/useContinuityConfig.ts')
-  assert.match(characterSheet, /Visual pacing/)
-  assert.match(continuityConfig, /1–3 seconds — Rapid & lively/)
-  assert.match(continuityConfig, /1–4 seconds — Lively storytelling/)
-  assert.match(continuityConfig, /2–8 seconds — Cinematic & robust/)
-  assert.match(continuityConfig, /5–10 seconds — Slow & deliberate/)
-  assert.match(characterSheet, /Custom range…/)
-  assert.match(characterSheet, /safe word or sentence boundaries/)
+  const scenePlan = source('../pages/projects/[slug]/scene-plan.vue')
+  const visualTimingMotion = source('../components/VisualTimingMotion.vue')
+  assert.match(characterSheet, /<h3>Visual timing & motion<\/h3>/)
+  assert.match(characterSheet, /path: `\/projects\/\$\{slug\}\/scene-plan`/)
+  assert.match(characterSheet, /query: \{ episode_id: episodeId \}/)
+  assert.match(characterSheet, /hash: '#visual-timing'/)
+  assert.doesNotMatch(characterSheet, /Custom range…|safe word or sentence boundaries/)
+  assert.match(scenePlan, /<VisualTimingMotion/)
+  assert.match(scenePlan, /id="visual-timing"/)
+  assert.match(visualTimingMotion, /<legend>Scene timing<\/legend>/)
+  assert.match(visualTimingMotion, /min="1" max="60"/)
+  assert.match(visualTimingMotion, /parseScenePacing\(draft\.value\.pacing\)/)
 })

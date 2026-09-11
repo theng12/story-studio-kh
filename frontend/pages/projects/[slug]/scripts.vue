@@ -637,7 +637,11 @@ import {
   type ScriptNarratorStyleOption,
 } from '~/utils/scriptSizing'
 import { CREDIT_BASIS_LABEL, describeChatRate } from '~/utils/genstudio-credit-cost'
-definePageMeta({ layout: 'dashboard' })
+// The preset controllers and several channel-level loaders intentionally
+// capture the project slug at setup time. A new page instance on project
+// navigation keeps those stores and the channel Introduction policy scoped to
+// the channel that loaded them.
+definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
 useAppTitle('Script Generator')
 const route = useRoute()
 const _router = useRouter()
@@ -1490,11 +1494,24 @@ watch(scriptJobsSignal, () => {
 // without an explicit refetch here.
 const { episodes: cachedEpisodeList, refresh: refreshEpisodeCache } = useEpisodes(slug)
 
+let episodeStatusSequence = 0
+
 async function refetchEpisodeStatus() {
-  if (!form.episode_id) return
+  const targetSlug = slug.value
+  const targetEpisode = form.episode_id
+  const requestSequence = ++episodeStatusSequence
+  if (!targetEpisode) {
+    selectedEpisode.value = null
+    return
+  }
+  // Eligibility below is read from selectedEpisode.status. Clear a previous
+  // episode before any async refresh so a failed B load cannot leave A's
+  // script/introduction state authorizing actions for B.
+  if (selectedEpisode.value?.episode_code !== targetEpisode) selectedEpisode.value = null
   // 1. Fast path: the shared cache already has every episode.
-  const cached = cachedEpisodeList.value.find((e: any) => e.episode_code === form.episode_id)
+  const cached = cachedEpisodeList.value.find((e: any) => e.episode_code === targetEpisode)
   if (cached) {
+    if (slug.value !== targetSlug || form.episode_id !== targetEpisode || requestSequence !== episodeStatusSequence) return
     selectedEpisode.value = cached
     return
   }
@@ -1503,16 +1520,23 @@ async function refetchEpisodeStatus() {
   //    pick up the value reactively.
   try {
     await refreshEpisodeCache()
-    const fresh = cachedEpisodeList.value.find((e: any) => e.episode_code === form.episode_id)
+    if (slug.value !== targetSlug || form.episode_id !== targetEpisode || requestSequence !== episodeStatusSequence) return
+    const fresh = cachedEpisodeList.value.find((e: any) => e.episode_code === targetEpisode)
     if (fresh) selectedEpisode.value = fresh
-  } catch { /* keep stale episode rather than blanking the UI */ }
+  } catch { /* the cleared state is safer than showing another episode */ }
 }
 
 // Fetch on initial mount + any time the episode id changes (deep-link from
 // the dashboard, preset apply, etc.). EpisodeSelector only emits its own
 // event when the user picks from the dropdown, so without this, deep-links
 // would leave selectedEpisode null and `scriptGenerated` stuck at false.
-watch(() => form.episode_id, (id) => { if (id) refetchEpisodeStatus() }, { immediate: true })
+watch(() => form.episode_id, (id) => {
+  if (id) void refetchEpisodeStatus()
+  else {
+    episodeStatusSequence++
+    selectedEpisode.value = null
+  }
+}, { immediate: true })
 
 // v1.0.48 — keep `selectedEpisode` in sync when the shared cache
 // auto-revalidates (which happens whenever a generation job finishes

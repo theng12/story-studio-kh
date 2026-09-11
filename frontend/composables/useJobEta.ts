@@ -25,6 +25,8 @@
  * be unit-tested directly the way `useBatchSummary.ts` is.
  */
 
+import { effectiveGenStudioTaskState } from '@shared/provider-task-state'
+
 // ── Shapes ────────────────────────────────────────────────────────────────
 // Structural, not imported from the contract, so a test can hand these
 // functions a literal without dragging the whole job type along.
@@ -282,12 +284,13 @@ export function formatEtaApprox(seconds: number | null): string | null {
 // ── 3. Freshness — when did something last actually happen ────────────────
 
 function remoteState(remote: RemoteJobLike): string {
-  return String(remote.queue_state || remote.state || '').toLowerCase()
+  return effectiveGenStudioTaskState(remote)
 }
 
 function isSettledRemote(remote: RemoteJobLike): boolean {
   const state = remoteState(remote)
-  return state === 'failed'
+  return state === 'not_created'
+    || state === 'failed'
     || state === 'cancelled'
     || /success|succeed|complete|done|settled/.test(state)
 }

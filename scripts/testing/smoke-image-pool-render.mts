@@ -46,13 +46,14 @@ async function probe(file: string): Promise<number> {
 async function sampleRgb(file: string, seconds: number): Promise<[number, number, number]> {
   const { default: sharp } = await import('sharp')
   return new Promise((resolve, reject) => {
-    const child = spawn('ffmpeg', ['-v', 'error', '-ss', String(seconds), '-i', file, '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn('ffmpeg', ['-v', 'error', '-i', file, '-ss', String(seconds), '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'], { stdio: ['ignore', 'pipe', 'pipe'] })
     const chunks: Buffer[] = []; let err = ''
     child.stdout.on('data', b => chunks.push(b))
     child.stderr.on('data', b => { err += b })
     child.once('error', reject)
     child.once('exit', async code => {
       if (code !== 0) return reject(new Error(`frame extraction failed: ${err}`))
+      if (!chunks.length) return reject(new Error(`frame extraction produced no image at ${seconds}s from ${file}: ${err}`))
       try {
         const { data } = await sharp(Buffer.concat(chunks)).raw().toBuffer({ resolveWithObject: true })
         resolve([data[0]!, data[1]!, data[2]!])
@@ -106,6 +107,7 @@ async function makeCase(caseName: string, withOpening: boolean, withCrossfade = 
       resolution: '720p', quality: 'compact', fps: 10, format: 'mp4',
       merged_audio_path: path.join(audioDir, `${episode}_merged_audio.mp3`),
       narration_path: path.join(audioDir, `${episode}_merged_audio.mp3`),
+      subtitles: { enabled: false, srt_path: '/not-this-episode.srt' },
       scenes: [{ image_path: red, duration: 2 }],
       scene_recycling: { seconds_per_scene: 2, shuffle: true, excluded_scenes: [1] },
       post_audio: { behavior: 'hard-cut' },
@@ -115,6 +117,9 @@ async function makeCase(caseName: string, withOpening: boolean, withCrossfade = 
     },
   }
   await generateVideo(job)
+  if (job.output_lines.some((line: string) => /Burning in subtitles/i.test(line))) {
+    throw new Error(`${caseName}: disabled subtitles were burned into the Image Pool render`)
+  }
   const siblingFiles = await fs.readdir(renamedSibling)
   if (siblingFiles.length) throw new Error(`Render wrote into the renamed sibling: ${siblingFiles.join(', ')}`)
   const output = path.join(videoDir, `${episode}_final_video.mp4`)
@@ -132,12 +137,78 @@ async function makeCase(caseName: string, withOpening: boolean, withCrossfade = 
   if (sampleA[0] <= sampleA[2] || sampleB[2] <= sampleB[0]) { console.error(`${caseName}: expected red then blue scene order, got ${sampleA} then ${sampleB}`); failures++ }
   if (withOpening && (!opening || opening[1] <= opening[0] || opening[1] <= opening[2])) { console.error(`${caseName}: expected green opening, got ${opening}`); failures++ }
 }
+
+async function makeMixedScenePlanCase(variable = false, motion = true) {
+  const caseName = `${variable ? 'variable' : 'uniform'}-${motion ? 'opening-motion' : 'stills'}`
+  const cuts = variable ? [0, 1, 3, 9] : [0, 3, 6, 9]
+  const red = path.join(poolDir, 'red.png')
+  const blue = path.join(poolDir, 'blue.png')
+  const selectionPath = path.join(episodeDir, 'broll-selection.json')
+  const selection = JSON.parse(await fs.readFile(selectionPath, 'utf8'))
+  await fs.writeFile(selectionPath, JSON.stringify({ ...selection, source: 'scene_plan' }))
+  const expectedSelection = await fs.readFile(selectionPath, 'utf8')
+
+  const { resolveVideoAssetsDir } = await import('../../electron/server/generators/scene-clip.ts')
+  const clipsDir = await resolveVideoAssetsDir(slug, episode, episodeDir)
+  await fs.mkdir(clipsDir, { recursive: true })
+  const clip = path.join(clipsDir, 'scene-clip.mp4')
+  await run('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=green:s=320x180:r=10', '-t', '3', '-pix_fmt', 'yuv420p', clip])
+  await fs.writeFile(path.join(episodeDir, 'scene_plan.json'), JSON.stringify({
+    schema_version: 1, generated_at: new Date().toISOString(), total_duration_sec: 9,
+    pacing: variable ? { mode: 'variable', min_sec: 1, max_sec: 2, periods: [
+      { start_sec: 0, end_sec: 3, min_sec: 1, max_sec: 2 },
+      { start_sec: 3, end_sec: null, min_sec: 6, max_sec: 6 },
+    ] } : { min_sec: 3, max_sec: 3 },
+    scenes: [
+      { id: 'scene-clip', scene_index: 1, start_sec: cuts[0], end_sec: cuts[1], transcript_segment: 'Clip', visual_prompt: 'Green clip', motion_prompt: 'Green motion', rendered_motion_prompt: 'Green motion', approved: true, image_path: red, motion_choice: motion ? 'clip' : 'still' },
+      { id: 'scene-still-red', scene_index: 2, start_sec: cuts[1], end_sec: cuts[2], transcript_segment: 'Red', visual_prompt: 'Red still', approved: true, image_path: motion ? red : blue, motion_choice: 'still' },
+      { id: 'scene-still-blue', scene_index: 3, start_sec: cuts[2], end_sec: cuts[3], transcript_segment: 'Blue', visual_prompt: 'Blue still', approved: true, image_path: motion ? blue : red, motion_choice: 'still' },
+    ],
+  }))
+
+  const { generateVideo } = await import('../../electron/server/generators/video.ts')
+  const job: any = {
+    job_id: `e2e-${caseName}`, project_slug: slug, episode_id: episode, type: 'video_assembly',
+    title: `E2E ${caseName}`, status: 'running', created_at: new Date().toISOString(), started_at: new Date().toISOString(), finished_at: null,
+    error: null, output_lines: [], progress: 0,
+    params: {
+      resolution: '720p', quality: 'compact', fps: 10, format: 'mp4',
+      scenes: [{ image_path: blue, duration: 9 }],
+      scene_recycling: { seconds_per_scene: 9, shuffle: true, excluded_scenes: [1] },
+      post_audio: { behavior: 'hard-cut' },
+      subtitles: { enabled: false, srt_path: '/not-this-episode.srt' },
+      scene_animation: { type: 'none', zoom_start: 100, zoom_end: 100, parallax_direction: 'right', parallax_speed: 0, breathe_amplitude: 0, breathe_base_zoom: 100 },
+    },
+  }
+  await generateVideo(job)
+  const output = path.join(videoDir, `${episode}_final_video.mp4`)
+  const { videoAssemblySourceStampPath } = await import('../../electron/server/services/video-visual-source.ts')
+  const sourceStamp = JSON.parse(await fs.readFile(videoAssemblySourceStampPath(output, episode), 'utf8'))
+  const duration = await probe(output)
+  console.log(JSON.stringify({ caseName: `${caseName}-before-frame-check`, duration, lines: job.output_lines }, null, 2))
+  await run('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,duration,nb_frames,r_frame_rate,time_base', '-of', 'json', output])
+  const clipSample = await sampleRgb(output, (cuts[0]! + cuts[1]!) / 2)
+  const redStillSample = await sampleRgb(output, (cuts[1]! + cuts[2]!) / 2)
+  const blueStillSample = await sampleRgb(output, (cuts[2]! + cuts[3]!) / 2)
+  console.log(JSON.stringify({ caseName, output, duration, clipSample, redStillSample, blueStillSample, lines: job.output_lines.slice(-12) }, null, 2))
+  if (Math.abs(duration - 9.2) > 0.15) { console.error(`mixed Scene Plan: expected 9.2s, got ${duration}s`); failures++ }
+  if (motion ? (clipSample[1] <= clipSample[0] || clipSample[1] <= clipSample[2]) : clipSample[0] <= clipSample[2]) { console.error(`mixed Scene Plan: expected ${motion ? 'green clip' : 'red still'}, got ${clipSample}`); failures++ }
+  if (motion ? redStillSample[0] <= redStillSample[2] : redStillSample[2] <= redStillSample[0]) { console.error(`mixed Scene Plan: expected red still, got ${redStillSample}`); failures++ }
+  if (motion ? blueStillSample[2] <= blueStillSample[0] : blueStillSample[0] <= blueStillSample[2]) { console.error(`mixed Scene Plan: expected blue still, got ${blueStillSample}`); failures++ }
+  if (sourceStamp.source !== 'scene_plan') { console.error(`mixed Scene Plan: expected scene_plan source, got ${sourceStamp.source}`); failures++ }
+  if (job.output_lines.some((line: string) => /Burning in subtitles/i.test(line))) { console.error('mixed Scene Plan: subtitles were burned despite being off'); failures++ }
+  if (await fs.readFile(selectionPath, 'utf8') !== expectedSelection) { console.error('mixed Scene Plan: source selection sidecar changed during render'); failures++ }
+}
 let failures = 0
 try {
   await makeCase('without-opening-hardcut', false)
   await makeCase('with-opening-hardcut', true)
   await makeCase('without-opening-crossfade', false, true)
   await makeCase('with-opening-crossfade', true, true)
+  await makeMixedScenePlanCase()
+  await makeMixedScenePlanCase(false, false)
+  await makeMixedScenePlanCase(true, false)
+  await makeMixedScenePlanCase(true, true)
   console.log(`fixture failures: ${failures}`)
   console.log(`fixture root: ${root}`)
 } finally {

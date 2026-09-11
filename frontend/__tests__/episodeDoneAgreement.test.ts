@@ -75,7 +75,7 @@ describe('one definition of a finished episode', () => {
   })
 
   test('the Board and the Dashboard both answer through the shared test', () => {
-    assert.match(board, /isEpisodeDone\(ep\?\.status, visualSource\.value\)/)
+    assert.match(board, /isEpisodeDone\(ep\?\.status, visualSource\.value, episodeVisualSource\(ep\)\)/)
     assert.match(dashboard, /isEpisodeDone\(ep\?\.status as Record<string, unknown>, visualSource\.value\)/)
     // And neither may keep a private copy of the map any more.
     assert.doesNotMatch(board, /const STEP_FIELD: Record/)

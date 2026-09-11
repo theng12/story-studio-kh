@@ -35,7 +35,7 @@ import { FLOW_PHASES, useProjectFlow, type FlowStep, type VisualSource } from '~
 
 const props = defineProps<{
   slug: string
-  visualSource: VisualSource
+  visualSource: VisualSource | null
 }>()
 
 const { steps, routeFor, currentIndex } = useProjectFlow(

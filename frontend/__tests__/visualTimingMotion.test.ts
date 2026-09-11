@@ -1,0 +1,242 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { describe, test } from 'node:test'
+import { createApp, defineComponent, h, nextTick, ref, type Component } from 'vue'
+import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
+import { transform } from 'esbuild'
+
+function source(path: string): string {
+  return readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
+}
+
+const panelPath = fileURLToPath(new URL('../components/VisualTimingMotion.vue', import.meta.url))
+const panelSource = readFileSync(panelPath, 'utf8')
+const continuityConfig = source('../composables/useContinuityConfig.ts')
+const characterSheet = source('../pages/projects/[slug]/character-sheet.vue')
+
+type Config = {
+  schema_version: 1
+  pacing: { min_sec: number; max_sec: number; mode?: 'uniform' }
+  motion_scope: { mode: 'off' | 'all' } | { mode: 'opening'; end_sec: number } | { mode: 'selected'; scene_ids: string[] }
+  motion_level: number
+  anchor_character_ids: string[]
+  use_episode_sheet: boolean
+  references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean; composition: boolean }
+  denoise_strength: number
+}
+
+type Api = {
+  get<T>(path: string): Promise<T>
+  put<T>(path: string, body: unknown): Promise<T>
+}
+
+const globals = globalThis as typeof globalThis & {
+  __visualTimingMotionApi?: Api
+  __visualTimingMotionRoute?: { params: { slug: string } }
+  __visualTimingMotionToasts?: string[]
+}
+
+function config(min_sec: number, max_sec: number): Config {
+  return {
+    schema_version: 1,
+    pacing: { min_sec, max_sec },
+    motion_scope: { mode: 'off' },
+    motion_level: 2,
+    anchor_character_ids: [],
+    use_episode_sheet: false,
+    references: { prev_render: false, sheet: false, characters: false, style: false, composition: false },
+    denoise_strength: 0.5,
+  }
+}
+
+async function loadPanel(): Promise<Component> {
+  const { descriptor } = parse(panelSource, { filename: panelPath })
+  const script = compileScript(descriptor, { id: 'visual-timing-motion-runtime' })
+  const template = compileTemplate({
+    source: descriptor.template!.content,
+    filename: panelPath,
+    id: 'visual-timing-motion-runtime',
+    compilerOptions: { bindingMetadata: script.bindings },
+  })
+  const vueUrl = await import.meta.resolve('vue')
+  const support = `
+    import { computed, defineComponent as _defineComponent, ref, watch } from ${JSON.stringify(vueUrl)}
+    const defaults = () => ({ schema_version: 1, anchor_character_ids: [], use_episode_sheet: false, pacing: { min_sec: 1, max_sec: 3 }, motion_scope: { mode: 'off' }, motion_level: 2, references: { prev_render: false, sheet: false, characters: false, style: false, composition: false }, denoise_strength: 0.5 })
+    const continuityDefaults = defaults
+    const normalizeContinuityConfig = value => ({ ...defaults(), ...value, pacing: value?.pacing || defaults().pacing, motion_scope: value?.motion_scope || defaults().motion_scope, references: { ...defaults().references, ...(value?.references || {}) } })
+    import { parseScenePacing } from ${JSON.stringify(new URL('../../electron/server/contracts/pacing.ts', import.meta.url).href)}
+    const normalizeMotionScope = value => value || { mode: 'off' }
+    const resolveMotionScope = (scenes, scope) => ({ scene_ids: scope.mode === 'all' ? scenes.map(scene => scene.id) : [], crossing_scene_ids: [] })
+    const useRoute = () => globalThis.__visualTimingMotionRoute
+    const useApi = () => globalThis.__visualTimingMotionApi
+    const useToast = () => ({ success: message => globalThis.__visualTimingMotionToasts.push(message), error: message => globalThis.__visualTimingMotionToasts.push(message) })
+  `
+  const content = script.content
+    .replace(/^import \{ computed, ref, watch \} from 'vue'\n/m, '')
+    .replace(/^import .* from '@shared\/motion-scope'\n/m, '')
+    .replace(/^import .* from '@shared\/pacing'\n/m, '')
+    .replace(/import \{[\s\S]*?\} from '~\/composables\/useContinuityConfig'\n/m, '')
+    .replace('export default', 'const __sfc__ =')
+  const built = await transform(`${support}\n${content}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`, {
+    loader: 'ts', format: 'esm',
+  })
+  return (await import(`data:text/javascript;base64,${Buffer.from(
+    built.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
+  ).toString('base64')}`)).default
+}
+
+async function flush(): Promise<void> {
+  await nextTick()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await nextTick()
+}
+
+async function mountPanel(episode = 'EP0001') {
+  const Component = await loadPanel()
+  const episodeId = ref(episode)
+  const saved: Config[] = []
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(defineComponent({
+    setup: () => () => h(Component as any, {
+      episodeId: episodeId.value,
+      scenes: [],
+      onSaved: (value: Config) => saved.push(value),
+    }),
+  }))
+  app.mount(host)
+  await flush()
+  return {
+    host,
+    episodeId,
+    saved,
+    unmount: () => { app.unmount(); host.remove() },
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
+describe('Visual timing and motion', () => {
+  test('keeps timing and motion at the per-episode continuity boundary', () => {
+    assert.match(continuityConfig, /parseScenePacing\(value\?\.pacing\)/)
+    assert.match(continuityConfig, /normalizeMotionScope\(value\?\.motion_scope\)/)
+    assert.match(continuityConfig, /'motion_scope'/)
+    assert.match(continuityConfig, /motion_scope: current\.motion_scope/)
+  })
+
+  test('saves the actual continuity response config rather than its wrapper', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    const savedConfig = config(4, 8)
+    globals.__visualTimingMotionApi = {
+      async get<T>() { return { exists: true, config: config(1, 3) } as T },
+      async put<T>() { return { ok: true, config: savedConfig } as T },
+    }
+    const mounted = await mountPanel()
+    try {
+      mounted.host.querySelector<HTMLButtonElement>('button.btn-primary')!.click()
+      await flush()
+      const inputs = mounted.host.querySelectorAll<HTMLInputElement>('.vtm-band input')
+      assert.equal(inputs[0]?.value, '4')
+      assert.equal(inputs[1]?.value, '8')
+      assert.equal(mounted.saved[0]?.pacing.min_sec, 4)
+    } finally {
+      mounted.unmount()
+      delete globals.__visualTimingMotionApi
+    }
+  })
+
+  test('disables saving an invalid duration band and recovers after correction', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    let writes = 0
+    globals.__visualTimingMotionApi = {
+      async get<T>() { return { exists: true, config: config(1, 3) } as T },
+      async put<T>() { writes++; return { ok: true, config: config(1, 3) } as T },
+    }
+    const mounted = await mountPanel()
+    try {
+      const shortest = mounted.host.querySelector<HTMLInputElement>('.vtm-band input')!
+      shortest.value = '8'
+      shortest.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush()
+      const save = mounted.host.querySelector<HTMLButtonElement>('button.btn-primary')!
+      assert.equal(save.disabled, true)
+      assert.match(mounted.host.textContent || '', /greater than or equal/)
+      save.click()
+      await flush()
+      assert.equal(writes, 0)
+      shortest.value = '1'
+      shortest.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush()
+      assert.equal(save.disabled, false)
+    } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
+  })
+
+  test('ignores stale GET and save responses after selecting a different episode', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    const gets: Array<ReturnType<typeof deferred<{ exists: boolean; config: Config }>>> = []
+    const staleSave = deferred<{ ok: true; config: Config }>()
+    globals.__visualTimingMotionApi = {
+      get<T>() {
+        const pending = deferred<{ exists: boolean; config: Config }>()
+        gets.push(pending)
+        return pending.promise as Promise<T>
+      },
+      put<T>() { return staleSave.promise as Promise<T> },
+    }
+    const mounted = await mountPanel('EP0001')
+    try {
+      assert.equal(gets.length, 1)
+      mounted.episodeId.value = 'EP0002'
+      await flush()
+      assert.equal(gets.length, 2)
+      gets[1]!.resolve({ exists: true, config: config(2, 5) })
+      await flush()
+      gets[0]!.resolve({ exists: true, config: config(9, 12) })
+      await flush()
+      assert.equal(mounted.host.querySelector<HTMLInputElement>('.vtm-band input')?.value, '2')
+
+      mounted.host.querySelector<HTMLButtonElement>('button.btn-primary')!.click()
+      await flush()
+      mounted.episodeId.value = 'EP0003'
+      await flush()
+      assert.equal(gets.length, 3)
+      staleSave.resolve({ ok: true, config: config(9, 12) })
+      gets[2]!.resolve({ exists: true, config: config(5, 7) })
+      await flush()
+      assert.equal(mounted.host.querySelector<HTMLInputElement>('.vtm-band input')?.value, '5')
+      assert.equal(mounted.saved.length, 0, 'the old episode save must not emit into the newly selected episode')
+    } finally {
+      mounted.unmount()
+      delete globals.__visualTimingMotionApi
+    }
+  })
+
+  test('explains whole-scene eligibility and preserves approved clips', () => {
+    assert.match(panelSource, /Opening/)
+    assert.match(panelSource, /Selected scenes/)
+    assert.match(panelSource, /All scenes/)
+    assert.match(panelSource, /resolveMotionScope\(props\.scenes, draft\.value\.motion_scope\)/)
+    assert.match(panelSource, /eligible for motion/)
+    assert.match(panelSource, /Motion applies only to whole scenes/)
+    assert.match(panelSource, /does not alter clips already approved or generated/)
+    assert.match(panelSource, /:disabled="loading \|\| saving \|\| !!loadError"/)
+    for (const label of ['Minimal', 'Gentle', 'Moderate', 'Lively']) {
+      assert.match(panelSource, new RegExp(`label: '${label}'`))
+    }
+  })
+
+  test('Character Sheet summarizes timing and points to Scene Plan', () => {
+    assert.match(characterSheet, /<h3>Visual timing & motion<\/h3>/)
+    assert.match(characterSheet, /Open Scene Plan/)
+    assert.match(characterSheet, /pacingPresetNotice/)
+    assert.doesNotMatch(characterSheet, /<select id="cs-visual-pacing"/)
+    assert.doesNotMatch(characterSheet, /formulaPacingProfile/)
+  })
+})

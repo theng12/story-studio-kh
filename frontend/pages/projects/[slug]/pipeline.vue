@@ -51,6 +51,9 @@
         Each episode follows the <strong>{{ chainLabel }}</strong> chain in order while separate episodes share the available queue capacity.
         Preset choices stay pinned to this project, and completed work is skipped unless you explicitly force a re-run.
       </p>
+      <WorkspaceNotice v-if="formatError" tone="warning" title="Production flow unavailable">
+        {{ formatError }} Stage selection and batch actions stay disabled until the project format is available.
+      </WorkspaceNotice>
     </div>
 
     <!-- ── Steps to run ─────────────────────────────────────────────────── -->
@@ -65,12 +68,14 @@
           <button
             type="button"
             class="btn btn-sm btn-secondary"
+            :disabled="!visualSource"
             title="Select every required stage in the current production chain. Optional Research and paid Motion Clips stay off. An Introduction is not a choice here — it follows what the channel says."
             @click="selectRequiredSteps"
           >Required stages</button>
           <button
             type="button"
             class="btn btn-sm btn-secondary"
+            :disabled="!visualSource"
             title="Select every available stage in the current production chain, including optional and paid stages."
             @click="selectAllSteps"
           >Select all</button>
@@ -434,7 +439,7 @@
       </div>
 
       <div v-else class="episode-list mt-2">
-        <label
+        <article
           v-for="ep in paginatedEpisodes"
           :key="ep.episode_code"
           class="episode-row"
@@ -442,8 +447,9 @@
             selected: selectedEpisodes.has(ep.episode_code),
             'marked-done': ep.marked_done,
           }"
+          @click="toggleEpisode(ep.episode_code)"
         >
-          <input type="checkbox" :checked="selectedEpisodes.has(ep.episode_code)" @change="toggleEpisode(ep.episode_code)" />
+          <input type="checkbox" :checked="selectedEpisodes.has(ep.episode_code)" @click.stop @change="toggleEpisode(ep.episode_code)" />
           <div class="ep-main">
             <div class="ep-head">
               <strong>{{ ep.episode_code }}</strong>
@@ -472,18 +478,25 @@
                 :key="step.id"
                 :class="[
                   'ep-pill',
-                  isStepDoneForEpisode(step.id, ep.status) ? 'done' : 'missing',
+                  !isStepApplicableForEpisode(step.id, ep)
+                    ? 'not-applicable'
+                    : (isStepDoneForEpisode(step.id, ep.status) ? 'done' : 'missing'),
                   isStepManualForEpisode(step.id, ep) ? 'manual' : '',
                 ]"
-                :title="pillTitle(step, ep)"
+                :title="isStepApplicableForEpisode(step.id, ep) ? pillTitle(step, ep) : `${step.label} is not used for this episode’s visual source.`"
               >
-                {{ step.icon }}
+                {{ isStepApplicableForEpisode(step.id, ep) ? step.icon : '—' }}
               </span>
             </div>
+            <EpisodeVisualSource
+              :slug="slug"
+              :episode-id="ep.episode_code"
+              :source="episodeVisualSource(ep)"
+              @changed="onEpisodeVisualSourceChanged(ep.episode_code, $event)"
+            />
           </div>
           <!-- Per-episode kebab menu. Wraps in a click.stop'ed div so
-               clicking the trigger doesn't toggle the row checkbox (which
-               would happen if the click bubbled up to the wrapping label).
+               clicking the trigger doesn't toggle the row selection.
                The menu sits in a portal-free absolute popover anchored to
                the button — sufficient for the row count we expect. -->
           <div class="ep-kebab" @click.prevent.stop>
@@ -559,7 +572,7 @@
               </div>
             </Teleport>
           </div>
-        </label>
+        </article>
       </div>
 
       <!-- Asset import dialog — shared across all rows. importEpisode tracks
@@ -586,7 +599,8 @@
       />
 
       <div v-if="episodes.length" class="selection-summary mt-2 text-muted text-sm">
-        <strong>{{ selectedEpisodes.size }}</strong> of {{ episodes.length }} episode(s) selected · queued jobs = {{ selectedEpisodes.size * checkedStepCount }}
+        <strong>{{ selectedEpisodes.size }}</strong> of {{ episodes.length }} episode(s) selected · estimated queued stages = {{ selectedApplicableStepCount }}
+        <span v-if="selectedEpisodes.size && checkedStepCount">. This reflects each row’s visual source; the run receipt confirms the actual queued jobs after chain expansion and skips.</span>
         <template v-if="filterMode !== 'all' || sortKey !== 'code-asc'">
           · showing <strong>{{ sortedFilteredEpisodes.length }}</strong> after filter/sort
         </template>
@@ -682,9 +696,8 @@
           <strong>{{ checkedStepCount }}</strong> selected step(s).
         </template>
         <template v-else>
-          About to queue up to <strong>{{ preflightEligibleCount * checkedStepCount }}</strong> job(s):
-          <strong>{{ preflightEligibleCount }}</strong> eligible episode(s) ×
-          <strong>{{ checkedStepCount }}</strong> step(s) each.
+          About to queue an estimated <strong>{{ preflightEligibleApplicableStepCount }}</strong> selected stage(s) across
+          <strong>{{ preflightEligibleCount }}</strong> eligible episode(s). Each episode uses its own visual source.
         </template>
       </p>
       <p v-if="preflightBlocked.length" class="text-muted text-sm mt-2">
@@ -705,8 +718,8 @@
       </p>
       <p v-else class="text-muted text-sm mt-2">
         Steps within each episode run in order. Different episodes' steps run
-        concurrently when the queue has capacity. If a step fails for an
-        episode, that episode's chain stops; other episodes continue.
+        concurrently when the queue has capacity. An episode chain can expand into dependent jobs and skip completed or inapplicable stages;
+        the receipt confirms the actual queued count. If a step fails for an episode, that episode's chain stops; other episodes continue.
       </p>
       <p v-if="modelPolicyRunSummary.length" class="text-muted text-sm mt-2">
         <template v-for="(line, index) in modelPolicyRunSummary" :key="line">
@@ -740,7 +753,13 @@
 </template>
 
 <script setup lang="ts">
-import { normalizeVisualSource, type VisualSource } from '~/composables/useProjectFlow'
+import {
+  isFlowStepApplicable,
+  parseVisualSource,
+  type EpisodeVisualSource,
+  type FlowStep,
+  type VisualSource,
+} from '~/composables/useProjectFlow'
 import type { AudioQualityMode, AudioQualityPlan } from '~/types/audio-quality'
 
 definePageMeta({ layout: 'dashboard' })
@@ -763,15 +782,30 @@ const pipelineQualityAction = useFreshGenerationAction()
 // chain order but are never enqueued by Run Batch.
 // The effective format returns only the active visual-source vocabulary:
 // timestamp-driven, continuity-chain, or narrated-scenes. Any unknown saved
-// value normalizes to the Continuity flow before these flags consume it.
+// value leaves source-dependent controls unavailable rather than assuming a flow.
 type VS = VisualSource
-const visualSource = ref<VS>('narrated-scenes')
+const visualSource = ref<VS | null>(null)
+const formatError = ref('')
+let formatRequest = 0
 async function loadVisualSource(): Promise<void> {
-  if (!slug.value) return
+  const projectSlug = slug.value
+  const request = ++formatRequest
+  visualSource.value = null
+  formatError.value = ''
+  if (!projectSlug) return
   try {
-    const f = await get<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug.value}/effective-format`)
-    visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
-  } catch { /* leave on the modern audio-paced default */ }
+    const f = await get<{ visualSource?: unknown }>(`/projects/${projectSlug}/effective-format`)
+    if (request !== formatRequest || projectSlug !== slug.value) return
+    const source = parseVisualSource(f?.visualSource)
+    if (!source) {
+      formatError.value = 'The project returned an unknown production format. Refresh this project before choosing batch work.'
+      return
+    }
+    visualSource.value = source
+  } catch (error: any) {
+    if (request !== formatRequest || projectSlug !== slug.value) return
+    formatError.value = error?.data?.detail || error?.message || 'Could not load this project’s production format.'
+  }
 }
 const isTimestampDriven = computed(() => visualSource.value === 'timestamp-driven')
 // Continuity-chain shares the audio-paced chain and adds Character Sheet
@@ -956,7 +990,7 @@ const activeChainSpec = computed<ChainSpec>(() => {
   if (isTimestampDriven.value) return CHAIN_TIMESTAMP
   if (isContinuityChain.value) return CHAIN_CONTINUITY
   if (isNarratedScenes.value) return CHAIN_NARRATED_SCENES
-  return CHAIN_NARRATED_SCENES
+  return []
 })
 
 // The full ordered display list (steps + external nodes) for the template.
@@ -979,7 +1013,7 @@ const chainLabel = computed(() => {
   if (isTimestampDriven.value) return 'Scenes — sentence-timed (transcript-driven)'
   if (isContinuityChain.value) return 'Continuity (character-locked, live-paced)'
   if (isNarratedScenes.value) return 'Scenes — sentence-timed (audio-paced)'
-  return 'Scenes — chapter-distributed'
+  return 'production flow unavailable'
 })
 const hasExternalNodes = computed(() => chainEntries.value.some(e => e.kind === 'external'))
 // Human-readable chain order for the page header — built from the active
@@ -1405,7 +1439,8 @@ async function onPresetChange(stepId: StepMeta['id'], presetId: string) {
 interface Episode {
   episode_code: string
   title: string
-  status: Record<string, boolean>
+  status: Record<string, unknown>
+  visual_source?: unknown
   // Optional provenance + override fields (Pipeline page reads them for
   // the manual-done pill + per-step "(manual)" annotation; back-end may
   // still omit them on stale rows so all are optional).
@@ -1430,7 +1465,15 @@ watch(slug, () => {
 // Shared SWR cache so navigating away and back to /pipeline is instant.
 // Auto-revalidates when any job for this slug completes — selection state
 // stays intact because we only touch selectedEpisodes here, not episodes.
-const { episodes, isLoading: epLoading, isRevalidating: epRevalidating, refresh: refreshEpisodes, rescan: rescanEpisodes, error: epError } = useEpisodes(slug)
+const {
+  episodes,
+  isLoading: epLoading,
+  isRevalidating: epRevalidating,
+  refresh: refreshEpisodes,
+  rescan: rescanEpisodes,
+  updateEpisode,
+  error: epError,
+} = useEpisodes(slug)
 
 // Surface the underlying load error in a toast (composable stores it but
 // doesn't toast — page decides whether to show).
@@ -1448,6 +1491,18 @@ async function onRefreshClick(e: MouseEvent) {
 function toggleEpisode(code: string) {
   if (selectedEpisodes.has(code)) selectedEpisodes.delete(code)
   else selectedEpisodes.add(code)
+}
+
+function episodeVisualSource(ep: Episode): EpisodeVisualSource | null {
+  const source = ep.visual_source ?? ep.status?.visual_source
+  return source === 'scene_plan' || source === 'image_pool' ? source : null
+}
+
+function onEpisodeVisualSourceChanged(episodeCode: string, source: EpisodeVisualSource): void {
+  updateEpisode(episodeCode, episode => ({
+    ...episode,
+    visual_source: source,
+  }))
 }
 // "Select all" and "Select all pending" operate on the CURRENT FILTER,
 // not the full episode list — otherwise a user who's filtered to "missing
@@ -1651,10 +1706,31 @@ const CORE_STEP_IDS = computed<StepId[]>(() =>
   visibleSteps.value.filter(s => !s.optional).map(s => s.id),
 )
 
+function isStepApplicableForEpisode(stepId: StepId, ep: Episode): boolean {
+  const source = episodeVisualSource(ep)
+  if (!source) return false
+  // B-Roll selects video clips, so it belongs only to the Scene Plan branch.
+  // Keep this estimate in lockstep with the backend's Image Pool skip.
+  if (stepId === 'broll' && source === 'image_pool') return false
+  // Pipeline's persisted batch ids use underscores while the shared flow
+  // names the same stages with hyphens. The helper reads only `key`, keeping
+  // the two source branches aligned without a second step list here.
+  return isFlowStepApplicable({ key: stepId.replaceAll('_', '-') } as FlowStep, source)
+}
+
+function selectedApplicableStages(episodeCodes: ReadonlySet<string>): number {
+  return episodes.value.reduce((total, ep) => {
+    if (!episodeCodes.has(ep.episode_code)) return total
+    return total + checkedStepsOrdered.value.filter(step => isStepApplicableForEpisode(step.id, ep)).length
+  }, 0)
+}
+
+const selectedApplicableStepCount = computed(() => selectedApplicableStages(selectedEpisodes))
+
 function missingCoreSteps(ep: Episode): number {
   let n = 0
   for (const id of CORE_STEP_IDS.value) {
-    if (!isStepDoneForEpisode(id, ep.status)) n++
+    if (isStepApplicableForEpisode(id, ep) && !isStepDoneForEpisode(id, ep.status)) n++
   }
   return n
 }
@@ -1676,7 +1752,8 @@ const sortedFilteredEpisodes = computed<Episode[]>(() => {
   let filtered: Episode[]
   const targetStep = filteredStepId.value
   if (targetStep) {
-    filtered = episodes.value.filter(ep => !isStepDoneForEpisode(targetStep, ep.status))
+    filtered = episodes.value.filter(ep =>
+      isStepApplicableForEpisode(targetStep, ep) && !isStepDoneForEpisode(targetStep, ep.status))
   } else if (filterMode.value === 'missing-only') {
     filtered = episodes.value.filter(ep => missingCoreSteps(ep) > 0)
   } else {
@@ -1732,7 +1809,9 @@ const missingCountByStep = computed<Partial<Record<StepId, number>>>(() => {
   for (const id of ids) counts[id] = 0
   for (const ep of episodes.value) {
     for (const id of ids) {
-      if (!isStepDoneForEpisode(id, ep.status)) counts[id] = (counts[id] ?? 0) + 1
+      if (isStepApplicableForEpisode(id, ep) && !isStepDoneForEpisode(id, ep.status)) {
+        counts[id] = (counts[id] ?? 0) + 1
+      }
     }
   }
   return counts
@@ -1780,7 +1859,7 @@ const selectAllTitle = computed(() => filterMode.value === 'missing-only'
 // so the pill is a reminder rather than a false "✓ done". The skip
 // logic on the backend declines to auto-skip video_assembly for the same
 // reason.
-function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | undefined): boolean {
+function isStepDoneForEpisode(stepId: StepId, status: Record<string, unknown> | undefined): boolean {
   const s = status || {}
   switch (stepId) {
     // Research is done once EVIDENCE EXISTS, exactly as the backend skips on
@@ -1827,7 +1906,7 @@ function selectAllPending() {
   for (const ep of sortedFilteredEpisodes.value) {
     const needsAny = checkedStepsOrdered.value.some(step => {
       if (step.optional) return false
-      return !isStepDoneForEpisode(step.id, ep.status)
+      return isStepApplicableForEpisode(step.id, ep) && !isStepDoneForEpisode(step.id, ep.status)
     })
     if (needsAny) selectedEpisodes.add(ep.episode_code)
   }
@@ -1840,7 +1919,7 @@ function selectAllPendingOnPage() {
   for (const ep of paginatedEpisodes.value) {
     const needsAny = checkedStepsOrdered.value.some(step => {
       if (step.optional) return false
-      return !isStepDoneForEpisode(step.id, ep.status)
+      return isStepApplicableForEpisode(step.id, ep) && !isStepDoneForEpisode(step.id, ep.status)
     })
     if (needsAny) selectedEpisodes.add(ep.episode_code)
   }
@@ -1940,7 +2019,7 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
  * "evidence exists" — the triage state rides in the tooltip instead of
  * being folded into the tick, which would destroy the distinction.
  */
-function researchNote(status: Record<string, boolean> | undefined): string {
+function researchNote(status: Record<string, unknown> | undefined): string {
   const s = status || {}
   if (!s.research) return ''
   if (!s.research_reviewed) return ' — claims still to review'
@@ -2149,8 +2228,14 @@ if (typeof window !== 'undefined') {
 // ── Validation ─────────────────────────────────────────────────────────
 const blockingIssues = computed<string[]>(() => {
   const issues: string[] = []
+  if (!visualSource.value) issues.push(formatError.value || 'Loading this project’s production format.')
   if (checkedStepCount.value === 0) issues.push('Pick at least one step to run.')
   if (selectedEpisodes.size === 0) issues.push('Select at least one episode.')
+  for (const ep of episodes.value) {
+    if (selectedEpisodes.has(ep.episode_code) && !episodeVisualSource(ep)) {
+      issues.push(`${ep.episode_code}: visual source is unavailable. Refresh this episode before running it.`)
+    }
+  }
   for (const step of checkedStepsOrdered.value) {
     const policyError = modelPolicyError(step.id)
     if (policyError) issues.push(`${step.label}: ${policyError}`)
@@ -2170,7 +2255,7 @@ const pipelineGenerateStatus = computed(() => {
 })
 const runButtonLabel = computed(() => {
   if (selectedEpisodes.size === 0 || checkedStepCount.value === 0) return 'Run Batch'
-  return `Run Batch (${selectedEpisodes.size * checkedStepCount.value} jobs)`
+  return `Run Batch (${selectedApplicableStepCount.value} estimated stages)`
 })
 
 // ── Submit ─────────────────────────────────────────────────────────────
@@ -2188,9 +2273,16 @@ interface BlockedEpisode {
 }
 const preflightBlocked = ref<BlockedEpisode[]>([])
 const preflightEligibleCount = ref(0)
+const preflightEligibleEpisodeIds = ref<string[] | null>(null)
 const batchBlocked = ref<BlockedEpisode[]>([])
 const batchHasJobs = ref(false)
 const batchReceipt = ref<{ title: string; lines: string[]; jobsUrl: string | null } | null>(null)
+
+const preflightEligibleApplicableStepCount = computed(() => {
+  const eligible = preflightEligibleEpisodeIds.value
+  if (!eligible) return selectedApplicableStepCount.value
+  return selectedApplicableStages(new Set(eligible))
+})
 
 function blockedEpisodes(value: unknown): BlockedEpisode[] {
   if (!Array.isArray(value)) return []
@@ -2256,6 +2348,7 @@ async function openConfirm(repair: boolean) {
   preflightSummary.value = ''
   preflightBlocked.value = []
   preflightEligibleCount.value = 0
+  preflightEligibleEpisodeIds.value = null
   batchBlocked.value = []
   batchHasJobs.value = false
   try {
@@ -2274,6 +2367,9 @@ async function openConfirm(repair: boolean) {
     preflightEligibleCount.value = Array.isArray(result?.eligible_episode_ids)
       ? result.eligible_episode_ids.length
       : Number(result?.episodes || selectedEpisodes.size)
+    preflightEligibleEpisodeIds.value = Array.isArray(result?.eligible_episode_ids)
+      ? result.eligible_episode_ids.filter((episodeId: unknown): episodeId is string => typeof episodeId === 'string')
+      : null
     preflightSummary.value = `${preflightEligibleCount.value} episode(s) and ${result.steps} step(s) are ready.${storage}`
     showConfirm.value = true
   } catch (e: any) {
@@ -2309,7 +2405,15 @@ async function submit() {
     const r = await post<any>(`/projects/${submittedSlug}/pipeline/run-batch`, body)
     const completedRepair = repairMode.value
     closeConfirm(true)
-    const { enqueued, reused, skipped, total_jobs_planned, steps_skipped_as_done, character_sheets_applied } = r || {}
+    const {
+      enqueued,
+      reused,
+      skipped,
+      total_jobs_planned,
+      steps_skipped_as_done,
+      steps_skipped_as_inapplicable,
+      character_sheets_applied,
+    } = r || {}
     const queuedChains = Number(enqueued || 0)
     const reusedChains = Number(reused || 0)
     const totalJobsPlanned = Number(total_jobs_planned || 0)
@@ -2317,6 +2421,9 @@ async function submit() {
     removeResolvedSubmittedEpisodes(submittedEpisodeIds, batchBlocked.value)
     batchHasJobs.value = queuedChains > 0 || reusedChains > 0
     const skipDoneCount = Array.isArray(steps_skipped_as_done) ? steps_skipped_as_done.length : 0
+    const skipInapplicableCount = Array.isArray(steps_skipped_as_inapplicable)
+      ? steps_skipped_as_inapplicable.length
+      : 0
     const parts: string[] = []
     if (queuedChains > 0) parts.push(`Added ${totalJobsPlanned} job(s) to Pipeline across ${queuedChains} episode(s)`)
     if (reusedChains > 0) parts.push(`${reusedChains} existing run(s) continue — no duplicate work queued`)
@@ -2324,6 +2431,7 @@ async function submit() {
     // surface it separately so the count isn't silently missing from the toast.
     if (character_sheets_applied > 0) parts.push(`${character_sheets_applied} character sheet(s) applied`)
     if (skipDoneCount > 0) parts.push(`${skipDoneCount} step(s) skipped as already complete`)
+    if (skipInapplicableCount > 0) parts.push(`${skipInapplicableCount} step(s) skipped because that episode uses Image Pool`)
     if (skipped?.length) parts.push(`${skipped.length} episode(s) skipped`)
     if (batchBlocked.value.length) parts.push(`${batchBlocked.value.length} selected episode(s) need attention`)
     batchReceipt.value = {
@@ -2553,6 +2661,13 @@ async function submit() {
   border: 1px dashed var(--border);
   opacity: 0.4;
   filter: grayscale(1);
+}
+.ep-pill.not-applicable {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  opacity: 0.65;
+  filter: none;
 }
 
 /* Backward-compat aliases for any consumer still using the old classes.

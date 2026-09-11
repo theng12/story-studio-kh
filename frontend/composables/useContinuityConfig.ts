@@ -13,19 +13,16 @@
  * drift the way they did before (see contracts/pacing.ts for that history).
  */
 
-import { DEFAULT_SCENE_PACING } from '@shared/pacing'
+import { DEFAULT_SCENE_PACING, parseScenePacing, type ScenePacing } from '@shared/pacing'
+import { normalizeMotionScope, type MotionScope } from '@shared/motion-scope'
 
 export interface ContinuityConfig {
   schema_version: 1
   anchor_character_ids: string[]
   use_episode_sheet: boolean
-  pacing: {
-    min_sec: number
-    max_sec: number
-    opening_duration_sec?: number
-    settled_min_sec?: number
-    settled_max_sec?: number
-  }
+  pacing: ScenePacing
+  motion_scope: MotionScope
+  motion_level: number
   references: {
     prev_render: boolean
     sheet: boolean
@@ -74,6 +71,8 @@ export function continuityDefaults(): ContinuityConfig {
     anchor_character_ids: [],
     use_episode_sheet: false,
     pacing: { ...DEFAULT_SCENE_PACING },
+    motion_scope: { mode: 'off' },
+    motion_level: 2,
     references: { prev_render: false, sheet: false, characters: false, style: false, composition: false },
     denoise_strength: 0.5,
     style_bible: '',
@@ -92,7 +91,12 @@ export function normalizeContinuityConfig(value?: Partial<ContinuityConfig> | nu
     schema_version: 1,
     anchor_character_ids: anchorIds,
     use_episode_sheet: useEpisodeSheet,
-    pacing: { ...d.pacing, ...(value?.pacing || {}) },
+    pacing: parseScenePacing(value?.pacing),
+    motion_scope: normalizeMotionScope(value?.motion_scope),
+    motion_level: typeof value?.motion_level === 'number' && Number.isInteger(value.motion_level)
+      && value.motion_level >= 1 && value.motion_level <= 4
+      ? value.motion_level
+      : d.motion_level,
     references: {
       prev_render: value?.references?.prev_render ?? d.references.prev_render,
       sheet: useEpisodeSheet,
@@ -153,6 +157,7 @@ export function normalizeContinuityConfig(value?: Partial<ContinuityConfig> | nu
 export const CONTINUITY_PRESET_EXCLUDE_KEYS = [
   'use_episode_sheet',
   'sheet',
+  'motion_scope',
   'episode_id', 'episodeId', 'episode', 'title',
 ]
 
@@ -211,9 +216,17 @@ export function applyContinuityPagePreset(
     JSON.stringify(storedPresetPacing(data) ?? current.pacing),
   ) as ContinuityConfig['pacing']
   const keepEpisodeSheet = current.use_episode_sheet === true || current.references?.sheet === true
+  const motionLevel = typeof data?.motion_level === 'number'
+    && Number.isInteger(data.motion_level)
+    && data.motion_level >= 1
+    && data.motion_level <= 4
+    ? data.motion_level
+    : current.motion_level
   return normalizeContinuityConfig({
     ...(data || {}),
     pacing,
+    motion_scope: current.motion_scope,
+    motion_level: motionLevel,
     use_episode_sheet: keepEpisodeSheet,
     references: {
       ...(data?.references || continuityDefaults().references),

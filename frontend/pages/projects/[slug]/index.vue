@@ -136,7 +136,7 @@
             <span class="coverage-icon" aria-hidden="true">{{ stage.icon }}</span>
             <strong>{{ stage.label }}</strong>
             <span v-if="stage.optional" class="coverage-optional">optional</span>
-            <span class="coverage-count">{{ stage.done }}/{{ episodeCount }}</span>
+            <span class="coverage-count">{{ stage.done }}/{{ stage.eligible }}</span>
           </div>
           <div class="coverage-track" aria-hidden="true">
             <span :style="{ transform: `scaleX(${stage.pct / 100})` }" />
@@ -250,14 +250,18 @@ import type { ProjectAudit } from '~/types/audit'
 import type { EpisodeRow } from '~/composables/useEpisodes'
 import {
   STEP_STATUS_FIELD,
-  flowForVisualSource,
   isEpisodeDone,
-  normalizeVisualSource,
+  isFlowStepApplicable,
+  normalizeEpisodeVisualSource,
+  parseVisualSource,
+  requiredStatusFields,
+  unionFlowForEpisodeSources,
+  type EpisodeVisualSource,
   type FlowStep,
   type VisualSource,
 } from '~/composables/useProjectFlow'
 
-definePageMeta({ layout: 'dashboard' })
+definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
 useAppTitle('Dashboard')
 
 const route = useRoute()
@@ -305,7 +309,7 @@ const overviewError = ref('')
 const accountsError = ref('')
 const formatError = ref('')
 const uploadAccountCount = ref<number | null>(null)
-const visualSource = ref<VisualSource>('narrated-scenes')
+const visualSource = ref<VisualSource | null>(null)
 
 // v1.4.82 — this page kept a private copy of the step → status-field map, and
 // that copy had drifted: it was missing Research and Introduction entirely, so
@@ -313,7 +317,13 @@ const visualSource = ref<VisualSource>('narrated-scenes')
 // now lives once, in useProjectFlow, beside the flow it describes.
 const STATUS_FIELD = STEP_STATUS_FIELD as Record<string, keyof EpisodeRow['status']>
 
-const steps = computed(() => flowForVisualSource(visualSource.value))
+function episodeVisualSource(ep: EpisodeRow): EpisodeVisualSource {
+  return normalizeEpisodeVisualSource((ep.status as Record<string, unknown>)?.visual_source)
+}
+
+const steps = computed(() => visualSource.value
+  ? unionFlowForEpisodeSources(visualSource.value, episodes.value.map(episodeVisualSource))
+  : [])
 const episodeCount = computed(() => episodes.value.length)
 const noAcceptedIdeas = computed(() => overview.value?.ideas?.accepted === 0 && episodeCount.value === 0)
 
@@ -328,39 +338,40 @@ function statusDone(ep: EpisodeRow, field: keyof EpisodeRow['status']): boolean 
 
 const coverageStages = computed(() => steps.value.map((step, index) => {
   const field = STATUS_FIELD[step.key]
+  const eligible = episodes.value.filter(ep => isFlowStepApplicable(step, episodeVisualSource(ep)))
   const done = step.key === 'ideas'
-    ? episodeCount.value
+    ? eligible.length
     : field
-      ? episodes.value.filter(ep => statusDone(ep, field)).length
+      ? eligible.filter(ep => statusDone(ep, field)).length
       : 0
-  const pct = episodeCount.value ? Math.round((done / episodeCount.value) * 100) : 0
+  const pct = eligible.length ? Math.round((done / eligible.length) * 100) : 0
   return {
     ...step,
     order: String(index + 1).padStart(2, '0'),
     done,
-    missing: Math.max(0, episodeCount.value - done),
+    eligible: eligible.length,
+    missing: Math.max(0, eligible.length - done),
     pct,
     field,
     to: routeForStep(step),
   }
 }))
 
-const requiredFields = computed(() => coverageStages.value
-  .filter(stage => !stage.optional && stage.field)
-  .map(stage => stage.field as keyof EpisodeRow['status']))
-
 // v1.4.82 — the same done-test the Production Board and the episode selector's
 // Steps chip use, so the three surfaces cannot disagree about one episode.
 function isComplete(ep: EpisodeRow): boolean {
-  return isEpisodeDone(ep?.status as Record<string, unknown>, visualSource.value)
+  return !!visualSource.value && isEpisodeDone(ep?.status as Record<string, unknown>, visualSource.value)
 }
 
 const readyCount = computed(() => episodes.value.filter(isComplete).length)
 const needsWorkCount = computed(() => Math.max(0, episodeCount.value - readyCount.value))
 const finalVideoCount = computed(() => episodes.value.filter(ep => statusDone(ep, 'video_assembly')).length)
-const preRenderFields = computed(() => requiredFields.value.filter(field => field !== 'video_assembly'))
 const readyToRenderCount = computed(() => episodes.value.filter(ep =>
-  !statusDone(ep, 'video_assembly') && preRenderFields.value.every(field => statusDone(ep, field)),
+  visualSource.value
+    && !statusDone(ep, 'video_assembly')
+    && requiredStatusFields(visualSource.value, episodeVisualSource(ep))
+      .filter(field => field !== 'video_assembly')
+      .every(field => statusDone(ep, field)),
 ).length)
 const activeJobCount = computed(() => jobStats.value.running + jobStats.value.queued)
 
@@ -482,6 +493,8 @@ async function runAudit() {
 
 async function loadOverview() {
   overviewLoading.value = true
+  visualSource.value = null
+  formatError.value = ''
   await Promise.all([
     (async () => {
       try {
@@ -504,9 +517,13 @@ async function loadOverview() {
     })(),
     (async () => {
       try {
-        const format = await get<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug.value}/effective-format`)
-        visualSource.value = normalizeVisualSource(format?.visualSource, format?.sceneAlignment)
-        formatError.value = ''
+        const format = await get<{ visualSource?: unknown }>(`/projects/${slug.value}/effective-format`)
+        const source = parseVisualSource(format?.visualSource)
+        if (!source) {
+          formatError.value = 'The project returned an unknown production format. Refresh this project before using dashboard workflow actions.'
+          return
+        }
+        visualSource.value = source
       } catch (error: any) {
         if (!error?.__slugRace) formatError.value = error?.data?.detail || error?.message || 'Project workflow check failed'
       }

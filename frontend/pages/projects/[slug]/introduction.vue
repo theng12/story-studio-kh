@@ -324,7 +324,11 @@ import {
   settleIntroductionJobs,
 } from '../../../composables/useIntroductionJobWatch.js'
 
-definePageMeta({ layout: 'dashboard' })
+// Presets are project-scoped and usePresets captures its slug when this page
+// is created. Force a fresh page instance when the route moves between
+// projects so one channel's recipe, enabled state, or preset controller can
+// never be saved or generated against the next channel.
+definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
 useAppTitle('Introduction')
 
 type Beat = { id: string; label: string; enabled: boolean; custom_text?: string }

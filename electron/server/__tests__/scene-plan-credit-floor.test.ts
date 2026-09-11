@@ -159,3 +159,40 @@ test('Scene Plan restart auditing is stage-aware and requires every requested pr
     await temp.cleanup()
   }
 })
+
+test('saved motion snapshots ignore a later Still choice without broadening to another scene', async () => {
+  const temp = await useTempDataDir()
+  try {
+    const pm = await import('../services/project-manager.js')
+    const ideas = await import('../services/idea-manager.js')
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+    const { auditSceneClips, auditScenePlanOutput } = await import('../boot/executors.js')
+    const project = await pm.createProject({ name: 'Still motion audit', episode_prefix: 'EP', episode_digits: 3 })
+    const [idea] = await ideas.addIdeas(project.slug, [{
+      title: 'Still snapshot', logline: 'A test.', themes: [],
+      suggested_chapters: 1, suggested_length: 'short', mood: 'neutral',
+    }], 'mock-chat-v1')
+    assert.ok(idea)
+    const accepted = await ideas.acceptIdea(project.slug, idea.id, false)
+    const paths = await resolveEpisodePathsByCode(project.slug, accepted.episode_code)
+    await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+      schema_version: 1, generated_at: new Date().toISOString(), total_duration_sec: 2,
+      research_used: false, planning_stage: 'motion', scenes: [{
+        id: 'saved-scene', scene_index: 1, start_sec: 0, end_sec: 1,
+        transcript_segment: 'Saved.', visual_prompt: 'A saved scene.', motion_prompt: '', motion_choice: 'still',
+      }, {
+        id: 'unscoped-scene', scene_index: 2, start_sec: 1, end_sec: 2,
+        transcript_segment: 'Unscoped.', visual_prompt: 'An unscoped scene.', motion_prompt: '', motion_choice: 'clip',
+      }],
+    }))
+
+    const params = { episode_id: accepted.episode_code, stage: 'motion', motion_scene_ids: ['saved-scene'] }
+    const job = { project_slug: project.slug, episode_id: accepted.episode_code, params }
+    assert.equal(await auditScenePlanOutput(job), 'complete')
+    assert.equal(await auditSceneClips(job), 'complete')
+    assert.deepEqual(params.motion_scene_ids, ['saved-scene'])
+  } finally {
+    await temp.cleanup()
+  }
+})

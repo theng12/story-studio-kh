@@ -48,6 +48,9 @@ import {
 } from '../services/scene-timeline-integrity.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
 import { checkpointSceneClip } from '../services/scene-media-checkpoint.js'
+import { resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
+import { readVideoVisualSource } from '../services/video-visual-source.js'
+import { parseSavedScenePlanPacing } from '../contracts/pacing.js'
 import type { JobType, SceneClipVariantSelection, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { RENDER_STATUS_FILENAME } from '../services/scene-render-status.js'
 
@@ -119,10 +122,24 @@ async function readScenePlanForClipDurations(slug: string, episodeId: string): P
   return JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
 }
 
+async function assertSceneIsWithinMotionScope(
+  slug: string,
+  episodeId: string,
+  sceneId: string,
+  plan: ScenePlan,
+): Promise<void> {
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+  const scope = await resolveEpisodeMotionSceneIds(slug, episodeId, plan.scenes, paths.episode_dir)
+  if (!scope.scene_ids.includes(sceneId)) {
+    throw new Error(`Scene ${sceneId} is outside this episode's saved motion scope.`)
+  }
+}
+
 async function scenesEligibleForClipBatch(
   slug: string,
   episodeId: string,
   plan: ScenePlan,
+  sceneIds?: ReadonlySet<string>,
 ): Promise<ScenePlanEntry[]> {
   const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
   const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
@@ -131,6 +148,8 @@ async function scenesEligibleForClipBatch(
   const cfg = await pm.getConfig(slug).catch(() => null)
   const animateMinSeconds = Math.max(0, Number((cfg as any)?.animate_min_seconds) || 0)
   return plan.scenes.filter(scene => (
+    (!sceneIds || sceneIds.has(scene.id))
+      &&
     scene.motion_choice !== 'still'
       && scene.approved === true
       && !!scene.motion_prompt?.trim()
@@ -231,8 +250,9 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
   try {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    const visualSource = await readVideoVisualSource(slug, episodeId)
     if (!existsSync(planPath)) {
-      return res.json({ scene_plan: null, scenes: [], audio_path: null, stats: null })
+      return res.json({ scene_plan: null, scenes: [], audio_path: null, stats: null, visual_source: visualSource.source })
     }
     let plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     if (clearLegacyPlannerFallbackReasons(plan.scenes)) {
@@ -247,6 +267,22 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     }
     const promptIntegrity = inspectScenePromptIntegrity(plan.scenes)
     const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId)
+    let motionScope: Awaited<ReturnType<typeof resolveEpisodeMotionSceneIds>> = {
+      motion_scope: { mode: 'off' },
+      motion_level: 2,
+      scene_ids: [],
+      crossing_scene_ids: [],
+    }
+    let motionScopeError: string | undefined
+    // Scene Review must remain available to repair a stale selected scope. Image
+    // Pool has no motion pass, so it does not need continuity motion settings.
+    if (visualSource.source !== 'image_pool') {
+      try {
+        motionScope = await resolveEpisodeMotionSceneIds(slug, episodeId, plan.scenes, paths.episode_dir)
+      } catch (error: any) {
+        motionScopeError = error?.message || String(error)
+      }
+    }
 
     // Annotate each scene with whether its image exists on disk. v1.0.457 —
     // check the unified named folder first, then the legacy flat scene_images/,
@@ -369,12 +405,18 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         planner_model: plan.planner_model,
         total_duration_sec: plan.total_duration_sec,
         research_used: plan.research_used,
+        pacing: plan.pacing === undefined ? undefined : parseSavedScenePlanPacing(plan.pacing),
       },
       scenes,
       audio_path: audioPath,
       render_status: renderStatus,
       active_render_job: activeJob,
       animate_min_seconds: animateMinSeconds,
+      motion_scope: motionScope.motion_scope,
+      motion_scene_ids: motionScope.scene_ids,
+      motion_crossing_scene_ids: motionScope.crossing_scene_ids,
+      visual_source: visualSource.source,
+      ...(motionScopeError ? { motion_scope_error: motionScopeError } : {}),
       prompt_integrity: promptIntegrity,
       subtitle_integrity: subtitleIntegrity,
       stats: {
@@ -519,6 +561,9 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
       if (!sameActionRequest(existing)) return res.status(409).json({ detail: 'operation_id already belongs to a different scene image request.' })
       return res.status(201).json({ ...existing, reused: true })
     }
+    if ((await readVideoVisualSource(slug, episodeId)).source !== 'scene_plan') {
+      return res.status(409).json({ detail: 'Scene image generation is not used for Image Pool episodes.' })
+    }
     await validateSceneRenderRequest(slug, episodeId, [sceneId])
     let job: Awaited<ReturnType<typeof jq.enqueue>>
     try {
@@ -634,6 +679,9 @@ async function enqueueMissingScenes(
         queued_scene_ids: missing.map((s) => s.id),
       })
     }
+    if ((await readVideoVisualSource(slug, episodeId)).source !== 'scene_plan') {
+      return res.status(409).json({ detail: 'Scene image generation is not used for Image Pool episodes.' })
+    }
 
     try {
       const manualMarker: ManualFinishMarker | undefined = manualFinish
@@ -748,13 +796,16 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
   }
 
   try {
+    const visualSource = await readVideoVisualSource(slug, episodeId)
+    if (visualSource.source !== 'scene_plan') throw new Error('Motion Review is not used for Image Pool episodes.')
+    const plan = await readScenePlanForClipDurations(slug, episodeId)
+    await assertSceneIsWithinMotionScope(slug, episodeId, sceneId, plan)
     let variant: SceneClipVariantSelection
     let sceneDurations: SceneClipDurations | undefined
     let modelId: string
     if (durationMode === 'follow_narration') {
       const resolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
       if (!resolution) return res.status(400).json({ detail: 'resolution is required when following narration' })
-      const plan = await readScenePlanForClipDurations(slug, episodeId)
       const scene = plan.scenes.find(item => item.id === sceneId)
       if (!scene) return res.status(404).json({ detail: `scene ${sceneId} not found in scene_plan.json` })
       const selected = await requireSceneClipGenStudioCatalogModel(model)
@@ -766,8 +817,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
       const selected = await requireSceneClipGenStudioModel(model, requestedVariant)
       modelId = selected.modelId
       variant = selected.variant
-      const plan = await readScenePlanForClipDurations(slug, episodeId).catch(() => null)
-      const scene = plan?.scenes.find(item => item.id === sceneId)
+      const scene = plan.scenes.find(item => item.id === sceneId)
       if (scene) sceneDurations = sceneClipDurations([scene], () => variant.duration_seconds)
     }
     if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
@@ -787,6 +837,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
         duration_seconds: variant.duration_seconds,
         resolution: variant.resolution,
         duration_mode: durationMode,
+        visual_source: visualSource.source,
         ...(sceneDurations ? { scene_durations: sceneDurations } : {}),
         auto_approve_clip: body.auto_approve_clip === true,
       },
@@ -812,15 +863,20 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
     try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
   }
   try {
+    const visualSource = await readVideoVisualSource(slug, episodeId)
+    if (visualSource.source !== 'scene_plan') throw new Error('Motion Review is not used for Image Pool episodes.')
+    const plan = await readScenePlanForClipDurations(slug, episodeId)
+    const scoped = await resolveEpisodeMotionSceneIds(slug, episodeId, plan.scenes)
+    const eligible = await scenesEligibleForClipBatch(slug, episodeId, plan, new Set(scoped.scene_ids))
+    if (!eligible.length) throw new Error('No scenes are eligible under this episode’s motion scope. Choose a scope and approve ready scenes first.')
     let variant: SceneClipVariantSelection
     let sceneDurations: SceneClipDurations | undefined
     let modelId: string
     if (durationMode === 'follow_narration') {
       const resolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
       if (!resolution) return res.status(400).json({ detail: 'resolution is required when following narration' })
-      const plan = await readScenePlanForClipDurations(slug, episodeId)
       const selected = await requireSceneClipGenStudioCatalogModel(model)
-      sceneDurations = sceneClipDurations(await scenesEligibleForClipBatch(slug, episodeId, plan), narration => selectSceneClipNarrationVariant(selected.model.variants, resolution, narration).duration_seconds)
+      sceneDurations = sceneClipDurations(eligible, narration => selectSceneClipNarrationVariant(selected.model.variants, resolution, narration).duration_seconds)
       const first = Object.values(sceneDurations)[0]
       if (!first) return res.status(400).json({ detail: 'No scenes are available to follow narration' })
       const followVariant = selectSceneClipNarrationVariant(selected.model.variants, resolution, first.narration_duration_seconds)
@@ -830,8 +886,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
       const selected = await requireSceneClipGenStudioModel(model, requestedVariant)
       modelId = selected.modelId
       variant = selected.variant
-      const plan = await readScenePlanForClipDurations(slug, episodeId).catch(() => null)
-      if (plan) sceneDurations = sceneClipDurations(await scenesEligibleForClipBatch(slug, episodeId, plan), () => variant.duration_seconds)
+      sceneDurations = sceneClipDurations(eligible, () => variant.duration_seconds)
     }
     const job = await jq.enqueue({
       project_slug: slug,
@@ -846,6 +901,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
         duration_seconds: variant.duration_seconds,
         resolution: variant.resolution,
         duration_mode: durationMode,
+        motion_scene_ids: eligible.map(scene => scene.id),
+        visual_source: visualSource.source,
         ...(sceneDurations ? { scene_durations: sceneDurations } : {}),
       },
     })
@@ -873,6 +930,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
   }
 
   try {
+    const visualSource = await readVideoVisualSource(slug, episodeId)
+    if (visualSource.source !== 'scene_plan') throw new Error('Motion Review is not used for Image Pool episodes.')
     let variant: SceneClipVariantSelection | undefined
     let modelId: string
     let followVariants: ReturnType<typeof selectSceneClipNarrationVariant>[] | undefined
@@ -894,6 +953,9 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const scoped = await resolveEpisodeMotionSceneIds(slug, episodeId, plan.scenes, paths.episode_dir)
+    const scopedIds = new Set(scoped.scene_ids)
+    if (!scopedIds.size) return res.status(400).json({ detail: 'No scenes are eligible under this episode’s motion scope.' })
 
     const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
@@ -909,6 +971,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
     let skipped = 0
     const queuedIds: string[] = []
     for (const s of plan.scenes) {
+      if (!scopedIds.has(s.id)) { skipped++; continue }
       const hasImage = existsSync(path.join(namedDir, `${s.id}.png`)) || existsSync(path.join(legacyDir, `${s.id}.png`))
       const hasMotion = !!(s.motion_prompt && s.motion_prompt.trim())
       const longEnough = (s.end_sec - s.start_sec) >= animateMinSeconds
@@ -936,6 +999,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
           duration_seconds: selectedVariant.duration_seconds,
           resolution: selectedVariant.resolution,
           duration_mode: durationMode,
+          motion_scene_ids: [s.id],
+          visual_source: visualSource.source,
           scene_durations: durations,
         },
       })
@@ -995,6 +1060,9 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
   if (existingBulk) {
     return res.json({ ...existingBulk, reused: true })
   }
+  if ((await readVideoVisualSource(slug, episodeId)).source !== 'scene_plan') {
+    return res.status(409).json({ detail: 'Scene image generation is not used for Image Pool episodes.' })
+  }
   if (jq.isDuplicate(slug, episodeId, 'continuity_render' as JobType, dedupeParams)) {
     return res.status(409).json({
       detail: singleSceneId
@@ -1049,9 +1117,12 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
   const { slug, episodeId, sceneId } = req.params
   // Strict id (matches the planner's freshId scheme) — prevents path traversal.
   if (!/^[A-Za-z0-9_-]+$/.test(sceneId)) return res.status(400).json({ detail: 'invalid scene id' })
-  const buf = decodeUploadBuffer(req.body)
-  if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
   try {
+    if ((await readVideoVisualSource(slug, episodeId)).source !== 'scene_plan') {
+      return res.status(409).json({ detail: 'Scene image replacement is not used for Image Pool episodes.' })
+    }
+    const buf = decodeUploadBuffer(req.body)
+    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
@@ -1114,6 +1185,9 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clip
     return res.status(400).json({ detail: 'Body is not an mp4 (no ftyp box). Send a valid .mp4 clip.' })
   }
   try {
+    if ((await readVideoVisualSource(slug, episodeId)).source !== 'scene_plan') {
+      return res.status(409).json({ detail: 'Motion Review is not used for Image Pool episodes.' })
+    }
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })

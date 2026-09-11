@@ -1016,6 +1016,11 @@ watch([slug, () => form.episode_id], () => {
 
 async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow): Promise<void> {
   const key = previewKey(kind, row.number)
+  const scope = imageScopeSequence
+  const project = slug.value
+  const episode = form.episode_id
+  const current = () => scope === imageScopeSequence
+    && project === slug.value && episode === form.episode_id
   if (previewState[key]?.loading) return
   if (!previewState[key]) {
     previewState[key] = {
@@ -1038,6 +1043,7 @@ async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow):
       tier: activeForm.value.tier || undefined,
       ...(typeof activeForm.value.seed === 'number' ? { seed: activeForm.value.seed } : {}),
     })
+    if (!current()) return
     previewState[key] = {
       loading: false,
       url: data.url,
@@ -1049,6 +1055,7 @@ async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow):
       error: null,
     }
   } catch (e: any) {
+    if (!current()) return
     previewState[key] = {
       ...(previewState[key] as PreviewState),
       loading: false,

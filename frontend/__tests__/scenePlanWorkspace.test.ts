@@ -19,7 +19,7 @@ describe('Scene Plan workspace', () => {
     assert.match(scenePlan, /delete activeData\.style_prompt/)
   })
 
-  test('keeps GenStudio-aware prompt batching and readable intensity controls visible', () => {
+  test('keeps GenStudio-aware prompt batching and delegates episode timing and motion controls', () => {
     assert.match(scenePlan, /class="scene-workflow-grid/)
     assert.match(scenePlan, /Advanced batch controls/)
     assert.match(scenePlan, /selectedModelContextLabel/)
@@ -33,8 +33,9 @@ describe('Scene Plan workspace', () => {
     assert.match(scenePlan, /Uses the same \{\{ effectivePromptPackSize \}\}-scene request size saved for visual prompts/)
     assert.doesNotMatch(scenePlan, /effectiveMotionPromptPackSize/)
     assert.match(scenePlan, /class="scene-advanced-batches"/)
-    assert.match(scenePlan, /class="scene-motion-controls"/)
-    assert.match(scenePlan, /:disabled="!form\.generate_motion_prompts"/)
+    assert.match(scenePlan, /<VisualTimingMotion/)
+    assert.match(scenePlan, /id="visual-timing"/)
+    assert.match(scenePlan, /@saved="applyVisualSettings"/)
     assert.match(scenePlan, /class="intensity-options"/)
     assert.doesNotMatch(scenePlan, /v-if="form\.generate_motion_prompts" class="mt-2"/)
   })
@@ -81,6 +82,26 @@ describe('Scene Plan workspace', () => {
     assert.match(scenePlan, /prompt_max_tokens: form\.value\.prompt_max_tokens/)
     assert.match(scenePlan, /Prompt repair queued in durable GenStudio packs/)
     assert.doesNotMatch(scenePlan, /one scene per endpoint|Chat Studio pool|model pool/)
+  })
+
+  test('disables and handler-guards every paid prompt action for Image Pool episodes', () => {
+    assert.match(scenePlan, /const scenePlanGenerationUnavailable = computed\(\(\) => episodeVisualSource\.value !== 'scene_plan'\)/)
+    assert.match(scenePlan, /:disabled="scenePlanGenerationUnavailable \|\| !subtitleTimelineComplete/g)
+    assert.match(scenePlan, /async function regenerateScenePrompt[\s\S]*if \(scenePlanGenerationUnavailable\.value\) return/)
+    assert.match(scenePlan, /async function regenMotionPrompt[\s\S]*if \(scenePlanGenerationUnavailable\.value\) return/)
+    assert.match(scenePlan, /async function regenAllEmptyPrompts[\s\S]*if \(scenePlanGenerationUnavailable\.value\) return/)
+  })
+
+  test('separates saved-plan pacing from the next build and waits for published model limits', () => {
+    assert.match(scenePlan, /Saved plan: \{\{ pacingSummary\(plan\.pacing\) \}\}/)
+    assert.match(scenePlan, /Next build: \{\{ pacingSummary\(continuityPacing\) \}\}/)
+    assert.match(scenePlan, /href="#visual-timing"/)
+    assert.doesNotMatch(scenePlan, /Pacing:[\s\S]{0,160}character-sheet/)
+    assert.match(scenePlan, /Choose a prompt model to see its published output allowance and safe batch size/)
+    assert.match(scenePlan, /<button v-if="hasPublishedPromptBudget"[^>]*>Next \{\{ effectivePromptPackSize \}\}<\/button>/)
+    assert.doesNotMatch(scenePlan, /FALLBACK_OUTPUT_TOKENS|8192/)
+    assert.match(scenePlan, /if \(!status\.value\?\.audio_merged\) return 'Generate and assemble audio first'/)
+    assert.match(scenePlan, /'Repair and re-stitch the subtitle timeline first'/)
   })
 
   test('condenses configuration responsively without hiding controls', () => {
