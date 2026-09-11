@@ -396,48 +396,82 @@ async function readPlans(file: string): Promise<RecoveryStore> {
   }
 }
 
-/** One lock, one record per episode; all callers consume the same queue identities. */
-export async function recoverEpisode(projectSlug: string, episodeId: string, create = true, sourceJobIds: string[] = []): Promise<EpisodeRecoveryPlan | null> {
+/** Report queue evidence, rather than treating an HTTP 202 as a dispatched job. */
+export function episodeRecoveryDispatch(plan: EpisodeRecoveryPlan, jobs: Job[]) {
+  const jobId = plan.first_unresolved
+    ? plan.steps[plan.first_unresolved]?.job_id
+    : plan.continuation_job_id || `recovery-${plan.id}-continuation`
+  const job = jobs.find(row => row.job_id === jobId && row.project_slug === plan.project_slug && row.episode_id === plan.episode_id)
+  if (job && (job.status === 'queued' || job.status === 'running' || job.status === 'paused')) {
+    return { dispatch_status: job.status, dispatch_job_id: job.job_id }
+  }
+  const complete = plan.first_unresolved === null
+    && (!plan.continuation?.length || (plan.continuation_dispatched && job?.status === 'done'))
+  return { dispatch_status: complete ? 'complete' as const : 'blocked' as const }
+}
+
+/** Serialize an episode's decisions; share the file lock only while saving records. */
+export async function recoverEpisode(projectSlug: string, episodeId: string, create = true, sourceJobIds: string[] = []): Promise<(EpisodeRecoveryPlan & { dispatch_status: 'queued' | 'running' | 'paused' | 'blocked' | 'complete'; dispatch_job_id?: string }) | null> {
   const projectDir = getProjectDir(projectSlug)
   if (!projectDir) throw new Error('Project not found.')
   await jq.getJobs(projectSlug)
   const file = path.join(projectDir, 'episode-recovery-plans.json')
-  return withLock(file, async () => {
-    const jobs = (await jq.getJobs(projectSlug)).filter(job => job.episode_id === episodeId)
-    const store = await readPlans(file)
-    let plan = store.plans[episodeId]
+  return withLock(`${file}:${episodeId}`, async () => {
+    let jobs = (await jq.getJobs(projectSlug)).filter(job => job.episode_id === episodeId)
     const selected = sourceJobIds.map(id => jobs.find(job => job.job_id === id))
-    if (selected.some(job => !job || !episodeRecoveryStep(job.type) || job.force_abandoned
-      || (!['error', 'cancelled'].includes(job.status)
-        && !Object.values(plan?.steps || {}).some(node => node.job_id === job.job_id)))) throw new Error('Recovery source must be an owned failed or cancelled episode job.')
-    // Only an explicit saved-source intent can supersede a cancellation. Replay
-    // of the same intent reuses its plan; automatic observers never select it.
-    const newCancellationIntent = selected.some(job => job!.status === 'cancelled' && !plan?.retry_source_job_ids?.includes(job!.job_id))
-    if (!plan || newCancellationIntent) {
-      if (!create) return null
-      const relevant = jobs.filter(job => episodeRecoveryStep(job.type) && !job.force_abandoned && job.status !== 'cancelled')
-      for (const job of selected) if (!relevant.some(row => row.job_id === job!.job_id)) relevant.push(job!)
-      if (!relevant.length) throw new Error('No recoverable episode jobs were found.')
-      const priorSourceIds = plan?.retry_source_job_ids || []
-      if (plan) (store.retired_plans ||= {})[plan.id] = plan
-      plan = store.plans[episodeId] = createEpisodeRecoveryPlan(relevant, sourceJobIds)
-      plan.retry_source_job_ids = [...new Set([...priorSourceIds, ...sourceJobIds])]
-      await writeJsonAtomic(file, store) // identity first, before any queue insertion
-    }
-    if (plan.project_slug !== projectSlug) throw new Error('Episode recovery belongs to another project.')
+    const plan = await withLock(file, async () => {
+      const store = await readPlans(file)
+      let plan = store.plans[episodeId]
+      if (selected.some(job => !job || !episodeRecoveryStep(job.type) || job.force_abandoned
+        || (!['error', 'cancelled'].includes(job.status)
+          && !Object.values(plan?.steps || {}).some(node => node.job_id === job.job_id)))) throw new Error('Recovery source must be an owned failed or cancelled episode job.')
+      // Only a new explicit cancellation intent starts a new recovery identity.
+      const newCancellationIntent = selected.some(job => job!.status === 'cancelled' && !plan?.retry_source_job_ids?.includes(job!.job_id))
+      if (!plan || newCancellationIntent) {
+        if (!create) return null
+        const relevant = jobs.filter(job => episodeRecoveryStep(job.type) && !job.force_abandoned && job.status !== 'cancelled')
+        for (const job of selected) if (!relevant.some(row => row.job_id === job!.job_id)) relevant.push(job!)
+        if (!relevant.length) throw new Error('No recoverable episode jobs were found.')
+        const priorSourceIds = plan?.retry_source_job_ids || []
+        if (plan) (store.retired_plans ||= {})[plan.id] = plan
+        plan = store.plans[episodeId] = createEpisodeRecoveryPlan(relevant, sourceJobIds)
+        plan.retry_source_job_ids = [...new Set([...priorSourceIds, ...sourceJobIds])]
+        await writeJsonAtomic(file, store) // identity first, before any queue insertion
+      }
+      if (plan.project_slug !== projectSlug) throw new Error('Episode recovery belongs to another project.')
+      return plan
+    })
+    if (!plan) return null
+    const save = () => withLock(file, async () => {
+      // Another episode may have finished its audit meanwhile. Merge only this
+      // episode; never overwrite the other plans with our pre-audit snapshot.
+      const store = await readPlans(file)
+      if (store.plans[episodeId]?.id !== plan.id) throw new Error('Episode recovery identity changed. Refresh Jobs before retrying.')
+      store.plans[episodeId] = plan
+      await writeJsonAtomic(file, store)
+    })
     withholdManualImageFinishFromPlan(plan)
     if (selected.length > 0 && selected.every(job => !!job?.params?.manual_image_finish)) {
       plan.message = MANUAL_IMAGE_FINISH_GUIDANCE
-      await writeJsonAtomic(file, store)
-      return plan
+      await save()
+      return { ...plan, dispatch_status: 'blocked' as const }
     }
+    const current = episodeRecoveryDispatch(plan, jobs)
+    if (current.dispatch_status === 'queued' || current.dispatch_status === 'running' || current.dispatch_status === 'paused') {
+      // The accepted job already owns this edge. Rechecking the entire disk
+      // while it waits cannot advance it; completion triggers the next audit.
+      return { ...plan, ...current }
+    }
+    let auditFailed = false
     try {
       const facts = await inspectRecovery(plan, jobs)
+      jobs = (await jq.getJobs(projectSlug)).filter(job => job.episode_id === episodeId)
       await dispatchEpisodeRecoveryStep(plan, facts, jobs, sourceJobIds)
     } catch (error) {
+      auditFailed = true
       plan.message = error instanceof Error ? error.message : String(error)
     }
-    await writeJsonAtomic(file, store)
+    await save()
     for (const row of jobs) {
       const step = episodeRecoveryStep(row.type)
       if (!step || row.status === 'cancelled' || row.force_abandoned) continue
@@ -448,7 +482,9 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
         params: { ...current.params, episode_recovery: projection, episode_recovery_id: plan.id } }))
       if (changed) await jq.checkpointJobState(changed)
     }
-    return plan
+    const dispatch = auditFailed ? { dispatch_status: 'blocked' as const }
+      : episodeRecoveryDispatch(plan, await jq.getJobs(projectSlug))
+    return { ...plan, ...dispatch }
   })
 }
 

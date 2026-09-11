@@ -181,7 +181,11 @@ test('Retry all is wired into the Jobs page and goes through retryJob', () => {
   // The retry fan-out must call retryJob, which owns the per-type dispatch
   // (including the three types that re-queue through the queue's own /retry
   // to preserve their durable params).
-  assert.match(page, /retryAllFailed[\s\S]{0,2600}await retryJob\(/)
+  const retryAllStart = page.indexOf('async function retryAllFailed')
+  const retryAllEnd = page.indexOf('\n}\n\n// The aggregator handles', retryAllStart)
+  assert.ok(retryAllEnd > retryAllStart, 'Retry all must remain a bounded function before batch summary state')
+  const retryAll = page.slice(retryAllStart, retryAllEnd + 2)
+  assert.match(retryAll, /await retryJob\(/)
   // Repair-all must not call the retry.
   const repairAll = page.slice(page.indexOf('async function repairAllFailed'))
     .slice(0, repairAllLength(page))

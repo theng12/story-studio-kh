@@ -4,6 +4,7 @@ import type { Job } from '../models/types.js'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import express from 'express'
 import request from 'supertest'
 import { pathToFileURL } from 'node:url'
@@ -754,4 +755,104 @@ test('automatic recovery does not select unrelated cancelled source jobs', async
     await assert.rejects(recoverEpisode(project.slug, 'EP0001'), /No recoverable/)
     assert.equal((await jq.getJobs(project.slug)).every(job => job.status === 'cancelled'), true)
   } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+
+test('a slow episode audit does not hold other episodes behind the plans file lock', async (t) => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  let release = () => {}
+  let first: Promise<unknown> | undefined
+  let second: Promise<unknown> | undefined
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Independent recovery audits' })
+    const projectDir = pm.getProjectDir(project.slug)!
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+    const episodeDir = (await resolveEpisodePathsByCode(project.slug, 'EP0001')).episode_dir
+    await fs.mkdir(episodeDir, { recursive: true })
+    const manifest = path.join(episodeDir, 'audio_chapters.json')
+    await fs.writeFile(manifest, JSON.stringify({ sections: [] }))
+    for (const code of ['EP0001', 'EP0002']) {
+      await jq.writeAuthoritativeJob({ ...source('scene_plan_run'), job_id: `source-${code}`, project_slug: project.slug, episode_id: code })
+    }
+    const gate = new Promise<void>(resolve => { release = resolve })
+    let reached = () => {}
+    const auditing = new Promise<void>(resolve => { reached = resolve })
+    const originalRead = fs.readFile.bind(fs)
+    t.mock.method(fs, 'readFile', async (...args: Parameters<typeof fs.readFile>) => {
+      if (String(args[0]) === manifest) { reached(); await gate }
+      return originalRead(...args)
+    })
+    const { recoverEpisode } = await subject()
+    first = recoverEpisode(project.slug, 'EP0001', true, ['source-EP0001'])
+    await Promise.race([auditing, first.then(() => { throw new Error('Fixture audit did not reach its chapter manifest') })])
+    second = recoverEpisode(project.slug, 'EP0002', true, ['source-EP0002'])
+    let secondSettled = false
+    void second.then(() => { secondSettled = true }, () => { secondSettled = true })
+    await waitFor(() => secondSettled, { label: 'EP0002 to finish while EP0001 is still checking its audio' })
+    await second
+    release()
+    await first
+    const store = JSON.parse(await originalRead(path.join(projectDir, 'episode-recovery-plans.json'), 'utf8'))
+    assert.deepEqual(Object.keys(store.plans).sort(), ['EP0001', 'EP0002'], 'concurrent completion must merge both plans')
+  } finally {
+    release()
+    await Promise.allSettled([first, second])
+    t.mock.restoreAll()
+    await jq._waitForJobPersistenceForTesting()
+    await temp.cleanup()
+  }
+})
+
+
+test('recovery response separates actual dispatch from blocked checks and completed artifacts', async () => {
+  const { createEpisodeRecoveryPlan, episodeRecoveryDispatch } = await subject()
+  const plan = createEpisodeRecoveryPlan(rows())
+  plan.first_unresolved = 'scene_plan_run'
+  const node = plan.steps.scene_plan_run!
+  const job = { ...source('scene_plan_run'), job_id: node.job_id }
+  assert.deepEqual(episodeRecoveryDispatch(plan, []), { dispatch_status: 'blocked' })
+  for (const status of ['queued', 'running', 'paused'] as const) {
+    assert.deepEqual(episodeRecoveryDispatch(plan, [{ ...job, status }]), { dispatch_status: status, dispatch_job_id: node.job_id })
+  }
+  assert.deepEqual(episodeRecoveryDispatch(plan, [{ ...job, status: 'queued', episode_id: 'EP0002' }]), { dispatch_status: 'blocked' })
+  assert.deepEqual(episodeRecoveryDispatch(plan, [job]), { dispatch_status: 'blocked' }, 'failed job is not queued')
+  plan.first_unresolved = null
+  assert.deepEqual(episodeRecoveryDispatch(plan, []), { dispatch_status: 'complete' })
+  plan.continuation = [{ type: 'metadata' }]
+  assert.deepEqual(episodeRecoveryDispatch(plan, []), { dispatch_status: 'blocked' }, 'unfinished continuation is not completed')
+  plan.continuation_dispatched = true
+  assert.deepEqual(episodeRecoveryDispatch(plan, [{ ...job, job_id: `recovery-${plan.id}-continuation`, type: 'metadata', status: 'running' }]), {
+    dispatch_status: 'running', dispatch_job_id: `recovery-${plan.id}-continuation`,
+  })
+})
+
+test('checking an already queued recovery returns its identity without another prerequisite scan', async (t) => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Queued recovery does not rescan' })
+    const original = { ...source('scene_plan_run'), job_id: 'queued-recovery-source', project_slug: project.slug }
+    const { createEpisodeRecoveryPlan, recoverEpisode } = await subject()
+    const plan = createEpisodeRecoveryPlan([original])
+    plan.first_unresolved = 'scene_plan_run'
+    const node = plan.steps.scene_plan_run!
+    node.dispatched = true
+    const active = { ...original, job_id: node.job_id, status: 'queued' as const, params: { episode_recovery_id: plan.id } }
+    await jq.writeAuthoritativeJob(original)
+    await jq.getJobs(project.slug)
+    await jq.setQueuePaused(true)
+    await jq.enqueueEpisodeRecoveryOnce(active.job_id, { project_slug: project.slug, episode_id: active.episode_id, type: active.type, params: active.params })
+    await fs.writeFile(path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json'), JSON.stringify({ version: 1, plans: { EP0001: plan } }))
+    let scans = 0
+    const read = fs.readdir.bind(fs)
+    t.mock.method(fs, 'readdir', async (...args: Parameters<typeof fs.readdir>) => { scans++; return read(...args) })
+    const result = await recoverEpisode(project.slug, 'EP0001', true, [original.job_id])
+    assert.equal(result!.dispatch_status, 'queued')
+    assert.equal(result!.dispatch_job_id, active.job_id)
+    assert.equal(scans, 0, 'no episode tree or artifact audit while its accepted job is queued')
+    assert.equal((await jq.getJobs(project.slug)).length, 2, 'no duplicate recovery job')
+  } finally { t.mock.restoreAll(); await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })

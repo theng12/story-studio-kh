@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.150
+
+- Jobs: Retry all shows live progress and separates queued retries, already-complete episodes, and blocked checks, with episode-specific reasons.
+- Episode recovery checks run independently without holding the whole project behind a slow episode. Queued and running recovery jobs reuse their saved identity without repeating the full prerequisite scan.
+- Existing outputs, provider receipts, and safeguards against duplicate generation remain intact.
+
 ## v1.4.149 — 2026-09-11
 
 - Explain subtitle gaps with separate chapter-audio positions, full-episode positions, and the number of seconds without subtitles. Clarify the audio player’s clock and that a subtitle gap alone does not prove the audio is wrong.

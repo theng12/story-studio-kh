@@ -7,7 +7,7 @@ import { compileScript, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 import { describeEpisodeAssetRecovery, recoverEpisodeAssets } from '../utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '../utils/episode-recovery'
-import { filterJobsForView } from '../utils/job-presentation'
+import { customerSafeJobText, filterJobsForView } from '../utils/job-presentation'
 
 const pagePath = fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url))
 const source = readFileSync(pagePath, 'utf8')
@@ -45,7 +45,7 @@ async function loadJobs(): Promise<Component> {
     const describeRetryAllTriage = () => ''
     const normaliseRepairResult = () => null
     const triageFailedJobsForRetryAll = (jobs) => ({ retry: jobs, alreadyComplete: [], blocked: [] })
-    const customerSafeJobText = value => String(value || '')
+    const customerSafeJobText = globalThis.__customerSafeJobText
     const filterJobsForView = globalThis.__filterJobsForView
     const isVerifiedLiveCapacity = () => false
     const jobRequestIds = () => []
@@ -127,7 +127,7 @@ async function mount(
   ;(globalThis as any).__jobsProjectQueue = projectQueue
   ;(globalThis as any).__jobsUniversalQueue = universalQueue
   ;(globalThis as any).__jobsApi = {
-    get: async () => ({}), del: async () => ({}), put: async () => ({}),
+    get: async (path: string) => path === '/projects' ? [] : {}, del: async () => ({}), put: async () => ({}),
     post: async (path: string, body: unknown) => {
       posts.push({ path, body })
       if (postReply) return postReply(path, body)
@@ -148,6 +148,7 @@ async function mount(
   ;(globalThis as any).__isVerifiedRecoveredSubtitleJob = isVerifiedRecoveredSubtitleJob
   ;(globalThis as any).__jobDisplayStatus = jobDisplayStatus
   ;(globalThis as any).__filterJobsForView = filterJobsForView
+  ;(globalThis as any).__customerSafeJobText = customerSafeJobText
   const Jobs = await loadJobs()
   const host = document.body.appendChild(document.createElement('div'))
   const app = createApp(Jobs)
@@ -211,27 +212,125 @@ test('mounted Jobs keeps one Finish request busy until its same row returns', as
   } finally { mounted.unmount() }
 })
 
-test('mounted Retry all continues after one grouped episode recovery is rejected', async () => {
+test('mounted Retry all shares three workers, reports progress, ignores repeat clicks, and keeps its starting scope', async () => {
+  const waiting = new Map<string, (value: unknown) => void>()
+  const projectA = [
+    { job_id: 'episode-one', project_slug: 'project-a', episode_id: 'EP0001', type: 'audio_merge', status: 'error', params: {} },
+    { job_id: 'episode-one-tail', project_slug: 'project-a', episode_id: 'EP0001', type: 'scene_plan_run', status: 'error', params: {} },
+    { job_id: 'episode-two', project_slug: 'project-a', episode_id: 'EP0002', type: 'scene_plan_run', status: 'error', params: {} },
+    { job_id: 'episode-three', project_slug: 'project-a', episode_id: 'EP0003', type: 'contextual_cues', status: 'error', params: {} },
+    { job_id: 'ordinary-four', project_slug: 'project-a', episode_id: 'EP0004', type: 'thumb_images', status: 'error', params: {} },
+  ]
+  const mounted = await mount([
+    ...projectA,
+    { job_id: 'outside-scope', project_slug: 'project-b', episode_id: 'EP0099', type: 'audio_merge', status: 'error', params: {} },
+  ], path => new Promise(resolve => { waiting.set(path, resolve) }), { scope: 'all' })
+  let retry: Promise<boolean> | undefined
+  try {
+    mounted.state.projectFilter.value = 'project-a'
+    await nextTick()
+    retry = mounted.state.retryAllFailed()
+    await nextTick()
+
+    assert.equal(mounted.posts.length, 3, 'grouped and ordinary actions share one three-request ceiling')
+    assert.deepEqual(mounted.posts[0], {
+      path: '/projects/project-a/jobs/recover-episode/EP0001',
+      body: { source_job_ids: ['episode-one', 'episode-one-tail'] },
+    }, 'dependent rows from the same episode remain one server-owned request')
+    assert.deepEqual(mounted.state.retryAllCurrentEpisodes.value, [
+      'project-a / EP0001', 'project-a / EP0002', 'project-a / EP0003',
+    ])
+    assert.equal(mounted.state.retryAllRun.value.completed, 0)
+    assert.equal(mounted.state.retryAllRun.value.total, 4)
+    assert.equal(mounted.state.retryAllButtonLabel.value, 'Retrying 0/4…')
+    assert.equal(mounted.state.retryAllStatusMessage.value, 'Retry all: 0 of 4 finished · working on project-a / EP0001, project-a / EP0002, project-a / EP0003.')
+    assert.equal(await mounted.state.retryAllFailed(), false, 'a repeated click cannot start a second snapshot')
+    assert.equal(mounted.posts.length, 3)
+
+    mounted.state.projectFilter.value = 'all'
+    waiting.get('/projects/project-a/jobs/recover-episode/EP0001')?.({
+      plan: { dispatch_status: 'queued', dispatch_job_id: 'dispatch-one', message: 'EP0001 queued.' },
+    })
+    await Promise.resolve()
+    await nextTick()
+    assert.equal(mounted.posts.length, 4, 'the freed worker starts the ordinary retry immediately')
+    assert.equal(mounted.state.retryAllRun.value.completed, 1)
+    assert.deepEqual(mounted.state.retryAllCurrentEpisodes.value, [
+      'project-a / EP0002', 'project-a / EP0003', 'project-a / EP0004',
+    ])
+
+    waiting.get('/projects/project-a/jobs/recover-episode/EP0002')?.({
+      plan: { dispatch_status: 'running', dispatch_job_id: 'dispatch-two', message: 'EP0002 already running.' },
+    })
+    waiting.get('/projects/project-a/jobs/recover-episode/EP0003')?.({
+      plan: { dispatch_status: 'complete', message: 'EP0003 was already complete.' },
+    })
+    waiting.get('/projects/project-a/jobs/ordinary-four/retry')?.({
+      job: { ...projectA[4], job_id: 'ordinary-four-retry', status: 'queued' },
+    })
+    assert.equal(await retry, true)
+    assert.deepEqual(mounted.state.retryAllCounts.value, { sent: 3, alreadyComplete: 1, needsAttention: 0 })
+    assert.equal(mounted.state.bulkActionMessage.value, 'Retry all finished: 3 queued or running; 1 already complete; 0 need attention. Original failed rows may remain in history.')
+    assert.equal(mounted.state.retryAllStatusMessage.value, mounted.state.bulkActionMessage.value, 'the final counts remain visible after the workers finish')
+    assert.equal(mounted.posts.some(call => call.path.includes('project-b')), false, 'changing the filter does not widen the active snapshot')
+    assert.deepEqual(mounted.universalQueue.transportCalls(), { refreshCalls: 1, fetchCalls: 0 }, 'the visible queue refreshes once after the snapshot settles')
+  } finally {
+    // An early assertion must not strand the mounted page's workers or timers.
+    for (let pass = 0; pass < projectA.length; pass++) {
+      for (const [path, resolve] of waiting) {
+        resolve(path.endsWith('/retry')
+          ? { job: { ...projectA[4], job_id: 'ordinary-four-cleanup', status: 'queued' } }
+          : { plan: { dispatch_status: 'blocked', message: 'Test cleanup.' } })
+        waiting.delete(path)
+      }
+      await Promise.resolve()
+    }
+    await retry?.catch(() => undefined)
+    mounted.unmount()
+  }
+})
+
+test('mounted Retry all classifies every recovery plan and continues after failures', async () => {
   const mounted = await mount([
     { job_id: 'first-episode', project_slug: 'fixture-project', episode_id: 'EP0001', type: 'audio_merge', status: 'error', params: {} },
     { job_id: 'second-episode', project_slug: 'fixture-project', episode_id: 'EP0002', type: 'scene_plan_run', status: 'error', params: {} },
-    { job_id: 'ordinary-failure', project_slug: 'fixture-project', episode_id: 'EP0003', type: 'audio', status: 'error', params: {} },
+    { job_id: 'paused-episode', project_slug: 'fixture-project', episode_id: 'EP0003', type: 'contextual_cues', status: 'error', params: {} },
+    { job_id: 'blocked-episode', project_slug: 'fixture-project', episode_id: 'EP0004', type: 'audio_merge', status: 'error', params: {} },
+    { job_id: 'complete-episode', project_slug: 'fixture-project', episode_id: 'EP0005', type: 'scene_plan_run', status: 'error', params: {} },
+    { job_id: 'unconfirmed-episode', project_slug: 'fixture-project', episode_id: 'EP0006', type: 'audio_merge', status: 'error', params: {} },
+    { job_id: 'ordinary-failure', project_slug: 'fixture-project', episode_id: 'EP0007', type: 'audio', status: 'error', params: {} },
   ], async (path) => {
     if (path.endsWith('/EP0001')) throw new Error('The first provider request still needs reconciliation.')
-    if (path.endsWith('/EP0002')) return { plan: { message: 'EP0002 queued' } }
+    if (path.endsWith('/EP0002')) return { plan: { dispatch_status: 'queued', dispatch_job_id: 'queued-two', message: 'EP0002 queued.' } }
+    if (path.endsWith('/EP0003')) return { plan: { dispatch_status: 'paused', dispatch_job_id: 'paused-three', message: 'Resume the queue to continue EP0003.' } }
+    if (path.endsWith('/EP0004')) return { plan: { dispatch_status: 'blocked', message: 'EP0004 needs a subtitle choice for blocked-episode.' } }
+    if (path.endsWith('/EP0005')) return { plan: { dispatch_status: 'complete', message: 'EP0005 already has every output.' } }
+    if (path.endsWith('/EP0006')) return { plan: { message: 'Legacy 202 response without a dispatch result.' } }
     if (path.endsWith('/ordinary-failure/retry')) throw new Error('The independent retry was rejected.')
     throw new Error(`unexpected request: ${path}`)
   })
   try {
     await mounted.state.retryAllFailed()
-    assert.deepEqual(mounted.posts.map(call => call.path), [
+    assert.deepEqual(mounted.posts.map(call => call.path).sort(), [
       '/projects/fixture-project/jobs/recover-episode/EP0001',
       '/projects/fixture-project/jobs/recover-episode/EP0002',
+      '/projects/fixture-project/jobs/recover-episode/EP0003',
+      '/projects/fixture-project/jobs/recover-episode/EP0004',
+      '/projects/fixture-project/jobs/recover-episode/EP0005',
+      '/projects/fixture-project/jobs/recover-episode/EP0006',
       '/projects/fixture-project/jobs/ordinary-failure/retry',
+    ].sort(), 'one failed worker action does not prevent later actions from starting')
+    assert.deepEqual(mounted.state.retryAllCounts.value, { sent: 1, alreadyComplete: 1, needsAttention: 5 })
+    assert.deepEqual(mounted.state.retryAllAttentionResults.value.map((result: any) => [result.label, result.reason]), [
+      ['EP0001', 'The first provider request still needs reconciliation.'],
+      ['EP0003', 'Resume the queue to continue EP0003.'],
+      ['EP0004', 'EP0004 needs a subtitle choice for [request hidden].'],
+      ['EP0006', 'Legacy 202 response without a dispatch result.'],
+      ['EP0007', 'Story Studio could not confirm this retry was queued.'],
     ])
     assert.deepEqual(mounted.toasts[mounted.toasts.length - 1], {
       kind: 'error',
-      message: '2 of 3 retry action(s) could not be sent. 1 was sent to the queue.',
+      message: 'Retry all finished: 1 queued or running; 1 already complete; 5 need attention. Original failed rows may remain in history.',
     })
   } finally { mounted.unmount() }
 })
