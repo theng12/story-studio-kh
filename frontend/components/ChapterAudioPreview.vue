@@ -16,6 +16,9 @@
           <option v-for="(part, index) in parts" :key="part.part" :value="index">Part {{ index + 1 }} of {{ parts.length }}</option>
         </select>
       </label>
+      <p class="text-muted text-sm">
+        {{ parts.length > 1 ? 'The player clock is time within the selected audio part; it restarts at zero for each part.' : 'The player clock is time within this chapter, not the full episode.' }}
+      </p>
       <audio :key="audioSrc" ref="player" :src="audioSrc" controls preload="metadata"
         :aria-label="`${section.replaceAll('_', ' ')} audio, part ${partIndex + 1}`"
         @loadedmetadata="startPlayback" @ended="playNextPart" @error="playbackFailed" />

@@ -86,8 +86,8 @@
               class="mt-2 sub-gap-notice"
             >
               <p v-if="hasBlockingCueGaps">
-                The stitched timeline has an interval with no subtitle cues. Re-stitching alone cannot add the missing cues.
-                Listen to the chapter audio. If the audio is wrong, regenerate it in Audio Generator; if it sounds correct, regenerate its subtitles. Then stitch again.
+                No subtitles cover the intervals below. This does not prove the audio is wrong.
+                Listen near the gap: if the speech is clear, regenerate that chapter’s subtitles; if the audio sounds wrong, fix it in Audio Generator first. Then stitch again.
               </p>
               <p v-else-if="planningSourceRevalidationRequired">
                 This is the current raw timeline. Scene Plan will revalidate the corrected timeline before any provider work.
@@ -95,12 +95,16 @@
               <p v-else>Subtitle timeline verification is incomplete. Re-stitch it, then recheck before Scene Plan.</p>
               <ul v-if="subtitleTimelineIntegrity.blocking_cue_gaps?.length" class="sub-gap-list">
                 <li v-for="(gap, index) in subtitleTimelineIntegrity.blocking_cue_gaps || []" :key="`${gap.previous_end_sec}-${gap.next_start_sec}-${index}`">
-                  {{ gapLabel(gap) }}
-                  <template v-if="gap.section_local_start_sec !== undefined && gap.section_local_end_sec !== undefined">
-                    (chapter {{ formatSeconds(gap.section_local_start_sec) }}–{{ formatSeconds(gap.section_local_end_sec) }})
-                  </template>
+                  <strong>{{ gap.section_slugs.map(section => section.replaceAll('_', ' ')).join(', ') || 'Chapter could not be identified' }}</strong>
+                  <div>Time without subtitles: <strong>{{ gap.gap_sec.toFixed(1) }} seconds</strong></div>
+                  <div v-if="gap.section_local_start_sec !== undefined && gap.section_local_end_sec !== undefined">
+                    In chapter audio: <strong>{{ formatSeconds(gap.section_local_start_sec) }}–{{ formatSeconds(gap.section_local_end_sec) }}</strong> (minutes:seconds)
+                  </div>
+                  <div v-else>The chapter audio position is unavailable; use the full episode timeline below.</div>
+                  <div class="text-muted">In full episode: {{ formatSeconds(gap.previous_end_sec) }}–{{ formatSeconds(gap.next_start_sec) }} (minutes:seconds)</div>
                 </li>
               </ul>
+              <p v-if="hasBlockingCueGaps" class="text-sm">Chapter audio times start at the beginning of that chapter. Full episode times include the chapters before it. Listen starts up to two seconds before the first gap with a known chapter position.</p>
               <template #actions>
                 <NuxtLink
                   v-if="planningSourceRevalidationRequired && !hasBlockingCueGaps"
@@ -628,10 +632,6 @@ function formatSeconds(value: number): string {
   const seconds = value - minutes * 60
   return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`
 }
-function gapLabel(gap: NonNullable<NonNullable<SubtitleStatus['timeline_integrity']>['blocking_cue_gaps']>[number]): string {
-  const chapters = gap.section_slugs.join(', ') || 'unmapped chapter'
-  return `${chapters}: ${formatSeconds(gap.previous_end_sec)}–${formatSeconds(gap.next_start_sec)} (${gap.gap_sec.toFixed(1)}s)`
-}
 function audioSectionLink(section: string): string {
   return `/projects/${encodeURIComponent(slug.value)}/audio?episode_id=${encodeURIComponent(episodeId.value)}&section=${encodeURIComponent(section)}`
 }
@@ -1032,6 +1032,7 @@ onMounted(async () => {
 
 .sub-gap-notice :deep(.workspace-notice-actions) { grid-column: 2 / -1; flex-wrap: wrap; align-items: flex-start; }
 .sub-gap-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sub-gap-list strong { display: inline; }
 .sub-gap-list { margin: 8px 0 0; padding-left: 18px; font-size: var(--font-xs); }
 .sub-chapter-list, .sub-file-list { list-style: none; margin: 0; padding: 0; }
 .sub-chapter-row, .sub-file-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
