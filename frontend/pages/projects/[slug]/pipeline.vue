@@ -654,6 +654,25 @@
     </WorkspaceNotice>
 
 
+    <Modal :visible="!!batchReceipt" size="md" labelledby="batch-result-title" @close="batchReceipt = null">
+      <template v-if="batchReceipt">
+        <h3 id="batch-result-title">{{ batchReceipt.title }}</h3>
+        <ul class="mt-2 problems-list">
+          <li v-for="line in batchReceipt.lines" :key="line">{{ line }}</li>
+        </ul>
+        <p v-if="batchReceipt.jobsUrl" class="text-muted text-sm mt-2">
+          Work continues as the queue has capacity. You can stay here or follow its progress in Jobs.
+        </p>
+        <p v-if="batchBlocked.length" class="text-muted text-sm mt-2">
+          Episodes that could not start remain selected. Their reasons are shown on Pipeline.
+        </p>
+        <div class="flex flex-wrap gap-2 mt-3 justify-end">
+          <button class="btn btn-secondary" @click="batchReceipt = null">Stay on Pipeline</button>
+          <NuxtLink v-if="batchReceipt.jobsUrl" :to="batchReceipt.jobsUrl" class="btn btn-primary">View Jobs</NuxtLink>
+        </div>
+      </template>
+    </Modal>
+
     <!-- ── Confirmation modal ───────────────────────────────────────────── -->
     <Modal :visible="showConfirm" size="md" labelledby="batch-confirm-title" @close="closeConfirm()">
       <h3 id="batch-confirm-title">{{ repairMode ? 'Repair selected gaps?' : 'Run batch?' }}</h3>
@@ -2171,6 +2190,7 @@ const preflightBlocked = ref<BlockedEpisode[]>([])
 const preflightEligibleCount = ref(0)
 const batchBlocked = ref<BlockedEpisode[]>([])
 const batchHasJobs = ref(false)
+const batchReceipt = ref<{ title: string; lines: string[]; jobsUrl: string | null } | null>(null)
 
 function blockedEpisodes(value: unknown): BlockedEpisode[] {
   if (!Array.isArray(value)) return []
@@ -2276,6 +2296,7 @@ async function submit() {
   submitting.value = true
   try {
     if (!repairMode.value && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
+    const submittedSlug = slug.value
     const submittedEpisodeIds = [...selectedEpisodes]
     const body = {
       episode_ids: submittedEpisodeIds,
@@ -2285,7 +2306,7 @@ async function submit() {
       ...(repairMode.value ? { repair_missing: true, action_id: repairActionId.value } : {}),
       ...(!repairMode.value && forceRerun.value ? { operation_id: runActionId.value } : {}),
     }
-    const r = await post<any>(`/projects/${slug.value}/pipeline/run-batch`, body)
+    const r = await post<any>(`/projects/${submittedSlug}/pipeline/run-batch`, body)
     const completedRepair = repairMode.value
     closeConfirm(true)
     const { enqueued, reused, skipped, total_jobs_planned, steps_skipped_as_done, character_sheets_applied } = r || {}
@@ -2297,15 +2318,20 @@ async function submit() {
     batchHasJobs.value = queuedChains > 0 || reusedChains > 0
     const skipDoneCount = Array.isArray(steps_skipped_as_done) ? steps_skipped_as_done.length : 0
     const parts: string[] = []
-    if (queuedChains > 0) parts.push(`Queued ${queuedChains} chain(s) — ${totalJobsPlanned} total jobs`)
-    if (reusedChains > 0) parts.push(`${reusedChains} active scene render(s) reused — no duplicate Hub work`)
+    if (queuedChains > 0) parts.push(`Added ${totalJobsPlanned} job(s) to Pipeline across ${queuedChains} episode(s)`)
+    if (reusedChains > 0) parts.push(`${reusedChains} existing run(s) continue — no duplicate work queued`)
     // Character Sheet is applied inline (continuity.json written), not queued —
     // surface it separately so the count isn't silently missing from the toast.
     if (character_sheets_applied > 0) parts.push(`${character_sheets_applied} character sheet(s) applied`)
     if (skipDoneCount > 0) parts.push(`${skipDoneCount} step(s) skipped as already complete`)
     if (skipped?.length) parts.push(`${skipped.length} episode(s) skipped`)
     if (batchBlocked.value.length) parts.push(`${batchBlocked.value.length} selected episode(s) need attention`)
-    success(parts.length ? (completedRepair ? `Repair started · ${parts.join(' · ')}` : parts.join(' · ')) : 'Nothing new was queued.')
+    batchReceipt.value = {
+      title: queuedChains > 0 ? (completedRepair ? 'Repair queued' : 'Batch queued')
+        : reusedChains > 0 ? 'Work already active' : 'Batch checked',
+      lines: parts.length ? parts : ['Nothing new was queued.'],
+      jobsUrl: batchHasJobs.value ? `/projects/${submittedSlug}/jobs` : null,
+    }
     // A skipped step queues NO job, so "see Jobs tab" sent the user to a
     // screen that could not explain the skip. The backend already returns a
     // reason per episode — show it. Distinct reasons only: a batch skips the
@@ -2316,8 +2342,6 @@ async function submit() {
       for (const reason of reasons.slice(0, 3)) showInfo(`Skipped — ${reason}`)
       if (reasons.length > 3) showInfo(`…and ${reasons.length - 3} more skip reason(s).`)
     }
-    // Let the user watch it unfold without manual navigation:
-    if (batchHasJobs.value && !batchBlocked.value.length) navigateTo(`/projects/${slug.value}/jobs`)
   } catch (e: any) {
     const blocked = blockedEpisodes(e?.data?.blocked)
     if (blocked.length && !hasGlobalPreflightIssue(e?.data?.issues)) {
