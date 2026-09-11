@@ -28,6 +28,8 @@ import * as jq from '../services/job-queue.js'
 import type { Job, SceneClipVariantSelection, ScenePlan } from '../models/types.js'
 import { auditSceneClipCompletion, checkpointSceneClip } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { normalizeMotionScope, resolveMotionScope, type MotionScope } from '../contracts/motion-scope.js'
+import { motionSceneIdsForNewRequest } from '../services/scene-motion-prompt-scope.js'
 import { createHash } from 'crypto'
 import { hashInput, readManifest, recordTask, recordTaskStrict, type TaskManifestEntry } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
@@ -171,6 +173,13 @@ interface SceneClipGenerateParams {
     narration_duration_seconds: number
   }>
   duration_mode?: 'manual' | 'follow_narration'
+  /** Exact eligible IDs accepted for a new bulk motion request. */
+  motion_scene_ids?: string[]
+  /** Explicit episode scope accepted before a Pipeline replan. The new plan
+   * resolves this once into motion_scene_ids before any clip request. */
+  motion_scope?: MotionScope
+  /** Source chosen when this clip request was accepted; the queue validates it before work starts. */
+  visual_source?: 'scene_plan' | 'image_pool'
   /** Unattended pipeline runs approve their generated clip automatically. */
   auto_approve_clip?: boolean
 }
@@ -648,7 +657,37 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
   // preserve that accepted paid-work boundary even if a prompt/image changed
   // while the queue was waiting. Legacy jobs have no map and retain their
   // historical reconciliation behavior.
-  const requestedSceneIds = params.scene_durations ? new Set(Object.keys(params.scene_durations)) : null
+  let snapshotIds = Array.isArray(params.motion_scene_ids) ? params.motion_scene_ids : null
+  if (params.motion_scene_ids !== undefined && snapshotIds === null) {
+    throw new Error('Motion clip request has invalid scene IDs. Submit the scoped motion batch again.')
+  }
+  // Pipeline can rebuild Scene Plan earlier in the same chain, so it cannot
+  // freeze IDs from the plan it is replacing. Its accepted scope is still an
+  // immutable job parameter: resolve that scope against the newly saved plan
+  // exactly once, then checkpoint the resulting IDs before preflight or paid
+  // provider work. Jobs from older versions have neither field and keep their
+  // established whole-plan recovery behavior.
+  if (snapshotIds === null && params.motion_scope !== undefined) {
+    const motionScope = normalizeMotionScope(params.motion_scope)
+    snapshotIds = motionSceneIdsForNewRequest(
+      plan.scenes,
+      resolveMotionScope(plan.scenes, motionScope).scene_ids,
+    )
+    params.motion_scope = motionScope
+    params.motion_scene_ids = snapshotIds
+    await jq.checkpointJobState(job)
+  }
+  const requestedSceneIds = snapshotIds
+    ? new Set(snapshotIds)
+    : params.scene_durations ? new Set(Object.keys(params.scene_durations)) : null
+  if (snapshotIds && (snapshotIds.some(id => typeof id !== 'string' || !id.trim()) || requestedSceneIds!.size !== snapshotIds.length)) {
+    throw new Error('Motion clip request has invalid scene IDs. Submit the scoped motion batch again.')
+  }
+  const planIds = new Set(plan.scenes.map(scene => scene.id))
+  const missingSnapshotIds = snapshotIds?.filter(id => !planIds.has(id)) || []
+  if (missingSnapshotIds.length) {
+    throw new Error(`Requested motion scenes no longer exist: ${missingSnapshotIds.join(', ')}. Submit the scoped motion batch again.`)
+  }
   const requiredIds: string[] = requestedSceneIds ? [...requestedSceneIds] : []
   for (const scene of plan.scenes) {
     if (requestedSceneIds && !requestedSceneIds.has(scene.id)) continue

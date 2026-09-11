@@ -22,7 +22,11 @@ import { findIncompleteSubtitleSections, stitchSubtitles } from '../services/sub
 import { resolveTranscriptSrt, resolveTranscriptSrtPath, stitchedSrtPath } from '../services/subtitle-correction.js'
 import { inspectSubtitleText } from '../lib/subtitle-quality.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
-import { allowedSubtitleCueGapSec } from '../services/scene-plan-pacing.js'
+import { parseSavedScenePlanPacing, parseScenePacing } from '../contracts/pacing.js'
+import { readEpisodeMotionScope, resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
+import { motionPromptSceneIds } from '../services/scene-motion-prompt-scope.js'
+import { readVideoVisualSource } from '../services/video-visual-source.js'
+import { allowedSubtitleCueGapSec, resolveScenePlanRepairPacing } from '../services/scene-plan-pacing.js'
 import { requireScenePlanGenStudioModel, SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
   computePlanCoverage,
@@ -38,7 +42,7 @@ import {
   type ScenePromptPackSetting,
 } from '../services/scene-prompt-batching.js'
 import { parsePromptCharCap } from '../services/prompt-char-cap.js'
-import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { findFreshActionJob, freshActionFingerprint, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { normalizeCreativeDirection } from '../services/scene-creative-direction.js'
 import { clearLegacyPlannerFallbackReasons } from '../services/scene-prompt-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
@@ -50,6 +54,74 @@ export const router = Router()
 function parseCreativeDirection(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   return normalizeCreativeDirection(value as Record<string, unknown>)
+}
+
+function scenePromptReplayFingerprint(params: Record<string, unknown>) {
+  const model = typeof params.model === 'string'
+    ? params.model.trim().replace(/^genstudio-chat:/i, '')
+    : ''
+  return freshActionFingerprint({
+    episode_id: params.episode_id,
+    model,
+    regenerate_prompt_scene_id: params.regenerate_prompt_scene_id,
+    reword_prompt: params.reword_prompt,
+    detail_level: params.detail_level,
+    style_prompt: params.style_prompt,
+    custom_instructions: params.custom_instructions,
+    creative_direction: params.creative_direction,
+    prompt_char_cap: params.prompt_char_cap,
+    avoid_legible_text: params.avoid_legible_text,
+  })
+}
+
+async function assertScenePlanVisualSource(slug: string, episodeId: string) {
+  const source = await readVideoVisualSource(slug, episodeId)
+  if (source.source !== 'scene_plan') throw new Error('This episode uses Image Pool. Open Image Pool selection, or choose Scene Plan before generating scenes.')
+  return source.source
+}
+
+/** Freeze the episode decision before enqueue; Retry never re-reads a wider scope. */
+export async function scenePlanVisualSnapshot(slug: string, episodeId: string, stage: string, limit?: number) {
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+  const visual_source = await assertScenePlanVisualSource(slug, episodeId)
+  if (stage === 'visual') return { visual_source, motion_scope: { mode: 'off' } as const, motion_level: 2, motion_scene_ids: undefined, pacing: undefined }
+  const motion = await readEpisodeMotionScope(slug, episodeId, paths.episode_dir)
+  let pacing
+  if (stage === 'timeline') {
+    let saved: unknown
+    try { saved = JSON.parse(await fs.readFile(path.join(paths.episode_dir, 'continuity.json'), 'utf8')).pacing }
+    catch (error: any) { if (error?.code !== 'ENOENT') throw error }
+    pacing = parseScenePacing(saved)
+  }
+  let motion_scene_ids: string[] | undefined
+  if (stage === 'motion') {
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
+    motion_scene_ids = motionPromptSceneIds(plan.scenes, motion.motion_scope, undefined, limit)
+  }
+  return { visual_source, ...motion, ...(pacing ? { pacing } : {}),
+    ...(motion_scene_ids === undefined ? {} : { motion_scene_ids }) }
+}
+
+/** Freeze one eligible motion-prompt target before the job is accepted. */
+export async function scenePlanMotionPromptSnapshot(slug: string, episodeId: string, sceneId: string) {
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+  const visual_source = await assertScenePlanVisualSource(slug, episodeId)
+  const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
+  if (!plan.scenes.some(scene => scene.id === sceneId)) {
+    throw new Error(`Scene ${sceneId} not found in scene_plan.json`)
+  }
+  const motion = await resolveEpisodeMotionSceneIds(slug, episodeId, plan.scenes, paths.episode_dir)
+  if (!motion.scene_ids.includes(sceneId)) {
+    throw new Error(`Scene ${sceneId} is outside this episode's saved motion scope.`)
+  }
+  return {
+    visual_source,
+    motion_scope: motion.motion_scope,
+    motion_level: motion.motion_level,
+    motion_scene_ids: [sceneId],
+  }
 }
 
 async function invalidateScenePlanStatus(slug: string, episodeId: string): Promise<void> {
@@ -142,6 +214,8 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   const body = req.body || {}
   const stage: 'timeline' | 'visual' | 'motion' =
     body.stage === 'visual' || body.stage === 'motion' ? body.stage : 'timeline'
+  try { await assertScenePlanVisualSource(slug, episodeId) }
+  catch (error: any) { return res.status(409).json({ detail: error.message }) }
   let model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model && stage !== 'timeline') return res.status(400).json({ detail: 'model is required' })
   if (stage !== 'timeline') {
@@ -161,12 +235,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     : 4
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
-  // v1.0.468 — image-to-video motion-prompt controls. motion_level 1–4 (omitted
-  // → planner falls back to the project default, then 2). generate_motion_prompts
-  // defaults to the project setting when omitted (handled in the generator).
-  const motionLevel = typeof body.motion_level === 'number'
-    ? Math.min(4, Math.max(1, Math.round(body.motion_level)))
-    : undefined
   const generateMotionPrompts = typeof body.generate_motion_prompts === 'boolean'
     ? body.generate_motion_prompts
     : undefined
@@ -217,19 +285,26 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
   }
 
+  let visualSnapshot
+  try { visualSnapshot = await scenePlanVisualSnapshot(slug, episodeId, stage, promptLimit) }
+  catch (error: any) { return res.status(409).json({ detail: error.message }) }
+  if (stage === 'motion' && !visualSnapshot.motion_scene_ids?.length) {
+    return res.status(409).json({ detail: 'No missing motion prompts in this episode’s saved scope. Choose motion scenes in Visual timing & motion.' })
+  }
   const job = await jq.enqueue({
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,
     title: `${stage === 'timeline' ? 'Build scene timeline' : stage === 'visual' ? 'Generate visual prompts' : 'Generate motion prompts'} — ${episodeId}`,
     params: {
+      ...visualSnapshot,
       episode_id: episodeId,
       title,
       model: model || 'deterministic-timeline',
       target_scene_count: targetSceneCount,
       use_research: useResearch,
       detail_level: detailLevel,
-      motion_level: motionLevel,
+      motion_level: visualSnapshot.motion_level,
       generate_motion_prompts: generateMotionPrompts,
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
@@ -268,21 +343,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   const { slug, episodeId } = req.params
 
   const body = req.body || {}
-  let model = typeof body.model === 'string' ? body.model.trim() : ''
-  if (!model) return res.status(400).json({ detail: 'model is required' })
-  // v1.0.343 — scene planning/rewrite is an LLM task. Reject IMAGE models up
-  // front with a clear, fast error (passing one used to time out deep in the
-  // text client as "Unsupported model").
-  if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
-    return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
-  }
-  try {
-    model = await requireScenePlanGenStudioModel(model)
-  } catch (error: any) {
-    return res.status(409).json(humanizeBackendError(error, 'GenStudio scene-planning model is unavailable'))
-  }
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+  const requestedModel = typeof body.model === 'string' ? body.model.trim() : ''
 
   const detailLevel = typeof body.detail_level === 'number'
     ? Math.min(4, Math.max(1, Math.round(body.detail_level)))
@@ -298,29 +361,62 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   const avoidLegibleText = typeof body.avoid_legible_text === 'boolean' ? body.avoid_legible_text : undefined
   let operationId: string
   try { operationId = readOperationId(body, true)! } catch (error) {
+    // Keep the Image Pool boundary ahead of malformed new-request details;
+    // only a valid receipt may bypass it to rejoin an existing action below.
+    try { await assertScenePlanVisualSource(slug, episodeId) }
+    catch (sourceError: any) { return res.status(409).json({ detail: sourceError.message }) }
     return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
-  const params = stampFreshGenerationAction({
-    episode_id: episodeId,
-    model,
-    regenerate_prompt_scene_id: sceneId,
-    reword_prompt: rewordPrompt || undefined,
-    detail_level: detailLevel,
-    style_prompt: stylePrompt || undefined,
-    custom_instructions: customInstructions || undefined,
-    creative_direction: creativeDirection,
-    prompt_char_cap: promptCharCap,
-    avoid_legible_text: avoidLegibleText,
-  }, operationId)
 
   return withLock(`fresh-scene-prompt:${slug}:${operationId}`, async () => {
     const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
     if (previous) {
-      if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
+      const replay = {
+        episode_id: episodeId,
+        model: requestedModel,
+        regenerate_prompt_scene_id: sceneId,
+        reword_prompt: rewordPrompt || undefined,
+        detail_level: detailLevel,
+        style_prompt: stylePrompt || undefined,
+        custom_instructions: customInstructions || undefined,
+        creative_direction: creativeDirection,
+        prompt_char_cap: promptCharCap,
+        avoid_legible_text: avoidLegibleText,
+      }
+      if (previous.type !== 'scene_plan_run' || scenePromptReplayFingerprint(previous.params as Record<string, unknown>) !== scenePromptReplayFingerprint(replay)) {
         return res.status(409).json({ detail: 'This operation_id already belongs to a different scene prompt request.' })
       }
       return res.status(200).json({ ...previous, reused: true })
     }
+    let visualSnapshot
+    try { visualSnapshot = await scenePlanVisualSnapshot(slug, episodeId, 'visual') }
+    catch (error: any) { return res.status(409).json({ detail: error.message }) }
+    let model = requestedModel
+    if (!model) return res.status(400).json({ detail: 'model is required' })
+    // v1.0.343 — scene planning/rewrite is an LLM task. Reject IMAGE models up
+    // front with a clear, fast error (passing one used to time out deep in the
+    // text client as "Unsupported model").
+    if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
+      return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+    }
+    try {
+      model = await requireScenePlanGenStudioModel(model)
+    } catch (error: any) {
+      return res.status(409).json(humanizeBackendError(error, 'GenStudio scene-planning model is unavailable'))
+    }
+    const params = stampFreshGenerationAction({
+      ...visualSnapshot,
+      episode_id: episodeId,
+      model,
+      regenerate_prompt_scene_id: sceneId,
+      reword_prompt: rewordPrompt || undefined,
+      detail_level: detailLevel,
+      style_prompt: stylePrompt || undefined,
+      custom_instructions: customInstructions || undefined,
+      creative_direction: creativeDirection,
+      prompt_char_cap: promptCharCap,
+      avoid_legible_text: avoidLegibleText,
+    }, operationId)
     if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
       return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
     }
@@ -342,6 +438,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
   const { slug, episodeId } = req.params
 
   const body = req.body || {}
+  let visualSnapshot
+  try { visualSnapshot = await scenePlanVisualSnapshot(slug, episodeId, 'visual') }
+  catch (error: any) { return res.status(409).json({ detail: error.message }) }
   let model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
   // Scene planning/rewrite is an LLM task — reject IMAGE models up front.
@@ -384,6 +483,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
     episode_id: episodeId,
     title: `Repair scene prompts — ${episodeId}`,
     params: {
+      ...visualSnapshot,
       episode_id: episodeId,
       model,
       regenerate_empty_prompts: true,
@@ -499,18 +599,14 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
     const cues = parseSrt(await fs.readFile(transcriptPath, 'utf-8'))
     if (!cues.length) return res.status(400).json({ detail: 'The stitched subtitle timeline has no cues.' })
 
-    let minSec = 3
-    let maxSec = 12
+    // Defer parsing the current draft until the locked plan read proves this is
+    // a legacy plan without its own pacing snapshot. A malformed unrelated
+    // draft must not block repair of a plan whose saved timing is authoritative.
     const continuityPath = path.join(paths.episode_dir, 'continuity.json')
-    if (existsSync(continuityPath)) {
-      const continuity = JSON.parse(await fs.readFile(continuityPath, 'utf-8')).pacing
-      const configuredMin = Number(continuity?.min_sec)
-      const configuredMax = Number(continuity?.max_sec)
-      if (Number.isFinite(configuredMin) && Number.isFinite(configuredMax) && configuredMax >= configuredMin) {
-        minSec = configuredMin
-        maxSec = configuredMax
-      }
-    }
+    const continuityText = await fs.readFile(continuityPath, 'utf8').catch((error: any) => {
+      if (error?.code === 'ENOENT') return undefined
+      throw error
+    })
 
     // Everything above is preparation that does not touch the plan (ffprobe, SRT
     // parsing, pacing config) and is deliberately OUTSIDE the lock. Only the
@@ -519,13 +615,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
       // Re-read under the lock: the plan was read before the checks above, and a
       // job or another request may have written the file since.
       const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const repairPacing = resolveScenePlanRepairPacing(fresh.pacing, continuityText)
       const result = repairPlanCoverageWithSubtitleCues({
         scenes: fresh.scenes,
         cues,
         audioDurationSec: audioDur,
         threshold_sec: 20,
-        min_sec: minSec,
-        max_sec: maxSec,
+        min_sec: repairPacing.min_sec,
+        max_sec: repairPacing.max_sec,
+        pacing: repairPacing.pacing,
         // Opt-in, never inferred: holding scene 1 across a long unplanned
         // opening is an editorial choice with a visible consequence, so it
         // happens only when the request asks for it by name.
@@ -587,7 +685,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (r
       })
     }
 
-    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     // Integrity above is judged on the raw stitch; the cues a repaired scene
     // inherits its narration from come from the corrected transcript.
     const transcriptPath = await resolveTranscriptSrtPath({
@@ -596,18 +693,13 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (r
     const cues = parseSrt(await fs.readFile(transcriptPath, 'utf-8'))
     if (!cues.length) return res.status(400).json({ detail: 'The stitched subtitle timeline has no cues.' })
 
-    let minSec = 3
-    let maxSec = 12
+    // As in coverage repair, keep the draft opaque until the locked plan read
+    // establishes that this older plan has no saved pacing of its own.
     const continuityPath = path.join(paths.episode_dir, 'continuity.json')
-    if (existsSync(continuityPath)) {
-      const continuity = JSON.parse(await fs.readFile(continuityPath, 'utf-8')).pacing
-      const configuredMin = Number(continuity?.min_sec)
-      const configuredMax = Number(continuity?.max_sec)
-      if (Number.isFinite(configuredMin) && Number.isFinite(configuredMax) && configuredMax >= configuredMin) {
-        minSec = configuredMin
-        maxSec = configuredMax
-      }
-    }
+    const continuityText = await fs.readFile(continuityPath, 'utf8').catch((error: any) => {
+      if (error?.code === 'ENOENT') return undefined
+      throw error
+    })
 
     // Prep (SRT parse, pacing config) stays outside the lock; only the
     // read-transform-write is serialised.
@@ -615,30 +707,32 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (r
       // Re-read under the lock: the plan was read before the checks above, and a
       // job or another request may have written the file since.
       const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      const repairPacing = resolveScenePlanRepairPacing(fresh.pacing, continuityText)
       const result = repairOverlongScenesDeterministically({
         scenes: fresh.scenes || [],
         cues,
-        threshold_sec: maxSec,
-        min_sec: minSec,
-        max_sec: maxSec,
+        threshold_sec: repairPacing.max_sec,
+        min_sec: repairPacing.min_sec,
+        max_sec: repairPacing.max_sec,
+        pacing: repairPacing.pacing,
       })
       // Nothing to repair — leave the file untouched and let the caller answer 400.
-      if (!result.repairedCount) return result
+      if (!result.repairedCount) return { ...result, hasSavedPacing: fresh.pacing !== undefined, repairMaxSec: repairPacing.max_sec }
       fresh.scenes = result.scenes
       fresh.generated_at = new Date().toISOString()
       fresh.planning_stage = 'timeline'
       await writeJsonAtomic(planPath, fresh)
-      return result
+      return { ...result, hasSavedPacing: fresh.pacing !== undefined, repairMaxSec: repairPacing.max_sec }
     })
     if (!repaired.repairedCount) {
       // v1.4.82 — do not claim "nothing exceeds the cap" when scenes DO exceed
       // it and merely hold too little subtitle material to divide. That wording
       // sent people back to re-stitch subtitles that were already correct.
       const detail = repaired.unsplittableCount
-        ? `${repaired.unsplittableCount} scene(s) run past the selected ${maxSec}-second pacing cap but could not be split further — `
+        ? `${repaired.unsplittableCount} scene(s) run past the ${repaired.hasSavedPacing ? 'saved Scene Plan pacing cap' : `selected ${repaired.repairMaxSec}-second pacing cap`} but could not be split further — `
           + 'each holds a single indivisible subtitle cue, or spans a silent gap with no narration to cut on. '
-          + 'Shorten those holds by hand in Scene Plan, or raise the pacing maximum on Character Sheet.'
-        : `No scenes exceed the selected ${maxSec}-second pacing cap. If subtitles were just restored, stitch them again before retrying.`
+          + 'Shorten those holds by hand in Scene Plan, or raise the pacing maximum in Visual timing & motion.'
+        : `No scenes exceed the ${repaired.hasSavedPacing ? 'saved Scene Plan pacing cap' : `selected ${repaired.repairMaxSec}-second pacing cap`}. If subtitles were just restored, stitch them again before retrying.`
       return res.status(400).json({ detail })
     }
     await invalidateScenePlanStatus(slug, episodeId)
@@ -775,33 +869,47 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-motion-prompt', async (re
 router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
-  let model = typeof body.model === 'string' ? body.model.trim() : ''
-  if (!model) return res.status(400).json({ detail: 'model is required' })
-  if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
-    return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
-  }
-  try {
-    model = await requireScenePlanGenStudioModel(model)
-  } catch (error: any) {
-    return res.status(409).json(humanizeBackendError(error, 'GenStudio scene-planning model is unavailable'))
-  }
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
-  const motionLevel = typeof body.motion_level === 'number'
-    ? Math.min(4, Math.max(1, Math.round(body.motion_level))) : undefined
   let operationId: string
   try { operationId = readOperationId(body, true)! } catch (error) {
     return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
-  const params = stampFreshGenerationAction({ episode_id: episodeId, model, regenerate_motion_prompt_scene_id: sceneId, motion_level: motionLevel }, operationId)
+  const requestedModel = typeof body.model === 'string' ? body.model.trim() : ''
   return withLock(`fresh-motion-prompt:${slug}:${operationId}`, async () => {
     const previous = findFreshActionJob(await jq.getJobs(slug), operationId)
     if (previous) {
-      if (previous.params.generation_action_fingerprint !== params.generation_action_fingerprint) {
+      const previousModel = typeof previous.params.model === 'string'
+        ? previous.params.model.replace(/^genstudio-chat:/, '') : ''
+      const requestedModelId = requestedModel.replace(/^genstudio-chat:/, '')
+      if (previous.episode_id !== episodeId
+        || previous.params.regenerate_motion_prompt_scene_id !== sceneId
+        || requestedModelId !== previousModel) {
         return res.status(409).json({ detail: 'This operation_id already belongs to a different motion prompt request.' })
       }
       return res.status(200).json({ ...previous, reused: true })
     }
+    try { await assertScenePlanVisualSource(slug, episodeId) }
+    catch (error: any) { return res.status(409).json({ detail: error.message }) }
+    let motionSnapshot
+    try { motionSnapshot = await scenePlanMotionPromptSnapshot(slug, episodeId, sceneId) }
+    catch (error: any) { return res.status(409).json({ detail: error.message }) }
+    let model = requestedModel
+    if (!model) return res.status(400).json({ detail: 'model is required' })
+    if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
+      return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+    }
+    try {
+      model = await requireScenePlanGenStudioModel(model)
+    } catch (error: any) {
+      return res.status(409).json(humanizeBackendError(error, 'GenStudio scene-planning model is unavailable'))
+    }
+    const params = stampFreshGenerationAction({
+      ...motionSnapshot,
+      episode_id: episodeId,
+      model,
+      regenerate_motion_prompt_scene_id: sceneId,
+    }, operationId)
     if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
       return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
     }
@@ -822,6 +930,8 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
 router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-prompts', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
+  try { await assertScenePlanVisualSource(slug, episodeId) }
+  catch (error: any) { return res.status(409).json({ detail: error.message }) }
   let model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
   if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
@@ -832,8 +942,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-promp
   } catch (error: any) {
     return res.status(409).json(humanizeBackendError(error, 'GenStudio scene-planning model is unavailable'))
   }
-  const motionLevel = typeof body.motion_level === 'number'
-    ? Math.min(4, Math.max(1, Math.round(body.motion_level))) : undefined
   // A batch size this server cannot honour is REPORTED, never swapped for a
   // different number. `parseScenePromptPackSetting` throws rather than falling
   // back to 'auto' — the old behaviour turned "200" into 50 in silence.
@@ -847,16 +955,20 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-promp
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
   }
+  let visualSnapshot
+  try { visualSnapshot = await scenePlanVisualSnapshot(slug, episodeId, 'motion') }
+  catch (error: any) { return res.status(409).json({ detail: error.message }) }
   const job = await jq.enqueue({
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,
     title: `Repair motion prompts — ${episodeId}`,
     params: {
+      ...visualSnapshot,
       episode_id: episodeId,
       model,
       regenerate_empty_motion_prompts: true,
-      motion_level: motionLevel,
+      motion_level: visualSnapshot.motion_level,
       prompt_pack_size: promptPackSize,
     },
   })
@@ -977,6 +1089,9 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
         cue_source_path: transcript.path,
       })
       : null
+    const responsePlan = scenePlan
+      ? { ...scenePlan, ...(scenePlan.pacing === undefined ? {} : { pacing: parseSavedScenePlanPacing(scenePlan.pacing) }) }
+      : null
 
     res.json({
       stitched_srt: existsSync(stitchedPath) ? {
@@ -1004,7 +1119,7 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
       },
       timeline_integrity: subtitleTimelineIntegrity,
       plan_stale_vs_stitched: planStaleVsStitched,
-      scene_plan: scenePlan,
+      scene_plan: responsePlan,
       coverage_integrity: scenePlan ? inspectScenePlanCoverage(scenePlan) : null,
       audio_merged: existsSync(audioChaptersPath),
       audio_merge_gap_s: audioMergeGap,

@@ -14,10 +14,10 @@ import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as bp from '../services/broll-pool-manager.js'
-import type { Format, JobType } from '../models/types.js'
+import type { ContinuityConfig, Format, JobType, ProjectMeta } from '../models/types.js'
 import { computeEpisodeStatus, type EpisodeStatus } from '../services/asset-status.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
-import { writeContinuityConfig } from './continuity.js'
+import { buildContinuityConfig, defaultContinuityConfig, writeContinuityConfig } from './continuity.js'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
@@ -66,6 +66,11 @@ import {
   type PipelineModelPolicyStage,
 } from '../lib/pipeline-model-policy.js'
 import { readVideoVisualSource, resolveImagePoolSelection } from '../services/video-visual-source.js'
+import type { VideoVisualSource } from '../services/video-visual-source.js'
+import { parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
+import type { MotionScope } from '../contracts/motion-scope.js'
+import { readEpisodeMotionScope, resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
+import { motionSceneIdsForNewRequest } from '../services/scene-motion-prompt-scope.js'
 
 export const router = Router()
 
@@ -247,6 +252,15 @@ interface BatchPreflight {
    * fetched N times.
    */
   introductionChatModel: string | null
+  visualSettingsByEpisode: Map<string, PipelineVisualSettingsSnapshot>
+}
+
+interface PipelineVisualSettingsSnapshot {
+  visual_source: VideoVisualSource
+  pacing?: ScenePacing
+  motion_scope?: MotionScope
+  motion_level?: number
+  motion_scene_ids?: string[]
 }
 
 interface BlockedPipelineEpisode {
@@ -290,6 +304,134 @@ function splitPreflightIssues(issues: PreflightIssue[]): {
 function eligibleEpisodeIds(episodeIds: string[], blocked: BlockedPipelineEpisode[]): string[] {
   const blockedIds = new Set(blocked.map(episode => episode.episode_id))
   return [...new Set(episodeIds)].filter(episodeId => !blockedIds.has(episodeId))
+}
+
+const SCENE_PLAN_ONLY_STEPS = new Set<BatchStep>([
+  'character_sheet',
+  'scene_plan',
+  'scene_review',
+  'motion_review',
+])
+
+export function applicablePipelineStepsForVisualSource(
+  steps: BatchStep[],
+  source: VideoVisualSource,
+): { applicable: BatchStep[]; inapplicable: BatchStep[] } {
+  const inapplicable = source === 'image_pool'
+    ? steps.filter(step => SCENE_PLAN_ONLY_STEPS.has(step) || step === 'broll')
+    : []
+  const skipped = new Set(inapplicable)
+  return { applicable: steps.filter(step => !skipped.has(step)), inapplicable }
+}
+
+async function pipelineVisualSettingsSnapshot(
+  slug: string,
+  episodeId: string,
+  source: Awaited<ReturnType<typeof readVideoVisualSource>>,
+  includeEpisodeSettings: boolean,
+  includeMotionSceneIds: boolean,
+): Promise<PipelineVisualSettingsSnapshot> {
+  const snapshot: PipelineVisualSettingsSnapshot = { visual_source: source.source }
+  if (source.source !== 'scene_plan' || !includeEpisodeSettings) return snapshot
+
+  let raw: string | undefined
+  try {
+    raw = await fs.readFile(path.join(source.episode_dir, 'continuity.json'), 'utf8')
+  } catch (error: any) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  let config: Record<string, unknown> = {}
+  if (raw !== undefined) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('must contain an object')
+      config = parsed as Record<string, unknown>
+    } catch (error: any) {
+      throw new Error(`continuity.json is malformed: ${error?.message || error}`)
+    }
+  }
+  snapshot.pacing = parseScenePacing(config.pacing)
+  const motion = await readEpisodeMotionScope(slug, episodeId, source.episode_dir)
+  snapshot.motion_scope = motion.motion_scope
+  snapshot.motion_level = motion.motion_level
+
+  if (!includeMotionSceneIds || motion.motion_scope.mode === 'off') return snapshot
+  const planPath = await resolveScenePlanPath(slug, episodeId, source.episode_dir)
+  if (!existsSync(planPath)) return snapshot
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
+  if (!Array.isArray(plan?.scenes)) throw new Error('scene_plan.json has no valid scenes array')
+  const resolved = await resolveEpisodeMotionSceneIds(slug, episodeId, plan.scenes, source.episode_dir)
+  snapshot.motion_scene_ids = motionSceneIdsForNewRequest(plan.scenes, resolved.scene_ids)
+  return snapshot
+}
+
+type ContinuityMode = NonNullable<ProjectMeta['continuity_mode']>
+
+async function readPipelineContinuityConfig(
+  episodeDir: string,
+  mode: ContinuityMode,
+): Promise<ContinuityConfig> {
+  let raw: string
+  try {
+    raw = await fs.readFile(path.join(episodeDir, 'continuity.json'), 'utf8')
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return defaultContinuityConfig(mode)
+    throw error
+  }
+  let value: unknown
+  try {
+    value = JSON.parse(raw)
+  } catch (error: any) {
+    throw new Error(`continuity.json is malformed: ${error?.message || error}`)
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('continuity.json is malformed: expected an object')
+  }
+  return buildContinuityConfig(value as Partial<ContinuityConfig>, mode)
+}
+
+function storedPipelinePresetPacing(data: Partial<ContinuityConfig> | null | undefined): ScenePacing | null {
+  const pacing = data?.pacing as unknown
+  if (!pacing || typeof pacing !== 'object' || Array.isArray(pacing)) return null
+  const band = pacing as Record<string, unknown>
+  if (!Number.isFinite(band.min_sec) || !Number.isFinite(band.max_sec)) return null
+  return parseScenePacing(pacing)
+}
+
+/** Apply the same deliberate preset boundary as Character Sheet's manual flow. */
+export function applyContinuityPresetForPipeline(
+  current: ContinuityConfig,
+  data: Partial<ContinuityConfig> | null | undefined,
+): Partial<ContinuityConfig> {
+  const keepEpisodeSheet = current.use_episode_sheet === true || current.references?.sheet === true
+  return {
+    ...(data || {}),
+    pacing: storedPipelinePresetPacing(data) ?? current.pacing,
+    motion_scope: current.motion_scope,
+    motion_level: data?.motion_level ?? current.motion_level,
+    use_episode_sheet: keepEpisodeSheet,
+    references: {
+      ...current.references,
+      ...(data?.references || {}),
+      sheet: keepEpisodeSheet,
+    },
+  }
+}
+
+function addMissingPresetIssue(
+  issues: PreflightIssue[],
+  visualSettingsByEpisode: Map<string, PipelineVisualSettingsSnapshot>,
+  step: BatchStep,
+  message: string,
+): void {
+  const affected = [...visualSettingsByEpisode.entries()]
+    .filter(([, settings]) => applicablePipelineStepsForVisualSource([step], settings.visual_source).applicable.length > 0)
+    .map(([episodeId]) => episodeId)
+  if (affected.length > 0 && affected.length < visualSettingsByEpisode.size) {
+    for (const episode_id of affected) issues.push({ code: 'missing_preset', episode_id, step, message })
+    return
+  }
+  issues.push({ code: 'missing_preset', step, message })
 }
 
 const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
@@ -363,16 +505,58 @@ async function preflightBatch(
   const config = await pm.getConfig(slug)
   if (!config) throw new Error('Project config missing')
 
+  const ideas = await im.getIdeas(slug, 'accepted')
+  const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
+  const effectiveFormat = await getEffectiveFormat(slug)
+  const visualSettingsByEpisode = new Map<string, PipelineVisualSettingsSnapshot>()
+  const requiredSteps = new Set<BatchStep>()
+  for (const episodeId of episodeIds) {
+    if (!ideaByCode.has(episodeId)) {
+      issues.push({ code: 'episode_not_accepted', episode_id: episodeId, message: `${episodeId} is not an accepted episode.` })
+      continue
+    }
+    try {
+      const source = await readVideoVisualSource(slug, episodeId)
+      const episodeSteps = applicablePipelineStepsForVisualSource(steps, source.source).applicable
+      episodeSteps.forEach(step => requiredSteps.add(step))
+      if (episodeSteps.includes('video_assembly') && source.source === 'image_pool') {
+        await resolveImagePoolSelection(slug, episodeId)
+      }
+      const includeEpisodeSettings = episodeSteps.some(step =>
+        SCENE_PLAN_ONLY_STEPS.has(step) || step === 'video_assembly',
+      )
+      visualSettingsByEpisode.set(episodeId, await pipelineVisualSettingsSnapshot(
+        slug,
+        episodeId,
+        source,
+        includeEpisodeSettings,
+        episodeSteps.includes('motion_review') && !episodeSteps.includes('scene_plan'),
+      ))
+    } catch (error: any) {
+      issues.push({
+        code: 'invalid_preset',
+        episode_id: episodeId,
+        step: steps.includes('video_assembly') ? 'video_assembly' : steps.find(step => SCENE_PLAN_ONLY_STEPS.has(step)),
+        message: `${episodeId}: ${error?.message || 'Episode visual settings are not ready.'}`,
+      })
+    }
+  }
+
   const presetByStep: Partial<Record<BatchStep, StoredPreset>> = {}
   const contextualCuesEnabled = config.contextual_cues?.enabled === true
-  if (steps.includes('contextual_cues') && !contextualCuesEnabled) {
+  if (requiredSteps.has('contextual_cues') && !contextualCuesEnabled) {
     issues.push({ code: 'invalid_preset', step: 'contextual_cues', message: 'Enable Contextual Cues in its project setting before adding it to Pipeline.' })
   }
-  for (const step of steps) {
+  for (const step of requiredSteps) {
     if (NO_PRESET_STEPS.has(step)) continue
     const result = findActivePreset(config, step)
     if (!result.preset) {
-      issues.push({ code: 'missing_preset', step, message: result.missingReason || `No active preset for ${step}` })
+      addMissingPresetIssue(
+        issues,
+        visualSettingsByEpisode,
+        step,
+        result.missingReason || `No active preset for ${step}`,
+      )
       continue
     }
     presetByStep[step] = result.preset
@@ -402,14 +586,14 @@ async function preflightBatch(
     }
   }
 
-  if (steps.includes('audio')) {
+  if (requiredSteps.has('audio')) {
     const audioPreset = presetByStep.audio
     const voice = audioPreset?.data?.form?.voice ?? (audioPreset as any)?.form?.voice
     if (!voice || !String(voice).trim()) {
       issues.push({ code: 'missing_voice', step: 'audio', message: 'Audio preset has no voice selected.' })
     }
   }
-  if (steps.includes('broll')) {
+  if (requiredSteps.has('broll')) {
     const poolId = (config as any).broll_pool_id
     const pool = poolId ? await bp.getPool(poolId) : null
     if (!poolId || !pool) {
@@ -419,39 +603,20 @@ async function preflightBatch(
     }
   }
 
-  const ideas = await im.getIdeas(slug, 'accepted')
-  const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
-  const effectiveFormat = await getEffectiveFormat(slug)
   for (const episodeId of episodeIds) {
-    if (!ideaByCode.has(episodeId)) {
-      issues.push({ code: 'episode_not_accepted', episode_id: episodeId, message: `${episodeId} is not an accepted episode.` })
-      continue
-    }
-    let visualSource: 'scene_plan' | 'image_pool' = 'scene_plan'
-    if (steps.includes('video_assembly')) {
-      try {
-        const sourceState = await readVideoVisualSource(slug, episodeId)
-        visualSource = sourceState.source
-        if (visualSource === 'image_pool') await resolveImagePoolSelection(slug, episodeId)
-      } catch (error: any) {
-        issues.push({
-          code: 'invalid_preset',
-          episode_id: episodeId,
-          step: 'video_assembly',
-          message: `${episodeId}: ${error?.message || 'Image Pool visual source is not ready.'}`,
-        })
-      }
-    }
+    const visualSettings = visualSettingsByEpisode.get(episodeId)
+    if (!ideaByCode.has(episodeId) || !visualSettings) continue
+    const episodeSteps = applicablePipelineStepsForVisualSource(steps, visualSettings.visual_source).applicable
     const status = await computeEpisodeStatus(slug, episodeId)
     const available = new Set<BatchStep>()
     for (const step of VALID_STEPS) {
       if (isStepAlreadyDone(status, step, effectiveFormat)) available.add(step)
     }
-    for (const step of steps) {
+    for (const step of episodeSteps) {
       // A single selected step is normally a targeted repair/regeneration
       // operation. Downstream Story stages still need their durable artifact:
       // Scene Plan needs Subtitles, and Scene Review needs Scene Plan.
-      if (steps.length === 1 && step !== 'metadata' && step !== 'scene_plan' && step !== 'scene_review') {
+      if (episodeSteps.length === 1 && step !== 'metadata' && step !== 'scene_plan' && step !== 'scene_review') {
         available.add(step)
         continue
       }
@@ -460,8 +625,8 @@ async function preflightBatch(
       // `prerequisitesForStep`. An episode that never proposed a cue is not
       // held back; one with an unresolved proposal still is.
       const cueReviewPending = contextualCuesEnabled
-        && (steps.includes('contextual_cues') || status.contextual_cues === false)
-      const prerequisites = step === 'video_assembly' && visualSource === 'image_pool'
+        && (episodeSteps.includes('contextual_cues') || status.contextual_cues === false)
+      const prerequisites = step === 'video_assembly' && visualSettings.visual_source === 'image_pool'
         ? ['audio_merge' as BatchStep]
         : prerequisitesForStep(step, cueReviewPending)
       const missing = prerequisites.filter(required => !available.has(required))
@@ -482,7 +647,7 @@ async function preflightBatch(
   // could make an otherwise-safe eligible batch fail a global disk check.
   const eligibleCount = eligibleEpisodeIds(episodeIds, splitPreflightIssues(issues).blocked).length
   const estimateInputs = extractEstimateInputs(presetByStep as Record<BatchStep, StoredPreset>, eligibleCount)
-  const estimatedBytes = estimateRunBatchBytes(steps as EstimateStep[], estimateInputs)
+  const estimatedBytes = estimateRunBatchBytes([...requiredSteps] as EstimateStep[], estimateInputs)
   const outputRoot = await pm.getProjectOutputRoot(slug)
   const freeBytes = await getFreeBytes(outputRoot || pm.projectsRoot())
   if (freeBytes > 0 && freeBytes < estimatedBytes) {
@@ -496,7 +661,7 @@ async function preflightBatch(
 
   if (force) warnings.push('Force re-run is enabled; completed outputs may be replaced and provider costs may repeat.')
 
-  const wantsIntroduction = steps.includes('introduction-only')
+  const wantsIntroduction = requiredSteps.has('introduction-only')
   const scriptSideChatModel = wantsIntroduction ? resolveScriptSideChatModel(config) : null
   let introductionChatModel: string | null = null
   if (wantsIntroduction) {
@@ -508,6 +673,7 @@ async function preflightBatch(
   return {
     ok: issues.length === 0, issues, warnings, presetByStep, ideaByCode,
     effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel, introductionChatModel,
+    visualSettingsByEpisode,
   }
 }
 
@@ -1669,7 +1835,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   // it would silently override a model the operator did choose. It reads
   // `preflight.introductionChatModel` / `preflight.scriptSideChatModel`.
   let batchDefaultChatModel: string | null = null
-  if (steps.includes('metadata')) {
+  if (presetByStep.metadata) {
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (apiKey) {
       batchDefaultChatModel = await resolveDefaultChatModel(apiKey).then(r => r.modelId).catch(() => null)
@@ -1677,7 +1843,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   }
 
   let pipelineTranscriptionParams: { model: string; language?: string } | null = null
-  if (steps.includes('subtitles')) {
+  if (presetByStep.subtitles) {
     try {
       pipelineTranscriptionParams = await resolvePipelineTranscriptionParams(presetByStep.subtitles)
     } catch (error: unknown) {
@@ -1688,7 +1854,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   }
 
   let pipelineMotionParams: { model: string; operation: string; duration_seconds: number; resolution: string } | null = null
-  if (steps.includes('motion_review')) {
+  if (presetByStep.motion_review) {
     try {
       pipelineMotionParams = await resolvePipelineMotionParams(presetByStep.motion_review)
     } catch (error: unknown) {
@@ -1710,6 +1876,9 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     introduction_chat_model: preflight.introductionChatModel,
     script_chat_model: preflight.scriptSideChatModel,
     model_policies: modelPolicies,
+    visual_settings: Object.fromEntries(
+      [...preflight.visualSettingsByEpisode.entries()].map(([episodeId, settings]) => [episodeId, settings]),
+    ),
   }) : ''
   const batch_id = repairMissing ? actionId : force ? operationId : randomUUID()
   const existingActionJobs = repairMissing || force
@@ -1729,6 +1898,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   // Per-episode per-step skips — steps that were in `steps` but whose
   // output already exists. Populated only when `force` is falsy.
   const steps_skipped_as_done: Array<{ episode_id: string; step: BatchStep }> = []
+  const steps_skipped_as_inapplicable: Array<{ episode_id: string; step: BatchStep }> = []
   // Running total of actually-enqueued step count across all episodes,
   // used for the response's `total_jobs_planned` so the number reflects
   // what'll really run (not `episodes × steps`).
@@ -1748,6 +1918,11 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       reused.push({ episode_id: episodeId, job_id: existingAction.job_id, type: existingAction.type })
       continue
     }
+    let visualSettings = preflight.visualSettingsByEpisode.get(episodeId)!
+    const applicability = applicablePipelineStepsForVisualSource(steps, visualSettings.visual_source)
+    for (const step of applicability.inapplicable) {
+      steps_skipped_as_inapplicable.push({ episode_id: episodeId, step })
+    }
 
     // v1.0.761 — Pipeline auto-completion of the claim review. An unattended
     // run must never stall on "research exists but its claims still need a
@@ -1764,13 +1939,13 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // Idempotency: drop steps whose outputs are already on disk. Keeps
     // batches cheap on partially-generated episodes. The user can opt out
     // with `force: true` to regenerate everything.
-    let effectiveSteps: BatchStep[] = steps
+    let effectiveSteps: BatchStep[] = applicability.applicable
     if (!force) {
       const status = await computeEpisodeStatus(slug, episodeId)
       const repairSubtitlesComplete = repairMissing && steps.includes('subtitles')
         ? await pipelineSubtitleRepairComplete(slug, episodeId)
         : null
-      effectiveSteps = steps.filter(step => {
+      effectiveSteps = effectiveSteps.filter(step => {
         const done = repairSubtitlesComplete != null && step === 'subtitles'
           ? repairSubtitlesComplete
           : isStepAlreadyDone(status, step, effectiveFormat)
@@ -1789,15 +1964,32 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     if (effectiveSteps.includes('character_sheet')) {
       try {
         const csPreset = presetByStep['character_sheet']
-        const csData = (csPreset?.data ?? csPreset) as any
+        const csData = (csPreset?.data ?? csPreset) as Partial<ContinuityConfig>
         const projectMeta = await pm.getProject(slug)
+        const continuityMode = projectMeta?.continuity_mode || 'independent-stills'
+        const episodePaths = await resolveEpisodePathsByCode(slug, episodeId)
+        const currentConfig = await readPipelineContinuityConfig(
+          episodePaths.episode_dir,
+          continuityMode,
+        )
         await writeContinuityConfig(
           slug,
           episodeId,
-          csData,
-          projectMeta?.continuity_mode || 'independent-stills',
+          applyContinuityPresetForPipeline(currentConfig, csData),
+          continuityMode,
         )
         characterSheetsApplied++
+        const refreshedSource = await readVideoVisualSource(slug, episodeId)
+        if (refreshedSource.source !== visualSettings.visual_source) {
+          throw new Error('visual source changed while Pipeline was preparing this episode; submit it again')
+        }
+        visualSettings = await pipelineVisualSettingsSnapshot(
+          slug,
+          episodeId,
+          refreshedSource,
+          true,
+          effectiveSteps.includes('motion_review') && !effectiveSteps.includes('scene_plan'),
+        )
       } catch (e: any) {
         skipped.push({ episode_id: episodeId, reason: `character sheet apply failed: ${e?.message || e}` })
         continue
@@ -1938,6 +2130,10 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       }
     }
 
+    // Every link carries the same immutable episode decision. Later settings
+    // edits cannot retarget a queued chain or widen its motion work.
+    for (const link of chain) link.params = { ...link.params, ...visualSettings }
+
     if (repairMissing) {
       for (const link of chain) {
         link.params = applyPipelineRepairParams(link.params, actionId, actionFingerprint)
@@ -1957,7 +2153,9 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // sheet, that's NOT a skip — we did do the work. Otherwise every step was
     // skipped-as-done, so record the skip.
     if (chain.length === 0) {
-      if (!effectiveSteps.includes('character_sheet') && !skipped.some(item => item.episode_id === episodeId)) {
+      if (!effectiveSteps.includes('character_sheet')
+        && !applicability.inapplicable.length
+        && !skipped.some(item => item.episode_id === episodeId)) {
         skipped.push({ episode_id: episodeId, reason: 'All selected steps already complete' })
       }
       continue
@@ -2023,6 +2221,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     blocked,
     issues: preflight.issues,
     steps_skipped_as_done,
+    steps_skipped_as_inapplicable,
     jobs: enqueued,
     reused_jobs: reused,
     steps,

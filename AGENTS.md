@@ -386,15 +386,20 @@ remain in Video Assembly presets.
 **Scene rhythm stays per-episode. Do not add a project-level pacing default.** Proposed and
 rejected by the owner, 2026-08-03: *"it needs to be a deliberate choice on each episode by the
 user. not all stories or videos need the same pacing."* **This rule was NOT reversed on
-2026-08-18 and still stands in full.** Every episode chooses its own band on the Character
-Sheet, and no project setting and no format may choose it on the customer's behalf. A
-tempting-looking gap (53 episodes each needing the setting) is the intended cost of that
-decision, not a problem to engineer away.
+2026-08-18 and still stands in full.** Every episode chooses its own uniform or variable rhythm
+in Scene Plan's **Visual timing & motion** panel, and no project setting, Content Series Formula,
+or visual style may choose it on the customer's behalf. Character Sheet shows the saved rhythm
+and links to that canonical panel; it no longer owns a second pacing editor. A tempting-looking
+gap (53 episodes each needing the setting) is the intended cost of that decision, not a problem
+to engineer away.
 
 A preset is not a counter-example to this. A project-level default applies itself, to every
 episode, unasked; a preset does nothing until the customer selects it on one episode and clicks
 Apply. That single deliberate act on a single episode is precisely the per-episode choice this
 rule protects — which is why the owner could reinstate one without disturbing the other.
+Character Sheet presets that actually contain `pacing` still apply it through the same episode
+continuity record and announce the change; absent or partial pacing leaves the live episode
+choice untouched.
 
 ## A Zero That Means Two Things Is A Defect
 

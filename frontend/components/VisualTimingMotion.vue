@@ -1,0 +1,387 @@
+<template>
+  <section class="card visual-timing-motion" :aria-busy="loading || saving">
+    <header class="vtm-header">
+      <div>
+        <h3>Visual timing & motion</h3>
+        <p class="text-muted text-sm">Set the next Scene Plan's timing and motion scope for this episode.</p>
+      </div>
+      <button type="button" class="btn btn-primary btn-sm" :disabled="loading || saving || !!loadError || !!validationError" @click="save">
+        {{ saving ? 'Saving…' : 'Save timing & motion' }}
+      </button>
+    </header>
+
+    <p v-if="planPacing" class="vtm-plan-state text-sm">
+      <strong>Saved plan:</strong> {{ pacingLabel(planPacing) }}
+      <span>Draft: {{ pacingLabel(draft.pacing) }}</span>
+    </p>
+    <p v-else class="vtm-plan-state text-sm">
+      This draft applies the next time Scene Plan is created or rebuilt. Existing scene timing is unchanged.
+    </p>
+    <p class="vtm-scope-note text-sm">Changing motion scope does not alter clips already approved or generated. It guides a future motion-generation run only.</p>
+
+    <p v-if="loadError" class="vtm-error text-sm" role="alert">{{ loadError }}</p>
+    <p v-else-if="saveError" class="vtm-error text-sm" role="alert">{{ saveError }}</p>
+    <p v-if="!loadError && validationError" class="vtm-error text-sm" role="alert">{{ validationError }}</p>
+
+    <fieldset class="vtm-section" :disabled="loading || saving || !!loadError">
+      <legend>Scene timing</legend>
+      <div class="vtm-choice-row" role="radiogroup" aria-label="Scene timing mode">
+        <label><input :checked="draft.pacing.mode !== 'variable'" type="radio" name="timing-mode" @change="setPacingMode('uniform')" /> Uniform</label>
+        <label><input :checked="draft.pacing.mode === 'variable'" type="radio" name="timing-mode" @change="setPacingMode('variable')" /> Ordered periods</label>
+      </div>
+
+      <div v-if="draft.pacing.mode !== 'variable'" class="vtm-band">
+        <label>Shortest scene
+          <input :value="draft.pacing.min_sec" class="input" type="number" min="1" max="60" step="1" @input="setUniformBand('min_sec', inputNumber($event))" /> seconds
+        </label>
+        <label>Longest scene
+          <input :value="draft.pacing.max_sec" class="input" type="number" min="1" max="60" step="1" @input="setUniformBand('max_sec', inputNumber($event))" /> seconds
+        </label>
+      </div>
+
+      <div v-else class="vtm-periods">
+        <div v-for="(period, index) in draft.pacing.periods" :key="`${period.start_sec}-${index}`" class="vtm-period">
+          <strong>Period {{ index + 1 }}</strong>
+          <span>From {{ period.start_sec }}s</span>
+          <label v-if="period.end_sec !== null">Ends at
+            <input :value="period.end_sec" class="input" type="number" :min="period.start_sec + 0.1" step="1" @input="setPeriodEnd(index, inputNumber($event))" /> seconds
+          </label>
+          <span v-else>To episode end</span>
+          <label>Shortest
+            <input :value="period.min_sec" class="input" type="number" min="1" max="60" step="1" @input="setPeriodBand(index, 'min_sec', inputNumber($event))" /> seconds
+          </label>
+          <label>Longest
+            <input :value="period.max_sec" class="input" type="number" min="1" max="60" step="1" @input="setPeriodBand(index, 'max_sec', inputNumber($event))" /> seconds
+          </label>
+        </div>
+        <div class="vtm-period-actions">
+          <button type="button" class="btn btn-secondary btn-sm" @click="addPeriod">Add period</button>
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="draft.pacing.periods.length === 1" @click="removeLastPeriod">Remove last period</button>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="vtm-section" :disabled="loading || saving || !!loadError">
+      <legend>Motion scope</legend>
+      <p class="text-muted text-sm">Times use the narration clock, starting at zero. Any opening visuals already covering that time remain in place.</p>
+      <div class="vtm-choice-row" role="radiogroup" aria-label="Motion scope">
+        <label><input :checked="draft.motion_scope.mode === 'off'" type="radio" name="motion-scope" @change="setMotionMode('off')" /> Off</label>
+        <label><input :checked="draft.motion_scope.mode === 'opening'" type="radio" name="motion-scope" @change="setMotionMode('opening')" /> Opening</label>
+        <label><input :checked="draft.motion_scope.mode === 'selected'" type="radio" name="motion-scope" @change="setMotionMode('selected')" /> Selected scenes</label>
+        <label><input :checked="draft.motion_scope.mode === 'all'" type="radio" name="motion-scope" @change="setMotionMode('all')" /> All scenes</label>
+      </div>
+
+      <label v-if="draft.motion_scope.mode === 'opening'" class="vtm-opening">Motion through
+        <input :value="draft.motion_scope.end_sec" class="input" type="number" min="0.1" step="1" @input="setOpeningEnd(inputNumber($event))" /> seconds
+      </label>
+
+      <div v-if="draft.motion_scope.mode === 'selected'" class="vtm-scene-picker">
+        <p v-if="!scenes.length" class="text-muted text-sm">Open a Scene Plan with scenes to choose this scope.</p>
+        <label v-for="scene in scenes" v-else :key="scene.id" class="vtm-scene-choice">
+          <input :checked="selectedSceneIds.has(scene.id)" type="checkbox" @change="toggleScene(scene.id)" />
+          Scene {{ scene.id }} · {{ scene.start_sec }}–{{ scene.end_sec }} seconds
+        </label>
+      </div>
+
+      <p class="vtm-eligibility text-sm">{{ eligibilityMessage }}</p>
+      <p v-if="crossingSceneIds.length" class="vtm-crossing text-sm">
+        Motion applies only to whole scenes. {{ crossingSceneIds.join(', ') }} crosses the opening boundary and stays still.
+      </p>
+
+      <div class="vtm-intensity">
+        <strong>Motion intensity</strong>
+        <div class="vtm-choice-row" role="radiogroup" aria-label="Motion intensity">
+          <button
+            v-for="level in MOTION_LEVELS"
+            :key="level.value"
+            type="button"
+            class="btn btn-ghost btn-sm"
+            :class="{ active: draft.motion_level === level.value }"
+            role="radio"
+            :aria-checked="draft.motion_level === level.value"
+            @click="draft.motion_level = level.value"
+          >{{ level.label }}</button>
+        </div>
+        <p class="text-muted text-sm">{{ motionLevel.hint }}</p>
+      </div>
+    </fieldset>
+  </section>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { normalizeMotionScope, resolveMotionScope, type MotionScope } from '@shared/motion-scope'
+import { parseScenePacing, type ScenePacing, type ScenePacingPeriod } from '@shared/pacing'
+import {
+  continuityDefaults,
+  normalizeContinuityConfig,
+  type ContinuityConfig,
+} from '~/composables/useContinuityConfig'
+
+interface SceneTiming {
+  id: string
+  start_sec: number
+  end_sec: number
+}
+
+const props = withDefaults(defineProps<{
+  episodeId: string
+  scenes?: readonly SceneTiming[]
+  planPacing?: ScenePacing | null
+}>(), {
+  scenes: () => [],
+  planPacing: null,
+})
+
+const emit = defineEmits<{ saved: [config: ContinuityConfig] }>()
+const route = useRoute()
+const slug = computed(() => route.params.slug as string)
+const { get, put } = useApi()
+const { success, error: showError } = useToast()
+
+const draft = ref<ContinuityConfig>(continuityDefaults())
+const loading = ref(false)
+const saving = ref(false)
+const loadError = ref('')
+const saveError = ref('')
+let requestSequence = 0
+
+const MOTION_LEVELS = [
+  { value: 1, label: 'Minimal', hint: 'Faint ambient drift only.' },
+  { value: 2, label: 'Gentle', hint: 'Slow camera and ambient movement.' },
+  { value: 3, label: 'Moderate', hint: 'Subtle subject motion with gentle camera.' },
+  { value: 4, label: 'Lively', hint: 'Clear but smooth movement.' },
+] as const
+
+const motionLevel = computed(() =>
+  MOTION_LEVELS.find(level => level.value === draft.value.motion_level) ?? MOTION_LEVELS[1],
+)
+
+const selectedSceneIds = computed(() => new Set(
+  draft.value.motion_scope.mode === 'selected' ? draft.value.motion_scope.scene_ids : [],
+))
+
+const validationError = computed(() => {
+  try {
+    parseScenePacing(draft.value.pacing)
+    normalizeMotionScope(draft.value.motion_scope)
+    return ''
+  } catch (error) {
+    return error instanceof Error ? error.message
+      .replace(/pacing\.periods\[(\d+)\]\./g, (_, index) => `Period ${Number(index) + 1}: `)
+      .replace(/pacing\./g, '')
+      .replace(/min_sec/g, 'shortest scene')
+      .replace(/max_sec/g, 'longest scene')
+      .replace(/start_sec/g, 'start time')
+      .replace(/end_sec/g, 'end time')
+      : 'Review timing and motion before saving.'
+  }
+})
+
+const resolvedMotion = computed(() => {
+  if (!props.scenes.length) return null
+  try {
+    return resolveMotionScope(props.scenes, draft.value.motion_scope)
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Review the Scene Plan before choosing motion.' }
+  }
+})
+
+const crossingSceneIds = computed(() => {
+  const resolution = resolvedMotion.value
+  return resolution && 'crossing_scene_ids' in resolution ? resolution.crossing_scene_ids : []
+})
+
+const eligibilityMessage = computed(() => {
+  if (!props.scenes.length) return 'Scene eligibility will appear when this episode has a Scene Plan.'
+  const resolution = resolvedMotion.value
+  if (resolution && 'error' in resolution) return resolution.error
+  const eligible = resolution && 'scene_ids' in resolution ? resolution.scene_ids.length : 0
+  return `${eligible} of ${props.scenes.length} scenes are eligible for motion.`
+})
+
+function identity(): string {
+  return `${slug.value}:${props.episodeId}`
+}
+
+function inputNumber(event: Event): number {
+  return Number((event.target as HTMLInputElement).value)
+}
+
+function pacingLabel(pacing: ScenePacing): string {
+  return pacing.mode === 'variable'
+    ? `${pacing.periods.length} ordered periods`
+    : `uniform ${pacing.min_sec}–${pacing.max_sec} second scenes`
+}
+
+function setPacingMode(mode: 'uniform' | 'variable'): void {
+  if (mode === 'uniform' && draft.value.pacing.mode === 'variable') {
+    const first = draft.value.pacing.periods[0]!
+    draft.value.pacing = { min_sec: first.min_sec, max_sec: first.max_sec }
+  }
+  if (mode === 'variable' && draft.value.pacing.mode !== 'variable') {
+    const { min_sec, max_sec } = draft.value.pacing
+    draft.value.pacing = {
+      mode: 'variable', min_sec, max_sec,
+      periods: [{ start_sec: 0, end_sec: null, min_sec, max_sec }],
+    }
+  }
+}
+
+function setUniformBand(key: 'min_sec' | 'max_sec', value: number): void {
+  if (draft.value.pacing.mode === 'variable') return
+  draft.value.pacing = { ...draft.value.pacing, [key]: value }
+}
+
+function variablePeriods(): ScenePacingPeriod[] {
+  return draft.value.pacing.mode === 'variable' ? [...draft.value.pacing.periods] : []
+}
+
+function replaceVariablePeriods(periods: ScenePacingPeriod[]): void {
+  if (draft.value.pacing.mode !== 'variable') return
+  const first = periods[0]!
+  draft.value.pacing = { mode: 'variable', min_sec: first.min_sec, max_sec: first.max_sec, periods }
+}
+
+function setPeriodEnd(index: number, end_sec: number): void {
+  const periods = variablePeriods()
+  const period = periods[index]
+  const next = periods[index + 1]
+  if (!period || !next) return
+  periods[index] = { ...period, end_sec }
+  periods[index + 1] = { ...next, start_sec: end_sec }
+  replaceVariablePeriods(periods)
+}
+
+function setPeriodBand(index: number, key: 'min_sec' | 'max_sec', value: number): void {
+  const periods = variablePeriods()
+  const period = periods[index]
+  if (!period) return
+  periods[index] = { ...period, [key]: value }
+  replaceVariablePeriods(periods)
+}
+
+function addPeriod(): void {
+  const periods = variablePeriods()
+  const last = periods.at(-1)
+  if (!last) return
+  const end_sec = last.start_sec + 60
+  periods[periods.length - 1] = { ...last, end_sec }
+  periods.push({ start_sec: end_sec, end_sec: null, min_sec: last.min_sec, max_sec: last.max_sec })
+  replaceVariablePeriods(periods)
+}
+
+function removeLastPeriod(): void {
+  const periods = variablePeriods()
+  if (periods.length < 2) return
+  const previous = periods[periods.length - 2]!
+  periods.splice(-1, 1)
+  periods[periods.length - 1] = { ...previous, end_sec: null }
+  replaceVariablePeriods(periods)
+}
+
+function setMotionMode(mode: MotionScope['mode']): void {
+  if (mode === 'opening') draft.value.motion_scope = { mode, end_sec: 30 }
+  else if (mode === 'selected') draft.value.motion_scope = { mode, scene_ids: [] }
+  else draft.value.motion_scope = { mode }
+}
+
+function setOpeningEnd(end_sec: number): void {
+  if (draft.value.motion_scope.mode === 'opening') draft.value.motion_scope = { mode: 'opening', end_sec }
+}
+
+function toggleScene(sceneId: string): void {
+  if (draft.value.motion_scope.mode !== 'selected') return
+  const scene_ids = selectedSceneIds.value.has(sceneId)
+    ? draft.value.motion_scope.scene_ids.filter(id => id !== sceneId)
+    : [...draft.value.motion_scope.scene_ids, sceneId]
+  draft.value.motion_scope = { mode: 'selected', scene_ids }
+}
+
+async function load(): Promise<void> {
+  const scope = ++requestSequence
+  const key = identity()
+  const current = () => scope === requestSequence && key === identity()
+  if (!props.episodeId) {
+    draft.value = continuityDefaults()
+    loadError.value = ''
+    saveError.value = ''
+    loading.value = false
+    saving.value = false
+    return
+  }
+  loading.value = true
+  saving.value = false
+  loadError.value = ''
+  saveError.value = ''
+  try {
+    const result = await get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${slug.value}/continuity/${props.episodeId}`)
+    if (!current()) return
+    draft.value = result.exists ? normalizeContinuityConfig(result.config) : continuityDefaults()
+  } catch (error: any) {
+    if (!current()) return
+    loadError.value = error?.data?.detail || 'Could not load visual timing and motion.'
+    showError(loadError.value)
+  } finally {
+    if (current()) loading.value = false
+  }
+}
+
+async function save(): Promise<void> {
+  const scope = requestSequence
+  const key = identity()
+  const current = () => scope === requestSequence && key === identity()
+  if (!props.episodeId || saving.value || loading.value || loadError.value || validationError.value) return
+  try {
+    saveError.value = ''
+    const snapshot = normalizeContinuityConfig({
+      ...draft.value,
+      pacing: parseScenePacing(draft.value.pacing),
+      motion_scope: normalizeMotionScope(draft.value.motion_scope),
+    })
+    saving.value = true
+    const saved = await put<{ ok: true; config: ContinuityConfig }>(`/projects/${slug.value}/continuity/${props.episodeId}`, snapshot)
+    if (!current()) return
+    draft.value = normalizeContinuityConfig(saved.config)
+    emit('saved', draft.value)
+    success('Visual timing and motion saved')
+  } catch (error: any) {
+    if (current()) {
+      saveError.value = error?.data?.detail || error?.message || 'Could not save visual timing and motion.'
+      showError(saveError.value)
+    }
+  } finally {
+    if (current()) saving.value = false
+  }
+}
+
+watch(() => [slug.value, props.episodeId], () => { void load() }, { immediate: true })
+</script>
+
+<style scoped>
+.visual-timing-motion { display: grid; gap: 18px; }
+.vtm-header, .vtm-period-actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.vtm-intensity .active { background: var(--accent); color: var(--accent-contrast, #181818); border-color: var(--accent); }
+.vtm-choice-row input { accent-color: var(--accent); }
+.vtm-header h3 { margin: 0; }
+.vtm-header p { margin: 4px 0 0; }
+.vtm-plan-state, .vtm-scope-note, .vtm-eligibility, .vtm-crossing { margin: 0; }
+.vtm-plan-state span { display: block; color: var(--text-muted); margin-top: 3px; }
+.vtm-error, .vtm-crossing { color: var(--warning, #a35d00); }
+.vtm-section { border: 0; border-top: 1px solid var(--border); margin: 0; padding: 16px 0 0; min-width: 0; }
+.vtm-section legend { font-weight: 700; padding: 0 8px 0 0; }
+.vtm-choice-row, .vtm-band, .vtm-period { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 10px; }
+.vtm-choice-row label, .vtm-scene-choice { display: inline-flex; align-items: center; gap: 6px; }
+.vtm-band label, .vtm-period label, .vtm-opening { display: grid; gap: 5px; font-size: var(--font-sm); }
+.vtm-band input, .vtm-period input, .vtm-opening input { width: 78px; }
+.vtm-periods { display: grid; gap: 10px; margin-top: 12px; }
+.vtm-period { border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.vtm-period-actions { align-items: center; }
+.vtm-opening { margin-top: 12px; }
+.vtm-scene-picker { display: grid; gap: 7px; margin-top: 12px; max-height: 190px; overflow: auto; }
+.vtm-eligibility { margin-top: 12px; }
+.vtm-crossing { margin-top: 6px; }
+.vtm-intensity { display: grid; gap: 6px; margin-top: 16px; }
+.vtm-intensity p { margin: 0; }
+@media (max-width: 640px) { .vtm-header, .vtm-period-actions { align-items: stretch; flex-direction: column; } }
+</style>

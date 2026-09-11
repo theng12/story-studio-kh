@@ -20,7 +20,12 @@ import path from 'path'
 import * as pm from '../services/project-manager.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { DEFAULT_SCENE_PACING } from '../contracts/pacing.js'
+import {
+  DEFAULT_SCENE_PACING,
+  parseScenePacing,
+  ScenePacingValidationError,
+} from '../contracts/pacing.js'
+import { normalizeMotionScope } from '../contracts/motion-scope.js'
 import type { ContinuityConfig, ProjectMeta } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 
@@ -44,6 +49,8 @@ export function defaultContinuityConfig(mode: ContinuityMode = 'independent-stil
     // silently get different pacing from one that has not. See
     // contracts/pacing.ts for why this used to drift.
     pacing: { ...DEFAULT_SCENE_PACING },
+    motion_scope: { mode: 'off' },
+    motion_level: 2,
     references: {
       prev_render: characterChain,
       sheet: characterChain,
@@ -69,7 +76,15 @@ router.get('/projects/:slug/continuity/:episodeId', async (req, res) => {
     try {
       const raw = await fs.readFile(sidecarPath, 'utf-8')
       const parsed = JSON.parse(raw) as ContinuityConfig
-      res.json({ exists: true, config: parsed })
+      res.json({
+        exists: true,
+        config: {
+          ...parsed,
+          pacing: parseScenePacing(parsed.pacing),
+          motion_scope: normalizeMotionScope(parsed.motion_scope),
+          motion_level: normalizeMotionLevel(parsed.motion_level),
+        },
+      })
     } catch (e: any) {
       if (e?.code === 'ENOENT') {
         return res.json({ exists: false, config: defaultContinuityConfig(project.continuity_mode || 'independent-stills') })
@@ -94,19 +109,9 @@ export function buildContinuityConfig(
 ): ContinuityConfig {
   const b = body || {}
   const defaults = defaultContinuityConfig(mode)
-  // Coerce + clamp the numeric fields so a malformed client can't write junk.
-  // Falls back to `defaults.pacing` (DEFAULT_SCENE_PACING), not a re-hardcoded
-  // literal, so an omitted min_sec/max_sec can't drift from the fresh-config
-  // default above -- the exact "two places, one decision" shape that caused
-  // this default to disagree with itself before (see contracts/pacing.ts).
-  const minSec = Math.max(1, Math.min(60, Number(b.pacing?.min_sec) || defaults.pacing.min_sec))
-  const maxSec = Math.max(minSec, Math.min(60, Number(b.pacing?.max_sec) || defaults.pacing.max_sec))
-  const openingDuration = Number(b.pacing?.opening_duration_sec)
-  const settledMin = Number(b.pacing?.settled_min_sec)
-  const settledMax = Number(b.pacing?.settled_max_sec)
-  const hasSettledPacing = Number.isFinite(openingDuration) && openingDuration >= 0
-    && Number.isFinite(settledMin) && Number.isFinite(settledMax)
-    && settledMin >= 1 && settledMax >= settledMin
+  const pacing = validateSetting(() => b.pacing === undefined ? { ...defaults.pacing } : parseScenePacing(b.pacing))
+  const motionScope = validateSetting(() => normalizeMotionScope(b.motion_scope))
+  const motionLevel = validateSetting(() => normalizeMotionLevel(b.motion_level))
   const denoise = Math.max(0, Math.min(1, Number(b.denoise_strength)))
   return {
     schema_version: 1,
@@ -114,17 +119,9 @@ export function buildContinuityConfig(
       ? b.anchor_character_ids.filter((x): x is string => typeof x === 'string')
       : [],
     use_episode_sheet: !!b.use_episode_sheet,
-    pacing: {
-      min_sec: minSec,
-      max_sec: maxSec,
-      ...(hasSettledPacing
-        ? {
-            opening_duration_sec: Math.min(3 * 60 * 60, Math.round(openingDuration)),
-            settled_min_sec: Math.max(1, Math.min(60, settledMin)),
-            settled_max_sec: Math.max(Math.max(1, Math.min(60, settledMin)), Math.min(60, settledMax)),
-          }
-        : {}),
-    },
+    pacing,
+    motion_scope: motionScope,
+    motion_level: motionLevel,
     references: {
       prev_render: b.references?.prev_render ?? defaults.references.prev_render,
       sheet: b.references?.sheet ?? defaults.references.sheet,
@@ -139,6 +136,29 @@ export function buildContinuityConfig(
     negative_prompt: typeof b.negative_prompt === 'string' ? truncateChars(b.negative_prompt.trim(), 1000) : '',
     updated_at: new Date().toISOString(),
   }
+}
+
+export class ContinuityConfigValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ContinuityConfigValidationError'
+  }
+}
+
+function validateSetting<T>(validate: () => T): T {
+  try {
+    return validate()
+  } catch (error) {
+    throw new ContinuityConfigValidationError(error instanceof Error ? error.message : String(error))
+  }
+}
+
+function normalizeMotionLevel(value: unknown): number {
+  if (value === undefined) return 2
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 4) {
+    throw new Error('motion_level must be a whole number from 1 to 4')
+  }
+  return value
 }
 
 /**
@@ -173,6 +193,9 @@ router.put('/projects/:slug/continuity/:episodeId', async (req, res) => {
     const config = await writeContinuityConfig(slug, episodeId, body, project.continuity_mode || 'independent-stills')
     res.json({ ok: true, config })
   } catch (e: any) {
+    if (e instanceof ContinuityConfigValidationError || e instanceof ScenePacingValidationError) {
+      return res.status(400).json({ detail: e.message })
+    }
     res.status(500).json(humanizeBackendError(e, 'Failed to save continuity config'))
   }
 })

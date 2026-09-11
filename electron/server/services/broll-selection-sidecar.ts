@@ -14,12 +14,24 @@ import { writeJsonAtomic, readJsonOr } from '../lib/atomic-store.js'
 import { resolveEpisodePaths } from './utils.js'
 import type { SelectionEntry } from '../lib/broll-selector.js'
 
+export type BrollSelectionSource = 'scene_plan' | 'image_pool'
+
+export function readBrollSelectionSource(value: unknown): BrollSelectionSource | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('B-Roll selection sidecar must be a JSON object')
+  }
+  const sidecar = value as { source?: unknown }
+  if (!Object.prototype.hasOwnProperty.call(sidecar, 'source')) return undefined
+  if (sidecar.source === 'scene_plan' || sidecar.source === 'image_pool') return sidecar.source
+  throw new Error('B-Roll selection sidecar source must be scene_plan or image_pool')
+}
+
 export interface BrollSelectionSidecar {
   schema_version: 1
   episode_code: string
   pool_id: string
   /** Explicit Video Assembly source. Missing keeps legacy Scene Plan mode. */
-  source?: 'scene_plan' | 'image_pool'
+  source?: BrollSelectionSource
   /** v1.0.404 — 'image' = Image Pool slideshow (still-image assembler);
    *  absent/'video' = B-Roll clips. Lets the assembler pick the right path. */
   media?: 'video' | 'image'
@@ -70,6 +82,11 @@ function sidecarPath(episodeDir: string): string {
   return path.join(episodeDir, 'broll-selection.json')
 }
 
+function isSelectionSidecar(value: unknown): value is BrollSelectionSidecar {
+  const sidecar = value as Partial<BrollSelectionSidecar> | null
+  return !!sidecar && typeof sidecar.pool_id === 'string' && Array.isArray(sidecar.selection)
+}
+
 export async function getSelectionSidecar(
   slug: string,
   episodeId: string,
@@ -79,7 +96,8 @@ export async function getSelectionSidecar(
     const paths = await resolveEpisodePaths(slug, episodeId, title || '')
     const p = sidecarPath(paths.episode_dir)
     if (!existsSync(p)) return null
-    return await readJsonOr<BrollSelectionSidecar | null>(p, null)
+    const sidecar = await readJsonOr<unknown>(p, null)
+    return isSelectionSidecar(sidecar) ? sidecar : null
   } catch {
     return null
   }
@@ -94,6 +112,21 @@ export async function saveSelectionSidecar(
   const paths = await resolveEpisodePaths(slug, episodeId, title || '')
   await fs.mkdir(paths.episode_dir, { recursive: true })
   const p = sidecarPath(paths.episode_dir)
-  await writeJsonAtomic(p, sidecar)
+  let source: BrollSelectionSidecar['source']
+  try {
+    source = readBrollSelectionSource(JSON.parse(await fs.readFile(p, 'utf8')))
+  } catch (error: any) {
+    if (error?.code !== 'ENOENT') {
+      throw new Error(`B-Roll selection sidecar is malformed for ${episodeId}; repair it before picking again. (${error?.message || error})`)
+    }
+  }
+  // The Image Pool owns its frozen image selection. The B-Roll picker routes
+  // also call this shared writer, so preserving only the `source` field would
+  // leave an Image Pool record carrying video picks and make it unrenderable.
+  // A genuine Image Pool re-pick has `media: 'image'` and remains allowed.
+  if (source === 'image_pool' && sidecar.media !== 'image') {
+    throw new Error(`B-Roll selection is not used for Image Pool episode ${episodeId}. Keep the saved Image Pool picks or switch this episode to Scene Plan first.`)
+  }
+  await writeJsonAtomic(p, { ...sidecar, ...(source ? { source } : {}) })
   return p
 }

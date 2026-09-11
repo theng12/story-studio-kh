@@ -54,6 +54,13 @@ test('image pages ignore stale selected-pool and episode responses', () => {
   }
 })
 
+test('image prompt previews cannot populate a row after its episode changes', () => {
+  assert.match(
+    images,
+    /async function renderPromptPreview[\s\S]*?const scope = imageScopeSequence[\s\S]*?const project = slug\.value[\s\S]*?const episode = form\.episode_id[\s\S]*?const current = \(\) => scope === imageScopeSequence[\s\S]*?project === slug\.value && episode === form\.episode_id[\s\S]*?await post[\s\S]*?if \(!current\(\)\) return[\s\S]*?previewState\[key\] = \{[\s\S]*?catch \(e: any\) \{\s*if \(!current\(\)\) return/,
+  )
+})
+
 test('Scene Review uploads retain the episode selected when the file was chosen', () => {
   assert.match(sceneReview, /async function uploadOne[\s\S]*?const ep = episodeId\.value[\s\S]*?await fileToBase64[\s\S]*?scene-review\/\$\{ep\}\/upload-image/)
   assert.match(sceneReview, /async function uploadClipOne[\s\S]*?const ep = episodeId\.value[\s\S]*?scene-review\/\$\{ep\}\/upload-clip/)
@@ -74,7 +81,8 @@ test('image workflows pin project scope as well as episode scope across same-cod
   assert.match(imagePrompts, /let promptScopeSequence = 0[\s\S]*?watch\(\[slug, \(\) => form\.episode_id\][\s\S]*?promptScopeSequence\+\+[\s\S]*?async function runGenerate[\s\S]*?const scope = promptScopeSequence/)
   assert.match(sceneReview, /let reviewScopeSequence = 0[\s\S]*?watch\(\[slug, episodeId\][\s\S]*?reviewScopeSequence\+\+/)
   assert.match(sceneReview, /async function uploadOne[\s\S]*?const project = slug\.value[\s\S]*?await fileToBase64[\s\S]*?projects\/\$\{project\}\/scene-review\/\$\{ep\}/)
-  assert.match(sceneReview, /async function loadContinuityFlag[\s\S]*?const project = slug\.value[\s\S]*?scope === reviewScopeSequence[\s\S]*?projects\/\$\{project\}\/effective-format[\s\S]*?projects\/\$\{project\}\/continuity\/\$\{ep\}/)
+  assert.match(sceneReview, /async function loadContinuityFlag[\s\S]*?const project = slug\.value[\s\S]*?scope === reviewScopeSequence[\s\S]*?projects\/\$\{project\}\/effective-format[\s\S]*?if \(!current\(\)\) return/)
+  assert.match(sceneReview, /async function loadReview[\s\S]*?const project = slug\.value[\s\S]*?scope === reviewScopeSequence[\s\S]*?projects\/\$\{project\}\/scene-review\/\$\{ep\}[\s\S]*?if \(!current\(\)\) return/)
   assert.match(sceneReview, /async function pollUntilImageReady\(sceneId: string, ep: string, project: string, scope: number\)[\s\S]*?scope === reviewScopeSequence/)
   assert.match(sceneReview, /async function pollUntilAllPresent\(ep: string, project: string, scope: number\)[\s\S]*?scope === reviewScopeSequence/)
   assert.match(imagePool, /let imagePoolScopeSequence = 0[\s\S]*?watch\(\[slug, episodeId, poolId\][\s\S]*?imagePoolScopeSequence\+\+/)

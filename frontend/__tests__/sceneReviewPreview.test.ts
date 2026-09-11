@@ -90,8 +90,8 @@ describe('Scene Review image preview', () => {
     assert.doesNotMatch(sceneReviewSource, /:generate-loading="[^"\n]*reviewJobActive/)
     assert.match(sceneReviewSource, /<span v-if="!isRenderPaused && !isQueuedRender" class="review-spinner"/)
     assert.match(sceneReviewSource, /function isSceneGenerating\(scene: ReviewScene\): boolean \{\s*if \(isRenderPaused\.value\) return false/)
-    assert.match(sceneReviewSource, /v-else[\s\S]*:class="\['review-thumb-empty', \{ 'is-disabled': reviewJobActive \}\]"[\s\S]*:aria-disabled="reviewJobActive"[\s\S]*@click="!reviewJobActive && generateOne\(scene\)"/)
-    assert.match(sceneReviewSource, /:disabled="!form\.model \|\| regeneratingId === previewScene\.id \|\| reviewJobActive"/)
+    assert.match(sceneReviewSource, /v-else[\s\S]*:class="\['review-thumb-empty', \{ 'is-disabled': usesImagePool \|\| reviewJobActive \}\]"[\s\S]*:aria-disabled="usesImagePool \|\| reviewJobActive"[\s\S]*@click="!usesImagePool && !reviewJobActive && generateOne\(scene\)"/)
+    assert.match(sceneReviewSource, /:disabled="usesImagePool \|\| !form\.model \|\| regeneratingId === previewScene\.id \|\| reviewJobActive"/)
     assert.match(sceneReviewSource, /\.review-thumb-empty\.is-disabled[\s\S]*cursor:\s*not-allowed/)
     assert.match(sceneReviewSource, /Resume explicitly\. Story Studio audits saved files/)
   })
@@ -150,6 +150,11 @@ describe('Scene Review image preview', () => {
     assert.match(motionReviewSource, /const episodeId = ref\(initialEpisodeId\)/)
     assert.match(videoAssemblySource, /const initialEpisodeId = typeof route\.query\.episode_id === 'string'/)
     assert.match(videoAssemblySource, /const episodeId = ref\(initialEpisodeId\)/)
+  })
+
+  test('review preset controllers are recreated when the project route changes', () => {
+    assert.match(sceneReviewSource, /definePageMeta\(\{ layout: 'dashboard', key: route => String\(route\.params\.slug \|\| ''\) \}\)/)
+    assert.match(motionReviewSource, /definePageMeta\(\{ layout: 'dashboard', key: route => String\(route\.params\.slug \|\| ''\) \}\)/)
   })
 
   test('an exact Jobs deep link selects the episode and focuses the requested Scene Review row', () => {

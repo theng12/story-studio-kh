@@ -97,6 +97,16 @@ test('empty and inline-only runs do not direct the user to empty Jobs', async ()
   }
 })
 
+test('receipt identifies stages excluded by an episode’s Image Pool source', async () => {
+  const page = harness({
+    enqueued: 1,
+    total_jobs_planned: 2,
+    steps_skipped_as_inapplicable: [{ episode_id: 'TN0001', step: 'scene_plan' }],
+  })
+  await page.submit()
+  assert.match(page.batchReceipt.value.lines.join(' '), /1 step\(s\) skipped because that episode uses Image Pool/)
+})
+
 test('failed submission shows no success receipt and repeat clicks submit once', async () => {
   const failed = harness({ data: { detail: 'Could not queue this run' } }, true)
   await failed.submit()

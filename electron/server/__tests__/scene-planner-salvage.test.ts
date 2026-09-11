@@ -149,6 +149,72 @@ describe('strict continuity pacing', () => {
       'settled phase should use longer visual holds except for a final remainder')
   })
 
+  test('uses three ordered pacing periods without changing cue-aligned coverage', () => {
+    const cues = Array.from({ length: 30 }, (_, index) => ({
+      index,
+      start_sec: index * 2,
+      end_sec: index * 2 + 2,
+      text: `cue ${index}`,
+    }))
+    const scenes = splitScenesDeterministically({
+      cues,
+      min_sec: 1,
+      max_sec: 3,
+      pacing_periods: [
+        { start_sec: 0, end_sec: 20, min_sec: 1, max_sec: 3 },
+        { start_sec: 20, end_sec: 40, min_sec: 3, max_sec: 6 },
+        { start_sec: 40, end_sec: null, min_sec: 6, max_sec: 10 },
+      ],
+    })
+
+    assert.equal(scenes[0]!.start_sec, 0)
+    assert.equal(scenes.at(-1)!.end_sec, 60)
+    assert.ok(scenes.every((scene, index) => index === 0 || scene.start_sec === scenes[index - 1]!.end_sec))
+    assert.ok(scenes.filter(scene => scene.start_sec >= 40)
+      .every(scene => scene.end_sec - scene.start_sec >= 6 || scene === scenes.at(-1)))
+  })
+
+  test('keeps a cue crossing a requested period boundary whole and changes band afterward', () => {
+    const scenes = splitScenesDeterministically({
+      cues: [
+        { index: 0, start_sec: 0, end_sec: 4, text: 'opening one' },
+        { index: 1, start_sec: 4, end_sec: 9, text: 'crosses the boundary' },
+        { index: 2, start_sec: 9, end_sec: 14, text: 'settled one' },
+        { index: 3, start_sec: 14, end_sec: 19, text: 'settled two' },
+      ],
+      min_sec: 2,
+      max_sec: 6,
+      pacing_periods: [
+        { start_sec: 0, end_sec: 7, min_sec: 2, max_sec: 6 },
+        { start_sec: 7, end_sec: null, min_sec: 8, max_sec: 12 },
+      ],
+    })
+
+    assert.ok(scenes.some(scene => scene.start_sec < 7 && scene.end_sec > 7), 'a cue-aligned scene may cross the requested boundary')
+    assert.equal(scenes.at(-1)!.end_sec, 19)
+    assert.equal(scenes.map(scene => scene.transcript_segment).join(' '), 'opening one crosses the boundary settled one settled two')
+  })
+
+  test('truncates future pacing periods for a short episode without phantom scenes', () => {
+    const scenes = splitScenesDeterministically({
+      cues: [
+        { index: 0, start_sec: 0, end_sec: 2, text: 'short' },
+        { index: 1, start_sec: 2, end_sec: 4, text: 'episode' },
+      ],
+      min_sec: 1,
+      max_sec: 3,
+      pacing_periods: [
+        { start_sec: 0, end_sec: 20, min_sec: 1, max_sec: 3 },
+        { start_sec: 20, end_sec: 40, min_sec: 3, max_sec: 6 },
+        { start_sec: 40, end_sec: null, min_sec: 6, max_sec: 12 },
+      ],
+    })
+
+    assert.equal(scenes[0]!.start_sec, 0)
+    assert.equal(scenes.at(-1)!.end_sec, 4)
+    assert.ok(scenes.every(scene => scene.start_sec < 4 && scene.end_sec <= 4))
+  })
+
   test('does not cut a one-word cue mid-word merely to meet the maximum', () => {
     const pieces = splitCueForStrictVisualPacing({ index: 1, start_sec: 0, end_sec: 6, text: 'Thunderclap' }, 4)
     assert.equal(pieces.length, 1)

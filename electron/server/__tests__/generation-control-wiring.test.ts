@@ -96,6 +96,9 @@ async function writeReadyMotionScene(
       approved: true,
     }],
   }))
+  await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({
+    motion_scope: { mode: 'all' }, motion_level: 2,
+  }))
   const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
   const imageDir = await resolveSceneImagesDir(projectSlug, episodeId, paths.episode_dir)
   await fs.mkdir(imageDir, { recursive: true })
@@ -130,6 +133,20 @@ function job(projectSlug: string, episodeId: string, type: string, params: Recor
     output_lines: [],
     params: { episode_id: episodeId, ...params },
   }
+}
+
+async function clearHeldFixtureJobs(
+  jq: typeof import('../services/job-queue.js'),
+  jobIds: string[],
+  wasPaused: boolean,
+): Promise<void> {
+  for (const jobId of jobIds) {
+    const queued = jq.getJob(jobId)
+    if (queued) await jq.requestJobCancellation(queued.project_slug, jobId).catch(() => {})
+  }
+  await jq._waitForJobPersistenceForTesting()
+  if (!wasPaused) await jq.setQueuePaused(false)
+  await jq._waitForJobPersistenceForTesting()
 }
 
 function statusPath(operation: 'image' | 'video', taskId: string): string {
@@ -241,36 +258,39 @@ test('the scene clip route persists the selected published variant on the queued
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   let restoreVideoCatalog: (() => void) | undefined
+  let queuedJobId = ''
+  let wasQueuePaused = false
   try {
     await configureMockGenStudio(service.baseUrl)
     restoreVideoCatalog = enableMockVideoCatalog(service, [
       { operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
       { operation: 'image-to-video', duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
     ])
-    const pm = await import('../services/project-manager.js')
     const jq = await import('../services/job-queue.js')
+    wasQueuePaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
     const app = (await import('../app.js')).app
-    const project = await pm.createProject({ name: 'Persist selected scene clip variant' })
+    const { project, episodeId, paths } = await createEpisode('Persist selected scene clip variant')
+    await writeReadyMotionScene(project.slug, episodeId, paths)
 
     const response = await request(app)
-      .post(`/api/projects/${project.slug}/scene-review/EP001/generate-clip`)
+      .post(`/api/projects/${project.slug}/scene-review/${episodeId}/generate-clip`)
       .send({
         scene_id: 'scene-001', model: 'mock-video-v1', aspect_ratio: '16:9',
         operation: 'image-to-video', duration_seconds: 8, resolution: '1080p',
       })
       .expect(201)
+    queuedJobId = response.body.job_id
 
     assert.equal(response.body.params.duration_seconds, 8)
     assert.equal(response.body.params.resolution, '1080p')
     assert.equal(response.body.params.operation, 'image-to-video')
+    assert.equal(jq.getJob(queuedJobId)?.params.duration_seconds, 8)
     assert.equal(service.submissions.filter(entry => entry.operation === 'video').length, 0)
-    for (let attempt = 0; attempt < 100; attempt++) {
-      const queued = jq.getJob(response.body.job_id)
-      if (queued && queued.status !== 'queued' && queued.status !== 'running') break
-      await new Promise(resolve => setTimeout(resolve, 10))
-    }
   } finally {
     restoreVideoCatalog?.()
+    const jq = await import('../services/job-queue.js')
+    await clearHeldFixtureJobs(jq, queuedJobId ? [queuedJobId] : [], wasQueuePaused)
     await service.close()
     await temp.cleanup()
   }
@@ -280,8 +300,11 @@ test('Follow narration resolves and saves each scene duration from the selected 
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   let restoreVideoCatalog: (() => void) | undefined
+  let queuedJobId = ''
+  let wasQueuePaused = false
   try {
     const jq = await import('../services/job-queue.js')
+    wasQueuePaused = jq.isQueuePaused()
     await jq.setQueuePaused(true)
     await configureMockGenStudio(service.baseUrl)
     restoreVideoCatalog = enableMockVideoCatalog(service, [
@@ -298,6 +321,9 @@ test('Follow narration resolves and saves each scene duration from the selected 
         { id: 'scene-cap', scene_index: 2, start_sec: 4.2, end_sec: 16.2, approved: true, motion_prompt: 'A gentle push.' },
       ],
     }))
+    await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({
+      motion_scope: { mode: 'all' }, motion_level: 2,
+    }))
     const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
     const imageDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
     await fs.mkdir(imageDir, { recursive: true })
@@ -310,6 +336,7 @@ test('Follow narration resolves and saves each scene duration from the selected 
       .post(`/api/projects/${project.slug}/scene-review/${episodeId}/generate-clips-batch`)
       .send({ model: 'mock-video-v1', duration_mode: 'follow_narration', resolution: '720p' })
       .expect(201)
+    queuedJobId = response.body.job_id
 
     assert.equal(response.body.params.duration_mode, 'follow_narration')
     assert.deepEqual(response.body.params.scene_durations, {
@@ -320,7 +347,7 @@ test('Follow narration resolves and saves each scene duration from the selected 
   } finally {
     restoreVideoCatalog?.()
     const jq = await import('../services/job-queue.js')
-    await jq.setQueuePaused(false)
+    await clearHeldFixtureJobs(jq, queuedJobId ? [queuedJobId] : [], wasQueuePaused)
     await service.close()
     await temp.cleanup()
   }
@@ -522,39 +549,43 @@ test('new Motion Review routes require an exact pair and preserve it for durable
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   let restoreVideoCatalog: (() => void) | undefined
+  const queuedJobIds: string[] = []
+  let wasQueuePaused = false
   try {
     await configureMockGenStudio(service.baseUrl)
     restoreVideoCatalog = enableMockVideoCatalog(service, [
       { operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
       { operation: 'image-to-video', duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
     ])
-    const pm = await import('../services/project-manager.js')
     const jq = await import('../services/job-queue.js')
+    wasQueuePaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
     const app = (await import('../app.js')).app
-    const project = await pm.createProject({ name: 'Motion routes require exact variants' })
+    const { project, episodeId, paths } = await createEpisode('Motion routes require exact variants')
+    await writeReadyMotionScene(project.slug, episodeId, paths)
 
     await request(app)
-      .post(`/api/projects/${project.slug}/scene-review/EP001/generate-clip`)
+      .post(`/api/projects/${project.slug}/scene-review/${episodeId}/generate-clip`)
       .send({ scene_id: 'scene-001', model: 'mock-video-v1' })
       .expect(400)
     await request(app)
-      .post(`/api/projects/${project.slug}/scene-review/EP001/generate-clips-batch`)
+      .post(`/api/projects/${project.slug}/scene-review/${episodeId}/generate-clips-batch`)
       .send({ model: 'mock-video-v1', duration_seconds: 5 })
       .expect(400)
     await request(app)
-      .post(`/api/projects/${project.slug}/scene-review/EP001/generate-missing-clips`)
+      .post(`/api/projects/${project.slug}/scene-review/${episodeId}/generate-missing-clips`)
       .send({ model: 'mock-video-v1', resolution: '720p' })
       .expect(400)
     assert.equal((await jq.getJobs(project.slug)).length, 0, 'invalid new requests never enter the queue')
 
     const durable = await request(app)
-      .post(`/api/projects/${project.slug}/scene-review/EP001/generate-clips-batch`)
+      .post(`/api/projects/${project.slug}/scene-review/${episodeId}/generate-clips-batch`)
       .send({ model: 'mock-video-v1', operation: 'image-to-video', duration_seconds: 8, resolution: '1080p' })
       .expect(201)
+    queuedJobIds.push(durable.body.job_id)
     assert.equal(durable.body.params.duration_seconds, 8)
     assert.equal(durable.body.params.resolution, '1080p')
     assert.equal(durable.body.params.operation, 'image-to-video')
-    await waitForTerminalJob(jq, durable.body.job_id)
 
     const episode = await createEpisode('Motion missing clips preserve selected variant')
     await writeReadyMotionScene(episode.project.slug, episode.episodeId, episode.paths)
@@ -567,9 +598,11 @@ test('new Motion Review routes require an exact pair and preserve it for durable
     assert.equal(queued?.params.duration_seconds, 8)
     assert.equal(queued?.params.resolution, '1080p')
     assert.equal(queued?.params.operation, 'image-to-video')
-    if (queued) await waitForTerminalJob(jq, queued.job_id)
+    if (queued) queuedJobIds.push(queued.job_id)
   } finally {
     restoreVideoCatalog?.()
+    const jq = await import('../services/job-queue.js')
+    await clearHeldFixtureJobs(jq, queuedJobIds, wasQueuePaused)
     await service.close()
     await temp.cleanup()
   }

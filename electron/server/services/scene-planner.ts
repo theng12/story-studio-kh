@@ -41,6 +41,7 @@ import type {
   SceneType,
 } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { pacingBandAt, type ScenePacing, type ScenePacingBand, type ScenePacingPeriod } from '../contracts/pacing.js'
 
 type ScenePlannerRunOptions = ScenePlanRunOptions & {
   /** Pipeline supplies this only for an explicit per-run model policy. */
@@ -49,6 +50,31 @@ type ScenePlannerRunOptions = ScenePlanRunOptions & {
 
 const MIN_SCENE_SEC = 3
 const MAX_SCENE_SEC = 12
+
+type PlannerPacing = ScenePacingBand & {
+  opening_duration_sec?: number
+  settled_min_sec?: number
+  settled_max_sec?: number
+  periods?: ScenePacingPeriod[]
+}
+
+function plannerPacingBandAt(pacing: PlannerPacing, timeSec: number): ScenePacingBand {
+  if (pacing.periods?.length) {
+    return pacingBandAt({
+      mode: 'variable',
+      min_sec: pacing.periods[0]!.min_sec,
+      max_sec: pacing.periods[0]!.max_sec,
+      periods: pacing.periods,
+    }, timeSec)
+  }
+  if (pacing.opening_duration_sec !== undefined
+    && pacing.settled_min_sec !== undefined
+    && pacing.settled_max_sec !== undefined
+    && timeSec >= pacing.opening_duration_sec) {
+    return { min_sec: pacing.settled_min_sec, max_sec: pacing.settled_max_sec }
+  }
+  return { min_sec: pacing.min_sec, max_sec: pacing.max_sec }
+}
 
 // v1.0.336 — coerce the planner's `scene_type` to a valid value (or undefined,
 // which the renderer treats as a character scene for back-compat).
@@ -176,10 +202,11 @@ function buildScenePlannerPrompt(opts: {
   pacing?: {
     min_sec: number
     max_sec: number
-    mode?: 'live' | 'documentary'
+    mode?: 'live' | 'documentary' | 'variable' | 'uniform'
     opening_duration_sec?: number
     settled_min_sec?: number
     settled_max_sec?: number
+    periods?: ScenePacingPeriod[]
   }
   /** v1.0.337 — % of scenes that feature the recurring guide character
    *  (continuity-chain). 0 = no guide at all; 100 = guide in every scene;
@@ -197,8 +224,11 @@ function buildScenePlannerPrompt(opts: {
     story_so_far?: string
   }
 }): { system: string; user: string } {
-  const minSec = opts.pacing ? opts.pacing.min_sec : MIN_SCENE_SEC
-  const maxSec = opts.pacing ? opts.pacing.max_sec : MAX_SCENE_SEC
+  const activePacing = opts.pacing
+    ? plannerPacingBandAt(opts.pacing, opts.window?.start_sec ?? 0)
+    : undefined
+  const minSec = activePacing?.min_sec ?? MIN_SCENE_SEC
+  const maxSec = activePacing?.max_sec ?? MAX_SCENE_SEC
 
   // v1.0.242 — visual-prompt detail level. Drives how long + how rich each
   // `visual_prompt` is. Level 2 reproduces the historical "2-3 sentences
@@ -1025,6 +1055,8 @@ export function splitScenesDeterministically(opts: {
     settled_min_sec: number
     settled_max_sec: number
   }
+  /** Ordered narration-timeline pacing periods. The final period ends at null. */
+  pacing_periods?: ScenePacingPeriod[]
   /** First scene's `start_sec`. Defaults to the first cue's start, or 0. */
   initial_start_sec?: number
   /** Scene IDs are stable across re-plans; provide a generator. Defaults
@@ -1035,7 +1067,23 @@ export function splitScenesDeterministically(opts: {
   const minSec = opts.min_sec ?? MIN_SCENE_SEC
   const maxSec = opts.max_sec ?? MAX_SCENE_SEC
   const profile = opts.pacing_profile
+  const variablePacing = opts.pacing_periods?.length
+    ? {
+        mode: 'variable' as const,
+        min_sec: opts.pacing_periods[0]!.min_sec,
+        max_sec: opts.pacing_periods[0]!.max_sec,
+        periods: opts.pacing_periods,
+      }
+    : undefined
   const pacingAt = (timeSec: number) => {
+    if (variablePacing) {
+      const active = pacingBandAt(variablePacing, timeSec)
+      return {
+        minSec: active.min_sec,
+        maxSec: active.max_sec,
+        targetSec: (active.min_sec + active.max_sec) / 2,
+      }
+    }
     if (profile && timeSec >= profile.opening_duration_sec) {
       const settledMin = Math.max(1, profile.settled_min_sec)
       const settledMax = Math.max(settledMin, profile.settled_max_sec)
@@ -1312,6 +1360,9 @@ export function repairOverlongScenesDeterministically(opts: {
   threshold_sec?: number
   min_sec?: number
   max_sec?: number
+  /** A saved plan snapshot is authoritative for repair; use the band where
+   * each existing scene starts, rather than the current draft settings. */
+  pacing?: ScenePacing
   /** Scenes the caller has already decided should stay one long hold. Used for
    *  a head scene the owner deliberately stretched over the opening: splitting
    *  it here would silently undo that choice and demand new images for it. */
@@ -1325,7 +1376,11 @@ export function repairOverlongScenesDeterministically(opts: {
   let unsplittableCount = 0
 
   for (const scene of opts.scenes) {
-    if (opts.exempt_ids?.has(scene.id) || scene.end_sec - scene.start_sec <= thresholdSec) {
+    const sceneBand = opts.pacing
+      ? pacingBandAt(opts.pacing, scene.start_sec)
+      : { min_sec: minSec, max_sec: maxSec }
+    const sceneThreshold = opts.pacing ? sceneBand.max_sec : thresholdSec
+    if (opts.exempt_ids?.has(scene.id) || scene.end_sec - scene.start_sec <= sceneThreshold) {
       result.push({ ...scene })
       continue
     }
@@ -1339,9 +1394,10 @@ export function repairOverlongScenesDeterministically(opts: {
     }
     const parts = splitScenesDeterministically({
       cues,
-      min_sec: minSec,
-      max_sec: maxSec,
-      target_sec: (minSec + maxSec) / 2,
+      min_sec: sceneBand.min_sec,
+      max_sec: sceneBand.max_sec,
+      target_sec: (sceneBand.min_sec + sceneBand.max_sec) / 2,
+      ...(opts.pacing?.mode === 'variable' ? { pacing_periods: opts.pacing.periods } : {}),
       initial_start_sec: scene.start_sec,
       idGen: index => index === 0 ? scene.id : freshId(),
     })
@@ -1409,6 +1465,8 @@ export function repairPlanCoverageWithSubtitleCues(opts: {
   threshold_sec?: number
   min_sec?: number
   max_sec?: number
+  /** Saved with the timeline; draft pacing changes must not retime repairs. */
+  pacing?: ScenePacing
   /** Close a large head gap by holding scene 1 across the whole opening.
    *  Off by default — see `repairPlanCoverage`. */
   hold_head_scene?: boolean
@@ -1422,6 +1480,7 @@ export function repairPlanCoverageWithSubtitleCues(opts: {
     threshold_sec: opts.threshold_sec,
     min_sec: opts.min_sec,
     max_sec: opts.max_sec,
+    pacing: opts.pacing,
     exempt_ids: coverageRepair.heldHeadSceneId
       ? new Set([coverageRepair.heldHeadSceneId])
       : undefined,
@@ -1978,6 +2037,16 @@ export async function planScenesTwoPass(opts: ScenePlannerRunOptions): Promise<S
     target_sec: targetSec,
     min_sec: minSec,
     max_sec: maxSec,
+    pacing_periods: (opts.pacing as PlannerPacing | undefined)?.periods,
+    pacing_profile: opts.pacing?.opening_duration_sec !== undefined
+      && opts.pacing.settled_min_sec !== undefined
+      && opts.pacing.settled_max_sec !== undefined
+      ? {
+          opening_duration_sec: opts.pacing.opening_duration_sec,
+          settled_min_sec: opts.pacing.settled_min_sec,
+          settled_max_sec: opts.pacing.settled_max_sec,
+        }
+      : undefined,
     initial_start_sec: initialStart,
     idGen: (i) => `scene-${Date.now()}-${i + 1}`,
   })
@@ -2171,12 +2240,13 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
   // undefined when continuity is off.
   const planOneWindow = async (w: number, lowerBound: number, storySoFar: string | undefined): Promise<ScenePlanEntry[]> => {
     const win = windows[w]!
+    const windowBand = opts.pacing ? plannerPacingBandAt(opts.pacing as PlannerPacing, win.start) : { min_sec: minSec, max_sec: maxSec }
     const { system, user } = buildScenePlannerPrompt({
       stitched_srt: cuesToSrt(win.cues),
       research,
       narration_text: narrationText,
       total_duration_sec: totalDuration,
-      pacing: opts.pacing,
+      pacing: opts.pacing ? { ...opts.pacing, ...windowBand } : undefined,
       character_density: opts.character_density,
       target_scene_count: opts.target_scene_count,
       detail_level: opts.detail_level,
@@ -2214,7 +2284,10 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
         const parsed = parsePlannerJson(raw)
         // Clamp this window's scenes to [lowerBound, win.end] so they stay
         // in-segment and don't overlap the neighbouring windows.
-        winScenes = normalizeScenes(parsed.scenes || [], dedupedBoundaries, win.end, minSec, maxSec, lowerBound)
+        winScenes = normalizeScenes(
+          parsed.scenes || [], dedupedBoundaries, win.end,
+          windowBand.min_sec, windowBand.max_sec, lowerBound,
+        )
         if (winScenes.length === 0 && attempt < MAX_ATTEMPTS) {
           opts.onWarn?.(`Segment ${w + 1}/${windows.length} (${win.start.toFixed(0)}–${win.end.toFixed(0)}s) returned no usable scenes — retrying…`)
         }
@@ -2233,7 +2306,7 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
       const last = winScenes[winScenes.length - 1]!
       if (last.end_sec < win.end) last.end_sec = win.end
     } else if (win.end > lowerBound) {
-      winScenes = subdivideWindow(win.cues, lowerBound, win.end, maxSec)
+      winScenes = subdivideWindow(win.cues, lowerBound, win.end, windowBand.max_sec)
       opts.onWarn?.(
         `⚠ Segment ${w + 1}/${windows.length} (${win.start.toFixed(0)}–${win.end.toFixed(0)}s) failed after ${MAX_ATTEMPTS} tries — ` +
         `split into ${winScenes.length} placeholder scene(s) with empty prompts. Use "Re-plan this scene" or write prompts for them.`,
@@ -2310,8 +2383,9 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
     if (s.visual_prompt && s.visual_prompt.trim()) {
       s.visual_prompt = leadWithStyle(s.visual_prompt, opts.style_prompt)
     }
-    if (s.end_sec - s.start_sec > maxSec + 0.5) {
-      finalScenes.push(...splitLongScene(s, cues, maxSec))
+    const sceneBand = opts.pacing ? plannerPacingBandAt(opts.pacing as PlannerPacing, s.start_sec) : { min_sec: minSec, max_sec: maxSec }
+    if (s.end_sec - s.start_sec > sceneBand.max_sec + 0.5) {
+      finalScenes.push(...splitLongScene(s, cues, sceneBand.max_sec))
     } else {
       finalScenes.push(s)
     }

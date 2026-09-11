@@ -4,7 +4,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { resolveSceneClipCatalogModel } from '../generators/scene-clip.js'
-import { resolveScenePlanCatalogModel } from '../generators/scene-plan.js'
+import { motionPromptScenesForRequest, resolveScenePlanCatalogModel } from '../generators/scene-plan.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const serverRoot = path.resolve(HERE, '..')
@@ -49,6 +49,16 @@ test('scene planning accepts only live GenStudio catalog ids', () => {
   )
   assert.equal(resolveScenePlanCatalogModel('chatstudio:local-model', catalog), null)
   assert.equal(resolveScenePlanCatalogModel('genstudio-chat-disabled-v1', catalog), null)
+})
+
+test('legacy explicit motion keeps historical still scenes out of both saved-plan and full-plan requests', () => {
+  const scenes = [
+    { id: 'still', motion_mode: 'still' },
+    { id: 'gentle', motion_mode: 'gentle' },
+    { id: 'unassigned' },
+  ] as any
+  assert.deepEqual(motionPromptScenesForRequest(scenes, true).map((scene: any) => scene.id), ['gentle', 'unassigned'])
+  assert.equal(motionPromptScenesForRequest(scenes, false), scenes)
 })
 
 test('scene motion and planning source contain no executable direct provider or Hub dispatch', () => {

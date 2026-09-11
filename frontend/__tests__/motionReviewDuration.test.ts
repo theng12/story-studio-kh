@@ -68,6 +68,12 @@ const TopActionBarStub = defineComponent({
     }, 'Generate missing clips')
   },
 })
+const NuxtLinkStub = defineComponent({
+  props: { to: { type: String, required: true } },
+  setup(props, { slots }) {
+    return () => h('a', { href: props.to }, slots.default?.())
+  },
+})
 
 type Variant = {
   operation: 'image-to-video'
@@ -111,15 +117,29 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-async function mount(input: { models: any[]; scenes?: any[] }) {
+async function mount(input: {
+  models: any[]
+  scenes?: any[]
+  motion_scope?: unknown
+  motion_scene_ids?: string[]
+  motion_crossing_scene_ids?: string[]
+  motion_scope_error?: string
+  visual_source?: 'scene_plan' | 'image_pool'
+}) {
   const calls: Array<{ path: string; body: any }> = []
   const models = ref(input.models)
+  const fixtureScenes = input.scenes ?? [scene()]
   ;(globalThis as any).__mrModels = models
   ;(globalThis as any).__mrRoute = reactive({ params: { slug: 'demo' }, query: { episode_id: 'EP0001' } })
   ;(globalThis as any).__mrApi = {
     get: async () => ({
-      scenes: input.scenes ?? [scene()],
-      stats: { total_scenes: input.scenes?.length ?? 1, approved: 1, with_image: 1, with_clip: 0, motion_reviewed: 0, all_motion_reviewed: false },
+      scenes: fixtureScenes,
+      stats: { total_scenes: fixtureScenes.length, approved: 1, with_image: 1, with_clip: 0, motion_reviewed: 0, all_motion_reviewed: false },
+      motion_scope: input.motion_scope ?? { mode: 'all' },
+      motion_scene_ids: input.motion_scene_ids ?? fixtureScenes.map(scene => scene.id),
+      motion_crossing_scene_ids: input.motion_crossing_scene_ids,
+      motion_scope_error: input.motion_scope_error,
+      visual_source: input.visual_source,
     }),
     post: async (path: string, body: any) => { calls.push({ path, body }); return { queued: 1, skipped: 0 } },
     put: async () => ({}),
@@ -129,7 +149,7 @@ async function mount(input: { models: any[]; scenes?: any[] }) {
   app.component('WorkspaceHero', SurfaceStub)
   app.component('WorkspaceNotice', SurfaceStub)
   app.component('WorkspaceSection', SurfaceStub)
-  app.component('NuxtLink', SurfaceStub)
+  app.component('NuxtLink', NuxtLinkStub)
   app.component('ModelMenu', ModelMenuStub)
   app.component('TopActionBar', TopActionBarStub)
   app.mount(el)
@@ -292,6 +312,78 @@ describe('Motion Review duration controls', () => {
     slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
     await settle()
     assert.equal(mounted.el.querySelector<HTMLInputElement>('input[aria-label="Manual clip length"]')!.value, '5')
+    mounted.destroy()
+  })
+
+  test('shows the saved opening scope, crossing boundary, and only its eligible batch cost', async () => {
+    const mounted = await mount({
+      models: [model('scope', [variant(5, '720p', 50)])],
+      scenes: [
+        scene({ id: 'opening', scene_index: 1, start_sec: 0, end_sec: 8 }),
+        scene({ id: 'crossing', scene_index: 2, start_sec: 8, end_sec: 16 }),
+        scene({ id: 'later', scene_index: 3, start_sec: 16, end_sec: 24 }),
+      ],
+      motion_scope: { mode: 'opening', end_sec: 12 },
+      motion_scene_ids: ['opening'],
+      motion_crossing_scene_ids: ['crossing'],
+    })
+    await settle()
+
+    assert.match(mounted.text(), /Opening.*12s/i)
+    assert.match(mounted.text(), /1 eligible scene/i)
+    assert.match(mounted.text(), /Scene 2 crosses the opening boundary/i)
+    assert.match(mounted.text(), /1 clip · Listed total 50 credits/)
+    assert.ok(mounted.el.querySelector('a[href*="scene-plan"][href$="#visual-timing"]'))
+    const generateButtons = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .filter(button => /Generate clip/.test(button.textContent || ''))
+    assert.equal(generateButtons.length, 3)
+    assert.equal(generateButtons[0]!.disabled, false)
+    assert.equal(generateButtons[1]!.disabled, true)
+    assert.equal(generateButtons[2]!.disabled, true)
+    generateButtons[1]!.click()
+    await settle()
+    assert.equal(mounted.calls.length, 0, 'an out-of-scope row cannot enqueue paid motion work')
+    mounted.destroy()
+  })
+
+  test('labels Image Pool as not using Motion Review and leaves its single-scene controls unavailable', async () => {
+    const mounted = await mount({
+      models: [model('pool', [variant(5, '720p', 50)])],
+      visual_source: 'image_pool',
+    })
+    await settle()
+
+    assert.match(mounted.text(), /Image Pool.*not used/i)
+    assert.equal(mounted.el.querySelector<HTMLButtonElement>('button')?.disabled, true)
+    assert.equal(mounted.calls.length, 0)
+    mounted.destroy()
+  })
+
+  test('keeps Scene Review available when its saved motion scope needs repair', async () => {
+    const mounted = await mount({
+      models: [model('stale', [variant(5, '720p', 50)])],
+      motion_scope: { mode: 'off' },
+      motion_scene_ids: [],
+      motion_scope_error: 'Selected motion scenes no longer exist: removed-scene. Choose the scenes again.',
+    })
+    await settle()
+
+    assert.match(mounted.text(), /Selected motion scenes no longer exist: removed-scene/i)
+    assert.ok(mounted.el.querySelector('a[href*="scene-plan"][href$="#visual-timing"]'))
+    mounted.destroy()
+  })
+
+  test('does not mark an Off scope as 100% decided', async () => {
+    const mounted = await mount({
+      models: [model('off', [variant(5, '720p', 50)])],
+      motion_scope: { mode: 'off' },
+      motion_scene_ids: [],
+    })
+    await settle()
+
+    assert.match(mounted.text(), /No motion decisions in this scope/)
+    assert.match(mounted.text(), /not applicable/)
+    assert.doesNotMatch(mounted.text(), /100%\s*decided/)
     mounted.destroy()
   })
 })

@@ -28,6 +28,7 @@ import { useRoute } from 'vue-router'
  * stages of the creation chain.
  */
 export type VisualSource = 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+export type EpisodeVisualSource = 'scene_plan' | 'image_pool'
 
 export type SceneAlignment = 'chapter' | 'sentence'
 
@@ -53,6 +54,23 @@ export function normalizeVisualSource(
     case 'timestamp-driven': return 'timestamp-driven'
     case 'narrated-scenes': return 'narrated-scenes'
     default: return 'continuity-chain'
+  }
+}
+
+/**
+ * Parse an authoritative effective-format response. Unlike the legacy
+ * normalizer, this never invents a workflow for a missing or malformed
+ * response; callers that are about to expose source-dependent controls must
+ * keep those controls unavailable until this returns a real source.
+ */
+export function parseVisualSource(value: unknown): VisualSource | null {
+  switch (value) {
+    case 'continuity-chain':
+    case 'timestamp-driven':
+    case 'narrated-scenes':
+      return value
+    default:
+      return null
   }
 }
 
@@ -100,6 +118,7 @@ const STEP = {
   musicLibrary: { key: 'music', label: 'Music Library', icon: '🎼', path: '/music', phase: 'media', optional: true },
   sceneReview:  { key: 'scene-review', label: 'Scene Review',   icon: '✅', path: '/scene-review', phase: 'video' },
   motionReview: { key: 'motion-review', label: 'Motion Review', icon: '🎬', path: '/motion-review', phase: 'video', optional: true },
+  imagePool:    { key: 'image-pool', label: 'Image Pool', icon: '🗂️', path: '/image-pool', phase: 'video' },
   videoAssembly:    { key: 'video-assembly',     label: 'Video Assembly',     icon: '🎞', path: '/video-assembly', phase: 'video' },
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
 } satisfies Record<string, FlowStep>
@@ -134,6 +153,54 @@ export function flowForVisualSource(vs: VisualSource): FlowStep[] {
   if (vs === 'continuity-chain') return FLOW_CONTINUITY
   if (vs === 'narrated-scenes') return FLOW_NARRATED_SCENES
   return FLOW_NARRATED_SCENES
+}
+
+const SCENE_PLAN_STEP_KEYS = new Set(['character-sheet', 'scene-plan', 'scene-review', 'motion-review'])
+
+/** Missing legacy episode state keeps the long-standing Scene Plan branch. */
+export function normalizeEpisodeVisualSource(value: unknown): EpisodeVisualSource {
+  return value === 'image_pool' ? 'image_pool' : 'scene_plan'
+}
+
+/** Whether one Board/Pipeline step belongs to the episode's selected branch. */
+export function isFlowStepApplicable(step: FlowStep, source: EpisodeVisualSource): boolean {
+  if (step.key === 'image-pool') return source === 'image_pool'
+  if (SCENE_PLAN_STEP_KEYS.has(step.key)) return source === 'scene_plan'
+  return true
+}
+
+/** The ordinary project flow with only the selected episode visual branch. */
+export function flowForEpisodeVisualSource(
+  projectSource: VisualSource,
+  episodeSource: EpisodeVisualSource,
+): FlowStep[] {
+  const flow = flowForVisualSource(projectSource).filter(step => isFlowStepApplicable(step, episodeSource))
+  if (episodeSource !== 'image_pool') return flow
+  const assemblyIndex = flow.findIndex(step => step.key === 'video-assembly')
+  const index = assemblyIndex < 0 ? flow.length : assemblyIndex
+  return [...flow.slice(0, index), STEP.imagePool, ...flow.slice(index)]
+}
+
+/** Stable union for a mixed-source Board: common columns once, both branches when present. */
+export function unionFlowForEpisodeSources(
+  projectSource: VisualSource,
+  episodeSources: readonly EpisodeVisualSource[],
+): FlowStep[] {
+  if (episodeSources.length === 0) return flowForVisualSource(projectSource)
+  const sources: EpisodeVisualSource[] = []
+  if (episodeSources.includes('scene_plan')) sources.push('scene_plan')
+  if (episodeSources.includes('image_pool')) sources.push('image_pool')
+  const byKey = new Map<string, FlowStep>()
+  for (const source of sources) {
+    for (const step of flowForEpisodeVisualSource(projectSource, source)) byKey.set(step.key, step)
+  }
+  const base = flowForVisualSource(projectSource)
+  const result: FlowStep[] = []
+  for (const step of base) {
+    if (step.key === 'video-assembly' && byKey.has('image-pool')) result.push(STEP.imagePool)
+    if (byKey.has(step.key)) result.push(step)
+  }
+  return result
 }
 
 /** Steps that may block an episode from being considered production-ready. */
@@ -173,12 +240,14 @@ export const STEP_STATUS_FIELD: Readonly<Record<string, string>> = {
   'scene-plan': 'scene_plan',
   'scene-review': 'scene_review',
   'motion-review': 'motion_review',
+  'image-pool': 'broll_picked',
   'video-assembly': 'video_assembly',
 }
 
 /** The status fields that can hold an episode back, for this format's flow. */
-export function requiredStatusFields(vs: VisualSource): string[] {
-  return requiredFlowSteps(vs)
+export function requiredStatusFields(vs: VisualSource, source: EpisodeVisualSource = 'scene_plan'): string[] {
+  return flowForEpisodeVisualSource(vs, source)
+    .filter(step => !step.optional)
     .map(step => STEP_STATUS_FIELD[step.key])
     .filter((field): field is string => !!field)
 }
@@ -186,26 +255,27 @@ export function requiredStatusFields(vs: VisualSource): string[] {
 /**
  * Is this episode finished? Every REQUIRED step of its format's flow is done.
  *
- * Optional steps never count against it — that is what `optional` means, and
- * every surface that reports completeness must agree on it. The server keeps
- * its own twin of this rule (`all_done`, routes/ideas.ts) which is deliberately
- * left alone for now; if the two ever disagree, that is the other half.
+ * Optional steps never count against it. The episode source marker selects
+ * Scene Plan or Image Pool requirements so this agrees with the server's
+ * `all_done` field for mixed projects.
  */
 export function isEpisodeDone(
   status: Record<string, unknown> | null | undefined,
   vs: VisualSource,
+  source?: EpisodeVisualSource,
 ): boolean {
   if (!status) return false
-  return requiredStatusFields(vs).every(field => status[field] === true)
+  const selectedSource = normalizeEpisodeVisualSource(source ?? status.visual_source)
+  return requiredStatusFields(vs, selectedSource).every(field => status[field] === true)
 }
 
 export function useProjectFlow(
   slug: Ref<string> | ComputedRef<string>,
-  visualSource: Ref<VisualSource> | ComputedRef<VisualSource>,
+  visualSource: Ref<VisualSource | null> | ComputedRef<VisualSource | null>,
 ) {
   const route = useRoute()
 
-  const steps = computed<FlowStep[]>(() => flowForVisualSource(visualSource.value))
+  const steps = computed<FlowStep[]>(() => visualSource.value ? flowForVisualSource(visualSource.value) : [])
 
   /** Full route for a step (the ribbon links here). */
   function routeFor(step: FlowStep): string {

@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.147 — 2026-09-11
+
+- Choose Scene Plan or Image Pool per episode from Pipeline and Scene Plan. Mixed batches skip inapplicable visual steps, and the Board and completion filters follow each episode’s source.
+- Set Visual timing & motion in Scene Plan: keep uniform scene timing or use successive pacing periods, with motion off, opening only, selected scenes, or all scenes. Existing plans and approved clips stay unchanged until deliberately edited or rebuilt.
+- Keep queued visual requests attached to their accepted source and scene selection. Missing-only prompt work uses the saved plan, and out-of-scope scenes do not trigger new motion generations.
+- Treat provider-confirmed no-record requests as terminal, uncharged missing work even when an older queue hint said they were running.
+- Preserve saved Image Pool picks from old B-Roll selection actions. Prevent old recycling exclusions from dropping Scene Plan scenes, and retain the narration-tail duration correction during encoding.
+- Keep writing pages, visual reviews, publishing profiles, thumbnail templates, settings and shared episode indicators attached to the current project. Show failed loads and saves, and prevent overlapping saves from losing choices.
+- Clarify missing audio/subtitle prerequisites, hide unpublished model batch limits, and retain an episode’s motion intensity when an older preset has no saved intensity.
+
 ## v1.4.146 — 2026-09-11
 
 - Pipeline now stays open after Run Batch or Repair. A result dialog shows the accepted job count, existing work and skipped or blocked episodes, with Stay on Pipeline and View Jobs choices instead of an automatic redirect.

@@ -186,27 +186,11 @@
       <section class="card mt-3 cs-rhythm-card">
         <header class="cs-section-head">
           <div>
-            <span class="cs-kicker">Episode pacing</span>
-            <h3>Scene rhythm</h3>
-            <p class="text-muted text-sm">Controls how often Scene Plan cuts while it follows this episode's narration.</p>
+            <h3>Visual timing & motion</h3>
+            <p class="text-muted text-sm">{{ pacingSummary }} Scene Plan owns the saved episode timing and motion scope.</p>
           </div>
+          <NuxtLink :to="{ path: `/projects/${slug}/scene-plan`, query: { episode_id: episodeId }, hash: '#visual-timing' }" class="btn btn-secondary btn-sm">Open Scene Plan →</NuxtLink>
         </header>
-        <div class="cs-rhythm-control form-group">
-          <label for="cs-visual-pacing">Visual pacing</label>
-          <select id="cs-visual-pacing" v-model="pacingPreset" class="select" @change="applyPacingPreset">
-            <option v-if="formulaPacingProfile" value="formula-documentary">{{ formulaPacingLabel }}</option>
-            <option v-for="preset in PACING_PRESETS" :key="preset.id" :value="preset.id">{{ preset.label }}</option>
-            <option value="custom">Custom range…</option>
-          </select>
-          <div v-if="pacingPreset === 'custom'" class="cs-range-row mt-1">
-            <input v-model.number="config.pacing.min_sec" type="number" min="1" max="60" class="input input-sm input-inline" aria-label="Shortest scene, in seconds" @input="onPacingEdited" />
-            <span class="text-muted">to</span>
-            <input v-model.number="config.pacing.max_sec" type="number" min="1" max="60" class="input input-sm input-inline" aria-label="Longest scene, in seconds" @input="onPacingEdited" />
-          </div>
-          <span class="text-muted text-xs">{{ formulaPacingProfile && pacingPreset === 'formula-documentary'
-            ? `The Formula uses a denser first ${Math.round(formulaPacingProfile.opening_duration_sec / 60)} minutes, then longer settled holds. Choose another option to override it for this episode.`
-            : 'Scene Plan keeps cuts inside this range and divides long narration at safe word or sentence boundaries.' }}</span>
-        </div>
 
         <WorkspaceNotice
           v-if="pacingPresetNotice"
@@ -233,7 +217,6 @@
 import { ref, computed, watch } from 'vue'
 import type { Character } from '../../../composables/useCharacters.js'
 import {
-  PACING_PRESETS,
   CONTINUITY_PRESET_EXCLUDE_KEYS,
   applyContinuityPagePreset,
   continuityDefaults,
@@ -256,54 +239,9 @@ const episodeId = ref('')
 // Config shape, defaults, and the preset boundary live in the composable so
 // they are importable by tests — see composables/useContinuityConfig.ts.
 const config = ref<ContinuityConfig>(continuityDefaults())
-type FormulaPacingProfile = {
-  opening_duration_sec: number
-  opening: { min_sec: number; max_sec: number }
-  settled: { min_sec: number; max_sec: number }
-}
-const formulaPacingProfile = ref<FormulaPacingProfile | null>(null)
-const formulaPacingLabel = computed(() => {
-  const profile = formulaPacingProfile.value
-  if (!profile) return 'Formula documentary pacing'
-  return `Formula documentary — first ${Math.round(profile.opening_duration_sec / 60)} min ${profile.opening.min_sec}–${profile.opening.max_sec}s, then ${profile.settled.min_sec}–${profile.settled.max_sec}s`
-})
-function formulaPacingConfig(profile: FormulaPacingProfile): ContinuityConfig['pacing'] {
-  return {
-    min_sec: profile.opening.min_sec,
-    max_sec: profile.opening.max_sec,
-    opening_duration_sec: profile.opening_duration_sec,
-    settled_min_sec: profile.settled.min_sec,
-    settled_max_sec: profile.settled.max_sec,
-  }
-}
-// Matches DEFAULT_SCENE_PACING (@shared/pacing) — corrected immediately by
-// the immediate `syncPacingPreset` watch below regardless, but should still
-// name the actual default rather than a stale one.
-const pacingPreset = ref<string>('rapid')
-function syncPacingPreset(): void {
-  const profile = formulaPacingProfile.value
-  if (profile
-    && config.value.pacing.min_sec === profile.opening.min_sec
-    && config.value.pacing.max_sec === profile.opening.max_sec
-    && config.value.pacing.opening_duration_sec === profile.opening_duration_sec
-    && config.value.pacing.settled_min_sec === profile.settled.min_sec
-    && config.value.pacing.settled_max_sec === profile.settled.max_sec) {
-    pacingPreset.value = 'formula-documentary'
-    return
-  }
-  pacingPreset.value = PACING_PRESETS.find(preset =>
-    preset.min === config.value.pacing.min_sec && preset.max === config.value.pacing.max_sec,
-  )?.id || 'custom'
-}
-function applyPacingPreset(): void {
-  onPacingEdited()
-  if (pacingPreset.value === 'formula-documentary' && formulaPacingProfile.value) {
-    config.value.pacing = formulaPacingConfig(formulaPacingProfile.value)
-    return
-  }
-  const preset = PACING_PRESETS.find(entry => entry.id === pacingPreset.value)
-  if (preset) config.value.pacing = { min_sec: preset.min, max_sec: preset.max }
-}
+const pacingSummary = computed(() => config.value.pacing.mode === 'variable'
+  ? `Draft: ${config.value.pacing.periods.length} ordered pacing periods.`
+  : `Draft: uniform ${config.value.pacing.min_sec}–${config.value.pacing.max_sec} second scenes.`)
 
 // v1.2.5 — a Character Sheet preset carries the scene rhythm again (AGENTS.md,
 // Preset Boundaries; the owner's reversal of 2026-08-03, made 2026-08-18).
@@ -312,11 +250,12 @@ function applyPacingPreset(): void {
 // feature that does not work. Say which of the two happened, every time.
 const pacingPresetNotice = ref<{ applied: boolean; band: string } | null>(null)
 function pacingBandLabel(pacing: ContinuityConfig['pacing']): string {
-  return `${pacing.min_sec}–${pacing.max_sec} seconds`
+  return pacing.mode === 'variable'
+    ? `${pacing.periods.length} ordered pacing periods`
+    : `${pacing.min_sec}–${pacing.max_sec} seconds`
 }
 /** Any hand edit of the rhythm supersedes what the last applied preset said. */
 function onPacingEdited(): void { pacingPresetNotice.value = null }
-watch(() => [config.value.pacing.min_sec, config.value.pacing.max_sec, config.value.pacing.opening_duration_sec, config.value.pacing.settled_min_sec, config.value.pacing.settled_max_sec], syncPacingPreset, { immediate: true })
 
 // v1.0.356 — ONE whole-page preset for the entire continuity setup. Replaces
 // the fragmented style controls the user had to manage separately. A channel's
@@ -438,35 +377,30 @@ async function loadConfig(): Promise<void> {
   const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
   if (!ep) { config.value = continuityDefaults(); return }
   try {
-    const [r, format] = await Promise.all([
-      get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${project}/continuity/${ep}`),
-      get<{ script?: { visualPacingProfile?: FormulaPacingProfile } }>(`/projects/${project}/effective-format`),
-    ])
+    const r = await get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${project}/continuity/${ep}`)
     if (!current()) return
-    const profile = format?.script?.visualPacingProfile
-    formulaPacingProfile.value = profile && Number.isFinite(profile.opening_duration_sec)
-      ? profile
-      : null
-    if (r.exists) {
-      config.value = normalizeContinuityConfig(r.config)
-    } else {
-      config.value = normalizeContinuityConfig(profile ? { pacing: formulaPacingConfig(profile) } : undefined)
-    }
+    config.value = r.exists ? normalizeContinuityConfig(r.config) : continuityDefaults()
   } catch (e: any) {
     if (current() && !e?.__slugRace) config.value = continuityDefaults()
   }
 }
 
 async function saveConfig(): Promise<void> {
-  if (!episodeId.value) return
+  const ep = episodeId.value
+  const project = slug.value
+  const scope = characterScopeSequence
+  const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
+  if (!ep) return
   saving.value = true
   try {
-    await put(`/projects/${slug.value}/continuity/${episodeId.value}`, config.value)
+    const saved = await put<{ ok: true; config: ContinuityConfig }>(`/projects/${project}/continuity/${ep}`, JSON.parse(JSON.stringify(config.value)))
+    if (!current()) return
+    config.value = normalizeContinuityConfig(saved.config)
     success('Visual setup saved')
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to save continuity settings')
+    if (current()) showError(e?.data?.detail || 'Failed to save continuity settings')
   } finally {
-    saving.value = false
+    if (current()) saving.value = false
   }
 }
 
@@ -621,6 +555,7 @@ watch([slug, episodeId], () => {
   compositionExists.value = null
   compositionVersion.value++
   charsLoading.value = false
+  saving.value = false
   uploadingSheet.value = false
   uploadingComposition.value = false
   onPacingEdited()   // the last apply said nothing about the episode now open

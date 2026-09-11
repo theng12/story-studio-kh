@@ -143,6 +143,7 @@ test('restarting after a mid-batch quit settles every item — a provider 404 is
     const inflight = settled.genstudio_jobs!.find(entry => entry.request?.idempotency_key === 'story-image-inflight')
       ?? settled.genstudio_jobs!.find(entry => entry.state === 'not_created')
     assert.equal(inflight?.state, 'not_created')
+    assert.equal(inflight?.queue_state, 'not_created')
     // 4. The log answers the only question the user actually has: was I charged?
     const log = settled.output_lines.join('\n')
     assert.match(log, /GenStudio has no record of image\.generation/)

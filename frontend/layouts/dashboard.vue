@@ -139,7 +139,10 @@
       </aside>
 
       <main id="main-content" class="main-content" tabindex="-1">
-        <FlowRibbon v-if="slug" :slug="slug" :visual-source="visualSource" />
+        <WorkspaceNotice v-if="formatError" tone="warning" title="Production flow unavailable">
+          {{ formatError }} Source-dependent workflow navigation will return when the project format can be read.
+        </WorkspaceNotice>
+        <FlowRibbon v-else-if="slug && visualSource" :slug="slug" :visual-source="visualSource" />
         <NicheMissingBanner v-if="slug" :slug="slug" :niche-id="project?.niche_id" />
         <slot />
       </main>
@@ -148,7 +151,7 @@
 </template>
 
 <script setup lang="ts">
-import { FLOW_PHASES, normalizeVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
+import { FLOW_PHASES, parseVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
 import { projectSlug } from '~/utils/project-slug'
 
@@ -175,7 +178,9 @@ const whatsNewModal = useWhatsNewModal()
 const appSettingsModal = useAppSettingsModal()
 function openWhatsNew(): void { whatsNewModal.open() }
 
-const visualSource = ref<VisualSource>('narrated-scenes')
+const visualSource = ref<VisualSource | null>(null)
+const formatError = ref('')
+let formatRequest = 0
 const {
   steps: workflowSteps,
   routeFor: workflowRouteFor,
@@ -211,12 +216,23 @@ function workflowLabel(step: FlowStep): string {
 }
 
 async function loadVisualSource(): Promise<void> {
-  if (!slug.value) return
+  const projectSlug = slug.value
+  const request = ++formatRequest
+  visualSource.value = null
+  formatError.value = ''
+  if (!projectSlug) return
   try {
-    const format = await apiGet<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug.value}/effective-format`)
-    visualSource.value = normalizeVisualSource(format?.visualSource, format?.sceneAlignment)
-  } catch {
-    visualSource.value = 'narrated-scenes'
+    const format = await apiGet<{ visualSource?: unknown }>(`/projects/${projectSlug}/effective-format`)
+    if (request !== formatRequest || projectSlug !== slug.value) return
+    const source = parseVisualSource(format?.visualSource)
+    if (!source) {
+      formatError.value = 'The project returned an unknown production format. Refresh this project before choosing workflow work.'
+      return
+    }
+    visualSource.value = source
+  } catch (error: any) {
+    if (request !== formatRequest || projectSlug !== slug.value) return
+    formatError.value = error?.data?.detail || error?.message || 'Could not load this project’s production format.'
   }
 }
 

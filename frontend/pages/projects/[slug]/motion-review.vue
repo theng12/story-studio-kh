@@ -44,31 +44,44 @@
     </div>
 
     <WorkspaceSection
-      v-if="stats"
+      v-if="stats && !usesImagePool"
       eyebrow="Episode readiness"
       title="Motion decisions"
-      description="Choose a clip or keep the approved still for every scene. This pass never changes narration timing."
+      description="Choose a clip or keep the approved still for the saved scope. This pass never changes narration timing."
       class="motion-control-deck"
-      :class="{ 'motion-ready': stats.all_motion_reviewed }"
+      :class="{ 'motion-ready': allScopedMotionReviewed }"
     >
+      <div class="motion-scope-summary" aria-live="polite">
+        <div>
+          <h3>Motion scope: {{ motionScopeLabel }}</h3>
+          <p>{{ motionSceneIds.length }} eligible {{ motionSceneIds.length === 1 ? 'scene' : 'scenes' }} in this batch.</p>
+          <p v-if="motionCrossingSceneIds.length" class="motion-scope-crossing">
+            {{ motionCrossingLabel }} crosses the opening boundary and stays still unless you explicitly include it.
+          </p>
+          <p v-if="motionScopeError" class="motion-scope-error">{{ motionScopeError }}</p>
+        </div>
+        <NuxtLink :to="scenePlanMotionLink" class="btn btn-sm btn-secondary">Edit in Scene Plan</NuxtLink>
+      </div>
       <div class="motion-summary">
         <div class="motion-summary-copy">
           <span class="motion-summary-kicker">Episode readiness</span>
-          <h3>{{ stats.motion_reviewed }} of {{ stats.total_scenes }} motion decisions</h3>
-          <p>{{ stats.with_clip }} clips available · {{ stats.total_scenes - stats.motion_reviewed }} decisions remaining</p>
+          <h3 v-if="motionSceneIds.length">{{ scopedMotionReviewed }} of {{ motionSceneIds.length }} motion decisions</h3>
+          <h3 v-else>No motion decisions in this scope</h3>
+          <p v-if="motionSceneIds.length">{{ scopedClipCount }} clips available · {{ motionSceneIds.length - scopedMotionReviewed }} decisions remaining</p>
+          <p v-else>Scenes remain still unless a future saved scope includes them.</p>
         </div>
-        <div class="motion-summary-score" :class="{ ready: stats.all_motion_reviewed }">
-          <strong>{{ stats.total_scenes ? Math.round((stats.motion_reviewed / stats.total_scenes) * 100) : 0 }}%</strong>
-          <span>decided</span>
+        <div class="motion-summary-score" :class="{ ready: allScopedMotionReviewed }">
+          <strong>{{ motionSceneIds.length ? `${Math.round((scopedMotionReviewed / motionSceneIds.length) * 100)}%` : '—' }}</strong>
+          <span>{{ motionSceneIds.length ? 'decided' : 'not applicable' }}</span>
         </div>
       </div>
       <div class="motion-progress" aria-hidden="true">
-        <span :style="{ width: `${stats.total_scenes ? (stats.motion_reviewed / stats.total_scenes) * 100 : 0}%` }" />
+        <span :style="{ width: `${motionSceneIds.length ? (scopedMotionReviewed / motionSceneIds.length) * 100 : 0}%` }" />
       </div>
       <div class="motion-tool-row">
         <div class="motion-tool-heading">
           <strong>Motion controls</strong>
-          <span>Pick a model, then generate or make one decision for every scene.</span>
+          <span>Pick a model, then generate or make one decision for each scoped scene.</span>
         </div>
         <div class="motion-tools">
           <label class="model-field">
@@ -165,16 +178,26 @@
             <span>The current catalogue rows are shown for planning; the provider quote is authoritative when each request is accepted.</span>
             <span v-if="existingClipCount">Existing clips stay out of this batch.</span>
           </div>
-          <button class="btn btn-sm btn-secondary" :disabled="savingAll || stats.with_clip === 0" @click="approveAllClips">
+          <button v-if="motionScope.mode === 'all'" class="btn btn-sm btn-secondary" :disabled="savingAll || scopedClipCount === 0" @click="approveAllClips">
             Approve all fresh clips
           </button>
-          <button class="btn btn-sm btn-ghost" :disabled="savingAll" @click="keepAllStills">Keep all as stills</button>
+          <button v-if="motionScope.mode === 'all'" class="btn btn-sm btn-ghost" :disabled="savingAll" @click="keepAllStills">Keep all as stills</button>
         </div>
       </div>
     </WorkspaceSection>
 
+    <WorkspaceNotice v-else-if="stats && usesImagePool" title="Motion Review is not used for Image Pool" tone="info">
+      This episode assembles its saved Image Pool selection. Scene clips and motion decisions do not apply here.
+      <template #actions>
+        <NuxtLink :to="`/projects/${slug}/video-assembly?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-sm btn-secondary">Open Video Assembly</NuxtLink>
+      </template>
+    </WorkspaceNotice>
+
     <section v-if="!episodeId" class="card mt-3 empty-state">Pick an episode to review motion.</section>
     <section v-else-if="loading" class="card mt-3 empty-state">Loading motion pass...</section>
+    <section v-else-if="usesImagePool" class="card mt-3 empty-state">
+      Image Pool is the selected visual source. Motion Review is not used for this episode.
+    </section>
     <section v-else-if="!scenes.length" class="card mt-3 empty-state">
       No scene plan is available yet. Complete Scene Plan and Scene Review first.
     </section>
@@ -224,7 +247,7 @@
           >{{ uploadingId === scene.id ? 'Uploading...' : 'Upload external MP4' }}</button>
           <button
             class="btn btn-sm btn-secondary"
-            :disabled="!selectionReady || !scene.image_filename || !scene.motion_prompt || animatingId === scene.id"
+            :disabled="!scopedMotionSceneIds.has(scene.id) || !selectionReady || !scene.image_filename || !scene.motion_prompt || animatingId === scene.id"
             @click="generateOne(scene)"
           >{{ animatingId === scene.id ? 'Queuing...' : (scene.clip_exists ? 'Re-generate clip' : 'Generate clip') }}</button>
           <button
@@ -267,10 +290,17 @@ import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection
 import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-cost'
 import { variantsForVideoOperation } from '~/utils/genstudio-video-variants'
 
-definePageMeta({ layout: 'dashboard' })
+// usePresets captures the project slug at setup. Recreate this page for a
+// project navigation so controls and scene state cannot carry into another project.
+definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
 useAppTitle('Motion Review')
 
 type MotionChoice = 'pending' | 'clip' | 'still'
+type MotionScope =
+  | { mode: 'off' }
+  | { mode: 'opening'; end_sec: number }
+  | { mode: 'selected'; scene_ids: string[] }
+  | { mode: 'all' }
 interface MotionScene {
   id: string
   scene_index: number
@@ -326,6 +356,11 @@ function loadMoreScenes(): void {
   renderedSceneLimit.value = Math.min(scenes.value.length, renderedSceneLimit.value + SCENE_RENDER_BATCH)
 }
 const stats = ref<MotionStats | null>(null)
+const motionScope = ref<MotionScope>({ mode: 'off' })
+const motionSceneIds = ref<string[]>([])
+const motionCrossingSceneIds = ref<string[]>([])
+const motionScopeError = ref('')
+const visualSource = ref<'scene_plan' | 'image_pool'>('scene_plan')
 const animateMinSeconds = ref(0)
 const loading = ref(false)
 const queuing = ref(false)
@@ -589,7 +624,9 @@ function durationPlanForScene(scene: MotionScene): DurationPlan | null {
 }
 
 function batchEligible(scene: MotionScene): boolean {
-  return scene.approved
+  return !usesImagePool.value
+    && scopedMotionSceneIds.value.has(scene.id)
+    && scene.approved
     && !!scene.image_filename
     && !!scene.motion_prompt?.trim()
     && !scene.clip_exists
@@ -602,16 +639,39 @@ const batchPlans = computed(() => scenes.value.filter(batchEligible)
 const batchListedTotal = computed(() => batchPlans.value
   .reduce((total, plan) => total + plan.variant.credits_per_video, 0))
 const existingClipCount = computed(() => scenes.value.filter(scene => scene.clip_exists).length)
+const usesImagePool = computed(() => visualSource.value === 'image_pool')
+const scopedMotionSceneIds = computed(() => new Set(motionSceneIds.value))
+const motionScopeLabel = computed(() => {
+  if (motionScope.value.mode === 'opening') return `Opening · first ${formatSeconds(motionScope.value.end_sec)}`
+  if (motionScope.value.mode === 'selected') return 'Selected scenes'
+  if (motionScope.value.mode === 'all') return 'Whole episode'
+  return 'Off'
+})
+const motionCrossingLabel = computed(() => {
+  const scenesAtBoundary = scenes.value.filter(scene => motionCrossingSceneIds.value.includes(scene.id))
+  if (scenesAtBoundary.length === 1) return `Scene ${scenesAtBoundary[0]!.scene_index}`
+  return `${scenesAtBoundary.length} scenes`
+})
+const scopedMotionScenes = computed(() => scenes.value.filter(scene => scopedMotionSceneIds.value.has(scene.id)))
+const scopedClipCount = computed(() => scopedMotionScenes.value.filter(scene => scene.clip_exists).length)
+const scopedMotionReviewed = computed(() => scopedMotionScenes.value.filter(scene => (
+  scene.motion_choice === 'still'
+  || (scene.clip_exists && !scene.clip_stale && (scene.motion_choice === 'clip' || scene.motion_choice == null))
+)).length)
+const allScopedMotionReviewed = computed(() => motionSceneIds.value.length > 0
+  && scopedMotionReviewed.value === motionSceneIds.value.length)
+const scenePlanMotionLink = computed(() => `/projects/${slug.value}/scene-plan?episode_id=${encodeURIComponent(episodeId.value)}#visual-timing`)
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))
 const selectionReady = computed(() => !!selectedResolution.value
   && !!selectedResolutionVariants.value.length
   && (durationMode.value === 'follow_narration' || !!selectedManualVariant.value)
   && !i2vModels.value.find(model => model.id === videoModel.value)?.disabled)
-const canGenerate = computed(() => !!episodeId.value && !!videoModel.value
+const canGenerate = computed(() => !usesImagePool.value && !!episodeId.value && !!videoModel.value
   && selectionReady.value && batchPlans.value.length > 0)
 const generateStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
+  if (usesImagePool.value) return 'Motion Review is not used for Image Pool episodes'
   if (!i2vModels.value.length) return 'GenStudio has no image-to-video models available'
   if (!videoModel.value) return 'Pick an image-to-video model'
   if (!selectedResolutionVariants.value.length) return 'Choose a published resolution'
@@ -635,14 +695,38 @@ function choiceLabel(scene: MotionScene) {
 async function loadReview() {
   const ep = episodeId.value
   const requestSequence = ++reviewLoadSequence
-  if (!ep) { scenes.value = []; stats.value = null; animateMinSeconds.value = 0; return }
+  if (!ep) {
+    scenes.value = []
+    stats.value = null
+    animateMinSeconds.value = 0
+    motionScope.value = { mode: 'off' }
+    motionSceneIds.value = []
+    motionCrossingSceneIds.value = []
+    motionScopeError.value = ''
+    visualSource.value = 'scene_plan'
+    return
+  }
   loading.value = true
   try {
-    const result = await get<{ scenes: MotionScene[]; stats: MotionStats | null; animate_min_seconds?: number }>(`/projects/${slug.value}/scene-review/${ep}`)
+    const result = await get<{
+      scenes: MotionScene[]
+      stats: MotionStats | null
+      animate_min_seconds?: number
+      motion_scope?: MotionScope
+      motion_scene_ids?: string[]
+      motion_crossing_scene_ids?: string[]
+      motion_scope_error?: string
+      visual_source?: 'scene_plan' | 'image_pool'
+    }>(`/projects/${slug.value}/scene-review/${ep}`)
     if (requestSequence !== reviewLoadSequence || episodeId.value !== ep) return
     scenes.value = result.scenes || []
     stats.value = result.stats
     animateMinSeconds.value = Math.max(0, Number(result.animate_min_seconds) || 0)
+    motionScope.value = result.motion_scope || { mode: 'off' }
+    motionSceneIds.value = Array.isArray(result.motion_scene_ids) ? result.motion_scene_ids : []
+    motionCrossingSceneIds.value = Array.isArray(result.motion_crossing_scene_ids) ? result.motion_crossing_scene_ids : []
+    motionScopeError.value = typeof result.motion_scope_error === 'string' ? result.motion_scope_error : ''
+    visualSource.value = result.visual_source === 'image_pool' ? 'image_pool' : 'scene_plan'
     cacheBuster.value = Date.now()
   } catch (error: any) {
     if (requestSequence !== reviewLoadSequence || episodeId.value !== ep) return
@@ -667,6 +751,7 @@ function generationPayload(): Record<string, string | number> | null {
 }
 
 async function generateOne(scene: MotionScene) {
+  if (usesImagePool.value || !scopedMotionSceneIds.value.has(scene.id)) return
   const payload = generationPayload()
   if (!payload) return
   animatingId.value = scene.id
@@ -829,6 +914,11 @@ watch(episodeId, () => {
 
 .motion-control-deck { overflow: hidden; border-radius: 16px; }
 .motion-summary, .motion-tools, .scene-line, .motion-actions { display: flex; align-items: center; gap: 12px; }
+.motion-scope-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.motion-scope-summary h3 { margin: 0 0 4px; font-size: 16px; letter-spacing: -.015em; }
+.motion-scope-summary p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
+.motion-scope-summary .motion-scope-crossing { margin-top: 5px; color: var(--warning, #d99558); }
+.motion-scope-summary .motion-scope-error { margin-top: 5px; color: var(--danger, #d96a6a); }
 .motion-summary { justify-content: space-between; padding-bottom: 16px; }
 .motion-summary-kicker { color: var(--motion-blue); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .motion-summary-copy h3 { margin: 5px 0 3px; font-size: 20px; letter-spacing: -.02em; }
@@ -933,6 +1023,7 @@ input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-
   .motion-tool-row { align-items: stretch; }
 }
 @media (max-width: 640px) {
+  .motion-scope-summary { align-items: stretch; flex-direction: column; }
   .motion-summary { align-items: flex-start; flex-direction: column; }
   .motion-summary-score, .model-field { width: 100%; min-width: 0; }
   .motion-tools { grid-template-columns: 1fr; align-items: stretch; }

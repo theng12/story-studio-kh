@@ -7,6 +7,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { effectiveGenStudioTaskState } from '@shared/provider-task-state'
 
 type RemoteJob = {
   state?: string
@@ -25,8 +26,9 @@ function numeric(value: unknown): number {
   return Number.isFinite(number) ? number : 0
 }
 
-function stateBucket(remote: RemoteJob): 'settled' | 'active' | 'queued' | 'failed' {
-  const state = String(remote.queue_state || remote.state || '').toLowerCase()
+function stateBucket(remote: RemoteJob): 'settled' | 'active' | 'queued' | 'not_created' | 'failed' {
+  const state = effectiveGenStudioTaskState(remote)
+  if (state === 'not_created') return 'not_created'
   if (state === 'failed' || state === 'cancelled') return 'failed'
   if (/success|succeed|complete|done|settled/.test(state)) return 'settled'
   if (/queue|pending|wait|accept/.test(state)) return 'queued'

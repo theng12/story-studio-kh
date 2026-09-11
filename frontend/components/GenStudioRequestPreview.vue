@@ -84,6 +84,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { effectiveGenStudioTaskState } from '@shared/provider-task-state'
 
 /**
  * Renders the redacted request preview captured by
@@ -195,12 +196,13 @@ const QUEUE_LABELS: Record<string, string> = {
   completing: 'Completing',
   succeeded: 'Succeeded',
   failed: 'Failed',
+  not_created: 'Not created — no request sent or charged',
   waiting_credits: 'Waiting for credits',
   cancelled: 'Cancelled',
 }
 
 function effectiveState(entry: RemoteJob): string {
-  return String(entry.queue_state || entry.state || '').toLowerCase()
+  return effectiveGenStudioTaskState(entry)
 }
 
 function displayState(entry: RemoteJob): string {
@@ -211,6 +213,7 @@ function displayState(entry: RemoteJob): string {
 function stateClass(entry: RemoteJob): string {
   const state = effectiveState(entry)
   if (state === 'failed' || state === 'cancelled') return 'is-failed'
+  if (state === 'not_created') return 'is-terminal'
   if (/success|succeed|complete|done|settled/.test(state)) return 'is-ok'
   return 'is-active'
 }
@@ -247,6 +250,7 @@ function formatTime(value: string): string {
 .gs-req-op { color: var(--text-muted); }
 .gs-req-state.is-ok { color: var(--success, #3fb950); }
 .gs-req-state.is-failed { color: var(--danger, #f85149); }
+.gs-req-state.is-terminal { color: var(--text-muted); }
 .gs-req-state.is-active { color: var(--accent); }
 .gs-req-facts {
   display: grid; grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);

@@ -1,14 +1,22 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { DEFAULT_SCENE_PACING } from '../contracts/pacing.js'
+import {
+  DEFAULT_SCENE_PACING,
+  LEGACY_SNAPSHOTLESS_REPAIR_PACING,
+  parseScenePacing,
+  parseSavedScenePlanPacing,
+  type ScenePacing,
+  type ScenePacingPeriod,
+} from '../contracts/pacing.js'
 import type { SceneMotionProfile } from '../models/types.js'
 import { getEffectiveFormat } from './format-loader.js'
 
 export interface ScenePlanPacing {
   min_sec: number
   max_sec: number
-  mode: 'live' | 'documentary'
+  mode: 'live' | 'documentary' | 'variable'
+  periods?: ScenePacingPeriod[]
   opening_duration_sec?: number
   settled_min_sec?: number
   settled_max_sec?: number
@@ -17,6 +25,41 @@ export interface ScenePlanPacing {
 export interface ScenePlanPacingContext {
   pacing?: ScenePlanPacing
   formula_motion_profile?: SceneMotionProfile
+}
+
+export interface ScenePlanRepairPacing {
+  min_sec: number
+  max_sec: number
+  pacing?: ScenePacing
+}
+
+/** Existing plans own their saved timing. A plan from before pacing snapshots
+ * may use an explicitly saved episode draft, but that draft is parsed through
+ * the same strict contract as new planning. Only a genuinely absent pacing
+ * field keeps the historical 3–12 repair band. */
+export function resolveScenePlanRepairPacing(
+  savedPlanPacing: unknown,
+  continuityText?: string,
+): ScenePlanRepairPacing {
+  if (savedPlanPacing !== undefined) {
+    const pacing = parseSavedScenePlanPacing(savedPlanPacing)
+    return { pacing, min_sec: pacing.min_sec, max_sec: pacing.max_sec }
+  }
+  if (continuityText === undefined) return { ...LEGACY_SNAPSHOTLESS_REPAIR_PACING }
+
+  let config: unknown
+  try {
+    config = JSON.parse(continuityText)
+  } catch (error) {
+    throw new Error(`continuity.json: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error('continuity.json must contain an object')
+  }
+  const source = config as Record<string, unknown>
+  if (!Object.prototype.hasOwnProperty.call(source, 'pacing')) return { ...LEGACY_SNAPSHOTLESS_REPAIR_PACING }
+  const pacing = parseScenePacing(source.pacing)
+  return { pacing, min_sec: pacing.min_sec, max_sec: pacing.max_sec }
 }
 
 /** The same pacing decision used by Scene Plan generation and readiness. */
@@ -34,42 +77,31 @@ export async function resolveScenePlanPacing(
   if (existsSync(continuityPath)) {
     try {
       const config = JSON.parse(await fs.readFile(continuityPath, 'utf-8'))
-      const min = Number(config?.pacing?.min_sec)
-      const max = Number(config?.pacing?.max_sec)
-      if (Number.isFinite(min) && Number.isFinite(max) && max >= min) {
-        const opening = Number(config?.pacing?.opening_duration_sec)
-        const settledMin = Number(config?.pacing?.settled_min_sec)
-        const settledMax = Number(config?.pacing?.settled_max_sec)
-        const documentary = Number.isFinite(opening) && opening >= 0
-          && Number.isFinite(settledMin) && Number.isFinite(settledMax)
-          && settledMin >= 1 && settledMax >= settledMin
-        pacing = {
-          min_sec: min,
-          max_sec: max,
-          mode: documentary ? 'documentary' : 'live',
-          ...(documentary ? {
-            opening_duration_sec: opening,
-            settled_min_sec: settledMin,
-            settled_max_sec: settledMax,
-          } : {}),
-        }
-      }
-    } catch { /* preserve the continuity default */ }
+      pacing = scenePlanPacing(parseScenePacing(config?.pacing))
+    } catch (error) {
+      throw new Error(`continuity.json: ${error instanceof Error ? error.message : String(error)}`)
+    }
     return { pacing, formula_motion_profile }
   }
-
-  const profile = format.script.visualPacingProfile
-  if (profile) {
-    pacing = {
-      min_sec: profile.opening.min_sec,
-      max_sec: profile.opening.max_sec,
-      mode: 'documentary',
-      opening_duration_sec: profile.opening_duration_sec,
-      settled_min_sec: profile.settled.min_sec,
-      settled_max_sec: profile.settled.max_sec,
-    }
-  }
   return { pacing, formula_motion_profile }
+}
+
+function scenePlanPacing(pacing: ScenePacing): ScenePlanPacing {
+  if (pacing.mode !== 'variable') {
+    return { min_sec: pacing.min_sec, max_sec: pacing.max_sec, mode: 'live' }
+  }
+  const legacy = pacing.opening_duration_sec !== undefined
+  return {
+    min_sec: pacing.min_sec,
+    max_sec: pacing.max_sec,
+    mode: legacy ? 'documentary' : 'variable',
+    periods: pacing.periods,
+    ...(legacy ? {
+      opening_duration_sec: pacing.opening_duration_sec,
+      settled_min_sec: pacing.settled_min_sec,
+      settled_max_sec: pacing.settled_max_sec,
+    } : {}),
+  }
 }
 
 export function allowedSubtitleCueGapSec(): number {

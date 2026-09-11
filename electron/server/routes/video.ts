@@ -1811,6 +1811,7 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
   try {
     const source = await readVideoVisualSource(slug, episode_id)
+    req.body.visual_source = source.source
     if (source.source === 'scene_plan') {
       const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_id, SCENE_PLAN_FILENAME)
       await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })

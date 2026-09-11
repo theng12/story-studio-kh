@@ -696,6 +696,8 @@
       <p class="text-muted mt-1 mb-2">
         Customize how episode subfolders are named. Each template must include <code>{'{code}'}</code> which is replaced with the episode code (e.g. TN0024).
       </p>
+      <p v-if="folderConfigLoading" class="text-muted mt-2">Loading folder settings…</p>
+      <p v-else-if="folderConfigError" class="text-error mt-2">{{ folderConfigError }}</p>
 
       <div v-if="folderConfig.length" class="folder-config-list">
         <div class="folder-config-header">
@@ -713,8 +715,8 @@
       </div>
 
       <div class="flex gap-2 mt-3" style="align-items: center;">
-        <button class="btn btn-primary" @click="saveFolderConfig">Save Folder Config</button>
-        <button class="btn btn-secondary" @click="resetFolderDefaults">Reset to Defaults</button>
+        <button class="btn btn-primary" :disabled="folderConfigLoading || !!folderConfigError" @click="saveFolderConfig">Save Folder Config</button>
+        <button class="btn btn-secondary" :disabled="folderConfigLoading || !!folderConfigError" @click="resetFolderDefaults">Reset to Defaults</button>
         <SaveIndicator v-bind="savedHintProps('folder_config')" />
       </div>
 
@@ -1944,7 +1946,7 @@
     <details v-if="activeTab === 'writing'" class="card settings-panel settings-disclosure mt-2">
       <summary><span><strong>Writing instructions</strong><small>Project guidance, intro rules, and reusable presets</small></span></summary>
       <div class="sub-tabs">
-        <button v-for="st in standardsSubTabs" :key="st.id" :class="['sub-tab', { active: standardsSubTab === st.id }]" @click="standardsSubTab = st.id">
+        <button v-for="st in standardsSubTabs" :key="st.id" :disabled="writingControlsDisabled" :class="['sub-tab', { active: standardsSubTab === st.id }]" @click="standardsSubTab = st.id">
           {{ st.label }}
         </button>
       </div>
@@ -1952,30 +1954,32 @@
       <div class="sub-tab-body">
         <h3>{{ currentStandardDoc.title }}</h3>
         <p class="text-muted mt-1 mb-2">{{ currentStandardDoc.description }}</p>
+        <p v-if="standardsLoading" class="text-muted mt-2">Loading saved instructions…</p>
+        <p v-else-if="standardsError" class="text-error mt-2">{{ standardsError }}</p>
 
         <!-- Starter templates + preset dropdown -->
         <div class="standards-toolbar">
           <div class="toolbar-group">
             <label class="toolbar-label">Start from</label>
-            <select v-model="selectedTemplateId" class="select input-sm">
+            <select v-model="selectedTemplateId" class="select input-sm" :disabled="writingControlsDisabled">
               <option value="">— pick a template —</option>
               <option v-for="t in currentTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
             </select>
-            <button class="btn btn-secondary btn-sm" :disabled="!selectedTemplateId" @click="loadStarterTemplate">Load</button>
+            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedTemplateId" @click="loadStarterTemplate">Load</button>
           </div>
 
           <div class="toolbar-group" v-if="currentPresets.length">
             <label class="toolbar-label">Saved presets</label>
-            <select v-model="selectedPresetId" class="select input-sm">
+            <select v-model="selectedPresetId" class="select input-sm" :disabled="writingControlsDisabled">
               <option value="">— none —</option>
               <option v-for="p in currentPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
-            <button class="btn btn-secondary btn-sm" :disabled="!selectedPresetId" @click="loadPreset">Load</button>
-            <button class="btn btn-secondary btn-sm" :disabled="!selectedPresetId" @click="deletePreset" title="Delete preset">✕</button>
+            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedPresetId" @click="loadPreset">Load</button>
+            <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled || !selectedPresetId" @click="deletePreset" title="Delete preset">✕</button>
           </div>
 
-          <button class="btn btn-secondary btn-sm" @click="copyAsAiPrompt" title="Copy a chatbot-ready prompt to your clipboard">📋 Copy as AI refine prompt</button>
-          <button class="btn btn-secondary btn-sm" @click="showSavePreset = true">💾 Save as preset</button>
+          <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled" @click="copyAsAiPrompt" title="Copy a chatbot-ready prompt to your clipboard">📋 Copy as AI refine prompt</button>
+          <button class="btn btn-secondary btn-sm" :disabled="writingControlsDisabled" @click="showSavePreset = true">💾 Save as preset</button>
         </div>
 
         <textarea
@@ -1983,10 +1987,11 @@
           class="textarea"
           style="min-height: 400px; font-family: monospace; font-size: 13px;"
           :placeholder="currentStandardDoc.placeholder"
+          :disabled="writingControlsDisabled"
         />
 
         <div class="flex gap-2 mt-2" style="align-items: center;">
-          <button class="btn btn-primary" @click="saveStandardsCurrent">Save</button>
+          <button class="btn btn-primary" :disabled="writingControlsDisabled" @click="saveStandardsCurrent">Save</button>
           <SaveIndicator v-bind="savedHintProps('standards')" />
         </div>
       </div>
@@ -2000,12 +2005,13 @@
             v-model="newPresetName"
             class="input"
             placeholder="e.g. Sleep Stories v2, Horror Narration"
+            :disabled="writingControlsDisabled"
             @keyup.enter.stop.prevent="savePreset"
             @keydown.escape="showSavePreset = false"
           />
           <div class="flex gap-2 mt-2" style="justify-content:flex-end">
-            <button class="btn btn-secondary" @click="showSavePreset = false">Cancel</button>
-            <button class="btn btn-primary" :disabled="!newPresetName.trim()" @click="savePreset">Save preset</button>
+            <button class="btn btn-secondary" :disabled="writingControlsDisabled" @click="showSavePreset = false">Cancel</button>
+            <button class="btn btn-primary" :disabled="writingControlsDisabled || !newPresetName.trim()" @click="savePreset">Save preset</button>
           </div>
         </div>
       </div>
@@ -4076,6 +4082,17 @@ const newPresetName = ref('')
 interface StandardPreset { id: string; name: string; content: string }
 const standardsPresets = ref<StandardPreset[]>([])
 const introPresets = ref<StandardPreset[]>([])
+const standardsLoading = ref(false)
+const standardsError = ref('')
+let loadStandardsRequest = 0
+let standardsLoadedSlug = ''
+let writingConfigScope = 0
+let writingConfigLoadedSlug = ''
+const standardsSaving = ref(false)
+const presetSaving = ref(false)
+const writingConfigReady = computed(() => writingConfigLoadedSlug === slug.value && !!config.value)
+const writingControlsDisabled = computed(() => !writingConfigReady.value
+  || standardsLoading.value || !!standardsError.value || standardsSaving.value || presetSaving.value)
 
 const STANDARDS_TEMPLATES: Record<string, Array<{ id: string; name: string; content: string }>> = {
   production: [
@@ -4145,6 +4162,8 @@ const currentStandardDoc = computed(() => {
 })
 
 async function loadStarterTemplate() {
+  const scope = writingConfigScope
+  if (writingControlsDisabled.value) return
   const tpl = currentTemplates.value.find(t => t.id === selectedTemplateId.value)
   if (!tpl) return
   if (currentStandardText.value.trim()) {
@@ -4153,13 +4172,15 @@ async function loadStarterTemplate() {
       message: 'Loading this template will overwrite the text in the editor. Unsaved edits will be lost.',
       confirmLabel: 'Replace',
     })
-    if (!ok) return
+    if (!ok || scope !== writingConfigScope) return
   }
   currentStandardText.value = tpl.content
   selectedTemplateId.value = ''
 }
 
 async function loadPreset() {
+  const scope = writingConfigScope
+  if (writingControlsDisabled.value) return
   const p = currentPresets.value.find(x => x.id === selectedPresetId.value)
   if (!p) return
   if (currentStandardText.value.trim()) {
@@ -4168,41 +4189,67 @@ async function loadPreset() {
       message: 'Loading this preset will overwrite the text in the editor. Unsaved edits will be lost.',
       confirmLabel: 'Replace',
     })
-    if (!ok) return
+    if (!ok || scope !== writingConfigScope) return
   }
   currentStandardText.value = p.content
 }
 
 async function savePreset() {
+  if (writingControlsDisabled.value) return
   const name = newPresetName.value.trim()
   if (!name) return
+  const projectSlug = slug.value
+  const scope = writingConfigScope
+  const subTab = standardsSubTab.value
   const id = `preset-${Date.now()}`
   const preset: StandardPreset = { id, name, content: currentStandardText.value }
-  const list = standardsSubTab.value === 'intro' ? introPresets : standardsPresets
-  list.value.push(preset)
+  const list = subTab === 'intro' ? introPresets : standardsPresets
+  const next = [...list.value, preset]
+  const key = subTab === 'intro' ? 'intro_presets' : 'standards_presets'
+  const current = () => projectSlug === slug.value && scope === writingConfigScope
+  presetSaving.value = true
   try {
-    await put(`/projects/${slug.value}/settings/config`, {
-      [standardsSubTab.value === 'intro' ? 'intro_presets' : 'standards_presets']: list.value,
+    await put(`/projects/${projectSlug}/settings/config`, {
+      [key]: next,
     })
+    if (!current()) return
+    list.value = next
     selectedPresetId.value = id
     success('Preset saved!')
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to save preset')
+    if (current()) showError(e.data?.detail || 'Failed to save preset')
+  } finally {
+    if (current()) presetSaving.value = false
   }
-  showSavePreset.value = false
-  newPresetName.value = ''
+  if (current()) {
+    showSavePreset.value = false
+    newPresetName.value = ''
+  }
 }
 
 async function deletePreset() {
-  const list = standardsSubTab.value === 'intro' ? introPresets : standardsPresets
-  list.value = list.value.filter(p => p.id !== selectedPresetId.value)
+  if (writingControlsDisabled.value) return
+  const projectSlug = slug.value
+  const scope = writingConfigScope
+  const subTab = standardsSubTab.value
+  const list = subTab === 'intro' ? introPresets : standardsPresets
+  const next = list.value.filter(p => p.id !== selectedPresetId.value)
+  const key = subTab === 'intro' ? 'intro_presets' : 'standards_presets'
+  const current = () => projectSlug === slug.value && scope === writingConfigScope
+  presetSaving.value = true
   try {
-    await put(`/projects/${slug.value}/settings/config`, {
-      [standardsSubTab.value === 'intro' ? 'intro_presets' : 'standards_presets']: list.value,
+    await put(`/projects/${projectSlug}/settings/config`, {
+      [key]: next,
     })
+    if (!current()) return
+    list.value = next
     selectedPresetId.value = ''
     success('Preset deleted')
-  } catch (e: any) { showError(e.data?.detail || 'Failed to delete') }
+  } catch (e: any) {
+    if (current()) showError(e.data?.detail || 'Failed to delete')
+  } finally {
+    if (current()) presetSaving.value = false
+  }
 }
 
 async function copyAsAiPrompt() {
@@ -4223,20 +4270,32 @@ ${currentStandardText.value || '(empty — generate a starter based on best prac
 }
 
 async function saveStandardsCurrent() {
+  if (writingControlsDisabled.value) return
+  const projectSlug = slug.value
+  const scope = writingConfigScope
+  const request = loadStandardsRequest
+  const current = () => projectSlug === slug.value && scope === writingConfigScope && request === loadStandardsRequest
+  const subTab = standardsSubTab.value
+  const content = currentStandardText.value
+  standardsSaving.value = true
   try {
-    if (standardsSubTab.value === 'intro') {
-      await put(`/projects/${slug.value}/settings/config`, { intro_standards: introStandards.value })
+    if (subTab === 'intro') {
+      await put(`/projects/${projectSlug}/settings/config`, { intro_standards: content })
     } else {
       // Standards endpoint accepts either JSON { content } or text/plain;
       // we go text/plain so there's no escape/diff noise on every keystroke.
-      await put(`/projects/${slug.value}/settings/standards`, standards.value, {
+      await put(`/projects/${projectSlug}/settings/standards`, content, {
         headers: { 'Content-Type': 'text/plain' },
       })
     }
+    if (!current()) return
     stampSaved('standards')
     success('Saved!')
   } catch (e: any) {
+    if (!current()) return
     showError('Failed to save')
+  } finally {
+    if (current()) standardsSaving.value = false
   }
 }
 const projectForm = reactive<{
@@ -4429,33 +4488,58 @@ const confirmPrefs = reactive<Record<string, boolean>>({})
 interface FolderEntry { key: string; label: string; generator: string; order: number; template: string }
 const folderConfig = ref<FolderEntry[]>([])
 const folderDefaults = ref<Record<string, string>>({})
+const folderConfigLoading = ref(false)
+const folderConfigError = ref('')
+let loadFolderConfigRequest = 0
+let folderConfigLoadedSlug = ''
 
 // v1.4.3 — the named-roots state and its loader/saver went with the tab. See
 // the note where the tab used to be: shared files now live at
 // <Library>/_Project Assets and are addressed as ${ASSET}/…
 
-// Load folder config when tab becomes active
-watch(activeTab, async (tab) => {
-  if (tab === 'files' && !folderConfig.value.length) {
-    try {
-      const data = await get<any>(`/projects/${slug.value}/settings/subfolder-config`)
-      folderConfig.value = data.linkage
-      folderDefaults.value = data.defaults
-    } catch {}
+async function loadFolderConfig() {
+  const projectSlug = slug.value
+  const request = ++loadFolderConfigRequest
+  const current = () => projectSlug === slug.value && request === loadFolderConfigRequest
+  folderConfigLoading.value = true
+  folderConfigError.value = ''
+  try {
+    const data = await get<any>(`/projects/${projectSlug}/settings/subfolder-config`)
+    if (!current()) return
+    folderConfig.value = Array.isArray(data.linkage) ? data.linkage : []
+    folderDefaults.value = data.defaults || {}
+    folderConfigLoadedSlug = projectSlug
+  } catch (e: any) {
+    if (!current()) return
+    folderConfigError.value = e?.data?.detail || e?.message || 'Could not load folder settings.'
+  } finally {
+    if (current()) folderConfigLoading.value = false
   }
+}
+
+// Load folder config when tab becomes active.
+watch(activeTab, (tab) => {
+  if (tab === 'files' && folderConfigLoadedSlug !== slug.value) void loadFolderConfig()
 })
 
 async function saveFolderConfig() {
+  if (folderConfigLoading.value || folderConfigError.value) return
+  const projectSlug = slug.value
+  const request = loadFolderConfigRequest
+  const current = () => projectSlug === slug.value && request === loadFolderConfigRequest
   const subfolder_names: Record<string, string> = {}
   for (const entry of folderConfig.value) {
     subfolder_names[entry.key] = entry.template
   }
   try {
-    await put(`/projects/${slug.value}/settings/subfolder-config`, { subfolder_names })
-    await loadProject(slug.value)
+    await put(`/projects/${projectSlug}/settings/subfolder-config`, { subfolder_names })
+    if (!current()) return
+    await loadProject(projectSlug)
+    if (!current()) return
     stampSaved('folder_config')
     success('Folder config saved!')
   } catch (e: any) {
+    if (!current()) return
     showError(e.data?.detail || 'Failed to save folder config')
   }
 }
@@ -4481,6 +4565,7 @@ watch(config, (c) => {
     standardsPresets.value = JSON.parse(JSON.stringify((c as any).standards_presets || []))
     introPresets.value = JSON.parse(JSON.stringify((c as any).intro_presets || []))
     introStandards.value = (c as any).intro_standards || ''
+    writingConfigLoadedSlug = slug.value
     // Load confirmation preferences
     const prefs = (c as any).confirmation_preferences || {}
     for (const gen of confirmGenerators) {
@@ -4489,14 +4574,55 @@ watch(config, (c) => {
   }
 }, { immediate: true })
 
-// Load standards when tab becomes active
-watch(activeTab, async (tab) => {
-  if (tab === 'writing' && !standards.value) {
-    try {
-      const data = await get<{ content: string }>(`/projects/${slug.value}/settings/standards`)
-      standards.value = data.content
-    } catch {}
+async function loadStandards() {
+  const projectSlug = slug.value
+  const request = ++loadStandardsRequest
+  const current = () => projectSlug === slug.value && request === loadStandardsRequest
+  standardsLoading.value = true
+  standardsError.value = ''
+  try {
+    const data = await get<{ content: string }>(`/projects/${projectSlug}/settings/standards`)
+    if (!current()) return
+    standards.value = data.content || ''
+    standardsLoadedSlug = projectSlug
+  } catch (e: any) {
+    if (!current()) return
+    standardsError.value = e?.data?.detail || e?.message || 'Could not load saved instructions.'
+  } finally {
+    if (current()) standardsLoading.value = false
   }
+}
+
+// Load standards when tab becomes active.
+watch(activeTab, (tab) => {
+  if (tab === 'writing' && standardsLoadedSlug !== slug.value) void loadStandards()
+})
+
+watch(slug, () => {
+  writingConfigScope++
+  writingConfigLoadedSlug = ''
+  standards.value = ''
+  introStandards.value = ''
+  standardsPresets.value = []
+  introPresets.value = []
+  selectedTemplateId.value = ''
+  selectedPresetId.value = ''
+  showSavePreset.value = false
+  newPresetName.value = ''
+  standardsSaving.value = false
+  presetSaving.value = false
+  loadFolderConfigRequest++
+  folderConfigLoadedSlug = ''
+  folderConfig.value = []
+  folderDefaults.value = {}
+  folderConfigLoading.value = false
+  folderConfigError.value = ''
+  loadStandardsRequest++
+  standardsLoadedSlug = ''
+  standardsLoading.value = false
+  standardsError.value = ''
+  if (activeTab.value === 'files') void loadFolderConfig()
+  if (activeTab.value === 'writing') void loadStandards()
 })
 
 // Sync project form. v1.0.45 — track the server-side season_size

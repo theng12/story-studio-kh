@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import ts from 'typescript'
 
+import { effectiveGenStudioTaskState } from '../../electron/server/contracts/provider-task-state.js'
+
 const jobs = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)),
   'utf8',
@@ -30,7 +32,10 @@ function queueDetail(job: any): string {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText
   // eslint-disable-next-line no-new-func
-  return new Function('customerJobText', js)((text: string) => text)(job)
+  return new Function('customerJobText', 'effectiveGenStudioTaskState', js)(
+    (text: string) => text,
+    effectiveGenStudioTaskState,
+  )(job)
 }
 
 test('Jobs uses only current provider evidence for a provider queue position and ETA', () => {

@@ -75,9 +75,17 @@ import {
   CREATIVE_PROFILES,
   normalizeCreativeDirection,
 } from '../services/scene-creative-direction.js'
-import { assignSceneMotionProfile, motionModeLevel } from '../services/scene-motion-profile.js'
-import type { Job, SceneCreativeDirection, SceneCreativeStrategy, SceneMotionProfile, ScenePlan } from '../models/types.js'
+import { normalizeMotionScope, type MotionScope } from '../contracts/motion-scope.js'
+import { DEFAULT_SCENE_PACING, parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
+import { readEpisodeMotionScope } from '../services/episode-motion-scope.js'
+import { motionPromptSceneIds } from '../services/scene-motion-prompt-scope.js'
+import type { Job, SceneCreativeDirection, SceneCreativeStrategy, ScenePlan } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+
+/** Older explicit motion jobs used motion_mode=still before motion_choice existed. */
+export function motionPromptScenesForRequest<T extends { motion_mode?: string }>(scenes: T[], legacyMotionRequest: boolean): T[] {
+  return legacyMotionRequest ? scenes.filter(scene => scene.motion_mode !== 'still') : scenes
+}
 
 /**
  * v1.0.364 — resolve the effective plan-time style. The channel "Look" is the
@@ -120,12 +128,15 @@ interface ScenePlanRunParams {
    *  scene-planner service. */
   detail_level?: number
   /** v1.0.468 — image-to-video motion intensity (1–4); see MOTION_SPECS.
-   *  Falls back to the project default (config.default_motion_level), then 2. */
+   *  Uses the explicit episode value, then 2. */
   motion_level?: number
   /** v1.0.468 — generate a per-scene motion_prompt alongside each visual_prompt
-   *  (for animating the image into a clip later). Default: project setting
-   *  config.motion_prompts_enabled, else true. */
+   *  (for animating the image into a clip later), within the saved episode scope. */
   generate_motion_prompts?: boolean
+  /** Accepted episode settings and exact prompt targets; retained on Retry. */
+  motion_scope?: MotionScope
+  motion_scene_ids?: string[]
+  pacing?: ScenePacing
   /** v1.0.468 — REGENERATE just this scene's motion_prompt (keeps visual_prompt
    *  and everything else). Mutually exclusive with the other regenerate flags. */
   regenerate_motion_prompt_scene_id?: string
@@ -744,17 +755,40 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   const researchPath = (await resolveResearchPaths(paths.episode_dir, episode_id)).jsonPath
   const useResearch = params.use_research !== false  // default true
 
-  // Continuity Engine scene rhythm. An explicit Character Sheet range wins;
-  // otherwise a Series Formula may supply a two-phase documentary rhythm
-  // (denser opening, then long ambient visual holds). Legacy projects retain
-  // the historical 1–4s fallback.
+  // Resolve draft settings only for new planning. Existing saved plan timestamps
+  // remain authoritative during prompt completion and missing-image repairs.
+  const usesExistingPlan = requestedStage === 'visual' || requestedStage === 'motion'
+    || !!params.regenerate_prompt_scene_id || !!params.regenerate_motion_prompt_scene_id
   let pacing: ScenePlanPacing | undefined
-  let formulaMotionProfile: SceneMotionProfile | undefined
-  try {
-    const resolved = await resolveScenePlanPacing(job.project_slug, paths.episode_dir)
-    pacing = resolved.pacing
-    formulaMotionProfile = resolved.formula_motion_profile
-  } catch { /* non-continuity project or format load failed — no pacing */ }
+  if (!usesExistingPlan && !params.pacing) {
+    pacing = (await resolveScenePlanPacing(job.project_slug, paths.episode_dir)).pacing
+  }
+  if (params.pacing) {
+    const saved = parseScenePacing(params.pacing)
+    pacing = { min_sec: saved.min_sec, max_sec: saved.max_sec,
+      mode: saved.mode === 'variable' ? 'variable' : 'live',
+      ...(saved.mode === 'variable' ? { periods: saved.periods } : {}) }
+  }
+  // Jobs accepted by older versions have no scope field. Their explicit motion
+  // request remains authorized; migrate it once after reading its saved plan.
+  const legacyMotionRequest = params.motion_scope === undefined && params.motion_scene_ids === undefined
+    && (requestedStage === 'motion' || params.generate_motion_prompts === true)
+  let oldMotionLevel: number | undefined
+  if (legacyMotionRequest) {
+    try { oldMotionLevel = (await getConfig(job.project_slug) as any)?.default_motion_level } catch { /* historical default */ }
+  }
+  const motionSettings = params.motion_scope !== undefined
+    ? { motion_scope: normalizeMotionScope(params.motion_scope), motion_level: params.motion_level ?? 2 }
+    : usesExistingPlan && requestedStage !== 'motion'
+      ? { motion_scope: { mode: 'off' } as MotionScope, motion_level: 2 }
+      : legacyMotionRequest
+        ? { motion_scope: { mode: 'all' } as MotionScope, motion_level: resolveMotionLevel(params.motion_level, oldMotionLevel) }
+        : await readEpisodeMotionScope(job.project_slug, episode_id, paths.episode_dir)
+  const motionScope = normalizeMotionScope(params.motion_scope ?? motionSettings.motion_scope)
+  const episodeMotionLevel = params.motion_level ?? motionSettings.motion_level
+  const planPacing: ScenePacing = pacing?.periods
+    ? { mode: 'variable', min_sec: pacing.min_sec, max_sec: pacing.max_sec, periods: pacing.periods }
+    : { min_sec: pacing?.min_sec ?? DEFAULT_SCENE_PACING.min_sec, max_sec: pacing?.max_sec ?? DEFAULT_SCENE_PACING.max_sec }
 
   // v1.0.337 — per-project guide cast density (config.json `character_density`).
   // Only meaningful for continuity (pacing set). Unset → undefined: single-pass
@@ -770,9 +804,6 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       }
     } catch { /* default density applies */ }
   }
-  if (formulaMotionProfile) {
-    job.output_lines.push(`Motion profile: ${formulaMotionProfile.label} — follows scene role first, then balances still / gentle / limited motion deterministically.`)
-  }
 
   // v1.0.794 — SCENE prompts only (thumbnails never read this). Per-run
   // override; else the project default, which is ON unless explicitly turned
@@ -787,7 +818,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   job.output_lines.push(`Stitched SRT: ${stitchedSrt}`)
   if (!timelineOnly && useResearch) job.output_lines.push(`Research context: ${researchPath}`)
   if (pacing) {
-    job.output_lines.push(pacing.mode === 'documentary'
+    job.output_lines.push(pacing.periods
+      ? `Variable pacing: ${pacing.periods.length} periods on the narration timeline.`
+      : pacing.mode === 'documentary'
       ? `Documentary pacing: first ${Math.round((pacing.opening_duration_sec || 0) / 60)} min ${pacing.min_sec}–${pacing.max_sec}s, then ${pacing.settled_min_sec}–${pacing.settled_max_sec}s ambient holds.`
       : `Continuity pacing: ${pacing.min_sec}–${pacing.max_sec}s (live, denser on busy passages)`)
   }
@@ -870,8 +903,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const cues = allCues.filter(c => c.end_sec > openingReserved + 0.001)
       if (!cues.length) throw new Error(`The ${openingReserved.toFixed(1)}s opening covers the entire subtitle timeline.`)
       const { splitScenesDeterministically } = await import('../services/scene-planner.js')
-      const minSec = pacing?.min_sec ?? 3
-      const maxSec = pacing?.max_sec ?? 12
+      const minSec = pacing?.min_sec ?? DEFAULT_SCENE_PACING.min_sec
+      const maxSec = pacing?.max_sec ?? DEFAULT_SCENE_PACING.max_sec
       const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episode_id, {
         max_cue_gap_sec: allowedSubtitleCueGapSec(),
         cue_source_path: stitchedSrt,
@@ -908,15 +941,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         min_sec: minSec,
         max_sec: maxSec,
         target_sec: (minSec + maxSec) / 2,
-        ...(pacing?.mode === 'documentary'
-          ? {
-              pacing_profile: {
-                opening_duration_sec: pacing.opening_duration_sec || 0,
-                settled_min_sec: pacing.settled_min_sec || minSec,
-                settled_max_sec: pacing.settled_max_sec || maxSec,
-              },
-            }
-          : {}),
+        pacing_periods: pacing?.periods,
         initial_start_sec: openingReserved,
         idGen: i => `${episode_id.toLowerCase()}-scene-${String(i + 1).padStart(4, '0')}`,
       })
@@ -938,6 +963,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         schema_version: 1,
         generated_at: builtAt,
         timeline_built_at: builtAt,
+        pacing: structuredClone(planPacing),
         planner_model: model,
         source_stitched_srt: path.basename(stitchedSrt),
         // v1.4.0 — record WHICH timeline, not just which file. See the field's
@@ -1018,17 +1044,6 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       if (!plan.timeline_built_at && plan.scenes.every(scene => !scene.visual_prompt?.trim())) {
         plan.timeline_built_at = plan.generated_at
       }
-      if (formulaMotionProfile && plan.motion_profile?.id !== formulaMotionProfile.id) {
-        plan.motion_profile = structuredClone(formulaMotionProfile)
-        for (const scene of plan.scenes) delete scene.motion_mode
-      }
-      if (isMotion && plan.motion_profile) {
-        const assigned = assignSceneMotionProfile(plan.scenes, plan.motion_profile, { preserveExisting: true })
-        if (assigned.changed) await writeJsonAtomic(outPath, plan)
-        job.output_lines.push(
-          `Motion profile ${plan.motion_profile.label}: ${assigned.modes.still} still · ${assigned.modes.gentle} gentle · ${assigned.modes.limited} limited. Still scenes keep their approved image and are not sent to image-to-video.`,
-        )
-      }
       // Creative interpretation is selected once per plan, then assigned across
       // the full episode before any packs leave this Mac. This keeps variety
       // stable across prompt batches without introducing a second LLM pass.
@@ -1053,13 +1068,21 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       return { plan, creativeDirection }
     })
     const duplicateVisualIds = new Set(inspectScenePromptIntegrity(plan.scenes).duplicate_ids)
+    const motionIds = isMotion ? motionPromptSceneIds(motionPromptScenesForRequest(plan.scenes, legacyMotionRequest), motionScope, params.motion_scene_ids, params.prompt_limit) : []
+    if (isMotion && params.motion_scene_ids === undefined) {
+      params.motion_scene_ids = motionIds
+      params.motion_scope = motionScope
+      params.motion_level = episodeMotionLevel
+      await checkpointJobState(job)
+    }
+    const motionTargetSet = new Set(motionIds)
     const pending = plan.scenes
       .map((scene, index) => ({ scene, index }))
       .filter(({ scene }) => isMotion
-        ? !!scene.visual_prompt?.trim() && scene.motion_mode !== 'still' && !scene.motion_prompt?.trim()
+        ? motionTargetSet.has(scene.id)
         : !scene.visual_prompt?.trim() || duplicateVisualIds.has(scene.id))
     const limit = params.prompt_limit == null ? pending.length : Math.max(1, Math.min(5000, Math.round(params.prompt_limit)))
-    const targets = pending.slice(0, limit)
+    const targets = isMotion ? pending : pending.slice(0, limit)
     if (!targets.length) {
       job.progress = 100
       job.output_dir = paths.episode_dir
@@ -1145,9 +1168,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     if (!isMotion) job.output_lines.push(`Visual pack output budget: ${visualMaxTokens.toLocaleString()} tokens`)
     let packedMotionLevel = 2
     if (isMotion) {
-      let projectDefaultMotion: number | undefined
-      try { projectDefaultMotion = (await getConfig(job.project_slug) as any)?.default_motion_level } catch { /* default applies */ }
-      packedMotionLevel = resolveMotionLevel(params.motion_level, projectDefaultMotion)
+      packedMotionLevel = resolveMotionLevel(episodeMotionLevel, undefined)
       const motionSpec = MOTION_SPECS[packedMotionLevel] || MOTION_SPECS[2]!
       job.output_lines.push(
         `Motion intensity: ${motionSpec.label} (level ${packedMotionLevel}) · ${motionSpec.allow}`,
@@ -1170,7 +1191,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         end_sec: scene.end_sec,
         narration: scene.transcript_segment,
         visual_prompt: isMotion ? scene.visual_prompt : undefined,
-        motion_mode: isMotion && scene.motion_mode !== 'still' ? scene.motion_mode : undefined,
+        motion_mode: undefined,
         creative_strategy: !isMotion ? scene.creative_strategy : undefined,
         introduction_remainder: !isMotion && storyStartSec > 0 && scene.start_sec < storyStartSec,
         previous_visual_prompts: isPackedRepair && !isMotion
@@ -1835,9 +1856,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     if (!target.visual_prompt || !target.visual_prompt.trim()) {
       throw new Error(`Scene #${target.scene_index} has no visual_prompt to animate — write the image prompt first.`)
     }
-    let projDefaultMotion: number | undefined
-    try { projDefaultMotion = (await getConfig(job.project_slug) as any)?.default_motion_level } catch { /* default applies */ }
-    const motionLevel = resolveMotionLevel(params.motion_level, projDefaultMotion)
+    const motionLevel = resolveMotionLevel(episodeMotionLevel, undefined)
     job.output_lines.push(`Regenerating motion prompt for scene #${target.scene_index} (intensity level ${motionLevel}) — visual prompt + timing unchanged.`)
     const motionStyle = await resolveEffectiveStyle(params.style_prompt, job.project_slug, paths.episode_dir)
     const newMotion = await generateMotionPromptOnly({
@@ -2076,13 +2095,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       (characterDensity === 0 ? ' — no guide character' : characterDensity >= 100 ? ' — guide in every scene' : ''),
     )
   }
-  if (formulaMotionProfile) {
-    plan.motion_profile = structuredClone(formulaMotionProfile)
-    const assigned = assignSceneMotionProfile(plan.scenes, plan.motion_profile)
-    job.output_lines.push(
-      `Motion profile ${plan.motion_profile.label}: ${assigned.modes.still} still · ${assigned.modes.gentle} gentle · ${assigned.modes.limited} limited.`,
-    )
-  }
+  plan.pacing = structuredClone(planPacing)
 
   job.progress = 80
   if ((plan.planned_in_windows ?? 1) > 1) {
@@ -2174,17 +2187,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // Generate a per-scene image-to-video motion_prompt, seeded with each scene's
   // just-written visual_prompt so the two are cohesive. Runs for BOTH planning
   // modes (the planner has already produced visual_prompts by here). Opt-out via
-  // params.generate_motion_prompts === false or the project's motion_prompts_enabled.
-  let wantMotion = params.generate_motion_prompts
-  if (wantMotion == null) {
-    try { wantMotion = (await getConfig(job.project_slug) as any)?.motion_prompts_enabled !== false } catch { wantMotion = true }
-  }
+  // params.generate_motion_prompts === false. Scope is an explicit episode choice.
+  const wantMotion = params.generate_motion_prompts !== false && (params.motion_scene_ids !== undefined || motionScope.mode !== 'off')
   if (wantMotion) {
-    let projDefaultMotion: number | undefined
     let promptModel = ''
     try {
       const cfg = await getConfig(job.project_slug) as any
-      projDefaultMotion = cfg?.default_motion_level
       // v1.0.509 — use the fast "prompt model" for motion prompts when set;
       // else fall back to the planner model. Short, simple outputs → a fast
       // model here cuts the (sequential-on-cloud) motion phase substantially.
@@ -2193,10 +2201,26 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const motionModel = scenePolicy
       ? scenePolicy.assigned_model
       : promptModel ? await requireScenePlanGenStudioModel(promptModel) : model
-    const motionLevel = resolveMotionLevel(params.motion_level, projDefaultMotion)
-    const targets = plan.scenes
-      .map((s, i) => (s.visual_prompt?.trim() && s.motion_mode !== 'still' ? i : -1))
-      .filter(i => i >= 0)
+    const motionLevel = resolveMotionLevel(episodeMotionLevel, undefined)
+    let selectedIds: string[]
+    try { selectedIds = motionPromptSceneIds(motionPromptScenesForRequest(plan.scenes, legacyMotionRequest), motionScope, params.motion_scene_ids) }
+    catch (error) {
+      if (motionScope.mode !== 'selected' || params.motion_scene_ids !== undefined) throw error
+      // A deliberate rebuild may replace IDs. The new visual plan is valid;
+      // ask for a new motion selection rather than guessing or failing it.
+      job.result = { ...job.result, motion_scope_attention: error instanceof Error ? error.message : String(error) }
+      job.output_lines.push('Visual plan saved. Re-select motion scenes in Visual timing & motion before generating clips.')
+      job.progress = 100
+      return
+    }
+    if (params.motion_scene_ids === undefined) {
+      params.motion_scene_ids = selectedIds
+      params.motion_scope = motionScope
+      params.motion_level = episodeMotionLevel
+      await checkpointJobState(job)
+    }
+    const targetSet = new Set(selectedIds)
+    const targets = plan.scenes.map((scene, index) => targetSet.has(scene.id) ? index : -1).filter(index => index >= 0)
     if (targets.length) {
       const MOTION_LABELS: Record<number, string> = { 1: 'Still', 2: 'Gentle', 3: 'Moderate', 4: 'Lively' }
       job.output_lines.push(
@@ -2206,7 +2230,6 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const failed = await generateMotionPromptsForScenes(plan.scenes, targets, {
         model: motionModel,
         motion_level: motionLevel,
-        motion_level_for_scene: scene => motionModeLevel(scene.motion_mode, motionLevel),
         style_prompt: effectiveStyle,
         custom_instructions: params.custom_instructions,
         apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,

@@ -7,6 +7,7 @@ const read = (path: string) => readFileSync(new URL(path, root), 'utf8')
 
 const ideas = read('pages/projects/[slug]/ideas.vue')
 const scripts = read('pages/projects/[slug]/scripts.vue')
+const introduction = read('pages/projects/[slug]/introduction.vue')
 const research = read('pages/projects/[slug]/research.vue')
 const metadata = read('pages/projects/[slug]/metadata.vue')
 const outline = read('components/OutlineReviewPanel.vue')
@@ -53,4 +54,28 @@ test('research and finalizer scope late replies and writes to the captured proje
   assert.match(metadata, /async function waitForJob\(projectSlug: string, jobId: string\)/)
   assert.match(metadata, /\/projects\/\$\{projectSlug\}\/generate\/metadata\/save/)
   assert.match(metadata, /slug\.value !== projectSlug \|\| episodeId\.value !== code\) return/)
+})
+
+test('channel-scoped writing pages remount their captured preset and introduction state on project changes', () => {
+  for (const [label, source] of [
+    ['scripts', scripts],
+    ['introduction', introduction],
+  ] as const) {
+    assert.match(
+      source,
+      /definePageMeta\(\{ layout: 'dashboard', key: route => String\(route\.params\.slug \|\| ''\) \}\)/,
+      `${label} must not reuse project-captured preset state after the slug changes`,
+    )
+  }
+})
+
+test('script eligibility never keeps the previous episode while a new episode status refresh fails or arrives late', () => {
+  const refresh = scripts.match(/let episodeStatusSequence = 0[\s\S]*?(?=\n\/\/ Fetch on initial mount)/)?.[0] || ''
+  assert.match(refresh, /const targetSlug = slug\.value/)
+  assert.match(refresh, /const targetEpisode = form\.episode_id/)
+  assert.match(refresh, /const requestSequence = \+\+episodeStatusSequence/)
+  assert.match(refresh, /selectedEpisode\.value\?\.episode_code !== targetEpisode\) selectedEpisode\.value = null/)
+  assert.match(refresh, /slug\.value !== targetSlug \|\| form\.episode_id !== targetEpisode \|\| requestSequence !== episodeStatusSequence/)
+  assert.doesNotMatch(refresh, /keep stale episode/)
+  assert.match(scripts, /episodeStatusSequence\+\+\s*\n\s*selectedEpisode\.value = null/)
 })

@@ -32,6 +32,7 @@ import {
   isUnsettledProviderEntry as isUnsettledProviderEntryShared,
   shouldRecheckStoredTranscriptionAbsence,
 } from '../lib/provider-task-state.js'
+import { reconciledGenStudioQueueState } from '../contracts/provider-task-state.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
@@ -44,6 +45,7 @@ import { readManifest, recordPaidImageReplacementStrict, type TaskManifestEntry 
 import { isDecodableImage } from '../lib/image-validation.js'
 import { auditSceneImageCompletion } from './scene-media-checkpoint.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
+import { assertQueuedVisualSource } from './video-visual-source.js'
 import { getValidVideoAssemblyCheckpoint } from '../lib/video-assembly-checkpoint.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
@@ -589,11 +591,7 @@ function mergeGenStudioReconciliationEvidence(
     id: provider.id,
     ...(recoveryKey ? { request_key: recoveryKey } : {}),
     state: provider.state,
-    queue_state: provider.state === 'succeeded' ? 'succeeded'
-      : provider.state === 'failed' ? 'failed'
-        : provider.state === 'accepted' || provider.state === 'reserved' ? 'accepted'
-          : provider.state === 'validating' || provider.state === 'reconciling' ? 'completing'
-            : 'running',
+    queue_state: reconciledGenStudioQueueState(provider.state),
     ...(provider.dispatch_state !== undefined ? { dispatch_state: provider.dispatch_state } : {}),
     ...(provider.cancellable !== undefined ? { cancellable: provider.cancellable } : {}),
     ...(provider.cancelled !== undefined ? { cancelled: provider.cancelled } : {}),
@@ -3192,6 +3190,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         try {
           if (cancelled.has(job.job_id)) throw new Error('Cancelled by user')
           throwIfPauseRequested(job.job_id)
+          await assertQueuedVisualSource(job)
           // Run the executor inside a per-job AsyncLocalStorage context so any
           // child processes spawned deep in the call tree register against this
           // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg

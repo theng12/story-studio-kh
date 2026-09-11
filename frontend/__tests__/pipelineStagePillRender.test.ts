@@ -24,6 +24,7 @@ import { createSSRApp } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import { parse } from '@vue/compiler-sfc'
 import ts from 'typescript'
+import { isFlowStepApplicable } from '../composables/useProjectFlow.js'
 
 const sfcPath = fileURLToPath(new URL('../pages/projects/[slug]/pipeline.vue', import.meta.url))
 const sfcSource = readFileSync(sfcPath, 'utf8')
@@ -49,7 +50,14 @@ function extractFunction(name: string): string {
   throw new Error(`could not find the end of ${name}()`)
 }
 
-const FUNCTIONS = ['isStepDoneForEpisode', 'isStepManualForEpisode', 'researchNote', 'pillTitle'] as const
+const FUNCTIONS = [
+  'episodeVisualSource',
+  'isStepApplicableForEpisode',
+  'isStepDoneForEpisode',
+  'isStepManualForEpisode',
+  'researchNote',
+  'pillTitle',
+] as const
 
 /** Compile the real functions to JS and hand them back as plain callables. */
 function loadRealFunctions(): Record<string, (...args: any[]) => any> {
@@ -58,7 +66,7 @@ function loadRealFunctions(): Record<string, (...args: any[]) => any> {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText
   // eslint-disable-next-line no-new-func
-  return new Function(js)()
+  return new Function('isFlowStepApplicable', js)(isFlowStepApplicable)
 }
 
 const real = loadRealFunctions()
@@ -83,8 +91,9 @@ const STEPS = [
 async function renderPills(ep: Record<string, unknown>): Promise<string> {
   const app = createSSRApp({
     template: `<div>${pillMarkup}</div>`,
-    data: () => ({ visibleSteps: STEPS, ep }),
+    data: () => ({ visibleSteps: STEPS, ep: { visual_source: 'scene_plan', ...ep } }),
     methods: {
+      isStepApplicableForEpisode: real.isStepApplicableForEpisode,
       isStepDoneForEpisode: real.isStepDoneForEpisode,
       isStepManualForEpisode: real.isStepManualForEpisode,
       pillTitle: real.pillTitle,

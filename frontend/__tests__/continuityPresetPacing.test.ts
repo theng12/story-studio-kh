@@ -260,6 +260,18 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
     )
   })
 
+  test('an older preset without motion intensity preserves the live episode choice', async () => {
+    seedOwnerConfig()
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
+    await presets.load()
+    config.value.motion_level = 4
+
+    presets.activeId.value = 'preset-august-sepia'
+    presets.applyActive()
+
+    assert.equal(config.value.motion_level, 4)
+  })
+
   test('an extended documentary pacing profile survives a rhythm-less preset intact', async () => {
     seedOwnerConfig()
     const { presets, config } = makeCharacterSheetPresets('my-channel')
@@ -273,7 +285,7 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
 
     presets.activeId.value = 'preset-august-sepia'
     presets.applyActive()
-    assert.deepEqual(config.value.pacing, profile, 'the extended formula-pacing fields survive too')
+    assert.deepEqual(config.value.pacing, normalizeContinuityConfig({ pacing: profile }).pacing, 'the explicit legacy rhythm survives as equivalent ordered periods')
   })
 
   test('a preset storing a plain band replaces an extended profile wholesale', async () => {
@@ -429,15 +441,11 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
     assert.match(characterSheet, /save over the preset to capture it/)
   })
 
-  test('the rhythm controls carry accessible names', () => {
-    // Found in passing while verifying this release in a browser: the rhythm
-    // select had no id and its <label> no `for`, so assistive technology
-    // announced an unnamed combobox, and the custom min/max inputs announced
-    // nothing at all. The repo's convention is label[for] + matching id.
-    assert.match(characterSheet, /<label for="cs-visual-pacing">Visual pacing<\/label>/)
-    assert.match(characterSheet, /<select id="cs-visual-pacing"/)
-    assert.match(characterSheet, /aria-label="Shortest scene, in seconds"/)
-    assert.match(characterSheet, /aria-label="Longest scene, in seconds"/)
+  test('Character Sheet hands timing controls to Scene Plan', () => {
+    assert.match(characterSheet, /<h3>Visual timing & motion<\/h3>/)
+    assert.match(characterSheet, /Open Scene Plan/)
+    assert.doesNotMatch(characterSheet, /<select id="cs-visual-pacing"/)
+    assert.doesNotMatch(characterSheet, /formulaPacingProfile/)
   })
 })
 

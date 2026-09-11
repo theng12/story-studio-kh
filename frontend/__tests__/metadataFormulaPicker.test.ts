@@ -13,7 +13,7 @@ const finalizerPage = readFileSync(
 
 test('channel publishing profile defaults the description formula picker to "None" and only saves what it holds', () => {
   // Both pages must consume the same list endpoint.
-  assert.match(templatePage, /`\/projects\/\$\{slug\.value\}\/metadata\/formulas`/)
+  assert.match(templatePage, /`\/projects\/\$\{projectSlug\}\/metadata\/formulas`/)
 
   // The manual-sections option is the first option and maps to "" — this is
   // what must be shown/selected for a channel that has never picked a formula.

@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { tinyVideoBytes } from './fixtures/tiny-video.js'
+import { useTempDataDir } from './_helpers.js'
 import { getWorkTempDir, cleanOrphanWorkTempDirs } from '../lib/work-tempdir.js'
 import {
   buildVideoAssemblyRenderFingerprint,
@@ -291,6 +292,52 @@ describe('Video Assembly render fingerprint and scene reuse', () => {
     assert.deepEqual(persisted.at(-1), expected)
     assert.equal(await fs.readFile(partialFinal, 'utf8'), 'not a final video')
     await assert.rejects(fs.stat(promotedFinal))
+  })
+
+  test('scene preparation retains an already-computed plan coverage duration in its recovery checkpoint', async () => {
+    const isolated = await useTempDataDir()
+    try {
+      const slug = `video-recovery-${process.pid}-coverage-duration`
+      const episode = 'EP0005'
+      const workDir = await ownedDir(slug, episode)
+      const fingerprint = 'd'.repeat(64)
+      const source = path.join(workDir, 'source.mp4')
+      await fs.writeFile(source, tinyVideoBytes())
+      const saved = checkpoint('video-coverage-duration', slug, episode, workDir, fingerprint)
+      const stageJob = job('video-coverage-duration', slug, episode, 'running', saved)
+      const encodedArgs: string[][] = []
+
+      await prepareSceneClips(
+        [{ image_path: source, duration: 1, __scene_plan_duration: true }] as any,
+        { type: 'none', zoom_start: 100, zoom_end: 108, parallax_direction: 'right', parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103 },
+        { enabled: false } as any,
+        128, 96,
+        { crf: 23, preset: 'medium', fps: 5 },
+        workDir,
+        false,
+        { seconds_per_scene: 1, shuffle: false, excluded_scenes: [] },
+        stageJob,
+        { pool: [], randomizeMode: 'off', seed: 7 },
+        // The plan window was 1s, then coverage repair extended the last
+        // resolved scene by 0.1s. Preparation must not revert to raw duration.
+        [1.1],
+        0,
+        [],
+        {
+          checkpoint: saved,
+          renderFingerprint: fingerprint,
+          encodeSceneClip: async args => {
+            encodedArgs.push(args)
+            await fs.writeFile(args.at(-1)!, tinyVideoBytes())
+          },
+        },
+      )
+
+      assert.ok(encodedArgs[0]!.includes('1.1'))
+      assert.deepEqual(saved.completed_scene_clips.map(clip => clip.render_duration_sec), [1.1])
+    } finally {
+      await isolated.cleanup()
+    }
   })
 })
 

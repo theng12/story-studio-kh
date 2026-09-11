@@ -23,6 +23,7 @@ import { previewCompact, compactAcceptedEpisodes } from '../services/upload-comp
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { loadNiche } from '../services/niche-loader.js'
 import { isCompatible, loadTopicPack } from '../services/topic-pack-loader.js'
+import { readVideoVisualSource } from '../services/video-visual-source.js'
 import {
   previewReseason, applyReseason, revertReseason,
   readReseasonUndo, deleteReseasonUndo, isReseasonUndoExpired,
@@ -882,11 +883,8 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
   const projectFacts = createProjectFactsCache(slug)
 
   const { episodeStatusCache } = await import('../services/episode-status-cache.js')
-  const { getEffectiveFormat } = await import('../services/format-loader.js')
   const effectiveFormat = await getEffectiveFormat(slug)
-  const visualSource = String(effectiveFormat.visualSource || 'narrated-scenes')
-  const needsScenePlan = visualSource !== 'broll' && visualSource !== 'image-pool'
-  const needsBrollPick = visualSource === 'broll'
+  const projectVisualSource = String(effectiveFormat.visualSource || 'continuity-chain')
 
   // v1.4.76 — the code→dir index that used to be built here is gone with the
   // `episode_dir` field it existed to populate. See the response object below.
@@ -910,13 +908,21 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
     // getForList, not get: on a warm list this serves watcher-vouched entries
     // without re-statting every episode's folders. The single-episode status
     // route below stays on the strict get().
-    const status = await episodeStatusCache.getForList(slug, code, ideas, projectFacts)
+    const [status, visualState] = await Promise.all([
+      episodeStatusCache.getForList(slug, code, ideas, projectFacts),
+      readVideoVisualSource(slug, code),
+    ])
+    const episodeVisualSource = visualState.source
+    const needsScenePlan = episodeVisualSource === 'scene_plan'
+    const needsImagePool = episodeVisualSource === 'image_pool'
+    const needsCharacterSheet = needsScenePlan && projectVisualSource !== 'timestamp-driven'
     // Only the fields the DERIVED values below are computed from. Everything
     // else reaches the response through `...publicStatus` — see the status
     // object at the end of this function.
     const {
       scene_plan: scenePlanDone,
       scene_review: sceneReviewDone,
+      character_sheet: characterSheetDone,
       broll_picked: brollPickedDone,
       script: scriptDone,
       scene_prompts: scenePromptsDone,
@@ -963,6 +969,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       marked_done: idea.marked_done === true,
       marked_done_at: idea.marked_done_at || null,
       status_overrides: idea.status_overrides || null,
+      visual_source: episodeVisualSource,
       // ── Asset-readiness contract (single source of truth for UI gating) ──
       // Every consumer reads from these fields; nothing else should infer
       // "is X generated?" from preview signals or local refs. Each field's
@@ -1015,14 +1022,16 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
         // an alias asset-status does not emit, and the last three are DERIVED
         // from several fields plus this project's format.
         ...publicStatus,
+        visual_source: episodeVisualSource,
         prompts: scenePromptsDone,           // deprecated alias of scene_prompts
-        video_ready: (needsScenePlan ? sceneReviewDone : (needsBrollPick ? brollPickedDone : true))
+        video_ready: (needsScenePlan ? sceneReviewDone : brollPickedDone)
           && mergedAudioDone && !videoAssemblyDone,
         publishable: thumbsDone && mergedAudioDone && videoAssemblyDone,
         all_done: scriptDone && thumbPromptsDone && thumbsDone
           && audioDone && metadataDone && mergedAudioDone && subtitlesDone
           && (!needsScenePlan || (scenePlanDone && sceneReviewDone))
-          && (!needsBrollPick || brollPickedDone)
+          && (!needsCharacterSheet || characterSheetDone)
+          && (!needsImagePool || brollPickedDone)
           && videoAssemblyDone,
       },
       scene_images: sceneImages || { total: 0, present: 0, complete: false },

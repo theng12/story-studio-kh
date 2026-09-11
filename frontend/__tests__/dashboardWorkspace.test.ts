@@ -22,8 +22,9 @@ describe('project dashboard workspace', () => {
 
   test('derives readiness from the shared verified episode inventory and current flow', () => {
     assert.match(dashboard, /useEpisodes\(slug\)/)
-    assert.match(dashboard, /flowForVisualSource\(visualSource\.value\)/)
-    assert.match(dashboard, /requiredFields/)
+    assert.match(dashboard, /unionFlowForEpisodeSources\(visualSource\.value, episodes\.value\.map\(episodeVisualSource\)\)/)
+    assert.match(dashboard, /isFlowStepApplicable\(step, episodeVisualSource\(ep\)\)/)
+    assert.match(dashboard, /requiredStatusFields\(visualSource\.value, episodeVisualSource\(ep\)\)/)
     assert.match(dashboard, /statusDone\(ep, field\)/)
     assert.doesNotMatch(dashboard, /stats\?\.episodes\?\.ready/)
   })

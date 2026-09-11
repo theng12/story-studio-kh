@@ -1080,6 +1080,7 @@ import {
 import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
+import { effectiveGenStudioTaskState } from '@shared/provider-task-state'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -1244,6 +1245,7 @@ const GENSTUDIO_QUEUE_LABELS: Record<string, string> = {
   completing: 'Completing',
   succeeded: 'Succeeded',
   failed: 'Failed',
+  not_created: 'Not created',
   waiting_credits: 'Waiting for credits',
   cancelled: 'Cancelled',
 }
@@ -1251,7 +1253,7 @@ const GENSTUDIO_QUEUE_LABELS: Record<string, string> = {
 function genStudioQueueLabel(
   remote: NonNullable<RJob['genstudio_jobs']>[number],
 ): string {
-  const state = String(remote.queue_state || remote.state || 'unknown').toLowerCase()
+  const state = effectiveGenStudioTaskState(remote) || 'unknown'
   return GENSTUDIO_QUEUE_LABELS[state] || String(state).replace(/_/g, ' ')
 }
 
@@ -1275,8 +1277,8 @@ function genStudioQueueLabel(
  */
 function latestActiveGenStudioRequest(job: RJob) {
   const active = (job.genstudio_jobs || []).map((item, index) => ({ item, index })).filter(({ item }) => {
-    const state = String(item.queue_state || item.state || '').toLowerCase()
-    return item.cancelled !== true && !['succeeded', 'failed', 'cancelled'].includes(state)
+    const state = effectiveGenStudioTaskState(item)
+    return item.cancelled !== true && !['succeeded', 'failed', 'cancelled', 'not_created'].includes(state)
   })
   const timestamped = active.filter(({ item }) => Number.isFinite(Date.parse(String(item.updated_at || ''))))
   const pool = timestamped.length ? timestamped : active
@@ -1321,11 +1323,11 @@ function genStudioQueueDetail(job: RJob): string {
   const remote = latestActiveGenStudioRequest(job)
   if (!remote) return ''
   const activeRequestCount = (job.genstudio_jobs || []).filter(item => {
-    const itemState = String(item.queue_state || item.state || '').toLowerCase()
-    return item.cancelled !== true && !['succeeded', 'failed', 'cancelled'].includes(itemState)
+    const itemState = effectiveGenStudioTaskState(item)
+    return item.cancelled !== true && !['succeeded', 'failed', 'cancelled', 'not_created'].includes(itemState)
   }).length
 
-  const state = String(remote.queue_state || remote.state || '').toLowerCase()
+  const state = effectiveGenStudioTaskState(remote)
   const hasProviderQueuePosition = typeof remote.queue_position === 'number' && remote.queue_position > 0
   const phase = hasProviderQueuePosition ? 'Waiting in the GenStudio provider queue.' : ({
     waiting_local: 'Waiting in Story Studio before provider submission.',
@@ -1371,7 +1373,7 @@ function genStudioNumeric(value: unknown): number {
 }
 
 function genStudioCreditState(remote: NonNullable<RJob['genstudio_jobs']>[number]): string {
-  return String(remote.queue_state || remote.state || '').toLowerCase()
+  return effectiveGenStudioTaskState(remote)
 }
 
 /**
@@ -1399,7 +1401,7 @@ function genStudioSettled(
 
 function genStudioTerminalFailure(remote: NonNullable<RJob['genstudio_jobs']>[number]): boolean {
   const state = genStudioCreditState(remote)
-  return state === 'failed' || state === 'cancelled'
+  return state === 'failed' || state === 'cancelled' || state === 'not_created'
 }
 
 function genStudioChargedCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
@@ -2641,7 +2643,7 @@ function jobAttentionSummary(job: RJob): string {
 function jobAttentionCause(job: RJob): string {
   if (job.type !== 'scene_plan_run') return ''
   const submissionUncertain = job.genstudio_jobs?.some(remote => {
-    const state = String(remote.queue_state || remote.state || '').toLowerCase()
+    const state = effectiveGenStudioTaskState(remote)
     return remote.operation === 'chat.response'
       && ['failed', 'uncertain'].includes(state)
       && remote.failure_code === 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN'

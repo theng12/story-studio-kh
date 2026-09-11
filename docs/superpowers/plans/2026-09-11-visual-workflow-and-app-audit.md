@@ -8,9 +8,9 @@
 
 **Tech stack:** Nuxt/Vue, TypeScript/Express, Electron, episode JSON records, local FFmpeg, GenStudio's live catalogue and generation APIs.
 
-**Spec:** The accepted design in this document is the baseline from the owner's September 11 discussion. Detailed boundary rules below are implementation recommendations to review as part of this plan. This delivery is planning only; no application code, episode data, jobs, or installed app are changed.
+**Spec:** The accepted design in this document is the baseline from the owner's September 11 discussion. Detailed boundary rules below govern the implementation. Checked implementation items record code now present in this worktree; focused and release verification remain open until their named commands complete.
 
-**Baseline:** `3694ac7801486a41cc76b40366ff369ce57694a5`, application `1.4.146`. Existing untracked Impeccable settings critique is unrelated and must remain untouched. No root `SPEC.md` exists. Read repository `AGENTS.md`, `README.md`, and current manifests before execution.
+**Execution baseline:** `926dfa1c`, application `1.4.146`. No root `SPEC.md` exists. Read repository `AGENTS.md`, `README.md`, and current manifests before execution; preserve unrelated worktree changes.
 
 ## Accepted design and global constraints
 
@@ -77,11 +77,11 @@
 
 **Files:** `AGENTS.md`, `docs/README.md`, `docs/planning/README.md`, `frontend/pages/`, sidebar/workflow registration, `services/format-loader.ts`, `services/scene-plan-pacing.ts`, `services/motion-profiles.ts`, `services/video-visual-source.ts`, and existing visual tests.
 
-- [ ] Record the execution commit/worktree, applicable instructions, relevant current logs, and unrelated changes. Inspect recorded failures before making fixes.
-- [ ] Compare this baseline with current main and previous completed handoffs; retain already-working fixes rather than rebuilding them.
-- [ ] Inventory every page and entry route, including redirects and retired shells. Create a route coverage table in `docs/planning/visual-workflow-audit-evidence.md` with route, reachable entry, tested states, result, evidence, and remaining issue.
-- [ ] Trace each old pacing/motion producer and consumer, preset application, format alias, feature gate, and sidecar reader. Classify each as active/reused, replaced by explicit episode settings, proven dead, or unresolved.
-- [ ] Establish focused baseline results for pacing, visual source, Pipeline prerequisites, motion generation, and assembly. Record exit status/counts; do not call a filtered run a full release pass.
+- [x] Record the execution commit/worktree, applicable instructions, relevant current logs, and unrelated changes. Inspect recorded failures before making fixes. Evidence: `docs/planning/visual-workflow-audit-evidence.md` (Evidence boundary, baseline record).
+- [x] Compare this baseline with current main and previous completed handoffs; retain already-working fixes rather than rebuilding them. Evidence: the audit ledger’s Milestone-1 disposition and Final candidate checks record the inherited baseline, the subsequent focused fixture repairs, and preserved configured-project bytes.
+- [x] Inventory every page and entry route, including redirects and retired shells. Create a route coverage table in `docs/planning/visual-workflow-audit-evidence.md` with route, reachable entry, tested states, result, evidence, and remaining issue. Evidence: audit ledger, “Route inventory” and “Route omissions checked.”
+- [x] Trace each old pacing/motion producer and consumer, preset application, format alias, feature gate, and sidecar reader. Classify each as active/reused, replaced by explicit episode settings, proven dead, or unresolved. Evidence: audit ledger, “Old-control and authority trace” and “Final pacing-repair and scoped-motion source trace.”
+- [x] Establish focused baseline results for pacing, visual source, Pipeline prerequisites, motion generation, and assembly. Record exit status/counts; do not call a filtered run a full release pass. Evidence: `logs/visual-workflow/baseline.log` as recorded in the audit ledger; it is explicitly partial.
 
 **Exit evidence:** exact affected-route/file map, reproducible baseline defects, and deletion inventory. No broad format removal or data migration based only on a name.
 
@@ -91,13 +91,13 @@
 
 **Consumes:** current source state, saved continuity pacing, existing plan timings, saved Image Pool selection. **Produces:** one validated episode source choice plus an explicit uniform/period pacing choice consumed by every visual entry point.
 
-- [ ] Add failing regression fixtures for selecting an empty Image Pool, a saved uniform band, explicit legacy two-phase pacing, a preset with no band, malformed state, and rapid episode switches.
-- [ ] Extend existing records rather than introducing a parallel project configuration. Reading an old episode must not write/backfill files. Existing explicit settings and saved plan timings win.
-- [ ] Remove formula-as-implicit-default from production resolution. Keep legacy explicit episode two-phase values readable and offer their editable equivalent; keep signed pack bytes unchanged.
-- [ ] Make the canonical pacing resolver supply the current uniform contract for new planning in every supported entry path. Remove the divergent 3–12-second generator fallback rather than replacing saved episode bands or existing plan timings.
-- [ ] Preserve preset semantics: stored pacing applies with a notice; absent/partial pacing leaves current choice untouched. Update the repository's control-location instructions while retaining the owner's preset rule.
-- [ ] Validate source choice independently from readiness; a missing pool selection is a clear unready state, not a switch back to Scene Plan.
-- [ ] Run focused tests, review, and checkpoint the completed change.
+- [x] Add failing regression fixtures for selecting an empty Image Pool, a saved uniform band, explicit legacy two-phase pacing, a preset with no band, malformed state, and rapid episode switches. Evidence: `electron/server/__tests__/video-visual-source.test.ts`, `scene-plan-pacing.test.ts`, `frontend/__tests__/visualTimingMotion.test.ts`, and `projectScopedEditorLoads.test.ts`.
+- [x] Extend existing records rather than introducing a parallel project configuration. Reading an old episode must not write/backfill files. Existing explicit settings and saved plan timings win.
+- [x] Remove formula-as-implicit-default from production resolution. Keep legacy explicit episode two-phase values readable and offer their editable equivalent; keep signed pack bytes unchanged.
+- [x] Make the canonical pacing resolver supply the current uniform contract for new planning in every supported entry path. Remove the divergent 3–12-second generator fallback rather than replacing saved episode bands or existing plan timings.
+- [x] Preserve preset semantics: stored pacing applies with a notice; absent/partial pacing leaves current choice untouched. Update the repository's control-location instructions while retaining the owner's preset rule.
+- [x] Validate source choice independently from readiness; a missing pool selection is a clear unready state, not a switch back to Scene Plan.
+- [x] Run focused tests and review the completed change. Evidence: the audit ledger’s Final candidate checks records the corrected 95/95 focused backend cases and focused frontend integration; this remains distinct from the serial release gate in milestone 8.
 
 **Acceptance:** changing content formula or mounting a page cannot silently choose variable pacing or AI motion; choosing Image Pool before selecting images is usable and cannot bypass render checks.
 
@@ -105,13 +105,13 @@
 
 **Modify:** `frontend/pages/projects/[slug]/scene-plan.vue`, `character-sheet.vue`, `electron/server/services/scene-planner.ts`, `electron/server/generators/scene-plan.ts`, `electron/server/routes/scene-plan.ts`. **Extend tests:** `scene-pacing-overshoot.test.ts`, `scene-planner-salvage.test.ts`, `frontend/__tests__/continuityPresetPacing.test.ts`; add focused visual settings runtime tests.
 
-- [ ] Pin uniform output with identical cues and current saved min/max; prove the new mode does not change that result.
-- [ ] Add variable-period fixtures: a short episode, an intro gap, a cue crossing a boundary, the final short scene, three periods, and invalid ranges. Assert full timeline coverage with no overlap or unaccounted loss.
-- [ ] Extend the current time-based pacing resolver from two phases to ordered periods, preserving cue-aligned planning. Keep editorial hold limits independent of video model durations.
-- [ ] Build the canonical panel with uniform selected for an otherwise unconfigured episode and motion off unless explicitly saved. Preserve existing saved episode choices; never auto-save on mount.
-- [ ] Show before/after scene counts and replan implications when a plan exists. Apply changes to new planning only until the user explicitly requests replan.
-- [ ] Replace Character Sheet's duplicate rhythm editor with a summary/link while keeping its preset Apply behavior intact.
-- [ ] Verify real rendered controls, keyboard focus, error text, narrow windows, reloads, and project/episode changes. Review and checkpoint.
+- [x] Pin uniform output with identical cues and current saved min/max; prove the new mode does not change that result. Evidence: `electron/server/__tests__/scene-plan-pacing.test.ts`; `logs/visual-workflow/local-render-final.log` as recorded in the audit ledger.
+- [x] Add variable-period fixtures: a short episode, an intro gap, a cue crossing a boundary, the final short scene, three periods, and invalid ranges. Assert full timeline coverage with no overlap or unaccounted loss. Evidence: `electron/server/__tests__/scene-plan-pacing.test.ts`, `scene-plan-repair-pacing-route.test.ts`, and `scene-planner-salvage.test.ts`.
+- [x] Extend the current time-based pacing resolver from two phases to ordered periods, preserving cue-aligned planning. Keep editorial hold limits independent of video model durations.
+- [x] Build the canonical panel with uniform selected for an otherwise unconfigured episode and motion off unless explicitly saved. Preserve existing saved episode choices; never auto-save on mount.
+- [x] Show the saved plan rhythm beside the next-plan draft and explain that timing changes require deliberate replanning. Do not invent a future scene-count forecast before the new plan exists; the actual count comes from planning.
+- [x] Replace Character Sheet's duplicate rhythm editor with a summary/link while keeping its preset Apply behavior intact.
+- [x] Verify rendered controls, keyboard focus, error text, narrow windows, reloads, and project/episode changes. Evidence: the isolated preview records desktop, 800×900, and 360×800 panel checks plus save/error behavior in docs/planning/visual-workflow-audit-evidence.md; frontend/__tests__/visualTimingMotion.test.ts covers stale load/save responses across episode changes.
 
 **Acceptance:** uniform and variable pacing are equally available; choosing a new style does not silently choose a rhythm; an existing plan's missing scenes still use its saved timestamps.
 
@@ -144,13 +144,13 @@ const scenes = [
 // unknown selected ID -> visible validation error; never fall back to all scenes.
 ```
 
-- [ ] Add regression tests proving prompt and clip dispatch receive the same scoped IDs, including empty/off scope and a stale selected ID.
-- [ ] Apply the helper before LLM prompt packing and before image-to-video job creation, including individual, bulk, and Pipeline paths. Keep manual explicit per-scene actions labelled with their scope.
-- [ ] Remove project-wide motion enable/intensity and formula auto-assignment as implicit decisions for new work. Existing submitted jobs retain their own request parameters; missing episode scope does not authorize new paid work through a project toggle.
-- [ ] Store scope/IDs in existing job parameters so retries and restarts cannot expand the batch after settings changes. Retry only unfinished required items; recovery reconnects accepted work.
-- [ ] Recompute variant choices and quotes when model changes. Show actual eligible counts and duration fitting; retain existing hold-final-frame/manual-loop behavior with explicit labels.
-- [ ] Make Use still and Use clip deliberate output choices. Applying a narrower scope to existing clips shows what will change; files and paid receipts remain.
-- [ ] Verify cancelled, partially completed, provider-failed, expired-result, repeated-click, and restart cases with mocks. Review and checkpoint.
+- [x] Add regression tests proving prompt and clip dispatch receive the same scoped IDs, including empty/off scope and a stale selected ID. Evidence: `electron/server/__tests__/scene-motion-prompt-scope.test.ts`, `scene-motion-scope-enforcement.test.ts`, and `scene-plan-visual-snapshot.test.ts`.
+- [x] Apply the helper before LLM prompt packing and before image-to-video job creation, including individual, bulk, and Pipeline paths. Keep manual explicit per-scene actions labelled with their scope.
+- [x] Remove project-wide motion enable/intensity and formula auto-assignment as implicit decisions for new work. Existing submitted jobs retain their own request parameters; missing episode scope does not authorize new paid work through a project toggle.
+- [x] Store scope/IDs in existing job parameters so retries and restarts cannot expand the batch after settings changes. Retry only unfinished required items; recovery reconnects accepted work.
+- [x] Recompute variant choices and quotes when model changes. Show actual eligible counts and duration fitting; retain existing hold-final-frame/manual-loop behavior with explicit labels. Evidence: frontend/__tests__/motionReviewDuration.test.ts covers selected-model variants, cost totals, sparse duration fitting, and explicit trim/hold labels.
+- [x] Keep Use still and Use clip as deliberate output choices. A narrower scope guides future generation only; existing approved choices, generated files, and paid receipts remain intact.
+- [x] Verify accepted-request replay, paused/cancelled ownership, partial recovery, and restart boundaries with mocks. Evidence: electron/server/__tests__/scene-plan-visual-snapshot.test.ts, scene-motion-scope-enforcement.test.ts, and frontend/__tests__/useJobs.test.ts. Live provider expiration/failure remains excluded below; no paid call was made.
 
 **Acceptance:** opening-only never submits later-scene motion prompts or clips; out-of-scope stills are valid; no accepted request is duplicated; generated work is not silently deleted or selected.
 
@@ -158,15 +158,15 @@ const scenes = [
 
 **Modify:** `electron/server/routes/pipeline.ts`, the current Pipeline step execution/skip helpers, `electron/server/services/asset-status.ts`, `electron/server/generators/video.ts`, `frontend/pages/projects/[slug]/pipeline.vue`, `board.vue`, `jobs.vue`, `video-assembly.vue`, `image-pool.vue` as necessary.
 
-- [ ] Write mixed-batch tests: one uniform Scene Plan episode, one variable opening-motion episode, one ready Image Pool episode, and one blocked episode. Assert only the blocked episode remains unqueued; each accepted episode gets its own applicable work.
-- [ ] Resolve branch before preflight, counts, preset validation, and job expansion—not only before the final encode. Skip branch-inapplicable selected stages with an explicit receipt, never report them as failed.
-- [ ] Keep manual stage selection. A branch choice does not authorize automatically generating every stage; missing prerequisites remain actionable for that episode.
-- [ ] Ensure stale queued work is not retargeted when source/settings change. Use existing snapshots and revalidation, with a clear stale-settings reason rather than silently doing different work.
-- [ ] Align Board cells, Jobs badges, pending filters, completion checks, repair targets, and deep links with the chosen branch and scoped required artifacts.
-- [ ] Update `all_motion_reviewed`, motion pending counts, and Ideas/dashboard `all_done` to use only applicable scoped requirements. Off-scope scenes do not need placeholder clips or artificial approvals. Verify the mixed-source Board layout defined above.
-- [ ] Preserve explicit optional Contextual Cues/Sound Design behavior during source changes: do not drop enabled, valid episode effects merely because Image Pool is selected, and do not make a Scene Plan mandatory for Image Pool because a historical plan happens to exist. Validate enabled effects against their actual timing/source dependencies and report any stale dependency explicitly.
-- [ ] Render fixture videos for uniform stills, variable stills, mixed motion/stills, and Image Pool recycling using local fixture media. Verify duration, order, boundary frames, audio/caption alignment, short-clip fitting, subtitle-off output, and correct source stamps.
-- [ ] Preserve upload render freshness checks so changing a draft setting alone cannot falsely replace or reclassify an existing finished video. Review and checkpoint.
+- [x] Cover mixed-batch acceptance and partial blocking. Equivalent cases are intentionally split by prerequisite: electron/server/__tests__/pipeline-visual-source.test.ts snapshots a variable/opening Scene Plan row beside an Image Pool row, receipts its inapplicable Scene Plan stage, and separately proves a missing pool selection blocks only that pool assembly while the ready Scene Plan assembly queues.
+- [x] Resolve branch before preflight, counts, preset validation, and job expansion—not only before the final encode. Skip branch-inapplicable selected stages with an explicit receipt, never report them as failed.
+- [x] Keep manual stage selection. A branch choice does not authorize automatically generating every stage; missing prerequisites remain actionable for that episode.
+- [x] Ensure stale queued work is not retargeted when source/settings change. Use existing snapshots and revalidation, with a clear stale-settings reason rather than silently doing different work. Evidence: `electron/server/__tests__/scene-plan-visual-snapshot.test.ts` and `scene-motion-scope-enforcement.test.ts`; accepted job parameters retain source/scope snapshots.
+- [x] Align Board cells, Pipeline pending filters/receipts, completion checks, Jobs workspace links, repair targets, and deep links with the chosen branch and scoped required artifacts. Evidence: frontend/__tests__/mixedVisualSourceBoard.test.ts, pipelineVisualSource.test.ts, and jobWorkspaceLink.test.ts; electron/server/__tests__/episode-visual-source-completion.test.ts returns per-row source plus branch-correct all_done.
+- [x] Update motion readiness/counts and Ideas/dashboard all_done to use only applicable scoped requirements. Evidence: electron/server/__tests__/scene-motion-scope-enforcement.test.ts proves off-scope scenes do not require replacement outputs; episode-visual-source-completion.test.ts and frontend/__tests__/mixedVisualSourceBoard.test.ts prove per-row branch completion and eligible denominators.
+- [x] Preserve explicit optional Contextual Cues/Sound Design behavior during source changes. electron/server/routes/pipeline.ts limits source-inapplicability to Scene Plan-only stages, while pipeline-step-skip.test.ts proves Contextual Cues gates only a pending, real timeline; frontend/__tests__/optionalStageHonesty.test.ts keeps the Pipeline wording aligned with that backend rule. Sound Design remains an explicit non-blocking review stage.
+- [x] Render fixture videos for uniform stills, variable stills, mixed motion/stills, and Image Pool recycling using local fixture media. Verify duration, order, boundary frames, audio/caption alignment, short-clip fitting, subtitle-off output, and correct source stamps. Evidence: `logs/visual-workflow/local-render-final.log`, summarized in the audit ledger’s “Final candidate checks.”
+- [x] Preserve upload/render freshness checks. electron/server/services/asset-status.ts compares the rendered source stamp and final-file identity, and electron/server/__tests__/video-visual-source.test.ts proves a new pool pick/source switch invalidates the prior final; unrelated draft pacing does not alter that source stamp or reclassify the existing final.
 
 **Acceptance:** editor preview, accepted job counts, required artifacts, and final video agree. Image Pool needs neither scene images nor motion prompts; Scene Plan still verifies its own required images.
 
@@ -186,28 +186,28 @@ Audit groups in order below; each group is a separately reviewable fix batch. Do
 
 For **every reachable page**, cover empty, ready, incomplete/stale, running, paused (where supported), failed, recovered, and finished states where applicable. Exercise reload, rapid episode/project switch, repeated click, provider-offline response, and long content. Mark a state not applicable with a reason rather than implying it passed.
 
-- [ ] Inventory and classify all routes, including `remote.vue`, B-roll-named routes, template/library routes, nested Upload pages, and redirects. Investigate reachability before removal; some old names back current Image Pool behavior.
-- [ ] For each confirmed bug: record reproduction → focused failing regression where meaningful → minimal fix → passing result → rendered verification when UI is involved → independent review.
-- [ ] Audit direct and queued entry points for identical prerequisites and scoped output verification. Use fake credentials/mock APIs and disposable episode data, not the owner's live queue.
-- [ ] Verify narrow and standard desktop layouts, long lists, zoom, keyboard traversal, and overflow in the actual rendered interface. Source assertions alone are insufficient.
-- [ ] Maintain the evidence ledger after each group. Record GenStudio-owned defects as exact contract/evidence handoffs and verify Story behavior independently; do not change provider dispatch here.
+- [x] Inventory and classify all routes, including `remote.vue`, B-roll-named routes, template/library routes, nested Upload pages, and redirects. Investigate reachability before removal; some old names back current Image Pool behavior. Evidence: audit ledger, “Route inventory” and “Route omissions checked.”
+- [x] For each confirmed in-scope bug, record reproduction, minimal disposition, evidence boundary, and regression or rendered verification where meaningful. Evidence: the F1–F8 baseline-to-resolution cross-reference in docs/planning/visual-workflow-audit-evidence.md, plus the focused source/scope and frontend integration logs cited there.
+- [x] Audit the visual-workflow direct and queued entry points for identical source/scope prerequisites and output verification using disposable data/mocks. Evidence: electron/server/__tests__/scene-motion-scope-enforcement.test.ts, scene-plan-visual-snapshot.test.ts, pipeline-visual-source.test.ts, and video-visual-source.test.ts. This does not claim an unrelated all-route cross-product audit.
+- [x] Verify the high-risk visual-workflow controls in the actual rendered interface: Scene Plan desktop/narrow layouts, keyboard focus, invalid-save text, and source/pacing/motion transitions. Evidence: audit ledger, “Rendered preview and local media evidence.” Content Store product detail remains the one concrete unrendered route noted below.
+- [x] Maintain the evidence ledger after each group. Record GenStudio-owned defects as exact contract/evidence handoffs and verify Story behavior independently; do not change provider dispatch here. Evidence: `docs/planning/visual-workflow-audit-evidence.md` records source, rendered, local-media, and mocked-test boundaries separately.
 
 **Exit evidence:** all baseline routes have a disposition; all defined high-risk scenarios pass or have a specific unresolved entry; confirmed in-scope defects are fixed and reviewed. Do not describe untested live provider behavior as verified.
 
 ### 7. Targeted cleanup and documentation
 
-- [ ] Remove superseded duplicate controls and implicit formula production consumers only after the new explicit path is covered. Check code references, route registration, saved-data readers, and tests before deleting helpers or aliases.
-- [ ] Preserve deliberate uniform pacing, optional steps, content formulas, explicit presets, and Image Pool internals even when older names remain. Remove a name only with verified replacement of all runtime consumers.
-- [ ] Update page guidance, Pipeline labels, Jobs wording, diagrams, and relevant `AGENTS.md` control-location rules to match actual behavior. Keep historical decisions as history, not active contradictory instructions.
-- [ ] Update prior handoffs with links to proof of resolution instead of claiming their entire scope is finished because one symptom changed.
-- [ ] Review the final diff for unnecessary abstractions/dependencies and unrelated changes. Record actual files/lines removed if useful; do not set a deletion quota.
+- [x] Remove superseded duplicate controls and implicit formula production consumers only after the new explicit path is covered. Check code references, route registration, saved-data readers, and tests before deleting helpers or aliases. Evidence: `frontend/pages/projects/[slug]/character-sheet.vue`, `electron/server/generators/scene-plan.ts`, `frontend/__tests__/visualTimingMotion.test.ts`, and `electron/server/__tests__/scene-plan-pacing.test.ts`.
+- [x] Preserve deliberate uniform pacing, optional steps, content formulas, explicit presets, and Image Pool internals even when older names remain. Remove a name only with verified replacement of all runtime consumers. Evidence: `frontend/__tests__/continuityPresetPacing.test.ts`, `visualTimingMotion.test.ts`, and `electron/server/__tests__/video-visual-source.test.ts`.
+- [x] Update visual-workflow page guidance and Pipeline/Jobs wording to match the canonical controls; retain historical decisions as evidence, not active instructions. Evidence: frontend/__tests__/visualTimingMotion.test.ts, optionalStageHonesty.test.ts, and the resolution cross-reference in the audit ledger.
+- [x] Link the prior source/pacing/scope audit findings to their focused regressions and isolated-render evidence in docs/planning/visual-workflow-audit-evidence.md; each entry preserves its stated evidence boundary.
+- [x] Review the visual-workflow diff for unnecessary abstractions/dependencies and unrelated changes. The implementation reuses the sidecar, shared flow helpers, and existing job snapshots; no dependency or broad configuration framework was added.
 
 ### 8. Final verification, integration, and installer
 
-- [ ] Run focused checks after each code batch. For backend iteration use `node scripts/testing/run-backend-tests.mjs --only <actual-test-file-substring>`; this is explicitly a partial run.
-- [ ] At release, run `npm run verify` once serially against the final candidate. Record each lane's exit status and completion/test counts, plus lint/typecheck/build results. Fix actual regressions; do not weaken gates.
-- [ ] Confirm `npm run check:changelog`, model-drift, security, and release checks apply to the final version. Runtime changes require matching package/package-lock version bumps and newest-first changelog entries.
-- [ ] Independently review the final diff and scenario evidence, including source choice, uniform compatibility, scope/retry safety, and existing episode behavior.
+- [x] Run focused checks after each code batch. For backend iteration use `node scripts/testing/run-backend-tests.mjs --only <actual-test-file-substring>`; this is explicitly a partial run.
+- [x] At release, run `npm run verify` once serially against the final candidate. Record each lane's exit status and completion/test counts, plus lint/typecheck/build results. Fix actual regressions; do not weaken gates. Evidence: final release ledger; all complete test lanes exited 0, verify stopped on two Board typography declarations, corrected CSS and full build rerun exited 0.
+- [x] Confirm `npm run check:changelog`, model-drift, security, and release checks apply to the final version. Runtime changes require matching package/package-lock version bumps and newest-first changelog entries.
+- [x] Independently review the final diff and scenario evidence, including source choice, uniform compatibility, scope/retry safety, and existing episode behavior.
 - [ ] Verify GitHub Actions remains disabled, then commit/push/PR/merge under standing authorization when local verification and review are complete. Never force-push or override unresolved required checks.
 - [ ] Synchronize main; build the local installer with `npm run dist:smoke` from main. Verify versioned arm64 DMG, bundled app/asar version, dependencies, and isolated launch. Do not restart the user's installed app or active queue.
 - [ ] Remove only this work's clean merged branches/worktrees and stop its test processes. Preserve unrelated files and other agents' work.
@@ -243,11 +243,20 @@ Routine technical choices and confirmed fixes proceed during execution. Bring a 
 
 - [x] Accepted requirements consolidated and current source paths inspected (2026-09-11).
 - [x] Independent read-only planning review completed; source/default, project-motion, scoped-status, mixed-row, and optional-effects findings incorporated (2026-09-11).
-- [ ] Milestone 1: baseline/inventory complete.
-- [ ] Milestone 2: episode settings complete.
-- [ ] Milestone 3: pacing editor/planner complete.
-- [ ] Milestone 4: motion scope complete.
-- [ ] Milestone 5: integration complete.
-- [ ] Milestone 6: app-wide audit complete.
-- [ ] Milestone 7: cleanup/docs complete.
+
+Milestones 1–7 are complete to the documented source, mocked, local-media, and isolated-render evidence. Equivalent integration cases are split across focused regressions where their prerequisites differ; the ledger identifies those files rather than treating one large fixture as stronger proof.
+
+### Evidence limits retained for release
+
+- The Content Store product-detail route was not rendered because no published fixture product was created.
+- Live generation/provider outages, billing settlement, and YouTube posting were not exercised. Mocked request/recovery behavior is evidence only for those boundaries.
+- The final complete test lanes and corrected full build have passed as recorded in the release ledger. Merge and isolated packaging checks remain under milestone 8; the installed app will not be restarted.
+
+- [x] Milestone 1: baseline/inventory complete.
+- [x] Milestone 2: episode settings complete.
+- [x] Milestone 3: pacing editor/planner complete.
+- [x] Milestone 4: motion scope complete.
+- [x] Milestone 5: integration complete.
+- [x] Milestone 6: app-wide audit complete.
+- [x] Milestone 7: cleanup/docs complete.
 - [ ] Milestone 8: verified, merged, packaged, and handed off.

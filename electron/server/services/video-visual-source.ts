@@ -12,11 +12,26 @@ import fs from 'fs/promises'
 import path from 'path'
 import * as bp from './broll-pool-manager.js'
 import { resolveEpisodePathsByCode, resolveEpisodePathsByCodeWithSidecar } from './utils.js'
-import type { BrollSelectionSidecar } from './broll-selection-sidecar.js'
+import { readBrollSelectionSource, type BrollSelectionSidecar, type BrollSelectionSource } from './broll-selection-sidecar.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
+import type { Job } from '../models/types.js'
 import type { SelectionEntry } from '../lib/broll-selector.js'
+import {
+  isActiveGenStudioProviderState,
+  isNeverCreatedProviderTask,
+  isSettledProviderEntry,
+} from '../lib/provider-task-state.js'
 
-export type VideoVisualSource = 'scene_plan' | 'image_pool'
+export type VideoVisualSource = BrollSelectionSource
+
+/** The explicit source may be chosen before Image Pool images are picked. */
+interface SourceOnlyVisualSidecar {
+  schema_version: 1
+  episode_code: string
+  source: VideoVisualSource
+}
+
+type VisualSourceSidecar = BrollSelectionSidecar | SourceOnlyVisualSidecar
 
 export interface ImagePoolVisualSource {
   pool_id: string
@@ -30,7 +45,7 @@ export interface ImagePoolVisualSource {
 export interface VideoVisualSourceState {
   source: VideoVisualSource
   image_pool: ImagePoolVisualSource | null
-  sidecar: BrollSelectionSidecar | null
+  sidecar: VisualSourceSidecar | null
   episode_dir: string
 }
 
@@ -109,7 +124,7 @@ function isFilenameInside(folder: string, filename: string): boolean {
 }
 
 async function readSidecarForEpisode(slug: string, episodeId: string): Promise<{
-  sidecar: BrollSelectionSidecar | null
+  sidecar: VisualSourceSidecar | null
   episodeDir: string
 }> {
   const code = episodeId.toUpperCase()
@@ -124,7 +139,9 @@ async function readSidecarForEpisode(slug: string, episodeId: string): Promise<{
     return { sidecar: null, episodeDir: paths.episode_dir }
   }
   try {
-    return { sidecar: JSON.parse(raw) as BrollSelectionSidecar, episodeDir: withSidecar.episode_dir }
+    const sidecar = JSON.parse(raw) as unknown
+    readBrollSelectionSource(sidecar)
+    return { sidecar: sidecar as VisualSourceSidecar, episodeDir: withSidecar.episode_dir }
   } catch (error: any) {
     throw new Error(`Video Assembly is blocked: broll-selection.json is malformed for ${code}. Pick images again, then retry. (${error?.message || error})`)
   }
@@ -136,9 +153,14 @@ async function sha256File(filePath: string): Promise<string> {
   return hash.digest('hex')
 }
 
-function imagePoolSnapshot(sidecar: BrollSelectionSidecar | null): ImagePoolVisualSource | null {
-  if (!sidecar || sidecar.source !== 'image_pool' || sidecar.media !== 'image') return null
-  const selected = Array.isArray(sidecar.selection) ? sidecar.selection.filter(isSelectionEntry) : []
+function isImagePoolSelectionSidecar(sidecar: VisualSourceSidecar | null): sidecar is BrollSelectionSidecar {
+  return !!sidecar && 'media' in sidecar && sidecar.media === 'image' && Array.isArray(sidecar.selection)
+}
+
+function imagePoolSnapshot(sidecar: VisualSourceSidecar | null): ImagePoolVisualSource | null {
+  if (!isImagePoolSelectionSidecar(sidecar) || sidecar.source !== 'image_pool'
+    || !sidecar.selection.length || sidecar.selection.some(row => !isSelectionEntry(row))) return null
+  const selected = sidecar.selection
   const firstDuration = selected[0]?.target_duration || 1
   return {
     pool_id: sidecar.pool_id,
@@ -171,12 +193,13 @@ export async function resolveImagePoolSelection(
   targetDuration?: number,
 ): Promise<ResolvedImagePoolSelection> {
   const state = await readVideoVisualSource(slug, episodeId)
-  // PUT /visual-source promotes an existing Image Pool selection, so the
-  // selection may still have the legacy absent source flag at validation time.
-  if (!state.sidecar || state.sidecar.media !== 'image') {
+  // A source-only sidecar is deliberate but unready. Rendering still needs a
+  // complete frozen image selection and must never repair or substitute one.
+  if (!isImagePoolSelectionSidecar(state.sidecar)) {
     throw new Error(`Video Assembly is blocked: ${episodeId} is set to Image Pool but its image selection is missing. Pick images again, then retry.`)
   }
-  const poolId = state.sidecar.pool_id
+  const sidecar = state.sidecar
+  const poolId = sidecar.pool_id
   if (!poolId) throw new Error(`Video Assembly is blocked: Image Pool selection for ${episodeId} has no pool id. Pick images again, then retry.`)
   const pool = await bp.getPool(poolId)
   if (!pool || bp.poolMedia(pool) !== 'image') {
@@ -186,7 +209,7 @@ export async function resolveImagePoolSelection(
     throw new Error(`Video Assembly is blocked: Image Pool folder is offline: ${pool.folder_path}. Connect it and retry.`)
   }
 
-  const rawSelection = Array.isArray(state.sidecar.selection) ? state.sidecar.selection : []
+  const rawSelection = sidecar.selection
   if (!rawSelection.length || rawSelection.some(row => !isSelectionEntry(row))) {
     throw new Error(`Video Assembly is blocked: Image Pool selection for ${episodeId} is empty or malformed. Pick images again, then retry.`)
   }
@@ -221,10 +244,10 @@ export async function resolveImagePoolSelection(
   return {
     pool_id: poolId,
     selected_images: selected,
-    seconds_per_image: Math.max(0.5, Number(state.sidecar.segment_seconds) || fallbackSeconds),
-    target_duration: Math.max(0, Number(targetDuration ?? state.sidecar.target_duration) || 0),
-    generated_at: typeof state.sidecar.generated_at === 'string' ? state.sidecar.generated_at : '',
-    warnings: Array.isArray(state.sidecar.warnings) ? state.sidecar.warnings.map(String) : [],
+    seconds_per_image: Math.max(0.5, Number(sidecar.segment_seconds) || fallbackSeconds),
+    target_duration: Math.max(0, Number(targetDuration ?? sidecar.target_duration) || 0),
+    generated_at: typeof sidecar.generated_at === 'string' ? sidecar.generated_at : '',
+    warnings: Array.isArray(sidecar.warnings) ? sidecar.warnings.map(String) : [],
     files,
   }
 }
@@ -262,13 +285,38 @@ export async function setVideoVisualSource(
 ): Promise<VideoVisualSourceState> {
   if (source !== 'scene_plan' && source !== 'image_pool') throw new Error('source must be scene_plan or image_pool')
   const state = await readVideoVisualSource(slug, episodeId)
-  if (source === 'image_pool') await resolveImagePoolSelection(slug, episodeId)
   if (state.sidecar) {
     // Write beside the sidecar we just resolved. Passing a title to the
     // generic save helper could select a stale renamed sibling.
     await writeJsonAtomic(path.join(state.episode_dir, 'broll-selection.json'), { ...state.sidecar, source })
   } else if (source === 'image_pool') {
-    throw new Error(`Video Assembly is blocked: no Image Pool selection exists for ${episodeId}. Pick images first, then retry.`)
+    await writeJsonAtomic(path.join(state.episode_dir, 'broll-selection.json'), {
+      schema_version: 1,
+      episode_code: episodeId.toUpperCase(),
+      source,
+    } satisfies SourceOnlyVisualSidecar)
   }
   return readVideoVisualSource(slug, episodeId)
+}
+
+/** A queued visual step cannot silently follow a source selected after Run.
+ * Existing paid work continues through its saved request identities. Historical
+ * jobs without this snapshot keep their established recovery behavior.
+ */
+export async function assertQueuedVisualSource(job: Pick<Job, 'type' | 'params' | 'project_slug' | 'episode_id' | 'genstudio_jobs'>): Promise<void> {
+  const expected = job.params?.visual_source
+  if (!expected || !job.episode_id) return
+  if (!['scene_plan_run', 'scene_image_generate', 'scene_clips_batch', 'scene_clip_generate', 'continuity_render', 'video_assembly'].includes(job.type)) return
+  const hasAcceptedProviderTask = (job.genstudio_jobs || []).some(entry => (
+    typeof entry.id === 'string'
+    && entry.id.trim().length > 0
+    && !entry.id.startsWith('pending:')
+    && !isNeverCreatedProviderTask(entry)
+    && (isActiveGenStudioProviderState(entry.state) || isSettledProviderEntry(entry))
+  ))
+  if (job.type !== 'video_assembly' && job.type !== 'continuity_render' && hasAcceptedProviderTask) return
+  const current = await readVideoVisualSource(job.project_slug, job.episode_id)
+  if (current.source !== expected) {
+    throw new Error(`${job.episode_id}: visual source changed after this job was queued. Restore its ${expected === 'image_pool' ? 'Image Pool' : 'Scene Plan'} source to resume, or start a new run with the current source.`)
+  }
 }
