@@ -64,7 +64,7 @@ test('audio assembly and transcription enforce their authoritative prerequisite 
 
   assert.match(audioMergeRoute, /await requireChapterAudioReady\(slug, episode_id\)/)
   assert.match(audioMergeGenerator, /await requireChapterAudioReady\(project_slug, code\)/)
-  assert.match(audioMergePage, /:generate-disabled="!chapterAudioReady"/)
+  assert.match(audioMergePage, /:disabled="!chapterAudioReady \|\| mergeStatus\.loading \|\| !!mergeStatus\.error \|\| generating \|\| mergeJobActiveForEpisode"/)
   assert.match(subtitleRoute, /await requireAudioAssemblyReady\(slug, episodeId\)/)
   assert.match(subtitleGenerator, /await requireAudioAssemblyReady\(project_slug, code\)/)
   assert.match(subtitlePage, /status\.value\?\.audio_assembly_ready/)

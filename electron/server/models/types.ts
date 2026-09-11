@@ -2523,6 +2523,21 @@ export interface PaidImageReplacementAttempt {
   public_reason?: 'original_failure_not_eligible' | 'replacement_disabled' | 'not_verified' | 'budget_limit'
 }
 
+export interface GenerationReplacementAttempt {
+  kind: 'audio' | 'writing'
+  item_key: string
+  /** Private SHA-256 binding to the accepting API origin and credential. */
+  connection_fingerprint?: string
+  original_task_id: string
+  original_idempotency_key: string
+  idempotency_key: string
+  max_credits: number
+  state: 'committed' | 'submitted' | 'succeeded' | 'failed'
+  task_id?: string
+  settled_credits?: number
+  revision: number
+}
+
 export interface Job {
   job_id: string
   project_slug: string
@@ -2561,6 +2576,8 @@ export interface Job {
   paid_image_replacement?: PaidImageReplacementPolicySnapshot
   /** Jobs.json is authoritative for this bounded paid image replacement state. */
   paid_image_replacement_attempts?: PaidImageReplacementAttempt[]
+  /** Durable per-item holds for opt-in audio/writing replacements. */
+  generation_replacement_attempts?: GenerationReplacementAttempt[]
   /** Structured executor outcome. `complete: false` is a queue-enforced
    * failure declaration and can never be persisted as a green Done job. */
   result?: Record<string, any>
@@ -2598,6 +2615,17 @@ export interface Job {
    * generator POST cannot mint it.
    */
   genstudio_chat_retry_scope?: string
+  /** Private exact-key map for the explicit Jobs failed-item replacement. */
+  manual_failed_item_replacement?: {
+    source_job_id: string
+    requests: Array<{
+      original_task_id: string
+      original_idempotency_key: string
+      /** Stable generator key that is replaced; differs after a replacement itself fails. */
+      prepared_idempotency_key?: string
+      replacement_idempotency_key: string
+    }>
+  }
   /**
    * Server-issued marker for a Retry that must only reclaim an earlier
    * idempotency key. It never permits a new provider submission.
@@ -2641,6 +2669,10 @@ export interface Job {
     returned_credits?: number
     price_version?: string | null
     failure_code?: string | null
+    /** GenStudio's structured failure classification; never inferred from prose. */
+    failure_class?: string | null
+    /** GenStudio's published reason, retained for audit without driving policy. */
+    failure_reason?: string | null
     cancellable?: boolean | null
     cancelled?: boolean | null
     cancellation_requested?: boolean | null

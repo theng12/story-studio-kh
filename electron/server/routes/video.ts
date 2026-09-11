@@ -46,7 +46,7 @@ import {
 import { resolveSubtitlesDir, resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { readSelectedSubtitle, resolveBurnSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { inspectSubtitleText, type SubtitleQualityReport } from '../lib/subtitle-quality.js'
-import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
+import { inspectSubtitleCompletion, inspectSubtitleSourceFreshness } from '../services/subtitle-completion.js'
 import { inspectExistingTranscriptSource } from '../services/subtitle-correction.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
@@ -1064,6 +1064,25 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
     ])
 
     const subtitlesDir = await resolveSubtitlesDir(slug, episodeId)
+    let subtitleFreshness: {
+      stale_sections: string[]
+      freshness_unavailable: boolean
+      freshness_reason: string | null
+    }
+    try {
+      const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, 'audio_chapters.json')
+      const inspected = await inspectSubtitleSourceFreshness(paths.episode_dir, paths.audio_dir, subtitlesDir, episodeId)
+      subtitleFreshness = { ...inspected, freshness_unavailable: false, freshness_reason: null }
+    } catch {
+      // Do not turn an unreadable active-source map into evidence that every
+      // chapter is current. Missing legacy provenance is handled inside the
+      // inspector; this branch is only an inspection failure.
+      subtitleFreshness = {
+        stale_sections: [],
+        freshness_unavailable: true,
+        freshness_reason: 'Could not verify the selected chapter audio sources.',
+      }
+    }
     interface ExistingSrt {
       path: string
       filename: string
@@ -1114,6 +1133,14 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
     } catch { /* no dir yet — fine */ }
 
     const stitchedPath = path.join(subtitlesDir, `${episodeId.toUpperCase()}_stitched.srt`)
+    const lastStitchedAt = existsSync(stitchedPath)
+      ? await fs.readFile(`${stitchedPath}.json`, 'utf-8')
+        .then(meta => {
+          const generatedAt = JSON.parse(meta)?.generated_at
+          return typeof generatedAt === 'string' && Number.isFinite(Date.parse(generatedAt)) ? generatedAt : null
+        })
+        .catch(() => null)
+      : null
     const planningTranscript = existsSync(stitchedPath)
       ? await inspectExistingTranscriptSource(subtitlesDir, episodeId)
       : null
@@ -1144,6 +1171,10 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
         .then(p => (p ? path.basename(p) : null))
         .catch(() => null),
       completion: await inspectSubtitleCompletion(assets.episode_dir, subtitlesDir, episodeId),
+      stale_sections: subtitleFreshness.stale_sections,
+      freshness_unavailable: subtitleFreshness.freshness_unavailable,
+      freshness_reason: subtitleFreshness.freshness_reason,
+      last_stitched_at: lastStitchedAt,
       timeline_integrity: subtitleTimelineIntegrity,
       planning_transcript_source: planningTranscript?.source ?? null,
       planning_source_revalidation_required: planningTranscript?.planning_source_revalidation_required ?? false,

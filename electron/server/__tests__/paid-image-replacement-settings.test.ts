@@ -57,6 +57,16 @@ test('paid image replacement defaults, validates exactly, and exposes only the f
     .get('/app-settings/paid-image-replacement')
     .expect(200)
 
+  const imageError = await request(app)
+    .put('/app-settings/paid-image-replacement')
+    .send({ enabled: true, additional_credit_ceiling: 0 })
+  assert.equal(imageError.status, 400)
+  assert.equal(
+    imageError.body.detail,
+    'Paid image replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.',
+    'the shared parser must preserve the existing image API error',
+  )
+
   const priorError = console.error
   try {
     console.error = () => undefined
@@ -146,6 +156,57 @@ test('paid subtitle replacement stays independently off until its own whole-cred
   await assert.rejects(
     () => settings.setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 0 }),
     /positive safe whole number/i,
+  )
+  const subtitleError = await request(app)
+    .put('/app-settings/paid-subtitle-replacement')
+    .send({ enabled: true, additional_credit_ceiling: 0 })
+  assert.equal(subtitleError.status, 400)
+  assert.equal(
+    subtitleError.body.detail,
+    'Paid subtitle replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.',
+    'the shared parser must preserve the existing subtitle API error',
+  )
+})
+
+test('paid audio and writing replacement stay separately off and require their own positive whole-credit ceilings', async () => {
+  for (const replacement of [
+    { name: 'audio', path: '/app-settings/paid-audio-replacement', getter: 'getPaidAudioReplacementSetting', setter: 'setPaidAudioReplacementSetting' },
+    { name: 'writing', path: '/app-settings/paid-writing-replacement', getter: 'getPaidWritingReplacementSetting', setter: 'setPaidWritingReplacementSetting' },
+  ] as const) {
+    await request(app)
+      .get(replacement.path)
+      .expect(200, { enabled: false, additional_credit_ceiling: null })
+
+    await request(app)
+      .put(replacement.path)
+      .send({ enabled: true, additional_credit_ceiling: 23 })
+      .expect(200, { enabled: true, additional_credit_ceiling: 23 })
+
+    const settings = await import('../services/app-settings.js') as any
+    assert.deepEqual(
+      await settings[replacement.getter](),
+      { enabled: true, additional_credit_ceiling: 23 },
+      `${replacement.name} setting persists only at its own machine-local key`,
+    )
+    await assert.rejects(
+      () => settings[replacement.setter]({ enabled: true, additional_credit_ceiling: 0 }),
+      /positive safe whole number/i,
+    )
+    await request(app)
+      .get(replacement.path)
+      .expect(200, { enabled: true, additional_credit_ceiling: 23 })
+  }
+
+  const settings = await import('../services/app-settings.js')
+  assert.deepEqual(
+    await settings.getPaidImageReplacementSetting(),
+    { enabled: false, additional_credit_ceiling: null },
+    'new recovery settings cannot enable image replacement after an upgrade',
+  )
+  assert.deepEqual(
+    await settings.getPaidSubtitleReplacementSetting(),
+    { enabled: true, additional_credit_ceiling: 17 },
+    'audio and writing settings do not change subtitle replacement',
   )
 })
 

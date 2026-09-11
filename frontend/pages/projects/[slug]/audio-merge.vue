@@ -11,11 +11,7 @@
       v-model:episode-id="episodeId"
       filter-field="merged_audio"
       :generate-label="generateLabel"
-      loading-label="Merging…"
-      :generate-loading="generating || mergeJobActiveForEpisode"
-      :generate-disabled="!chapterAudioReady"
-      :generate-status="(generating || mergeJobActiveForEpisode) ? `Merging audio for ${selectedEpisode?.title || episodeId}…` : ''"
-      @generate="onGenerateClick"
+      :show-generate="false"
       @episode-selected="onEpisodeSelected"
       @preset-applied="onPresetApplied"
       @preset-saved="onPresetSaved"
@@ -29,6 +25,77 @@
         />
       </template>
     </TopActionBar>
+
+    <section v-if="episodeId" class="audio-assembly-action-bar" aria-label="Audio Assembly merge actions">
+      <div class="audio-assembly-action-context">
+        <span class="audio-context-item">
+          <small>Episode</small>
+          <strong>{{ selectedEpisode?.title || episodeId }}</strong>
+        </span>
+        <span class="audio-context-item">
+          <small>Narration</small>
+          <strong>{{ !scannedAssets || scanning ? 'Checking chapters…' : chapters.length ? `${chapters.length} chapter${chapters.length === 1 ? '' : 's'}` : 'No chapters ready' }}</strong>
+        </span>
+        <span class="audio-context-item">
+          <small>Current merge</small>
+          <strong :title="existingMergedAudio?.path || ''">
+            {{ !scannedAssets || mergeStatus.loading ? 'Checking…' : mergeStatus.error ? 'Unavailable' : existingMergedAudio ? `${existingMergedAudio.path.split('/').pop()} · ${formatDuration(existingMergedAudio.duration)}` : 'None yet' }}
+          </strong>
+        </span>
+      </div>
+
+      <div class="audio-assembly-action-controls">
+        <label class="audio-output-choice">
+          <span>Output</span>
+          <select
+            v-model="writeMode"
+            class="select select-sm"
+            :disabled="mergeStatus.loading || !!mergeStatus.error || generating || mergeJobActiveForEpisode"
+          >
+            <option value="overwrite">
+              {{ existingMergedAudio ? 'Replace existing merge' : 'Create merged audio' }}
+            </option>
+            <option value="new" :disabled="!existingMergedAudio">
+              Create another version{{ existingMergedAudio ? ` (${nextVersionName.split('/').pop()})` : '' }}
+            </option>
+          </select>
+        </label>
+        <button
+          v-if="existingMergedAudio"
+          type="button"
+          class="btn btn-ghost"
+          @click="togglePreview(existingMergedAudio.path)"
+        >{{ playingPath === existingMergedAudio.path ? 'Stop preview' : 'Preview current' }}</button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="!chapterAudioReady || mergeStatus.loading || !!mergeStatus.error || generating || mergeJobActiveForEpisode"
+          @click="onGenerateClick"
+        >{{ generating || mergeJobActiveForEpisode ? 'Merging…' : generateLabel }}</button>
+      </div>
+
+      <p class="audio-assembly-action-summary" role="status">
+        <template v-if="mergeStatus.loading">
+          Checking which merged file is current before enabling the action.
+        </template>
+        <template v-else-if="mergeStatus.error">
+          Current merge status is unavailable.
+          <button type="button" class="btn btn-sm btn-ghost" @click="refreshMergeStatus">Retry</button>
+        </template>
+        <template v-else-if="generating || mergeJobActiveForEpisode">
+          Merging audio for {{ selectedEpisode?.title || episodeId }}…
+        </template>
+        <template v-else-if="writeMode === 'new' && existingMergedAudio">
+          Keeps the current merge and writes {{ nextVersionName.split('/').pop() }} beside it.
+        </template>
+        <template v-else-if="existingMergedAudio">
+          Replaces {{ existingMergedAudio.path.split('/').pop() }} with the next merge.
+        </template>
+        <template v-else>
+          Creates this episode's first merged audio file.
+        </template>
+      </p>
+    </section>
 
     <WorkspaceNotice class="mt-2" title="Fixed mixing order" tone="info">
       Intro → narration with music ducked underneath → ambience layered throughout. Reorder chapters and tune silence below.
@@ -653,39 +720,6 @@
         Combines everything above (chapters → silence gaps → optional intro / music / ambience) into a single track that downstream Video Assembly consumes.
       </p>
 
-      <!-- Existing merged audio + write-mode decision (surfaced upfront so -->
-      <!-- the user picks before hitting Generate, not in a mid-flow modal). -->
-      <div v-if="existingMergedAudio" class="write-mode-panel mt-2">
-        <div class="write-mode-header">
-          <span class="badge badge-success">Merged audio exists</span>
-          <span class="text-muted text-sm">
-            {{ existingMergedAudio.path.split('/').pop() }} ({{ formatDuration(existingMergedAudio.duration) }})
-          </span>
-          <button class="btn-icon play-btn" @click="togglePreview(existingMergedAudio.path)" :title="playingPath === existingMergedAudio.path ? 'Stop' : 'Preview'">
-            {{ playingPath === existingMergedAudio.path ? '&#9724;' : '&#9654;' }}
-          </button>
-        </div>
-        <p class="text-muted text-sm mt-1">
-          Choose what happens when you click Generate:
-        </p>
-        <div class="write-mode-options mt-1">
-          <label :class="['write-mode-option', { active: writeMode === 'new' }]">
-            <input type="radio" value="new" v-model="writeMode" />
-            <div class="write-mode-content">
-              <span class="write-mode-title">Save as new version</span>
-              <span class="write-mode-desc">Keeps the existing file. Saved as {{ nextVersionName }} alongside it — safe default.</span>
-            </div>
-          </label>
-          <label :class="['write-mode-option', { active: writeMode === 'overwrite' }]">
-            <input type="radio" value="overwrite" v-model="writeMode" />
-            <div class="write-mode-content">
-              <span class="write-mode-title">Replace existing</span>
-              <span class="write-mode-desc">Overwrites {{ existingMergedAudio.path.split('/').pop() }}. Cannot be undone.</span>
-            </div>
-          </label>
-        </div>
-      </div>
-
       <!-- Summary -->
       <div class="summary-panel mt-2">
         <div class="summary-grid">
@@ -1149,8 +1183,10 @@ const selectedMusicFiles = computed(() => {
 const hasSelectedMusic = computed(() => selectedMusicFiles.value.length > 0)
 
 const existingMergedAudio = computed(() => {
-  const files = scannedAssets.value?.merged_files
-  return files?.length ? files[0] : null
+  const files = scannedAssets.value?.merged_files || []
+  if (!files.length) return null
+  const activeFilename = mergeStatus.file.split('/').pop()
+  return files.find((file: { filename: string }) => file.filename === activeFilename) || null
 })
 
 // ── Functions ──
@@ -1575,17 +1611,16 @@ function onEpisodeSelected(ep: any) {
   // happens in lockstep with this event. No need to duplicate the call here.
 }
 
-// Write-mode radio choice lives inline in the Generate card (see template).
-// Default is 'new' so first-time Generate with an existing file doesn't
-// silently clobber. When no prior merge exists, the choice is hidden and
-// the mode is effectively 'overwrite' (an empty slot — nothing to replace).
-const writeMode = ref<'overwrite' | 'new'>('new')
+// Output disposition is an explicit action choice, separate from reusable mix
+// presets. Replacing the episode's canonical merge is the normal/default path;
+// creating another version remains available when a merge already exists.
+const writeMode = ref<'overwrite' | 'new'>('overwrite')
 
 watch(existingMergedAudio, (cur) => {
-  // No prior file → there's nothing to save-as-new against, default to
-  // 'overwrite' so the Generate button reads naturally. When a file appears
-  // (after a generation completes), flip back to the safe 'new' default.
-  writeMode.value = cur ? 'new' : 'overwrite'
+  // A versioned output needs an existing episode-owned merge. Clearing the
+  // episode scan therefore clears that choice too; routine refreshes preserve
+  // an explicit "Create another version" selection.
+  if (!cur) writeMode.value = 'overwrite'
 }, { immediate: true })
 
 const nextVersionName = computed(() => {
@@ -1773,6 +1808,75 @@ onUnmounted(() => {
 .badge-success { background: rgba(74, 222, 128, 0.15); color: var(--success); border: 1px solid rgba(74, 222, 128, 0.3); }
 .badge-error { background: rgba(239, 68, 68, 0.15); color: var(--error); border: 1px solid rgba(239, 68, 68, 0.3); }
 
+/* Keep output disposition and the primary merge action visible while the
+   longer mix form scrolls. This mirrors Audio Generator's working action bar
+   while anchoring near the top because Assembly has no selection table. */
+.audio-assembly-action-bar {
+  position: sticky;
+  top: 10px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px 16px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(12px);
+}
+.audio-assembly-action-context {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-items: center;
+}
+.audio-context-item {
+  min-width: 0;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+}
+.audio-context-item:last-child { border-right: 0; }
+.audio-context-item small,
+.audio-context-item strong { display: block; }
+.audio-context-item small,
+.audio-output-choice > span {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.audio-context-item strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.audio-assembly-action-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.audio-output-choice {
+  display: grid;
+  min-width: 250px;
+  gap: 3px;
+  margin: 0;
+}
+.audio-output-choice .select,
+.audio-assembly-action-controls .btn { min-height: var(--control-height-md); }
+.audio-assembly-action-summary {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+}
+
 .audio-list-reorder { display: flex; flex-direction: column; gap: 3px; }
 .audio-item-reorder { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-size: 13px; border: 1px solid var(--border); }
 .audio-order-num { width: 22px; height: 22px; border-radius: 50%; background: var(--accent-dim); color: var(--accent); font-size: var(--font-xs); font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -1861,6 +1965,9 @@ onUnmounted(() => {
 .merge-output-status h4 { margin: 0 0 3px; font-size: 13px; }
 .merge-output-status p { margin: 0; }
 @media (max-width: 760px) {
+  .audio-assembly-action-bar { top: 6px; grid-template-columns: 1fr; padding: 9px; }
+  .audio-assembly-action-controls { display: grid; grid-template-columns: minmax(0, 1fr) repeat(2, auto); }
+  .audio-output-choice { min-width: 0; }
   .audio-mix-card { padding: 0 14px; }
   .audio-mix-header, .merge-output-status { flex-direction: column; align-items: stretch; }
   .audio-mix-states { justify-content: flex-start; }
@@ -1930,17 +2037,13 @@ onUnmounted(() => {
 .warning-body { flex: 1; min-width: 0; }
 .warning-title { margin: 0; font-size: 15px; color: var(--text-primary); }
 
-.write-mode-panel { padding: 14px; background: var(--bg-tertiary); border-radius: var(--radius-md); border: 1px solid var(--border); }
-.write-mode-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.write-mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-@media (max-width: 640px) { .write-mode-options { grid-template-columns: 1fr; } }
-.write-mode-option { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-primary); border: 2px solid var(--border); cursor: pointer; transition: all 0.15s; }
-.write-mode-option:hover { border-color: var(--text-secondary); }
-.write-mode-option.active { border-color: var(--accent); background: var(--accent-dim); }
-.write-mode-option input[type="radio"] { margin-top: 3px; flex-shrink: 0; }
-.write-mode-content { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.write-mode-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-.write-mode-desc { font-size: var(--font-xs); color: var(--text-muted); line-height: 1.4; word-break: break-word; }
+@media (max-width: 520px) {
+  .audio-assembly-action-context { grid-template-columns: 1fr 1fr; }
+  .audio-context-item:nth-child(2) { border-right: 0; }
+  .audio-context-item:last-child { grid-column: 1 / -1; }
+  .audio-assembly-action-controls { grid-template-columns: 1fr; }
+  .audio-assembly-action-controls .btn { width: 100%; justify-content: center; }
+}
 
 .btn-lg { padding: 12px 40px; font-size: 16px; font-weight: 600; }
 

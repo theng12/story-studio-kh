@@ -81,35 +81,29 @@ export interface PaidImageReplacementSetting {
 
 export const PAID_IMAGE_REPLACEMENT_KEY = 'paid_image_replacement'
 export const PAID_SUBTITLE_REPLACEMENT_KEY = 'paid_subtitle_replacement'
+export const PAID_AUDIO_REPLACEMENT_KEY = 'paid_audio_replacement'
+export const PAID_WRITING_REPLACEMENT_KEY = 'paid_writing_replacement'
 
-const PAID_IMAGE_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
+const PAID_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
   enabled: false,
   additional_credit_ceiling: null,
 }
 
-const PAID_SUBTITLE_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
-  enabled: false,
-  additional_credit_ceiling: null,
-}
-
-function invalidPaidImageReplacementSetting(): never {
+function invalidPaidReplacementSetting(kind: 'image' | 'subtitle' | 'audio' | 'writing'): never {
   throw Object.assign(
-    new Error('Paid image replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.'),
+    new Error(`Paid ${kind} replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.`),
     { statusCode: 400, expose: true },
   )
 }
 
-function invalidPaidSubtitleReplacementSetting(): never {
-  throw Object.assign(
-    new Error('Paid subtitle replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.'),
-    { statusCode: 400, expose: true },
-  )
-}
-
-function parsePaidImageReplacementSetting(value: unknown, invalid: 'default' | 'throw'): PaidImageReplacementSetting {
+function parsePaidReplacementSetting(
+  value: unknown,
+  invalid: 'default' | 'throw',
+  kind: 'image' | 'subtitle' | 'audio' | 'writing',
+): PaidImageReplacementSetting {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    if (invalid === 'throw') return invalidPaidImageReplacementSetting()
-    return { ...PAID_IMAGE_REPLACEMENT_DEFAULT }
+    if (invalid === 'throw') return invalidPaidReplacementSetting(kind)
+    return { ...PAID_REPLACEMENT_DEFAULT }
   }
   const record = value as Record<string, unknown>
   const keys = Object.keys(record)
@@ -117,52 +111,20 @@ function parsePaidImageReplacementSetting(value: unknown, invalid: 'default' | '
     || !keys.includes('enabled')
     || !keys.includes('additional_credit_ceiling')
     || typeof record.enabled !== 'boolean') {
-    if (invalid === 'throw') return invalidPaidImageReplacementSetting()
-    return { ...PAID_IMAGE_REPLACEMENT_DEFAULT }
+    if (invalid === 'throw') return invalidPaidReplacementSetting(kind)
+    return { ...PAID_REPLACEMENT_DEFAULT }
   }
   const ceiling = record.additional_credit_ceiling
   const validCeiling = typeof ceiling === 'number'
     && Number.isSafeInteger(ceiling)
     && ceiling > 0
   if (ceiling !== null && !validCeiling) {
-    if (invalid === 'throw') return invalidPaidImageReplacementSetting()
-    return { ...PAID_IMAGE_REPLACEMENT_DEFAULT }
+    if (invalid === 'throw') return invalidPaidReplacementSetting(kind)
+    return { ...PAID_REPLACEMENT_DEFAULT }
   }
   if (record.enabled && !validCeiling) {
-    if (invalid === 'throw') return invalidPaidImageReplacementSetting()
-    return { ...PAID_IMAGE_REPLACEMENT_DEFAULT }
-  }
-  return {
-    enabled: record.enabled,
-    additional_credit_ceiling: ceiling as number | null,
-  }
-}
-
-function parsePaidSubtitleReplacementSetting(value: unknown, invalid: 'default' | 'throw'): PaidImageReplacementSetting {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    if (invalid === 'throw') return invalidPaidSubtitleReplacementSetting()
-    return { ...PAID_SUBTITLE_REPLACEMENT_DEFAULT }
-  }
-  const record = value as Record<string, unknown>
-  const keys = Object.keys(record)
-  if (keys.length !== 2
-    || !keys.includes('enabled')
-    || !keys.includes('additional_credit_ceiling')
-    || typeof record.enabled !== 'boolean') {
-    if (invalid === 'throw') return invalidPaidSubtitleReplacementSetting()
-    return { ...PAID_SUBTITLE_REPLACEMENT_DEFAULT }
-  }
-  const ceiling = record.additional_credit_ceiling
-  const validCeiling = typeof ceiling === 'number'
-    && Number.isSafeInteger(ceiling)
-    && ceiling > 0
-  if (ceiling !== null && !validCeiling) {
-    if (invalid === 'throw') return invalidPaidSubtitleReplacementSetting()
-    return { ...PAID_SUBTITLE_REPLACEMENT_DEFAULT }
-  }
-  if (record.enabled && !validCeiling) {
-    if (invalid === 'throw') return invalidPaidSubtitleReplacementSetting()
-    return { ...PAID_SUBTITLE_REPLACEMENT_DEFAULT }
+    if (invalid === 'throw') return invalidPaidReplacementSetting(kind)
+    return { ...PAID_REPLACEMENT_DEFAULT }
   }
   return {
     enabled: record.enabled,
@@ -250,17 +212,17 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
  */
 export async function getPaidImageReplacementSetting(): Promise<PaidImageReplacementSetting> {
   const settings = await readSettings()
-  return parsePaidImageReplacementSetting(
+  return parsePaidReplacementSetting(
     settings && typeof settings === 'object' && !Array.isArray(settings)
       ? settings[PAID_IMAGE_REPLACEMENT_KEY]
       : undefined,
-    'default',
+    'default', 'image',
   )
 }
 
 /** Validate before writing so rejected requests cannot replace the last valid setting. */
 export async function setPaidImageReplacementSetting(value: unknown): Promise<PaidImageReplacementSetting> {
-  const setting = parsePaidImageReplacementSetting(value, 'throw')
+  const setting = parsePaidReplacementSetting(value, 'throw', 'image')
   // Queue due-timers share this gate so an Off write cannot race a timer that
   // already passed its non-paying validation and requeue paid work afterward.
   const queue = await import('./job-queue.js')
@@ -277,16 +239,16 @@ export async function setPaidImageReplacementSetting(value: unknown): Promise<Pa
  */
 export async function getPaidSubtitleReplacementSetting(): Promise<PaidImageReplacementSetting> {
   const settings = await readSettings()
-  return parsePaidSubtitleReplacementSetting(
+  return parsePaidReplacementSetting(
     settings && typeof settings === 'object' && !Array.isArray(settings)
       ? settings[PAID_SUBTITLE_REPLACEMENT_KEY]
       : undefined,
-    'default',
+    'default', 'subtitle',
   )
 }
 
 export async function setPaidSubtitleReplacementSetting(value: unknown): Promise<PaidImageReplacementSetting> {
-  const setting = parsePaidSubtitleReplacementSetting(value, 'throw')
+  const setting = parsePaidReplacementSetting(value, 'throw', 'subtitle')
   await withPaidSubtitleConfirmation(() => setAppSetting(PAID_SUBTITLE_REPLACEMENT_KEY, setting))
   return setting
 }
@@ -294,6 +256,48 @@ export async function setPaidSubtitleReplacementSetting(value: unknown): Promise
 /** Off and the final authorization + physical confirm have one linearization gate. */
 export function withPaidSubtitleConfirmation<T>(work: () => Promise<T>): Promise<T> {
   return withLock(`${appSettingsPath()}:paid-subtitle-confirm`, work)
+}
+
+/** Audio recovery has independent local consent and a shared Off/confirm gate. */
+export async function getPaidAudioReplacementSetting(): Promise<PaidImageReplacementSetting> {
+  const settings = await readSettings()
+  return parsePaidReplacementSetting(
+    settings && typeof settings === 'object' && !Array.isArray(settings)
+      ? settings[PAID_AUDIO_REPLACEMENT_KEY]
+      : undefined,
+    'default', 'audio',
+  )
+}
+
+export async function setPaidAudioReplacementSetting(value: unknown): Promise<PaidImageReplacementSetting> {
+  const setting = parsePaidReplacementSetting(value, 'throw', 'audio')
+  await withPaidAudioConfirmation(() => setAppSetting(PAID_AUDIO_REPLACEMENT_KEY, setting))
+  return setting
+}
+
+export function withPaidAudioConfirmation<T>(work: () => Promise<T>): Promise<T> {
+  return withLock(`${appSettingsPath()}:paid-audio-confirm`, work)
+}
+
+/** Writing recovery has independent local consent and a shared Off/confirm gate. */
+export async function getPaidWritingReplacementSetting(): Promise<PaidImageReplacementSetting> {
+  const settings = await readSettings()
+  return parsePaidReplacementSetting(
+    settings && typeof settings === 'object' && !Array.isArray(settings)
+      ? settings[PAID_WRITING_REPLACEMENT_KEY]
+      : undefined,
+    'default', 'writing',
+  )
+}
+
+export async function setPaidWritingReplacementSetting(value: unknown): Promise<PaidImageReplacementSetting> {
+  const setting = parsePaidReplacementSetting(value, 'throw', 'writing')
+  await withPaidWritingConfirmation(() => setAppSetting(PAID_WRITING_REPLACEMENT_KEY, setting))
+  return setting
+}
+
+export function withPaidWritingConfirmation<T>(work: () => Promise<T>): Promise<T> {
+  return withLock(`${appSettingsPath()}:paid-writing-confirm`, work)
 }
 
 // ── Voice presets + favourites (global, not per-project) ──────────────────

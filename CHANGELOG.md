@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.151 — 2026-09-12
+
+- Audio Assembly keeps merge, preview, and output choices in a persistent action bar. Replace the active merge by default; creating another version remains an explicit choice.
+- Detect replaced chapter audio in Subtitles, mark only affected transcripts outdated, and update those chapters while retaining unchanged subtitles. Show the last stitch date and local time, including seconds, separately from freshness warnings.
+- Ordinary Audio Retry reconnects to the saved request when provider submission is uncertain instead of starting another paid request.
+- Replace confirmed failed audio sections or writing requests directly from Jobs. Preserve successful output and reconnect to accepted replacement requests after interruption.
+- Add separate, off-by-default automatic Audio and Writing replacement settings with additional-credit limits and one automatic replacement per failed item. Automatic replacement requires GenStudio's advertised spending-limit support and confirmed settled failure; uncertain submissions remain recoverable without duplicate generation.
+
 ## v1.4.150
 
 - Jobs: Retry all shows live progress and separates queued retries, already-complete episodes, and blocked checks, with episode-specific reasons.

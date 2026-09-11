@@ -413,6 +413,31 @@ test('a JSON Object chat key is untouched by the response_format fix — nothing
   )
 })
 
+test('web-search options join chat identity without changing the historical non-search key', () => {
+  const request = {
+    modelId: 'genstudio-chat-local-v1',
+    system: 'Return verified JSON.',
+    userMessage: 'Research one current claim.',
+    temperature: 0.2,
+    maxOutputTokens: 4_096,
+    requestIdentity: 'my-channel:EP0067:research',
+    outputContract: { mode: 'json_object' as const },
+  }
+  const withoutSearch = buildGenStudioChatIdempotencyKey(request)
+  const withSearch = buildGenStudioChatIdempotencyKey({
+    ...request,
+    webSearch: { enabled: true as const, max_searches: 2, allowed_domains: [], blocked_domains: [] },
+  })
+  const withDomainLimit = buildGenStudioChatIdempotencyKey({
+    ...request,
+    webSearch: { enabled: true as const, max_searches: 2, allowed_domains: ['archives.example'], blocked_domains: [] },
+  })
+
+  assert.equal(withoutSearch, legacyChatIdempotencyKey(request))
+  assert.notEqual(withSearch, withoutSearch)
+  assert.notEqual(withDomainLimit, withSearch)
+})
+
 test('GenStudio publishes normalized capability, chat, and video catalogs', async () => {
   const originalFetch = globalThis.fetch
   try {

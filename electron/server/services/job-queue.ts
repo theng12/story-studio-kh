@@ -14,6 +14,7 @@ import { boundGenStudioRequestPreviews, pendingGenStudioEntryId, type GenStudioR
 import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
 import { randomUUID } from 'node:crypto'
+import { balancedReplacementSettlement, mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
 import { projectsRoot, getProjectDir } from './project-manager.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
@@ -121,7 +122,19 @@ export async function recordGenStudioJob(
     const request = snapshot.request ?? previous.request
     entries[index] = { ...previous, ...snapshot, ...(request ? { request } : {}) }
   } else entries.push(snapshot)
-  job.genstudio_jobs = boundGenStudioRequestPreviews(coalesceExactProviderEvidence(job, entries))
+  if (job.generation_replacement_attempts?.some(attempt => attempt.task_id === snapshot.id || attempt.idempotency_key === requestKey)) {
+    await mutateAuthoritativeJob(job.project_slug, job.job_id, authoritative => {
+      authoritative.generation_replacement_attempts = (authoritative.generation_replacement_attempts || []).map(attempt => {
+        if (attempt.task_id !== snapshot.id && attempt.idempotency_key !== requestKey) return attempt
+        const settled = balancedReplacementSettlement(snapshot)
+        return { ...attempt, task_id: snapshot.id, revision: attempt.revision + 1,
+          state: snapshot.state === 'succeeded' ? 'succeeded' : snapshot.state === 'failed' ? 'failed' : 'submitted',
+          ...(settled !== null && settled <= attempt.max_credits ? { settled_credits: settled } : {}) }
+      })
+      return authoritative
+    })
+  }
+  job.genstudio_jobs = boundGenStudioRequestPreviews(mergeDurableJobEvidence(job, { ...job, genstudio_jobs: entries }).genstudio_jobs || [])
   await persistJob(job)
   emitUpdate(job)
   void finalizeSettledProviderJob(job.job_id)
@@ -1512,7 +1525,7 @@ type RendererPaidImageReplacementAttempt = Pick<PaidImageReplacementAttempt,
   'state' | 'eligible_at' | 'replacement_committed_at' | 'quoted_credits' | 'price_version' | 'actual_settled_credits'> & {
   reason?: NonNullable<PaidImageReplacementAttempt['public_reason']> | 'automatic_replacement_unavailable'
 }
-type RendererJob = Omit<Job, 'paid_image_replacement_attempts'> & {
+type RendererJob = Omit<Job, 'paid_image_replacement_attempts' | 'generation_replacement_attempts' | 'manual_failed_item_replacement'> & {
   paid_image_replacement_attempt?: RendererPaidImageReplacementAttempt
 }
 
@@ -1541,6 +1554,8 @@ function serializeJob(job: Job): RendererJob {
     .map(attempt => attempt.reason?.trim())
     .filter((reason): reason is string => Boolean(reason))
   delete copy.paid_image_replacement_attempts
+  delete copy.generation_replacement_attempts
+  delete copy.manual_failed_item_replacement
   const rendererJob: RendererJob = copy
   if (privateReasons.length) {
     if (rendererJob.error && privateReasons.some(reason => rendererJob.error!.includes(reason))) {
@@ -1866,6 +1881,7 @@ function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
   )
   const merged = {
     ...incoming,
+    generation_replacement_attempts: mergeGenerationReplacementAttempts(previous.generation_replacement_attempts, incoming.generation_replacement_attempts),
     ...(Object.keys(remoteCancellations).length > 0 ? { remote_cancellations: remoteCancellations } : {}),
     ...(attempts ? { paid_image_replacement_attempts: attempts } : {}),
   }
@@ -4360,6 +4376,10 @@ interface EnqueuePreparedOptions extends EnqueueOptions {
   paid_image_replacement?: PaidImageReplacementPolicySnapshot
   /** Derived from durable queue evidence; public enqueue callers cannot supply it. */
   genstudio_chat_recovery_preview?: GenStudioRequestPreview
+  /** Internal retry evidence copied only after an exact read-only provider reconciliation. */
+  genstudio_jobs?: Job['genstudio_jobs']
+  generation_replacement_attempts?: Job['generation_replacement_attempts']
+  manual_failed_item_replacement?: Job['manual_failed_item_replacement']
 }
 
 function withoutPaidImageReplacementParam(params: EnqueueOptions['params']): EnqueueOptions['params'] {
@@ -4416,6 +4436,11 @@ function enqueuePrepared(
     ...(contentPackProvenance.length ? { content_pack_provenance: contentPackProvenance } : {}),
     params: opts.params || {},
     ...(opts.paid_image_replacement ? { paid_image_replacement: opts.paid_image_replacement } : {}),
+    ...(opts.genstudio_jobs?.length ? { genstudio_jobs: structuredClone(opts.genstudio_jobs) } : {}),
+    ...(opts.generation_replacement_attempts?.length
+      ? { generation_replacement_attempts: structuredClone(opts.generation_replacement_attempts) } : {}),
+    ...(opts.manual_failed_item_replacement
+      ? { manual_failed_item_replacement: structuredClone(opts.manual_failed_item_replacement) } : {}),
     ...(opts.genstudio_chat_retry_scope ? { genstudio_chat_retry_scope: opts.genstudio_chat_retry_scope } : {}),
     ...(opts.genstudio_chat_recovery ? { genstudio_chat_recovery: true as const } : {}),
     ...(opts.genstudio_chat_recovery_key ? { genstudio_chat_recovery_key: opts.genstudio_chat_recovery_key } : {}),
@@ -4822,10 +4847,63 @@ export function hasUnresolvedTerminalChapterExpansion(projectSlug: string, episo
   )
 }
 
+const UNCERTAIN_MANUAL_REPLACEMENT_CODES = new Set([
+  'CLOUD_SUBMISSION_UNCERTAIN',
+  'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+])
+
+function currentAudioTtsEvidence(job: Job): GenStudioEvidence[] | null {
+  if (job.type !== 'audio') return null
+  const assets = job.params?.genstudio_recovery?.assets
+  if (!assets || typeof assets !== 'object') return null
+  const checkpoints = Object.values(assets as Record<string, any>).filter(entry => entry?.operation === 'tts')
+  if (!checkpoints.length) return null
+  const matched = new Set<string>()
+  const current: GenStudioEvidence[] = []
+  for (const entry of checkpoints) {
+    const taskId = typeof entry.job_id === 'string' ? entry.job_id.trim() : ''
+    const key = typeof entry.idempotency_key === 'string' ? entry.idempotency_key.trim() : ''
+    if (!taskId || !key) return null
+    const related = (job.genstudio_jobs || []).filter(item => item.operation === 'voice.tts'
+      && (item.id === taskId || providerRequestKey(item) === key))
+    if (related.length !== 1 || related[0]!.id !== taskId || providerRequestKey(related[0]!) !== key) return null
+    const identity = `${taskId}\u0000${key}`
+    if (matched.has(identity)) return null
+    matched.add(identity)
+    current.push(related[0]!)
+  }
+  return current
+}
+
+function hasRelatedUncertainAudioEvidence(job: Job): boolean {
+  if (job.type !== 'audio') return false
+  const assets = job.params?.genstudio_recovery?.assets
+  if (!assets || typeof assets !== 'object') return false
+  const checkpoints = Object.values(assets as Record<string, any>).filter(entry => entry?.operation === 'tts')
+  return checkpoints.some(entry => (job.genstudio_jobs || []).some(item => item.operation === 'voice.tts'
+    && UNCERTAIN_MANUAL_REPLACEMENT_CODES.has(item.failure_code || '')
+    && ((entry.job_id && item.id === entry.job_id)
+      || (entry.idempotency_key && providerRequestKey(item) === entry.idempotency_key))))
+}
+
+/** A manual child may use ordinary Retry only when every provider key remains exact. */
+export function canRetryManualFailedItemExactly(job: Job): boolean {
+  if (!job.params?.jobs_replace_failed_items) return false
+  if (job.type !== 'audio') return Boolean(job.manual_failed_item_replacement?.requests.length)
+  const current = currentAudioTtsEvidence(job)
+  return current !== null && current.every(entry => (
+    entry.state !== 'failed' || UNCERTAIN_MANUAL_REPLACEMENT_CODES.has(entry.failure_code || '')
+  ))
+}
+
 export function retryTerminalJob(
   projectSlug: string,
   jobId: string,
   replacementParams?: Record<string, any>,
+  internal?: {
+    reconciledGenStudioJobs?: Job['genstudio_jobs']
+    manualFailedItemReplacement?: Job['manual_failed_item_replacement']
+  },
 ): Job {
   const original = jobs.get(jobId)
   if (!original || original.project_slug !== projectSlug) {
@@ -4837,6 +4915,29 @@ export function retryTerminalJob(
       { status: 409, expose: true },
     )
   }
+  const exactManualRetry = canRetryManualFailedItemExactly(original)
+  const currentAudioEvidence = currentAudioTtsEvidence(original)
+  if (hasRelatedUncertainAudioEvidence(original) && currentAudioEvidence === null) {
+    throw Object.assign(
+      new Error('The saved uncertain audio request does not exactly match every current task identity. No provider work was submitted.'),
+      { status: 409, expose: true },
+    )
+  }
+  const creatingManualReplacement = Boolean(internal?.reconciledGenStudioJobs
+    && original.params?.jobs_replace_failed_items?.source_job_id === original.job_id)
+  if (original.params?.jobs_replace_failed_items && !exactManualRetry && !creatingManualReplacement) {
+    throw Object.assign(
+      new Error('This manual replacement has a confirmed provider failure. Use Replace failed items to make another deliberate attempt.'),
+      { status: 409, expose: true },
+    )
+  }
+  const manualFailedItemReplacement = internal?.manualFailedItemReplacement
+    || (exactManualRetry ? original.manual_failed_item_replacement : undefined)
+  const exactUncertainAudioRetry = (currentAudioEvidence || []).some(entry => (
+    entry.state === 'failed' && UNCERTAIN_MANUAL_REPLACEMENT_CODES.has(entry.failure_code || '')
+  ))
+  const reconciledGenStudioJobs = internal?.reconciledGenStudioJobs
+    || (exactManualRetry || exactUncertainAudioRetry ? original.genstudio_jobs : undefined)
 
   const chatBackedRetry = original.type === 'expand_chapters' || original.type === 'outline_only'
   const chapterRetryMode = chatBackedRetry
@@ -4847,7 +4948,8 @@ export function retryTerminalJob(
   // on evidence the owner has explicitly chosen to stop waiting for would leave
   // him abandoned AND stuck. Retry never reuses a provider identity here: it
   // submits fresh work, which is what he asked for and what he is paying for.
-  if (!original.force_abandoned && hasUnsettledProviderEvidence(original) && !(chatBackedRetry && chapterRetryMode === 'exact-replay')) {
+  if (!original.force_abandoned && hasUnsettledProviderEvidence(original)
+    && !(chatBackedRetry && chapterRetryMode === 'exact-replay') && !exactManualRetry) {
     throw Object.assign(
       new Error('This job still has unsettled provider evidence. Story Studio will reconcile it before any fresh retry.'),
       { status: 409, expose: true },
@@ -4875,9 +4977,11 @@ export function retryTerminalJob(
   // must reattach with the original key. This marker is deliberately minted
   // only from the explicit manual Retry path; pause/resume and lost-response
   // recovery retain the original provider identity.
-  const genstudio_chat_retry_scope = chapterRetryMode === 'fresh-replacement'
-    ? terminalChatRetryScope(original)
-    : undefined
+  const genstudio_chat_retry_scope = manualFailedItemReplacement
+    ? undefined
+    : chapterRetryMode === 'fresh-replacement'
+      ? terminalChatRetryScope(original)
+      : undefined
   const recovery = chapterRetryMode === 'exact-replay'
     ? provenPendingChatRecovery(original)
     : null
@@ -4923,6 +5027,12 @@ export function retryTerminalJob(
     episode_id: original.episode_id,
     title: original.title,
     params: retryParams,
+    ...(reconciledGenStudioJobs?.length
+      ? { genstudio_jobs: reconciledGenStudioJobs } : {}),
+    ...(original.generation_replacement_attempts?.length
+      ? { generation_replacement_attempts: original.generation_replacement_attempts } : {}),
+    ...(manualFailedItemReplacement
+      ? { manual_failed_item_replacement: manualFailedItemReplacement } : {}),
     ...(genstudio_chat_retry_scope ? { genstudio_chat_retry_scope } : {}),
     ...(chapterRetryMode === 'exact-replay'
       && !(recovery?.notCreated && recovery.purpose === 'narrative-batch')
@@ -4949,6 +5059,93 @@ export function retryTerminalJob(
     })
   })
   return retried
+}
+
+/**
+ * Explicit Jobs action: re-read each failed provider identity, derive the
+ * smallest saved audio/writing scope, then atomically replace the terminal
+ * Story row. The browser supplies no section, chapter, prompt, or model data.
+ */
+export async function replaceFailedItems(projectSlug: string, jobId: string): Promise<Job> {
+  return withLock(`replace-failed-items:${projectSlug}:${jobId}`, async () => {
+    await loadPersistedJobs(projectSlug)
+    const existingChild = Array.from(jobs.values()).find(job => (
+      job.project_slug === projectSlug
+      && job.params?.jobs_replace_failed_items?.source_job_id === jobId
+    ))
+    if (existingChild) return serializeJob(existingChild) as Job
+    const existing = jobs.get(jobId)
+    if (!existing || existing.project_slug !== projectSlug) {
+      throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+    }
+    const savedMarker = existing.params?.jobs_replace_failed_items
+    if (savedMarker?.version === 1 && savedMarker.source_job_id === existing.job_id) {
+      return retryTerminalJob(projectSlug, jobId, structuredClone(existing.params), {
+        reconciledGenStudioJobs: existing.genstudio_jobs,
+        ...(existing.manual_failed_item_replacement
+          ? { manualFailedItemReplacement: existing.manual_failed_item_replacement } : {}),
+      })
+    }
+    // Resolve any submitting/running evidence before the operation-specific
+    // live reads below. This is read-only at GenStudio and cannot create work.
+    await recheckJobProviderStatus(projectSlug, jobId)
+    const refreshed = jobs.get(jobId)
+    if (!refreshed || refreshed.project_slug !== projectSlug) {
+      throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+    }
+    const { planFailedItemReplacement } = await import('./failed-item-replacement.js')
+    const plan = await planFailedItemReplacement(refreshed)
+    const requestId = randomUUID()
+    const params = {
+      ...plan.params,
+      jobs_replace_failed_items: {
+        version: 1,
+        source_job_id: refreshed.job_id,
+        requested_at: new Date().toISOString(),
+        item_count: plan.itemCount,
+      },
+    }
+    const manualFailedItemReplacement = plan.evidence.some(entry => entry.operation === 'chat.response' && entry.state === 'failed')
+      ? {
+          source_job_id: refreshed.job_id,
+          requests: plan.evidence
+            .filter(entry => entry.operation === 'chat.response' && entry.state === 'failed')
+            .map((entry, index) => {
+              const originalKey = providerRequestKey(entry)!
+              const priorManual = refreshed.manual_failed_item_replacement?.requests.find(item => (
+                item.replacement_idempotency_key === originalKey
+              ))
+              const priorAutomatic = refreshed.generation_replacement_attempts?.find(item => (
+                item.kind === 'writing' && item.idempotency_key === originalKey
+              ))
+              return {
+                original_task_id: entry.id,
+                original_idempotency_key: originalKey,
+                prepared_idempotency_key: priorManual?.prepared_idempotency_key
+                  || priorManual?.original_idempotency_key
+                  || priorAutomatic?.original_idempotency_key
+                  || originalKey,
+                replacement_idempotency_key: `story-manual-${requestId}-${index + 1}`,
+              }
+            }),
+        }
+      : undefined
+    const reconciled = await mutateAuthoritativeJob(projectSlug, jobId, job => ({
+      ...job,
+      params,
+      genstudio_jobs: plan.evidence,
+      ...(manualFailedItemReplacement
+        ? { manual_failed_item_replacement: manualFailedItemReplacement } : {}),
+    }))
+    if (!reconciled || reconciled.status !== 'error') {
+      throw Object.assign(new Error('This job changed while its failed items were checked. Refresh Jobs and try again.'), { status: 409, expose: true })
+    }
+    return retryTerminalJob(projectSlug, jobId, params, {
+      reconciledGenStudioJobs: plan.evidence,
+      ...(manualFailedItemReplacement
+        ? { manualFailedItemReplacement } : {}),
+    })
+  })
 }
 
 /**

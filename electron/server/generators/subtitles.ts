@@ -16,6 +16,7 @@ import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import {
   inspectPipelineSubtitleRepairReadiness,
   inspectSubtitleCompletion,
+  inspectSubtitleSourceFreshness,
   hashSubtitleAudioSources,
   isPipelineRepairTranscriptUsable,
 } from '../services/subtitle-completion.js'
@@ -535,6 +536,12 @@ async function transcribePerChapter(
 
   const outDir = await resolveSubtitlesDir(projectSlug, code)
   await fs.mkdir(outDir, { recursive: true })
+  const staleSections = new Set((await inspectSubtitleSourceFreshness(
+    episodePaths.episode_dir,
+    audioDir,
+    outDir,
+    code,
+  )).stale_sections.map(section => section.toLowerCase()))
 
   const { runFfmpeg, formatConcatFileLine } = await import('../lib/ffmpeg-utils.js')
   const os = await import('os')
@@ -593,7 +600,7 @@ async function transcribePerChapter(
   async function transcribeSection(sec: ChapterAudioSource): Promise<void> {
     const outPath = path.join(outDir, `${code}_${sec.slug}.srt`)
     const repairSection = repairSections.has(sec.slug.toLowerCase())
-    if (!force && !repairSection && await fileExistsWithContent(outPath)) {
+    if (!force && !repairSection && !staleSections.has(sec.slug.toLowerCase()) && await fileExistsWithContent(outPath)) {
       job.output_lines.push(`Skipping ${sec.slug} — SRT already exists. Tick "Re-run" to overwrite.`)
       done++; job.progress = Math.round((done / sections.length) * 100)
       return

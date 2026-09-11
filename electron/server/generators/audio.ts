@@ -992,7 +992,30 @@ export async function generateAudio(job: Job): Promise<void> {
         || (!!manifestEntry.task_id && manifestEntry.input_hash === legacyTextHash))
       ? manifestEntry
       : null
-    const terminalFailure = isTerminalGenStudioTaskFailure(reusableEntry)
+    const relatedEvidence = reusableEntry
+      ? (job.genstudio_jobs || []).filter(entry => {
+          if (entry.operation !== 'voice.tts') return false
+          const keys = [entry.request_key, entry.request?.idempotency_key]
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            .map(value => value.trim())
+          const evidenceKey = new Set(keys).size === 1 ? keys[0] : undefined
+          return entry.id === reusableEntry.task_id || evidenceKey === reusableEntry.idempotency_key
+        })
+      : []
+    const exactEvidence = relatedEvidence.length === 1
+      && relatedEvidence[0]!.id === reusableEntry?.task_id
+      && [relatedEvidence[0]!.request_key, relatedEvidence[0]!.request?.idempotency_key]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .every(value => value.trim() === reusableEntry?.idempotency_key)
+      && [relatedEvidence[0]!.request_key, relatedEvidence[0]!.request?.idempotency_key]
+        .some(value => typeof value === 'string' && value.trim().length > 0)
+    if (relatedEvidence.length && !exactEvidence) {
+      throw new Error(`Saved GenStudio task identity does not match ${chunkFilename}; no provider work was submitted.`)
+    }
+    const uncertainRecovery = exactEvidence
+      && (relatedEvidence[0]!.failure_code === 'CLOUD_SUBMISSION_UNCERTAIN'
+        || relatedEvidence[0]!.failure_code === 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN')
+    const terminalFailure = isTerminalGenStudioTaskFailure(reusableEntry) && !uncertainRecovery
     // Every forced request starts with a fresh identity. A quality candidate
     // therefore cannot replay the old active-base TTS task on its first run.
     // Its exception is recovery only: once its own action-scoped request was

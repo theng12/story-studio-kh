@@ -748,6 +748,7 @@ export interface JobEnqueuedResponse {
   accounts_used?: Record<string, { id: string; label: string }>
   genstudio_jobs?: Array<{
     id: string
+    request_key?: string
     operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'chat.response' | 'music.generation' | 'video.generation'
     state: string
     dispatch_state?: 'pre_dispatch' | 'dispatched'
@@ -759,6 +760,8 @@ export interface JobEnqueuedResponse {
     returned_credits?: number
     price_version?: string | null
     failure_code?: string | null
+    failure_class?: string | null
+    failure_reason?: string | null
     cancellable?: boolean | null
     cancelled?: boolean | null
     cancellation_requested?: boolean | null
