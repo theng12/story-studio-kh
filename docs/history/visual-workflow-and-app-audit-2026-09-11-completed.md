@@ -8,7 +8,7 @@
 
 **Tech stack:** Nuxt/Vue, TypeScript/Express, Electron, episode JSON records, local FFmpeg, GenStudio's live catalogue and generation APIs.
 
-**Spec:** The accepted design in this document is the baseline from the owner's September 11 discussion. Detailed boundary rules below govern the implementation. Checked implementation items record code now present in this worktree; focused and release verification remain open until their named commands complete.
+**Spec:** The accepted design in this document is the baseline from the owner's September 11 discussion. Detailed boundary rules below govern the implementation. This completed plan is retained as the accepted design and release record; verification boundaries are documented in the archived audit ledger.
 
 **Execution baseline:** `926dfa1c`, application `1.4.146`. No root `SPEC.md` exists. Read repository `AGENTS.md`, `README.md`, and current manifests before execution; preserve unrelated worktree changes.
 
@@ -77,9 +77,9 @@
 
 **Files:** `AGENTS.md`, `docs/README.md`, `docs/planning/README.md`, `frontend/pages/`, sidebar/workflow registration, `services/format-loader.ts`, `services/scene-plan-pacing.ts`, `services/motion-profiles.ts`, `services/video-visual-source.ts`, and existing visual tests.
 
-- [x] Record the execution commit/worktree, applicable instructions, relevant current logs, and unrelated changes. Inspect recorded failures before making fixes. Evidence: `docs/planning/visual-workflow-audit-evidence.md` (Evidence boundary, baseline record).
+- [x] Record the execution commit/worktree, applicable instructions, relevant current logs, and unrelated changes. Inspect recorded failures before making fixes. Evidence: `docs/history/visual-workflow-audit-evidence-2026-09-11.md` (Evidence boundary, baseline record).
 - [x] Compare this baseline with current main and previous completed handoffs; retain already-working fixes rather than rebuilding them. Evidence: the audit ledger’s Milestone-1 disposition and Final candidate checks record the inherited baseline, the subsequent focused fixture repairs, and preserved configured-project bytes.
-- [x] Inventory every page and entry route, including redirects and retired shells. Create a route coverage table in `docs/planning/visual-workflow-audit-evidence.md` with route, reachable entry, tested states, result, evidence, and remaining issue. Evidence: audit ledger, “Route inventory” and “Route omissions checked.”
+- [x] Inventory every page and entry route, including redirects and retired shells. Create a route coverage table in `docs/history/visual-workflow-audit-evidence-2026-09-11.md` with route, reachable entry, tested states, result, evidence, and remaining issue. Evidence: audit ledger, “Route inventory” and “Route omissions checked.”
 - [x] Trace each old pacing/motion producer and consumer, preset application, format alias, feature gate, and sidecar reader. Classify each as active/reused, replaced by explicit episode settings, proven dead, or unresolved. Evidence: audit ledger, “Old-control and authority trace” and “Final pacing-repair and scoped-motion source trace.”
 - [x] Establish focused baseline results for pacing, visual source, Pipeline prerequisites, motion generation, and assembly. Record exit status/counts; do not call a filtered run a full release pass. Evidence: `logs/visual-workflow/baseline.log` as recorded in the audit ledger; it is explicitly partial.
 
@@ -111,7 +111,7 @@
 - [x] Build the canonical panel with uniform selected for an otherwise unconfigured episode and motion off unless explicitly saved. Preserve existing saved episode choices; never auto-save on mount.
 - [x] Show the saved plan rhythm beside the next-plan draft and explain that timing changes require deliberate replanning. Do not invent a future scene-count forecast before the new plan exists; the actual count comes from planning.
 - [x] Replace Character Sheet's duplicate rhythm editor with a summary/link while keeping its preset Apply behavior intact.
-- [x] Verify rendered controls, keyboard focus, error text, narrow windows, reloads, and project/episode changes. Evidence: the isolated preview records desktop, 800×900, and 360×800 panel checks plus save/error behavior in docs/planning/visual-workflow-audit-evidence.md; frontend/__tests__/visualTimingMotion.test.ts covers stale load/save responses across episode changes.
+- [x] Verify rendered controls, keyboard focus, error text, narrow windows, reloads, and project/episode changes. Evidence: the isolated preview records desktop, 800×900, and 360×800 panel checks plus save/error behavior in docs/history/visual-workflow-audit-evidence-2026-09-11.md; frontend/__tests__/visualTimingMotion.test.ts covers stale load/save responses across episode changes.
 
 **Acceptance:** uniform and variable pacing are equally available; choosing a new style does not silently choose a rhythm; an existing plan's missing scenes still use its saved timestamps.
 
@@ -187,10 +187,10 @@ Audit groups in order below; each group is a separately reviewable fix batch. Do
 For **every reachable page**, cover empty, ready, incomplete/stale, running, paused (where supported), failed, recovered, and finished states where applicable. Exercise reload, rapid episode/project switch, repeated click, provider-offline response, and long content. Mark a state not applicable with a reason rather than implying it passed.
 
 - [x] Inventory and classify all routes, including `remote.vue`, B-roll-named routes, template/library routes, nested Upload pages, and redirects. Investigate reachability before removal; some old names back current Image Pool behavior. Evidence: audit ledger, “Route inventory” and “Route omissions checked.”
-- [x] For each confirmed in-scope bug, record reproduction, minimal disposition, evidence boundary, and regression or rendered verification where meaningful. Evidence: the F1–F8 baseline-to-resolution cross-reference in docs/planning/visual-workflow-audit-evidence.md, plus the focused source/scope and frontend integration logs cited there.
+- [x] For each confirmed in-scope bug, record reproduction, minimal disposition, evidence boundary, and regression or rendered verification where meaningful. Evidence: the F1–F8 baseline-to-resolution cross-reference in docs/history/visual-workflow-audit-evidence-2026-09-11.md, plus the focused source/scope and frontend integration logs cited there.
 - [x] Audit the visual-workflow direct and queued entry points for identical source/scope prerequisites and output verification using disposable data/mocks. Evidence: electron/server/__tests__/scene-motion-scope-enforcement.test.ts, scene-plan-visual-snapshot.test.ts, pipeline-visual-source.test.ts, and video-visual-source.test.ts. This does not claim an unrelated all-route cross-product audit.
 - [x] Verify the high-risk visual-workflow controls in the actual rendered interface: Scene Plan desktop/narrow layouts, keyboard focus, invalid-save text, and source/pacing/motion transitions. Evidence: audit ledger, “Rendered preview and local media evidence.” Content Store product detail remains the one concrete unrendered route noted below.
-- [x] Maintain the evidence ledger after each group. Record GenStudio-owned defects as exact contract/evidence handoffs and verify Story behavior independently; do not change provider dispatch here. Evidence: `docs/planning/visual-workflow-audit-evidence.md` records source, rendered, local-media, and mocked-test boundaries separately.
+- [x] Maintain the evidence ledger after each group. Record GenStudio-owned defects as exact contract/evidence handoffs and verify Story behavior independently; do not change provider dispatch here. Evidence: `docs/history/visual-workflow-audit-evidence-2026-09-11.md` records source, rendered, local-media, and mocked-test boundaries separately.
 
 **Exit evidence:** all baseline routes have a disposition; all defined high-risk scenarios pass or have a specific unresolved entry; confirmed in-scope defects are fixed and reviewed. Do not describe untested live provider behavior as verified.
 
@@ -199,7 +199,7 @@ For **every reachable page**, cover empty, ready, incomplete/stale, running, pau
 - [x] Remove superseded duplicate controls and implicit formula production consumers only after the new explicit path is covered. Check code references, route registration, saved-data readers, and tests before deleting helpers or aliases. Evidence: `frontend/pages/projects/[slug]/character-sheet.vue`, `electron/server/generators/scene-plan.ts`, `frontend/__tests__/visualTimingMotion.test.ts`, and `electron/server/__tests__/scene-plan-pacing.test.ts`.
 - [x] Preserve deliberate uniform pacing, optional steps, content formulas, explicit presets, and Image Pool internals even when older names remain. Remove a name only with verified replacement of all runtime consumers. Evidence: `frontend/__tests__/continuityPresetPacing.test.ts`, `visualTimingMotion.test.ts`, and `electron/server/__tests__/video-visual-source.test.ts`.
 - [x] Update visual-workflow page guidance and Pipeline/Jobs wording to match the canonical controls; retain historical decisions as evidence, not active instructions. Evidence: frontend/__tests__/visualTimingMotion.test.ts, optionalStageHonesty.test.ts, and the resolution cross-reference in the audit ledger.
-- [x] Link the prior source/pacing/scope audit findings to their focused regressions and isolated-render evidence in docs/planning/visual-workflow-audit-evidence.md; each entry preserves its stated evidence boundary.
+- [x] Link the prior source/pacing/scope audit findings to their focused regressions and isolated-render evidence in docs/history/visual-workflow-audit-evidence-2026-09-11.md; each entry preserves its stated evidence boundary.
 - [x] Review the visual-workflow diff for unnecessary abstractions/dependencies and unrelated changes. The implementation reuses the sidecar, shared flow helpers, and existing job snapshots; no dependency or broad configuration framework was added.
 
 ### 8. Final verification, integration, and installer
@@ -208,10 +208,10 @@ For **every reachable page**, cover empty, ready, incomplete/stale, running, pau
 - [x] At release, run `npm run verify` once serially against the final candidate. Record each lane's exit status and completion/test counts, plus lint/typecheck/build results. Fix actual regressions; do not weaken gates. Evidence: final release ledger; all complete test lanes exited 0, verify stopped on two Board typography declarations, corrected CSS and full build rerun exited 0.
 - [x] Confirm `npm run check:changelog`, model-drift, security, and release checks apply to the final version. Runtime changes require matching package/package-lock version bumps and newest-first changelog entries.
 - [x] Independently review the final diff and scenario evidence, including source choice, uniform compatibility, scope/retry safety, and existing episode behavior.
-- [ ] Verify GitHub Actions remains disabled, then commit/push/PR/merge under standing authorization when local verification and review are complete. Never force-push or override unresolved required checks.
-- [ ] Synchronize main; build the local installer with `npm run dist:smoke` from main. Verify versioned arm64 DMG, bundled app/asar version, dependencies, and isolated launch. Do not restart the user's installed app or active queue.
-- [ ] Remove only this work's clean merged branches/worktrees and stop its test processes. Preserve unrelated files and other agents' work.
-- [ ] Final handoff: shipped version/commit/PR/DMG, completed audit coverage, concrete remaining limitations, and any live tests not performed. Mark completed items with evidence; archive this plan only when its scope is actually closed.
+- [x] Verify GitHub Actions remains disabled, then commit/push/PR/merge under standing authorization when local verification and review are complete. Never force-push or override unresolved required checks.
+- [x] Synchronize main; build the local installer with `npm run dist:smoke` from main. Verify versioned arm64 DMG, bundled app/asar version, dependencies, and isolated launch. Do not restart the user's installed app or active queue.
+- [x] Remove only this work's clean merged branches/worktrees and stop its test processes. Preserve unrelated files and other agents' work.
+- [x] Final handoff: shipped version/commit/PR/DMG, completed audit coverage, concrete remaining limitations, and any live tests not performed. Mark completed items with evidence; archive this plan only when its scope is actually closed.
 
 ## Completion scenarios that must be demonstrated
 
@@ -237,7 +237,7 @@ Already accepted: two visual sources, optional variable pacing, independent moti
 
 Routine technical choices and confirmed fixes proceed during execution. Bring a concrete proposal only if investigation requires materially changing paid-work behavior, auto-approval, publishing/deletion, content-authoring semantics, or combining Image Pool with generated motion. Do not ask again whether the owner wants a reported bug fixed.
 
-**Starting point:** milestone 1, then the episode source/pacing authority in milestone 2. This establishes a trustworthy shared decision before adding more UI. No new installer is needed for this planning document.
+**Completed:** milestones 1-8; runtime integrated as v1.4.147 at `fa3fee14e439e95fb98894bd55b954e54e543ba2`, PR [105](https://github.com/theng12/story-studio-kh/pull/105). The final local arm64 DMG was built from main and verified; see the release record below.
 
 ## Progress
 
@@ -250,7 +250,7 @@ Milestones 1–7 are complete to the documented source, mocked, local-media, and
 
 - The Content Store product-detail route was not rendered because no published fixture product was created.
 - Live generation/provider outages, billing settlement, and YouTube posting were not exercised. Mocked request/recovery behavior is evidence only for those boundaries.
-- The final complete test lanes and corrected full build have passed as recorded in the release ledger. Merge and isolated packaging checks remain under milestone 8; the installed app will not be restarted.
+- The final complete test lanes, corrected production build, main integration and isolated packaged-app checks have passed. The installed app was not restarted; live upgrade activation remains the owner’s next step after current jobs finish.
 
 - [x] Milestone 1: baseline/inventory complete.
 - [x] Milestone 2: episode settings complete.
@@ -259,4 +259,13 @@ Milestones 1–7 are complete to the documented source, mocked, local-media, and
 - [x] Milestone 5: integration complete.
 - [x] Milestone 6: app-wide audit complete.
 - [x] Milestone 7: cleanup/docs complete.
-- [ ] Milestone 8: verified, merged, packaged, and handed off.
+- [x] Milestone 8: verified, merged, packaged, and handed off.
+
+## Final release record
+
+- Runtime commit: `fa3fee14e439e95fb98894bd55b954e54e543ba2` (PR105); its tree matches the independently reviewed and tested candidate `8189ad94`.
+- Official `npm run dist:smoke` from canonical main exited **0**. It rebuilt source, checked package inputs, mounted the DMG read-only, verified app/asar version **1.4.147**, verified all **98 runtime dependency packages**, and actually launched the package in isolated temporary storage. `/api/health` and the Upload Center overview passed on port 49365 in 5,968 ms. The verifier already executes the dependency and launch checks; redundant reruns were unnecessary.
+- Artifact: `dist/Story Studio KH 1.4.147-arm64.dmg`, **241,815,503 bytes**. SHA-256: `d2df0d3ecc8279e5659429787a060e8b4d253a8e168cd2b30ef5a91ba6237536`. This is the authorized local unsigned/ad-hoc candidate, not a signed/notarized public distribution.
+- Packaging evidence: `logs/visual-workflow/dist-main-1.4.147.log`. All task logs were preserved in canonical main's ignored logs directory before removing the clean merged `visual-workflow` worktree. Its local feature branch was removed after confirming integration. Other worktrees and the pre-existing untracked Impeccable critique remain untouched.
+- GitHub Actions stayed disabled; no hosted checks were dispatched. Final documentation is a separate non-runtime closure change. No real episodes, live requests, history records, credentials or installed app were modified by release tests.
+- Scope is closed to the stated evidence. The unrendered Content Store product detail and unexercised live provider/billing/YouTube behavior remain limitations, not claims of verified behavior. Image Pool combined with generated opening motion remains a separate future product decision.

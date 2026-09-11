@@ -2,7 +2,7 @@
 
 Date: 2026-09-11
 Worktree: `codex/visual-workflow` at `926dfa1c` (baseline plan merge)
-Scope: implementation and audit milestones of `docs/superpowers/plans/2026-09-11-visual-workflow-and-app-audit.md`
+Scope: implementation and audit milestones of `docs/history/visual-workflow-and-app-audit-2026-09-11-completed.md`
 Method: source inspection, bounded fixes, isolated rendered preview, local synthetic-media renders, and automated tests. Only disposable fixture episodes and mocked/local APIs were exercised. No paid calls, live episode changes, live jobs, or installed-app restart occurred. Final release results are recorded separately below.
 
 ## Evidence boundary
@@ -422,4 +422,8 @@ listed in the final verification handoff and remain pending the primary agent's 
 - The verify wrapper exited **1**, after all tests, because typography found two newly introduced 10px Board labels. Only those two CSS declarations changed afterward, to `var(--font-xs)`. The complete `npm run build` rerun exited **0**, including changelog/version, typography, production security, model drift, release contract, Nuxt generation, Electron compilation and built security/startup checks. Tests were not needlessly repeated for that two-declaration CSS correction.
 - Evidence: `logs/visual-workflow/verify-release-final.log`, `build-release-final.log`, and `local-render-release.log`. The latest local-render command exited 0 with eight actual FFmpeg renders and zero fixture failures; Image Pool cases explicitly disable subtitles, including a foreign saved caption path, without burning it.
 - Independent source/scope/recovery review and final TN0283 classifier review found no remaining blocking findings. Definitive provider absence is terminal; uncertain or unreachable submissions remain unresolved.
-- Integration, canonical-main packaging, dependency checks and isolated packaged launch remain pending at this checkpoint. No paid provider calls, YouTube mutations, installed-app restart or live queue mutation were performed.
+- The following release closure supersedes this intermediate integration/packaging checkpoint. No paid provider calls, YouTube mutations, installed-app restart or live queue mutation were performed.
+
+## Release closure
+
+Runtime v1.4.147 was merged in [PR105](https://github.com/theng12/story-studio-kh/pull/105) at `fa3fee14e439e95fb98894bd55b954e54e543ba2`. Canonical-main `npm run dist:smoke` exited 0 and verified the read-only mounted DMG, bundle/asar version, 98-package runtime dependency closure, and isolated real launch with health and Upload Center route checks. See [completed plan and artifact record](visual-workflow-and-app-audit-2026-09-11-completed.md#final-release-record) for the exact filename, SHA-256, size and preserved logs. The task worktree was removed after integration; unrelated work remains untouched. No installed-app upgrade/restart or live paid workflow was performed.

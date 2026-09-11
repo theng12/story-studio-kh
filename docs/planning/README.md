@@ -4,7 +4,7 @@ Living roadmaps and backlogs. Items here change state as work happens — `[ ]` 
 
 ## Contents
 
-- [Episode visual workflow and app audit](../superpowers/plans/2026-09-11-visual-workflow-and-app-audit.md) — v1.4.147 implementation and independent review complete; final release verification and packaging in progress. Preserves uniform pacing, adds optional variable pacing/scoped motion, and consolidates episode visual choices. [Audit evidence and limits](visual-workflow-audit-evidence.md).
+- Completed: [Episode visual workflow and app audit - v1.4.147](../history/visual-workflow-and-app-audit-2026-09-11-completed.md), merged in [PR105](https://github.com/theng12/story-studio-kh/pull/105). Local DMG, dependency and isolated-launch checks passed. [Audit evidence and limits](../history/visual-workflow-audit-evidence-2026-09-11.md).
 
 Completed plans are retained in [`../history/`](../history/).
 
