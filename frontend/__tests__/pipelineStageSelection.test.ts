@@ -153,7 +153,7 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, /No selected episodes were queued\. Their reasons are shown below\./)
     assert.match(pipeline, /blocked\.length && !hasGlobalPreflightIssue\(e\?\.data\?\.issues\)/)
     assert.match(pipeline, /View queued jobs/)
-    assert.match(pipeline, /if \(batchHasJobs\.value && !batchBlocked\.value\.length\) navigateTo/)
+    assert.doesNotMatch(extractFunction('submit'), /navigateTo/)
   })
 
   test('a partial response clears resolved submitted episodes, retains blockers, and preserves later selection', () => {

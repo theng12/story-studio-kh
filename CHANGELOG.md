@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.146 — 2026-09-11
+
+- Pipeline now stays open after Run Batch or Repair. A result dialog shows the accepted job count, existing work and skipped or blocked episodes, with Stay on Pipeline and View Jobs choices instead of an automatic redirect.
+
 ## v1.4.145 — 2026-09-10
 
 - Failed and cancelled jobs now offer a small, named link to their work tab, opening the job’s own project and episode directly from Project Jobs or All Jobs. Repair and Retry continue to work in place.
