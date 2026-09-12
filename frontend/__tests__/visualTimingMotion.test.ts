@@ -65,9 +65,13 @@ async function loadPanel(): Promise<Component> {
     const defaults = () => ({ schema_version: 1, anchor_character_ids: [], use_episode_sheet: false, pacing: { min_sec: 1, max_sec: 3 }, motion_scope: { mode: 'off' }, motion_level: 2, references: { prev_render: false, sheet: false, characters: false, style: false, composition: false }, denoise_strength: 0.5 })
     const continuityDefaults = defaults
     const normalizeContinuityConfig = value => ({ ...defaults(), ...value, pacing: value?.pacing || defaults().pacing, motion_scope: value?.motion_scope || defaults().motion_scope, references: { ...defaults().references, ...(value?.references || {}) } })
+    const storedPresetPacing = data => {
+      const pacing = data?.pacing
+      return pacing && typeof pacing === 'object' && !Array.isArray(pacing)
+        && Number.isFinite(pacing.min_sec) && Number.isFinite(pacing.max_sec) ? pacing : null
+    }
     import { parseScenePacing } from ${JSON.stringify(new URL('../../electron/server/contracts/pacing.ts', import.meta.url).href)}
-    const normalizeMotionScope = value => value || { mode: 'off' }
-    const resolveMotionScope = (scenes, scope) => ({ scene_ids: scope.mode === 'all' ? scenes.map(scene => scene.id) : [], crossing_scene_ids: [] })
+    import { normalizeMotionScope, resolveMotionScope } from ${JSON.stringify(new URL('../../electron/server/contracts/motion-scope.ts', import.meta.url).href)}
     const useRoute = () => globalThis.__visualTimingMotionRoute
     const useApi = () => globalThis.__visualTimingMotionApi
     const useToast = () => ({ success: message => globalThis.__visualTimingMotionToasts.push(message), error: message => globalThis.__visualTimingMotionToasts.push(message) })
@@ -95,10 +99,15 @@ async function flush(): Promise<void> {
 async function mountPanel(episode = 'EP0001') {
   const Component = await loadPanel()
   const episodeId = ref(episode)
+  const panel = ref<{
+    snapshotPreset: () => { pacing: Config['pacing']; motion_scope?: Config['motion_scope']; motion_level: number }
+    applyPreset: (data: unknown) => void
+  }>()
   const saved: Config[] = []
   const host = document.body.appendChild(document.createElement('div'))
   const app = createApp(defineComponent({
     setup: () => () => h(Component as any, {
+      ref: panel,
       episodeId: episodeId.value,
       scenes: [],
       onSaved: (value: Config) => saved.push(value),
@@ -109,6 +118,7 @@ async function mountPanel(episode = 'EP0001') {
   return {
     host,
     episodeId,
+    panel,
     saved,
     unmount: () => { app.unmount(); host.remove() },
   }
@@ -216,6 +226,121 @@ describe('Visual timing and motion', () => {
       mounted.unmount()
       delete globals.__visualTimingMotionApi
     }
+  })
+
+  test('snapshots cloned reusable timing and omits selected scene IDs', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    const saved = { ...config(4, 8), motion_scope: { mode: 'selected' as const, scene_ids: ['scene-a'] }, motion_level: 3 }
+    globals.__visualTimingMotionApi = {
+      async get<T>() { return { exists: true, config: saved } as T },
+      async put<T>() { throw new Error('not used') },
+    }
+    const mounted = await mountPanel()
+    try {
+      const preset = mounted.panel.value!.snapshotPreset()
+      assert.deepEqual(preset, { pacing: { min_sec: 4, max_sec: 8 }, motion_level: 3 })
+      preset.pacing.min_sec = 1
+      assert.equal(mounted.panel.value!.snapshotPreset().pacing.min_sec, 4)
+      await flush()
+      assert.match(mounted.host.textContent || '', /Selected-scene motion stays with this episode/)
+    } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
+  })
+
+  test('applies valid timing without importing selected scene IDs or aliases', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    const saved = { ...config(4, 8), motion_scope: { mode: 'all' as const }, motion_level: 2 }
+    let writes = 0
+    globals.__visualTimingMotionApi = {
+      async get<T>() { return { exists: true, config: saved } as T },
+      async put<T>() { writes++; return { ok: true, config: saved } as T },
+    }
+    const mounted = await mountPanel()
+    try {
+      const preset = { pacing: { min_sec: 6, max_sec: 12 }, motion_scope: { mode: 'selected', scene_ids: ['foreign-scene'] }, motion_level: 4 }
+      mounted.panel.value!.applyPreset(preset)
+      assert.equal(writes, 0, 'applying a preset only changes this panel draft')
+      preset.pacing.min_sec = 1
+      preset.motion_scope.scene_ids[0] = 'mutated'
+      preset.motion_level = 1
+      assert.deepEqual(mounted.panel.value!.snapshotPreset(), {
+        pacing: { min_sec: 6, max_sec: 12 }, motion_scope: { mode: 'all' }, motion_level: 4,
+      })
+      await flush()
+      assert.match(mounted.host.textContent || '', /Selected-scene motion stays with this episode/)
+      assert.match(mounted.host.textContent || '', /Save timing & motion/)
+      mounted.host.querySelector<HTMLButtonElement>('button.btn-primary')!.click()
+      await flush()
+      assert.equal(writes, 1, 'the existing Save timing & motion action owns persistence')
+    } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
+  })
+
+  test('keeps current timing and scope for legacy absent or partial preset fields', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    const saved = { ...config(4, 8), motion_scope: { mode: 'opening' as const, end_sec: 20 }, motion_level: 2 }
+    globals.__visualTimingMotionApi = {
+      async get<T>() { return { exists: true, config: saved } as T },
+      async put<T>() { throw new Error('not used') },
+    }
+    const mounted = await mountPanel()
+    try {
+      mounted.panel.value!.applyPreset({ pacing: { min_sec: 6 }, motion_scope: null })
+      assert.deepEqual(mounted.panel.value!.snapshotPreset(), {
+        pacing: { min_sec: 4, max_sec: 8 }, motion_scope: { mode: 'opening', end_sec: 20 }, motion_level: 2,
+      })
+      await flush()
+      assert.match(mounted.host.textContent || '', /no saved timing/)
+      assert.match(mounted.host.textContent || '', /no saved motion scope/i)
+    } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
+  })
+
+  test('applies timing to a fresh episode draft', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    globals.__visualTimingMotionApi = {
+      async get<T>() { return { exists: false, config: config(9, 12) } as T },
+      async put<T>() { throw new Error('not used') },
+    }
+    const mounted = await mountPanel('EP0002')
+    try {
+      const preset = { pacing: { min_sec: 6, max_sec: 12 }, motion_scope: { mode: 'opening', end_sec: 15 }, motion_level: 3 }
+      mounted.panel.value!.applyPreset(preset)
+      preset.motion_scope.end_sec = 999
+      const snapshot = mounted.panel.value!.snapshotPreset()
+      snapshot.motion_scope!.end_sec = 888
+      assert.deepEqual(mounted.panel.value!.snapshotPreset(), {
+        pacing: { min_sec: 6, max_sec: 12 }, motion_scope: { mode: 'opening', end_sec: 15 }, motion_level: 3,
+      })
+    } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
+  })
+
+  test('rejects preset access while loading and leaves a stale episode draft alone', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    const gets: Array<ReturnType<typeof deferred<{ exists: boolean; config: Config }>>> = []
+    globals.__visualTimingMotionApi = {
+      get<T>() {
+        const pending = deferred<{ exists: boolean; config: Config }>()
+        gets.push(pending)
+        return pending.promise as Promise<T>
+      },
+      async put<T>() { throw new Error('not used') },
+    }
+    const mounted = await mountPanel('EP0001')
+    try {
+      assert.throws(() => mounted.panel.value!.snapshotPreset(), /loading/i)
+      mounted.episodeId.value = 'EP0002'
+      await flush()
+      gets[1]!.resolve({ exists: true, config: config(5, 7) })
+      await flush()
+      gets[0]!.resolve({ exists: true, config: config(9, 12) })
+      await flush()
+      assert.deepEqual(mounted.panel.value!.snapshotPreset(), {
+        pacing: { min_sec: 5, max_sec: 7 }, motion_scope: { mode: 'off' }, motion_level: 2,
+      })
+    } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
   })
 
   test('explains whole-scene eligibility and preserves approved clips', () => {

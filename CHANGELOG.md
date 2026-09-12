@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.155 — 2026-09-13
+
+- Scene Plan presets now capture the selected episode’s visual timing and portable motion scope from the timing panel. Explicit Apply fills that episode’s draft; Save timing & motion keeps it for the next build. Existing plans and generated media are unchanged.
+- Older presets without timing leave the episode’s current rhythm intact and explain what was not saved. Specific scene IDs stay with their episode. Loading or invalid timing blocks an incomplete preset save or apply.
+- Returning to Scene Plan restores remembered prompt settings without overwriting episode timing or motion. Legacy motion flags no longer contradict the saved episode state, and switching projects remounts the preset controller for the correct project.
+
 ## v1.4.154 — 2026-09-13
 
 - All Jobs includes durable jobs from every existing project, even while the Library list is incomplete. Loading and read failures no longer appear as an empty queue, and updates arriving during the first snapshot are retained.

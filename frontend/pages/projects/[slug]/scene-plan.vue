@@ -66,12 +66,14 @@
     <p v-if="visualSourceError" role="alert" class="validation-msg">{{ visualSourceError }}</p>
     <VisualTimingMotion
       v-if="episodeId && episodeVisualSource === 'scene_plan'"
+      ref="visualTimingMotion"
       id="visual-timing"
       :episode-id="episodeId"
       :scenes="plan?.scenes || []"
       :plan-pacing="plan?.pacing"
       @saved="applyVisualSettings"
     />
+    <p v-if="visualPresetNotice" role="status" class="text-muted text-sm">{{ visualPresetNotice }}</p>
     <p v-if="visualSettingsError" role="alert" class="validation-msg">{{ visualSettingsError }}</p>
 
     <!-- Step 1: Subtitles (created + stitched in the Subtitles workspace) -->
@@ -979,7 +981,7 @@ import { resolveMotionScope, type MotionScope } from '@shared/motion-scope'
 import type { ContinuityConfig } from '~/composables/useContinuityConfig'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 
-definePageMeta({ layout: 'dashboard' })
+definePageMeta({ layout: 'dashboard', key: route => `scene-plan-${route.params.slug}` })
 useAppTitle('Scene Plan')
 
 const route = useRoute()
@@ -989,7 +991,7 @@ const freshScenePromptAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { revalidate: revalidateEpisodes } = useEpisodes(slug)
-// Project-level defaults for opening behavior, prompt batching, and motion.
+// Project-level prompt defaults; timing and motion remain per episode.
 const { config: projectConfig } = useProject()
 
 // ── Opening visuals: measured, not typed (v1.3.1) ────────────────────────
@@ -1055,6 +1057,8 @@ const scopedMotionIds = computed(() => {
   catch { return new Set<string>() }
 })
 function applyVisualSettings(config: ContinuityConfig) {
+  // A panel Save supersedes any older page-level continuity read still in flight.
+  ++continuityLoadSequence
   continuityPacing.value = config.pacing
   episodeMotionScope.value = config.motion_scope
   form.value.generate_motion_prompts = config.motion_scope.mode !== 'off'
@@ -2681,14 +2685,76 @@ function removeScene(i: number): void {
   markPlanDirty()
 }
 
+const visualTimingMotion = ref<{
+  snapshotPreset: () => Record<string, unknown>
+  applyPreset: (data: any) => void
+} | null>(null)
+const visualPresetNotice = ref('')
+
+function snapshotVisualPreset(): Record<string, unknown> {
+  if (visualTimingMotion.value) return visualTimingMotion.value.snapshotPreset()
+  if (episodeId.value && episodeVisualSource.value !== 'image_pool') {
+    throw new Error('Visual timing is still loading. Wait for the panel before saving a preset.')
+  }
+  return {}
+}
+
+// Restoring remembered prompt settings on mount must not apply a rhythm to
+// an episode. Only the explicit preset Apply action reaches the timing panel.
+function applyPromptPreset(data: any): void {
+  // Retired presets may contain a per-plan style. Ignore it so Character
+  // Sheet remains the single authoritative style source.
+  const activeData = { ...(data || {}) }
+  delete activeData.style_prompt
+  // Episode timing and motion belong to the panel, never the prompt form.
+  delete activeData.pacing
+  delete activeData.motion_scope
+  delete activeData.generate_motion_prompts
+  delete activeData.motion_level
+  // v1.3.1 — presets saved before this release carry a stale opening length.
+  // Drop it on read so it cannot reach `form.value` and cannot be re-saved;
+  // the file on disk is left exactly as it is (AGENTS.md: stored presets are
+  // never rewritten).
+  delete activeData.opening_mode
+  delete activeData.opening_reserved_sec
+  const savedCreative = activeData.creative_direction as Partial<CreativeDirection> | undefined
+  delete activeData.creative_direction
+  Object.assign(form.value, activeData)
+  if (savedCreative) {
+    if (CREATIVE_PROFILES.some(profile => profile.id === savedCreative.profile)) {
+      form.value.creative_profile = savedCreative.profile as CreativeProfile
+    }
+    form.value.creative_intensity = Math.max(1, Math.min(4, Math.round(Number(savedCreative.intensity) || 2)))
+    if (Array.isArray(savedCreative.strategies)) {
+      const usable = savedCreative.strategies.filter(strategy => CREATIVE_STRATEGIES.some(option => option.id === strategy))
+      if (usable.length) form.value.creative_strategies = usable
+    }
+    form.value.creative_motifs = savedCreative.recurring_motifs || ''
+    form.value.creative_avoid_cliches = savedCreative.avoid_cliches || ''
+    form.value.creative_custom_direction = savedCreative.custom_direction || ''
+  }
+  setPromptPackSetting(form.value.prompt_pack_size)
+  // Restores the SELECTION only. A custom ceiling is NOT raised to the
+  // model's published cap — a smaller one is a deliberate cost control — and
+  // an unknown intended model simply resolves to "no limit".
+  setPromptCharCapSetting(form.value.prompt_char_cap)
+  // A preset stores the SELECTION, never a copied catalogue limit. Clamp the
+  // restored allowance against what the model publishes right now.
+  form.value.prompt_max_tokens = clampOutputAllowance(
+    normalizePromptTokenSetting(form.value.prompt_max_tokens),
+    publishedMaxOutput.value,
+  )
+}
+
 // v1.0.242 — savable presets for the plan settings (model, research toggle,
-// opening visuals, output budget, motion, and custom instructions). Mirrors the
+// output budget, episode timing draft, portable motion, and instructions). Mirrors the
 // same local PresetPicker pattern used on Ideas / Scripts. Stored under
 // config.scene_plan_presets; episode_id/title are stripped automatically.
 const planPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'scene_plan',
   presetType: 'scene-plan',
+  autoApplyOnLoad: false,
   snapshot: () => ({
     model: form.value.model,
     use_research: form.value.use_research,
@@ -2706,56 +2772,32 @@ const planPresets = usePresets<any>({
     creative_direction: creativeDirectionPayload.value,
     detail_level: 4,
     custom_instructions: form.value.custom_instructions,
-    generate_motion_prompts: form.value.generate_motion_prompts,
-    motion_level: form.value.motion_level,
     avoid_legible_text: form.value.avoid_legible_text,
+    ...snapshotVisualPreset(),
   }),
   apply: (data) => {
-    // Retired presets may contain a per-plan style. Ignore it so Character
-    // Sheet remains the single authoritative style source.
-    const activeData = { ...(data || {}) }
-    delete activeData.style_prompt
-    // v1.3.1 — presets saved before this release carry a stale opening length.
-    // Drop it on read so it cannot reach `form.value` and cannot be re-saved;
-    // the file on disk is left exactly as it is (AGENTS.md: stored presets are
-    // never rewritten).
-    delete activeData.opening_mode
-    delete activeData.opening_reserved_sec
-    const savedCreative = activeData.creative_direction as Partial<CreativeDirection> | undefined
-    delete activeData.creative_direction
-    Object.assign(form.value, activeData)
-    if (savedCreative) {
-      if (CREATIVE_PROFILES.some(profile => profile.id === savedCreative.profile)) {
-        form.value.creative_profile = savedCreative.profile as CreativeProfile
-      }
-      form.value.creative_intensity = Math.max(1, Math.min(4, Math.round(Number(savedCreative.intensity) || 2)))
-      if (Array.isArray(savedCreative.strategies)) {
-        const usable = savedCreative.strategies.filter(strategy => CREATIVE_STRATEGIES.some(option => option.id === strategy))
-        if (usable.length) form.value.creative_strategies = usable
-      }
-      form.value.creative_motifs = savedCreative.recurring_motifs || ''
-      form.value.creative_avoid_cliches = savedCreative.avoid_cliches || ''
-      form.value.creative_custom_direction = savedCreative.custom_direction || ''
+    // Apply synchronously before prompt fields: a loading/invalid panel must
+    // report a failed Apply rather than quietly applying half the preset.
+    if (visualTimingMotion.value) visualTimingMotion.value.applyPreset(data)
+    else if (episodeId.value && episodeVisualSource.value !== 'image_pool') {
+      throw new Error('Visual timing is still loading. Wait for the panel, then apply the preset.')
     }
-    setPromptPackSetting(form.value.prompt_pack_size)
-    // Restores the SELECTION only. A custom ceiling is NOT raised to the
-    // model's published cap — a smaller one is a deliberate cost control — and
-    // an unknown intended model simply resolves to "no limit".
-    setPromptCharCapSetting(form.value.prompt_char_cap)
-    // A preset stores the SELECTION, never a copied catalogue limit. Clamp the
-    // restored allowance against what the model publishes right now.
-    form.value.prompt_max_tokens = clampOutputAllowance(
-      normalizePromptTokenSetting(form.value.prompt_max_tokens),
-      publishedMaxOutput.value,
-    )
+    applyPromptPreset(data)
+    visualPresetNotice.value = visualTimingMotion.value
+      ? ''
+      : 'Prompt settings applied. Select a Scene Plan episode and click Apply to use this preset’s timing and motion.'
   },
 })
 
 watch([slug, episodeId], () => {
+  visualPresetNotice.value = ''
   void Promise.all([loadStatus(), loadContinuity(), loadVisualSource()])
 }, { immediate: true })
 onMounted(() => {
-  void planPresets.load()
+  void planPresets.load().then(() => {
+    const preset = planPresets.presets.value.find(p => p.id === planPresets.activeId.value)
+    if (preset) applyPromptPreset(preset.data)
+  })
   // The character ceiling is only as honest as the catalogue behind it.
   void refreshGenStudioImageModels().catch(() => {})
   void loadRequestTimeout()

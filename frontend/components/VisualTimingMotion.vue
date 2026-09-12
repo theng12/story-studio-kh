@@ -22,6 +22,7 @@
     <p v-if="loadError" class="vtm-error text-sm" role="alert">{{ loadError }}</p>
     <p v-else-if="saveError" class="vtm-error text-sm" role="alert">{{ saveError }}</p>
     <p v-if="!loadError && validationError" class="vtm-error text-sm" role="alert">{{ validationError }}</p>
+    <p v-if="presetNotice" class="vtm-notice text-sm" role="status">{{ presetNotice }}</p>
 
     <fieldset class="vtm-section" :disabled="loading || saving || !!loadError">
       <legend>Scene timing</legend>
@@ -99,7 +100,7 @@
             :class="{ active: draft.motion_level === level.value }"
             role="radio"
             :aria-checked="draft.motion_level === level.value"
-            @click="draft.motion_level = level.value"
+            @click="setMotionLevel(level.value)"
           >{{ level.label }}</button>
         </div>
         <p class="text-muted text-sm">{{ motionLevel.hint }}</p>
@@ -115,6 +116,7 @@ import { parseScenePacing, type ScenePacing, type ScenePacingPeriod } from '@sha
 import {
   continuityDefaults,
   normalizeContinuityConfig,
+  storedPresetPacing,
   type ContinuityConfig,
 } from '~/composables/useContinuityConfig'
 
@@ -144,6 +146,7 @@ const loading = ref(false)
 const saving = ref(false)
 const loadError = ref('')
 const saveError = ref('')
+const presetNotice = ref('')
 let requestSequence = 0
 
 const MOTION_LEVELS = [
@@ -165,6 +168,7 @@ const validationError = computed(() => {
   try {
     parseScenePacing(draft.value.pacing)
     normalizeMotionScope(draft.value.motion_scope)
+    if (!isMotionLevel(draft.value.motion_level)) throw new Error('Choose a valid motion intensity.')
     return ''
   } catch (error) {
     return error instanceof Error ? error.message
@@ -208,6 +212,14 @@ function inputNumber(event: Event): number {
   return Number((event.target as HTMLInputElement).value)
 }
 
+function isMotionLevel(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 4
+}
+
+function clearPresetNotice(): void {
+  presetNotice.value = ''
+}
+
 function pacingLabel(pacing: ScenePacing): string {
   return pacing.mode === 'variable'
     ? `${pacing.periods.length} ordered periods`
@@ -215,6 +227,7 @@ function pacingLabel(pacing: ScenePacing): string {
 }
 
 function setPacingMode(mode: 'uniform' | 'variable'): void {
+  clearPresetNotice()
   if (mode === 'uniform' && draft.value.pacing.mode === 'variable') {
     const first = draft.value.pacing.periods[0]!
     draft.value.pacing = { min_sec: first.min_sec, max_sec: first.max_sec }
@@ -229,6 +242,7 @@ function setPacingMode(mode: 'uniform' | 'variable'): void {
 }
 
 function setUniformBand(key: 'min_sec' | 'max_sec', value: number): void {
+  clearPresetNotice()
   if (draft.value.pacing.mode === 'variable') return
   draft.value.pacing = { ...draft.value.pacing, [key]: value }
 }
@@ -244,6 +258,7 @@ function replaceVariablePeriods(periods: ScenePacingPeriod[]): void {
 }
 
 function setPeriodEnd(index: number, end_sec: number): void {
+  clearPresetNotice()
   const periods = variablePeriods()
   const period = periods[index]
   const next = periods[index + 1]
@@ -254,6 +269,7 @@ function setPeriodEnd(index: number, end_sec: number): void {
 }
 
 function setPeriodBand(index: number, key: 'min_sec' | 'max_sec', value: number): void {
+  clearPresetNotice()
   const periods = variablePeriods()
   const period = periods[index]
   if (!period) return
@@ -262,6 +278,7 @@ function setPeriodBand(index: number, key: 'min_sec' | 'max_sec', value: number)
 }
 
 function addPeriod(): void {
+  clearPresetNotice()
   const periods = variablePeriods()
   const last = periods.at(-1)
   if (!last) return
@@ -272,6 +289,7 @@ function addPeriod(): void {
 }
 
 function removeLastPeriod(): void {
+  clearPresetNotice()
   const periods = variablePeriods()
   if (periods.length < 2) return
   const previous = periods[periods.length - 2]!
@@ -281,21 +299,73 @@ function removeLastPeriod(): void {
 }
 
 function setMotionMode(mode: MotionScope['mode']): void {
+  clearPresetNotice()
   if (mode === 'opening') draft.value.motion_scope = { mode, end_sec: 30 }
   else if (mode === 'selected') draft.value.motion_scope = { mode, scene_ids: [] }
   else draft.value.motion_scope = { mode }
 }
 
 function setOpeningEnd(end_sec: number): void {
+  clearPresetNotice()
   if (draft.value.motion_scope.mode === 'opening') draft.value.motion_scope = { mode: 'opening', end_sec }
 }
 
 function toggleScene(sceneId: string): void {
+  clearPresetNotice()
   if (draft.value.motion_scope.mode !== 'selected') return
   const scene_ids = selectedSceneIds.value.has(sceneId)
     ? draft.value.motion_scope.scene_ids.filter(id => id !== sceneId)
     : [...draft.value.motion_scope.scene_ids, sceneId]
   draft.value.motion_scope = { mode: 'selected', scene_ids }
+}
+
+function setMotionLevel(level: number): void {
+  clearPresetNotice()
+  draft.value.motion_level = level
+}
+
+function assertPresetReady(action: 'snapshot' | 'apply'): void {
+  if (loading.value) throw new Error(`Cannot ${action} timing and motion while it is loading.`)
+  if (saving.value) throw new Error(`Cannot ${action} timing and motion while it is saving.`)
+  if (loadError.value) throw new Error(`Cannot ${action} timing and motion: ${loadError.value}`)
+  if (validationError.value) throw new Error(`Cannot ${action} timing and motion: ${validationError.value}`)
+}
+
+function snapshotPreset(): { pacing: ScenePacing; motion_scope?: MotionScope; motion_level: number } {
+  assertPresetReady('snapshot')
+  const pacing = parseScenePacing(draft.value.pacing)
+  const motion_scope = normalizeMotionScope(draft.value.motion_scope)
+  const snapshot = { pacing, motion_level: draft.value.motion_level }
+  if (motion_scope.mode === 'selected') {
+    presetNotice.value = 'Selected-scene motion stays with this episode and was not included in the preset. Save timing & motion if you change this episode’s scope.'
+    return snapshot
+  }
+  return { ...snapshot, motion_scope }
+}
+
+function applyPreset(data: any): void {
+  assertPresetReady('apply')
+  const source = data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : {}
+  const currentPacing = parseScenePacing(draft.value.pacing)
+  const currentScope = normalizeMotionScope(draft.value.motion_scope)
+  const storedPacing = storedPresetPacing(source as Partial<ContinuityConfig>)
+  const pacing = storedPacing ? parseScenePacing(storedPacing) : currentPacing
+  const hasScope = source.motion_scope != null
+  const presetScope = hasScope ? normalizeMotionScope(source.motion_scope) : null
+  const motion_scope = presetScope?.mode === 'selected' ? currentScope : presetScope ?? currentScope
+  const hasMotionLevel = source.motion_level !== undefined
+  if (hasMotionLevel && !isMotionLevel(source.motion_level)) {
+    throw new Error('Cannot apply timing and motion: preset motion intensity is invalid.')
+  }
+  const motion_level = hasMotionLevel ? source.motion_level as number : draft.value.motion_level
+
+  draft.value = { ...draft.value, pacing, motion_scope, motion_level }
+  const timingMessage = storedPacing ? 'timing updated' : 'no saved timing; kept this episode’s timing'
+  const scopeMessage = presetScope?.mode === 'selected' || (!hasScope && currentScope.mode === 'selected')
+    ? 'Selected-scene motion stays with this episode'
+    : hasScope ? 'motion scope updated' : 'no saved motion scope; kept this episode’s scope'
+  const intensityMessage = hasMotionLevel ? 'motion intensity updated' : 'no saved motion intensity; kept this episode’s intensity'
+  presetNotice.value = `Preset applied: ${timingMessage}; ${scopeMessage}; ${intensityMessage}. Save timing & motion before the next Scene Plan build.`
 }
 
 async function load(): Promise<void> {
@@ -306,6 +376,7 @@ async function load(): Promise<void> {
     draft.value = continuityDefaults()
     loadError.value = ''
     saveError.value = ''
+    clearPresetNotice()
     loading.value = false
     saving.value = false
     return
@@ -314,6 +385,7 @@ async function load(): Promise<void> {
   saving.value = false
   loadError.value = ''
   saveError.value = ''
+  clearPresetNotice()
   try {
     const result = await get<{ exists: boolean; config: ContinuityConfig }>(`/projects/${slug.value}/continuity/${props.episodeId}`)
     if (!current()) return
@@ -334,6 +406,7 @@ async function save(): Promise<void> {
   if (!props.episodeId || saving.value || loading.value || loadError.value || validationError.value) return
   try {
     saveError.value = ''
+    clearPresetNotice()
     const snapshot = normalizeContinuityConfig({
       ...draft.value,
       pacing: parseScenePacing(draft.value.pacing),
@@ -356,6 +429,8 @@ async function save(): Promise<void> {
 }
 
 watch(() => [slug.value, props.episodeId], () => { void load() }, { immediate: true })
+
+defineExpose({ snapshotPreset, applyPreset })
 </script>
 
 <style scoped>
