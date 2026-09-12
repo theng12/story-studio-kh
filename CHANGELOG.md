@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.152 — 2026-09-12
+
+- Scene Review: thumbnails, clips and audio now carry their own version, so a background refresh only reloads media that actually changed. The render poll waits for the previous read before asking again. A 288-scene episode’s review read runs its file checks in parallel instead of one after another.
+- Upload Center: the review dialog opens immediately and can be closed while the exact payload is still being built. The rendered video’s identity is remembered while the file is unchanged, so Review then Upload no longer reads the whole file twice, and hashing reads in larger chunks (a busy Mac took 25 s per review; measured under equal load: 61 s → 2.5 s first time, 0.5 s after). Upload acknowledges the queued job at once and reloads the list in the background; a second Upload is withheld until the list confirms the job.
+- Upload Center: Close and the primary action stay pinned in both review dialogs. Bulk review can be closed while it queues; queueing continues, a strip on the page shows progress with Stop and Show, and queued uploads remain in Jobs. The publishable list resolves the export folder once per request instead of once per episode.
+- Content Store: installs run in one app-wide queue that survives leaving the page, with a strip on every page and each card naming its state (Queued to install, Installing…, Installed, Install failed). Each queued install skips the server’s overview rebuild and the queue re-reads the overview once at the end. Discover has Select all purchasable. A batch purchase can be hidden while it buys and reports its result on the page. The overview asks GenStudio for account, catalog and receipts together, stats installed pack files per directory instead of one at a time, and uses the native CRC-32.
+
 ## v1.4.151 — 2026-09-12
 
 - Audio Assembly keeps merge, preview, and output choices in a persistent action bar. Replace the active merge by default; creating another version remains an explicit choice.

@@ -26,7 +26,7 @@ import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from 
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseHttpByteRange } from '../lib/http-byte-range.js'
-import { isDecodableImage } from '../lib/image-validation.js'
+import { decodableImageSignature, isDecodableImage, peekDecodableImageSignature } from '../lib/image-validation.js'
 import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
@@ -161,6 +161,38 @@ async function scenesEligibleForClipBatch(
   ))
 }
 
+const SCENE_STAT_CONCURRENCY = 32
+const SCENE_DECODE_CONCURRENCY = 4
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let next = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++
+      results[index] = await fn(items[index]!, index)
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+/**
+ * Media URLs carry the asset's `size-mtime` as `?v=`. A URL that names the
+ * exact bytes may be cached for as long as the browser likes: a replaced file
+ * gets a new version from the review payload and therefore a new URL. A request
+ * without a version keeps the old contract and is never cached.
+ */
+function mediaCacheControl(req: express.Request): string {
+  return typeof req.query.v === 'string' && req.query.v.length > 0
+    ? 'private, max-age=31536000, immutable'
+    : 'no-store'
+}
+
 function streamLocalMedia(
   req: express.Request,
   res: express.Response,
@@ -169,7 +201,7 @@ function streamLocalMedia(
   size: number,
 ): void {
   res.setHeader('Content-Type', mime)
-  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('Cache-Control', mediaCacheControl(req))
   res.setHeader('Accept-Ranges', 'bytes')
 
   const range = parseHttpByteRange(req.headers.range, size)
@@ -220,6 +252,11 @@ interface ReviewSceneAugmented {
   /** Filename in scene_images/ if present; null otherwise. UI uses this
    *  + the image streaming endpoint to render the thumbnail. */
   image_filename: string | null
+  /** `size-mtime` of the decodable image, or null. The page keys and busts
+   *  its thumbnail on this, so an unchanged image is never re-fetched. */
+  image_version: string | null
+  /** `size-mtime` of the animated clip, or null when there is none. */
+  clip_version: string | null
   boundary_reason?: string
   /** v1.0.359 — the rendered image is STALE: it exists but was rendered from a
    *  different prompt than the scene's current `visual_prompt` (the user
@@ -300,15 +337,58 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     let withImageCount = 0
     let withClipCount = 0
     let motionReviewedCount = 0
-    for (const s of plan.scenes) {
+    // One probe per scene, run in bounded parallel. A 288-scene episode
+    // awaited ~700 file checks one after another here; in the live app every
+    // sequential await queues behind other work, and this read took 2–2.7 s
+    // (measured 2026-09-12) while the page polled it every 3.5 s.
+    //
+    // Two phases on purpose. Stats and cache hits are cheap and go wide; a
+    // scene whose image has changed needs a full pixel decode in this process,
+    // and those stay narrow — a cold read of 288 scenes decoding 16 at once is
+    // the memory spike the crash history warns about.
+    const probes = await mapWithConcurrency(plan.scenes, SCENE_STAT_CONCURRENCY, async (s) => {
       const filename = `${s.id}.png`
-      const imageExists = await isDecodableImage(path.join(namedDir, filename))
-        || await isDecodableImage(path.join(legacyDir, filename))
+      const named = path.join(namedDir, filename)
+      const legacy = path.join(legacyDir, filename)
+      // Same rule as before: the named folder first, the legacy flat folder
+      // whenever the named copy is absent OR unusable (a truncated download
+      // beside a good legacy twin must still count as an image).
+      const candidates: Array<{ imagePath: string; peeked: Awaited<ReturnType<typeof peekDecodableImageSignature>> }> = []
+      for (const imagePath of [named, legacy]) {
+        const peeked = await peekDecodableImageSignature(imagePath)
+        if (peeked.state === 'missing') continue
+        candidates.push({ imagePath, peeked })
+        if (peeked.state === 'known' && peeked.signature !== null) break
+      }
+      const known = candidates.find(candidate => candidate.peeked.state === 'known' && candidate.peeked.signature !== null)
+      const clipStat = await fs.stat(path.join(clipsDir, `${s.id}.mp4`)).catch(() => null)
+      const clipVersion = clipStat?.isFile() ? `${clipStat.size}-${Math.trunc(clipStat.mtimeMs)}` : null
+      return {
+        imageVersion: known && known.peeked.state === 'known' ? known.peeked.signature : null,
+        // Decode only what a stat could not settle, in named-then-legacy order.
+        decodePaths: known ? [] : candidates.filter(candidate => candidate.peeked.state === 'pending').map(candidate => candidate.imagePath),
+        clipVersion,
+      }
+    })
+    await mapWithConcurrency(
+      probes.filter(probe => probe.decodePaths.length > 0),
+      SCENE_DECODE_CONCURRENCY,
+      async (probe) => {
+        for (const imagePath of probe.decodePaths) {
+          probe.imageVersion = await decodableImageSignature(imagePath)
+          if (probe.imageVersion !== null) break
+        }
+      },
+    )
+    for (const [index, s] of plan.scenes.entries()) {
+      const filename = `${s.id}.png`
+      const { imageVersion, clipVersion } = probes[index]!
+      const imageExists = imageVersion !== null
       imageReady.push(imageExists)
       if (imageExists) withImageCount++
       if (s.approved) approvedCount++
       // v1.0.470 — clip existence + stale (rendered from a now-changed motion prompt).
-      const clipExists = existsSync(path.join(clipsDir, `${s.id}.mp4`))
+      const clipExists = clipVersion !== null
       const clipStale = clipExists && (
         (typeof s.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || ''))
         || (typeof s.image_version === 'string' && s.clip_source_image_version !== s.image_version)
@@ -327,6 +407,8 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         motion_prompt: s.motion_prompt,  // v1.0.468 — image-to-video instruction
         approved: !!s.approved,
         image_filename: imageExists ? filename : null,
+        image_version: imageVersion,
+        clip_version: clipVersion,
         boundary_reason: s.boundary_reason,
         // Stale = image on disk but its rendered_prompt no longer matches the
         // current visual_prompt. Unknown rendered_prompt (pre-feature renders)
@@ -345,6 +427,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     // for the largest .mp3 (same heuristic as broll-assemble's
     // findNarrationPath uses).
     let audioPath: string | null = null
+    let audioVersion: string | null = null
     if (existsSync(paths.merged_audio_dir)) {
       const files = await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])
       let bestSize = 0
@@ -354,6 +437,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         if (stat && stat.size > bestSize) {
           bestSize = stat.size
           audioPath = path.join(paths.merged_audio_dir, f)
+          audioVersion = `${stat.size}-${Math.trunc(stat.mtimeMs)}`
         }
       }
     }
@@ -409,6 +493,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       },
       scenes,
       audio_path: audioPath,
+      audio_version: audioVersion,
       render_status: renderStatus,
       active_render_job: activeJob,
       animate_min_seconds: animateMinSeconds,
@@ -1367,9 +1452,12 @@ router.get('/projects/:slug/scene-review/:episodeId/image/:sceneId', async (req,
     const imagePath = await resolveSceneImageReadPath(slug, episodeId.toUpperCase(), paths.episode_dir, sceneId)
     if (!imagePath) return res.status(404).json({ detail: 'Image not found' })
     res.setHeader('Content-Type', 'image/png')
-    // No-cache so regen + reload picks up the new file without
-    // a query-string buster on every request.
-    res.setHeader('Cache-Control', 'no-store')
+    // Versioned URLs (`?v=size-mtime`, from the review payload) are immutable;
+    // an unversioned request stays uncached so a plain reload sees a regen.
+    res.setHeader('Cache-Control', mediaCacheControl(req))
+    // Chunked on purpose: a render can replace this file between a stat and
+    // the stream, and a declared length that no longer matches aborts the
+    // response mid-image.
     createReadStream(imagePath).pipe(res)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve scene image'))

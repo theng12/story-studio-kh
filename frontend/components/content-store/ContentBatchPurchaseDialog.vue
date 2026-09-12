@@ -16,7 +16,6 @@
           ref="cancelButton"
           type="button"
           class="dialog-close"
-          :disabled="busy"
           aria-label="Close purchase dialog"
           @click="requestClose"
         >Close</button>
@@ -105,7 +104,7 @@
         <!-- Settling ------------------------------------------------------ -->
         <template v-else-if="phase === 'settling'">
           <p class="batch-progress" role="status" aria-live="polite">
-            Buying {{ progress.done }} of {{ progress.total }} — leave this open until it finishes.
+            Buying {{ progress.done }} of {{ progress.total }}. You can close this; buying continues and the result appears on the page.
           </p>
           <p class="ceiling-note">Each pack is charged on its own. A pack that fails does not stop the rest.</p>
         </template>
@@ -150,8 +149,8 @@
       </div>
 
       <footer class="batch-actions">
-        <button type="button" class="btn btn-secondary" :disabled="busy" @click="requestClose">
-          {{ phase === 'result' ? 'Done' : 'Cancel' }}
+        <button type="button" class="btn btn-secondary" @click="requestClose">
+          {{ phase === 'result' ? 'Done' : busy ? 'Hide' : 'Cancel' }}
         </button>
         <button
           v-if="phase === 'review'"
@@ -221,7 +220,7 @@ const props = defineProps<{
   busy?: boolean
 }>()
 
-const emit = defineEmits<{ close: []; confirm: []; 'retry-failed': [] }>()
+const emit = defineEmits<{ close: []; dismiss: []; confirm: []; 'retry-failed': [] }>()
 
 const cancelButton = ref<HTMLButtonElement | null>(null)
 
@@ -308,7 +307,12 @@ const resultHeadline = computed(() => failed.value.length
   ? `${succeeded.value.length} bought · ${failed.value.length} not bought`
   : `${succeeded.value.length} ${succeeded.value.length === 1 ? 'pack' : 'packs'} permanently owned`)
 
-function requestClose(): void { if (!props.busy) emit('close') }
+/**
+ * While GenStudio is still quoting or settling, Close hides the dialog and the
+ * work continues (each quote is signed and safe to retry, so nothing is lost
+ * by looking away). When idle, Close is the real close.
+ */
+function requestClose(): void { if (props.busy) emit('dismiss'); else emit('close') }
 /**
  * Renders a published figure, or an em dash when there is none.
  *

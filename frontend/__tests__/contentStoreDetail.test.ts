@@ -57,6 +57,15 @@ async function loadStorePage(): Promise<Component> {
       running: computed(() => false),
       clearFinished: () => undefined,
     })
+    // The shared, app-wide queue (v1.4.152) wraps useInstallQueue; its own
+    // tests are contentInstallQueueShared. Here it installs straight away.
+    const useContentInstallQueue = () => ({
+      ...useInstallQueue((id) => globalThis.__contentStorePageStore.installRelease(id, { refreshOverview: false })),
+      batchTotal: computed(() => 0), batchDone: computed(() => 0), batchInstalled: computed(() => 0),
+      batchFailed: computed(() => 0), activeTitle: computed(() => ''), finished: computed(() => false),
+    })
+    // Real rule, not a stub: Select all counts on it.
+    const batchSkipReason = (product) => !product ? 'No longer in the catalog' : product.owned ? 'Already owned' : product.retired ? 'Retired by GenStudio' : !product.compatible ? (product.compatibilityReason || 'Not compatible') : !product.currentRelease ? 'No published release' : null
     // Buying a whole selection lives in ~/composables/useBatchPurchase and has
     // its own tests (contentStoreBatchPurchase). Here it only has to exist, so
     // that mounting the page exercises the single-pack paths these tests are
@@ -66,7 +75,7 @@ async function loadStorePage(): Promise<Component> {
       progress: ref({ done: 0, total: 0 }),
       quoted: computed(() => []), quotedTotal: computed(() => 0),
       start: async () => undefined, confirmAll: async () => [],
-      retryFailed: async () => undefined, close: () => undefined,
+      retryFailed: async () => undefined, close: () => undefined, dismiss: () => undefined, show: () => undefined,
     })
     const ContentBatchPurchaseDialog = { props: ['visible'], render: () => null }
     // The real one lives beside useBatchPurchase and is covered there. It has to
@@ -104,6 +113,7 @@ async function loadDetailRoute(): Promise<Component> {
     const ContentPurchaseDialog = { render: () => null }
     const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: 'Refresh the Store.' })
     const useContentStore = () => globalThis.__contentStoreDetailStore
+    const useContentInstallQueue = () => ({ enqueue: () => undefined, isBusy: () => false, statusOf: () => 'idle', failureOf: () => '' })
     const useRoute = () => ({ params: { productId: 'formula' } })
     const useAppTitle = () => undefined
     const navigateTo = () => undefined

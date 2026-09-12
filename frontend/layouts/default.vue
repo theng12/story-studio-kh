@@ -26,6 +26,7 @@
     </header>
     <div class="account-standing">
       <GenStudioStandingStrip class="default-standing-strip" />
+      <ContentInstallStrip class="default-install-strip" />
     </div>
     <main id="main-content" class="page-content" tabindex="-1">
       <slot />
@@ -36,6 +37,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
+import ContentInstallStrip from '~/components/content-store/ContentInstallStrip.vue'
 
 const { public: pubCfg } = useRuntimeConfig()
 const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
@@ -114,6 +116,7 @@ function openWhatsNew() { _whatsNew.open() }
   background: var(--bg-secondary);
 }
 .default-standing-strip { width: min(100%, 620px); margin-left: auto; }
+.default-install-strip { width: min(100%, 620px); margin-left: auto; margin-top: 6px; }
 
 .page-content {
   flex: 1;

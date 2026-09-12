@@ -71,14 +71,13 @@ import { enqueueOrRun, getJobs, isDuplicate } from '../services/job-queue.js'
 import type { Job } from '../models/types.js'
 import { listUploadThumbnails, resolveUploadMetadata } from '../lib/upload-metadata.js'
 import { createProjectFactsCache, resolveEpisodePaths } from '../services/utils.js'
-import { findYouTubeSourceVideoPath } from '../services/youtube-source-video.js'
+import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
 import {
   computeSlots, getActivePlanId, getPlan, latestFutureProjectClaimMs, listPlans,
   orderEpisodeCodes, readItemSchedule,
 } from '../services/upload-plans.js'
 import { readSidecarStrict, setScheduledFor } from '../services/upload-sidecar.js'
-import { resolveSourceRevision } from '../services/youtube-operation-recorder.js'
 import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES } from '../services/youtube-remote-video.js'
 import * as im from '../services/idea-manager.js'
 import { getProjectDir } from '../services/project-manager.js'
@@ -518,7 +517,7 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
           // asset probe can call a clip or stale export "ready" while the
           // uploader has no source it would actually accept.
           const sourcePaths = await resolveEpisodePaths(slug, code, title, facts)
-          sourceVideoPath = await findYouTubeSourceVideoPath(sourcePaths, slug, code, title)
+          sourceVideoPath = await findYouTubeSourceVideoPath(sourcePaths, slug, code, title, facts)
         } catch {
           renderUnknown = true
         }
@@ -2137,7 +2136,7 @@ router.post('/projects/:slug/youtube/preview', async (req, res) => {
     const sourcePath = await findYouTubeSourceVideoPath(sourcePaths, req.params.slug, episodeCode, previewTitle)
     // Hash only an explicitly requested review, never the episode listing.
     const source = sourcePath
-      ? { filename: path.basename(sourcePath), revision: await resolveSourceRevision(sourcePath) }
+      ? { filename: path.basename(sourcePath), revision: await resolveYouTubeSourceRevisionCached(sourcePath) }
       : null
     const { thumbnail_filename: _thumbnailFilename, ...payload } = built
     res.json({ ...payload, thumbnail, source })
@@ -2251,7 +2250,10 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       })
       return
     }
-    const expectedSourceRevision = await resolveSourceRevision(sourceVideoPath)
+    // Cached by size/mtime/inode: Review then Upload hashed the whole final
+    // twice before anything was queued. The generator re-hashes the handle it
+    // sends from and refuses a file that changed after this check.
+    const expectedSourceRevision = await resolveYouTubeSourceRevisionCached(sourceVideoPath)
     const reviewedSourceRevision = typeof req.body?.expected_source_revision === 'string'
       ? req.body.expected_source_revision.trim()
       : ''

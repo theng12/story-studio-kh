@@ -3,6 +3,7 @@ import { createReadStream } from 'node:fs'
 import fsp from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import path from 'path'
+import type { ProjectFactsCache } from './utils.js'
 
 const CONTENT_SHA256_PREFIX = 'sha256:'
 
@@ -18,8 +19,63 @@ export function isContentSha256Revision(value: string): boolean {
  */
 export async function resolveYouTubeSourceRevision(filePath: string): Promise<string> {
   const hash = createHash('sha256')
-  for await (const chunk of createReadStream(filePath)) hash.update(chunk)
+  for await (const chunk of createReadStream(filePath, { highWaterMark: HASH_CHUNK_BYTES })) hash.update(chunk)
   return `${CONTENT_SHA256_PREFIX}${hash.digest('hex')}`
+}
+
+/**
+ * Read size for hashing. Node's default 64 KiB stream chunk turns an 840 MB
+ * final into ~12,800 sequential event-loop turns; in the live app each turn
+ * waits behind whatever else the server is doing, so a hash that takes ~1 s in
+ * isolation took 25 s while a render ran (measured 2026-09-12). 4 MiB chunks
+ * cut that to ~200 turns. The digest is byte-identical either way.
+ */
+const HASH_CHUNK_BYTES = 4 * 1024 * 1024
+
+interface CachedSourceRevision {
+  signature: string
+  result: Promise<string>
+}
+
+const revisionCache = new Map<string, CachedSourceRevision>()
+const MAX_REVISION_CACHE_ENTRIES = 256
+
+/**
+ * The same byte-for-byte revision, remembered per path while the file's
+ * size, mtime and inode are unchanged.
+ *
+ * ONLY for interactive admission (Upload Center preview and the upload route),
+ * where the owner clicks Review, then Upload, and each click re-hashed the whole
+ * final. Every path that deletes, moves or archives a final keeps calling
+ * `resolveYouTubeSourceRevision` and re-reads every byte, and the upload
+ * generator still hashes the OPEN handle it sends from — that is the check that
+ * refuses a file replaced after confirmation, and it is not cached.
+ *
+ * A replacement at the same path is revalidated: an atomic rename changes the
+ * inode, an in-place rewrite changes size or mtime. In-flight hashes are
+ * shared, so a bulk review and a concurrent upload click read the file once.
+ */
+export async function resolveYouTubeSourceRevisionCached(filePath: string): Promise<string> {
+  const stat = await fsp.stat(filePath)
+  const signature = `${stat.size}:${stat.mtimeMs}:${stat.ino}`
+  const cached = revisionCache.get(filePath)
+  if (cached?.signature === signature) return cached.result
+  const result = resolveYouTubeSourceRevision(filePath)
+  if (revisionCache.size >= MAX_REVISION_CACHE_ENTRIES) {
+    const oldest = revisionCache.keys().next().value
+    if (oldest) revisionCache.delete(oldest)
+  }
+  const entry = { signature, result }
+  revisionCache.set(filePath, entry)
+  result.catch(() => {
+    // A failed read must not be remembered as this file's identity.
+    if (revisionCache.get(filePath) === entry) revisionCache.delete(filePath)
+  })
+  return result
+}
+
+export function __clearSourceRevisionCacheForTests(): void {
+  revisionCache.clear()
 }
 
 /**
@@ -29,7 +85,7 @@ export async function resolveYouTubeSourceRevision(filePath: string): Promise<st
  */
 export async function resolveYouTubeSourceRevisionFromHandle(file: FileHandle): Promise<string> {
   const hash = createHash('sha256')
-  for await (const chunk of file.createReadStream({ start: 0, autoClose: false })) hash.update(chunk)
+  for await (const chunk of file.createReadStream({ start: 0, autoClose: false, highWaterMark: HASH_CHUNK_BYTES })) hash.update(chunk)
   return `${CONTENT_SHA256_PREFIX}${hash.digest('hex')}`
 }
 
@@ -39,6 +95,7 @@ export async function findYouTubeSourceVideoPath(
   slug: string,
   code: string,
   title: string,
+  cache?: ProjectFactsCache,
 ): Promise<string> {
   const normalizedCode = code.toUpperCase()
   const videoExts = ['.mp4', '.mov', '.mkv', '.webm', '.m4v']
@@ -51,7 +108,7 @@ export async function findYouTubeSourceVideoPath(
   }
 
   const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
-  const externalDir = await resolveExternalFinalVideoDir(slug, normalizedCode, title)
+  const externalDir = await resolveExternalFinalVideoDir(slug, normalizedCode, title, cache)
   if (externalDir) {
     const externalFiles = await fsp.readdir(externalDir).catch(() => [])
     const final = externalFiles.find(isCanonical)

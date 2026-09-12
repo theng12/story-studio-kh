@@ -203,7 +203,38 @@
         <p class="hint">Checking with YouTube spends this Cloud project’s daily allowance. Nothing here checks on its own.</p>
       </section>
 
-      <Modal :visible="!!previewed" size="lg" labelledby="upload-review-title" @close="closeReview()">
+      <!--
+        Queueing continues after the bulk dialog is dismissed. The dialog was
+        the only place that said so and the only place with Stop; this strip
+        keeps both on the page until the last reviewed row has been queued.
+      -->
+      <section v-if="bulkQueueInBackground" class="panel bulk-background" role="status" aria-live="polite">
+        <p v-if="busy === 'bulk-upload'">
+          Queueing reviewed uploads in the background: {{ bulkQueuedCount }} of {{ bulkQueueTotal }} queued.
+          Queued uploads continue and appear in Jobs.
+        </p>
+        <p v-else>
+          Queueing stopped after {{ bulkQueuedCount }} of {{ bulkQueueTotal }}. Already queued uploads continue in Jobs; the remaining Reviewed rows can be queued when you are ready.
+        </p>
+        <div class="bulk-background-actions">
+          <button class="btn btn-sm" type="button" @click="reopenBulkReview">Show</button>
+          <button
+            v-if="busy === 'bulk-upload'"
+            class="btn btn-ghost btn-sm" type="button"
+            :disabled="bulkQueueStopRequested" @click="bulkQueueStopRequested = true"
+          >{{ bulkQueueStopRequested ? 'Stopping after current…' : 'Stop queueing' }}</button>
+          <button v-else class="btn btn-ghost btn-sm" type="button" @click="closeBulkReview">Dismiss</button>
+        </div>
+      </section>
+
+      <!--
+        The dialog opens on the click, not on the server's answer. Building the
+        exact payload hashes the whole rendered video, which took 25 s on a busy
+        Mac with an 840 MB final; the page showed nothing for all of it. The
+        header and its Close are pinned while the body scrolls, and the primary
+        action is pinned at the bottom, so neither needs a scroll to reach.
+      -->
+      <Modal :visible="!!previewedEpisode" size="lg" labelledby="upload-review-title" dialog-class="modal-flush" @close="closeReview()">
         <section v-if="previewed" class="upload-review">
           <header class="review-head">
             <div>
@@ -212,6 +243,7 @@
             </div>
             <button type="button" class="btn btn-ghost btn-sm" @click="closeReview()">Close</button>
           </header>
+          <div class="review-body">
           <p v-if="previewed.modifications.length" class="hint">
             {{ previewed.modifications.length }} change{{ previewed.modifications.length === 1 ? '' : 's' }} applied to your metadata:
           </p>
@@ -349,6 +381,8 @@
         </dl>
         <p class="hint">Nothing is changed after this point. This is the payload.</p>
 
+          </div>
+          <footer class="review-foot">
         <!--
           The Upload control sits UNDER the exact payload, because that is the
           thing being agreed to. It appears only when a channel is connected;
@@ -372,6 +406,7 @@
           as a way to correct something.
         -->
         <div v-else-if="alreadyPublished && reviewIntent !== 'schedule'" class="hint">{{ alreadyPublished }}</div>
+        <div v-else-if="previewedQueued && reviewIntent !== 'schedule'" class="hint" role="status">Upload queued for {{ previewedEpisode }}. Progress appears in Jobs; closing this review does not stop it.</div>
         <div v-else-if="timingDirty" class="hint">Review the selected timing above before continuing.</div>
         <div v-else-if="reviewIntent === 'schedule' && !previewed.status.publishAt" class="hint">Choose a future planned or custom date to schedule this private video.</div>
         <div v-else-if="reviewIntent === 'schedule'" class="field-row upload-row">
@@ -393,17 +428,30 @@
         <p v-if="rowResults[previewedEpisode]" :class="['row-result', rowResults[previewedEpisode].kind]" role="status">
           {{ rowResults[previewedEpisode].message }}
         </p>
+          </footer>
       </section>
+        <section v-else class="upload-review is-loading" aria-busy="true">
+          <header class="review-head">
+            <div>
+              <h2 id="upload-review-title" ref="previewHeading" tabindex="-1">What YouTube will receive</h2>
+              <p>{{ previewedEpisode }} · building the exact metadata and checking the video file…</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" @click="closeReview()">Close</button>
+          </header>
+          <div class="review-body">
+            <p class="hint review-loading" role="status">Preparing this upload review. A large video takes a moment to verify.</p>
+          </div>
+        </section>
       </Modal>
 
-      <Modal :visible="bulkReviewOpen" size="lg" labelledby="bulk-upload-review-title" @close="closeBulkReview">
+      <Modal :visible="bulkReviewOpen" size="lg" labelledby="bulk-upload-review-title" dialog-class="modal-flush" @close="closeBulkReview">
         <section class="bulk-upload-review">
           <header class="review-head">
             <div>
               <h2 id="bulk-upload-review-title" ref="bulkReviewHeading" tabindex="-1">Review selected uploads</h2>
               <p>{{ bulkReviews.length }} selected · each video keeps its own exact file, thumbnail, metadata, and timing</p>
             </div>
-            <button type="button" class="btn btn-ghost btn-sm" :disabled="busy === 'bulk-upload'" @click="closeBulkReview">Close</button>
+            <button type="button" class="btn btn-ghost btn-sm" @click="closeBulkReview">Close</button>
           </header>
 
           <p v-if="busy === 'bulk-preview'" class="hint" role="status">Reviewing each selected upload…</p>
@@ -453,7 +501,7 @@
           </ul>
 
           <div class="bulk-review-footer">
-            <p class="hint">Files and metadata are checked again before queueing. Refused rows stay here and are not retried automatically.</p>
+            <p class="hint">Files and metadata are checked again before queueing. Refused rows stay here and are not retried automatically. Closing this review does not stop queueing.</p>
             <p v-if="bulkQueueWasStopped" class="result warn" role="status">Queueing stopped. Already queued uploads continue; the remaining Reviewed rows can be queued when you are ready.</p>
             <button
               v-if="busy === 'bulk-upload'" class="btn btn-ghost" type="button"
@@ -607,6 +655,14 @@ const uploadListHeading = ref<HTMLElement | null>(null)
 const bulkReviews = ref<BulkUploadReview[]>([])
 const bulkQueueStopRequested = ref(false)
 const bulkQueueWasStopped = ref(false)
+/** The bulk dialog was dismissed while its queue loop was still running. */
+const bulkReviewDismissedWhileQueueing = ref(false)
+/**
+ * Episodes this page has queued and not yet seen back from the server. The
+ * button is withheld for them until the reloaded list carries the running
+ * upload, so a click during a slow reload cannot submit the same episode twice.
+ */
+const queuedUploadCodes = reactive(new Set<string>())
 let loadRevision = 0
 let actionRevision = 0
 
@@ -831,6 +887,12 @@ function closeVideo(): void { videoEpisode.value = null; videoError.value = '' }
 function closeReview(restoreFocus = true): void {
   const opener = reviewOpener.value
   reviewOpener.value = null
+  // A review still being built is abandoned, not merely hidden: its late
+  // answer must not reopen the dialog. Nothing queued is touched here.
+  if (previewedEpisode.value && busy.value === `preview-${previewedEpisode.value}`) {
+    actionRevision += 1
+    busy.value = ''
+  }
   previewed.value = null
   previewedEpisode.value = ''
   thumbnailImageUnavailable.value = false
@@ -1038,6 +1100,7 @@ const uploadBlocked = computed(() => {
 
 function uploadEligibilityReason(ep: PublishableEpisode): string {
   if (uploadBlocked.value) return uploadBlocked.value
+  if (queuedUploadCodes.has(ep.episode_code)) return `${ep.episode_code} is queued for upload. Progress appears in Jobs.`
   if (renderState(ep) !== 'ready') return `${ep.episode_code} does not have a rendered video.`
   if (ep.blocked_reason) return ep.blocked_reason
   const hasRemoteIdentity = !!(ep.has_remote_video || ep.remote_video_id || ep.operation?.video_id)
@@ -1143,6 +1206,16 @@ async function load(): Promise<void> {
     const ops = opsResult.value
     episodes.value = ops.episodes
     total.value = ops.total ?? ops.episodes.length
+    // A reloaded row that shows the job (or a finished upload) replaces the
+    // local marker. A row that does not — job store unreadable, channel
+    // changed — keeps it: the server has no queue-time duplicate guard, so
+    // this marker is what stands between two clicks and two uploads.
+    for (const code of [...queuedUploadCodes]) {
+      const row = episodes.value.find(ep => ep.episode_code === code)
+      const state = row?.local?.upload?.state
+      const known = state === 'queued' || state === 'running' || state === 'succeeded' || state === 'failed'
+      if (known || row?.operation || row?.has_remote_video || row?.remote_video_id) queuedUploadCodes.delete(code)
+    }
     if (overviewResult.status === 'fulfilled') {
       const overview = overviewResult.value
       overviewError.value = ''
@@ -1178,7 +1251,14 @@ async function load(): Promise<void> {
 
 async function refreshList(): Promise<void> {
   refreshingList.value = true
-  try { await load() } finally { refreshingList.value = false }
+  try {
+    await load()
+    // A deliberate refresh is the in-page recovery for a queued marker no
+    // reload can confirm (the job was deleted before it wrote anything): the
+    // fresh list is the owner's answer, and it is the same list Upload
+    // admission will check again server-side.
+    queuedUploadCodes.clear()
+  } finally { refreshingList.value = false }
 }
 
 function beginAction(value: string): { revision: number; slug: string } {
@@ -1317,7 +1397,11 @@ async function upload(episodeCode: string): Promise<void> {
       kind: 'ok',
       message: `Uploading ${episodeCode} to ${res.channel_id}. Progress appears in Jobs.`,
     }
-    await load()
+    // The job is queued the moment the route answers. The list reload that
+    // follows is bookkeeping, and the dialog waited on it — with a large
+    // project that was seconds of "Uploading…" after the upload had started.
+    queuedUploadCodes.add(episodeCode)
+    void load()
   } catch (error: any) {
     if (!actionIsCurrent(action)) return
     rowResults[episodeCode] = { kind: 'err', message: error?.data?.detail || error?.message || 'Failed to start that upload.' }
@@ -1344,6 +1428,10 @@ function bulkReviewStateLabel(item: BulkUploadReview): string {
   return 'Needs attention'
 }
 const queueableBulkReviews = computed(() => bulkReviews.value.filter(item => item.state === 'reviewed'))
+const bulkQueueInBackground = computed(() => !bulkReviewOpen.value && (busy.value === 'bulk-upload' || (bulkQueueWasStopped.value && bulkReviews.value.length > 0)))
+const bulkQueuedCount = computed(() => bulkReviews.value.filter(item => item.state === 'queued').length)
+const bulkQueueTotal = computed(() => bulkReviews.value.filter(item => item.state !== 'error').length)
+const previewedQueued = computed(() => queuedUploadCodes.has(previewedEpisode.value))
 
 function bulkThumbnailLoaded(item: BulkUploadReview): void {
   if (item.state === 'pending' && item.preview?.thumbnail.state === 'selected') item.state = 'reviewed'
@@ -1355,21 +1443,38 @@ function bulkThumbnailUnavailable(item: BulkUploadReview): void {
 }
 
 function closeBulkReview(): void {
-  if (busy.value === 'bulk-upload') return
+  const opener = bulkReviewOpener.value
+  if (busy.value === 'bulk-upload') {
+    // Dismiss, don't cancel: the reviewed rows keep queueing (Stop queueing
+    // stays on the page) and the rows already queued are jobs by now.
+    bulkReviewDismissedWhileQueueing.value = true
+    bulkReviewOpen.value = false
+    void nextTick(() => {
+      if (opener?.isConnected && !(opener as HTMLButtonElement).disabled) opener.focus()
+      else uploadListHeading.value?.focus()
+    })
+    return
+  }
   if (busy.value === 'bulk-preview') {
     actionRevision += 1
     busy.value = ''
   }
-  const opener = bulkReviewOpener.value
   bulkReviewOpener.value = null
   bulkReviewOpen.value = false
   bulkReviews.value = []
+  bulkReviewDismissedWhileQueueing.value = false
   bulkQueueStopRequested.value = false
   bulkQueueWasStopped.value = false
   void nextTick(() => {
     if (opener?.isConnected && !(opener as HTMLButtonElement).disabled) opener.focus()
     else uploadListHeading.value?.focus()
   })
+}
+
+function reopenBulkReview(): void {
+  bulkReviewDismissedWhileQueueing.value = false
+  bulkReviewOpen.value = true
+  void nextTick(() => bulkReviewHeading.value?.focus())
 }
 
 async function reviewSelectedUploads(event?: Event): Promise<void> {
@@ -1480,6 +1585,7 @@ async function queueReviewedUploads(): Promise<void> {
       if (!actionIsCurrent(action)) return
       item.state = 'queued'
       item.job_id = result.job_id
+      queuedUploadCodes.add(item.episode_code)
       rowResults[item.episode_code] = { kind: 'ok', message: `Uploading ${item.episode_code} to ${result.channel_id}. Progress appears in Jobs.` }
     } catch (error: any) {
       if (!actionIsCurrent(action)) return
@@ -1492,6 +1598,16 @@ async function queueReviewedUploads(): Promise<void> {
     busy.value = ''
     selectedUploadCodes.value = selectedUploadCodes.value.filter(code =>
       !bulkReviews.value.some(item => item.episode_code === code && item.state === 'queued'))
+    if (bulkReviewDismissedWhileQueueing.value && !bulkQueueWasStopped.value) {
+      // The owner already left this review and every reviewed row was queued;
+      // the rows live on as row results and Jobs.
+      bulkReviewDismissedWhileQueueing.value = false
+      bulkReviewOpener.value = null
+      bulkReviews.value = []
+      bulkQueueStopRequested.value = false
+    }
+    // Stopped while hidden: the reviews stay so the strip can say so and
+    // bring the remaining Reviewed rows back with Show.
     await load()
   }
 }
@@ -1561,6 +1677,12 @@ async function preview(episodeCode: string, event?: Event, intent: ReviewIntent 
   const initialMode: TimingMode = isFutureIso(episode?.plan?.scheduled_at) ? 'planned' : 'private'
   timingMode.value = initialMode
   timingDirty.value = true
+  // Open now, in its building state, so the click is acknowledged before the
+  // server hashes the video. Close during this abandons the request.
+  previewedEpisode.value = episodeCode
+  await nextTick()
+  if (!actionIsCurrent(action)) return
+  previewHeading.value?.focus()
   try {
     const timing = initialMode === 'planned'
       ? { privacy_status: 'private' as const, publish_at: episode!.plan!.scheduled_at }
@@ -1580,6 +1702,8 @@ async function preview(episodeCode: string, event?: Event, intent: ReviewIntent 
     previewHeading.value?.focus()
   } catch (error: any) {
     if (!actionIsCurrent(action)) return
+    // The reason belongs on the episode row, where the retry lives.
+    closeReview()
     rowResults[episodeCode] = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not build the upload details.' }
   } finally {
     if (actionIsCurrent(action)) busy.value = ''
@@ -1656,8 +1780,10 @@ watch(slug, () => {
   bulkReviewOpen.value = false
   bulkReviews.value = []
   bulkReviewOpener.value = null
+  bulkReviewDismissedWhileQueueing.value = false
   bulkQueueStopRequested.value = false
   bulkQueueWasStopped.value = false
+  queuedUploadCodes.clear()
   closeReview(false)
   closeVideo()
   for (const key of Object.keys(rowResults)) delete rowResults[key]
@@ -1749,7 +1875,34 @@ watch(slug, () => {
 .row-result { grid-column: 1 / -1; margin: 0; padding-top: 7px; border-top: 1px solid var(--border); line-height: 1.5; }
 
 .upload-review, .bulk-upload-review, .video-review { display: grid; gap: 14px; min-width: 0; }
+/*
+  The review dialogs paint their own bands (the Modal is passed `modal-flush`):
+  the header with Close is pinned to the top of the dialog's own scroll box and
+  the action band to its bottom, so both stay reachable while a long payload
+  scrolls between them. Sticky positioning needs the dialog's scroll box to be
+  the nearest scrolling ancestor, which is exactly what Modal provides.
+*/
+.upload-review, .bulk-upload-review { --uc-dialog-pad: 24px; gap: 0; }
 .review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.upload-review .review-head, .bulk-upload-review .review-head {
+  position: sticky; top: 0; z-index: 2;
+  padding: var(--uc-dialog-pad) var(--uc-dialog-pad) 12px;
+  background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+}
+.review-body { display: grid; gap: 14px; min-width: 0; padding: 14px var(--uc-dialog-pad); }
+.review-foot {
+  position: sticky; bottom: 0; z-index: 2; display: grid; gap: 10px;
+  padding: 12px var(--uc-dialog-pad) var(--uc-dialog-pad);
+  background: var(--bg-secondary); border-top: 1px solid var(--border);
+}
+.review-foot:empty { display: none; }
+.review-loading { margin: 0; }
+.bulk-upload-review > .hint, .bulk-upload-review > .bulk-review-list { margin-inline: var(--uc-dialog-pad); }
+.bulk-upload-review > .hint { margin-top: 12px; }
+.bulk-upload-review > .bulk-review-list { margin-top: 12px; }
+.bulk-background { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+.bulk-background p { margin: 0; font-size: 13px; }
+.bulk-background-actions { display: flex; gap: 8px; }
 .review-head h2 { margin: 0; font-size: 18px; }
 .review-head h2:focus { outline: none; }
 .review-head p { margin: 4px 0 0; color: var(--text-muted); font-size: var(--font-xs); }
@@ -1830,7 +1983,12 @@ watch(slug, () => {
 .bulk-metadata dt { color: var(--text-muted); font-weight: 700; }
 .bulk-metadata dd { color: var(--text-secondary); overflow-wrap: anywhere; }
 .bulk-metadata dd.pre { max-height: 180px; overflow: auto; white-space: pre-wrap; }
-.bulk-review-footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 14px; }
+.bulk-review-footer {
+  position: sticky; bottom: 0; z-index: 2;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 14px;
+  margin-top: 12px; padding: 12px var(--uc-dialog-pad) var(--uc-dialog-pad);
+  background: var(--bg-secondary); border-top: 1px solid var(--border);
+}
 .bulk-review-footer .hint { margin: 0; }
 .bulk-review-footer .result { grid-column: 1 / -1; margin: 0; }
 
@@ -1858,6 +2016,8 @@ watch(slug, () => {
 }
 @media (max-width: 620px) {
   .upload-review .review-head, .bulk-upload-review .review-head, .video-review .review-head { align-items: stretch; flex-direction: column; }
+  .upload-review, .bulk-upload-review { --uc-dialog-pad: 18px; }
+  .bulk-background { grid-template-columns: 1fr; }
   .upload-review .payload > div { grid-template-columns: 1fr; }
   .timing-options { grid-template-columns: 1fr; }
   .selected-thumbnail { grid-template-columns: 1fr; }

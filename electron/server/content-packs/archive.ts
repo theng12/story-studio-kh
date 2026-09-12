@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import * as zlib from 'node:zlib'
 import { inflateRawSync } from 'node:zlib'
 import sharp from 'sharp'
 
@@ -73,7 +74,20 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-function crc32(bytes: Uint8Array): number {
+/**
+ * CRC-32 of a ZIP entry. Node's zlib implementation (22.2+; Electron's Node is
+ * 24) runs at memory speed; the bit-by-bit loop below managed ~36 MB/s, which
+ * put 6.8 s of main-thread CPU into one verification sweep over 244 MB of
+ * installed packs (profiled 2026-09-12). The loop stays as the reference and
+ * fallback, and a test pins the two to the same digest.
+ */
+export function crc32(bytes: Uint8Array): number {
+  const native = (zlib as { crc32?: (data: Uint8Array, value?: number) => number }).crc32
+  if (typeof native === 'function') return native(bytes) >>> 0
+  return referenceCrc32(bytes)
+}
+
+export function referenceCrc32(bytes: Uint8Array): number {
   let crc = 0xffffffff
   for (const byte of bytes) {
     crc ^= byte

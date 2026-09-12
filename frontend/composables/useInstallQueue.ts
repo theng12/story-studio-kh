@@ -75,9 +75,10 @@ export function useInstallQueue(install: (releaseId: string) => Promise<unknown>
           await install(next)
           finished.value = new Map(finished.value).set(next, 'installed')
         } catch {
-          // The store renders the exact failure. What the queue owes is to
-          // record that this one did not install and to keep going, so one bad
-          // pack cannot strand the rest of the batch.
+          // The caller keeps the exact failure (useContentInstallQueue records
+          // the reason per release). What the queue owes is to record that this
+          // one did not install and to keep going, so one bad pack cannot
+          // strand the rest of the batch.
           finished.value = new Map(finished.value).set(next, 'failed')
         } finally {
           active.value = ''

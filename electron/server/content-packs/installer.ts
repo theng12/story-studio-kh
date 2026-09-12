@@ -250,11 +250,17 @@ const verifiedVersionMemo = new Map<string, { fingerprint: string; verified: Ver
 /** Every path under a version root with its size, mtime and mode, hashed. */
 async function installedTreeFingerprint(installPath: string): Promise<string> {
   const parts: string[] = []
+  // One awaited stat per entry made this ~1,000 sequential event-loop turns
+  // per Store overview across 115 installed packs; on a busy server each turn
+  // waits behind everything else. The stats of one directory are issued
+  // together and recorded in sorted order, so the digest is unchanged.
   const walk = async (dir: string): Promise<void> => {
-    const entries = await fs.readdir(dir, { withFileTypes: true })
-    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const entries = (await fs.readdir(dir, { withFileTypes: true }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+    const infos = await Promise.all(entries.map(entry => fs.lstat(path.join(dir, entry.name))))
+    for (const [index, entry] of entries.entries()) {
       const full = path.join(dir, entry.name)
-      const info = await fs.lstat(full)
+      const info = infos[index]!
       parts.push(`${full}\u0000${info.size}\u0000${info.mtimeMs}\u0000${info.mode}`)
       if (info.isDirectory()) await walk(full)
     }

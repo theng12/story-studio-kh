@@ -488,9 +488,9 @@ export function useContentStore(): {
   error: Readonly<Ref<ContentStoreUiError | null>>
   refresh: (options?: { background?: boolean }) => Promise<void>
   requestQuote: (productId: string, releaseId?: string | null) => Promise<PublicContentPurchaseAttempt>
-  confirmPurchase: (quoteId: string) => Promise<PublicContentPurchaseAttempt>
+  confirmPurchase: (quoteId: string, options?: { refreshOverview?: boolean }) => Promise<PublicContentPurchaseAttempt>
   restoreOwnership: () => Promise<void>
-  installRelease: (releaseId: string) => Promise<{ pack_id: string; version: string; activated: boolean }>
+  installRelease: (releaseId: string, options?: { refreshOverview?: boolean }) => Promise<{ pack_id: string; version: string; activated: boolean }>
 } {
   const { get, post } = useApi()
   const loading = ref(false)
@@ -622,8 +622,12 @@ export function useContentStore(): {
     }
   }
 
-  async function confirmPurchase(quoteId: string): Promise<PublicContentPurchaseAttempt> {
-    const generation = beginOverviewRequest()
+  async function confirmPurchase(
+    quoteId: string,
+    options: { refreshOverview?: boolean } = {},
+  ): Promise<PublicContentPurchaseAttempt> {
+    const wantsOverview = options.refreshOverview !== false
+    const generation = wantsOverview ? beginOverviewRequest() : sharedOverviewGeneration
     error.value = null
     try {
       const attempt = await post<PublicContentPurchaseAttempt>(
@@ -631,7 +635,9 @@ export function useContentStore(): {
         {},
       )
       replaceAttempt(attempt)
-      if (attempt.status === 'completed') {
+      // A batch settles many quotes and re-reads the overview once at the end
+      // rather than after every pack (each read is several GenStudio calls).
+      if (attempt.status === 'completed' && wantsOverview) {
         try {
           const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
           if (generation === sharedOverviewGeneration) {
@@ -665,15 +671,25 @@ export function useContentStore(): {
     }
   }
 
-  async function installRelease(releaseId: string): Promise<{ pack_id: string; version: string; activated: boolean }> {
-    const generation = beginOverviewRequest()
+  async function installRelease(
+    releaseId: string,
+    options: { refreshOverview?: boolean } = {},
+  ): Promise<{ pack_id: string; version: string; activated: boolean }> {
+    // `refreshOverview: false` is the queue's form: the server skips the
+    // ~5 s overview rebuild per pack and the queue refreshes once at the end.
+    // No overview will be applied, so no generation is claimed either — a
+    // claimed generation would silently discard the queue's own background
+    // refresh that lands while the next install is already in flight.
+    const wantsOverview = options.refreshOverview !== false
+    const generation = wantsOverview ? beginOverviewRequest() : sharedOverviewGeneration
     error.value = null
     try {
+      const query = wantsOverview ? '' : '?overview=0'
       const response = await post<{
         install: { pack_id: string; version: string; activated: boolean }
-        overview: ContentStoreOverview
-      }>(`/content-store/releases/${encodeURIComponent(releaseId)}/install`, {})
-      applyOverview(response.overview, generation)
+        overview: ContentStoreOverview | null
+      }>(`/content-store/releases/${encodeURIComponent(releaseId)}/install${query}`, {})
+      if (wantsOverview && response.overview) applyOverview(response.overview, generation)
       return response.install
     } catch (cause: any) {
       const installError = uiError(cause, 'This owned Content Pack could not be installed.')

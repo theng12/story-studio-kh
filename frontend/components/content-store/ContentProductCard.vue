@@ -1,5 +1,5 @@
 <template>
-  <article class="content-product-card" :data-owned="ownershipResolved ? product.owned : undefined" :data-compatible="product.compatible" :data-selected="selected || undefined">
+  <article class="content-product-card" :data-owned="ownershipResolved ? product.owned : undefined" :data-compatible="product.compatible" :data-selected="selected || undefined" :data-queue-status="queueStatus === 'idle' ? undefined : queueStatus" :aria-busy="installBusy ? 'true' : undefined">
     <label v-if="selectable" class="select-row"><input type="checkbox" :checked="selected" @change="$emit('toggle-select', product)" /><span>{{ selected ? 'Selected' : 'Select' }}</span></label>
     <NuxtLink :to="`/content-store/${product.productId}`" class="product-proof-link" :aria-label="`View proof for ${product.title}`">
       <ContentProductCover :product="product" />
@@ -65,6 +65,13 @@ const installLabel = computed(() => {
 const status = computed(() => {
   if (props.product.retired) return 'Retired'
   if (!props.ownershipResolved) return 'Checking…'
+  // The install queue's word beats the last overview's: a pack being installed
+  // is "Installing", not "Owned", and the tag sits at the top of the card
+  // where a scrolled list still shows it.
+  if (props.queueStatus === 'queued') return 'Queued to install'
+  if (props.queueStatus === 'installing' || props.busy) return 'Installing…'
+  if (props.queueStatus === 'failed') return 'Install failed'
+  if (props.queueStatus === 'installed') return 'Installed'
   if (!props.product.compatible) return 'Not compatible'
   if (!props.product.owned) return props.product.free ? 'Free to claim' : 'Available'
   if (props.ownership?.installState === 'installed_current') return 'Installed'
@@ -84,6 +91,9 @@ const ownedStatus = computed(() => {
 })
 const closureSummary = computed(() => props.ownership?.missingDependencies.map(dependency => `${dependency.packId} ${dependency.version} (${dependency.reason})`).join(', ') || '')
 const canInstall = computed(() => {
+  // The queue just installed it: the overview that still says "not installed"
+  // is behind, not right, so no second Install is offered.
+  if (props.queueStatus === 'installed') return false
   const ownership = props.ownership
   const release = props.product.currentRelease
   return !!(props.product.owned && props.product.compatible && ownership?.downloadAvailable && release
