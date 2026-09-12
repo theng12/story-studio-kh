@@ -79,6 +79,14 @@ describe('per-episode targeted recovery', () => {
 
   it('uses typed current status for legacy Scene Plan rows and preserves structured image reasons', () => {
     assert.match(jobsPage, /loadCurrentSubtitleAttention/)
+    assert.match(jobsPage, /video-editor\/subtitles\/timeline-integrity/)
+    assert.doesNotMatch(
+      jobsPage.slice(jobsPage.indexOf('async function loadCurrentSubtitleAttention'), jobsPage.indexOf('const SAFE_IMAGE_ISSUE_REASONS')),
+      /video-editor\/subtitles\/status/,
+      'historical rows must not run the full audio-hashing subtitle status check',
+    )
+    assert.match(jobsPage, /currentSubtitleAttentionSweepRunning/)
+    assert.match(jobsPage, /await loadCurrentSubtitleAttention\(next\[1\]\)/)
     assert.match(jobsPage, /Current subtitle coverage gap/)
     assert.match(jobsPage, /SAFE_IMAGE_ISSUE_REASONS/)
     assert.match(jobsPage, /SAFE_PROMPT_ISSUE_REASONS/)
@@ -86,6 +94,12 @@ describe('per-episode targeted recovery', () => {
     assert.match(jobsPage, /scene_plan_run/)
     assert.match(jobsPage, /original_failure_not_eligible/)
     assert.match(jobsPage, /no replacement was submitted/i)
+  })
+
+  it('shares one slow admission refresh instead of piling up interval requests', () => {
+    assert.match(jobsPage, /let genStudioCapacityRequest: Promise<void> \| null = null/)
+    assert.match(jobsPage, /if \(genStudioCapacityRequest\) return genStudioCapacityRequest/)
+    assert.match(jobsPage, /genStudioCapacityRequest = null/)
   })
 
   it('offers direct recovery only for assembly jobs where existing assets can help', () => {

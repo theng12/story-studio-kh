@@ -109,11 +109,11 @@ async function loadDetailRoute(): Promise<Component> {
   const vueUrl = await import.meta.resolve('vue')
   const support = `
     import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, defineComponent as _defineComponent } from "vue"
-    const ContentProductDetail = { props: ['product', 'ownership', 'networkUnavailable'], setup: (props) => () => h('div', { 'data-test': 'historical-proof', 'data-owned': String(props.product.owned), 'data-ownership': String(!!props.ownership), 'data-network-unavailable': String(props.networkUnavailable) }, props.product.title) }
+    const ContentProductDetail = { props: ['product', 'ownership', 'networkUnavailable', 'queueStatus'], setup: (props) => () => h('div', { 'data-test': 'historical-proof', 'data-owned': String(props.product.owned), 'data-ownership': String(!!props.ownership), 'data-network-unavailable': String(props.networkUnavailable), 'data-queue-status': String(props.queueStatus || '') }, props.product.title) }
     const ContentPurchaseDialog = { render: () => null }
     const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: 'Refresh the Store.' })
     const useContentStore = () => globalThis.__contentStoreDetailStore
-    const useContentInstallQueue = () => ({ enqueue: () => undefined, isBusy: () => false, statusOf: () => 'idle', failureOf: () => '' })
+    const useContentInstallQueue = () => ({ enqueue: () => undefined, isBusy: () => false, statusOf: () => globalThis.__contentStoreDetailQueueStatus || 'idle', failureOf: () => '' })
     const useRoute = () => ({ params: { productId: 'formula' } })
     const useAppTitle = () => undefined
     const navigateTo = () => undefined
@@ -198,6 +198,21 @@ describe('Content Store proof route contract', () => {
     assert.equal(proof.dataset.networkUnavailable, 'true')
     assert.equal(actionCalls, 0)
     rendered.unmount()
+  })
+
+  test('passes the completed shared install state into the product detail before the overview refresh lands', async () => {
+    const DetailRoute = await loadDetailRoute()
+    ;(globalThis as any).__contentStoreDetailQueueStatus = 'installed'
+    ;(globalThis as any).__contentStoreDetailStore = {
+      account: ref({ accountId: 'acct_a', owned: [{ entitlementFamily: 'formula-family', downloadAvailable: true, installState: 'not_installed', recalledReleaseVersions: [] }] }),
+      products: ref([{ productId: 'formula', title: 'Formula', entitlementFamily: 'formula-family', owned: true, compatible: true, currentRelease: { releaseId: 'release_1' } }]), attempts: ref([]),
+      cachedProof: ref(null), catalogFreshness: ref('fresh'), ownershipResolved: ref(true), loading: ref(false), error: ref(null),
+      refresh: async () => {}, requestQuote: async () => { throw new Error('not used') }, confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
+    }
+    const rendered = await mount(DetailRoute, {})
+    assert.equal(rendered.host.querySelector<HTMLElement>('[data-test="historical-proof"]')?.dataset.queueStatus, 'installed')
+    rendered.unmount()
+    delete (globalThis as any).__contentStoreDetailQueueStatus
   })
 
   /**

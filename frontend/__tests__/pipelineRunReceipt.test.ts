@@ -17,7 +17,7 @@ function harness(result: any, reject = false, repair = false) {
     ref, computed, response: result, reject,
     selectedEpisodes: new Set(['TN0001', 'TN0002']),
     slug: ref('terranash-sleep-stories'),
-    submitting: ref(false), repairMode: ref(repair), forceRerun: ref(false),
+    submitting: ref(false), preflighting: ref(false), repairMode: ref(repair), forceRerun: ref(false),
     showConfirm: ref(true), repairActionId: ref('repair-1'), runActionId: ref(''),
     checkedStepsOrdered: ref([{ id: 'metadata' }]),
     batchBlocked: ref<any[]>([]), batchHasJobs: ref(false), batchReceipt: ref<any>(null),
@@ -34,6 +34,7 @@ function harness(result: any, reject = false, repair = false) {
     const success = (text) => notices.push(text);
     const showInfo = success, showError = success;
     const navigateTo = (url) => navigations.push(url);
+    let preflightRequestId = 0, submitRequestId = 0;
     ${js}
   `)(context)
   return { ...context, ...api }
@@ -117,4 +118,24 @@ test('failed submission shows no success receipt and repeat clicks submit once',
   const page = harness({ enqueued: 2, total_jobs_planned: 2 })
   await Promise.all([page.submit(), page.submit()])
   assert.equal(page.requests.length, 1)
+})
+
+
+test('a late submission cannot replace the new project receipt or release its active controls', async () => {
+  let resolve!: (result: any) => void
+  const pending = new Promise(resolveResult => { resolve = resolveResult })
+  const page = harness(pending)
+  const submitted = page.submit()
+  page.slug.value = 'another-project'
+  const currentReceipt = { title: 'New project work', lines: [], jobsUrl: null }
+  page.batchReceipt.value = currentReceipt
+  page.selectedEpisodes.clear()
+  page.selectedEpisodes.add('EP0001')
+  resolve({ enqueued: 2, total_jobs_planned: 7 })
+  await submitted
+  assert.deepEqual(page.batchReceipt.value, currentReceipt)
+  assert.deepEqual([...page.selectedEpisodes], ['EP0001'])
+  assert.equal(page.showConfirm.value, true)
+  assert.equal(page.submitting.value, true, 'the previous request must not release new-project controls')
+  assert.deepEqual(page.notices, [])
 })

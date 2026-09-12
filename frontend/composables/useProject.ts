@@ -31,6 +31,8 @@ const currentProject = ref<ProjectMeta | null>(null)
 const currentConfig = ref<ProjectConfig | null>(null)
 const currentSlug = ref<string | null>(null)
 const loading = ref(false)
+let loadRevision = 0
+let configRevision = 0
 
 /**
  * The ABSOLUTE episodes folder for the loaded project — the base a
@@ -54,6 +56,8 @@ export function useProject() {
   const { get } = useApi()
 
   async function loadProject(slug: string) {
+    const revision = ++loadRevision
+    const configRequest = ++configRevision
     // Race guard: a route transition can briefly produce slug="undefined"
     // (the literal string from a template-literal of an undefined value)
     // or empty. Hitting /projects/undefined/* always 404s and the UI
@@ -75,30 +79,34 @@ export function useProject() {
     currentSlug.value = slug
     loading.value = true
     try {
-      const [meta, config] = await Promise.all([
-        get<ProjectMeta>(`/projects/${slug}`),
-        get<ProjectConfig>(`/projects/${slug}/settings/config`),
+      await Promise.all([
+        get<ProjectMeta>(`/projects/${slug}`).then(meta => {
+          // Identity can paint while the larger settings request is pending.
+          if (currentSlug.value === slug && revision === loadRevision) currentProject.value = meta
+        }),
+        get<ProjectConfig>(`/projects/${slug}/settings/config`).then(config => {
+          if (currentSlug.value === slug && revision === loadRevision && configRequest === configRevision) currentConfig.value = config
+        }),
       ])
-      // Guard against out-of-order responses: if the user switched projects
-      // again while these requests were in flight, ignore the stale payload.
-      if (currentSlug.value !== slug) return
-      currentProject.value = meta
-      currentConfig.value = config
     } finally {
-      if (currentSlug.value === slug) loading.value = false
+      if (currentSlug.value === slug && revision === loadRevision) loading.value = false
     }
   }
 
   async function refreshConfig(slug: string) {
     slug = projectSlug(slug)
-    if (!slug) return
+    if (!slug || currentSlug.value !== slug) return
+    const revision = loadRevision
+    const configRequest = ++configRevision
     const config = await get<ProjectConfig>(`/projects/${slug}/settings/config`, { cache: 'no-store' })
-    if (currentSlug.value === slug) currentConfig.value = config
+    if (currentSlug.value === slug && revision === loadRevision && configRequest === configRevision) currentConfig.value = config
   }
 
   /** Clear everything — call on unmount of a top-level project shell if needed. */
   function clearProject() {
+    ++loadRevision
     currentSlug.value = null
+    loading.value = false
     resetState()
   }
 

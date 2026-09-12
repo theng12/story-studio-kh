@@ -1639,6 +1639,7 @@ const changingQueueState = ref(false)
 let queueTimer: ReturnType<typeof setInterval> | null = null
 const genStudioAdmission = ref<GenStudioAdmissionSnapshot | null>(null)
 const verifiedGenStudioAdmission = computed(() => isVerifiedLiveCapacity(genStudioAdmission.value, now.value))
+let genStudioCapacityRequest: Promise<void> | null = null
 
 async function checkQueuePaused(): Promise<void> {
   try {
@@ -1649,11 +1650,19 @@ async function checkQueuePaused(): Promise<void> {
 }
 
 async function refreshGenStudioCapacity(): Promise<void> {
+  if (genStudioCapacityRequest) return genStudioCapacityRequest
+  genStudioCapacityRequest = (async () => {
+    try {
+      genStudioAdmission.value = await get<GenStudioAdmissionSnapshot>('/app-settings/genstudio/admission')
+    } catch {
+      // Generation remains safe: the backend scheduler uses its conservative
+      // fallback while the last visible account snapshot stays on screen.
+    }
+  })()
   try {
-    genStudioAdmission.value = await get<GenStudioAdmissionSnapshot>('/app-settings/genstudio/admission')
-  } catch {
-    // Generation remains safe: the backend scheduler uses its conservative
-    // fallback while the last visible account snapshot stays on screen.
+    await genStudioCapacityRequest
+  } finally {
+    genStudioCapacityRequest = null
   }
 }
 
@@ -2712,6 +2721,8 @@ type CurrentSubtitleStatus = {
 const currentSubtitleAttentionByEpisode = ref<Record<string, JobAttentionLink | null>>({})
 const currentSubtitleAttentionChecked = new Set<string>()
 const currentSubtitleAttentionLoading = new Set<string>()
+const currentSubtitleAttentionQueued = new Map<string, RJob>()
+let currentSubtitleAttentionSweepRunning = false
 
 function subtitleAttentionKey(job: RJob): string | null {
   if (job.type !== 'scene_plan_run' || !job.episode_id) return null
@@ -2746,7 +2757,7 @@ async function loadCurrentSubtitleAttention(job: RJob): Promise<void> {
   currentSubtitleAttentionLoading.add(key)
   try {
     const status = await get<CurrentSubtitleStatus>(
-      `/projects/${jobProjectSlug(job)}/video-editor/subtitles/status/${encodeURIComponent(job.episode_id!)}`,
+      `/projects/${jobProjectSlug(job)}/video-editor/subtitles/timeline-integrity/${encodeURIComponent(job.episode_id!)}`,
     )
     const gaps = status.timeline_integrity?.blocking_cue_gaps || []
     const section = gaps.flatMap(gap => Array.isArray(gap.section_slugs) ? gap.section_slugs : [])[0]
@@ -2760,6 +2771,32 @@ async function loadCurrentSubtitleAttention(job: RJob): Promise<void> {
   } finally {
     currentSubtitleAttentionLoading.delete(key)
   }
+}
+
+async function drainCurrentSubtitleAttentionQueue(): Promise<void> {
+  if (currentSubtitleAttentionSweepRunning) return
+  currentSubtitleAttentionSweepRunning = true
+  try {
+    while (currentSubtitleAttentionQueued.size) {
+      const next = currentSubtitleAttentionQueued.entries().next().value as [string, RJob] | undefined
+      if (!next) break
+      currentSubtitleAttentionQueued.delete(next[0])
+      await loadCurrentSubtitleAttention(next[1])
+    }
+  } finally {
+    currentSubtitleAttentionSweepRunning = false
+    if (currentSubtitleAttentionQueued.size) void drainCurrentSubtitleAttentionQueue()
+  }
+}
+
+function queueCurrentSubtitleAttention(jobs: RJob[]): void {
+  for (const job of jobs) {
+    const key = subtitleAttentionKey(job)
+    if (key && !currentSubtitleAttentionChecked.has(key)) {
+      currentSubtitleAttentionQueued.set(key, { ...job, project_slug: jobProjectSlug(job) })
+    }
+  }
+  void drainCurrentSubtitleAttentionQueue()
 }
 const SAFE_IMAGE_ISSUE_REASONS: Record<string, string> = {
   'generation failed': 'generation failed',
@@ -2877,7 +2914,7 @@ function jobAttentionLinks(job: RJob): JobAttentionLink[] {
 // visible, read current typed subtitle status for that episode; never guess a
 // historical cause from error prose.
 watch([activeJobs, paginatedHistory], ([active, history]) => {
-  for (const job of [...active, ...history]) void loadCurrentSubtitleAttention(job)
+  queueCurrentSubtitleAttention([...active, ...history])
 }, { immediate: true })
 
 // Assembly can be blocked by missing upstream media. Recovery retrieves

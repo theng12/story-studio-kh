@@ -15,7 +15,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useInstallQueue, type InstallQueue } from '~/composables/useInstallQueue'
-import { useContentStore } from '~/composables/useContentStore'
+import { useContentStore, type ContentStoreInstallOperation } from '~/composables/useContentStore'
 
 export interface ContentInstallQueue extends InstallQueue {
   /** Size of the current run: everything queued since the queue was last idle. */
@@ -30,6 +30,10 @@ export interface ContentInstallQueue extends InstallQueue {
   finished: import('vue').ComputedRef<boolean>
   /** Why a release failed to install, in the Store's own words, or ''. */
   failureOf: (releaseId: string) => string
+  /** Server-observed phase and bytes for a release, if its operation has started. */
+  progressOf: (releaseId: string) => ContentStoreInstallOperation | null
+  /** Server-observed progress for the one queue item currently installing. */
+  activeProgress: import('vue').ComputedRef<ContentStoreInstallOperation | null>
   /** Every failure of the current run, with the pack's title where known. */
   failures: import('vue').ComputedRef<Array<{ releaseId: string; title: string; detail: string }>>
 }
@@ -42,6 +46,7 @@ function build(): ContentInstallQueue {
   const store = useContentStore()
   const batch = ref<string[]>([])
   const failureReasons = ref(new Map<string, string>())
+  const operations = ref(new Map<string, ContentStoreInstallOperation>())
   let sinceRefresh = 0
 
   async function refreshQuietly(): Promise<void> {
@@ -51,7 +56,12 @@ function build(): ContentInstallQueue {
 
   const queue = useInstallQueue(async (releaseId) => {
     try {
-      const installed = await store.installRelease(releaseId, { refreshOverview: false })
+      const installed = await store.installRelease(releaseId, {
+        refreshOverview: false,
+        onProgress: operation => {
+          operations.value = new Map(operations.value).set(releaseId, operation)
+        },
+      })
       failureReasons.value.delete(releaseId)
       return installed
     } catch (cause) {
@@ -92,13 +102,18 @@ function build(): ContentInstallQueue {
     if (!releaseId) return ''
     return store.products.value.find(product => product.currentRelease?.releaseId === releaseId)?.title ?? ''
   })
+  const progressOf = (releaseId: string): ContentStoreInstallOperation | null => operations.value.get(releaseId) ?? null
+  const activeProgress = computed(() => {
+    const releaseId = queue.activeReleaseId.value
+    return releaseId ? progressOf(releaseId) : null
+  })
 
   // The queue drained: one overview read replaces the per-install rebuilds.
   watch(queue.running, (running, was) => { if (was && !running) void refreshQuietly() })
 
   const clearFinished = (): void => {
     queue.clearFinished()
-    if (!queue.running.value) { batch.value = []; failureReasons.value = new Map() }
+    if (!queue.running.value) { batch.value = []; failureReasons.value = new Map(); operations.value = new Map() }
   }
   const failureOf = (releaseId: string): string => failureReasons.value.get(releaseId) ?? ''
   const failures = computed(() => batch.value
@@ -121,6 +136,8 @@ function build(): ContentInstallQueue {
     activeTitle,
     finished,
     failureOf,
+    progressOf,
+    activeProgress,
     failures,
   }
 }

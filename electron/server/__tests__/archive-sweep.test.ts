@@ -239,6 +239,33 @@ describe('deciding what may be moved', () => {
     assert.equal(preview.ready_count, 0)
   })
 
+  test('an unreadable source is an error, not a successful empty preview', async () => {
+    const sourceFile = path.join(tmp.dir, 'not-a-folder.mp4')
+    await fs.writeFile(sourceFile, 'not a directory')
+
+    await assert.rejects(
+      sweep.previewArchiveSweep({ sourceRoot: sourceFile }),
+      /Could not read archive source folder/i,
+    )
+  })
+
+  test('a stopped preview is explicitly incomplete and cannot become an archive bill', async () => {
+    const src = path.join(tmp.dir, 'stopped-preview')
+    await seedEpisode('TN0001', 'Uploaded One', true)
+    await seedExport(src, 'TN0001')
+    await fs.writeFile(path.join(src, 'holiday-clip.mp4'), 'not an episode')
+
+    let checked = 0
+    const preview = await sweep.previewArchiveSweep({
+      sourceRoot: src,
+      onProgress: () => { checked += 1 },
+      shouldStop: () => checked >= 1,
+    })
+
+    assert.equal(preview.complete, false)
+    assert.equal(preview.cancelled, true)
+  })
+
   test('a ready canonical operation authorizes only its exact source revision', async () => {
     const src = path.join(tmp.dir, 'canonical-exports')
     await seedEpisode('TN0020', 'Canonical Archive', false)

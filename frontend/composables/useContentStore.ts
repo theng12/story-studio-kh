@@ -31,6 +31,19 @@ export interface ContentStoreRelease {
   componentSummary: Record<string, unknown>
 }
 
+export type ContentStoreInstallPhase = 'queued' | 'downloading' | 'verifying' | 'installing' | 'complete' | 'failed'
+
+export interface ContentStoreInstallOperation {
+  operationId: string
+  releaseId: string
+  phase: ContentStoreInstallPhase
+  downloadedBytes: number | null
+  totalBytes: number | null
+  failure: { code: string; detail: string } | null
+  install: { pack_id: string; version: string; activated: boolean } | null
+  updatedAt: string
+}
+
 export interface ContentStoreBundleComponent {
   productId: string
   entitlementFamily: string
@@ -490,7 +503,7 @@ export function useContentStore(): {
   requestQuote: (productId: string, releaseId?: string | null) => Promise<PublicContentPurchaseAttempt>
   confirmPurchase: (quoteId: string, options?: { refreshOverview?: boolean }) => Promise<PublicContentPurchaseAttempt>
   restoreOwnership: () => Promise<void>
-  installRelease: (releaseId: string, options?: { refreshOverview?: boolean }) => Promise<{ pack_id: string; version: string; activated: boolean }>
+  installRelease: (releaseId: string, options?: { refreshOverview?: boolean; onProgress?: (operation: ContentStoreInstallOperation) => void }) => Promise<{ pack_id: string; version: string; activated: boolean }>
 } {
   const { get, post } = useApi()
   const loading = ref(false)
@@ -635,18 +648,23 @@ export function useContentStore(): {
         {},
       )
       replaceAttempt(attempt)
+      if (attempt.status === 'completed' && typeof attempt.balance_after === 'number' && sharedAccount.value) {
+        sharedAccount.value = { ...sharedAccount.value, contentSpendableCredits: attempt.balance_after }
+      }
       // A batch settles many quotes and re-reads the overview once at the end
       // rather than after every pack (each read is several GenStudio calls).
       if (attempt.status === 'completed' && wantsOverview) {
-        try {
-          const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
-          if (generation === sharedOverviewGeneration) {
-            applyOverview(overview, generation)
-            if (!overview.attempts.some(row => row.quote_id === attempt.quote_id)) sharedAttempts.value = [attempt, ...overview.attempts]
+        void (async () => {
+          try {
+            const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
+            if (generation === sharedOverviewGeneration) {
+              applyOverview(overview, generation)
+              if (!overview.attempts.some(row => row.quote_id === attempt.quote_id)) sharedAttempts.value = [attempt, ...overview.attempts]
+            }
+          } catch {
+            // Ownership is already durable. A read-side refresh must not turn success into failure.
           }
-        } catch {
-          // Ownership is already durable. A read-side refresh must not turn success into failure.
-        }
+        })()
       }
       return attempt
     } catch (cause: any) {
@@ -673,7 +691,7 @@ export function useContentStore(): {
 
   async function installRelease(
     releaseId: string,
-    options: { refreshOverview?: boolean } = {},
+    options: { refreshOverview?: boolean; onProgress?: (operation: ContentStoreInstallOperation) => void } = {},
   ): Promise<{ pack_id: string; version: string; activated: boolean }> {
     // `refreshOverview: false` is the queue's form: the server skips the
     // ~5 s overview rebuild per pack and the queue refreshes once at the end.
@@ -684,11 +702,34 @@ export function useContentStore(): {
     const generation = wantsOverview ? beginOverviewRequest() : sharedOverviewGeneration
     error.value = null
     try {
-      const query = wantsOverview ? '' : '?overview=0'
+      const useBackgroundOperation = Boolean(options.onProgress) && !wantsOverview
+      const query = useBackgroundOperation ? '?overview=0&async=1' : (wantsOverview ? '' : '?overview=0')
       const response = await post<{
         install: { pack_id: string; version: string; activated: boolean }
         overview: ContentStoreOverview | null
-      }>(`/content-store/releases/${encodeURIComponent(releaseId)}/install${query}`, {})
+      } | { operation: ContentStoreInstallOperation }>(`/content-store/releases/${encodeURIComponent(releaseId)}/install${query}`, {})
+      if ('operation' in response) {
+        let operation = response.operation
+        options.onProgress?.(operation)
+        while (!['complete', 'failed'].includes(operation.phase)) {
+          await new Promise<void>(resolve => setTimeout(resolve, 1_000))
+          try {
+            const monitor = await get<{ operation: ContentStoreInstallOperation }>(`/content-store/installs/${encodeURIComponent(operation.operationId)}`, { cache: 'no-store' })
+            operation = monitor.operation
+            options.onProgress?.(operation)
+          } catch (cause: any) {
+            const status = Number(cause?.status ?? cause?.response?.status ?? cause?.data?.status)
+            // A transient monitor failure says nothing about the signed server
+            // install, which keeps running independently of this route.
+            if (status === 404) throw cause
+          }
+        }
+        if (operation.phase === 'failed' || !operation.install) {
+          const failure = operation.failure || { code: 'CONTENT_STORE_UPSTREAM_REFUSED', detail: 'This Content Pack could not be installed.' }
+          throw Object.assign(new Error(failure.detail), { data: failure })
+        }
+        return operation.install
+      }
       if (wantsOverview && response.overview) applyOverview(response.overview, generation)
       return response.install
     } catch (cause: any) {

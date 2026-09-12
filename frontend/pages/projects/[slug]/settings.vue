@@ -902,7 +902,9 @@
         <p class="text-muted hint">
           Moves finished videos that are <strong>confirmed uploaded to YouTube</strong> into a folder
           you choose, so what is left is a folder of finished films you can back up, park on a slow
-          drive, or delete. Anything that cannot be proven uploaded is left exactly where it is.
+          drive, or delete. The reviewed list contains only videos whose exact export can be proven
+          uploaded; anything else, and all source media, stays exactly where it is. Move to another
+          disk to recover capacity — moving within the same disk only reorganizes files.
         </p>
 
         <div class="form-group mt-2">
@@ -910,7 +912,7 @@
           <div class="flex gap-2 items-center">
             <input v-model="archiveSource" class="input" spellcheck="false"
                    placeholder="Defaults to your Library’s Exports folder" />
-            <button class="btn btn-sm btn-secondary" :disabled="archiveBusy" @click="pickArchiveSource">📂</button>
+            <button class="btn btn-sm btn-secondary" aria-label="Browse archive source folder" :disabled="archiveBusy || archivePicking" @click="pickArchiveSource">📂</button>
           </div>
           <p class="text-muted text-sm mt-1">
             Leave blank for your Library’s <code>Exports</code> folder. Point it anywhere if your
@@ -922,19 +924,19 @@
           <label>Move them to</label>
           <div class="flex gap-2 items-center">
             <input v-model="archiveDest" class="input" spellcheck="false" placeholder="Choose a folder…" />
-            <button class="btn btn-sm btn-secondary" :disabled="archiveBusy" @click="pickArchiveDest">📂</button>
+            <button class="btn btn-sm btn-secondary" aria-label="Browse archive destination folder" :disabled="archiveBusy || archivePicking" @click="pickArchiveDest">📂</button>
           </div>
         </div>
 
         <div class="flex gap-2 items-center mt-2">
-          <button class="btn btn-secondary" :disabled="archiveBusy" @click="loadArchivePreview">
-            {{ archiveBusy && !archiveRunning ? 'Checking…' : 'Check what would move' }}
+          <button class="btn btn-secondary" :disabled="archiveBusy || archivePicking" @click="loadArchivePreview">
+            {{ archivePicking ? 'Opening folder picker…' : archiveChecking ? 'Checking…' : 'Check what would move' }}
           </button>
-          <button v-if="archivePreview?.ready_count" class="btn btn-primary"
+          <button v-if="archivePreview?.complete && archivePreview?.ready_count" class="btn btn-primary"
                   :disabled="archiveBusy || !archiveDest.trim()" @click="startArchive">
             Move {{ archivePreview.ready_count }} video(s) · {{ formatBytes(archivePreview.ready_bytes) }}
           </button>
-          <button v-if="archiveRunning" class="btn btn-danger" @click="stopArchive">Stop</button>
+          <button v-if="archiveRunning || archiveChecking" class="btn btn-danger" @click="stopArchive">Stop</button>
         </div>
 
         <!-- The bill, before it runs. -->
@@ -943,9 +945,12 @@
             Nothing to scan — <code>{{ archivePreview.source_root }}</code> is not there.
           </p>
           <template v-else>
+            <p v-if="!archivePreview.complete" class="validation-msg text-sm">
+              Check stopped early. Nothing can move until the folder has been checked completely.
+            </p>
             <p class="text-sm">
               <strong>{{ archivePreview.ready_count }}</strong> video(s) ready
-              ({{ formatBytes(archivePreview.ready_bytes) }} reclaimed),
+              ({{ formatBytes(archivePreview.ready_bytes) }} ready to move),
               <strong>{{ archivePreview.skipped_count }}</strong> skipped
               ({{ formatBytes(archivePreview.skipped_bytes) }} staying put).
             </p>
@@ -954,6 +959,17 @@
                 {{ c.slug }} — {{ c.count }} video(s), {{ formatBytes(c.bytes) }}
               </li>
             </ul>
+            <details v-if="archivePreview.ready_count" class="mt-1">
+              <summary class="text-sm">Review {{ archivePreview.ready_count }} uploaded videos to move</summary>
+              <ul class="archive-skipped">
+                <li v-for="c in archiveReadyRows" :key="c.source_path">
+                  <strong>{{ c.slug }} · {{ c.code }}</strong> — <code>{{ c.filename }}</code>
+                  · {{ formatBytes(c.bytes) }}
+                  <a v-if="c.youtube_video_id" :href="`https://www.youtube.com/watch?v=${encodeURIComponent(c.youtube_video_id)}`"
+                     target="_blank" rel="noopener noreferrer">Open recorded YouTube upload</a>
+                </li>
+              </ul>
+            </details>
             <details v-if="archivePreview.skipped_count" class="mt-1">
               <summary class="text-muted text-sm">Why {{ archivePreview.skipped_count }} were skipped</summary>
               <ul class="archive-skipped">
@@ -965,14 +981,19 @@
           </template>
         </div>
 
-        <div v-if="archiveRunning || archiveResult" class="mt-2">
-          <p v-if="archiveRunning" class="text-sm">
-            Moving {{ archiveProgress.done }} / {{ archiveProgress.total }} —
+        <div v-if="archiveChecking || archiveRunning || archiveResult" class="mt-2">
+          <p v-if="archiveChecking" class="text-sm">
+            Checking {{ archiveProgress.checked }} video file{{ archiveProgress.checked === 1 ? '' : 's' }} —
+            <code>{{ archiveProgress.current }}</code>
+            <span v-if="archiveStopping"> · stopping after this file…</span>
+          </p>
+          <p v-else-if="archiveRunning" class="text-sm">
+            {{ archiveStage === 'checking' ? 'Rechecking proof' : 'Moving' }} {{ archiveProgress.done }} / {{ archiveProgress.total }} —
             <code>{{ archiveProgress.current }}</code>
             <span v-if="archiveStopping"> · stopping after this file…</span>
           </p>
           <p v-if="archiveResult" class="text-sm">
-            ✓ Moved {{ archiveResult.moved.length }} video(s), {{ formatBytes(archiveResult.bytes_moved) }} reclaimed.
+            ✓ Moved {{ archiveResult.moved.length }} video(s), {{ formatBytes(archiveResult.bytes_moved) }} total.
             <span v-if="archiveResult.cancelled">Stopped early — everything not yet moved is untouched.</span>
             <span v-if="archiveResult.failed.length">
               {{ archiveResult.failed.length }} could not be verified and were left in both places.
@@ -2953,17 +2974,19 @@ async function clearMediaRoot() {
 
 /**
  * Translate a /system/pick-folder failure into a one-liner the user can act
- * on. The 503 case (Electron main process not detected) is the common
- * dev-mode gotcha — surfaced as instructions to use the manual path input
- * instead of as a raw error string.
+ * on. Only the explicit Electron-missing message identifies the common
+ * dev-mode case: a generic 503 can instead mean Electron is still busy.
  */
 function pickerHelpFor(e: any): string {
   const status = e?.status ?? e?.response?.status
   const detail: string = e?.data?.detail || e?.message || ''
-  if (status === 503 || /Electron main process not detected|Folder picker not available/i.test(detail)) {
-    return 'The native folder picker only works in the packaged app, not in the dev server. Type or paste a path into the field above and click "Save manual path" instead.'
+  if (/Electron main process not detected|Folder picker not available/i.test(detail)) {
+    return 'The native folder picker only works in the packaged app, not in the dev server. Type or paste a path into the field above instead.'
   }
-  return `Folder picker failed: ${detail || 'unknown error'}. You can also type or paste a path above and click "Save manual path".`
+  if (status === 503 || /timed? out|timeout/i.test(detail)) {
+    return 'The folder picker is taking longer than expected. Wait for any open picker to close, then try again, or type or paste a path above.'
+  }
+  return `Folder picker failed: ${detail || 'unknown error'}. You can also type or paste a path above instead.`
 }
 
 // v1.4.5 — `browseAndSetExternalRoot` and `clearExternalRoot` went with
@@ -3199,10 +3222,12 @@ type ArchiveSkipReason =
   | 'not_uploaded' | 'not_reviewed' | 'collision'
 interface ArchivePreviewRow {
   source_path: string; filename: string; bytes: number; code: string
+  slug?: string; youtube_video_id?: string
   status: 'ready' | 'skipped'; reason?: string; reason_code?: ArchiveSkipReason
 }
 interface ArchivePreviewResult {
   source_root: string; source_exists: boolean
+  complete: boolean; cancelled: boolean
   candidates: ArchivePreviewRow[]
   ready_count: number; ready_bytes: number
   skipped_count: number; skipped_bytes: number
@@ -3213,14 +3238,23 @@ const archiveSource = ref('')
 const archiveDest = ref('')
 const archiveBusy = ref(false)
 const archiveRunning = ref(false)
+const archiveChecking = ref(false)
+const archivePicking = ref(false)
 const archiveStopping = ref(false)
+const archiveStage = ref<'checking' | 'moving' | null>(null)
 const archivePreview = ref<ArchivePreviewResult | null>(null)
 const archiveResult = ref<any>(null)
-const archiveProgress = ref({ done: 0, total: 0, current: '' })
+const archiveProgress = ref({ done: 0, total: 0, checked: 0, current: '' })
 let archivePoll: ReturnType<typeof setInterval> | null = null
+let archivePollInFlight = false
+let archiveRestoreInFlight = false
+let archivePanelDisposed = false
 
 const archiveSkippedRows = computed(
   () => (archivePreview.value?.candidates || []).filter(c => c.status === 'skipped'),
+)
+const archiveReadyRows = computed(
+  () => (archivePreview.value?.candidates || []).filter(c => c.status === 'ready'),
 )
 
 /**
@@ -3253,31 +3287,59 @@ const archiveSkipSummary = computed(() => {
 })
 
 async function pickArchiveSource() {
-  const p = await pickFolderShared({ title: 'Where are your finished videos?', button_label: 'Scan This Folder' })
-  if (p) { archiveSource.value = p; archivePreview.value = null }
+  if (archivePicking.value || archiveBusy.value) return
+  archivePicking.value = true
+  try {
+    const p = await pickFolderShared({ title: 'Where are your finished videos?', button_label: 'Scan This Folder' })
+    if (p) { archiveSource.value = p; archivePreview.value = null }
+  } catch (e: any) {
+    showError(pickerHelpFor(e))
+  } finally {
+    archivePicking.value = false
+  }
 }
 async function pickArchiveDest() {
-  const p = await pickFolderShared({ title: 'Move finished videos into…', button_label: 'Move Here' })
-  if (p) archiveDest.value = p
+  if (archivePicking.value || archiveBusy.value) return
+  archivePicking.value = true
+  try {
+    const p = await pickFolderShared({ title: 'Move finished videos into…', button_label: 'Move Here' })
+    if (p) archiveDest.value = p
+  } catch (e: any) {
+    showError(pickerHelpFor(e))
+  } finally {
+    archivePicking.value = false
+  }
 }
 
 async function loadArchivePreview() {
+  if (archiveBusy.value || archivePicking.value) return
   archiveBusy.value = true
+  archiveChecking.value = true
+  archiveRunning.value = false
+  archiveStopping.value = false
+  archiveStage.value = 'checking'
+  archiveProgress.value = { done: 0, total: 0, checked: 0, current: '' }
   archiveResult.value = null
+  archivePreview.value = null
   try {
-    archivePreview.value = await post<ArchivePreviewResult>('/library/archive/preview', {
+    await post('/library/archive/preview', {
       source_root: archiveSource.value.trim() || undefined,
     })
+    if (archivePoll) clearInterval(archivePoll)
+    archivePoll = setInterval(pollArchive, 1000)
+    void pollArchive()
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Could not check the folder')
-  } finally {
+    archiveChecking.value = false
+    archiveStage.value = null
     archiveBusy.value = false
+    showError(e?.data?.detail || e?.message || 'Could not check the folder')
   }
 }
 
 async function startArchive() {
+  if (archiveBusy.value || archivePicking.value) return
   const preview = archivePreview.value
-  if (!preview) return
+  if (!preview?.complete) return
   const approved = preview.candidates.filter(c => c.status === 'ready').map(c => c.source_path)
   const staying = archiveSkipSummary.value.length
     ? `${preview.skipped_count} video(s) stay where they are — ${archiveSkipSummary.value.join(', ')}.`
@@ -3297,38 +3359,68 @@ async function startArchive() {
 
   archiveBusy.value = true
   archiveRunning.value = true
+  archiveChecking.value = false
   archiveStopping.value = false
+  archiveStage.value = 'checking'
+  archiveProgress.value = { done: 0, total: approved.length, checked: 0, current: '' }
   archiveResult.value = null
   try {
     await post('/library/archive/run', {
       destination: archiveDest.value.trim(),
-      source_root: archiveSource.value.trim() || undefined,
+      // Bind the move to the root that produced this bill. Editing the input
+      // after a completed review must not substitute a different folder.
+      source_root: preview.source_root,
       // The reviewed set. The server re-checks each one's upload proof and can
       // only get stricter, but it will not move anything outside this list.
       approved,
     })
+    if (archivePoll) clearInterval(archivePoll)
     archivePoll = setInterval(pollArchive, 1000)
+    void pollArchive()
   } catch (e: any) {
     archiveRunning.value = false
     archiveBusy.value = false
+    archiveStage.value = null
     showError(e?.data?.detail || e?.message || 'Could not start the sweep')
   }
 }
 
+function applyArchiveStatus(st: any): boolean {
+  const phase = st.phase === 'preview' || st.phase === 'run' ? st.phase : null
+  // A fresh server has no archive operation to restore. Do not turn that into
+  // an empty result or a fake stopped scan when Settings first opens.
+  if (!st.running && !phase) return false
+
+  archiveStage.value = st.stage || null
+  archiveProgress.value = {
+    done: st.done || 0, total: st.total || 0, checked: st.checked || 0, current: st.current || '',
+  }
+  archiveStopping.value = !!st.stopping
+  archiveBusy.value = !!st.running
+  archiveChecking.value = !!st.running && phase === 'preview'
+  archiveRunning.value = !!st.running && phase === 'run'
+  if (st.running) return true
+
+  if (archivePoll) { clearInterval(archivePoll); archivePoll = null }
+  archiveStage.value = null
+  if (phase === 'preview') {
+    archivePreview.value = st.result || null
+    archiveResult.value = null
+  } else {
+    archiveResult.value = st.result
+    archivePreview.value = null
+  }
+  if (st.error) showError(st.error)
+  return true
+}
+
 async function pollArchive() {
+  if (archivePollInFlight) return
+  archivePollInFlight = true
   try {
-    const st = await get<any>('/library/archive/status')
-    archiveProgress.value = { done: st.done || 0, total: st.total || 0, current: st.current || '' }
-    archiveStopping.value = !!st.stopping
-    if (!st.running) {
-      if (archivePoll) { clearInterval(archivePoll); archivePoll = null }
-      archiveRunning.value = false
-      archiveBusy.value = false
-      archiveResult.value = st.result
-      if (st.error) showError(st.error)
-      await loadArchivePreview()
-    }
+    applyArchiveStatus(await get<any>('/library/archive/status'))
   } catch { /* transient — keep polling */ }
+  finally { archivePollInFlight = false }
 }
 
 async function stopArchive() {
@@ -3336,7 +3428,22 @@ async function stopArchive() {
   try { await post('/library/archive/stop', {}) } catch { /* best effort */ }
 }
 
-onBeforeUnmount(() => { if (archivePoll) clearInterval(archivePoll) })
+async function restoreArchiveInFlight() {
+  if (archiveBusy.value || archivePoll || archiveRestoreInFlight || archivePanelDisposed) return
+  archiveRestoreInFlight = true
+  try {
+    const st = await get<any>('/library/archive/status')
+    if (archivePanelDisposed || archiveBusy.value || archivePoll) return
+    if (applyArchiveStatus(st) && st.running) archivePoll = setInterval(pollArchive, 1000)
+  } catch { /* the archive panel remains idle until its next explicit action */ }
+  finally { archiveRestoreInFlight = false }
+}
+
+onBeforeUnmount(() => {
+  archivePanelDisposed = true
+  if (archivePoll) clearInterval(archivePoll)
+  archivePoll = null
+})
 
 async function browseAndMoveLibrary() {
   projectsRootPickerHelp.value = ''
@@ -3407,6 +3514,7 @@ watch(activeTab, (t) => {
   if (t === 'publishing' && !ytAppDefaults.value) {
     void loadYoutubeAppDefaults()
   }
+  if (t === 'maintenance') void restoreArchiveInFlight()
   // v1.0.107+ — load location status so the "Unlink from this Mac"
   // danger-zone renders only when the project is actually linked.
 
@@ -3764,7 +3872,10 @@ function applyHash() {
 }
 onMounted(() => {
   applyHash()
-  if (activeTab.value === 'maintenance') refreshFfmpegStatus()
+  if (activeTab.value === 'maintenance') {
+    refreshFfmpegStatus()
+    void restoreArchiveInFlight()
+  }
 
   loadNotifSettings()
 })

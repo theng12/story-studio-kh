@@ -272,6 +272,12 @@ export class GenStudioAdmissionPool {
     return this.snapshot(apiKey)
   }
 
+  /** Advisory reads share the existing refresh window instead of forcing I/O. */
+  async currentSnapshot(apiKey: string): Promise<GenStudioAdmissionSnapshot> {
+    await this.refresh(apiKey)
+    return this.snapshot(apiKey)
+  }
+
   async notifyTerminal(apiKey: string): Promise<void> {
     await this.refreshNow(apiKey).catch(() => undefined)
     this.drain()

@@ -156,6 +156,45 @@ describe('Pipeline stage selection', () => {
     assert.doesNotMatch(extractFunction('submit'), /navigateTo/)
   })
 
+  test('opens a cancellable checking confirmation before the preflight response returns', () => {
+    const openConfirm = extractFunction('openConfirm')
+    const opensAt = openConfirm.indexOf('showConfirm.value = true')
+    const requestAt = openConfirm.indexOf('await post<any>')
+    assert.ok(opensAt >= 0 && opensAt < requestAt, 'the selected work should be visible while preflight reads local state')
+    assert.match(pipeline, /<template v-if="preflighting">/)
+    assert.match(pipeline, /:disabled="submitting \|\| preflighting \|\| preflightEligibleCount === 0"/)
+    assert.match(extractFunction('closeConfirm'), /preflightRequestId \+= 1/)
+  })
+
+  test('discards a preflight response if its project route changes before it returns', () => {
+    const openConfirm = extractFunction('openConfirm')
+    assert.match(openConfirm, /const targetSlug = slug\.value/)
+    assert.match(openConfirm, /\/projects\/\$\{targetSlug\}\/pipeline\/preflight/)
+    assert.match(openConfirm, /requestId !== preflightRequestId \|\| slug\.value !== targetSlug/)
+    assert.match(pipeline, /watch\(slug, \(\) => \{[\s\S]*closeConfirm\(true\)/)
+  })
+
+  test('detaches an old project batch response without cancelling its already-authorized server request', () => {
+    const submit = extractFunction('submit')
+    assert.match(submit, /const requestId = \+\+submitRequestId/)
+    assert.match(submit, /const targetSlug = slug\.value/)
+    assert.match(submit, /const submittedRepair = repairMode\.value/)
+    assert.match(submit, /\/projects\/\$\{targetSlug\}\/pipeline\/run-batch/)
+    assert.match(submit, /requestId !== submitRequestId \|\| slug\.value !== targetSlug/)
+    assert.match(pipeline, /submitRequestId \+= 1[\s\S]*submitting\.value = false[\s\S]*closeConfirm\(true\)/)
+  })
+
+  test('shares the current request facts across every preflight episode status read', () => {
+    const backend = readFileSync(
+      fileURLToPath(new URL('../../electron/server/routes/pipeline.ts', import.meta.url)), 'utf8')
+    const start = backend.indexOf('async function preflightBatch(')
+    const end = backend.indexOf('\n/**', start)
+    const preflight = backend.slice(start, end)
+    assert.match(preflight, /const projectFacts = createProjectFactsCache\(slug\)/)
+    assert.match(preflight, /projectFacts\.config = Promise\.resolve\(config\)/)
+    assert.match(preflight, /computeEpisodeStatus\(slug, episodeId, ideas, projectFacts\)/)
+  })
+
   test('a partial response clears resolved submitted episodes, retains blockers, and preserves later selection', () => {
     const page = loadSelectionRetainer()
     page.removeResolvedSubmittedEpisodes(['EP-blocked', 'EP-queued'], [{ episode_id: 'EP-blocked' }])
@@ -166,7 +205,7 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, />Repair selected gaps<\/button>/)
     assert.match(pipeline, /repairActionId\.value = crypto\.randomUUID\(\)/)
     assert.match(pipeline, /repair_missing: true, action_id: repairActionId\.value/)
-    assert.match(pipeline, /force: repairMode\.value \? false : forceRerun\.value/)
+    assert.match(pipeline, /force: submittedRepair \? false : forceRerun\.value/)
     assert.match(pipeline, /one fresh attempt at the current live price/)
     assert.match(pipeline, /Valid completed outputs are kept/)
     assert.match(pipeline, /Start repair · may use credits/)

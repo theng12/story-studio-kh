@@ -14,10 +14,11 @@ import { readContentStoreCommerceState } from '../content-store/commerce-state.j
 import { createContentStoreRouter } from '../routes/content-store.js'
 import { setApiKey } from '../services/app-secrets-store.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
-import { installOwnedContentStoreRelease } from '../services/content-store-delivery.js'
+import { installOwnedContentStoreRelease, readContentStoreInstallOperation, startOwnedContentStoreReleaseInstall } from '../services/content-store-delivery.js'
 import * as projectManager from '../services/project-manager.js'
 import { useTempDataDir } from './_helpers.js'
 import { startMockGenStudioService, type MockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import { waitFor } from './_timing.js'
 
 const KEY = 'gsk_delivery_transaction'
 const ACCOUNT = 'acct_delivery_transaction'
@@ -260,6 +261,59 @@ test('binds the exact Formula→Topic→Recipe→Pastel→Impasto→Oil receipt 
       archive_sha256: state.packs[component.packId]!.versions[component.version]!.archive_sha256,
     })),
   )
+})
+
+test('coalesces repeated async starts into one signed delivery and retains its terminal proof for monitoring', async () => {
+  await setupClosure()
+  const first = startOwnedContentStoreReleaseInstall(`release-${ROOT.productId}`)
+  const repeated = startOwnedContentStoreReleaseInstall(`release-${ROOT.productId}`)
+  assert.equal(repeated.operationId, first.operationId)
+  await waitFor(() => ['complete', 'failed'].includes(readContentStoreInstallOperation(first.operationId)?.phase ?? ''), {
+    label: 'async Content Store install terminal state', timeoutMs: 5_000,
+  })
+  const final = readContentStoreInstallOperation(first.operationId)
+  assert.equal(final?.phase, 'complete')
+  assert.equal(final?.install?.pack_id, ROOT.packId)
+  assert.equal((await readContentPackState()).packs[ROOT.packId]?.active_version, ROOT.version)
+})
+
+test('records an async compatibility refusal without downloading or mutating the Content Pack state', async () => {
+  await setupClosure({ appVersion: '1.4.31' })
+  const before = await readContentPackState()
+  const archiveGetsBefore = mock!.contentArchiveGetCount
+  const operation = startOwnedContentStoreReleaseInstall(`release-${ROOT.productId}`, { appVersion: '1.4.31' })
+  await waitFor(() => readContentStoreInstallOperation(operation.operationId)?.phase === 'failed', {
+    label: 'async compatibility refusal', timeoutMs: 5_000,
+  })
+  const final = readContentStoreInstallOperation(operation.operationId)
+  assert.equal(final?.phase, 'failed')
+  assert.equal(mock!.contentArchiveGetCount, archiveGetsBefore)
+  assert.deepEqual(await readContentPackState(), before)
+})
+
+test('keeps an async install monitor terminal when its failure projector throws', async () => {
+  await setupClosure({ appVersion: '1.4.31' })
+  const operation = startOwnedContentStoreReleaseInstall(`release-${ROOT.productId}`, { appVersion: '1.4.31' }, {
+    presentFailure: () => { throw new Error('test-only failure projection error') },
+  })
+  await waitFor(() => readContentStoreInstallOperation(operation.operationId)?.phase === 'failed', {
+    label: 'async install after failure projection error', timeoutMs: 5_000,
+  })
+  assert.deepEqual(readContentStoreInstallOperation(operation.operationId)?.failure, {
+    code: 'CONTENT_STORE_UPSTREAM_REFUSED', detail: 'GenStudio could not complete this Content Store install.',
+  })
+})
+
+test('keeps activation unchanged when an async delivery reaches a mismatched signed dependency receipt', async () => {
+  const closure = await setupClosure()
+  const before = activationSnapshot(await readContentPackState())
+  ;(closure.dep3.current_release as Record<string, unknown>).archive_sha256 = 'f'.repeat(64)
+  const operation = startOwnedContentStoreReleaseInstall(`release-${ROOT.productId}`)
+  await waitFor(() => readContentStoreInstallOperation(operation.operationId)?.phase === 'failed', {
+    label: 'async signed dependency refusal', timeoutMs: 5_000,
+  })
+  assert.equal(readContentStoreInstallOperation(operation.operationId)?.phase, 'failed')
+  assert.deepEqual(activationSnapshot(await readContentPackState()), before)
 })
 
 test('returns CONTENT_PACK_REQUIRES_NEWER_APP before the exact root downloads or mutates project/runtime state', async () => {

@@ -10,7 +10,9 @@ import {
 } from '../services/content-store.js'
 import {
   installOwnedContentStoreRelease,
+  readContentStoreInstallOperation,
   restoreContentStoreOwnership,
+  startOwnedContentStoreReleaseInstall,
 } from '../services/content-store-delivery.js'
 import { GenStudioContentStoreApiError, GenStudioContentStoreLimitError } from '../lib/genstudio-content-store.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -70,13 +72,13 @@ function emptyBody(value: unknown): void {
   }
 }
 
-function upstreamFailure(res: Response, error: GenStudioContentStoreApiError, requiredScope: 'content:read' | 'content:purchase'): void {
+type ContentStoreFailure = { status: number; body: Record<string, unknown> }
+
+function upstreamFailure(error: GenStudioContentStoreApiError, requiredScope: 'content:read' | 'content:purchase'): ContentStoreFailure {
   if (error.status === 401) {
-    res.status(401).json({
-      code: 'CONTENT_STORE_SCOPE_REQUIRED',
-      detail: `The active GenStudio key was not accepted for required ${requiredScope} access.`,
-    })
-    return
+    return { status: 401, body: {
+      code: 'CONTENT_STORE_SCOPE_REQUIRED', detail: `The active GenStudio key was not accepted for required ${requiredScope} access.`,
+    } }
   }
   const safeRefusals: Record<string, string> = {
     already_owned: 'This GenStudio account already owns this content.',
@@ -95,11 +97,10 @@ function upstreamFailure(res: Response, error: GenStudioContentStoreApiError, re
   }
   const safeDetail = error.code ? safeRefusals[error.code] : undefined
   if (!safeDetail) {
-    res.status(502).json({
+    return { status: 502, body: {
       code: 'CONTENT_STORE_UPSTREAM_REFUSED',
       detail: 'GenStudio refused this Content Store request without a recognized public reason.',
-    })
-    return
+    } }
   }
   const credits = error.status === 402 ? {
     required_credits: error.refusal.required_credits,
@@ -111,47 +112,40 @@ function upstreamFailure(res: Response, error: GenStudioContentStoreApiError, re
     recalled_at: typeof error.refusal.recalled_at === 'string' ? error.refusal.recalled_at : null,
     terminal: true,
   } : {}
-  res.status(error.status).json({ code: error.code, detail: safeDetail, ...credits, ...recall })
+  return { status: error.status, body: { code: error.code, detail: safeDetail, ...credits, ...recall } }
 }
 
-function localFailure(res: Response, error: ContentStoreLocalError): void {
+function localFailure(error: ContentStoreLocalError): ContentStoreFailure {
   if (error.code === 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN') {
-    res.status(502).json({ code: error.code, detail: error.message, status: 'uncertain' })
-    return
+    return { status: 502, body: { code: error.code, detail: error.message, status: 'uncertain' } }
   }
   if (error.code === 'CONTENT_PURCHASE_NOT_SENT') {
-    res.status(502).json({ code: error.code, detail: error.message, status: 'quoted' })
-    return
+    return { status: 502, body: { code: error.code, detail: error.message, status: 'quoted' } }
   }
-  res.status(error.status).json({
+  return { status: error.status, body: {
     code: error.code,
     detail: error.message,
     ...(error.code === 'release_recalled' ? { terminal: true } : {}),
     ...(error.attempt ? { attempt: error.attempt } : {}),
-  })
+  } }
 }
 
-function handleFailure(
-  res: Response,
+function projectFailure(
   error: unknown,
   fallback: string,
   requiredScope: 'content:read' | 'content:purchase',
-): void {
+): ContentStoreFailure {
   if (error instanceof ContentStoreUpstreamRefusal) {
-    res.status(error.status).json({ ...error.refusal, status: error.attempt.status })
-    return
+    return { status: error.status, body: { ...error.refusal, status: error.attempt.status } }
   }
   if (error instanceof GenStudioContentStoreApiError) {
-    upstreamFailure(res, error, requiredScope)
-    return
+    return upstreamFailure(error, requiredScope)
   }
   if (error instanceof ContentStoreLocalError) {
-    localFailure(res, error)
-    return
+    return localFailure(error)
   }
   if (error instanceof z.ZodError) {
-    res.status(400).json({ code: 'CONTENT_STORE_REQUEST_INVALID', detail: 'Content Store request fields are invalid.' })
-    return
+    return { status: 400, body: { code: 'CONTENT_STORE_REQUEST_INVALID', detail: 'Content Store request fields are invalid.' } }
   }
   // A size refusal is the one unexpected failure whose cause is fully safe to
   // repeat: it names a limit and an endpoint, and nothing else. It used to fall
@@ -163,8 +157,7 @@ function handleFailure(
       fallback,
       raw: redactSecrets(error.message),
     })
-    res.status(502).json({ code: error.code, detail: error.message })
-    return
+    return { status: 502, body: { code: error.code, detail: error.message } }
   }
   // The commerce journal and client carry paths and signed evidence internally,
   // so the RESPONSE stays the generic fallback -- none of that reaches the
@@ -184,7 +177,17 @@ function handleFailure(
     code: (error as { code?: unknown })?.code,
     stack: redactSecrets(String((error as { stack?: unknown })?.stack ?? '')),
   })
-  res.status(500).json(humanizeBackendError(new Error(fallback), fallback))
+  return { status: 500, body: { ...humanizeBackendError(new Error(fallback), fallback) } }
+}
+
+function handleFailure(
+  res: Response,
+  error: unknown,
+  fallback: string,
+  requiredScope: 'content:read' | 'content:purchase',
+): void {
+  const projected = projectFailure(error, fallback, requiredScope)
+  res.status(projected.status).json(projected.body)
 }
 
 router.get('/content-store', async (_req, res) => {
@@ -210,9 +213,35 @@ router.post('/content-store/releases/:releaseId/install', async (req, res) => {
     // `?overview=0`: the install queue asks for the install alone and refreshes
     // the overview once for the whole batch.
     const overview = firstParam(req.query.overview as string | string[] | undefined) !== '0'
+    if (firstParam(req.query.async as string | string[] | undefined) === '1') {
+      res.status(202).json({ operation: startOwnedContentStoreReleaseInstall(
+        OPAQUE_ID.parse(firstParam(req.params.releaseId)), options,
+        { presentFailure: error => {
+          const failure = projectFailure(error, 'Failed to install the owned Content Pack.', 'content:read').body
+          return {
+            code: typeof failure.code === 'string' ? failure.code : 'CONTENT_STORE_UPSTREAM_REFUSED',
+            detail: typeof failure.detail === 'string' ? failure.detail : 'This Content Pack could not be installed.',
+          }
+        } },
+      ) })
+      return
+    }
     res.json(await installOwnedContentStoreRelease(OPAQUE_ID.parse(firstParam(req.params.releaseId)), options, { overview }))
   } catch (error) {
     handleFailure(res, error, 'Failed to install the owned Content Pack.', 'content:read')
+  }
+})
+
+router.get('/content-store/installs/:operationId', (req, res) => {
+  try {
+    const operation = readContentStoreInstallOperation(OPAQUE_ID.parse(firstParam(req.params.operationId)))
+    if (!operation) {
+      res.status(404).json({ code: 'CONTENT_STORE_INSTALL_NOT_FOUND', detail: 'This Content Store install is no longer available to monitor.' })
+      return
+    }
+    res.json({ operation })
+  } catch (error) {
+    handleFailure(res, error, 'Failed to read Content Store install progress.', 'content:read')
   }
 })
 

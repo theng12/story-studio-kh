@@ -40,6 +40,7 @@ import { getGenStudioUrl } from './app-settings.js'
 import { ContentStoreLocalError, loadContentStoreOverview, type ContentStoreOverview } from './content-store.js'
 import { reconcileContentStoreRecalledVersions } from './content-store-install-state.js'
 import { compareVersionStrings } from '../content-packs/version-order.js'
+import { randomUUID } from 'crypto'
 
 const STORY_CONTENT_PACK_MAX_BYTES = 50 * 1024 * 1024
 const trustRevalidations = new Map<string, Promise<void>>()
@@ -47,6 +48,44 @@ const trustRevalidations = new Map<string, Promise<void>>()
 export interface ContentStoreInstallResponse {
   install: ContentPackInstallResult
   overview: ContentStoreOverview | null
+}
+
+export type ContentStoreInstallPhase = 'queued' | 'downloading' | 'verifying' | 'installing' | 'complete' | 'failed'
+export type ContentStoreInstallProgressReporter = (progress: {
+  phase: ContentStoreInstallPhase
+  downloadedBytes?: number | null
+  totalBytes?: number | null
+}) => void
+
+export interface ContentStoreInstallOperation {
+  operationId: string
+  releaseId: string
+  phase: ContentStoreInstallPhase
+  downloadedBytes: number | null
+  totalBytes: number | null
+  failure: { code: string; detail: string } | null
+  install: ContentPackInstallResult | null
+  updatedAt: string
+}
+
+const INSTALL_OPERATION_RETENTION_MS = 15 * 60 * 1000
+const installOperations = new Map<string, ContentStoreInstallOperation>()
+const activeInstallOperationsByRelease = new Map<string, string>()
+
+function pruneInstallOperations(now = Date.now()): void {
+  for (const [id, operation] of installOperations) {
+    if (!['complete', 'failed'].includes(operation.phase)) continue
+    if (now - Date.parse(operation.updatedAt) > INSTALL_OPERATION_RETENTION_MS) installOperations.delete(id)
+  }
+}
+
+function updateInstallOperation(
+  operationId: string,
+  update: Partial<Omit<ContentStoreInstallOperation, 'operationId' | 'releaseId' | 'updatedAt'>>,
+): void {
+  const current = installOperations.get(operationId)
+  if (!current) return
+  installOperations.set(operationId, { ...current, ...update, updatedAt: new Date().toISOString() })
 }
 
 async function activeKey(): Promise<string> {
@@ -208,6 +247,7 @@ interface DeliveryContext {
   visiting: Set<string>
   releaseHistories: Map<string, GenStudioOwnedContentReleases>
   appVersion: string
+  progress?: ContentStoreInstallProgressReporter
 }
 
 export interface ContentStoreDeliveryOptions {
@@ -557,11 +597,13 @@ async function installOwnedEntitlement(
       archiveSha256: release.archiveSha256,
       archiveBytes: release.archiveBytes,
     })
+    context.progress?.({ phase: 'downloading', downloadedBytes: 0, totalBytes: release.archiveBytes })
     const archiveBytes = await downloadGenStudioContentArchive(grant.downloadUrl, {
       archiveSha256: release.archiveSha256,
       archiveBytes: release.archiveBytes,
-    })
+    }, progress => context.progress?.({ phase: 'downloading', ...progress }))
     let evidence = deliveryAttestation(context, entitlement, release)
+    context.progress?.({ phase: 'verifying', downloadedBytes: null, totalBytes: null })
     const verified = await verifyDeliveryAttestedContentPackArchive(archiveBytes)
     if (verified.manifest.pack_id !== release.packId || verified.manifest.version !== release.version) {
       throw new ContentStoreLocalError(409, 'CONTENT_PACK_REMOTE_IDENTITY_MISMATCH', 'The downloaded signed pack identity does not match the owned release.')
@@ -571,6 +613,7 @@ async function installOwnedEntitlement(
       const ownedDependency = await resolveOwnedContentStoreDependency(context, dependency.pack_id, dependency.version)
       await installOwnedEntitlement(ownedDependency.entitlement, ownedDependency.release, context)
     }
+    context.progress?.({ phase: 'installing', downloadedBytes: null, totalBytes: null })
     const installed = await installContentPackLocked({
       archiveBytes,
       // model-drift-allow: Persisted Content Pack provenance discriminator, not a GenStudio catalog product ID.
@@ -624,7 +667,7 @@ export async function installOwnedContentStoreRelease(
    * and a queue installing 125 packs paid it 125 times. The queue refreshes
    * once when it drains; a single Install still gets the overview back.
    */
-  response: { overview?: boolean } = {},
+  response: { overview?: boolean; progress?: ContentStoreInstallProgressReporter } = {},
 ): Promise<ContentStoreInstallResponse> {
   const verified = await fetchVerifiedOwnership()
   await reconcileRecalledContentStoreReleases(verified)
@@ -642,10 +685,67 @@ export async function installOwnedContentStoreRelease(
     visiting: new Set(),
     releaseHistories: new Map(),
     appVersion: options.appVersion ?? await resolveContentPackAppVersion(),
+    progress: response.progress,
   }
   const install = await withContentPackCoordinationLock(paths, async () => {
     await installOwnedEntitlement(entitlement, release, context)
     return activateOwnedDeliveryClosure(release, context)
   })
   return { install, overview: response.overview === false ? null : await loadContentStoreOverview() }
+}
+
+/**
+ * Starts the exact same signed delivery path in the background so a shared UI
+ * queue can report observed archive bytes and verification phases. This record
+ * is deliberately process-local: delivery itself is not resumable across an
+ * app restart, and no unverified install state is written to disk.
+ */
+export function startOwnedContentStoreReleaseInstall(
+  releaseId: string,
+  options: ContentStoreDeliveryOptions = {},
+  operationOptions: { presentFailure?: (error: unknown) => { code: string; detail: string } } = {},
+): ContentStoreInstallOperation {
+  pruneInstallOperations()
+  const activeId = activeInstallOperationsByRelease.get(releaseId)
+  if (activeId) {
+    const active = installOperations.get(activeId)
+    if (active && !['complete', 'failed'].includes(active.phase)) return active
+    activeInstallOperationsByRelease.delete(releaseId)
+  }
+  const operation: ContentStoreInstallOperation = {
+    operationId: randomUUID(), releaseId, phase: 'queued',
+    downloadedBytes: null, totalBytes: null, failure: null, install: null,
+    updatedAt: new Date().toISOString(),
+  }
+  installOperations.set(operation.operationId, operation)
+  activeInstallOperationsByRelease.set(releaseId, operation.operationId)
+  void installOwnedContentStoreRelease(releaseId, options, { overview: false, progress: progress => {
+    updateInstallOperation(operation.operationId, {
+      phase: progress.phase,
+      ...(progress.downloadedBytes !== undefined ? { downloadedBytes: progress.downloadedBytes } : {}),
+      ...(progress.totalBytes !== undefined ? { totalBytes: progress.totalBytes } : {}),
+    })
+  } }).then(result => {
+    updateInstallOperation(operation.operationId, {
+      phase: 'complete', downloadedBytes: null, totalBytes: null, install: result.install,
+    })
+    if (activeInstallOperationsByRelease.get(releaseId) === operation.operationId) activeInstallOperationsByRelease.delete(releaseId)
+  }).catch(error => {
+    const fallbackFailure = {
+      code: 'CONTENT_STORE_UPSTREAM_REFUSED', detail: 'GenStudio could not complete this Content Store install.',
+    }
+    let failure = fallbackFailure
+    try { failure = operationOptions.presentFailure?.(error) ?? fallbackFailure } catch { /* monitoring must still reach a terminal state */ }
+    updateInstallOperation(operation.operationId, {
+      phase: 'failed', downloadedBytes: null, totalBytes: null,
+      failure,
+    })
+    if (activeInstallOperationsByRelease.get(releaseId) === operation.operationId) activeInstallOperationsByRelease.delete(releaseId)
+  })
+  return operation
+}
+
+export function readContentStoreInstallOperation(operationId: string): ContentStoreInstallOperation | null {
+  pruneInstallOperations()
+  return installOperations.get(operationId) ?? null
 }

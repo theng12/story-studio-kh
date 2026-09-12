@@ -21,7 +21,7 @@ import { buildContinuityConfig, defaultContinuityConfig, writeContinuityConfig }
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
+import { createProjectFactsCache, resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import {
   autoCompleteResearchReview,
@@ -504,6 +504,8 @@ async function preflightBatch(
   const warnings: string[] = []
   const config = await pm.getConfig(slug)
   if (!config) throw new Error('Project config missing')
+  const projectFacts = createProjectFactsCache(slug)
+  projectFacts.config = Promise.resolve(config)
 
   const ideas = await im.getIdeas(slug, 'accepted')
   const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
@@ -607,7 +609,7 @@ async function preflightBatch(
     const visualSettings = visualSettingsByEpisode.get(episodeId)
     if (!ideaByCode.has(episodeId) || !visualSettings) continue
     const episodeSteps = applicablePipelineStepsForVisualSource(steps, visualSettings.visual_source).applicable
-    const status = await computeEpisodeStatus(slug, episodeId)
+    const status = await computeEpisodeStatus(slug, episodeId, ideas, projectFacts)
     const available = new Set<BatchStep>()
     for (const step of VALID_STEPS) {
       if (isStepAlreadyDone(status, step, effectiveFormat)) available.add(step)

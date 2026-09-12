@@ -2429,6 +2429,10 @@ export async function refreshGenStudioAdmission(apiKey: string) {
   return genStudioAdmission.refreshNow(apiKey)
 }
 
+export async function getGenStudioAdmissionSnapshot(apiKey: string) {
+  return genStudioAdmission.currentSnapshot(apiKey)
+}
+
 function queueStateForJob(job: GenStudioJob): GenStudioQueueState {
   if (job.state === 'succeeded') return 'succeeded'
   if (job.state === 'failed') return 'failed'

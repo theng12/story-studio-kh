@@ -1,8 +1,9 @@
 /**
- * The endpoint the header badge actually polls, exercised end to end.
+ * The account endpoints exercised end to end.
  *
- * `GET /api/app-settings/genstudio/usage` is where `GenStudio Unavailable`
- * comes from: the badge empties itself whenever this route fails. It used to
+ * `GET /api/app-settings/genstudio/overview` is what the header badge polls.
+ * It used to poll the larger `/usage` route and fetch two unused history pages
+ * every 30 seconds. The shared overview path also used to
  * fail for three separate reasons that all looked identical to the user — one
  * slow overview read, one 502 overview read, or a settlement-history read that
  * failed while the balance itself was perfectly readable. None of them mean the
@@ -67,6 +68,23 @@ function upstream(overview: Array<'ok' | 'timeout' | 'gateway'>, history: 'ok' |
   }) as typeof globalThis.fetch
   return () => attempts
 }
+
+test('the header overview route never fetches settlement history', async () => {
+  clearCache()
+  const paths: string[] = []
+  globalThis.fetch = (async (input: any) => {
+    const url = String(input?.url ?? input)
+    paths.push(url)
+    if (url.includes('/v1/account/overview')) return Response.json(OVERVIEW)
+    throw new Error(`Unexpected history request: ${url}`)
+  }) as typeof globalThis.fetch
+
+  const response = await request(app).get('/api/app-settings/genstudio/overview').expect(200)
+  assert.equal(response.body.overview.credit_balance, 4_210)
+  assert.equal(paths.filter(url => url.includes('/v1/account/overview')).length, 1)
+  assert.equal(paths.some(url => url.includes('/v1/account/jobs')), false)
+  assert.equal(paths.some(url => url.includes('/v1/account/credit-activity')), false)
+})
 
 test('a transient balance failure answers 200 with the balance — the badge never flips', async () => {
   clearCache()
