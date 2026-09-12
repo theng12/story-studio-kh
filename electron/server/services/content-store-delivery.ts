@@ -46,7 +46,7 @@ const trustRevalidations = new Map<string, Promise<void>>()
 
 export interface ContentStoreInstallResponse {
   install: ContentPackInstallResult
-  overview: ContentStoreOverview
+  overview: ContentStoreOverview | null
 }
 
 async function activeKey(): Promise<string> {
@@ -617,6 +617,14 @@ async function activateOwnedDeliveryClosure(
 export async function installOwnedContentStoreRelease(
   releaseId: string,
   options: ContentStoreDeliveryOptions = {},
+  /**
+   * `overview: false` skips rebuilding the whole Store overview after the
+   * install. Rebuilding is four GenStudio round trips plus a verification sweep
+   * of every installed pack — ~5 s of a 14 s install (measured 2026-09-12) —
+   * and a queue installing 125 packs paid it 125 times. The queue refreshes
+   * once when it drains; a single Install still gets the overview back.
+   */
+  response: { overview?: boolean } = {},
 ): Promise<ContentStoreInstallResponse> {
   const verified = await fetchVerifiedOwnership()
   await reconcileRecalledContentStoreReleases(verified)
@@ -639,5 +647,5 @@ export async function installOwnedContentStoreRelease(
     await installOwnedEntitlement(entitlement, release, context)
     return activateOwnedDeliveryClosure(release, context)
   })
-  return { install, overview: await loadContentStoreOverview() }
+  return { install, overview: response.overview === false ? null : await loadContentStoreOverview() }
 }

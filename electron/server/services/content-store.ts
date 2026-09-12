@@ -579,10 +579,12 @@ async function localAttempts(
 export async function loadContentStoreOverview(): Promise<ContentStoreOverview> {
   const apiKey = await activeKey()
   await recoverInterruptedContentPurchases()
-  let account: GenStudioContentAccount
-  try {
-    account = await getGenStudioContentAccount(apiKey)
-  } catch (error) {
+  const storyVersion = await resolveStoryStudioVersion()
+  // Account, catalog and receipts depend only on the key, so they are asked
+  // for together; shelves need the catalog's product ids and follow it. The
+  // four used to run one after another — the live overview took 4.7 s warm and
+  // 13 s cold (2026-09-12), most of it waiting on GenStudio in series.
+  const accountRequest = getGenStudioContentAccount(apiKey).catch((error: unknown) => {
     if (error instanceof GenStudioContentStoreApiError && error.status === 401) {
       throw new ContentStoreLocalError(
         401,
@@ -591,13 +593,19 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
       )
     }
     throw error
-  }
-  const storyVersion = await resolveStoryStudioVersion()
-  const catalog = await listGenStudioContentProducts(apiKey, storyVersion)
-  const [shelfResponse, receipts] = await Promise.all([
-    listGenStudioContentStoreShelves(apiKey, storyVersion, catalog.products.map(product => product.productId)),
-    getGenStudioContentReceipts(apiKey),
-  ])
+  })
+  const catalogRequest = listGenStudioContentProducts(apiKey, storyVersion)
+  const shelvesRequest = catalogRequest.then(catalog =>
+    listGenStudioContentStoreShelves(apiKey, storyVersion, catalog.products.map(product => product.productId)))
+  const receiptsRequest = getGenStudioContentReceipts(apiKey)
+  // Settle every request so a rejection cannot leave a sibling dangling as an
+  // unhandled rejection; the account's refusal keeps precedence, as before.
+  const settled = await Promise.allSettled([accountRequest, catalogRequest, receiptsRequest, shelvesRequest])
+  for (const outcome of settled) if (outcome.status === 'rejected') throw outcome.reason
+  const account: GenStudioContentAccount = (settled[0] as PromiseFulfilledResult<GenStudioContentAccount>).value
+  const catalog = (settled[1] as PromiseFulfilledResult<Awaited<typeof catalogRequest>>).value
+  const receipts = (settled[2] as PromiseFulfilledResult<Awaited<typeof receiptsRequest>>).value
+  const shelfResponse = (settled[3] as PromiseFulfilledResult<Awaited<typeof shelvesRequest>>).value
   if (receipts.accountId !== account.accountId || receipts.contentAccountId !== account.contentAccountId) {
     throw new ContentStoreLocalError(
       409,

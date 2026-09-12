@@ -118,6 +118,12 @@ export interface ProjectFactsCache {
    * whenever two share a prefix (`EP0001` vs `EP00012`).
    */
   episodeDirs?: { root: string; index: Promise<Array<{ upper: string; path: string }>> }
+  /**
+   * The Library's Exports root, resolved once per request. Reading it means
+   * parsing app-settings.json (570 KB on the owner's Mac, ~1.4 ms of main-thread
+   * CPU); the Upload Center listing asked for it once per episode, 302 times.
+   */
+  externalFinalVideoRoot?: Promise<string>
 }
 
 export function createProjectFactsCache(slug?: string): ProjectFactsCache {
@@ -131,6 +137,10 @@ function usableFor(cache: ProjectFactsCache | undefined, slug: string): ProjectF
 }
 
 /** The parsed `project.json`, read at most once per cache. */
+export async function projectMetaOnce(slug: string, cache?: ProjectFactsCache): Promise<any> {
+  return projectMeta(slug, cache)
+}
+
 async function projectMeta(slug: string, cache?: ProjectFactsCache): Promise<any> {
   const scoped = usableFor(cache, slug)
   const read = async (): Promise<Record<string, unknown>> => {

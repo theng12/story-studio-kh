@@ -76,6 +76,46 @@ export async function isDecodableImage(filePath: string): Promise<boolean> {
   }
 }
 
+/**
+ * The decodable image's identity for cache-busting URLs: `size-mtime`, or null
+ * when the file is missing, empty or corrupt. Shares the validation cache, so a
+ * page that polls every few seconds stats each image once per poll and decodes
+ * it once per replacement. Scene Review keys `<img>` on this, so an unchanged
+ * image keeps its element and the browser keeps its bytes.
+ */
+/**
+ * The same answer when it can be given without decoding: the file is absent,
+ * or its size/mtime match an already verified decode. `pending` means a decode
+ * is needed — callers keep those to a small concurrency, because a decode is a
+ * full pixel pass in the app's main process.
+ */
+export async function peekDecodableImageSignature(
+  filePath: string,
+): Promise<{ state: 'missing' } | { state: 'known'; signature: string | null } | { state: 'pending' }> {
+  const stat = await fs.stat(filePath).catch(() => null)
+  if (!stat?.isFile() || stat.size <= 0) return { state: 'missing' }
+  const signature = `${stat.size}:${stat.mtimeMs}`
+  const cached = validationCache.get(filePath)
+  if (cached?.signature !== signature) return { state: 'pending' }
+  try {
+    await cached.result
+    return { state: 'known', signature: `${stat.size}-${Math.trunc(stat.mtimeMs)}` }
+  } catch {
+    return { state: 'known', signature: null }
+  }
+}
+
+export async function decodableImageSignature(filePath: string): Promise<string | null> {
+  const stat = await fs.stat(filePath).catch(() => null)
+  if (!stat?.isFile() || stat.size <= 0) return null
+  try {
+    await assertDecodableImage(filePath, path.basename(filePath))
+  } catch {
+    return null
+  }
+  return `${stat.size}-${Math.trunc(stat.mtimeMs)}`
+}
+
 export function clearImageValidationCache(filePath?: string): void {
   if (filePath) validationCache.delete(filePath)
   else validationCache.clear()

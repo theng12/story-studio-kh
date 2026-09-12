@@ -10,9 +10,11 @@
       only when every scene is approved (v1.0.145 wires the assembler
       gate).
 
-  Image cache busting: <img :key="imageKey(scene)"> includes the
-  page-level cacheBuster ref so a regen Refresh swaps the src without
-  the browser using a stale cached PNG.
+  Media freshness: every image, clip and audio URL carries that asset's own
+  `size-mtime` version from the review payload (`?v=`), and <img :key> is
+  keyed on it. A regenerated image gets a new version, so its element and
+  URL change and the browser fetches it; an unchanged image keeps both, so
+  a background refresh never restarts a thumbnail that did not move.
 -->
 <template>
   <div class="review-workspace workspace-page">
@@ -681,6 +683,10 @@ interface ReviewScene {
   motion_prompt?: string
   approved: boolean
   image_filename: string | null
+  /** `size-mtime` of the decodable image, or null. Keys and busts the thumbnail. */
+  image_version?: string | null
+  /** `size-mtime` of the animated clip, or null when there is none. */
+  clip_version?: string | null
   boundary_reason?: string
   /** v1.0.359 — image exists but was rendered from a different prompt than the
    *  current visual_prompt (re-prompted in Scene Plan / edited here without
@@ -865,7 +871,11 @@ const thumbAspect = computed(() => form.value.aspect_ratio.replace(':', ' / '))
 
 const audioEl = ref<HTMLAudioElement | null>(null)
 const currentTime = ref(0)
-const cacheBuster = ref(Date.now())
+/** `size-mtime` of the merged audio from the review payload; changes only on re-merge. */
+const audioVersion = ref<string | null>(null)
+function mediaVersion(version: string | null | undefined): string {
+  return encodeURIComponent(version || '0')
+}
 
 // ── v1.0.470 — image-to-video (Animate) state ───────────────────────────────
 const videoModel = ref('')
@@ -884,7 +894,7 @@ watch(i2vModels, (list) => {
   if (!videoModel.value && list.length) videoModel.value = list[0]!.id
 }, { immediate: true })
 function clipUrl(scene: ReviewScene): string {
-  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/clip/${scene.id}?t=${cacheBuster.value}`
+  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/clip/${scene.id}?v=${mediaVersion(scene.clip_version)}`
 }
 function openClipPreview(scene: ReviewScene): void { clipPreviewScene.value = scene }
 
@@ -935,7 +945,7 @@ const bulkQueuing = computed(() => bulkQueuingEpisode.value === episodeId.value)
 // ── Computeds ───────────────────────────────────────────────────────
 const audioUrl = computed(() => {
   if (!audioPath.value || !episodeId.value) return ''
-  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/audio?t=${cacheBuster.value}`
+  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/audio?v=${mediaVersion(audioVersion.value)}`
 })
 const currentSceneId = computed(() => {
   const t = currentTime.value
@@ -1015,10 +1025,10 @@ const bulkStatus = computed(() => {
 })
 
 function imageUrl(scene: ReviewScene): string {
-  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/image/${scene.id}?t=${cacheBuster.value}`
+  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/image/${scene.id}?v=${mediaVersion(scene.image_version)}`
 }
 function imageKey(scene: ReviewScene): string {
-  return `${scene.id}:${cacheBuster.value}`
+  return `${scene.id}:${scene.image_version || ''}`
 }
 
 // ── Click-to-preview lightbox (v1.0.241) ────────────────────────────
@@ -1180,6 +1190,7 @@ async function loadReview(): Promise<void> {
       scene_plan: PlanMeta | null
       scenes: ReviewScene[]
       audio_path: string | null
+      audio_version?: string | null
       stats: ReviewStats | null
       render_status: RenderStatus | null
       active_render_job?: any | null
@@ -1192,6 +1203,7 @@ async function loadReview(): Promise<void> {
     plan.value = r.scene_plan
     scenes.value = r.scenes
     audioPath.value = r.audio_path
+    audioVersion.value = r.audio_version ?? null
     stats.value = r.stats
     visualSource.value = r.visual_source === 'image_pool' ? 'image_pool' : 'scene_plan'
     promptIntegrity.value = r.prompt_integrity || null
@@ -1308,7 +1320,6 @@ async function uploadOne(scene: ReviewScene): Promise<void> {
       })
       if (!current()) return
       success(`Uploaded image for scene ${scene.scene_index}`)
-      cacheBuster.value = Date.now()
       await loadReview()
     } catch (e: any) {
       if (current()) showError(e?.data?.detail || e?.message || 'Failed to upload image')
@@ -1345,7 +1356,6 @@ async function uploadClipOne(scene: ReviewScene): Promise<void> {
       }
       if (!current()) return
       success(`Uploaded clip for scene ${scene.scene_index}`)
-      cacheBuster.value = Date.now()
       await loadReview()
     } catch (e: any) {
       if (current()) showError(e?.message || 'Failed to upload clip')
@@ -1590,7 +1600,6 @@ async function runSceneRenderControl(job: any, control: any): Promise<void> {
   try {
     await post(`/projects/${slug.value}/jobs/${job.job_id}/${action}`, {})
     success(`${control.label} requested. ${control.reason}`)
-    cacheBuster.value = Date.now()
     await loadReview()
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || `Failed to ${control.label.toLowerCase()}`)
@@ -1615,18 +1624,37 @@ async function resumeActiveRender(): Promise<void> {
 }
 
 // Auto-refresh while a render is active so images land without a manual reload.
-let renderPollTimer: ReturnType<typeof setInterval> | null = null
-watch(isRendering, (active) => {
-  if (active && !renderPollTimer) {
-    renderPollTimer = setInterval(() => { cacheBuster.value = Date.now(); void loadReview() }, 3500)
-  } else if (!active && renderPollTimer) {
-    clearInterval(renderPollTimer)
+//
+// Single-flight: the next poll is armed only after the previous read settles.
+// A fixed interval kept firing while a 2–5 s read was still in flight, so the
+// server answered stale, overlapping reads and every tick re-fetched every
+// thumbnail. Per-asset versions (see imageKey) keep unchanged media in place.
+const RENDER_POLL_MS = 3500
+let renderPollTimer: ReturnType<typeof setTimeout> | null = null
+let renderPollActive = false
+function armRenderPoll(): void {
+  if (!renderPollActive || renderPollTimer) return
+  renderPollTimer = setTimeout(async () => {
     renderPollTimer = null
-    cacheBuster.value = Date.now()
+    if (!renderPollActive) return
+    try { await loadReview() } finally { armRenderPoll() }
+  }, RENDER_POLL_MS)
+}
+function stopRenderPoll(): void {
+  renderPollActive = false
+  if (renderPollTimer) clearTimeout(renderPollTimer)
+  renderPollTimer = null
+}
+watch(isRendering, (active) => {
+  if (active && !renderPollActive) {
+    renderPollActive = true
+    armRenderPoll()
+  } else if (!active && renderPollActive) {
+    stopRenderPoll()
     void loadReview()  // final refresh to pick up the last image
   }
 }, { immediate: true })
-onBeforeUnmount(() => { if (renderPollTimer) clearInterval(renderPollTimer) })
+onBeforeUnmount(stopRenderPoll)
 
 async function pollUntilImageReady(sceneId: string, ep: string, project: string, scope: number): Promise<void> {
   const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
@@ -1638,10 +1666,7 @@ async function pollUntilImageReady(sceneId: string, ep: string, project: string,
     await loadReview()
     if (!current()) return
     const found = scenes.value.find(s => s.id === sceneId)
-    if (found?.image_filename) {
-      cacheBuster.value = Date.now()  // force img reload
-      return
-    }
+    if (found?.image_filename) return  // its new image_version already re-keyed the <img>
   }
 }
 async function pollUntilAllPresent(ep: string, project: string, scope: number): Promise<void> {
@@ -1654,7 +1679,6 @@ async function pollUntilAllPresent(ep: string, project: string, scope: number): 
     await loadReview()
     if (!current()) return
     if (activeRenderJob.value?.status === 'paused') return
-    cacheBuster.value = Date.now()
     if (stats.value && stats.value.with_image >= stats.value.total_scenes) return
   }
 }

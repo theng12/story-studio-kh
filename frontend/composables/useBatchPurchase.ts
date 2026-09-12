@@ -222,5 +222,18 @@ export function useBatchPurchase(deps: BatchPurchaseDeps) {
     progress.value = { done: 0, total: 0 }
   }
 
-  return { items, phase, open, busy, progress, quoted, quotedTotal, start, confirmAll, retryFailed, close }
+  /**
+   * Hide the dialog while it keeps working. Settling is one signed quote at a
+   * time and each is safe to retry, so nothing is cancelled by looking away;
+   * the page keeps a strip with the running count until the batch is done.
+   */
+  function dismiss(): void {
+    open.value = false
+  }
+
+  function show(): void {
+    if (items.value.length) open.value = true
+  }
+
+  return { items, phase, open, busy, progress, quoted, quotedTotal, start, confirmAll, retryFailed, close, dismiss, show }
 }

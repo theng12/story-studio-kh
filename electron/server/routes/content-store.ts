@@ -207,7 +207,10 @@ router.post('/content-store/restore', async (req, res) => {
 router.post('/content-store/releases/:releaseId/install', async (req, res) => {
   try {
     emptyBody(req.body)
-    res.json(await installOwnedContentStoreRelease(OPAQUE_ID.parse(firstParam(req.params.releaseId)), options))
+    // `?overview=0`: the install queue asks for the install alone and refreshes
+    // the overview once for the whole batch.
+    const overview = firstParam(req.query.overview as string | string[] | undefined) !== '0'
+    res.json(await installOwnedContentStoreRelease(OPAQUE_ID.parse(firstParam(req.params.releaseId)), options, { overview }))
   } catch (error) {
     handleFailure(res, error, 'Failed to install the owned Content Pack.', 'content:read')
   }

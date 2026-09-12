@@ -12,8 +12,8 @@
       <div v-if="loading && catalogFreshness === 'unavailable'" class="store-state" aria-live="polite"><LoadingSpinner size="sm" /><p>Loading the GenStudio catalog…</p></div>
       <div v-else-if="catalogFreshness === 'unavailable'" class="store-state" role="status" aria-live="polite"><h2>Content Store is unavailable</h2><p>{{ pageError?.detail || 'Refresh the Store to try again.' }}</p><button type="button" class="btn btn-secondary" @click="refreshStore">Retry Content Store</button></div>
       <div v-else-if="catalogFreshness === 'fresh' && products.length === 0 && installed.length === 0" class="store-state" role="status"><h2>The Content Store is ready, but no packs have been published yet.</h2><p>Refresh later to see the catalog GenStudio publishes for this account.</p></div>
-      <template v-else-if="activeTab === 'discover'"><ContentStoreFilters :products="tabProducts" :query="query" :price="price" :kind="kind" :tag="tag" :compatible-only="compatibleOnly" @update:query="query = $event" @update:price="price = $event" @update:kind="kind = $event" @update:tag="tag = $event" @update:compatible-only="compatibleOnly = $event" /><div v-if="selectedForPurchase.length" class="selection-bar" role="status" aria-live="polite"><div class="selection-summary"><strong>{{ selectedForPurchase.length }} {{ selectedForPurchase.length === 1 ? 'pack' : 'packs' }} selected</strong><span>{{ selectionTotal === null ? 'Price not published for every pack' : `${formatCredits(selectionTotal)} credits before discount` }}</span></div><div class="selection-actions"><button type="button" class="btn btn-secondary" @click="clearSelection">Clear</button><button type="button" class="btn btn-primary" :disabled="networkActionsDisabled || !!batchQuoteBusy" @click="startBatchPurchase">{{ batchQuoteBusy ? `Quoting ${batchProgressLabel}…` : `See exact quotes (${selectedForPurchase.length})` }}</button></div></div>
-      <div v-if="visibleShelves.length" class="shelf-list"><ContentStoreShelf v-for="shelf in visibleShelves" :key="shelf.shelf.id" :shelf="shelf.shelf" :products="shelf.products" :account="account" :busy-product-id="quoteBusyProduct" :busy-release-id="installBusyRelease" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :selectable="true" :selected-product-ids="selectedProductIds" @quote="openQuote" @install="enqueueInstall" @toggle-select="toggleSelection" /></div><div v-else class="store-state" role="status">
+      <template v-else-if="activeTab === 'discover'"><ContentStoreFilters :products="tabProducts" :query="query" :price="price" :kind="kind" :tag="tag" :compatible-only="compatibleOnly" @update:query="query = $event" @update:price="price = $event" @update:kind="kind = $event" @update:tag="tag = $event" @update:compatible-only="compatibleOnly = $event" /><div v-if="ownershipResolved && purchasableVisible.length && !allPurchasableSelected" class="selection-tools"><button type="button" class="btn btn-secondary" :disabled="networkActionsDisabled" @click="selectAllPurchasable">Select all {{ purchasableVisible.length }} purchasable</button><span class="hint">Then buy them behind one confirmation.</span></div><div v-if="selectedForPurchase.length" class="selection-bar" role="status" aria-live="polite"><div class="selection-summary"><strong>{{ selectedForPurchase.length }} {{ selectedForPurchase.length === 1 ? 'pack' : 'packs' }} selected</strong><span>{{ selectionTotal === null ? 'Price not published for every pack' : `${formatCredits(selectionTotal)} credits before discount` }}</span></div><div class="selection-actions"><button type="button" class="btn btn-secondary" @click="clearSelection">Clear</button><button type="button" class="btn btn-primary" :disabled="networkActionsDisabled || !!batchQuoteBusy" @click="startBatchPurchase">{{ batchQuoteBusy ? `Quoting ${batchProgressLabel}…` : `See exact quotes (${selectedForPurchase.length})` }}</button></div></div>
+      <div v-if="visibleShelves.length" class="shelf-list"><ContentStoreShelf v-for="shelf in visibleShelves" :key="shelf.shelf.id" :shelf="shelf.shelf" :products="shelf.products" :account="account" :busy-product-id="quoteBusyProduct" :busy-release-id="installBusyRelease" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :selectable="true" :selected-product-ids="selectedProductIds" :queue-status="installQueue.statusOf" @quote="openQuote" @install="enqueueInstall" @toggle-select="toggleSelection" /></div><div v-else class="store-state" role="status">
         <template v-if="discoverEmptyReason === 'filters'"><h2>No published products match these filters</h2><p>Clear a filter or try another catalog search.</p><button type="button" class="btn btn-secondary" @click="clearFilters">Clear filters</button></template>
         <template v-else-if="discoverEmptyReason === 'all-owned'"><h2>You already own every published pack</h2><p>Every pack GenStudio publishes for this account is already permanently owned. Open Owned to install them on this Mac.</p><button type="button" class="btn btn-secondary" @click="showOwnedTab">Go to Owned</button></template>
         <template v-else-if="discoverEmptyReason === 'nothing-published'"><h2>No packs are published yet</h2><p>GenStudio has not published anything for this account to own. Refresh the store later to see the catalog it publishes.</p></template>
@@ -24,9 +24,10 @@
       <ContentLibraryView v-else heading-id="updates-library-heading" title="Updates" description="Installed packs with a newer safe release ready for an explicit update." :products="updateProducts" :account="account" empty-title="No updates available" empty-description="Your installed Content Store packs are up to date." :busy-product-id="quoteBusyProduct" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :show-install-all="true" :queue-status="installQueue.statusOf" @quote="openQuote" @install="enqueueInstall" @install-many="enqueueInstalls" />
       <section v-if="completedAttempts.length" class="ownership-history" aria-labelledby="ownership-heading"><h2 id="ownership-heading">Recent permanent ownership</h2><ul><li v-for="attempt in completedAttempts" :key="attempt.quote_id"><span>{{ productTitle(attempt.product_id) }}</span><span>Owned in GenStudio · install explicitly from the Owned shelf</span><span>{{ attempt.credits_charged === undefined ? 'Charge not stated by GenStudio' : `${formatCredits(attempt.credits_charged)} credits charged` }}</span></li></ul><p v-if="hasVerifiedOwnership">Ownership receipts are verified locally against GenStudio's published signing key.</p><p v-else>Use Restore purchases to verify this account's ownership receipts on this Mac.</p></section>
     </main>
-    <div v-if="installQueue.running.value || installQueue.failedCount.value" class="install-queue-strip" role="status" aria-live="polite"><span v-if="installQueue.running.value">Installing — {{ installQueue.pendingCount.value }} left in the queue</span><span v-else>{{ installQueue.failedCount.value }} install(s) failed. Open the pack and try again.</span><button v-if="!installQueue.running.value" type="button" class="notice-action" @click="installQueue.clearFinished()">Dismiss</button></div>
+    <div v-if="installQueue.running.value || installQueue.finished.value" class="install-queue-strip" role="status" aria-live="polite"><span v-if="installQueue.running.value">Installing {{ installQueue.batchDone.value }} of {{ installQueue.batchTotal.value }}<template v-if="installQueue.batchFailed.value"> · {{ installQueue.batchFailed.value }} failed</template><template v-if="installQueue.activeTitle.value"> · now: {{ installQueue.activeTitle.value }}</template>. You can leave this page; installs continue.</span><span v-else>Installs finished — {{ installQueue.batchInstalled.value }} installed<template v-if="installQueue.batchFailed.value">, {{ installQueue.batchFailed.value }} failed. Open the pack and try again.</template></span><button v-if="!installQueue.running.value" type="button" class="notice-action" @click="installQueue.clearFinished()">Dismiss</button><ul v-if="installQueue.failures.value.length" class="install-failures"><li v-for="failure in installQueue.failures.value" :key="failure.releaseId"><strong>{{ failure.title }}</strong> — {{ failure.detail }}</li></ul></div>
+    <div v-if="batchInBackground" class="install-queue-strip" role="status" aria-live="polite"><span v-if="batch.busy.value">{{ batch.phase.value === 'quoting' ? 'Quoting' : 'Buying' }} {{ batch.progress.value.done }} of {{ batch.progress.value.total }} in the background.</span><span v-else-if="batchSettledInBackground">Purchase finished — {{ batchBoughtCount }} now owned<template v-if="batchFailedCount">, {{ batchFailedCount }} not bought</template>.</span><span v-else>A purchase review is waiting.</span><button type="button" class="notice-action" @click="batch.show()">Show</button><button v-if="!batch.busy.value" type="button" class="notice-action" @click="closeBatchDialog">Done</button></div>
     <ContentPurchaseDialog :visible="dialogOpen" :attempt="selectedAttempt" :product="selectedProduct" :error="dialogError" :busy="purchaseBusy" @close="closeDialog" @confirm="confirmPurchase" @retry="confirmPurchase" />
-    <ContentBatchPurchaseDialog :visible="batch.open.value" :phase="batch.phase.value" :items="batch.items.value" :progress="batch.progress.value" :balance="contentSpendable" :selection-total="selectionTotal" :selected-count="batch.items.value.length" :busy="batch.busy.value" @close="closeBatchDialog" @confirm="confirmBatchPurchase" @retry-failed="batch.retryFailed" />
+    <ContentBatchPurchaseDialog :visible="batch.open.value" :phase="batch.phase.value" :items="batch.items.value" :progress="batch.progress.value" :balance="contentSpendable" :selection-total="selectionTotal" :selected-count="batch.items.value.length" :busy="batch.busy.value" @close="closeBatchDialog" @dismiss="batch.dismiss" @confirm="confirmBatchPurchase" @retry-failed="batch.retryFailed" />
   </div>
 </template>
 
@@ -38,9 +39,9 @@ import ContentLibraryView from '~/components/content-store/ContentLibraryView.vu
 import ContentInstalledLibraryView from '~/components/content-store/ContentInstalledLibraryView.vue'
 import ContentPurchaseDialog from '~/components/content-store/ContentPurchaseDialog.vue'
 import ContentBatchPurchaseDialog from '~/components/content-store/ContentBatchPurchaseDialog.vue'
-import { sumPublished, useBatchPurchase } from '~/composables/useBatchPurchase'
+import { batchSkipReason, sumPublished, useBatchPurchase } from '~/composables/useBatchPurchase'
 import { filterCatalogProducts, installedPackCount, orderShelfProducts, type ContentStoreKindFilter } from '~/content-store/catalog-presentation'
-import { useInstallQueue } from '~/composables/useInstallQueue'
+import { useContentInstallQueue } from '~/composables/useContentInstallQueue'
 import { contentStoreErrorPresentation, type ContentStoreProduct, type ContentStoreUiError, type PublicContentPurchaseAttempt } from '~/composables/useContentStore'
 
 useAppTitle('Content Store')
@@ -87,7 +88,8 @@ async function installRelease(releaseId: string): Promise<void> { if (networkAct
  * still correct -- what changes is that the customer no longer waits for one
  * before choosing the next.
  */
-const installQueue = useInstallQueue(releaseId => store.installRelease(releaseId))
+// App-wide: installs keep going and keep their counts after this page is left.
+const installQueue = useContentInstallQueue()
 function enqueueInstall(releaseId: string): void { if (networkActionsDisabled.value) return; installQueue.enqueue(releaseId) }
 function enqueueInstalls(releaseIds: string[]): void { if (networkActionsDisabled.value) return; installQueue.enqueueAll(releaseIds) }
 
@@ -115,12 +117,22 @@ const selectionTotal = computed(() => sumPublished(selectedForPurchase.value, pr
 const contentSpendable = computed<number | null>(() => account.value?.contentSpendableCredits ?? null)
 const batch = useBatchPurchase({
   quote: (productId, releaseId) => store.requestQuote(productId, releaseId),
-  confirm: quoteId => store.confirmPurchase(quoteId),
+  // One overview read after the whole batch, not one per pack (each read is
+  // several GenStudio round trips).
+  confirm: quoteId => store.confirmPurchase(quoteId, { refreshOverview: false }),
   lookup: productId => products.value.find(row => row.productId === productId),
   lastError: () => error.value,
 })
 const batchQuoteBusy = computed(() => batch.busy.value && batch.phase.value === 'quoting')
 const batchProgressLabel = computed(() => batch.progress.value.total ? `${batch.progress.value.done} of ${batch.progress.value.total}` : '')
+/** Every visible pack GenStudio would actually sell: not owned, not retired, compatible, with a release. */
+const purchasableVisible = computed(() => filteredProducts.value.filter(product => batchSkipReason(product) === null))
+const allPurchasableSelected = computed(() => purchasableVisible.value.length > 0 && purchasableVisible.value.every(product => selectedProductIds.value.includes(product.productId)))
+function selectAllPurchasable(): void {
+  const ids = new Set(selectedProductIds.value)
+  for (const product of purchasableVisible.value) ids.add(product.productId)
+  selectedProductIds.value = [...ids]
+}
 function toggleSelection(product: ContentStoreProduct): void {
   selectedProductIds.value = selectedProductIds.value.includes(product.productId)
     ? selectedProductIds.value.filter(id => id !== product.productId)
@@ -135,12 +147,21 @@ function startBatchPurchase(): void {
 async function confirmBatchPurchase(): Promise<void> {
   const bought = await batch.confirmAll()
   if (bought.length) selectedProductIds.value = selectedProductIds.value.filter(id => !bought.includes(id))
+  // Ownership is durable server-side; this read shows it on the Owned tab.
+  if (bought.length) await loadStore({ background: true })
 }
 async function closeBatchDialog(): Promise<void> {
-  if (batch.busy.value) return
+  // Still quoting or buying: hide it and keep going. The page strip carries
+  // the count and brings it back.
+  if (batch.busy.value) { batch.dismiss(); return }
   batch.close()
   await loadStore({ background: true })
 }
+/** The batch finished while hidden; its result is one click away, or gone. */
+const batchInBackground = computed(() => !batch.open.value && batch.items.value.length > 0)
+const batchSettledInBackground = computed(() => batchInBackground.value && !batch.busy.value && batch.phase.value === 'result')
+const batchBoughtCount = computed(() => batch.items.value.filter(item => item.outcome === 'owned').length)
+const batchFailedCount = computed(() => batch.items.value.filter(item => item.outcome === 'failed').length)
 
 // Buying exactly one pack, straight from its card, is unchanged: quote it, show
 // that pack's dialog, confirm it. The batch above is the several-at-once path,
@@ -200,7 +221,7 @@ onMounted(() => { void loadStore({ background: true }) })
    catalogue" is not a warning. It shares the panel but not the warning colour,
    which `.store-notice strong` would otherwise give every tone. */
 .store-notice.neutral strong { color: var(--text-primary); }.store-notice p { margin-top: 3px; color: var(--text-secondary); }.notice-action { margin-top: 8px; border: 0; background: transparent; color: var(--accent); cursor: pointer; font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
-.store-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 24px; padding: 5px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.store-tabs button { display: inline-flex; min-width: 0; min-height: var(--control-height-sm); align-items: center; gap: 7px; padding: 7px 10px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-weight: 650; overflow-wrap: anywhere; }.store-tabs button:focus-visible, .notice-action:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: none; }.store-tabs button[aria-selected='true'] { background: var(--accent-dim); color: var(--text-primary); }.store-tabs span { color: var(--accent); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }.store-content { display: grid; gap: 20px; margin-top: 18px; }.shelf-list { display: grid; gap: 28px; }
+.store-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 24px; padding: 5px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.store-tabs button { display: inline-flex; min-width: 0; min-height: var(--control-height-sm); align-items: center; gap: 7px; padding: 7px 10px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-weight: 650; overflow-wrap: anywhere; }.store-tabs button:focus-visible, .notice-action:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: none; }.store-tabs button[aria-selected='true'] { background: var(--accent-dim); color: var(--text-primary); }.store-tabs span { color: var(--accent); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }.store-content { display: grid; gap: 20px; margin-top: 18px; }.selection-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }.selection-tools .hint { color: var(--text-muted); font-size: var(--font-sm); }.install-failures { grid-column: 1 / -1; display: grid; gap: 4px; margin: 6px 0 0; padding-left: 18px; color: var(--text-secondary); font-size: var(--font-sm); }.shelf-list { display: grid; gap: 28px; }
 /* The selection bar and the install-queue strip are panels like `.store-notice`
    and `.account-strip`, and were being rendered with no rule at all: two bare
    inline runs with nothing between them, which is why the count and the credit

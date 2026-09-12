@@ -1126,6 +1126,193 @@ describe('Upload Center Publish', () => {
     failed.destroy()
   })
 
+  test('the review dialog opens on the click and can be closed before the server answers', async () => {
+    let resolvePreview!: (value: any) => void
+    const preview = new Promise(resolve => { resolvePreview = resolve })
+    const mounted = await mount({ episodes: [NEVER_UPLOADED], preview })
+    const review = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!
+    review.click()
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    // Visible before the preview resolves, saying what it is doing, with Close reachable.
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    assert.ok(dialog, 'the dialog opens before the preview request returns')
+    assert.equal(dialog.getAttribute('aria-labelledby'), 'upload-review-title')
+    assert.match(dialog.textContent || '', /building the exact metadata and checking the video file/)
+    assert.match(dialog.textContent || '', /Preparing this upload review/)
+    assert.equal((document.activeElement as HTMLElement)?.id, 'upload-review-title')
+    assert.equal([...dialog.querySelectorAll('button')].some(b => /Upload to YouTube/.test(b.textContent || '')), false)
+
+    // Close abandons the pending review; its late answer must not reopen it.
+    const close = [...dialog.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Close') as HTMLButtonElement
+    close.click()
+    for (let i = 0; i < 3; i++) await nextTick()
+    assert.equal(mounted.el.querySelector('[role="dialog"]'), null)
+    assert.equal(document.activeElement, review, 'closing restores the episode trigger')
+    resolvePreview(PREVIEWED)
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.equal(mounted.el.querySelector('[role="dialog"]'), null, 'a late preview does not reopen a dismissed review')
+    assert.doesNotMatch(mounted.text(), /What YouTube will receive/)
+    // The row is not left in a busy state either.
+    assert.equal((review as HTMLButtonElement).disabled, false)
+    mounted.destroy()
+
+    // Left open, the same dialog fills in with the payload and pins the Upload action.
+    let resolveSecond!: (value: any) => void
+    const second = new Promise(resolve => { resolveSecond = resolve })
+    const kept = await mount({ episodes: [NEVER_UPLOADED], preview: second })
+    ;[...kept.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review upload details')!.click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    resolveSecond(PREVIEWED)
+    for (let i = 0; i < 6; i++) await nextTick()
+    const filled = kept.el.querySelector('[role="dialog"]')!
+    assert.match(filled.textContent || '', /What YouTube will receive/)
+    assert.ok(filled.querySelector('header.review-head button'), 'Close lives in the pinned header')
+    assert.ok(filled.querySelector('footer.review-foot .upload-row button'), 'Upload lives in the pinned footer')
+    kept.destroy()
+  })
+
+  test('Upload acknowledges the queued job at once, reloads in the background, and withholds a second submission', async () => {
+    let resolveReload!: (value: any) => void
+    let publishableCalls = 0
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+      uploadResponse: { job_id: 'job-9', channel_id: 'UC-x' },
+      getOverride: (path: string) => {
+        if (path.endsWith('/publishable')) {
+          publishableCalls += 1
+          // The first load answers at once; the reload after Upload hangs
+          // until the test releases it, like a large project's sweep.
+          if (publishableCalls === 1) return { episodes: [NEVER_UPLOADED], total: 1 }
+          return new Promise(resolve => { resolveReload = resolve })
+        }
+        if (path.endsWith('/overview')) return {
+          assigned_channel: { channel_id: 'UC-x', title: 'Ch', status: 'connected' },
+          quota_unavailable_reason: null,
+          quota: { buckets: { other_endpoints: { remaining: 5000 }, video_uploads: { remaining: 100 } } },
+        }
+        return undefined
+      },
+    })
+    const upload = await previewThen(mounted)
+    upload.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 1)
+    assert.match(dialog.textContent || '', /Uploading EP0001 to UC-x\. Progress appears in Jobs\./)
+    assert.match(dialog.textContent || '', /Upload queued for EP0001/)
+    assert.equal(publishableCalls, 2, 'the list reload was started')
+    // Not waiting on the reload: no "Uploading…" button, no second Upload button either.
+    assert.equal([...dialog.querySelectorAll('button')].some(b => /Uploading…|Upload to YouTube/.test(b.textContent || '')), false)
+    const close = [...dialog.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Close') as HTMLButtonElement
+    assert.equal(close.disabled, false, 'Close stays available while the list reloads')
+
+    // Closing the review does not touch the queued upload; the row says so.
+    close.click()
+    for (let i = 0; i < 3; i++) await nextTick()
+    const row = mounted.el.querySelector('[data-episode-code="EP0001"]')!
+    assert.match(row.textContent || '', /Uploading EP0001 to UC-x\. Progress appears in Jobs\./)
+    assert.equal(row.querySelector('.episode-select'), null, 'a queued episode cannot be selected for another upload')
+    // Review stays open to read, but Upload is withheld until the reload confirms the job.
+    const reopen = [...row.querySelectorAll('button')].find(b => /Review upload details/.test(b.textContent || '')) as HTMLButtonElement
+    assert.equal(reopen.disabled, false)
+    reopen.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    const reopened = mounted.el.querySelector('[role="dialog"]')!
+    assert.match(reopened.textContent || '', /Upload queued for EP0001/)
+    assert.equal([...reopened.querySelectorAll('button')].some(b => /Upload to YouTube/.test(b.textContent || '')), false)
+    ;([...reopened.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Close') as HTMLButtonElement).click()
+    for (let i = 0; i < 3; i++) await nextTick()
+
+    // A reload that does NOT carry the job (job store unreadable, channel
+    // changed) keeps the marker: the server has no queue-time duplicate guard.
+    resolveReload({ episodes: [NEVER_UPLOADED], total: 1 })
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.equal(mounted.el.querySelector('[data-episode-code="EP0001"] .episode-select'), null, 'an unconfirmed reload does not re-offer the upload')
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 1)
+    mounted.destroy()
+
+    // A reload whose row shows the job replaces the marker with the server's view.
+    let confirmedLoads = 0
+    const confirmed = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+      uploadResponse: { job_id: 'job-9', channel_id: 'UC-x' },
+      getOverride: (path: string) => {
+        if (path.endsWith('/overview')) return {
+          assigned_channel: { channel_id: 'UC-x', title: 'Ch', status: 'connected' },
+          quota_unavailable_reason: null,
+          quota: { buckets: { other_endpoints: { remaining: 5000 }, video_uploads: { remaining: 100 } } },
+        }
+        if (!path.endsWith('/publishable')) return undefined
+        confirmedLoads += 1
+        if (confirmedLoads === 1) return { episodes: [NEVER_UPLOADED], total: 1 }
+        return { episodes: [{ ...NEVER_UPLOADED, local: { render: { state: 'ready' }, upload: { state: 'running', job_id: 'job-9' } } }], total: 1 }
+      },
+    })
+    const confirmedUpload = await previewThen(confirmed)
+    confirmedUpload.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+    const confirmedRow = confirmed.el.querySelector('[data-episode-code="EP0001"]')!
+    assert.match(confirmedRow.textContent || '', /Uploading|Running|Upload/)
+    assert.equal(confirmed.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 1)
+    confirmed.destroy()
+  })
+
+  test('dismissing the bulk review keeps queueing; Stop stays on the page and rows keep their results', async () => {
+    const episodes = ['EP0001', 'EP0002', 'EP0003'].map(code => ({ ...NEVER_UPLOADED, episode_code: code }))
+    const gates: Array<(value: any) => void> = []
+    const mounted = await mount({
+      episodes,
+      preview: PREVIEWED,
+      postOverride: (path: string) => {
+        if (!path.endsWith('/youtube/upload')) return undefined
+        return new Promise(resolve => { gates.push(resolve) })
+      },
+    })
+    for (const box of mounted.el.querySelectorAll<HTMLInputElement>('.episode-select input')) box.click()
+    await nextTick()
+    ;[...mounted.el.querySelectorAll('button')].find(b => /Review selected uploads/.test(b.textContent || ''))!.click()
+    for (let i = 0; i < 12; i++) await nextTick()
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    const queue = [...dialog.querySelectorAll('button')].find(b => /Queue reviewed uploads \(3\)/.test(b.textContent || ''))!
+    queue.click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    assert.equal(gates.length, 1, 'the first upload is in flight')
+
+    // Close is enabled while queueing, and it does not cancel anything.
+    const close = [...dialog.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Close') as HTMLButtonElement
+    assert.equal(close.disabled, false)
+    close.click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    assert.equal(mounted.el.querySelector('[role="dialog"]'), null)
+    const strip = mounted.el.querySelector('.bulk-background')!
+    assert.ok(strip, 'the page says queueing continues')
+    assert.match(strip.textContent || '', /0 of 3 queued/)
+    assert.ok([...strip.querySelectorAll('button')].some(b => /Stop queueing/.test(b.textContent || '')))
+
+    gates[0]!({ job_id: 'job-1', channel_id: 'UC-x' })
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.equal(gates.length, 2, 'the second upload started after the dialog was dismissed')
+    assert.match(mounted.el.querySelector('.bulk-background')!.textContent || '', /1 of 3 queued/)
+    assert.match(mounted.el.querySelector('[data-episode-code="EP0001"]')!.textContent || '', /Uploading EP0001 to UC-x/)
+
+    // Show brings the same review back with its live states.
+    ;[...mounted.el.querySelectorAll('.bulk-background button')].find(b => b.textContent?.trim() === 'Show')!.click()
+    for (let i = 0; i < 3; i++) await nextTick()
+    assert.match(mounted.el.querySelector('[role="dialog"]')!.textContent || '', /Queued[\s\S]*Queueing/)
+
+    gates[1]!({ job_id: 'job-2', channel_id: 'UC-x' })
+    for (let i = 0; i < 6; i++) await nextTick()
+    gates[2]!({ job_id: 'job-3', channel_id: 'UC-x' })
+    for (let i = 0; i < 8; i++) await nextTick()
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 3)
+    assert.equal(mounted.el.querySelector('.bulk-background'), null, 'the strip leaves with the last queued row')
+    mounted.destroy()
+  })
+
   test('a missing local video links to Video Assembly for that exact episode', async () => {
     const mounted = await mount({
       episodes: [{

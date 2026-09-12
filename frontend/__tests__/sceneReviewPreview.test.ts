@@ -114,7 +114,10 @@ describe('Scene Review image preview', () => {
     assert.match(sceneReviewSource, /const activeContinuityRenderJob = computed\(\(\) => resolveActiveSceneRenderJob\(episodeId\.value, activeRenderJobFromReview\.value, jobs\.value, \['continuity_render', 'scene_images_batch'\]\)\)/)
     assert.match(sceneReviewSource, /const isRenderPaused = computed\(\(\) => activeRenderJob\.value\?\.status === 'paused'\)/)
     assert.match(sceneReviewSource, /const isRendering = computed\(\(\) => !!activeRenderJob\.value && !isRenderPaused\.value\)/)
-    assert.match(sceneReviewSource, /watch\(isRendering,[\s\S]*setInterval/)
+    // Single-flight polling: the next read is armed only after the previous
+    // one settles, and no fixed interval can pile reads up behind a slow server.
+    assert.match(sceneReviewSource, /watch\(isRendering,[\s\S]*armRenderPoll\(\)/)
+    assert.doesNotMatch(sceneReviewSource, /setInterval\(/)
     assert.match(sceneReviewSource, /sceneRenderControls\(activeContinuityRenderJob\)/)
   })
 

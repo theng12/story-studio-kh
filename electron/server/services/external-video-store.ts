@@ -32,6 +32,7 @@ import path from 'path'
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import * as pm from './project-manager.js'
+import { projectMetaOnce, type ProjectFactsCache } from './utils.js'
 import { getAppSetting, setAppSetting } from './app-settings.js'
 
 /**
@@ -88,11 +89,22 @@ export async function resolveExternalFinalVideoDir(
   slug: string,
   code: string,
   title: string,
+  cache?: ProjectFactsCache,
 ): Promise<string | null> {
-  const root = await getExternalFinalVideoRoot()
+  const root = cache
+    ? await (cache.externalFinalVideoRoot ??= getExternalFinalVideoRoot().catch((error: unknown) => {
+        // A failed read must not become the answer for the rest of the request.
+        cache.externalFinalVideoRoot = undefined
+        throw error
+      }))
+    : await getExternalFinalVideoRoot()
   if (!root) return null
 
-  const meta = await pm.getProject(slug)
+  // A sweeping caller (the Upload Center listing) hands in its request-scoped
+  // facts so project.json is parsed once, not once per episode.
+  const meta = cache
+    ? await projectMetaOnce(slug, cache).catch(() => null)
+    : await pm.getProject(slug)
   if (!meta) return null
 
   const seasonSize = (meta as any).season_size || 20
