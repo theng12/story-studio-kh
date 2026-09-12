@@ -74,6 +74,42 @@ function appSettingsPath(): string {
 
 type AppSettings = Record<string, any>
 
+interface SettingsCacheEntry {
+  signature: string
+  value: AppSettings
+}
+
+const settingsCache = new Map<string, SettingsCacheEntry>()
+const settingsReads = new Map<string, { signature: string; promise: Promise<AppSettings> }>()
+
+async function settingsFileSignature(target: string): Promise<string> {
+  try {
+    const stat = await fs.stat(target)
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return 'missing'
+    throw error
+  }
+}
+
+async function readStableSettings(target: string): Promise<AppSettings> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const before = await settingsFileSignature(target)
+    const value = await readJsonOr<AppSettings>(target, {})
+    const after = await settingsFileSignature(target)
+    if (before === after) {
+      settingsCache.set(target, { signature: after, value })
+      return value
+    }
+  }
+  // A continuously changing hand-edited file is returned but not cached.
+  return readJsonOr<AppSettings>(target, {})
+}
+
+function cloneSettingValue<T>(value: T): T {
+  return value && typeof value === 'object' ? structuredClone(value) : value
+}
+
 export interface PaidImageReplacementSetting {
   enabled: boolean
   additional_credit_ceiling: number | null
@@ -151,7 +187,24 @@ async function tightenModeOnce(target: string): Promise<void> {
 async function readSettings(): Promise<AppSettings> {
   const target = appSettingsPath()
   await tightenModeOnce(target)
-  return readJsonOr<AppSettings>(target, {})
+  const signature = await settingsFileSignature(target)
+  const cached = settingsCache.get(target)
+  if (cached?.signature === signature) return cached.value
+
+  const pending = settingsReads.get(target)
+  if (pending?.signature === signature) return pending.promise
+  const read = readStableSettings(target)
+  const inFlight = { signature, promise: read }
+  settingsReads.set(target, inFlight)
+  try {
+    return await read
+  } finally {
+    if (settingsReads.get(target) === inFlight) settingsReads.delete(target)
+  }
+}
+
+async function readSettingsForWrite(): Promise<AppSettings> {
+  return structuredClone(await readSettings())
 }
 
 async function writeSettings(settings: AppSettings): Promise<void> {
@@ -161,11 +214,12 @@ async function writeSettings(settings: AppSettings): Promise<void> {
   // See lib/test-isolation.ts for why this compares the resolved target.
   assertWriteIsolatedInTests(target, 'app-settings')
   await writeJsonAtomic(target, settings, { mode: APP_SETTINGS_MODE })
+  settingsCache.delete(target)
 }
 
 export async function getAppSetting(key: string): Promise<any> {
   const settings = await readSettings()
-  return settings[key]
+  return cloneSettingValue(settings[key])
 }
 
 /**
@@ -199,7 +253,7 @@ function announceWrite(key: string): void {
 
 export async function setAppSetting(key: string, value: any): Promise<void> {
   await withLock(appSettingsPath(), async () => {
-    const settings = await readSettings()
+    const settings = await readSettingsForWrite()
     settings[key] = value
     await writeSettings(settings)
   })
@@ -873,7 +927,7 @@ export async function getServerModeSettingsSafe(): Promise<ServerModeSafeView> {
  */
 export async function setServerModeNetworking(patch: ServerModeNetworkingPatch): Promise<ServerModeSafeView> {
   await withLock(appSettingsPath(), async () => {
-    const settings = await readSettings()
+    const settings = await readSettingsForWrite()
     const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
     if (patch.enabled !== undefined) cur.enabled = !!patch.enabled
     if (patch.port !== undefined) {
@@ -919,7 +973,7 @@ export async function setServerModeCredentials(opts: {
   // one — the credentials form doesn't surface it on every change, so
   // a "Change Password" save shouldn't reset the cap back to the default.
   await withLock(appSettingsPath(), async () => {
-    const settings = await readSettings()
+    const settings = await readSettingsForWrite()
     const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
     const prevAuth = (cur.auth || {}) as Record<string, any>
     const maxAttempts = typeof opts.login_max_attempts_per_minute === 'number'
@@ -954,7 +1008,7 @@ export async function setServerModeRateLimit(maxAttemptsPerMinute: number): Prom
     throw new Error('login_max_attempts_per_minute must be between 1 and 1000')
   }
   await withLock(appSettingsPath(), async () => {
-    const settings = await readSettings()
+    const settings = await readSettingsForWrite()
     const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
     if (!cur.auth || !cur.auth.password_hash) {
       throw new Error('Credentials must be set before adjusting the rate-limit cap')
@@ -973,7 +1027,7 @@ export async function setServerModeRateLimit(maxAttemptsPerMinute: number): Prom
  */
 export async function rotateServerModeSessionSecret(): Promise<ServerModeSafeView> {
   await withLock(appSettingsPath(), async () => {
-    const settings = await readSettings()
+    const settings = await readSettingsForWrite()
     const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
     if (!cur.auth || !cur.auth.password_hash) {
       throw new Error('No credentials configured — nothing to rotate')
@@ -1018,7 +1072,7 @@ export async function getYoutubeDefaults(): Promise<YoutubeDefaultsView> {
 
 export async function setYoutubeDefaults(patch: Partial<YoutubeDefaultsView>): Promise<YoutubeDefaultsView> {
   await withLock(appSettingsPath(), async () => {
-    const settings = await readSettings()
+    const settings = await readSettingsForWrite()
     if (typeof patch.default_mark_as_ai_generated === 'boolean') {
       settings[DEFAULT_MARK_AS_AI_GENERATED_KEY] = patch.default_mark_as_ai_generated
     }

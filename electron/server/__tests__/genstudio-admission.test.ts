@@ -101,6 +101,21 @@ const deferred = () => {
   return { promise, resolve }
 }
 
+test('advisory snapshots honor the refresh window while forced refresh bypasses it', async () => {
+  let reads = 0
+  const pool = new GenStudioAdmissionPool(async () => {
+    reads++
+    return capacity()
+  }, 60_000)
+
+  await pool.currentSnapshot('same-key')
+  await pool.currentSnapshot('same-key')
+  assert.equal(reads, 1, 'polling readers reuse fresh authoritative capacity')
+
+  await pool.refreshNow('same-key')
+  assert.equal(reads, 2, 'terminal and reconciliation signals can still force refresh')
+})
+
 test('each API key preserves its own FIFO order while using independent capacity slots', async () => {
   const pool = new GenStudioAdmissionPool(async () => capacity())
   const releases = Array.from({ length: 5 }, deferred)

@@ -8,7 +8,13 @@ import express from 'express'
 import request from 'supertest'
 import { waitFor } from './_timing.js'
 import { useTempDataDir } from './_helpers.js'
-import { setAppSetting, setPaidSubtitleReplacementSetting } from '../services/app-settings.js'
+import {
+  onAppSettingWritten,
+  PAID_SUBTITLE_REPLACEMENT_KEY,
+  setAppSetting,
+  setPaidSubtitleReplacementSetting,
+  withPaidSubtitleConfirmation,
+} from '../services/app-settings.js'
 import { recordTaskStrict, hashInput } from '../services/task-manifest.js'
 import type { Job } from '../models/types.js'
 
@@ -544,43 +550,38 @@ for (const [label, corrupt] of [
   assert.equal(f.confirmations.length, 0)
 })
 
-test('setting Off cannot interleave between the final policy snapshot and physical paid confirmation', async t => {
+test('setting Off cannot interleave between the final policy snapshot and physical paid confirmation', { timeout: 30_000 }, async t => {
   const f = await fixture(t)
   await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  assert.match(setPaidSubtitleReplacementSetting.toString(), /\bwithPaidSubtitleConfirmation\b/,
+    'the Off setter must join the same confirmation gate exercised below')
   let enter!: () => void
   let release!: () => void
   const entered = new Promise<void>(resolve => { enter = resolve })
   const pending = new Promise<void>(resolve => { release = resolve })
   t.after(() => release())
-  const readFile = fs.readFile
-  let paused = false
-  let competingSettingsReadStarted = false
-  fs.readFile = (async (...args: Parameters<typeof fs.readFile>) => {
-    const isSettingsRead = path.basename(String(args[0])) === 'app-settings.json'
-    if (isSettingsRead && paused) competingSettingsReadStarted = true
-    const data = await readFile(...args)
-    if (!paused && isSettingsRead) {
-      const ledger = JSON.parse(await readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
-      if (ledger.sections['Chapter_01.srt']?.confirmStarted) {
-        paused = true
-        enter()
-        await pending // Hold a stale On snapshot at the final authorization boundary.
-      }
-    }
-    return data
-  }) as typeof fs.readFile
-  t.after(() => { fs.readFile = readFile })
+  const order: string[] = []
+  f.confirm(async () => {
+    order.push('confirm started')
+    enter()
+    await pending
+    order.push('confirm finished')
+  })
+  const stopListening = onAppSettingWritten(key => {
+    if (key === PAID_SUBTITLE_REPLACEMENT_KEY) order.push('Off written')
+  })
+  t.after(stopListening)
   const running = f.run()
   await entered
   const off = setPaidSubtitleReplacementSetting({ enabled: false, additional_credit_ceiling: 5 })
-  // Give an ungated setter its queued microtask. The read hook proves whether
-  // it crossed the boundary; this does not depend on wall-clock scheduling.
+  // The following gate entrant queues synchronously after Off. Its position
+  // proves Off joined the same gate held around the physical confirmation.
+  const afterOff = withPaidSubtitleConfirmation(async () => { order.push('after Off entered gate') })
   await Promise.resolve()
-  assert.equal(competingSettingsReadStarted, false,
-    'Off must not begin its settings read while an authorized confirm holds the gate')
+  assert.deepEqual(order, ['confirm started'])
   release()
-  await Promise.all([running, off])
-  assert.equal(competingSettingsReadStarted, true, 'Off must proceed once the confirmation gate is released')
+  await Promise.all([running, off, afterOff])
+  assert.deepEqual(order, ['confirm started', 'confirm finished', 'Off written', 'after Off entered gate'])
   assert.equal(f.confirmations.length, 1)
 })
 

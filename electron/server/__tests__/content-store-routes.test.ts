@@ -594,6 +594,55 @@ describe('Content Store commerce routes', () => {
     assert.doesNotMatch(JSON.stringify(response.body), /future_internal_refusal|private bucket|\/srv\/private|internal_path/i)
   })
 
+  test('starts and reads an async install operation, while rejecting malformed and expired monitor ids', async () => {
+    const { app: localApp } = await setup()
+    const started = await request(localApp)
+      .post('/api/content-store/releases/crel_a/install?overview=0&async=1').send({}).expect(202)
+    assert.equal(typeof started.body.operation?.operationId, 'string')
+    assert.equal(started.body.operation?.phase, 'queued')
+
+    const operationId = started.body.operation.operationId as string
+    await request(localApp).get(`/api/content-store/installs/${encodeURIComponent(operationId)}`).expect(200)
+    const malformed = await request(localApp).get('/api/content-store/installs/bad%00id').expect(400)
+    assert.equal(malformed.body.code, 'CONTENT_STORE_REQUEST_INVALID')
+    const missing = await request(localApp).get('/api/content-store/installs/missing-operation').expect(404)
+    assert.equal(missing.body.code, 'CONTENT_STORE_INSTALL_NOT_FOUND')
+    // The request is intentionally unowned, but its background operation must
+    // finish before this test closes the mock and removes its isolated state.
+    await waitFor(async () => {
+      const response = await request(localApp).get(`/api/content-store/installs/${operationId}`).expect(200)
+      return response.body.operation.phase === 'failed'
+    }, { label: 'unowned async install operation', timeoutMs: 5_000 })
+  })
+
+  test('keeps the existing safe GenStudio refusal projection when an async install fails', async () => {
+    const { app: localApp } = await setup({ products: [product({
+      owned: true,
+      current_release: release({ archive_available: true }),
+    })] })
+    mock.contentDownloadRefusal = {
+      status: 410,
+      code: 'release_recalled',
+      detail: 'release 1.0.0 was recalled: unsafe bundled reference',
+      recall_reason: 'unsafe bundled reference',
+      recalled_at: '2026-08-14T09:00:00Z',
+    }
+    await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+    const started = await request(localApp)
+      .post('/api/content-store/releases/crel_a/install?overview=0&async=1').send({}).expect(202)
+    const operationId = started.body.operation.operationId as string
+    let monitored: any
+    await waitFor(async () => {
+      const response = await request(localApp).get(`/api/content-store/installs/${operationId}`).expect(200)
+      monitored = response.body.operation
+      return monitored.phase === 'failed'
+    }, { label: 'async recalled install operation', timeoutMs: 5_000 })
+    assert.deepEqual(monitored.failure, {
+      code: 'release_recalled',
+      detail: 'GenStudio stopped serving this exact Content Pack release. Ownership remains permanent.',
+    })
+  })
+
   test('preserves an exact release recall as a terminal refusal without retrying delivery', async () => {
     const { app: localApp } = await setup({ products: [product({
       owned: true,

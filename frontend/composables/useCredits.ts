@@ -75,7 +75,7 @@ export function useCredits() {
             service_tier?: GenStudioServiceTierStanding
           }
           overview_freshness?: { stale?: boolean; ageMs?: number }
-        }>('/app-settings/genstudio/usage')
+        }>('/app-settings/genstudio/overview')
         // The server retries before it answers, and falls back to its own last
         // known copy rather than failing. A 200 that is marked stale is still a
         // real balance — it is just not one refreshed during this call.

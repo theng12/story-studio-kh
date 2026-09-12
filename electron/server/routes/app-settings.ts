@@ -41,7 +41,8 @@ import {
   downloadVoicePreview as downloadGenStudioVoicePreview,
   GENSTUDIO_VOICE_LIBRARIES,
   getGenStudioAccountSnapshot,
-  refreshGenStudioAdmission,
+  getGenStudioAccountOverviewSnapshot,
+  getGenStudioAdmissionSnapshot,
   GenStudioApiError,
 } from '../lib/genstudio-client.js'
 
@@ -777,7 +778,7 @@ router.get('/app-settings/genstudio/admission', async (_req, res) => {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio API key first.' })
   try {
-    res.json(await refreshGenStudioAdmission(apiKey))
+    res.json(await getGenStudioAdmissionSnapshot(apiKey))
   } catch (error: any) {
     if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) {
       return res.status(503).json({
@@ -787,6 +788,24 @@ router.get('/app-settings/genstudio/admission', async (_req, res) => {
       })
     }
     res.status(502).json(humanizeBackendError(error, 'Could not load GenStudio account admission capacity'))
+  }
+})
+
+router.get('/app-settings/genstudio/overview', async (_req, res) => {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio API key first.' })
+  try {
+    const { value: overview, ...overviewFreshness } = await getGenStudioAccountOverviewSnapshot(apiKey)
+    res.json({ overview, overview_freshness: overviewFreshness })
+  } catch (error: any) {
+    if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) {
+      return res.status(503).json({
+        code: 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE',
+        detail: 'The saved GenStudio key is invalid or missing usage:read for account balance. ' +
+          'Use a GenStudio key with usage:read (all-access keys already include it), then save and test it again.',
+      })
+    }
+    res.status(502).json(humanizeBackendError(error, 'Could not load authoritative GenStudio account overview'))
   }
 })
 

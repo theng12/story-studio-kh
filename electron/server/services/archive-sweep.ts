@@ -119,6 +119,10 @@ export interface ArchiveCandidate {
 export interface ArchivePreview {
   source_root: string
   source_exists: boolean
+  /** False only when the user stopped a scan before it covered the whole source. */
+  complete: boolean
+  /** A partial preview is never a bill the user may approve for a move. */
+  cancelled: boolean
   candidates: ArchiveCandidate[]
   ready_count: number
   ready_bytes: number
@@ -174,7 +178,10 @@ interface UploadedIndex {
 async function buildUploadedIndex(): Promise<UploadedIndex> {
   const proven = new Map<string, { slug: string; title: string; evidence: YouTubeRetentionEvidence }>()
   const aliases = new Map<string, string | null>()
-  const projects = await pm.listProjects().catch(() => [])
+  // A proof inventory that could not be read is not an empty inventory. The
+  // latter would turn an unavailable Library into a plausible-looking list of
+  // skipped files, so let the preview fail honestly instead.
+  const projects = await pm.listProjects()
 
   const addAlias = (name: string, slug: string) => {
     const key = (name || '').trim().toLowerCase()
@@ -194,7 +201,7 @@ async function buildUploadedIndex(): Promise<UploadedIndex> {
     // His export tree is `{root}/{slug}/…`, but a hand-sorted pile may use the
     // channel's display name instead, so both identify the channel.
     addAlias((project as any).name || '', slug)
-    const ideas = await im.getIdeas(slug, 'accepted').catch(() => [])
+    const ideas = await im.getIdeas(slug, 'accepted')
     const { records: operations, state: publishingState } = await readYouTubeRetentionStores(slug)
     for (const idea of ideas) {
       const code = (idea.episode_code || '').toUpperCase()
@@ -275,12 +282,22 @@ function channelFrom(
  * every skip with its reason — and then presses go.
  */
 export async function previewArchiveSweep(
-  opts: { sourceRoot?: string } = {},
+  opts: {
+    sourceRoot?: string
+    /** During a run, only re-hash files from the reviewed ready list. */
+    approvedSourcePaths?: ReadonlySet<string>
+    /** Stops between directory entries. A stopped scan is deliberately unusable as an approval bill. */
+    shouldStop?: () => boolean
+    /** Reports discovered video files while a large source is being checked. */
+    onProgress?: (checked: number, current: string) => void
+  } = {},
 ): Promise<ArchivePreview> {
   const sourceRoot = (opts.sourceRoot || '').trim() || await defaultSourceRoot()
   const empty: ArchivePreview = {
     source_root: sourceRoot,
     source_exists: false,
+    complete: true,
+    cancelled: false,
     candidates: [],
     ready_count: 0, ready_bytes: 0, skipped_count: 0, skipped_bytes: 0,
     by_channel: [],
@@ -290,16 +307,41 @@ export async function previewArchiveSweep(
 
   const uploaded = await buildUploadedIndex()
   const candidates: ArchiveCandidate[] = []
+  let checked = 0
+  let cancelled = false
+
+  const stopped = () => {
+    if (!opts.shouldStop?.()) return false
+    cancelled = true
+    return true
+  }
 
   async function walk(dir: string): Promise<void> {
-    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+    if (stopped()) return
+    let entries: import('fs').Dirent[]
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch (e: any) {
+      // A source we cannot enumerate is not empty. Returning an empty bill here
+      // made an unplugged or permission-denied folder look like there was simply
+      // nothing to archive.
+      throw new Error(`Could not read archive source folder ${dir}: ${e?.message || String(e)}`)
+    }
     for (const entry of entries) {
+      if (stopped()) return
       if (entry.name.startsWith('.')) continue
       const full = path.join(dir, entry.name)
       if (entry.isDirectory()) { await walk(full); continue }
       if (!VIDEO_EXT.test(entry.name)) continue
-      const stat = await fs.stat(full).catch(() => null)
-      if (!stat?.isFile()) continue
+      let stat: import('fs').Stats
+      try {
+        stat = await fs.stat(full)
+      } catch (e: any) {
+        throw new Error(`Could not read archive candidate ${full}: ${e?.message || String(e)}`)
+      }
+      if (!stat.isFile()) continue
+      checked += 1
+      opts.onProgress?.(checked, entry.name)
 
       const code = codeFrom(entry.name, dir, sourceRoot)
       const base: ArchiveCandidate = {
@@ -337,6 +379,19 @@ export async function previewArchiveSweep(
         })
         continue
       }
+      // The user approved a named list, not every video that happens to be in
+      // this folder later. A run still scans the source so it can report such
+      // files, but it must not spend another full-disk hash pass proving files
+      // that cannot be moved in this run.
+      if (opts.approvedSourcePaths && !opts.approvedSourcePaths.has(path.resolve(full))) {
+        candidates.push({
+          ...base,
+          slug: channel.slug,
+          reason_code: 'not_reviewed',
+          reason: 'this file was not in the reviewed ready list, so it was left alone',
+        })
+        continue
+      }
       const proof = await youtubeArchiveProofForFile(hit.evidence, full)
       if (!proof.usable || !proof.video_id) {
         candidates.push({
@@ -370,6 +425,8 @@ export async function previewArchiveSweep(
   return {
     source_root: sourceRoot,
     source_exists: true,
+    complete: !cancelled,
+    cancelled,
     candidates,
     ready_count: ready.length,
     ready_bytes: ready.reduce((n, c) => n + c.bytes, 0),
@@ -423,10 +480,10 @@ export interface ArchiveRunOptions {
   /**
    * The exact files the user approved, by source path — the reviewed set.
    *
-   * v1.4.10. The run recomputes the preview so the upload proof is read fresh
-   * and can only ever get STRICTER, then moves the intersection. Anything that
-   * has appeared in the folder since he read the bill is left alone: he agreed
-   * to move a named list, not to move whatever is there when he presses go.
+   * v1.4.10. The run rescans the folder, but only recomputes upload proof for
+   * this reviewed set. That proof is read fresh and can only ever get
+   * STRICTER. Anything that has appeared since he read the bill is left alone:
+   * he agreed to move a named list, not whatever happens to be there later.
    *
    * Omit it only for programmatic use with no review step; the UI always sends
    * it and the route requires it.
@@ -434,6 +491,8 @@ export interface ArchiveRunOptions {
   approved?: string[]
   /** Checked between files. A stop never interrupts a copy midway. */
   shouldStop?: () => boolean
+  /** Called while the run is freshly checking the reviewed source files. */
+  onCheckProgress?: (checked: number, current: string) => void
   /** Called after each file so a long sweep can report progress. */
   onProgress?: (done: number, total: number, current: string) => void
 }
@@ -453,7 +512,15 @@ export async function runArchiveSweep(opts: ArchiveRunOptions): Promise<ArchiveR
   assertWriteIsolatedInTests(destination, 'archive-destination')
   await fs.mkdir(destination, { recursive: true })
 
-  const preview = await previewArchiveSweep({ sourceRoot: opts.sourceRoot })
+  const approved = opts.approved
+    ? new Set(opts.approved.map(p => path.resolve(String(p))))
+    : null
+  const preview = await previewArchiveSweep({
+    sourceRoot: opts.sourceRoot,
+    shouldStop: opts.shouldStop,
+    onProgress: opts.onCheckProgress,
+    approvedSourcePaths: approved || undefined,
+  })
   const result: ArchiveRunResult = {
     destination,
     moved: [],
@@ -469,27 +536,18 @@ export async function runArchiveSweep(opts: ArchiveRunOptions): Promise<ArchiveR
     warnings: [],
   }
 
-  // Act on the reviewed set. The fresh preview decides what MAY move; his
-  // approval decides what WILL. A file that qualifies but he never saw is
-  // reported, not moved.
-  const approved = opts.approved
-    ? new Set(opts.approved.map(p => path.resolve(String(p))))
-    : null
+  if (!preview.complete) {
+    result.cancelled = true
+    return result
+  }
+
+  // Act on the reviewed set. The fresh proof check decides what MAY move; his
+  // approval decides what WILL. Unreviewed files are represented as skips by
+  // the recheck above and are never hashed or moved.
   const qualified = preview.candidates.filter(c => c.status === 'ready')
   const ready = approved
     ? qualified.filter(c => approved.has(path.resolve(c.source_path)))
     : qualified
-  if (approved) {
-    for (const c of qualified) {
-      if (approved.has(path.resolve(c.source_path))) continue
-      result.skipped.push({
-        source_path: c.source_path,
-        code: c.code,
-        reason: 'this appeared after you reviewed the list, so it was left alone',
-        reason_code: 'not_reviewed',
-      })
-    }
-  }
 
   let done = 0
   for (const candidate of ready) {

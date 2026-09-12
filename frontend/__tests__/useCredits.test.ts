@@ -4,7 +4,7 @@
  * Covers the three invariants the dashboard layout renders against:
  *
  *   1. `fetchHealth()` reads the one scoped key and authoritative
- *      GenStudio usage snapshot.
+ *      lightweight GenStudio account overview.
  *   2. `startPolling()` fires an immediate fetch without project context and
  *      shares one interval across shell consumers.
  *   3. A fetch error does NOT empty the displayed number. It is marked stale
@@ -61,7 +61,7 @@ describe('useCredits.fetchHealth()', () => {
   test('populates the authoritative GenStudio credit balance', async () => {
     fetchHandler = (url) => {
       if (url === '/api/app-settings/api-keys') return configuredKey
-      if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
+      if (url === '/api/app-settings/genstudio/overview') return authoritativeUsage
       throw new Error(`unexpected ${url}`)
     }
 
@@ -77,7 +77,7 @@ describe('useCredits.fetchHealth()', () => {
 
     assert.deepEqual(fetchCalls, [
       '/api/app-settings/api-keys',
-      '/api/app-settings/genstudio/usage',
+      '/api/app-settings/genstudio/overview',
     ])
   })
 
@@ -91,7 +91,7 @@ describe('useCredits.fetchHealth()', () => {
   test('a transient fetch error keeps the balance, marked stale, and still surfaces the error', async () => {
     fetchHandler = (url) => {
       if (url === '/api/app-settings/api-keys') return configuredKey
-      if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
+      if (url === '/api/app-settings/genstudio/overview') return authoritativeUsage
       throw new Error(`unexpected ${url}`)
     }
     const { fetchHealth, genstudioCredits, genstudioCreditsStale, usageError } = useCredits()
@@ -109,7 +109,7 @@ describe('useCredits.fetchHealth()', () => {
   test('a stale server answer is marked stale without any error at all', async () => {
     fetchHandler = (url) => {
       if (url === '/api/app-settings/api-keys') return configuredKey
-      if (url === '/api/app-settings/genstudio/usage') {
+      if (url === '/api/app-settings/genstudio/overview') {
         // The server retried, failed, and answered from its own kept copy.
         return { ...authoritativeUsage, overview_freshness: { stale: true, ageMs: 4 * 60_000 } }
       }
@@ -129,7 +129,7 @@ describe('useCredits.fetchHealth()', () => {
   test('a key that can no longer read the account does report unavailable', async () => {
     fetchHandler = (url) => {
       if (url === '/api/app-settings/api-keys') return configuredKey
-      if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
+      if (url === '/api/app-settings/genstudio/overview') return authoritativeUsage
       throw new Error(`unexpected ${url}`)
     }
     const { fetchHealth, genstudioCredits, genstudioCreditsStale } = useCredits()
@@ -156,7 +156,7 @@ describe('useCredits.startPolling()', () => {
     let count = 0
     fetchHandler = (url) => {
       if (url === '/api/app-settings/api-keys') { count++; return configuredKey }
-      if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
+      if (url === '/api/app-settings/genstudio/overview') return authoritativeUsage
       throw new Error(`unexpected ${url}`)
     }
 
@@ -192,7 +192,7 @@ describe('useCredits.startPolling()', () => {
         await healthReady
         return configuredKey
       }
-      if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
+      if (url === '/api/app-settings/genstudio/overview') return authoritativeUsage
       throw new Error(`unexpected ${url}`)
     }
 

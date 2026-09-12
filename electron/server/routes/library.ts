@@ -147,24 +147,49 @@ router.delete('/library/notices/:id', async (req, res) => {
 
 interface SweepState {
   running: boolean
+  /** Preview and move share one watcher-visible operation, never one long HTTP response. */
+  phase: 'preview' | 'run' | null
+  /** A run checks proof before it can begin copying. */
+  stage: 'checking' | 'moving' | null
   done: number
   total: number
+  checked: number
   current: string
   stop: boolean
   result: unknown | null
   error: string
 }
 const sweep: SweepState = {
-  running: false, done: 0, total: 0, current: '', stop: false, result: null, error: '',
+  running: false, phase: null, stage: null, done: 0, total: 0, checked: 0,
+  current: '', stop: false, result: null, error: '',
 }
 
 router.post('/library/archive/preview', async (req, res) => {
-  try {
-    const { previewArchiveSweep } = await import('../services/archive-sweep.js')
-    res.json(await previewArchiveSweep({ sourceRoot: req.body?.source_root }))
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not work out what would be archived'))
-  }
+  if (sweep.running) return res.status(409).json({ detail: 'An archive check or sweep is already running.' })
+  Object.assign(sweep, {
+    running: true, phase: 'preview', stage: 'checking', done: 0, total: 0, checked: 0,
+    current: '', stop: false, result: null, error: '',
+  })
+  // A source can be a slow external disk. Holding this request open made the
+  // shared deadline answer 503 and the eventual scan then tried to write a
+  // second response. The status endpoint already exists for long archive work,
+  // so preview uses the same one instead of inventing another job system.
+  res.json({ started: true })
+
+  void (async () => {
+    try {
+      const { previewArchiveSweep } = await import('../services/archive-sweep.js')
+      sweep.result = await previewArchiveSweep({
+        sourceRoot: req.body?.source_root,
+        shouldStop: () => sweep.stop,
+        onProgress: (checked, current) => { Object.assign(sweep, { checked, current }) },
+      })
+    } catch (e: any) {
+      sweep.error = e?.message || 'Could not work out what would be archived'
+    } finally {
+      sweep.running = false
+    }
+  })()
 })
 
 router.post('/library/archive/run', async (req, res) => {
@@ -182,7 +207,10 @@ router.post('/library/archive/run', async (req, res) => {
     return res.status(400).json({ detail: 'Check what would move first, then run the sweep on that list.' })
   }
 
-  Object.assign(sweep, { running: true, done: 0, total: 0, current: '', stop: false, result: null, error: '' })
+  Object.assign(sweep, {
+    running: true, phase: 'run', stage: 'checking', done: 0, total: approved.length, checked: 0,
+    current: '', stop: false, result: null, error: '',
+  })
   // Answer immediately and report through /status: a 220 GB move would sit on
   // an open request for many minutes, and any proxy in between would give up
   // long before the copy did.
@@ -196,7 +224,8 @@ router.post('/library/archive/run', async (req, res) => {
         sourceRoot: req.body?.source_root,
         approved,
         shouldStop: () => sweep.stop,
-        onProgress: (done, total, current) => { Object.assign(sweep, { done, total, current }) },
+        onCheckProgress: (checked, current) => { Object.assign(sweep, { stage: 'checking', checked, current }) },
+        onProgress: (done, total, current) => { Object.assign(sweep, { stage: 'moving', done, total, current }) },
       })
     } catch (e: any) {
       sweep.error = e?.message || String(e)
@@ -209,8 +238,11 @@ router.post('/library/archive/run', async (req, res) => {
 router.get('/library/archive/status', (_req, res) => {
   res.json({
     running: sweep.running,
+    phase: sweep.phase,
+    stage: sweep.stage,
     done: sweep.done,
     total: sweep.total,
+    checked: sweep.checked,
     current: sweep.current,
     stopping: sweep.stop && sweep.running,
     result: sweep.result,
@@ -219,9 +251,9 @@ router.get('/library/archive/status', (_req, res) => {
 })
 
 /**
- * Ask the sweep to stop. It finishes the file it is on and stops before the
- * next one — a copy is never interrupted midway, so the stopped state is always
- * consistent: every file is either wholly moved or wholly untouched.
+ * Ask the archive check or sweep to stop. A preview stops between entries and
+ * cannot become an approval bill; a sweep finishes the file it is on and stops
+ * before the next one, so a copy is never interrupted midway.
  */
 router.post('/library/archive/stop', (_req, res) => {
   sweep.stop = true

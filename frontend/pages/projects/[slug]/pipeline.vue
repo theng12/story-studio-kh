@@ -689,9 +689,13 @@
 
     <!-- ── Confirmation modal ───────────────────────────────────────────── -->
     <Modal :visible="showConfirm" size="md" labelledby="batch-confirm-title" @close="closeConfirm()">
-      <h3 id="batch-confirm-title">{{ repairMode ? 'Repair selected gaps?' : 'Run batch?' }}</h3>
+      <h3 id="batch-confirm-title">{{ preflighting ? 'Checking selected episodes…' : (repairMode ? 'Repair selected gaps?' : 'Run batch?') }}</h3>
       <p class="text-muted text-md mt-1">
-        <template v-if="repairMode">
+        <template v-if="preflighting">
+          Checking <strong>{{ selectedEpisodes.size }}</strong> selected episode(s) and <strong>{{ checkedStepCount }}</strong>
+          selected step(s) before anything starts. This does not queue work or spend credits.
+        </template>
+        <template v-else-if="repairMode">
           Check up to <strong>{{ preflightEligibleCount }}</strong> eligible episode(s) for gaps across
           <strong>{{ checkedStepCount }}</strong> selected step(s).
         </template>
@@ -743,9 +747,9 @@
 
       <div class="flex gap-2 mt-3 justify-end">
         <button class="btn btn-secondary" :disabled="submitting" @click="closeConfirm()">Cancel</button>
-        <button class="btn btn-primary" :disabled="submitting" @click="submit">
+        <button class="btn btn-primary" :disabled="submitting || preflighting || preflightEligibleCount === 0" @click="submit">
           <LoadingSpinner v-if="submitting" size="sm" />
-          {{ submitting ? 'Queuing…' : (repairMode ? 'Start repair · may use credits' : (forceRerun ? 'Start batch (force)' : 'Start batch')) }}
+          {{ preflighting ? 'Checking…' : (submitting ? 'Queuing…' : (repairMode ? 'Start repair · may use credits' : (forceRerun ? 'Start batch (force)' : 'Start batch'))) }}
         </button>
       </div>
     </Modal>
@@ -2261,6 +2265,8 @@ const runButtonLabel = computed(() => {
 // ── Submit ─────────────────────────────────────────────────────────────
 const submitting = ref(false)
 const preflighting = ref(false)
+let preflightRequestId = 0
+let submitRequestId = 0
 const showConfirm = ref(false)
 const repairMode = ref(false)
 const repairActionId = ref('')
@@ -2330,17 +2336,31 @@ function formatFileSize(bytes: number): string {
 
 function closeConfirm(force = false): void {
   if (submitting.value && !force) return
+  preflightRequestId += 1
+  if (preflighting.value) preflighting.value = false
   showConfirm.value = false
   repairMode.value = false
   repairActionId.value = ''
   runActionId.value = ''
 }
 
+// Nuxt reuses this page between projects. A preflight belongs to its original
+// channel, so close and invalidate it before the new project's state can load.
+watch(slug, () => {
+  // Navigation never cancels an already-authorized queue request. It only
+  // detaches the old page's pending response from this reused component.
+  submitRequestId += 1
+  submitting.value = false
+  closeConfirm(true)
+})
+
 function openRunConfirm(): void { void openConfirm(false) }
 function openRepairConfirm(): void { void openConfirm(true) }
 
 async function openConfirm(repair: boolean) {
   if (!canRun.value) return
+  const requestId = ++preflightRequestId
+  const targetSlug = slug.value
   repairMode.value = repair
   if (repair && !repairActionId.value) repairActionId.value = crypto.randomUUID()
   if (!repair && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
@@ -2351,6 +2371,7 @@ async function openConfirm(repair: boolean) {
   preflightEligibleEpisodeIds.value = null
   batchBlocked.value = []
   batchHasJobs.value = false
+  showConfirm.value = true
   try {
     const body = {
       episode_ids: [...selectedEpisodes],
@@ -2360,7 +2381,8 @@ async function openConfirm(repair: boolean) {
       ...(repair ? { repair_missing: true, action_id: repairActionId.value } : {}),
       ...(!repair && forceRerun.value ? { operation_id: runActionId.value || crypto.randomUUID() } : {}),
     }
-    const result = await post<any>(`/projects/${slug.value}/pipeline/preflight`, body)
+    const result = await post<any>(`/projects/${targetSlug}/pipeline/preflight`, body)
+    if (requestId !== preflightRequestId || slug.value !== targetSlug) return
     const estimated = Number(result?.estimated_bytes || 0)
     const storage = estimated > 0 ? ` Estimated workspace: ${formatFileSize(estimated)}.` : ''
     preflightBlocked.value = blockedEpisodes(result?.blocked)
@@ -2371,9 +2393,9 @@ async function openConfirm(repair: boolean) {
       ? result.eligible_episode_ids.filter((episodeId: unknown): episodeId is string => typeof episodeId === 'string')
       : null
     preflightSummary.value = `${preflightEligibleCount.value} episode(s) and ${result.steps} step(s) are ready.${storage}`
-    showConfirm.value = true
   } catch (e: any) {
-    if (repair) repairActionId.value = ''
+    if (requestId !== preflightRequestId || slug.value !== targetSlug) return
+    closeConfirm()
     const blocked = blockedEpisodes(e?.data?.blocked)
     if (blocked.length && !hasGlobalPreflightIssue(e?.data?.issues)) {
       batchBlocked.value = blocked
@@ -2383,27 +2405,30 @@ async function openConfirm(repair: boolean) {
     const issues = Array.isArray(e?.data?.issues) ? e.data.issues : []
     showError(issues.length ? issues.map((issue: any) => issue.message).join(' ') : (e?.data?.detail || 'Preflight failed'))
   } finally {
-    preflighting.value = false
+    if (requestId === preflightRequestId && slug.value === targetSlug) preflighting.value = false
   }
 }
 
 async function submit() {
   if (!canRun.value) return
+  const requestId = ++submitRequestId
+  const targetSlug = slug.value
+  const submittedRepair = repairMode.value
   submitting.value = true
   try {
-    if (!repairMode.value && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
-    const submittedSlug = slug.value
+    if (!submittedRepair && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
     const submittedEpisodeIds = [...selectedEpisodes]
     const body = {
       episode_ids: submittedEpisodeIds,
       steps: checkedStepsOrdered.value.map(s => s.id),
       ...(Object.keys(modelPoliciesForRun()).length ? { model_policies: modelPoliciesForRun() } : {}),
-      force: repairMode.value ? false : forceRerun.value,
-      ...(repairMode.value ? { repair_missing: true, action_id: repairActionId.value } : {}),
-      ...(!repairMode.value && forceRerun.value ? { operation_id: runActionId.value } : {}),
+      force: submittedRepair ? false : forceRerun.value,
+      ...(submittedRepair ? { repair_missing: true, action_id: repairActionId.value } : {}),
+      ...(!submittedRepair && forceRerun.value ? { operation_id: runActionId.value } : {}),
     }
-    const r = await post<any>(`/projects/${submittedSlug}/pipeline/run-batch`, body)
-    const completedRepair = repairMode.value
+    const r = await post<any>(`/projects/${targetSlug}/pipeline/run-batch`, body)
+    if (requestId !== submitRequestId || slug.value !== targetSlug) return
+    const completedRepair = submittedRepair
     closeConfirm(true)
     const {
       enqueued,
@@ -2438,7 +2463,7 @@ async function submit() {
       title: queuedChains > 0 ? (completedRepair ? 'Repair queued' : 'Batch queued')
         : reusedChains > 0 ? 'Work already active' : 'Batch checked',
       lines: parts.length ? parts : ['Nothing new was queued.'],
-      jobsUrl: batchHasJobs.value ? `/projects/${submittedSlug}/jobs` : null,
+      jobsUrl: batchHasJobs.value ? `/projects/${targetSlug}/jobs` : null,
     }
     // A skipped step queues NO job, so "see Jobs tab" sent the user to a
     // screen that could not explain the skip. The backend already returns a
@@ -2451,6 +2476,7 @@ async function submit() {
       if (reasons.length > 3) showInfo(`…and ${reasons.length - 3} more skip reason(s).`)
     }
   } catch (e: any) {
+    if (requestId !== submitRequestId || slug.value !== targetSlug) return
     const blocked = blockedEpisodes(e?.data?.blocked)
     if (blocked.length && !hasGlobalPreflightIssue(e?.data?.issues)) {
       batchBlocked.value = blocked
@@ -2466,7 +2492,7 @@ async function submit() {
       showError(e?.data?.detail || 'Batch failed to start')
     }
   } finally {
-    submitting.value = false
+    if (requestId === submitRequestId && slug.value === targetSlug) submitting.value = false
   }
 }
 </script>

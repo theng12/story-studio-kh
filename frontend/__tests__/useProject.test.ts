@@ -64,6 +64,32 @@ beforeEach(() => {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('useProject.loadProject()', () => {
+  test('shows channel identity before slow settings arrive', async () => {
+    const { loadProject, project, config } = useProject()
+    const settings = defer<any>()
+    fetchQueue.push(() => ({ slug: 'early-meta', name: 'Early identity' }), () => settings.promise)
+    const pending = loadProject('early-meta')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const nameBeforeSettings = project.value?.name
+    settings.resolve({})
+    await pending
+    assert.equal(nameBeforeSettings, 'Early identity')
+    assert.ok(config.value)
+  })
+
+  test('does not let cleared same-slug loads write into a new session', async () => {
+    const { loadProject, clearProject, project } = useProject()
+    const meta = defer<any>()
+    const settings = defer<any>()
+    fetchQueue.push(() => meta.promise, () => settings.promise)
+    const pending = loadProject('cleared')
+    clearProject()
+    meta.resolve({ slug: 'cleared', name: 'Old identity' })
+    settings.resolve({})
+    await pending
+    assert.equal(project.value, null)
+  })
+
   test('clears state and makes no request for an unresolved slug', async () => {
     const { loadProject, project, config, slug, loading } = useProject()
     await loadProject('valid-project')
@@ -155,6 +181,20 @@ describe('useProject.loadProject()', () => {
 })
 
 describe('useProject.refreshConfig()', () => {
+  test('a late older refresh cannot overwrite a newer setting', async () => {
+    const { loadProject, refreshConfig, config } = useProject()
+    await loadProject('refresh-race')
+    const older = defer<any>()
+    fetchQueue.push(() => older.promise)
+    const pending = refreshConfig('refresh-race')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    fetchQueue.push(() => ({ has_kie_key: true }))
+    await refreshConfig('refresh-race')
+    older.resolve({ has_kie_key: false })
+    await pending
+    assert.equal(config.value?.has_kie_key, true)
+  })
+
   test('updates config only when the slug still matches', async () => {
     const { loadProject, refreshConfig, config, slug } = useProject()
     await loadProject('active')

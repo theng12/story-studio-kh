@@ -15,6 +15,8 @@ type Call = { path: string; options: Record<string, unknown> }
 let calls: Call[] = []
 let releaseInstall!: (releaseId: string) => void
 const pendingInstalls = new Map<string, () => void>()
+let monitoredOperation: any = null
+let monitorFailures = 0
 const overview = {
   phase: 'delivery_ready', origin: 'https://catalog.example.test',
   account: { accountId: 'acct_a', contentAccountId: 'content_a', availableCredits: 10, contentSpendableCredits: 10, owned: [] },
@@ -27,9 +29,17 @@ const overview = {
 ;(globalThis as any).$fetch = async (path: string, options: Record<string, unknown> = {}) => {
   calls.push({ path, options })
   if (path === '/api/content-store') return structuredClone(overview)
+  if (path === '/api/content-store/installs/op-progress') {
+    if (monitorFailures > 0) {
+      monitorFailures -= 1
+      throw Object.assign(new Error('temporary monitor outage'), { status: 503 })
+    }
+    return { operation: structuredClone(monitoredOperation) }
+  }
   const install = path.match(/^\/api\/content-store\/releases\/([^/?]+)\/install(\?.*)?$/)
   if (install) {
     const releaseId = decodeURIComponent(install[1]!)
+    if (releaseId === 'rel-progress') return { operation: structuredClone(monitoredOperation) }
     await new Promise<void>(resolve => { pendingInstalls.set(releaseId, resolve) })
     if (releaseId === 'rel-bad') throw Object.assign(new Error('boom'), { data: { code: 'CONTENT_PACK_SIGNATURE_INVALID', detail: 'bad' } })
     return { install: { pack_id: 'pack', version: '1.0.0', activated: true }, overview: null }
@@ -40,9 +50,12 @@ releaseInstall = (releaseId: string) => { pendingInstalls.get(releaseId)?.(); pe
 const { _clearContentStoreSessionCacheForTests } = await import('../composables/useContentStore.js')
 const { useContentInstallQueue, _resetContentInstallQueueForTests } = await import('../composables/useContentInstallQueue.js')
 
-async function settle(): Promise<void> { for (let i = 0; i < 8; i++) { await nextTick(); await new Promise(resolve => setTimeout(resolve, 0)) } }
+async function settle(): Promise<void> { for (let i = 0; i < 8; i++) { await nextTick(); await Promise.resolve() } }
 
-beforeEach(() => { _clearContentStoreSessionCacheForTests(); _resetContentInstallQueueForTests(); calls = []; pendingInstalls.clear() })
+beforeEach(() => {
+  _clearContentStoreSessionCacheForTests(); _resetContentInstallQueueForTests(); calls = []; pendingInstalls.clear()
+  monitoredOperation = null; monitorFailures = 0
+})
 
 describe('shared Content Pack install queue', () => {
   test('is one queue for every consumer, asks for installs without the overview, and refreshes once when it drains', async () => {
@@ -56,7 +69,7 @@ describe('shared Content Pack install queue', () => {
     assert.equal(page.statusOf('rel-2'), 'queued')
     assert.equal(strip.running.value, true)
     const first = calls.find(call => call.path.includes('/releases/rel-1/install'))!
-    assert.match(first.path, /\?overview=0$/, 'the queue never asks the server to rebuild the overview per pack')
+    assert.match(first.path, /[?&]overview=0(?:&|$)/, 'the queue never asks the server to rebuild the overview per pack')
     assert.equal(calls.filter(call => call.path === '/api/content-store').length, 0)
 
     releaseInstall('rel-1'); await settle()
@@ -98,5 +111,35 @@ describe('shared Content Pack install queue', () => {
     assert.notEqual(store.account.value, null, 'the mid-run refresh was applied while the queue kept running')
     releaseInstall('rel-9'); await settle()
     assert.equal(calls.filter(call => call.path === '/api/content-store').length, 2, 'one more when the queue drains')
+  })
+
+  test('keeps the shared navigation-visible install active through a transient progress poll failure', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    monitoredOperation = {
+      operationId: 'op-progress', releaseId: 'rel-progress', phase: 'queued', downloadedBytes: null, totalBytes: null,
+      failure: null, install: null, updatedAt: new Date().toISOString(),
+    }
+    const page = useContentInstallQueue()
+    const elsewhere = useContentInstallQueue()
+    page.enqueue('rel-progress')
+    await settle()
+    assert.equal(page, elsewhere, 'leaving the Store reads the same live operation')
+    assert.equal(page.statusOf('rel-progress'), 'installing')
+    assert.equal(page.activeProgress.value?.phase, 'queued')
+
+    monitorFailures = 1
+    t.mock.timers.tick(1_000)
+    await settle()
+    assert.equal(page.statusOf('rel-progress'), 'installing', 'a transient monitor outage does not abandon the server install')
+    page.enqueue('rel-progress')
+    assert.equal(page.pendingCount.value, 1, 'a retry click cannot duplicate the active operation')
+
+    monitoredOperation = {
+      ...monitoredOperation, phase: 'complete',
+      install: { pack_id: 'pack', version: '1.0.0', activated: true }, updatedAt: new Date().toISOString(),
+    }
+    t.mock.timers.tick(1_000)
+    await settle()
+    assert.equal(page.statusOf('rel-progress'), 'installed')
   })
 })

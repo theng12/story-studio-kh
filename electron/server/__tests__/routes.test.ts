@@ -339,6 +339,14 @@ describe('Ideas routes', () => {
   })
 
   test('subtitle status exposes the same pacing-blocking gap and chapter target as Scene Plan', async () => {
+    const videoRoutes = await fs.readFile(new URL('../routes/video.ts', import.meta.url), 'utf-8')
+    const lightweightRoute = videoRoutes.slice(
+      videoRoutes.indexOf("router.get('/projects/:slug/video-editor/subtitles/timeline-integrity/:episodeId'"),
+      videoRoutes.indexOf("router.get('/projects/:slug/video-editor/subtitles/status/:episodeId'"),
+    )
+    assert.doesNotMatch(lightweightRoute, /inspectSubtitleSourceFreshness|scanEpisodeAssets|inspectAudioAssemblyReadiness/,
+      'the Jobs projection must not hash audio or run the full subtitle/assembly status scan')
+
     const project = await request(app).post('/api/projects').send({
       name: 'Subtitle Gap Status Project', episode_prefix: 'SG', episode_digits: 3,
     })
@@ -366,6 +374,13 @@ describe('Ideas routes', () => {
       complete: true, generated_at: '2026-09-11T16:25:00.000Z', missing_sections: [], total_cues: cues.length, timeline: stampFromCues(cues),
       sections: [{ slug: 'Chapter_15', source_srt: `${code}_Chapter_15.srt`, offset_sec: 0, duration_sec: 90, cues_added: 2 }],
     }))
+
+    const lightweight = await request(app)
+      .get(`/api/projects/${isolatedSlug}/video-editor/subtitles/timeline-integrity/${code}`)
+    assert.equal(lightweight.status, 200)
+    assert.equal(lightweight.body.timeline_integrity.complete, false)
+    assert.equal(lightweight.body.timeline_integrity.max_cue_gap_sec, 30)
+    assert.deepEqual(lightweight.body.timeline_integrity.blocking_cue_gaps[0].section_slugs, ['Chapter_15'])
 
     const status = await request(app)
       .get(`/api/projects/${isolatedSlug}/video-editor/subtitles/status/${code}`)

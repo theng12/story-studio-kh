@@ -872,6 +872,43 @@ describe('Content Store stale-while-revalidate', () => {
     assert.equal(store.catalogFreshness.value, 'fresh')
     assert.equal(store.products.value[0]?.owned, true)
   })
+
+  test('reports a completed purchase before its read-only overview refresh finishes', async () => {
+    const owned = structuredClone(completeOverview)
+    owned.products[0]!.owned = true
+    const quote = {
+      quote_id: 'quote_fast_feedback', account_id: 'acct_a', product_id: 'formula', release_id: 'rel_formula',
+      entitlement_family: 'formula.family', expires_at: '2026-12-31T00:00:00Z', status: 'quoted' as const,
+      base_credit_price: 400, discount_credits: 0, quoted_credits: 400, balance_before: 2_400,
+      balance_after: 2_000, owned_components: [], sufficient_credits: true,
+      insufficient_reason: null, shortfall_credits: 0,
+    }
+    let overviewReads = 0
+    let releaseOverview: ((value: typeof owned) => void) | null = null
+    handler = path => {
+      if (path === '/api/content-store') {
+        overviewReads += 1
+        if (overviewReads === 1) return structuredClone(completeOverview)
+        return new Promise<typeof owned>(resolve => { releaseOverview = resolve })
+      }
+      if (path === '/api/content-store/quotes') return structuredClone(quote)
+      if (path.endsWith('/purchase')) return { ...structuredClone(quote), status: 'completed', credits_charged: 400 }
+      throw new Error(`Unexpected request: ${path}`)
+    }
+
+    const store = useContentStore()
+    await store.refresh()
+    await store.requestQuote('formula', 'rel_formula')
+    let completed = false
+    const purchase = store.confirmPurchase(quote.quote_id).then(() => { completed = true })
+    for (let tick = 0; tick < 10 && !releaseOverview; tick += 1) await Promise.resolve()
+
+    assert.ok(releaseOverview, 'the completed purchase starts its verified background refresh')
+    assert.equal(completed, true, 'purchase feedback does not wait for the read-only overview')
+    releaseOverview!(owned)
+    await purchase
+    for (let tick = 0; tick < 3; tick += 1) await Promise.resolve()
+  })
 })
 
 describe('the Content Store catalogue that survives a relaunch', () => {

@@ -1053,6 +1053,33 @@ router.get('/projects/:slug/video-editor/preview-effect', async (req, res) => {
 // Both produce a plain .srt on disk; the burn-in filter in the
 // generator reads it during the final composition pass.
 
+/**
+ * Lightweight subtitle coverage read for historical Jobs rows.
+ *
+ * The full status route below intentionally proves source freshness and audio
+ * assembly readiness. That includes hashing every active chapter audio file,
+ * which is required before paid/downstream work but is far too expensive for
+ * a page that only needs the current cue-gap warning. Keep this projection
+ * separate so its narrower contract cannot weaken full status validation.
+ */
+router.get('/projects/:slug/video-editor/subtitles/timeline-integrity/:episodeId', async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    const subtitlesDir = await resolveSubtitlesDir(slug, episodeId)
+    const stitchedPath = path.join(subtitlesDir, `${episodeId.toUpperCase()}_stitched.srt`)
+    if (!existsSync(stitchedPath)) return res.json({ timeline_integrity: null })
+    const planningTranscript = await inspectExistingTranscriptSource(subtitlesDir, episodeId)
+    res.json({
+      timeline_integrity: await readSubtitleTimelineIntegrity(subtitlesDir, episodeId, {
+        max_cue_gap_sec: allowedSubtitleCueGapSec(),
+        cue_source_path: planningTranscript?.path,
+      }),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not compute subtitle timeline integrity'))
+  }
+})
+
 /** Check what source options are actually usable for the current episode. */
 router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params

@@ -21,3 +21,75 @@ test('Settings offers final cleanup only as a verify-and-clear candidate action'
   assert.match(settings, /⚠ remains local/)
   assert.match(settings, /lastBulkCleanup\.items\.length/)
 })
+
+test('archive folder picking is visibly single-flight and reports picker failures', () => {
+  assert.match(settings, /const archivePicking = ref\(false\)/)
+  assert.match(settings, /:disabled="archiveBusy \|\| archivePicking"/)
+  assert.match(settings, /aria-label="Browse archive source folder"/)
+  assert.match(settings, /aria-label="Browse archive destination folder"/)
+  const sourcePicker = settings.slice(settings.indexOf('async function pickArchiveSource('), settings.indexOf('async function loadArchivePreview('))
+  assert.match(sourcePicker, /archivePicking\.value = true/)
+  assert.match(sourcePicker, /if \(archivePicking\.value \|\| archiveBusy\.value\) return/)
+  assert.match(sourcePicker, /showError\(pickerHelpFor\(e\)\)/)
+  assert.match(sourcePicker, /archivePicking\.value = false/)
+})
+
+test('archive preview is treated as a background check, not a request that can silently time out', () => {
+  assert.match(settings, /const archiveChecking = ref\(false\)/)
+  assert.match(settings, /archivePreview\?\.complete && archivePreview\?\.ready_count/)
+  assert.match(settings, /archiveChecking\.value = true/)
+  assert.match(settings, /Checking .* video file/)
+  assert.match(settings, /let archivePollInFlight = false/)
+  assert.match(settings, /if \(archivePollInFlight\) return/)
+  assert.match(settings, /async function restoreArchiveInFlight\(\)/)
+  assert.match(settings, /function applyArchiveStatus\(st: any\): boolean/)
+  assert.match(settings, /if \(!st\.running && !phase\) return false/)
+})
+
+test('archive run uses its reviewed source root, not a later edit to the input', () => {
+  const start = settings.slice(settings.indexOf('async function startArchive('), settings.indexOf('async function pollArchive('))
+  assert.match(start, /if \(archiveBusy\.value \|\| archivePicking\.value\) return/)
+  assert.match(start, /source_root: preview\.source_root/)
+})
+
+
+test('concurrent archive reconnects create one poll and disposal cannot restart it', async () => {
+  const body = settings.slice(settings.indexOf('async function restoreArchiveInFlight()'), settings.indexOf('onBeforeUnmount(() => {', settings.indexOf('async function restoreArchiveInFlight()')))
+    .replace(/get<any>/g, 'get')
+  let resolveStatus!: (status: any) => void
+  let reads = 0
+  let timers = 0
+  const make = new Function('get', 'applyArchiveStatus', 'setInterval', `
+    const archiveBusy = { value: false };
+    let archivePoll = null, archiveRestoreInFlight = false, archivePanelDisposed = false;
+    const pollArchive = () => {};
+    ${body}
+    return { restore: restoreArchiveInFlight, dispose: () => { archivePanelDisposed = true } };
+  `)
+  const makeFixture = () => make(
+    () => { reads++; return new Promise(resolve => { resolveStatus = resolve }) },
+    () => true,
+    () => { timers++; return timers },
+  )
+  const first = makeFixture()
+  const pending = first.restore()
+  await first.restore()
+  assert.equal(reads, 1)
+  resolveStatus({ running: true, phase: 'preview' })
+  await pending
+  assert.equal(timers, 1)
+  const disposed = makeFixture()
+  const orphan = disposed.restore()
+  disposed.dispose()
+  resolveStatus({ running: true, phase: 'run' })
+  await orphan
+  assert.equal(timers, 1, 'unmounted settings must not start an orphan poll')
+})
+
+
+test('archive preview names only ready uploaded files and links their recorded upload', () => {
+  assert.match(settings, /const archiveReadyRows = computed[\s\S]*?filter\(c => c\.status === 'ready'\)/)
+  assert.match(settings, /v-for="c in archiveReadyRows"/)
+  assert.match(settings, /Open recorded YouTube upload/)
+  assert.match(settings, /encodeURIComponent\(c\.youtube_video_id\)/)
+})

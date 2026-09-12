@@ -663,11 +663,17 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
       assert.equal(init?.redirect, 'error')
       return new Response(archive, { status: 200, headers: { 'Content-Length': String(archive.byteLength) } })
     }
+    const observed: Array<{ downloadedBytes: number; totalBytes: number }> = []
     const bytes = await downloadGenStudioContentArchive(
       'https://objects.example.test/opaque?grant=secret',
       { archiveSha256: digest, archiveBytes: archive.byteLength },
+      progress => observed.push(progress),
     )
     assert.deepEqual(Buffer.from(bytes), archive)
+    assert.deepEqual(observed, [
+      { downloadedBytes: 0, totalBytes: archive.byteLength },
+      { downloadedBytes: archive.byteLength, totalBytes: archive.byteLength },
+    ])
   })
 
   test('resolves an exact historical or withdrawn dependency only through an owned family history', async () => {

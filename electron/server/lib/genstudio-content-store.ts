@@ -1626,6 +1626,7 @@ export async function issueGenStudioContentDownload(
 export async function downloadGenStudioContentArchive(
   downloadUrl: string,
   expected: { archiveSha256: string; archiveBytes: number },
+  onProgress?: (progress: { downloadedBytes: number; totalBytes: number }) => void,
 ): Promise<Uint8Array> {
   if (typeof downloadUrl !== 'string' || downloadUrl.length === 0) throw new TypeError('Content Store download URL is required')
   let parsedDownloadUrl: URL
@@ -1682,6 +1683,7 @@ export async function downloadGenStudioContentArchive(
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
   let length = 0
+  onProgress?.({ downloadedBytes: length, totalBytes: expected.archiveBytes })
   try {
     while (true) {
       const { done, value } = await reader.read()
@@ -1692,6 +1694,7 @@ export async function downloadGenStudioContentArchive(
         throw new Error(`Content Store archive exceeds its expected ${expected.archiveBytes} byte size or ${MAX_LOCAL_ARCHIVE_BYTES} byte limit`)
       }
       chunks.push(value)
+      onProgress?.({ downloadedBytes: length, totalBytes: expected.archiveBytes })
     }
   } finally {
     reader.releaseLock()

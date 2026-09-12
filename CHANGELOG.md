@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.153 — 2026-09-12
+
+- Jobs: historical subtitle gap links now read timeline metadata without repeatedly hashing chapter audio. Account polling shares pending requests and respects the existing refresh window; the credit header requests only the account overview it displays.
+- Shared settings reuse parsed data while the file is unchanged, detect external updates, and keep callers’ editable values independent. Channel identity appears as soon as it loads; loading or unavailable identity no longer shows a false missing Series Formula warning.
+- Content Store: purchases acknowledge their completed receipt before refreshing the catalog. Installs show downloaded bytes and verification/install phases in the shared background queue. Product details reflect queued, installed and failed states immediately, and repeated clicks reuse an active install.
+- Pipeline: confirmation opens immediately while selected episodes are checked. Cancel and project changes discard stale checks. Batch preflight reuses project facts within the request while preserving readiness and spending checks.
+- Archive uploaded videos: folder browsing shows busy/error feedback, and upload-proof scans run in the background with progress and Stop. Unreadable sources fail clearly. Moves remain limited to the reviewed folder and uploaded files, with verified copies before removing originals; same-disk moves are described as organization rather than reclaimed space.
+
 ## v1.4.152 — 2026-09-12
 
 - Scene Review: thumbnails, clips and audio now carry their own version, so a background refresh only reloads media that actually changed. The render poll waits for the previous read before asking again. A 288-scene episode’s review read runs its file checks in parallel instead of one after another.

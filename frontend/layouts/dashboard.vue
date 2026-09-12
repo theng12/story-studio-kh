@@ -143,7 +143,10 @@
           {{ formatError }} Source-dependent workflow navigation will return when the project format can be read.
         </WorkspaceNotice>
         <FlowRibbon v-else-if="slug && visualSource" :slug="slug" :visual-source="visualSource" />
-        <NicheMissingBanner v-if="slug" :slug="slug" :niche-id="project?.niche_id" />
+        <WorkspaceNotice v-if="projectLoadError" tone="warning" title="Channel loading failed">
+          {{ projectLoadError }}
+        </WorkspaceNotice>
+        <NicheMissingBanner v-if="slug && project" :key="slug" :slug="slug" :niche-id="project.niche_id" />
         <slot />
       </main>
     </div>
@@ -165,9 +168,10 @@ const mobileNavOpen = ref(false)
 const menuToggle = ref<HTMLButtonElement | null>(null)
 const sidebar = ref<HTMLElement | null>(null)
 
-const { project, loadProject } = useProject()
+const { project, loadProject, clearProject } = useProject()
+const projectLoadError = ref('')
 const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling } = useJobs()
-const { niches } = useNiches()
+const { niches, isReady: nichesReady, error: nichesError } = useNiches()
 const { refreshReadiness } = useNotifications()
 const { online: networkOnline } = useNetworkStatus()
 const { get: apiGet } = useApi()
@@ -191,7 +195,12 @@ const workflowPhases = computed(() => FLOW_PHASES.map(phase => ({
   steps: workflowSteps.value.filter(step => step.phase === phase.key),
 })).filter(phase => phase.steps.length))
 const channelFormula = computed(() => niches.value.find(niche => niche.id === project.value?.niche_id))
-const channelFormulaName = computed(() => channelFormula.value?.catalogName || channelFormula.value?.name || 'Choose a Series Formula')
+const channelFormulaName = computed(() => {
+  if (!project.value) return 'Loading channel…'
+  if (!project.value.niche_id) return 'Choose a Series Formula'
+  if (channelFormula.value) return channelFormula.value.catalogName || channelFormula.value.name
+  return nichesReady.value || nichesError.value ? 'Series Formula unavailable' : 'Loading Series Formula…'
+})
 const productionPathName = computed(() => {
   switch (project.value?.continuity_mode) {
     case 'character-continuity': return 'Character continuity'
@@ -283,11 +292,22 @@ watch(() => route.fullPath, () => {
 })
 
 watch(slug, async currentSlug => {
-  if (!currentSlug) return
-  await loadProject(currentSlug)
+  projectLoadError.value = ''
+  if (!currentSlug) {
+    clearProject()
+    stopJobPolling()
+    void loadVisualSource()
+    return
+  }
   startJobPolling(currentSlug)
   void refreshReadiness(currentSlug)
   void loadVisualSource()
+  try {
+    await loadProject(currentSlug)
+  } catch (error: any) {
+    if (currentSlug !== slug.value) return
+    projectLoadError.value = error?.data?.detail || error?.message || 'Could not read this channel. Reopen it to retry.'
+  }
 }, { immediate: true })
 
 watch(

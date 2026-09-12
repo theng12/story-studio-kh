@@ -97,6 +97,31 @@ describe('app-settings path resolution', () => {
       + 'that freezes it before tests can claim STORY_STUDIO_DATA_DIR',
     )
   })
+
+  test('cached reads follow external file replacement and do not expose mutable aliases', async () => {
+    const tmp = await useTempDataDir()
+    const target = path.join(tmp.dir, 'app-settings.json')
+    const settings = await import('../services/app-settings.js')
+    await fs.writeFile(target, JSON.stringify({ nested: { value: 'first' } }))
+
+    const first = await settings.getAppSetting('nested')
+    first.value = 'mutated by caller'
+    assert.deepEqual(await settings.getAppSetting('nested'), { value: 'first' })
+
+    await fs.writeFile(target, JSON.stringify({ nested: { value: 'externally replaced value' } }))
+    assert.deepEqual(await settings.getAppSetting('nested'), { value: 'externally replaced value' })
+    await tmp.cleanup()
+  })
+
+  test('successful local writes invalidate a warmed parsed copy', async () => {
+    const tmp = await useTempDataDir()
+    const settings = await import('../services/app-settings.js')
+    await settings.setAppSetting('warm_key', { value: 1 })
+    assert.deepEqual(await settings.getAppSetting('warm_key'), { value: 1 })
+    await settings.setAppSetting('warm_key', { value: 2 })
+    assert.deepEqual(await settings.getAppSetting('warm_key'), { value: 2 })
+    await tmp.cleanup()
+  })
 })
 
 describe('app-settings write guard', () => {
