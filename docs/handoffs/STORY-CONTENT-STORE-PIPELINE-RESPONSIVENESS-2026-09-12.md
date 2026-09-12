@@ -10,7 +10,7 @@ Owner requested efficient work with only 3% usage remaining and preferred a conc
 
 Read `docs/handoffs/STORY-SCENE-REVIEW-UPLOAD-PERFORMANCE-2026-09-12.md` first: Claude updated it after merging PR111/version1.4.152. It includes Content Store improvements as well as Scene Review/Upload Center. Its final record says the app was still running1.4.151 at that time; verify the actual running version now, rather than assuming it remains unchanged. Do not redo that batch.
 
-Repository: `/build/Developer/story-studio-kh`. Re-read applicable AGENTS.md, Git state and current logs. Preserve unrelated untracked critique and existing handoff files.
+Repository: `<owner-home>/Developer/story-studio-kh`. Re-read applicable AGENTS.md, Git state and current logs. Preserve unrelated untracked critique and existing handoff files.
 
 ## Preliminary evidence, not a confirmed performance diagnosis
 

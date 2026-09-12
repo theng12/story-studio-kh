@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.154 — 2026-09-13
+
+- All Jobs includes durable jobs from every existing project, even while the Library list is incomplete. Loading and read failures no longer appear as an empty queue, and updates arriving during the first snapshot are retained.
+- Jobs adds individual selection, Select needs attention, Select all matching, and Abandon and clear selected. One confirmation names the scope; progress and per-job failures remain visible. Files and billing records stay intact, and accepted provider work can still finish.
+- Automatic image replacement can retry one confirmed fully refunded generic image failure when the saved policy and current switch allow it. Submission uncertainty, refusals, cancelled work, charged generic failures and repeat replacements remain excluded; switching automatic replacement off prevents the next submission.
+- Settings → Free up space lists episodes with verified ready YouTube uploads, previews selected media and exact files, then archives verified copies or explicitly removes local files. Progress, Stop and file outcomes survive page navigation. Active work, shared storage, changed files and unverified exports are excluded. Upload Center links directly to this workflow.
+- Episode lists, Pipeline and Production Board distinguish local media cleanup from real asset readiness. Cleanup retains upload records, scripts, prompts, subtitles and billing evidence; ordinary Pipeline runs do not regenerate deliberately cleaned media. Force re-run remains explicit and still checks normal prerequisites and costs.
+
 ## v1.4.153 — 2026-09-12
 
 - Jobs: historical subtitle gap links now read timeline metadata without repeatedly hashing chapter audio. Account polling shares pending requests and respects the existing refresh window; the credit header requests only the account overview it displays.

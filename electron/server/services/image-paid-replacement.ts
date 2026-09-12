@@ -251,14 +251,24 @@ export type PaidImageReplacementDecision =
   | { action: 'commit'; attempt: PaidImageReplacementAttempt; scope: string }
   | { action: 'blocked'; reason: string; public_reason: PaidImageReplacementPublicReason }
 
-/** The image-only exhausted-failover shape, after the authoritative policy accepted it. */
-export function isReleasedFailoverImageRetry(
+/** The image-only fully released terminal failure shape, after the policy accepted it. */
+export function isReleasedZeroSettlementImageRetry(
   error: unknown,
   decision: PaidImageReplacementDecision | null,
 ): boolean {
   return error instanceof GenStudioImageTerminalFailureError
-    && error.failureCode === 'SITE_FAILOVER_EXHAUSTED'
+    && ZERO_SETTLEMENT_IMAGE_FAILURE_CODES.has(error.failureCode || '')
     && decision?.action === 'safe-zero-settlement-retry'
+}
+
+/** Recheck the install-level opt-in at the final zero-settlement POST boundary. */
+export async function assertReleasedZeroSettlementImageRetrySubmit(): Promise<void> {
+  const queue = await import('./job-queue.js')
+  await queue.withPaidImageWaitSettingMutation(async () => {
+    const settings = await import('./app-settings.js')
+    const setting = await settings.getPaidImageReplacementSetting().catch(() => null)
+    if (!setting?.enabled) fail('paid image replacement is currently off on this machine')
+  })
 }
 
 export type PaidImageReplacementPublicReason =
@@ -323,7 +333,7 @@ export interface PaidImageReplacementDecisionInput {
 
 const PAID_WAIT_MS = 30 * 60 * 1_000
 const FLEET_FAILURE_CODES = new Set(['SITE_PLACEMENT_EXHAUSTED', 'SITE_CAPACITY_UNAVAILABLE'])
-const ZERO_SETTLEMENT_IMAGE_FAILURE_CODES = new Set([...FLEET_FAILURE_CODES, 'SITE_FAILOVER_EXHAUSTED'])
+const ZERO_SETTLEMENT_IMAGE_FAILURE_CODES = new Set([...FLEET_FAILURE_CODES, 'SITE_FAILOVER_EXHAUSTED', 'IMAGE_FAILED'])
 const commitLocks = new Map<string, Promise<void>>()
 const EXPLICIT_BLOCKED_FAILURE = /(?:UNCERTAIN|REFUS|VALIDATION|AUTH|CREDIT|BILLING)/i
 
@@ -510,6 +520,11 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   if (initialArtifact) return { action: 'recover-original' }
   if (control.settled_credits === 0) {
     if (control.released_credits !== control.reserved_credits) return blocked('the zero settlement was not fully released')
+    const setting = await dependencies.getSetting().catch(() => null)
+    if (!setting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
+    if (String(entry.request_scope || '').includes(':retry:')) {
+      return blocked('the original image request has already used its one automatic retry', 'original_failure_not_eligible')
+    }
     let zeroReason: string | null = null
     try {
       const authorized = await withCommitLock(input.job.job_id, async () => {

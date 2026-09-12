@@ -15,6 +15,11 @@ let streamFailures = 0
 const refreshFailures = ref(0)
 const lastRefreshError = ref('')
 const jobsStale = computed(() => refreshFailures.value >= 3)
+const isLoading = ref(false)
+let stateRevision = 0
+let hasInitialSnapshot = false
+const pendingUpdates = new Map<string, Job>()
+const pendingRemovals = new Set<string>()
 
 function refreshed() {
   refreshFailures.value = 0
@@ -24,6 +29,7 @@ function refreshed() {
 function failed(error: unknown) {
   refreshFailures.value++
   lastRefreshError.value = error instanceof Error ? error.message : 'Could not refresh Jobs.'
+  isLoading.value = false
 }
 
 function recomputeStats() {
@@ -40,12 +46,50 @@ function recomputeStats() {
 }
 
 function applySnapshot(snapshot: JobListResponse) {
+  stateRevision++
   jobs.value = snapshot.jobs
   stats.value = snapshot.stats
+  isLoading.value = false
+}
+
+/**
+ * A full GET or SSE snapshot is the only event that proves the list is
+ * complete. Incremental updates can still be useful after a snapshot error,
+ * but must leave the incomplete-list warning visible until this succeeds.
+ */
+function completeSnapshot(snapshot: JobListResponse) {
+  applySnapshot(hasInitialSnapshot ? snapshot : reconcileInitialSnapshot(snapshot))
+  if (!hasInitialSnapshot) {
+    hasInitialSnapshot = true
+    pendingUpdates.clear()
+    pendingRemovals.clear()
+  }
   refreshed()
 }
 
+function reconcileInitialSnapshot(snapshot: JobListResponse): JobListResponse {
+  const next = snapshot.jobs.filter(job => !pendingRemovals.has(job.job_id))
+  for (const job of pendingUpdates.values()) {
+    if (pendingRemovals.has(job.job_id)) continue
+    const index = next.findIndex(existing => existing.job_id === job.job_id)
+    if (index >= 0) next[index] = job
+    else next.unshift(job)
+  }
+  const nextStats = { ...EMPTY_STATS }
+  for (const job of next) {
+    if (job.status === 'running') nextStats.running++
+    else if (job.status === 'queued') nextStats.queued++
+    else if (job.status === 'paused') nextStats.paused++
+    else if (job.status === 'done') nextStats.done++
+    else if (job.status === 'error') nextStats.error++
+    nextStats.total++
+  }
+  return { jobs: next, stats: nextStats }
+}
+
 function applyUpdate(job: Job) {
+  stateRevision++
+  if (!hasInitialSnapshot) pendingUpdates.set(job.job_id, job)
   const next = [...jobs.value]
   const index = next.findIndex(item => item.job_id === job.job_id)
   if (index >= 0) next[index] = job
@@ -54,8 +98,22 @@ function applyUpdate(job: Job) {
   recomputeStats()
 }
 
+function removeJobs(jobIds: Iterable<string>) {
+  const removed = new Set(jobIds)
+  if (!removed.size) return
+  stateRevision++
+  if (!hasInitialSnapshot) for (const id of removed) pendingRemovals.add(id)
+  jobs.value = jobs.value.filter(job => !removed.has(job.job_id))
+  recomputeStats()
+}
+
 /** Apply a confirmed replacement without leaving its retired terminal row visible. */
 function replaceJob(replacedJobId: string, job: Job) {
+  stateRevision++
+  if (!hasInitialSnapshot) {
+    if (replacedJobId !== job.job_id) pendingRemovals.add(replacedJobId)
+    pendingUpdates.set(job.job_id, job)
+  }
   const next = jobs.value.filter(existing => existing.job_id !== replacedJobId)
   const index = next.findIndex(item => item.job_id === job.job_id)
   if (index >= 0) next[index] = job
@@ -67,9 +125,13 @@ function replaceJob(replacedJobId: string, job: Job) {
 async function refresh() {
   const { get } = useApi()
   const epoch = transportEpoch
+  const revision = stateRevision
   try {
     const snapshot = await get<JobListResponse>('/jobs/all')
-    if (epoch === transportEpoch) applySnapshot(snapshot)
+    // Before the first snapshot, concurrent confirmed changes are recorded
+    // for reconciliation. They must not make the only authoritative fallback
+    // snapshot look stale.
+    if (epoch === transportEpoch && (revision === stateRevision || !hasInitialSnapshot)) completeSnapshot(snapshot)
   } catch (error) {
     if (epoch === transportEpoch) failed(error)
   }
@@ -92,26 +154,37 @@ function startFallback() {
 
 function startTransport() {
   stopTransport()
+  hasInitialSnapshot = false
+  pendingUpdates.clear()
+  pendingRemovals.clear()
   if (typeof EventSource === 'undefined') return startFallback()
   try { source = new EventSource('/api/jobs/all/stream') } catch { return startFallback() }
   const stream = source
   source.addEventListener('snapshot', event => {
     if (source !== stream) return
     streamFailures = 0
-    try { applySnapshot(JSON.parse((event as MessageEvent).data)) } catch (error) { failed(error) }
+    try {
+      const snapshot = JSON.parse((event as MessageEvent).data) as JobListResponse
+      completeSnapshot(snapshot)
+    } catch (error) { failed(error) }
+  })
+  source.addEventListener('snapshot-error', event => {
+    if (source !== stream) return
+    try {
+      const payload = JSON.parse((event as MessageEvent).data || '{}') as { detail?: string }
+      throw new Error(payload.detail || 'Could not load the live job snapshot.')
+    } catch (error) { failed(error) }
   })
   source.addEventListener('update', event => {
     if (source !== stream) return
     streamFailures = 0
-    try { applyUpdate(JSON.parse((event as MessageEvent).data)); refreshed() } catch (error) { failed(error) }
+    try { applyUpdate(JSON.parse((event as MessageEvent).data)) } catch (error) { failed(error) }
   })
   source.addEventListener('cleared', event => {
     if (source !== stream) return
     try {
       const payload = JSON.parse((event as MessageEvent).data || '{}') as { job_ids?: string[] }
-      const removed = new Set(payload.job_ids || [])
-      jobs.value = jobs.value.filter(job => !removed.has(job.job_id))
-      recomputeStats()
+      removeJobs(payload.job_ids || [])
     } catch { void refresh() }
   })
   source.onerror = () => {
@@ -125,7 +198,10 @@ function startTransport() {
 export function useAllJobs() {
   function start() {
     subscribers++
-    if (subscribers === 1) startTransport()
+    if (subscribers === 1) {
+      isLoading.value = true
+      startTransport()
+    }
   }
 
   function stop() {
@@ -138,8 +214,10 @@ export function useAllJobs() {
     stats: readonly(stats),
     jobsStale,
     lastRefreshError: readonly(lastRefreshError),
+    isLoading: readonly(isLoading),
     applyUpdate,
     replaceJob,
+    removeJobs,
     refresh,
     start,
     stop,

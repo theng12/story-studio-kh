@@ -85,7 +85,7 @@
         <template v-else>Select an episode...</template>
       </option>
       <option v-for="ep in filteredEpisodes" :key="ep.episode_code" :value="ep.episode_code">
-        {{ ep.episode_code }} — {{ ep.title }}{{ statusSuffix(ep) }}{{ retainedSuffix(ep) }}
+        {{ ep.episode_code }} — {{ ep.title }}{{ statusSuffix(ep) }}{{ localMediaStatusSuffix(ep) }}{{ retainedSuffix(ep) }}
       </option>
     </select>
     <div v-if="legend" class="status-legend">{{ legend }}</div>
@@ -137,6 +137,7 @@
 
 <script setup lang="ts">
 import { STEP_STATUS_FIELD } from '~/composables/useProjectFlow'
+import { localMediaStatusLabel } from '~/composables/useEpisodes'
 
 const props = defineProps<{
   modelValue: string
@@ -559,6 +560,11 @@ function statusSuffix(ep: any): string {
     return manual ? ' ✓ (manual)' : ' ✓'
   }
   return s.all_done ? ' ✓' : ''
+}
+
+function localMediaStatusSuffix(ep: any): string {
+  const label = localMediaStatusLabel(ep.local_media_status)
+  return label ? ` · ${label}` : ''
 }
 
 const legend = computed(() => {

@@ -48,11 +48,12 @@ import {
 import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import {
+  assertReleasedZeroSettlementImageRetrySubmit,
   authoritativePaidImageSettledCredits,
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
-  isReleasedFailoverImageRetry,
+  isReleasedZeroSettlementImageRetry,
   readPaidImageOriginalRequest,
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
@@ -777,7 +778,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
             }
           }
           let attemptNum = 1
-          let releasedFailoverRetryUsed = false
+          let releasedZeroSettlementRetryUsed = false
+          let zeroSettlementRetryPending = false
           for (;;) {
             // Cancel and Pause are re-read at the top of EVERY attempt, not
             // just every scene: a resubmission must never start after the owner
@@ -797,7 +799,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
             let attemptBaseScope = ''
             let attemptPaidOwningRoot = ''
             let attemptOwner: TaskManifestEntry | null = savedEntry
-            let releasedFailoverRetry = false
+            let releasedZeroSettlementRetry = false
             try {
               // The base scope names the deliberate user action. A force re-render
               // owns a fresh one; an ordinary resume/repair deliberately reuses
@@ -906,6 +908,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                   throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                 }
+                if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
                 if (decision.action === 'commit') replacementScope = decision.scope
               }
               // A terminal saved job promotes the scope to a NEW retry identity,
@@ -1068,6 +1071,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                     throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                   }
+                  if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
                 }
                 const carriedRetry = carried.request_scope?.includes(':selector:')
                   ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }
@@ -1215,6 +1219,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     beforeSubmit: () => jq.assertPaidImageReplacementSubmitPermission(
                       job, filename, outDir, filename, manifestEntry,
                     ),
+                  } : zeroSettlementRetryPending ? {
+                    beforeSubmit: assertReleasedZeroSettlementImageRetrySubmit,
                   } : {}),
                   onQueueState: async state => {
                     if (state === 'waiting_account_capacity') capacityWaiting.add(scene.scene_index)
@@ -1367,7 +1373,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   if (decision) {
                     job.output_lines.push(`Scene ${scene.scene_index}: paid replacement decision — ${decision.action}.`)
                   }
-                  releasedFailoverRetry = isReleasedFailoverImageRetry(e, decision)
+                  releasedZeroSettlementRetry = isReleasedZeroSettlementImageRetry(e, decision)
+                  zeroSettlementRetryPending ||= releasedZeroSettlementRetry
                   if (decision?.action === 'wait') {
                     paidImageWaitRequested = true
                     return
@@ -1380,18 +1387,18 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 }
                 if (e.cancelled) cancelledSceneIds.add(scene.id)
                 // A no-worker fleet failure uses the shared bounded backoff.
-                // One image-only exhausted failover may retry immediately when
+                // One fully refunded terminal image failure may retry immediately when
                 // the paid policy has verified its authoritative zero settlement.
                 // A task id is required because the
                 // next identity is DERIVED from the dead job id: without one the
                 // scope cannot be promoted, and the retry would replay a
                 // settled-failed key, which returns the same failure forever.
                 const plan = manualFinish ? null : continuityFleetBusyRetryPlan(e, attemptNum)
-                  || (releasedFailoverRetry && !releasedFailoverRetryUsed
-                    ? { waitMs: 0, reason: 'Failover ended before an image was published', maxAttempts: attemptNum + 1 }
+                  || (releasedZeroSettlementRetry && !releasedZeroSettlementRetryUsed
+                    ? { waitMs: 0, reason: 'The image failed before any credits settled', maxAttempts: attemptNum + 1 }
                     : null)
                 if (plan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
-                  if (releasedFailoverRetry) releasedFailoverRetryUsed = true
+                  if (releasedZeroSettlementRetry) releasedZeroSettlementRetryUsed = true
                   fleetWaiting.set(scene.scene_index, {
                     attempt: attemptNum,
                     maxAttempts: plan.maxAttempts,

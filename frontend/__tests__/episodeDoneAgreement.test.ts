@@ -131,6 +131,6 @@ describe('Pending only explains why a finished episode is still listed', () => {
     assert.match(selector, /list\.filter\(ep => !ep\.status\[field\] \|\| ep\.episode_code === props\.modelValue\)/)
     assert.match(selector, /function retainedSuffix\(ep: any\): string/)
     assert.match(selector, /still listed because it is open/)
-    assert.match(selector, /\{\{ statusSuffix\(ep\) \}\}\{\{ retainedSuffix\(ep\) \}\}/)
+    assert.match(selector, /\{\{ statusSuffix\(ep\) \}\}\{\{ localMediaStatusSuffix\(ep\) \}\}\{\{ retainedSuffix\(ep\) \}\}/)
   })
 })

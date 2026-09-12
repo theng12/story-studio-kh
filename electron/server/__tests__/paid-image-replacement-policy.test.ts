@@ -379,8 +379,11 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 8, snapshotted_at: '2026-08-31T00:00:00.000Z' },
   })
   const decision = async (overrides: Record<string, unknown> = {}) => {
+    const { manifestEntry: customManifestEntry, ...inputOverrides } = overrides as {
+      manifestEntry?: () => TaskManifestEntry
+    } & Record<string, unknown>
     const current = job()
-    const manifests = new Map<string, { schema_version: 1; tasks: Record<string, TaskManifestEntry> }>([[root, { schema_version: 1, tasks: { 'missing.png': manifestEntry() } }]])
+    const manifests = new Map<string, { schema_version: 1; tasks: Record<string, TaskManifestEntry> }>([[root, { schema_version: 1, tasks: { 'missing.png': customManifestEntry ? customManifestEntry() : manifestEntry() } }]])
     const jobs = new Map([[current.job_id, structuredClone(current)]])
     const writes: string[] = []
     const result = await policy.decidePaidImageReplacement({
@@ -407,28 +410,34 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
         resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
         refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 } as any),
       },
-      ...overrides,
+      ...inputOverrides,
     })
     return { result, current, jobs, manifests, writes }
   }
 
-  await suite.test('the in-run signal is exact to image failover plus an accepted zero-settlement decision', () => {
+  await suite.test('the in-run signal is exact to an accepted fully released image failure', () => {
+    for (const failureCode of ['SITE_FAILOVER_EXHAUSTED', 'IMAGE_FAILED']) {
+      const failure = new client.GenStudioImageTerminalFailureError({
+        id: 'original-task', state: 'failed', failure_code: failureCode,
+        reserved_credits: 9, settled_credits: 0, released_credits: 9,
+      } as any)
+      assert.equal(policy.isReleasedZeroSettlementImageRetry(failure, { action: 'safe-zero-settlement-retry' }), true)
+    }
     const failure = new client.GenStudioImageTerminalFailureError({
       id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED',
       reserved_credits: 9, settled_credits: 0, released_credits: 9,
     } as any)
-    assert.equal(policy.isReleasedFailoverImageRetry(failure, { action: 'safe-zero-settlement-retry' }), true)
-    assert.equal(policy.isReleasedFailoverImageRetry(failure, {
+    assert.equal(policy.isReleasedZeroSettlementImageRetry(failure, {
       action: 'blocked', reason: 'not released', public_reason: 'not_verified',
     }), false)
-    assert.equal(policy.isReleasedFailoverImageRetry(
+    assert.equal(policy.isReleasedZeroSettlementImageRetry(
       new client.GenStudioImageTerminalFailureError({
-        id: 'other', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+        id: 'other', state: 'failed', failure_code: 'UNCLASSIFIED_IMAGE_FAILURE',
         reserved_credits: 9, settled_credits: 0, released_credits: 9,
       } as any),
       { action: 'safe-zero-settlement-retry' },
     ), false)
-    assert.equal(policy.isReleasedFailoverImageRetry(
+    assert.equal(policy.isReleasedZeroSettlementImageRetry(
       new client.GenStudioTtsTerminalFailureError({
         id: 'tts', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED',
         reserved_credits: 9, settled_credits: 0, released_credits: 9,
@@ -448,6 +457,7 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     ['imbalanced exhausted-failover settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 8 }, 'blocked', 'not_verified'],
     ['missing exhausted-failover settlement fields', { id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED', reserved_credits: 9, released_credits: 9 }, 'blocked', 'not_verified'],
     ['nonfinite settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: Number.NaN, settled_credits: 3, released_credits: 6 }, 'blocked', 'not_verified'],
+    ['charged generic image failure', { id: 'original-task', state: 'failed', failure_code: 'IMAGE_FAILED', reserved_credits: 9, settled_credits: 1, released_credits: 8 }, 'blocked', 'original_failure_not_eligible'],
   ] as const) {
     await suite.test(`does not spend for ${label}`, async () => {
       const { result, writes } = await decision({ dependencies: {
@@ -463,16 +473,47 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     })
   }
 
-  await suite.test('released exhausted failover is an image-only safe zero retry with no policy writes', async () => {
-    const zero = await decision({ dependencies: {
-      readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
-      artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
+  await suite.test('fully released terminal failures receive one image-only safe retry with no policy writes', async () => {
+    for (const failureCode of ['SITE_FAILOVER_EXHAUSTED', 'IMAGE_FAILED']) {
+      const zero = await decision({ dependencies: {
+        readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: failureCode, reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
+        artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
+        resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
+        refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }),
+      } })
+      assert.equal(zero.result.action, 'safe-zero-settlement-retry')
+      assert.equal(zero.writes.filter(write => write === 'job').length, 0)
+      assert.equal(zero.writes.filter(write => write === 'manifest').length, 0)
+    }
+  })
+
+  await suite.test('a fully released generic failure requires current opt-in and has no second retry after restart', async () => {
+    const releasedGeneric = { id: 'original-task', state: 'failed', failure_code: 'IMAGE_FAILED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }
+    const off = await decision({ dependencies: {
+      readControl: async () => releasedGeneric, artifactExists: async () => false,
+      getSetting: async () => ({ enabled: false, additional_credit_ceiling: null }),
       resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
-      refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }),
+      refreshAdmission: async () => ({}) as any,
     } })
-    assert.equal(zero.result.action, 'safe-zero-settlement-retry')
-    assert.equal(zero.writes.filter(write => write === 'job').length, 0)
-    assert.equal(zero.writes.filter(write => write === 'manifest').length, 0)
+    assert.equal(off.result.action, 'blocked')
+    assert.equal(off.result.action === 'blocked' && off.result.public_reason, 'replacement_disabled')
+    assert.deepEqual(off.writes, [])
+
+    const retriedOriginal = { ...original, baseScope: `${original.baseScope}:retry:already-used` }
+    const retriedIdentity = policy.buildPaidImageOriginalIdentity({ ...retriedOriginal, selector: selector(), references: [] })
+    const restarted = await decision({
+      asset: { assetKey: 'thumbnail:1', manifestDir: root, manifestKey: 'missing.png', outputPath: path.join(root, 'missing.png'), owningRoot: root, trustedOriginal: retriedOriginal, modelId: 'image-paid-v1', apiKey: 'test-key' },
+      manifestEntry: () => ({ ...manifestEntry(), input_hash: retriedIdentity.inputHash, request_scope: retriedIdentity.requestScope }),
+      dependencies: {
+        readControl: async () => releasedGeneric, artifactExists: async () => false,
+        getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
+        resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
+        refreshAdmission: async () => ({}) as any,
+      },
+    })
+    assert.equal(restarted.result.action, 'blocked')
+    assert.equal(restarted.result.action === 'blocked' && restarted.result.public_reason, 'original_failure_not_eligible')
+    assert.deepEqual(restarted.writes, [])
   })
 
   await suite.test('exhausted failover with any settlement is never promoted into the paid wait path', async () => {

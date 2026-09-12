@@ -217,6 +217,7 @@
                   </span>
                   <span class="ep-title" :title="ep.title">{{ ep.title }}</span>
                   <span class="ep-source" :data-source="episodeVisualSource(ep)">{{ sourceLabel(ep) }}</span>
+                  <span v-if="localMediaStatusLabel(ep.local_media_status)" class="ep-media-status">{{ localMediaStatusLabel(ep.local_media_status) }}</span>
                 </div>
                 <button
                   type="button"
@@ -319,6 +320,7 @@ import {
   type FlowStep,
   type VisualSource,
 } from '~/composables/useProjectFlow'
+import { localMediaStatusLabel } from '~/composables/useEpisodes'
 import AssetImportDialog from '~/components/AssetImportDialog.vue'
 import RepairAssetsDialog from '~/components/RepairAssetsDialog.vue'
 
@@ -970,6 +972,7 @@ async function markCell(ep: any, col: BoardCol) {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   color: var(--accent);
 }
+.ep-media-status { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.25; }
 
 .cell {
   display: flex;

@@ -71,6 +71,10 @@ import { parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
 import type { MotionScope } from '../contracts/motion-scope.js'
 import { readEpisodeMotionScope, resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { motionSceneIdsForNewRequest } from '../services/scene-motion-prompt-scope.js'
+import {
+  readLocalMediaCleanupStatus,
+  type LocalMediaCleanupStatus,
+} from '../services/episode-media-cleanup.js'
 
 export const router = Router()
 
@@ -218,11 +222,31 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
 interface StoredPreset { id: string; name: string; data?: any; type?: string; [k: string]: any }
 
 interface PreflightIssue {
-  code: 'episode_not_accepted' | 'missing_preset' | 'invalid_preset' | 'missing_voice' | 'missing_prerequisite' | 'missing_local_asset' | 'insufficient_disk'
+  code: 'episode_not_accepted' | 'missing_preset' | 'invalid_preset' | 'missing_voice' | 'missing_prerequisite' | 'missing_local_asset' | 'retired_local_media' | 'insufficient_disk'
   message: string
   episode_id?: string
   step?: BatchStep
   path?: string
+}
+
+function retiredLocalMediaIssue(episodeId: string, status: LocalMediaCleanupStatus): PreflightIssue {
+  const label = status.blocked_reason || (status.categories.some(category => category.pending_files > 0)
+    ? 'Local cleanup needs review'
+    : status.state === 'archived' ? 'Sources archived' : 'Some local media was deliberately removed')
+  return {
+    code: 'retired_local_media',
+    episode_id: episodeId,
+    message: `${episodeId}: ${label}. Routine Pipeline will not regenerate intentionally cleaned media. Use Force re-run to regenerate selected stages; normal prerequisites and provider costs still apply.`,
+  }
+}
+
+async function retiredUploadedMediaByEpisode(slug: string, episodeIds: string[]): Promise<Map<string, LocalMediaCleanupStatus>> {
+  const retired = new Map<string, LocalMediaCleanupStatus>()
+  for (const code of episodeIds) {
+    const status = await readLocalMediaCleanupStatus(slug, code)
+    if (status.has_retired_media || status.blocked_reason) retired.set(code, status)
+  }
+  return retired
 }
 
 interface BatchPreflight {
@@ -510,11 +534,18 @@ async function preflightBatch(
   const ideas = await im.getIdeas(slug, 'accepted')
   const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
   const effectiveFormat = await getEffectiveFormat(slug)
+  const retiredMediaByEpisode = force ? new Map<string, LocalMediaCleanupStatus>()
+    : await retiredUploadedMediaByEpisode(slug, episodeIds)
   const visualSettingsByEpisode = new Map<string, PipelineVisualSettingsSnapshot>()
   const requiredSteps = new Set<BatchStep>()
   for (const episodeId of episodeIds) {
     if (!ideaByCode.has(episodeId)) {
       issues.push({ code: 'episode_not_accepted', episode_id: episodeId, message: `${episodeId} is not an accepted episode.` })
+      continue
+    }
+    const retiredMedia = retiredMediaByEpisode.get(episodeId)
+    if (retiredMedia) {
+      issues.push(retiredLocalMediaIssue(episodeId, retiredMedia))
       continue
     }
     try {
@@ -1801,14 +1832,16 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
 
   const preflight = await preflightBatch(slug, episode_ids, steps, force)
   const { globalIssues, blocked } = splitPreflightIssues(preflight.issues)
-  const eligible_episode_ids = eligibleEpisodeIds(episode_ids, blocked)
+  let currentIssues = preflight.issues
+  let currentBlocked = blocked
+  let eligible_episode_ids = eligibleEpisodeIds(episode_ids, currentBlocked)
   if (globalIssues.length || !eligible_episode_ids.length) {
     return res.status(400).json({
       detail: preflight.issues.length === 1
         ? `${preflight.issues[0]!.message} Nothing was started.`
         : 'Pipeline preflight found blocking problems. Nothing was started.',
       issues: preflight.issues,
-      blocked,
+      blocked: currentBlocked,
       eligible_episode_ids,
       missing: preflight.issues.filter(i => i.code === 'missing_preset').map(i => ({ step: i.step, reason: i.message })),
       warnings: preflight.warnings,
@@ -1908,6 +1941,37 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   // Character-sheet applies are config writes, not jobs — counted separately
   // so the response can report "wrote continuity.json for N episode(s)".
   let characterSheetsApplied = 0
+
+  // The preflight is a preview, not queue authority. Check the verified
+  // upload-backed cleanup record again immediately before dispatch so an
+  // ordinary batch cannot race a completed local-media cleanup into an
+  // unrequested regeneration. Force runs stay deliberate and continue to the
+  // normal prerequisite checks above.
+  if (!force) {
+    const retiredAtDispatch = await retiredUploadedMediaByEpisode(slug, eligible_episode_ids)
+    const dispatchIssues = [...retiredAtDispatch.entries()]
+      .map(([episodeId, status]) => retiredLocalMediaIssue(episodeId, status))
+    if (dispatchIssues.length) {
+      currentIssues = [...currentIssues, ...dispatchIssues]
+      currentBlocked = splitPreflightIssues(currentIssues).blocked
+      eligible_episode_ids = eligibleEpisodeIds(episode_ids, currentBlocked)
+      if (!eligible_episode_ids.length) {
+        return res.status(400).json({
+          detail: dispatchIssues.length === 1
+            ? `${dispatchIssues[0]!.message} Nothing was started.`
+            : 'Pipeline found media cleaned after preflight. Nothing was started.',
+          issues: currentIssues,
+          blocked: currentBlocked,
+          eligible_episode_ids,
+          warnings: preflight.warnings,
+          free_bytes: preflight.freeBytes,
+          required_bytes: preflight.estimatedBytes,
+          episodes: episode_ids.length,
+          steps: steps.length,
+        })
+      }
+    }
+  }
 
   for (const episodeId of eligible_episode_ids) {
     const idea = ideaByCode.get(episodeId)
@@ -2195,17 +2259,32 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       continue
     }
 
-    const job = await jq.enqueue({
-      project_slug: slug,
-      type: first.type,
-      episode_id: episodeId,
-      title: first.title,
-      params: {
-        ...first.params,
-        pipeline_chain: rest,
-        pipeline_batch_id: batch_id,
-      },
-    })
+    let cleanupAdmissionIssue: PreflightIssue | null = null
+    let job: Awaited<ReturnType<typeof jq.enqueue>>
+    try {
+      job = await jq.enqueue({
+        project_slug: slug,
+        type: first.type,
+        episode_id: episodeId,
+        title: first.title,
+        params: {
+          ...first.params,
+          pipeline_chain: rest,
+          pipeline_batch_id: batch_id,
+        },
+      }, {}, force ? undefined : async () => {
+        const status = await readLocalMediaCleanupStatus(slug, episodeId)
+        if (status.has_retired_media || status.blocked_reason) {
+          cleanupAdmissionIssue = retiredLocalMediaIssue(episodeId, status)
+          throw new Error(cleanupAdmissionIssue.message)
+        }
+      })
+    } catch (error) {
+      if (!cleanupAdmissionIssue) throw error
+      currentIssues.push(cleanupAdmissionIssue)
+      currentBlocked = splitPreflightIssues(currentIssues).blocked
+      continue
+    }
     enqueued.push({ episode_id: episodeId, job_id: job.job_id, type: first.type })
     totalEnqueuedStepCount += chain.length
     if (pausedForCueReview) {
@@ -2220,8 +2299,8 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     total_jobs_planned: totalEnqueuedStepCount,
     character_sheets_applied: characterSheetsApplied,
     skipped,
-    blocked,
-    issues: preflight.issues,
+    blocked: currentBlocked,
+    issues: currentIssues,
     steps_skipped_as_done,
     steps_skipped_as_inapplicable,
     jobs: enqueued,

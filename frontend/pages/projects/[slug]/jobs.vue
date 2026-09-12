@@ -320,9 +320,32 @@
       </button>
     </div>
 
+    <section class="jobs-selection-toolbar" aria-label="Select jobs to abandon and clear">
+      <div class="jobs-selection-buttons">
+        <strong>{{ selectedCleanupJobs.length }} selected</strong>
+        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !attentionCleanupCount" @click="selectCleanupJobs(true)">Select needs attention ({{ attentionCleanupCount }})</button>
+        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !eligibleCleanupJobs.length" @click="selectCleanupJobs(false)">Select all matching ({{ eligibleCleanupJobs.length }})</button>
+        <button class="btn btn-sm btn-ghost" :disabled="bulkActionBusy || !selectedCleanupIds.size" @click="selectedCleanupIds = new Set()">Clear selection</button>
+        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !selectedCleanupJobs.length" @click="abandonAndClearSelected">{{ clearingSelected ? 'Clearing selected…' : `Abandon and clear (${selectedCleanupJobs.length})` }}</button>
+      </div>
+      <p class="text-muted">Selection includes matching jobs across all filtered pages. Files and billing records stay intact. Abandoning stops local tracking; accepted provider work may still finish.</p>
+      <p v-if="cleanupProgress" role="status">{{ cleanupProgress }}</p>
+      <details v-if="cleanupFailures.length">
+        <summary>{{ cleanupFailures.length }} selected job{{ cleanupFailures.length === 1 ? ' needs' : 's need' }} attention</summary>
+        <ul><li v-for="(failure, index) in cleanupFailures" :key="index"><strong>{{ failure.label }}</strong> — {{ failure.reason }}</li></ul>
+      </details>
+    </section>
+
+    <WorkspaceNotice v-if="jobsLoading && !jobs.length" tone="info" title="Loading jobs">
+      Reading job records{{ isUniversal ? ' from all projects' : '' }}…
+    </WorkspaceNotice>
+    <WorkspaceNotice v-else-if="jobsRefreshError && !jobs.length" tone="warning" title="Jobs could not be loaded">
+      {{ jobsRefreshMessage }}
+      <button class="btn btn-sm btn-secondary" :disabled="refreshingJobs" @click="refreshVisibleJobs">Refresh jobs</button>
+    </WorkspaceNotice>
     <!-- Empty State -->
     <EmptyState
-      v-if="activeJobs.length === 0 && historyJobs.length === 0"
+      v-else-if="activeJobs.length === 0 && historyJobs.length === 0"
       class="mt-2"
       icon="⚙️"
       :title="emptyTitle"
@@ -349,6 +372,8 @@
         <!-- Row 1: Status + Type + Episode + Actions -->
         <div class="job-row-main">
           <div class="job-identity">
+            <input type="checkbox" :checked="selectedCleanupIds.has(job.job_id)" :disabled="bulkActionBusy || !jobCleanupAction(job) || controlBusy.has(job.job_id)"
+              :aria-label="`Select ${projectName(job.project_slug)} ${job.episode_id || job.title || job.type} job`" @change="toggleCleanupJob(job)">
             <StatusBadge :status="jobDisplayStatus(job)" />
             <NuxtLink
               v-if="isUniversal && job.project_slug !== '_app_'"
@@ -759,6 +784,8 @@
         >
           <div class="job-row-main">
             <div class="job-identity">
+              <input type="checkbox" :checked="selectedCleanupIds.has(job.job_id)" :disabled="bulkActionBusy || !jobCleanupAction(job) || controlBusy.has(job.job_id)"
+                :aria-label="`Select ${projectName(job.project_slug)} ${job.episode_id || job.title || job.type} job`" @change="toggleCleanupJob(job)">
               <StatusBadge :status="jobDisplayStatus(job)" />
               <NuxtLink
                 v-if="isUniversal && job.project_slug !== '_app_'"
@@ -1131,6 +1158,7 @@ const jobs = computed(() => isUniversal.value ? universalQueue.jobs.value : proj
 const queueStats = computed(() => isUniversal.value ? universalQueue.stats.value : projectQueue.stats.value)
 const jobsStale = computed(() => isUniversal.value ? universalQueue.jobsStale.value : projectQueue.jobsStale.value)
 const jobsRefreshError = computed(() => isUniversal.value ? universalQueue.lastRefreshError.value : projectQueue.lastRefreshError.value)
+const jobsLoading = computed(() => isUniversal.value ? universalQueue.isLoading.value : projectQueue.isLoading.value)
 const { success, error: showError, info, successUndoable } = useToast()
 
 interface ProjectOption { slug: string; name: string }
@@ -2305,7 +2333,7 @@ const hasQueueWork = computed(() => globalQueueWork.value !== false || jobs.valu
 const clearingHistory = ref<'finished' | 'failed' | null>(null)
 const bulkActionMessage = ref('')
 const bulkActionBusy = computed(() => recoveringAllEpisodes.value || recoveringEpisodes.value.size > 0
-  || repairingAllFailed.value || repairingJobs.value.size > 0 || retryingAllFailed.value || bulkResumeBusy.value || clearingHistory.value !== null)
+  || repairingAllFailed.value || repairingJobs.value.size > 0 || retryingAllFailed.value || bulkResumeBusy.value || clearingHistory.value !== null || clearingSelected.value)
 
 // ── Duration helpers ────────────────────────────────────────────────────
 
@@ -2527,6 +2555,85 @@ function platformFileBrowser(): string {
 const controlBusy = ref(new Set<string>())
 const bulkResumeBusy = ref(false)
 const bulkResumeCount = ref(0)
+const selectedCleanupIds = ref(new Set<string>())
+const clearingSelected = ref(false)
+const cleanupProgress = ref('')
+const cleanupFailures = ref<{ label: string; reason: string }[]>([])
+const eligibleCleanupJobs = computed(() => filteredJobs.value.filter(job => jobCleanupAction(job) && !controlBusy.value.has(job.job_id)))
+const attentionCleanupCount = computed(() => eligibleCleanupJobs.value.filter(job => jobDisplayStatus(job) === 'error').length)
+const selectedCleanupJobs = computed(() => eligibleCleanupJobs.value.filter(job => selectedCleanupIds.value.has(job.job_id)))
+
+watch([slug, isUniversal, projectFilter, activeFilter, statusFilter, failureBatchFilter], () => {
+  selectedCleanupIds.value = new Set()
+})
+
+function jobCleanupAction(job: RJob): 'clear-history' | 'force-abandon' | null {
+  const controls = jobControls(job)
+  if (controls.some(control => control.enabled && control.action === 'clear-history')) return 'clear-history'
+  return controls.some(control => control.enabled && control.action === 'force-abandon') ? 'force-abandon' : null
+}
+
+function selectCleanupJobs(attentionOnly: boolean) {
+  if (bulkActionBusy.value) return
+  selectedCleanupIds.value = new Set(eligibleCleanupJobs.value
+    .filter(job => !attentionOnly || jobDisplayStatus(job) === 'error').map(job => job.job_id))
+}
+
+function toggleCleanupJob(job: RJob) {
+  if (bulkActionBusy.value || controlBusy.value.has(job.job_id) || !jobCleanupAction(job)) return
+  const next = new Set(selectedCleanupIds.value)
+  if (next.has(job.job_id)) next.delete(job.job_id)
+  else next.add(job.job_id)
+  selectedCleanupIds.value = next
+}
+
+async function abandonAndClearSelected() {
+  if (bulkActionBusy.value || clearingSelected.value || !selectedCleanupJobs.value.length) return
+  const selected = [...selectedCleanupJobs.value]
+  const scope = actionScopeLabel.value
+  const reasons = [...new Set(selected.flatMap(job => jobCleanupAction(job) === 'force-abandon'
+    ? jobControls(job).filter(control => control.action === 'force-abandon').map(control => control.reason) : []))]
+  clearingSelected.value = true
+  try {
+    const { ask } = useConfirm()
+    if (!await ask({
+      title: `Abandon and clear ${selected.length} selected job${selected.length === 1 ? '' : 's'}?`,
+      message: `${scope}: only these ${selected.length} selected job rows will be removed. Files and billing records stay intact.${reasons.length ? `\n\n${reasons.join('\n')}` : ''}`,
+      confirmLabel: 'Abandon and clear selected',
+    })) return
+    cleanupFailures.value = []
+    controlBusy.value = new Set([...controlBusy.value, ...selected.map(job => job.job_id)])
+    let cleared = 0
+    for (const [index, job] of selected.entries()) {
+      const label = `${projectName(jobProjectSlug(job))} · ${job.episode_id || job.title || job.type}`
+      cleanupProgress.value = `${scope}: ${index + 1} of ${selected.length} · ${label}`
+      try {
+        if (jobCleanupAction(job) === 'force-abandon') {
+          const response = await post<{ job: Job }>(`${jobQueuePath(job)}/abandon`, {})
+          projectQueue.applyUpdate(response.job)
+          universalQueue.applyUpdate(response.job)
+        }
+        await del(jobQueuePath(job))
+        projectQueue.removeJobs([job.job_id])
+        universalQueue.removeJobs([job.job_id])
+        const next = new Set(selectedCleanupIds.value)
+        next.delete(job.job_id)
+        selectedCleanupIds.value = next
+        cleared++
+      } catch (error: any) {
+        cleanupFailures.value.push({ label, reason: customerJobText(error?.data?.detail || error?.message || 'Could not clear this job.', job) })
+      } finally {
+        const next = new Set(controlBusy.value)
+        next.delete(job.job_id)
+        controlBusy.value = next
+      }
+    }
+    cleanupProgress.value = `${scope}: cleared ${cleared} of ${selected.length} selected jobs.${cleanupFailures.value.length ? ` ${cleanupFailures.value.length} could not be cleared; see details below.` : ''}`
+    info(cleanupProgress.value)
+  } finally {
+    clearingSelected.value = false
+  }
+}
 
 type JobControl = NonNullable<RJob['control']>
 
@@ -2613,6 +2720,7 @@ function customerJobText(value: unknown, job: RJob): string {
 async function runJobControl(job: RJob, requestedControl?: JobControl) {
   const control = requestedControl || job.control
   if (!control?.enabled || controlBusy.value.has(job.job_id)) return
+  if (clearingSelected.value) return
   // v1.2.8 — the one control on this page that cannot be undone by clicking it
   // again. The dialog is populated from the backend's own wording (the pattern
   // already proven on Scene Review), so what the server promises and what the
@@ -2628,7 +2736,9 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
   controlBusy.value = new Set(controlBusy.value).add(job.job_id)
   try {
     if (control.action === 'force-abandon') {
-      await post(`${jobQueuePath(job)}/abandon`, {})
+      const response = await post<{ job: Job }>(`${jobQueuePath(job)}/abandon`, {})
+      projectQueue.applyUpdate(response.job)
+      universalQueue.applyUpdate(response.job)
       success('Abandoned. The queue has moved on — use Retry on this row to run the step again.')
       return
     } else if (control.action === 'cancel-before-submit' || control.action === 'stop-local' || control.action === 'request-remote-cancel') {
@@ -2643,6 +2753,8 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
       await post(`${jobQueuePath(job)}/pause`, {})
     } else if (control.action === 'clear-history') {
       await del(jobQueuePath(job))
+      projectQueue.removeJobs([job.job_id])
+      universalQueue.removeJobs([job.job_id])
     } else if (control.action === 'recheck-provider-status') {
       // v1.2.6 — this button actually asks GenStudio. The refreshed control
       // arrives with the response, so the answer replaces the question rather
@@ -3401,6 +3513,10 @@ async function clearHistory(status: 'finished' | 'failed') {
       ? `Cleared ${result.cleared} ${status} history row(s). Files and billing records are unchanged.`
       : 'Nothing was cleared. Provider status may have changed; the job’s controls show what is still pending.'
     info(bulkActionMessage.value)
+    // This endpoint returns only a count, not the exact ids that survived its
+    // provider-settlement gate. Refresh the visible scope instead of guessing
+    // which cards disappeared, while keeping the toolbar available.
+    void refreshVisibleJobs()
   } catch (e: any) { showError(e?.data?.detail || `Failed to clear ${status} history`) }
   finally { clearingHistory.value = null }
 }
@@ -3411,6 +3527,12 @@ function clearFailed() { return clearHistory('failed') }
 
 <style scoped>
 .jobs-workspace { padding-bottom: 32px; }
+.jobs-selection-toolbar { margin: 16px 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.jobs-selection-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.jobs-selection-buttons .btn { min-height: 40px; white-space: normal; }
+.jobs-selection-toolbar p { margin: 8px 0 0; font-size: var(--font-sm); }
+.jobs-selection-toolbar li { overflow-wrap: anywhere; }
+.job-identity input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color: var(--accent); }
 .jobs-hero-aside {
   display: grid;
   justify-items: end;
@@ -4137,7 +4259,9 @@ function clearFailed() { return clearHistory('failed') }
   .jobs-hero-aside { justify-items: start; }
   .genstudio-capacity-summary { justify-content: flex-start; }
   .job-row-main { align-items: flex-start; flex-wrap: wrap; }
-  .job-identity { flex-basis: 100%; }
+  .job-identity { flex-basis: 100%; flex-wrap: wrap; }
+  .job-project { flex-shrink: 0; }
+  .job-title { flex-basis: 100%; }
   .job-actions { margin-left: 0; width: 100%; justify-content: flex-start; }
   .project-filter { width: 100%; }
   .project-filter select { min-width: 0; flex: 1; }

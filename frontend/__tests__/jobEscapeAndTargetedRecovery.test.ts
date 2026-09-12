@@ -33,7 +33,7 @@ describe('force-abandon on the Jobs page', () => {
   })
 
   it('posts to the abandon endpoint and points the user at Retry', () => {
-    assert.match(jobsPage, /post\(`\$\{jobQueuePath\(job\)\}\/abandon`, \{\}\)/)
+    assert.match(jobsPage, /post(?:<\{ job: Job \}>)?\(`\$\{jobQueuePath\(job\)\}\/abandon`, \{\}\)/)
     assert.match(jobsPage, /use Retry on this row to run the step again/)
   })
 

@@ -36,6 +36,31 @@ import { ref, computed, onMounted, watch, type Ref } from 'vue'
 import { useApi } from './useApi.js'
 import { useJobs } from './useJobs.js'
 
+export interface LocalMediaCleanupStatus {
+  state: 'available' | 'archived' | 'partially_removed' | 'removed'
+  updated_at: string | null
+  has_retired_media: boolean
+  blocked_reason?: string
+  categories: Array<{
+    category: 'images' | 'chapter_audio' | 'merged_audio' | 'motion_clips' | 'final_video'
+    removed_files: number
+    archived_files: number
+    pending_files: number
+    bytes_reclaimed: number
+  }>
+}
+
+/** A storage-retention label. It never changes file-derived asset readiness. */
+export function localMediaStatusLabel(status: LocalMediaCleanupStatus | null | undefined): string {
+  if (!status) return ''
+  if (status.blocked_reason) return 'Local media status needs review'
+  if (status.categories.some(category => category.pending_files > 0)) return 'Local cleanup needs review'
+  if (status.state === 'available') return ''
+  if (status.state === 'archived') return 'Sources archived'
+  if (status.state === 'partially_removed') return 'Some local media removed'
+  return 'Local sources removed'
+}
+
 export interface EpisodeRow {
   episode_code: string
   title: string
@@ -49,6 +74,7 @@ export interface EpisodeRow {
   idea_dimensions?: Record<string, string>
   episode_profile?: string
   scene_images: { total: number; present: number; complete: boolean }
+  local_media_status?: LocalMediaCleanupStatus | null
   // Provenance + per-episode override surface (added in mark-done overhaul).
   // batch_id === 'imported' identifies YouTube imports (Situation A); the UI
   // uses it for the Source filter + bulk-by-source action. marked_done lets

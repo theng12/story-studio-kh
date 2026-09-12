@@ -24,6 +24,7 @@ import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { loadNiche } from '../services/niche-loader.js'
 import { isCompatible, loadTopicPack } from '../services/topic-pack-loader.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
+import { readLocalMediaCleanupStatus } from '../services/episode-media-cleanup.js'
 import {
   previewReseason, applyReseason, revertReseason,
   readReseasonUndo, deleteReseasonUndo, isReseasonUndoExpired,
@@ -969,6 +970,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       marked_done: idea.marked_done === true,
       marked_done_at: idea.marked_done_at || null,
       status_overrides: idea.status_overrides || null,
+      local_media_status: await readLocalMediaCleanupStatus(slug, code, projectFacts),
       visual_source: episodeVisualSource,
       // ── Asset-readiness contract (single source of truth for UI gating) ──
       // Every consumer reads from these fields; nothing else should infer

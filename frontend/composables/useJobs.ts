@@ -86,12 +86,17 @@ const STALE_THRESHOLD = 3
 const refreshFailures = ref(0)
 const lastRefreshError = ref<string>('')
 const jobsStale = computed(() => refreshFailures.value >= STALE_THRESHOLD)
+const isLoading = ref(false)
 
 let source: EventSource | null = null
 let pollInterval: ReturnType<typeof setInterval> | null = null
 let currentSlug: string | null = null
 let streamFailures = 0
 let transportEpoch = 0
+let stateRevision = 0
+let hasInitialSnapshot = false
+const pendingUpdates = new Map<string, Job>()
+const pendingRemovals = new Set<string>()
 
 const MAX_STREAM_FAILURES = 3
 const FALLBACK_POLL_MS = 10_000
@@ -100,6 +105,7 @@ const FALLBACK_POLL_MS = 10_000
 const previousStatuses = new Map<string, string>()
 
 function resetJobsState() {
+  stateRevision++
   jobs.value = []
   stats.value = { ...EMPTY_STATS }
   previousStatuses.clear()
@@ -118,6 +124,16 @@ function recomputeStats(): JobStats {
     s.total++
   }
   return s
+}
+
+function removeJobs(jobIds: Iterable<string>) {
+  const removed = new Set(jobIds)
+  if (!removed.size) return
+  stateRevision++
+  if (!hasInitialSnapshot) for (const id of removed) pendingRemovals.add(id)
+  jobs.value = jobs.value.filter(job => !removed.has(job.job_id))
+  for (const id of removed) previousStatuses.delete(id)
+  stats.value = recomputeStats()
 }
 
 function announceTransitions(next: Job[]) {
@@ -185,13 +201,53 @@ export function jobCompletionNotice(
 
 function applySnapshot(snapshot: JobListResponse, slug: string) {
   if (currentSlug !== slug) return
+  stateRevision++
   announceTransitions(snapshot.jobs)
   jobs.value = snapshot.jobs
   stats.value = snapshot.stats
+  isLoading.value = false
+}
+
+/**
+ * A full GET or SSE snapshot is the only event that proves the list is
+ * complete. Incremental updates can still be useful after a snapshot error,
+ * but must leave the incomplete-list warning visible until this succeeds.
+ */
+function completeSnapshot(snapshot: JobListResponse, slug: string) {
+  applySnapshot(hasInitialSnapshot ? snapshot : reconcileInitialSnapshot(snapshot), slug)
+  if (!hasInitialSnapshot) {
+    hasInitialSnapshot = true
+    pendingUpdates.clear()
+    pendingRemovals.clear()
+  }
+  refreshFailures.value = 0
+  lastRefreshError.value = ''
+}
+
+function reconcileInitialSnapshot(snapshot: JobListResponse): JobListResponse {
+  const next = snapshot.jobs.filter(job => !pendingRemovals.has(job.job_id))
+  for (const job of pendingUpdates.values()) {
+    if (pendingRemovals.has(job.job_id)) continue
+    const index = next.findIndex(existing => existing.job_id === job.job_id)
+    if (index >= 0) next[index] = job
+    else next.unshift(job)
+  }
+  const nextStats = { ...EMPTY_STATS }
+  for (const job of next) {
+    if (job.status === 'running') nextStats.running++
+    else if (job.status === 'queued') nextStats.queued++
+    else if (job.status === 'paused') nextStats.paused++
+    else if (job.status === 'done') nextStats.done++
+    else if (job.status === 'error') nextStats.error++
+    nextStats.total++
+  }
+  return { jobs: next, stats: nextStats }
 }
 
 function applyUpdate(job: Job, slug = currentSlug) {
   if (currentSlug !== slug || job.project_slug !== slug) return
+  stateRevision++
+  if (!hasInitialSnapshot) pendingUpdates.set(job.job_id, job)
   // Merge: replace existing or prepend. Sorting stays consistent with the
   // server's `order` in getJobs() because on snapshot we already match it.
   const next = [...jobs.value]
@@ -206,6 +262,11 @@ function applyUpdate(job: Job, slug = currentSlug) {
 /** Apply a confirmed replacement without leaving its retired terminal row visible. */
 function replaceJob(replacedJobId: string, job: Job, slug = currentSlug) {
   if (currentSlug !== slug || job.project_slug !== slug) return
+  stateRevision++
+  if (!hasInitialSnapshot) {
+    if (replacedJobId !== job.job_id) pendingRemovals.add(replacedJobId)
+    pendingUpdates.set(job.job_id, job)
+  }
   const next = jobs.value.filter(existing => existing.job_id !== replacedJobId)
   const idx = next.findIndex(existing => existing.job_id === job.job_id)
   if (idx >= 0) next[idx] = job
@@ -222,13 +283,15 @@ async function refreshFull(slug: string) {
   // literal artifact). Skip — /projects/undefined/jobs is always 404.
   if (!slug || slug === 'undefined') return
   const epoch = transportEpoch
+  const revision = stateRevision
   const { get } = useApi()
   try {
     const data = await get<JobListResponse>(`/projects/${slug}/jobs`)
-    if (currentSlug !== slug || epoch !== transportEpoch) return
-    applySnapshot(data, slug)
-    refreshFailures.value = 0
-    lastRefreshError.value = ''
+    // Before the first snapshot, concurrent confirmed changes are recorded
+    // for reconciliation. They must not make the only authoritative fallback
+    // snapshot look stale.
+    if (currentSlug !== slug || epoch !== transportEpoch || (revision !== stateRevision && hasInitialSnapshot)) return
+    completeSnapshot(data, slug)
   } catch (e: any) {
     if (currentSlug !== slug || epoch !== transportEpoch) return
     // Don't toast on every retry — that's noise fatigue. Bump a counter
@@ -237,11 +300,15 @@ async function refreshFull(slug: string) {
     // sustained outage is visible to the operator.
     refreshFailures.value++
     lastRefreshError.value = e?.data?.detail || e?.message || 'Failed to refresh jobs'
+    isLoading.value = false
   }
 }
 
 function startStream(slug: string) {
   stopTransport()
+  hasInitialSnapshot = false
+  pendingUpdates.clear()
+  pendingRemovals.clear()
   if (typeof EventSource === 'undefined') {
     startFallbackPolling(slug)
     return
@@ -259,15 +326,26 @@ function startStream(slug: string) {
     streamFailures = 0
     try {
       const payload = JSON.parse(ev.data) as JobListResponse
-      applySnapshot(payload, slug)
-      refreshFailures.value = 0
-      lastRefreshError.value = ''
+      completeSnapshot(payload, slug)
     } catch (e: any) {
       // Bad frame: don't apply it, but bump the stale counter — a stream
       // that's emitting unparseable JSON is broken even if the connection
       // is technically alive.
       refreshFailures.value++
       lastRefreshError.value = `SSE snapshot parse failed: ${e?.message || 'invalid JSON'}`
+      isLoading.value = false
+    }
+  })
+
+  source.addEventListener('snapshot-error', (ev: MessageEvent) => {
+    if (source !== stream) return
+    try {
+      const payload = JSON.parse(ev.data || '{}') as { detail?: string }
+      throw new Error(payload.detail || 'Could not load the live job snapshot.')
+    } catch (error) {
+      refreshFailures.value++
+      lastRefreshError.value = error instanceof Error ? error.message : 'Could not load the live job snapshot.'
+      isLoading.value = false
     }
   })
 
@@ -277,8 +355,6 @@ function startStream(slug: string) {
     try {
       const payload = JSON.parse(ev.data) as Job
       applyUpdate(payload, slug)
-      refreshFailures.value = 0
-      lastRefreshError.value = ''
     } catch (e: any) {
       // One bad update frame stalls the progress UI silently in the old
       // code. Bump the counter so the stale indicator surfaces if frames
@@ -294,11 +370,7 @@ function startStream(slug: string) {
     // history after every dismissal. The server sends the exact removed ids.
     try {
       const payload = JSON.parse(ev.data || '{}') as { job_ids?: string[] }
-      const removed = new Set(payload.job_ids || [])
-      if (!removed.size) return
-      jobs.value = jobs.value.filter(job => !removed.has(job.job_id))
-      for (const id of removed) previousStatuses.delete(id)
-      stats.value = recomputeStats()
+      removeJobs(payload.job_ids || [])
     } catch {
       void refreshFull(slug)
     }
@@ -380,6 +452,7 @@ export function useJobs() {
   function startPolling(slug: string, _intervalMs = 3000) {
     if (currentSlug !== slug) resetJobsState()
     currentSlug = slug
+    isLoading.value = true
     startStream(slug)
   }
 
@@ -393,8 +466,10 @@ export function useJobs() {
     stats: readonly(stats),
     jobsStale,
     lastRefreshError: readonly(lastRefreshError),
+    isLoading: readonly(isLoading),
     applyUpdate,
     replaceJob,
+    removeJobs,
     isJobActiveFor,
     fetchJobs,
     startPolling,

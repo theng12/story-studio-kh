@@ -14,6 +14,8 @@ import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 import { createApp, defineComponent, h, nextTick, reactive, ref, type Component } from 'vue'
 
+import { localMediaStatusLabel } from '../composables/useEpisodes.js'
+
 const here = fileURLToPath(new URL('.', import.meta.url))
 
 async function loadProjectFlow(route: Record<string, any>) {
@@ -39,8 +41,10 @@ async function loadEpisodeSelector(): Promise<Component> {
     compilerOptions: { bindingMetadata: script.bindings },
   })
   const vueUrl = await import.meta.resolve('vue')
+  ;(globalThis as any).__workflowLocalMediaStatusLabel = localMediaStatusLabel
   const support = `
     import { computed, defineComponent as _defineComponent, onBeforeUnmount, onMounted, ref, watch } from ${JSON.stringify(vueUrl)}
+    const localMediaStatusLabel = globalThis.__workflowLocalMediaStatusLabel
     const useRoute = () => globalThis.__workflowSelectorRoute
     const useRouter = () => globalThis.__workflowSelectorRouter
     const useEpisodes = () => globalThis.__workflowSelectorEpisodes
@@ -100,7 +104,7 @@ describe('episode-aware workflow continuity', () => {
 
   test('EpisodeSelector makes a completed deep-link target visible and writes a changed selection back to the current query', async () => {
     const episodes = ref([
-      { episode_code: 'EP0001', title: 'Imported opening', status: { introduction: true } },
+      { episode_code: 'EP0001', title: 'Imported opening', status: { introduction: true }, local_media_status: { state: 'archived', categories: [] } },
       { episode_code: 'EP0002', title: 'New draft', status: { introduction: false } },
     ])
     const route = reactive({
@@ -138,6 +142,9 @@ describe('episode-aware workflow continuity', () => {
     assert.ok([...select.options].some(option => option.value === 'EP0001'),
       'Pending only still shows the selected completed deep-link target')
 
+    assert.match(select.selectedOptions[0].textContent || '', /Sources archived/,
+      'the real storage label renders alongside the retained completed selection')
+
     select.value = 'EP0002'
     select.dispatchEvent(new Event('change', { bubbles: true }))
     await flush()
@@ -163,6 +170,7 @@ describe('episode-aware workflow continuity', () => {
     delete (globalThis as any).__workflowSelectorRoute
     delete (globalThis as any).__workflowSelectorRouter
     delete (globalThis as any).__workflowSelectorEpisodes
+    delete (globalThis as any).__workflowLocalMediaStatusLabel
   })
 
   test('Introduction keeps an imported opening preview and editor available while its channel policy is off', () => {

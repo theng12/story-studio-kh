@@ -209,6 +209,56 @@ describe('useJobs — SSE transport', () => {
     stopPolling()
     assert.equal(src.closed, true, 'EventSource.close() must be called on stopPolling')
   })
+
+  test('keeps a snapshot-error warning through buffered updates until a full snapshot succeeds', () => {
+    const queue = useJobs()
+    queue.startPolling('snapshot-error-project')
+    const stream = FakeEventSource.last!
+    stream.fire('snapshot-error', { detail: 'Could not load project Jobs.' })
+    stream.fire('update', mkJob({ job_id: 'buffered', project_slug: 'snapshot-error-project', status: 'running' }))
+
+    assert.equal(queue.jobs.value.find(job => job.job_id === 'buffered')?.status, 'running')
+    assert.match(queue.lastRefreshError.value, /Could not load project Jobs/)
+
+    stream.fire('snapshot', mkSnapshot([mkJob({ job_id: 'recovered', project_slug: 'snapshot-error-project' })]))
+    assert.equal(queue.lastRefreshError.value, '')
+    queue.stopPolling()
+  })
+
+  test('treats the first fallback GET as the initial snapshot lifecycle', async () => {
+    const originalEventSource = (globalThis as any).EventSource
+    const originalFetch = (globalThis as any).$fetch
+    let resolveFirst!: (value: ReturnType<typeof mkSnapshot>) => void
+    const first = new Promise<ReturnType<typeof mkSnapshot>>(resolve => { resolveFirst = resolve })
+    ;(globalThis as any).EventSource = undefined
+    ;(globalThis as any).$fetch = () => first
+    const queue = useJobs()
+    queue.startPolling('fallback-initial-project')
+    try {
+      queue.applyUpdate(mkJob({ job_id: 'confirmed', project_slug: 'fallback-initial-project', status: 'cancelled' }))
+      resolveFirst(mkSnapshot([
+        mkJob({ job_id: 'confirmed', project_slug: 'fallback-initial-project', status: 'queued' }),
+        mkJob({ job_id: 'unrelated', project_slug: 'fallback-initial-project', status: 'queued' }),
+      ]))
+      await first
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      assert.equal(queue.jobs.value.find(job => job.job_id === 'confirmed')?.status, 'cancelled')
+      assert.ok(queue.jobs.value.some(job => job.job_id === 'unrelated'))
+      queue.removeJobs(['unrelated'])
+      ;(globalThis as any).$fetch = async () => mkSnapshot([
+        mkJob({ job_id: 'unrelated', project_slug: 'fallback-initial-project', status: 'queued' }),
+      ])
+      await queue.fetchJobs('fallback-initial-project')
+
+      assert.deepEqual(queue.jobs.value.map(job => job.job_id), ['unrelated'],
+        'a later fallback GET is authoritative after the first one clears pending reconciliation state')
+    } finally {
+      queue.stopPolling()
+      ;(globalThis as any).EventSource = originalEventSource
+      ;(globalThis as any).$fetch = originalFetch
+    }
+  })
 })
 
 describe('useJobs — episode ownership', () => {
@@ -309,6 +359,40 @@ describe('useJobs — closed transport isolation', () => {
     FakeEventSource.last!.fire('snapshot', mkSnapshot([mkJob({ job_id: 'new', project_slug: 'same-project' })]))
     old.fire('snapshot', mkSnapshot([mkJob({ job_id: 'old', project_slug: 'same-project' })]))
     assert.deepEqual(queue.jobs.value.map(job => job.job_id), ['new'])
+    queue.stopPolling()
+  })
+
+  test('reconciles confirmed changes with an initial snapshot that arrives late', () => {
+    const queue = useJobs()
+    queue.startPolling('confirmed-project')
+    const stream = FakeEventSource.last!
+
+    assert.equal(queue.isLoading.value, true)
+    queue.applyUpdate(mkJob({ job_id: 'confirmed', project_slug: 'confirmed-project', status: 'cancelled' }))
+    stream.fire('snapshot', mkSnapshot([
+      mkJob({ job_id: 'confirmed', project_slug: 'confirmed-project', status: 'running' }),
+      mkJob({ job_id: 'unrelated', project_slug: 'confirmed-project', status: 'queued' }),
+    ]))
+
+    assert.deepEqual(queue.jobs.value.map(job => [job.job_id, job.status]), [
+      ['confirmed', 'cancelled'],
+      ['unrelated', 'queued'],
+    ])
+    assert.equal(queue.isLoading.value, false)
+    queue.stopPolling()
+  })
+
+  test('does not resurrect a confirmed history deletion from the initial snapshot', () => {
+    const queue = useJobs()
+    queue.startPolling('remove-project')
+    queue.removeJobs(['remove-me'])
+    FakeEventSource.last!.fire('snapshot', mkSnapshot([
+      mkJob({ job_id: 'remove-me', project_slug: 'remove-project', status: 'done' }),
+      mkJob({ job_id: 'keep-me', project_slug: 'remove-project', status: 'error' }),
+    ]))
+
+    assert.deepEqual(queue.jobs.value.map(job => job.job_id), ['keep-me'])
+    assert.equal(queue.stats.value.total, 1)
     queue.stopPolling()
   })
 })

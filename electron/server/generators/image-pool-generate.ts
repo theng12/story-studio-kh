@@ -38,11 +38,12 @@ import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveIma
 import { getApiKey } from '../services/app-secrets-store.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import {
+  assertReleasedZeroSettlementImageRetrySubmit,
   authoritativePaidImageSettledCredits,
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
-  isReleasedFailoverImageRetry,
+  isReleasedZeroSettlementImageRetry,
   readPaidImageOriginalRequest,
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
@@ -306,7 +307,8 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
     // its waits fails exactly as it does today, the catch below still records
     // it, and the outer loop still goes on to the remaining items.
     let attemptNum = 1
-    let releasedFailoverRetryUsed = false
+    let releasedZeroSettlementRetryUsed = false
+    let zeroSettlementRetryPending = false
     let retryItem = true
     while (retryItem) {
       retryItem = false
@@ -322,7 +324,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
       let attemptOriginal: Partial<TaskManifestEntry> = {}
       let attemptBaseScope = ''
       let paidReplacement = false
-      let releasedFailoverRetry = false
+      let releasedZeroSettlementRetry = false
       try {
         // Re-read per attempt, from DISK — not from a copy taken before the
         // run. The failed entry the catch below writes is what promotes the
@@ -370,6 +372,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
             jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
             throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
           }
+          if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
           if (decision.action === 'commit') replacementScope = decision.scope
         }
         const retryEntry = entry?.request_scope?.includes(':selector:')
@@ -436,6 +439,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
               jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
               throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
             }
+            if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
           }
           const carriedRetry = carried.request_scope?.includes(':selector:')
             ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }
@@ -522,6 +526,8 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
             beforeSubmit: () => jq.assertPaidImageReplacementSubmitPermission(
               job, item.filename, pool.folder_path, item.filename, entry,
             ),
+          } : zeroSettlementRetryPending ? {
+            beforeSubmit: assertReleasedZeroSettlementImageRetrySubmit,
           } : {}),
           onQueueState: async state => {
             job.item_progress = {
@@ -630,7 +636,8 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
                   modelId: modelConfig.api_model || model, apiKey,
                 },
               })
-              releasedFailoverRetry = isReleasedFailoverImageRetry(e, decision)
+              releasedZeroSettlementRetry = isReleasedZeroSettlementImageRetry(e, decision)
+              zeroSettlementRetryPending ||= releasedZeroSettlementRetry
               if (decision.action === 'wait') {
                 await jq.checkpointJobState(job)
                 return { kind: 'paid-image-wait' }
@@ -643,18 +650,18 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
             }
           }
           // ── "Every machine was busy" — wait, then ask again ──
-          // The only failure this generator resubmits; see
-          // `imagePoolFleetBusyRetryPlan` for why it costs nothing and why
-          // nothing else qualifies. A dead task id is REQUIRED because the next
+          // Fleet-busy failures follow the shared backoff. A fully refunded,
+          // policy-approved terminal image failure gets one immediate retry.
+          // A dead task id is REQUIRED because the next
           // identity is derived from it: without one `resolveImageRetryScope`
           // cannot promote the scope, and the retry would replay a
           // settled-failed key, which returns the same failure forever.
           const retryPlan = imagePoolFleetBusyRetryPlan(e, attemptNum)
-            || (releasedFailoverRetry && !releasedFailoverRetryUsed
-              ? { waitMs: 0, reason: 'Failover ended before an image was published', maxAttempts: attemptNum + 1 }
+            || (releasedZeroSettlementRetry && !releasedZeroSettlementRetryUsed
+              ? { waitMs: 0, reason: 'The image failed before any credits settled', maxAttempts: attemptNum + 1 }
               : null)
           if (retryPlan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
-            if (releasedFailoverRetry) releasedFailoverRetryUsed = true
+            if (releasedZeroSettlementRetry) releasedZeroSettlementRetryUsed = true
             job.output_lines.push(
               `item ${item.index + 1}: ${retryPlan.reason.toLowerCase()} — nothing was charged, ` +
               'the credits came back whole. ' +

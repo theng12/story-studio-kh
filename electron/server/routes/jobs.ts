@@ -1,8 +1,10 @@
 import { Router } from 'express'
 import fs from 'node:fs/promises'
+import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import * as jq from '../services/job-queue.js'
 import * as pm from '../services/project-manager.js'
+import { getSoftDeletedSlugSet } from '../services/soft-delete.js'
 import { JOB_TYPES, type Job, type JobType } from '../models/types.js'
 import { episodeRecoveryStep, recoverEpisode } from '../services/episode-recovery.js'
 import { inspectScenePromptIntegrity } from '../services/scene-prompt-integrity.js'
@@ -57,9 +59,65 @@ function summarizeJobs(jobsList: Job[]) {
   }
 }
 
+/** Keep event ordering stable while a stream builds its first durable snapshot. */
+export function createBufferedJobStream(
+  send: (eventName: string, payload: unknown) => void,
+  snapshotErrorDetail = 'Could not load Jobs.',
+) {
+  const pending: Array<{ eventName: string, payload: unknown }> = []
+  let snapshotSent = false
+  const flush = () => {
+    snapshotSent = true
+    for (const event of pending.splice(0)) send(event.eventName, event.payload)
+  }
+  return {
+    send(eventName: string, payload: unknown) {
+      if (snapshotSent) send(eventName, payload)
+      else pending.push({ eventName, payload })
+    },
+    sendSnapshot(payload: unknown) {
+      send('snapshot', payload)
+      flush()
+    },
+    sendSnapshotError() {
+      send('snapshot-error', { detail: snapshotErrorDetail })
+      flush()
+    },
+  }
+}
+
+export async function durableJobScopes(root: string, hidden: ReadonlySet<string>): Promise<string[]> {
+  let entries: import('node:fs').Dirent[] = []
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true })
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return []
+    throw error
+  }
+  const scopes = await Promise.all(entries.map(async entry => {
+    if (!entry.isDirectory() || entry.name.startsWith('.') || /\.bak-/.test(entry.name) || hidden.has(entry.name)) return null
+    try {
+      await fs.access(path.join(root, entry.name, 'jobs.json'))
+      return entry.name
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return null
+      throw error
+    }
+  }))
+  return scopes.filter((scope): scope is string => scope !== null)
+}
+
 async function allJobScopes(): Promise<string[]> {
-  const projects = await pm.listProjects()
-  return [...new Set([...projects.map(project => project.slug), APP_SLUG])]
+  const hidden = await getSoftDeletedSlugSet()
+  const [projects, durableScopes] = await Promise.all([
+    pm.listProjects(),
+    durableJobScopes(pm.projectsRoot(), hidden),
+  ])
+  return [...new Set([
+    ...projects.filter(project => !hidden.has(project.slug)).map(project => project.slug),
+    ...durableScopes,
+    APP_SLUG,
+  ])]
 }
 
 async function allJobsSnapshot() {
@@ -251,6 +309,7 @@ async function scenePromptAutoRepairMissing(job: Job): Promise<string[]> {
  */
 router.get('/projects/:slug/jobs/stream', async (req, res) => {
   const { slug } = req.params
+  let closed = false
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -263,30 +322,17 @@ router.get('/projects/:slug/jobs/stream', async (req, res) => {
   res.write('retry: 5000\n\n')
 
   function send(eventName: string, payload: unknown) {
+    if (closed) return
     res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`)
   }
-
-  // Initial snapshot so late-subscribing clients don't miss state that's
-  // already in the queue.
-  try {
-    const snapshot = {
-      jobs: await jq.getJobs(slug),
-      stats: jq.getQueueStats(slug),
-    }
-    send('snapshot', snapshot)
-  } catch (e) {
-    // If the snapshot errors we still keep the connection open — incremental
-    // updates will eventually populate the client's view.
-    console.error('[jobs/stream] snapshot error:', e)
-  }
-
+  const stream = createBufferedJobStream(send, 'Could not load project Jobs.')
   const onUpdate = (job: Job) => {
     if (job.project_slug !== slug) return
-    send('update', job)
+    stream.send('update', job)
   }
   const onCleared = (event: jq.JobsClearedEvent) => {
     if (event.project_slug !== slug) return
-    send('cleared', event)
+    stream.send('cleared', event)
   }
   jq.jobEvents.on('update', onUpdate)
   jq.jobEvents.on('cleared', onCleared)
@@ -297,10 +343,20 @@ router.get('/projects/:slug/jobs/stream', async (req, res) => {
   }, 15000)
 
   req.on('close', () => {
+    closed = true
     clearInterval(keepalive)
     jq.jobEvents.off('update', onUpdate)
     jq.jobEvents.off('cleared', onCleared)
   })
+  try {
+    stream.sendSnapshot({
+      jobs: await jq.getJobs(slug),
+      stats: jq.getQueueStats(slug),
+    })
+  } catch (error) {
+    console.error('[jobs/stream] snapshot error:', error)
+    stream.sendSnapshotError()
+  }
 })
 
 router.get('/projects/:slug/jobs', async (req, res) => {
@@ -315,6 +371,7 @@ router.get('/projects/:slug/jobs', async (req, res) => {
 // carries only incremental updates, so merely having many projects does not
 // create a polling loop across their folders.
 router.get('/jobs/all/stream', async (req, res) => {
+  let closed = false
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
@@ -323,23 +380,30 @@ router.get('/jobs/all/stream', async (req, res) => {
   })
   res.write('retry: 5000\n\n')
   function send(eventName: string, payload: unknown) {
+    if (closed) return
     res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`)
   }
-  try {
-    send('snapshot', await allJobsSnapshot())
-  } catch (error) {
-    console.error('[jobs/all/stream] snapshot error:', error)
-  }
-  const onUpdate = (job: Job) => send('update', job)
-  const onCleared = (event: jq.JobsClearedEvent) => send('cleared', event)
+  const stream = createBufferedJobStream(send, 'Could not load All Jobs.')
+  // Subscribe before the snapshot read, then release buffered changes after
+  // it. Without this, a job changing while its durable scope hydrates can be
+  // absent from both the snapshot and the live stream.
+  const onUpdate = (job: Job) => stream.send('update', job)
+  const onCleared = (event: jq.JobsClearedEvent) => stream.send('cleared', event)
   jq.jobEvents.on('update', onUpdate)
   jq.jobEvents.on('cleared', onCleared)
   const keepalive = setInterval(() => res.write(': ping\n\n'), 15000)
   req.on('close', () => {
+    closed = true
     clearInterval(keepalive)
     jq.jobEvents.off('update', onUpdate)
     jq.jobEvents.off('cleared', onCleared)
   })
+  try {
+    stream.sendSnapshot(await allJobsSnapshot())
+  } catch (error) {
+    console.error('[jobs/all/stream] snapshot error:', error)
+    stream.sendSnapshotError()
+  }
 })
 
 router.get('/jobs/all', async (_req, res) => {

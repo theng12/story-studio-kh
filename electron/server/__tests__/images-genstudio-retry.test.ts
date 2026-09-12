@@ -157,9 +157,9 @@ test('the generator waits under the owner\'s control and resubmits under a deriv
 
   // Cancel and pause are the file's own mechanisms, checked before and after
   // both waits. Scenes keep their fleet-only guard; paid thumbnails extend the
-  // same stoppable guard to the one released-failover retry.
+  // same stoppable guard to the one released zero-settlement retry.
   assert.match(source, /!jq\.isCancelled\(job\.job_id\)\s*\n\s*&& !\(fleetBusy && jq\.isPauseRequested\(job\.job_id\)\)/)
-  assert.match(source, /const stoppableRetry = fleetBusy \|\| releasedFailoverRetry/)
+  assert.match(source, /const stoppableRetry = fleetBusy \|\| releasedZeroSettlementRetry/)
   assert.match(source, /!jq\.isCancelled\(job\.job_id\)\s*\n\s*&& !\(stoppableRetry && jq\.isPauseRequested\(job\.job_id\)\)/)
   assert.equal(source.match(/if \(fleetBusy && jq\.isPauseRequested\(job\.job_id\)\) \{/g)?.length, 1)
   assert.equal(source.match(/if \(stoppableRetry && jq\.isPauseRequested\(job\.job_id\)\) \{/g)?.length, 1)

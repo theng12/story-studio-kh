@@ -12,6 +12,7 @@ export const LEGACY_SETTINGS_HASHES: Readonly<Record<string, string>> = {
   standards: 'writing',
   folders: 'files',
   storage: 'files',
+  'free-up-space': 'maintenance',
   confirmations: 'files',
   project: 'files',
 }

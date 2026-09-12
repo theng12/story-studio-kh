@@ -1,0 +1,1034 @@
+import { randomUUID } from 'node:crypto'
+import { constants as fsConstants, existsSync, lstatSync, realpathSync, unlinkSync } from 'node:fs'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+
+import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import type { Job } from '../models/types.js'
+import * as im from './idea-manager.js'
+import * as jq from './job-queue.js'
+import * as pm from './project-manager.js'
+import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
+import { withFinalVideoPathLock } from './final-video-lock.js'
+import { registryCredentialFor } from '../lib/youtube-client.js'
+import { getExternalFinalVideoRoot, resolveExternalFinalVideoDir } from './external-video-store.js'
+import { resolveAssetPath } from './path-resolver.js'
+import {
+  createProjectFactsCache,
+  resolveEpisodePathsByCode,
+  resolveEpisodePathsByCodeWithSidecar,
+  resolveEpisodeTitleByCode,
+  type ProjectFactsCache,
+} from './utils.js'
+import { readYouTubeRetentionStores, youtubeRetentionEvidenceFor, youtubeRetentionProofForFile } from './youtube-remote-video.js'
+import { syncYouTubePublicationState } from './youtube-publication-status.js'
+import { resolveYouTubeSourceRevision } from './youtube-source-video.js'
+
+export const MEDIA_CLEANUP_SIDECAR = 'local_media_cleanup.json'
+export type MediaCleanupCategory = 'images' | 'chapter_audio' | 'merged_audio' | 'motion_clips' | 'final_video'
+export type MediaCleanupMode = 'archive' | 'remove'
+
+export interface MediaCleanupUploadProof {
+  platform: 'youtube'
+  video_id: string
+  operation_id: string
+  channel_id: string
+  uploaded_at: string
+}
+
+export interface MediaCleanupFile {
+  path: string
+  real_path: string
+  relative_path: string
+  source_kind: string
+  category: MediaCleanupCategory
+  bytes: number
+  sha256: string
+  mtime_ms: number
+  upload_proof: MediaCleanupUploadProof
+}
+
+export interface MediaCleanupEpisodePreview {
+  episode_code: string
+  upload_proof: MediaCleanupUploadProof | null
+  files: MediaCleanupFile[]
+  excluded: Array<{ path: string; category: MediaCleanupCategory; reason: string }>
+  blocked_reasons: string[]
+}
+
+export interface MediaCleanupPreview {
+  preview_id: string
+  project_slug: string
+  created_at: string
+  expires_at: string
+  categories: MediaCleanupCategory[]
+  episodes: MediaCleanupEpisodePreview[]
+  files: MediaCleanupFile[]
+  total_bytes: number
+  blocked_reasons: string[]
+}
+
+export interface MediaCleanupRunResult {
+  mode: MediaCleanupMode
+  destination?: string
+  items: Array<{
+    path: string
+    category: MediaCleanupCategory
+    outcome: 'archived' | 'removed' | 'skipped' | 'failed' | 'pending'
+    bytes_reclaimed: number
+    bytes_moved: number
+    destination_path?: string
+    reason?: string
+  }>
+  archived_count: number
+  removed_count: number
+  skipped_count: number
+  failed_count: number
+  pending_count: number
+  bytes_reclaimed: number
+  bytes_moved: number
+}
+
+export interface MediaCleanupOperation {
+  id: string
+  project_slug: string
+  kind: 'preview' | 'run'
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'stopping' | 'stopped'
+  stage: 'checking' | 'archiving' | 'removing' | null
+  done: number
+  total: number
+  current: string
+  created_at: string
+  updated_at: string
+  error?: string
+  preview?: MediaCleanupPreview
+  result?: MediaCleanupRunResult
+  stop_requested?: boolean
+}
+
+export interface LocalMediaCleanupCategoryStatus {
+  category: MediaCleanupCategory
+  removed_files: number
+  archived_files: number
+  pending_files: number
+  bytes_reclaimed: number
+}
+
+export interface LocalMediaCleanupStatus {
+  state: 'available' | 'archived' | 'partially_removed' | 'removed'
+  updated_at: string | null
+  has_retired_media: boolean
+  categories: LocalMediaCleanupCategoryStatus[]
+  blocked_reason?: string
+}
+
+type SidecarOutcome = 'pending_archive' | 'pending_remove' | 'archived' | 'removed' | 'skipped' | 'failed'
+
+interface MediaCleanupSidecarEntry {
+  entry_id: string
+  source_path: string
+  relative_path: string
+  source_kind?: string
+  category: MediaCleanupCategory
+  bytes: number
+  bytes_reclaimed: number
+  sha256: string
+  preview_id: string
+  operation_id: string
+  mode: MediaCleanupMode
+  outcome: SidecarOutcome
+  recorded_at: string
+  updated_at: string
+  destination_path?: string
+  reason?: string
+  upload_proof: MediaCleanupUploadProof
+}
+
+interface MediaCleanupSidecar {
+  version: 1
+  project_slug: string
+  episode_code: string
+  updated_at: string
+  entries: MediaCleanupSidecarEntry[]
+}
+
+interface CleanupHooks {
+  getJobs?: (slug: string) => Promise<Array<Pick<Job, 'project_slug' | 'episode_id' | 'type' | 'status'>>>
+  afterArchiveCopy?: (source: string, target: string) => Promise<void>
+  beforeDestructiveMutation?: () => Promise<void>
+  afterFile?: () => Promise<void>
+}
+
+interface RootSpec {
+  root: string
+  anchor: string
+  source_kind: string
+  category: MediaCleanupCategory
+  accepts(name: string): boolean
+}
+
+const operations = new Map<string, MediaCleanupOperation>()
+const previews = new Map<string, MediaCleanupPreview>()
+const consumedPreviews = new Set<string>()
+const PREVIEW_TTL_MS = 30 * 60 * 1_000
+const OPERATION_RETENTION_MS = 2 * 60 * 60 * 1_000
+const MAX_OPERATIONS = 200
+const CATEGORIES = new Set<MediaCleanupCategory>(['images', 'chapter_audio', 'merged_audio', 'motion_clips', 'final_video'])
+const IMAGE_EXT = /\.(png|jpe?g|webp)$/i
+const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|flac)$/i
+const VIDEO_EXT = /\.(mp4|mov|webm|mkv|m4v)$/i
+const ACTIVE_STATUSES = new Set(['queued', 'running', 'paused'])
+let hooks: CleanupHooks = {}
+
+function fail(message: string, statusCode = 400): Error & { statusCode: number } {
+  return Object.assign(new Error(message), { statusCode })
+}
+
+function isoNow(): string { return new Date().toISOString() }
+
+function cloneOperation(operation: MediaCleanupOperation): MediaCleanupOperation {
+  return structuredClone(operation)
+}
+
+function pruneState(): void {
+  const now = Date.now()
+  for (const [id, preview] of previews) {
+    if (Date.parse(preview.expires_at) <= now) {
+      previews.delete(id)
+      consumedPreviews.delete(id)
+    }
+  }
+  for (const [id, operation] of operations) {
+    if (!['queued', 'running', 'stopping'].includes(operation.status)
+      && now - Date.parse(operation.updated_at) > OPERATION_RETENTION_MS) operations.delete(id)
+  }
+  if (operations.size <= MAX_OPERATIONS) return
+  const removable = [...operations.values()]
+    .filter(operation => !['queued', 'running', 'stopping'].includes(operation.status))
+    .sort((left, right) => Date.parse(left.updated_at) - Date.parse(right.updated_at))
+  for (const operation of removable) {
+    if (operations.size <= MAX_OPERATIONS) break
+    operations.delete(operation.id)
+  }
+}
+
+function validateCategories(value: unknown): MediaCleanupCategory[] {
+  if (!Array.isArray(value) || value.length === 0) throw fail('Choose at least one media category.')
+  const categories = [...new Set(value)]
+  if (categories.some(category => typeof category !== 'string' || !CATEGORIES.has(category as MediaCleanupCategory))) {
+    throw fail('Media cleanup categories contain an unsupported value.')
+  }
+  return categories as MediaCleanupCategory[]
+}
+
+function validateEpisodeCodes(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) throw fail('Choose at least one episode.')
+  const codes = [...new Set(value.map(code => typeof code === 'string' ? code.trim().toUpperCase() : ''))]
+  if (codes.some(code => !/^[A-Z]{1,12}\d{1,8}$/.test(code))) throw fail('Episode codes contain an unsupported value.')
+  return codes
+}
+
+interface UploadInventory {
+  channel_id: string | null
+  records: Awaited<ReturnType<typeof readYouTubeRetentionStores>>['records']
+}
+
+async function loadUploadInventory(slug: string): Promise<UploadInventory> {
+  const [assignment, stores] = await Promise.all([
+    getProjectYouTubeAssignment(slug),
+    readYouTubeRetentionStores(slug),
+  ])
+  return { channel_id: assignment?.channel_id ?? null, records: stores.records }
+}
+
+function currentUploadProof(code: string, inventory: UploadInventory): MediaCleanupUploadProof | null {
+  const assignment = inventory.channel_id
+  if (!assignment) return null
+  const record = inventory.records
+    .filter(candidate => candidate.episode_code.toUpperCase() === code.toUpperCase()
+      && candidate.channel_id === assignment
+      && candidate.lifecycle === 'ready'
+      && !!candidate.video_id?.trim()
+      && !!candidate.accepted_at
+      && Number.isFinite(Date.parse(candidate.accepted_at)))
+    .sort((a, b) => Date.parse(b.accepted_at!) - Date.parse(a.accepted_at!))[0]
+  return record ? {
+    platform: 'youtube',
+    video_id: record.video_id!,
+    operation_id: record.operation_id,
+    channel_id: record.channel_id,
+    uploaded_at: record.accepted_at!,
+  } : null
+}
+
+export async function listMediaCleanupEpisodes(slug: string): Promise<{
+  episodes: Array<{ episode_code: string; title: string; video_id: string; local_media_status: LocalMediaCleanupStatus }>
+  blocked_reasons: string[]
+}> {
+  if (!await pm.getProject(slug)) throw fail('Project not found', 404)
+  const [accepted, inventory] = await Promise.all([
+    im.getIdeas(slug, 'accepted'),
+    loadUploadInventory(slug),
+  ])
+  const projectFacts = createProjectFactsCache(slug)
+  const episodes = (await Promise.all(accepted.map(async (idea) => {
+    const code = String(idea.episode_code || '').toUpperCase()
+    if (!code) return null
+    const proof = currentUploadProof(code, inventory)
+    if (!proof) return null
+    return {
+      episode_code: code,
+      title: idea.title || code,
+      video_id: proof.video_id,
+      local_media_status: await readLocalMediaCleanupStatus(slug, code, projectFacts),
+    }
+  }))).filter((episode): episode is NonNullable<typeof episode> => episode !== null)
+  return { episodes, blocked_reasons: [] }
+}
+
+async function relevantActiveJobs(slug: string, code: string, categories: MediaCleanupCategory[]) {
+  void categories
+  const getJobs = hooks.getJobs ?? jq.getJobs
+  const jobs = await getJobs(slug)
+  return jobs.filter(job => String(job.episode_id || '').toUpperCase() === code.toUpperCase()
+    && ACTIVE_STATUSES.has(job.status))
+}
+
+async function assertScopesIdle(slug: string, codes: string[], categories: MediaCleanupCategory[]): Promise<void> {
+  for (const code of codes) {
+    const active = await relevantActiveJobs(slug, code, categories)
+    if (active.length) {
+      throw fail(`${code} has active ${active.map(job => job.type).join(', ')} work. Stop or finish it before cleanup.`, 409)
+    }
+  }
+}
+
+function isFinalName(code: string, name: string): boolean {
+  return name.toUpperCase().startsWith(`${code.toUpperCase()}_FINAL_VIDEO.`) && VIDEO_EXT.test(name)
+}
+
+async function rootsFor(slug: string, code: string, title: string, categories: MediaCleanupCategory[]): Promise<RootSpec[]> {
+  const paths = await resolveEpisodePathsByCode(slug, code)
+  const projectDir = pm.getProjectDir(slug)!
+  const meta = await pm.getProject(slug)
+  let heavyAnchor = projectDir
+  if ((meta as any)?.media_root && !paths.bg_dir.startsWith(`${projectDir}${path.sep}`)) {
+    try { heavyAnchor = resolveAssetPath(String((meta as any).media_root), paths.output_root) }
+    catch { heavyAnchor = path.dirname(path.dirname(paths.bg_dir)) }
+  }
+  const selected = new Set(categories)
+  const roots: RootSpec[] = []
+  if (selected.has('images')) {
+    roots.push({ root: paths.bg_dir, anchor: heavyAnchor, source_kind: 'scene_images', category: 'images', accepts: name => IMAGE_EXT.test(name) })
+    roots.push({ root: paths.thumb_dir, anchor: heavyAnchor, source_kind: 'thumbnail_images', category: 'images', accepts: name => IMAGE_EXT.test(name) })
+  }
+  if (selected.has('chapter_audio')) roots.push({ root: paths.audio_dir, anchor: heavyAnchor, source_kind: 'chapter_audio', category: 'chapter_audio', accepts: name => AUDIO_EXT.test(name) })
+  if (selected.has('merged_audio')) roots.push({ root: paths.merged_audio_dir, anchor: heavyAnchor, source_kind: 'merged_audio', category: 'merged_audio', accepts: name => AUDIO_EXT.test(name) })
+  if (selected.has('motion_clips')) roots.push({ root: paths.video_assets_dir, anchor: heavyAnchor, source_kind: 'motion_clips', category: 'motion_clips', accepts: name => VIDEO_EXT.test(name) })
+  if (selected.has('final_video')) {
+    roots.push({ root: paths.video_dir, anchor: heavyAnchor, source_kind: 'final_video', category: 'final_video', accepts: name => isFinalName(code, name) })
+    const external = await resolveExternalFinalVideoDir(slug, code, title).catch(() => null)
+    if (external && path.resolve(external) !== path.resolve(paths.video_dir)) {
+      const externalAnchor = await getExternalFinalVideoRoot().catch(() => '')
+      roots.push({ root: external, anchor: externalAnchor || path.dirname(external), source_kind: 'external_final_video', category: 'final_video', accepts: name => isFinalName(code, name) })
+    }
+  }
+  return roots
+}
+
+async function sha256(file: string): Promise<string> {
+  const revision = await resolveYouTubeSourceRevision(file)
+  return revision.slice('sha256:'.length)
+}
+
+async function discoverRoot(
+  spec: RootSpec,
+  proof: MediaCleanupUploadProof,
+  shouldStop: () => boolean,
+  episodeCode: string,
+): Promise<{ files: MediaCleanupFile[]; excluded: MediaCleanupEpisodePreview['excluded'] }> {
+  const files: MediaCleanupFile[] = []
+  const excluded: MediaCleanupEpisodePreview['excluded'] = []
+  let rootStat: Awaited<ReturnType<typeof fs.lstat>>
+  try { rootStat = await fs.lstat(spec.root) } catch (error: any) {
+    if (error?.code === 'ENOENT') return { files, excluded }
+    throw error
+  }
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    excluded.push({ path: spec.root, category: spec.category, reason: 'The media root is not a private regular directory.' })
+    return { files, excluded }
+  }
+  const absoluteRoot = path.resolve(spec.root)
+  const absoluteAnchor = path.resolve(spec.anchor)
+  const relativeFromAnchor = path.relative(absoluteAnchor, absoluteRoot)
+  if (relativeFromAnchor.startsWith('..') || path.isAbsolute(relativeFromAnchor)) {
+    excluded.push({ path: spec.root, category: spec.category, reason: 'This media root is outside its configured private storage root.' })
+    return { files, excluded }
+  }
+  const ownerSegments = relativeFromAnchor.split(path.sep).filter(Boolean)
+  if (!ownerSegments.some(segment => segment.toUpperCase().startsWith(episodeCode.toUpperCase()))) {
+    excluded.push({ path: spec.root, category: spec.category, reason: 'This media root cannot be proven to belong only to this episode.' })
+    return { files, excluded }
+  }
+  const segments = [absoluteAnchor, ...ownerSegments.map((_, index) => path.join(absoluteAnchor, ...ownerSegments.slice(0, index + 1)))]
+  for (const ancestor of segments) {
+    const stat = await fs.lstat(ancestor).catch(() => null)
+    if (!stat || stat.isSymbolicLink()) {
+      excluded.push({ path: ancestor, category: spec.category, reason: 'A symbolic-link ancestor makes this media root shared or ambiguous.' })
+      return { files, excluded }
+    }
+  }
+
+  async function walk(dir: string): Promise<void> {
+    if (shouldStop()) return
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (shouldStop()) return
+      const full = path.join(dir, entry.name)
+      if (entry.isSymbolicLink()) {
+        excluded.push({ path: full, category: spec.category, reason: 'Symbolic links are never cleanup candidates.' })
+        continue
+      }
+      if (entry.isDirectory()) { await walk(full); continue }
+      if (!entry.isFile() || !spec.accepts(entry.name)) continue
+      const stat = await fs.lstat(full)
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        excluded.push({ path: full, category: spec.category, reason: 'Only regular files may be cleaned.' })
+        continue
+      }
+      if (stat.nlink !== 1) {
+        excluded.push({ path: full, category: spec.category, reason: 'Files with another hard link are shared and were left alone.' })
+        continue
+      }
+      if (Math.floor(stat.mtimeMs) > Date.parse(proof.uploaded_at)) {
+        excluded.push({ path: full, category: spec.category, reason: 'This media is newer than the verified upload and may be regenerated.' })
+        continue
+      }
+      files.push({
+        path: full,
+        real_path: await fs.realpath(full),
+        relative_path: path.relative(spec.root, full),
+        source_kind: spec.source_kind,
+        category: spec.category,
+        bytes: stat.size,
+        sha256: await sha256(full),
+        mtime_ms: stat.mtimeMs,
+        upload_proof: proof,
+      })
+    }
+  }
+  await walk(spec.root)
+  return { files, excluded }
+}
+
+async function verifyFinalProof(slug: string, code: string, title: string, file: MediaCleanupFile): Promise<string | null> {
+  const assignment = await getProjectYouTubeAssignment(slug)
+  if (!assignment) return 'No current YouTube channel is assigned.'
+  const evidence = await youtubeRetentionEvidenceFor(slug, code, title)
+  const exact = await youtubeRetentionProofForFile(evidence, file.path)
+  if (!exact.usable || exact.operation_id !== file.upload_proof.operation_id
+    || exact.video_id !== file.upload_proof.video_id || exact.channel_id !== assignment.channel_id) {
+    return exact.reason || 'The final video is not the exact render in the current ready upload receipt.'
+  }
+  try {
+    const remote = await syncYouTubePublicationState({
+      project_slug: slug,
+      operation_id: exact.operation_id,
+      account_id: registryCredentialFor(assignment.channel_id),
+    })
+    if (remote.state.lifecycle !== 'ready') return `YouTube currently reports ${remote.state.lifecycle}.`
+    if (remote.details?.channelId !== assignment.channel_id) return 'YouTube did not confirm the video on the current channel.'
+  } catch {
+    return 'YouTube could not freshly verify the exact uploaded final video.'
+  }
+  return null
+}
+
+async function buildPreview(
+  slug: string,
+  input: { episode_codes: unknown; categories: unknown },
+  operation: MediaCleanupOperation,
+): Promise<MediaCleanupPreview> {
+  const categories = validateCategories(input.categories)
+  const codes = validateEpisodeCodes(input.episode_codes)
+  if (!await pm.getProject(slug)) throw fail('Project not found', 404)
+  const accepted = await im.getIdeas(slug, 'accepted')
+  const inventory = await loadUploadInventory(slug)
+  const acceptedByCode = new Map(accepted.map(idea => [String(idea.episode_code || '').toUpperCase(), idea]))
+  const unknown = codes.filter(code => !acceptedByCode.has(code))
+  if (unknown.length) throw fail(`No accepted episode matches ${unknown.join(', ')}.`, 404)
+  await assertScopesIdle(slug, codes, categories)
+
+  operation.total = codes.length
+  const episodeResults: MediaCleanupEpisodePreview[] = []
+  for (const code of codes) {
+    if (operation.stop_requested) break
+    operation.current = code
+    operation.updated_at = isoNow()
+    const proof = currentUploadProof(code, inventory)
+    const episode: MediaCleanupEpisodePreview = {
+      episode_code: code, upload_proof: proof, files: [], excluded: [], blocked_reasons: [],
+    }
+    if (!proof) {
+      episode.blocked_reasons.push('This episode has no ready canonical upload on the current YouTube channel.')
+    } else {
+      const idea = acceptedByCode.get(code)!
+      for (const root of await rootsFor(slug, code, idea.title || '', categories)) {
+        const discovered = await discoverRoot(root, proof, () => operation.stop_requested === true, code)
+        episode.files.push(...discovered.files)
+        episode.excluded.push(...discovered.excluded)
+      }
+      for (const file of [...episode.files]) {
+        if (file.category !== 'final_video') continue
+        const reason = await verifyFinalProof(slug, code, idea.title || '', file)
+        if (reason) {
+          episode.files.splice(episode.files.indexOf(file), 1)
+          episode.excluded.push({ path: file.path, category: file.category, reason })
+        }
+      }
+      episode.blocked_reasons.push(...[...new Set(episode.excluded.map(item => item.reason))])
+    }
+    episodeResults.push(episode)
+    operation.done += 1
+  }
+  const files = episodeResults.flatMap(episode => episode.files)
+  const createdAt = isoNow()
+  return {
+    preview_id: randomUUID(),
+    project_slug: slug,
+    created_at: createdAt,
+    expires_at: new Date(Date.now() + PREVIEW_TTL_MS).toISOString(),
+    categories,
+    episodes: episodeResults,
+    files,
+    total_bytes: files.reduce((sum, file) => sum + file.bytes, 0),
+    blocked_reasons: [...new Set(episodeResults.flatMap(episode => episode.blocked_reasons))],
+  }
+}
+
+function beginOperation(slug: string, kind: MediaCleanupOperation['kind'], stage: MediaCleanupOperation['stage']): MediaCleanupOperation {
+  pruneState()
+  const now = isoNow()
+  const operation: MediaCleanupOperation = {
+    id: randomUUID(), project_slug: slug, kind, status: 'queued', stage,
+    done: 0, total: 0, current: '', created_at: now, updated_at: now,
+  }
+  operations.set(operation.id, operation)
+  return operation
+}
+
+function hasActiveOperation(slug: string): boolean {
+  return [...operations.values()].some(operation => operation.project_slug === slug
+    && ['queued', 'running', 'stopping'].includes(operation.status))
+}
+
+function finishOperation(operation: MediaCleanupOperation, status: 'completed' | 'failed' | 'stopped', error?: unknown): void {
+  operation.status = status
+  operation.updated_at = isoNow()
+  if (error) operation.error = error instanceof Error ? error.message : String(error)
+}
+
+export async function startMediaCleanupPreview(
+  slug: string,
+  input: { episode_codes: unknown; categories: unknown },
+): Promise<{ operation_id: string }> {
+  validateCategories(input.categories)
+  validateEpisodeCodes(input.episode_codes)
+  if (!await pm.getProject(slug)) throw fail('Project not found', 404)
+  if (hasActiveOperation(slug)) throw fail('A media cleanup check or operation is already running for this project.', 409)
+  const operation = beginOperation(slug, 'preview', 'checking')
+  setImmediate(() => void (async () => {
+    operation.status = 'running'
+    operation.updated_at = isoNow()
+    try {
+      const preview = await buildPreview(slug, input, operation)
+      if (operation.stop_requested) { finishOperation(operation, 'stopped'); return }
+      previews.set(preview.preview_id, preview)
+      operation.preview = preview
+      finishOperation(operation, 'completed')
+    } catch (error) {
+      finishOperation(operation, 'failed', error)
+    }
+  })())
+  return { operation_id: operation.id }
+}
+
+function sidecarPath(slug: string, code: string, cache?: ProjectFactsCache): Promise<string> {
+  return resolveEpisodePathsByCodeWithSidecar(slug, code, MEDIA_CLEANUP_SIDECAR, cache)
+    .then(paths => path.join(paths.episode_dir, MEDIA_CLEANUP_SIDECAR))
+}
+
+async function readSidecar(
+  file: string,
+  strict: boolean,
+  expected?: { slug: string; code: string },
+): Promise<MediaCleanupSidecar | null> {
+  try {
+    const value = JSON.parse(await fs.readFile(file, 'utf8')) as MediaCleanupSidecar
+    if (value?.version !== 1
+      || typeof value.project_slug !== 'string' || !value.project_slug
+      || typeof value.episode_code !== 'string' || !value.episode_code
+      || !!expected && (value.project_slug !== expected.slug || value.episode_code.toUpperCase() !== expected.code.toUpperCase())
+      || typeof value.updated_at !== 'string' || !Number.isFinite(Date.parse(value.updated_at))
+      || !Array.isArray(value.entries)
+      || value.entries.some(entry => !entry
+        || typeof entry.entry_id !== 'string' || !entry.entry_id
+        || typeof entry.source_path !== 'string' || !path.isAbsolute(entry.source_path)
+        || typeof entry.relative_path !== 'string' || path.isAbsolute(entry.relative_path)
+        || entry.source_kind !== undefined && (typeof entry.source_kind !== 'string' || !entry.source_kind)
+        || typeof entry.preview_id !== 'string' || !entry.preview_id
+        || typeof entry.operation_id !== 'string' || !entry.operation_id
+        || (entry.mode !== 'archive' && entry.mode !== 'remove')
+        || typeof entry.recorded_at !== 'string' || !Number.isFinite(Date.parse(entry.recorded_at))
+        || !CATEGORIES.has(entry.category)
+        || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0
+        || !Number.isSafeInteger(entry.bytes_reclaimed) || entry.bytes_reclaimed < 0
+        || !/^[a-f0-9]{64}$/.test(entry.sha256)
+        || !['pending_archive', 'pending_remove', 'archived', 'removed', 'skipped', 'failed'].includes(entry.outcome)
+        || typeof entry.updated_at !== 'string' || !Number.isFinite(Date.parse(entry.updated_at))
+        || !entry.upload_proof || entry.upload_proof.platform !== 'youtube'
+        || typeof entry.upload_proof.video_id !== 'string' || !entry.upload_proof.video_id
+        || typeof entry.upload_proof.operation_id !== 'string' || !entry.upload_proof.operation_id
+        || typeof entry.upload_proof.channel_id !== 'string' || !entry.upload_proof.channel_id
+        || typeof entry.upload_proof.uploaded_at !== 'string' || !Number.isFinite(Date.parse(entry.upload_proof.uploaded_at))
+        || entry.destination_path !== undefined && (typeof entry.destination_path !== 'string' || !path.isAbsolute(entry.destination_path)))) {
+      throw new Error('invalid media cleanup record')
+    }
+    return value
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return null
+    if (strict) throw fail('The local media cleanup record is unreadable. Repair it before cleaning more files.', 409)
+    return null
+  }
+}
+
+async function putSidecarEntry(
+  slug: string,
+  code: string,
+  entry: MediaCleanupSidecarEntry,
+): Promise<void> {
+  const file = await sidecarPath(slug, code)
+  const episodeDir = path.dirname(file)
+  const episodeStat = await fs.lstat(episodeDir).catch(() => null)
+  if (!episodeStat?.isDirectory() || episodeStat.isSymbolicLink()) {
+    throw fail('The episode folder is unavailable or unsafe; no cleanup record was written.', 409)
+  }
+  await withLock(file, async () => {
+    const current = await readSidecar(file, true, { slug, code })
+    const entries = current?.entries ? [...current.entries] : []
+    const index = entries.findIndex(candidate => candidate.entry_id === entry.entry_id)
+    if (index >= 0) entries[index] = entry
+    else entries.push(entry)
+    const next: MediaCleanupSidecar = {
+      version: 1, project_slug: slug, episode_code: code,
+      updated_at: entry.updated_at, entries,
+    }
+    await writeJsonAtomic(file, next)
+  })
+}
+
+async function currentSourceRoot(
+  slug: string,
+  code: string,
+  entry: MediaCleanupSidecarEntry,
+  cache?: ProjectFactsCache,
+): Promise<string | null> {
+  const paths = await resolveEpisodePathsByCode(slug, code, cache)
+  switch (entry.source_kind) {
+    case 'scene_images': return paths.bg_dir
+    case 'thumbnail_images': return paths.thumb_dir
+    case 'chapter_audio': return paths.audio_dir
+    case 'merged_audio': return paths.merged_audio_dir
+    case 'motion_clips': return paths.video_assets_dir
+    case 'final_video': return paths.video_dir
+    case 'external_final_video': {
+      const title = await resolveEpisodeTitleByCode(slug, code, cache)
+      return resolveExternalFinalVideoDir(slug, code, title).catch(() => null)
+    }
+    default: return null // Legacy records lack an exact source root, so preserve their retired status.
+  }
+}
+
+async function restoredAtCurrentPath(
+  slug: string,
+  code: string,
+  entry: MediaCleanupSidecarEntry,
+  cache?: ProjectFactsCache,
+): Promise<boolean> {
+  const root = await currentSourceRoot(slug, code, entry, cache)
+  if (!root) return false
+  const candidate = path.resolve(root, entry.relative_path)
+  const relative = path.relative(path.resolve(root), candidate)
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return false
+  try {
+    const stat = await fs.lstat(candidate)
+    return stat.isFile() && !stat.isSymbolicLink()
+  } catch { return false }
+}
+
+async function statusForEntry(
+  slug: string,
+  code: string,
+  entry: MediaCleanupSidecarEntry,
+  cache?: ProjectFactsCache,
+): Promise<'removed' | 'archived' | 'pending' | null> {
+  try { await fs.lstat(entry.source_path); return null }
+  catch (error: any) {
+    if (error?.code !== 'ENOENT') return null
+  }
+  if (await restoredAtCurrentPath(slug, code, entry, cache)) return null
+  if (entry.outcome === 'removed') return 'removed'
+  if (entry.outcome === 'archived') return 'archived'
+  if (entry.outcome === 'pending_remove' || entry.outcome === 'pending_archive') return 'pending'
+  return null
+}
+
+export async function readLocalMediaCleanupStatus(
+  slug: string,
+  episodeCode: string,
+  cache?: ProjectFactsCache,
+): Promise<LocalMediaCleanupStatus> {
+  cache ??= createProjectFactsCache(slug)
+  const file = await sidecarPath(slug, episodeCode, cache)
+  const sidecar = await readSidecar(file, false, { slug, code: episodeCode })
+  if (!sidecar) {
+    const unreadable = existsSync(file)
+    return {
+      state: 'available', updated_at: null, has_retired_media: false, categories: [],
+      ...(unreadable ? { blocked_reason: 'The local media cleanup record is unreadable.' } : {}),
+    }
+  }
+  const grouped = new Map<MediaCleanupCategory, LocalMediaCleanupCategoryStatus>()
+  const latestByPath = new Map<string, MediaCleanupSidecarEntry>()
+  for (const entry of sidecar.entries) {
+    const key = entry.source_kind
+      ? `${entry.category}:${entry.source_kind}:${entry.relative_path}`
+      : `${entry.category}:${entry.source_path}`
+    const previous = latestByPath.get(key)
+    if (!previous || Date.parse(entry.updated_at) >= Date.parse(previous.updated_at)) latestByPath.set(key, entry)
+  }
+  for (const entry of latestByPath.values()) {
+    const effective = await statusForEntry(slug, episodeCode, entry, cache)
+    if (!effective) continue
+    const row = grouped.get(entry.category) || {
+      category: entry.category, removed_files: 0, archived_files: 0, pending_files: 0, bytes_reclaimed: 0,
+    }
+    if (effective === 'removed') row.removed_files += 1
+    if (effective === 'archived') row.archived_files += 1
+    if (effective === 'pending') row.pending_files += 1
+    if (effective !== 'pending') row.bytes_reclaimed += entry.bytes_reclaimed
+    grouped.set(entry.category, row)
+  }
+  const categories = [...grouped.values()]
+  const removed = categories.reduce((sum, row) => sum + row.removed_files, 0)
+  const archived = categories.reduce((sum, row) => sum + row.archived_files, 0)
+  const pending = categories.reduce((sum, row) => sum + row.pending_files, 0)
+  const hasRetired = removed + archived + pending > 0
+  const state: LocalMediaCleanupStatus['state'] = !hasRetired ? 'available'
+    : archived > 0 && removed === 0 && pending === 0 ? 'archived'
+      : 'partially_removed'
+  return { state, updated_at: sidecar.updated_at, has_retired_media: hasRetired, categories }
+}
+
+export function archiveDestinationFor(destination: string, projectSlug: string, episodeCode: string, file: MediaCleanupFile): string {
+  return path.join(
+    path.resolve(destination),
+    projectSlug,
+    episodeCode.toUpperCase(),
+    file.upload_proof.channel_id,
+    file.category,
+    file.source_kind,
+    path.basename(path.dirname(file.path)),
+    file.relative_path,
+  )
+}
+
+function sourceRootFor(file: MediaCleanupFile): string {
+  return file.relative_path.split(path.sep).filter(Boolean)
+    .reduce(current => path.dirname(current), path.resolve(file.path))
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  return left === right || left.startsWith(`${right}${path.sep}`) || right.startsWith(`${left}${path.sep}`)
+}
+
+async function safeArchiveDestination(raw: string, preview: MediaCleanupPreview): Promise<string> {
+  const requested = path.resolve(raw)
+  let existing = requested
+  const missing: string[] = []
+  while (!existsSync(existing)) {
+    const parent = path.dirname(existing)
+    if (parent === existing) throw fail('The archive destination has no accessible parent folder.')
+    missing.unshift(path.basename(existing))
+    existing = parent
+  }
+  const existingStat = await fs.lstat(existing)
+  if (existingStat.isSymbolicLink() || !existingStat.isDirectory()) {
+    throw fail('The archive destination or its nearest existing ancestor is a symbolic link or not a folder.')
+  }
+  const canonical = path.join(await fs.realpath(existing), ...missing)
+  for (const file of preview.files) {
+    const sourceRoot = sourceRootFor(file)
+    const canonicalSource = await fs.realpath(sourceRoot).catch(() => path.resolve(sourceRoot))
+    if (pathsOverlap(canonical, canonicalSource)) {
+      throw fail('The archive destination cannot overlap a reviewed media source folder.')
+    }
+  }
+  return canonical
+}
+
+async function exactFileStillReviewed(file: MediaCleanupFile): Promise<string | null> {
+  let stat: Awaited<ReturnType<typeof fs.lstat>>
+  try { stat = await fs.lstat(file.path) } catch { return 'The reviewed file is missing.' }
+  if (!stat.isFile() || stat.isSymbolicLink()) return 'The reviewed path is no longer a regular file.'
+  if (await fs.realpath(file.path) !== file.real_path) return 'The reviewed file location changed after preview.'
+  if (stat.nlink !== 1) return 'The reviewed file now has another hard link.'
+  if (stat.size !== file.bytes || await sha256(file.path) !== file.sha256) return 'The reviewed file changed after preview.'
+  return null
+}
+
+// Keep the final identity check and unlink in one event-loop turn. Episode
+// admission is held by the caller; another in-app folder move cannot interleave
+// an awaited operation between checking the parent path and removing the file.
+function unlinkReviewedFile(file: MediaCleanupFile): void {
+  const stat = lstatSync(file.path)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1
+    || stat.size !== file.bytes || stat.mtimeMs !== file.mtime_ms
+    || realpathSync(file.path) !== file.real_path) {
+    throw fail('The reviewed file changed immediately before removal.', 409)
+  }
+  unlinkSync(file.path)
+}
+
+async function uploadProofStillCurrent(slug: string, code: string, file: MediaCleanupFile): Promise<string | null> {
+  const proof = currentUploadProof(code, await loadUploadInventory(slug))
+  if (!proof) return 'The ready canonical upload is no longer available on the current channel.'
+  if (proof.operation_id !== file.upload_proof.operation_id
+    || proof.video_id !== file.upload_proof.video_id
+    || proof.channel_id !== file.upload_proof.channel_id) {
+    return 'The current upload changed after preview.'
+  }
+  return null
+}
+
+async function mutateReviewedFile(
+  slug: string,
+  preview: MediaCleanupPreview,
+  operation: MediaCleanupOperation,
+  file: MediaCleanupFile,
+  mode: MediaCleanupMode,
+  destination: string | undefined,
+): Promise<MediaCleanupRunResult['items'][number]> {
+  const code = preview.episodes.find(episode => episode.files.some(candidate => candidate.path === file.path))!.episode_code
+  const active = await relevantActiveJobs(slug, code, [file.category])
+  if (active.length) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: `Active ${active.map(job => job.type).join(', ')} work started after preview.` }
+  const staleUpload = await uploadProofStillCurrent(slug, code, file)
+  if (staleUpload) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: staleUpload }
+  const changed = await exactFileStillReviewed(file)
+  if (changed) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: changed }
+  if (Math.floor((await fs.stat(file.path)).mtimeMs) > Date.parse(file.upload_proof.uploaded_at)) {
+    return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: 'The file is newer than its upload proof.' }
+  }
+  if (file.category === 'final_video') {
+    const idea = (await im.getIdeas(slug, 'accepted')).find(candidate => candidate.episode_code === code)
+    const reason = await verifyFinalProof(slug, code, idea?.title || '', file)
+    if (reason) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason }
+  }
+
+  const entryBase: Omit<MediaCleanupSidecarEntry, 'outcome' | 'updated_at'> = {
+    entry_id: randomUUID(), source_path: file.path, relative_path: file.relative_path,
+    source_kind: file.source_kind,
+    category: file.category, bytes: file.bytes, bytes_reclaimed: mode === 'remove' ? file.bytes : 0, sha256: file.sha256,
+    preview_id: preview.preview_id, operation_id: operation.id, mode,
+    recorded_at: isoNow(), upload_proof: file.upload_proof,
+  }
+
+  if (mode === 'archive') {
+    const target = archiveDestinationFor(destination!, slug, code, file)
+    try {
+      const sourceDevice = (await fs.stat(file.path)).dev
+      await fs.mkdir(path.dirname(target), { recursive: true })
+      const sameDevice = (await fs.stat(path.dirname(target))).dev === sourceDevice
+      await fs.copyFile(file.path, target, fsConstants.COPYFILE_EXCL)
+      await hooks.afterArchiveCopy?.(file.path, target)
+      const [sourceHash, targetHash] = await Promise.all([sha256(file.path), sha256(target)])
+      const targetStat = await fs.stat(target)
+      if (sourceHash !== file.sha256 || targetHash !== file.sha256 || targetStat.size !== file.bytes) {
+        throw new Error('The archive copy does not match the reviewed source.')
+      }
+      const activeAfterCopy = await relevantActiveJobs(slug, code, [file.category])
+      if (activeAfterCopy.length) throw new Error(`Active ${activeAfterCopy.map(job => job.type).join(', ')} work started while the archive copy was being verified.`)
+      const uploadAfterCopy = await uploadProofStillCurrent(slug, code, file)
+      if (uploadAfterCopy) throw new Error(uploadAfterCopy)
+      if (file.category === 'final_video') {
+        const idea = (await im.getIdeas(slug, 'accepted')).find(candidate => candidate.episode_code === code)
+        const reason = await verifyFinalProof(slug, code, idea?.title || '', file)
+        if (reason) throw new Error(reason)
+      }
+      const pending: MediaCleanupSidecarEntry = {
+        ...entryBase, bytes_reclaimed: sameDevice ? 0 : file.bytes,
+        destination_path: target, outcome: 'pending_archive', updated_at: isoNow(),
+      }
+      await putSidecarEntry(slug, code, pending)
+      const recheck = await exactFileStillReviewed(file)
+      if (recheck) {
+        await putSidecarEntry(slug, code, { ...pending, outcome: 'failed', reason: recheck, updated_at: isoNow() })
+        return { path: file.path, category: file.category, outcome: 'failed', bytes_reclaimed: 0, bytes_moved: 0, destination_path: target, reason: recheck }
+      }
+      const finalActive = await relevantActiveJobs(slug, code, [file.category])
+      const finalUpload = await uploadProofStillCurrent(slug, code, file)
+      if (finalActive.length || finalUpload) {
+        const reason = finalUpload || `Active ${finalActive.map(job => job.type).join(', ')} work started before archive removal.`
+        await putSidecarEntry(slug, code, { ...pending, outcome: 'failed', reason, updated_at: isoNow() })
+        return { path: file.path, category: file.category, outcome: 'failed', bytes_reclaimed: 0, bytes_moved: 0, destination_path: target, reason }
+      }
+      unlinkReviewedFile(file)
+      try {
+        await putSidecarEntry(slug, code, { ...pending, outcome: 'archived', updated_at: isoNow() })
+        return { path: file.path, category: file.category, outcome: 'archived', bytes_reclaimed: sameDevice ? 0 : file.bytes, bytes_moved: file.bytes, destination_path: target }
+      } catch (error: any) {
+        return { path: file.path, category: file.category, outcome: 'pending', bytes_reclaimed: sameDevice ? 0 : file.bytes, bytes_moved: file.bytes, destination_path: target, reason: error?.message || String(error) }
+      }
+    } catch (error: any) {
+      const collision = error?.code === 'EEXIST'
+      return {
+        path: file.path, category: file.category, outcome: collision ? 'skipped' : 'failed',
+        bytes_reclaimed: 0, bytes_moved: 0, destination_path: target,
+        reason: collision ? 'A file already exists at the archive destination.' : error?.message || String(error),
+      }
+    }
+  }
+
+  const pending: MediaCleanupSidecarEntry = { ...entryBase, outcome: 'pending_remove', updated_at: isoNow() }
+  try {
+    await putSidecarEntry(slug, code, pending)
+    const activeBeforeRemove = await relevantActiveJobs(slug, code, [file.category])
+    const uploadBeforeRemove = await uploadProofStillCurrent(slug, code, file)
+    if (activeBeforeRemove.length || uploadBeforeRemove) {
+      const reason = uploadBeforeRemove || `Active ${activeBeforeRemove.map(job => job.type).join(', ')} work started before removal.`
+      await putSidecarEntry(slug, code, { ...pending, outcome: 'failed', reason, updated_at: isoNow() })
+      return { path: file.path, category: file.category, outcome: 'failed', bytes_reclaimed: 0, bytes_moved: 0, reason }
+    }
+    const recheck = await exactFileStillReviewed(file)
+    if (recheck) {
+      await putSidecarEntry(slug, code, { ...pending, outcome: 'failed', reason: recheck, updated_at: isoNow() })
+      return { path: file.path, category: file.category, outcome: 'failed', bytes_reclaimed: 0, bytes_moved: 0, reason: recheck }
+    }
+    const finalActive = await relevantActiveJobs(slug, code, [file.category])
+    const finalUpload = await uploadProofStillCurrent(slug, code, file)
+    if (finalActive.length || finalUpload) {
+      const reason = finalUpload || `Active ${finalActive.map(job => job.type).join(', ')} work started before removal.`
+      await putSidecarEntry(slug, code, { ...pending, outcome: 'failed', reason, updated_at: isoNow() })
+      return { path: file.path, category: file.category, outcome: 'failed', bytes_reclaimed: 0, bytes_moved: 0, reason }
+    }
+    await hooks.beforeDestructiveMutation?.()
+    unlinkReviewedFile(file)
+    try {
+      await putSidecarEntry(slug, code, { ...pending, outcome: 'removed', updated_at: isoNow() })
+      return { path: file.path, category: file.category, outcome: 'removed', bytes_reclaimed: file.bytes, bytes_moved: 0 }
+    } catch (error: any) {
+      return { path: file.path, category: file.category, outcome: 'pending', bytes_reclaimed: file.bytes, bytes_moved: 0, reason: error?.message || String(error) }
+    }
+  } catch (error: any) {
+    return { path: file.path, category: file.category, outcome: 'failed', bytes_reclaimed: 0, bytes_moved: 0, reason: error?.message || String(error) }
+  }
+}
+
+async function runPreview(
+  slug: string,
+  preview: MediaCleanupPreview,
+  operation: MediaCleanupOperation,
+  mode: MediaCleanupMode,
+  destination?: string,
+): Promise<MediaCleanupRunResult> {
+  await assertScopesIdle(slug, preview.episodes.map(episode => episode.episode_code), preview.categories)
+  const result: MediaCleanupRunResult = {
+    mode, ...(destination ? { destination } : {}), items: [],
+    archived_count: 0, removed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0, bytes_reclaimed: 0, bytes_moved: 0,
+  }
+  operation.result = result
+  operation.total = preview.files.length
+  for (const file of preview.files) {
+    if (operation.stop_requested) break
+    operation.current = file.path
+    operation.updated_at = isoNow()
+    const code = preview.episodes.find(episode => episode.files.some(candidate => candidate.path === file.path))!.episode_code
+    const apply = () => jq.withEpisodeMediaCleanupLock(slug, code,
+      () => mutateReviewedFile(slug, preview, operation, file, mode, destination))
+    const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
+    result.items.push(item)
+    if (item.outcome === 'archived') result.archived_count += 1
+    else if (item.outcome === 'removed') result.removed_count += 1
+    else if (item.outcome === 'skipped') result.skipped_count += 1
+    else if (item.outcome === 'failed') result.failed_count += 1
+    else result.pending_count += 1
+    result.bytes_reclaimed += item.bytes_reclaimed
+    result.bytes_moved += item.bytes_moved
+    operation.done += 1
+    await hooks.afterFile?.()
+  }
+  return result
+}
+
+export async function startMediaCleanupRun(
+  slug: string,
+  input: { preview_id: unknown; mode: unknown; destination?: unknown },
+): Promise<{ operation_id: string }> {
+  pruneState()
+  const previewId = typeof input.preview_id === 'string' ? input.preview_id.trim() : ''
+  const preview = previews.get(previewId)
+  if (!preview || preview.project_slug !== slug || Date.parse(preview.expires_at) <= Date.now()) {
+    throw fail('That media cleanup preview is missing or expired. Check the files again.', 409)
+  }
+  if (consumedPreviews.has(previewId)) throw fail('That media cleanup preview was already used. Check the files again.', 409)
+  if (input.mode !== 'archive' && input.mode !== 'remove') throw fail('Choose archive or remove.')
+  let destination: string | undefined
+  if (input.mode === 'archive') {
+    if (typeof input.destination !== 'string' || !input.destination.trim()) throw fail('Choose an archive destination.')
+    destination = await safeArchiveDestination(input.destination.trim(), preview)
+  }
+  if (hasActiveOperation(slug)) throw fail('A media cleanup check or operation is already running for this project.', 409)
+  const operation = beginOperation(slug, 'run', input.mode === 'archive' ? 'archiving' : 'removing')
+  consumedPreviews.add(previewId)
+  setImmediate(() => void (async () => {
+    operation.status = 'running'
+    operation.updated_at = isoNow()
+    try {
+      operation.result = await runPreview(slug, preview, operation, input.mode as MediaCleanupMode, destination)
+      finishOperation(operation, operation.stop_requested ? 'stopped' : 'completed')
+    } catch (error) {
+      finishOperation(operation, 'failed', error)
+    }
+  })())
+  return { operation_id: operation.id }
+}
+
+export function getMediaCleanupOperation(slug: string, id: string): MediaCleanupOperation | null {
+  pruneState()
+  const operation = operations.get(id)
+  return operation?.project_slug === slug ? cloneOperation(operation) : null
+}
+
+export function stopMediaCleanupOperation(slug: string, id: string): MediaCleanupOperation | null {
+  const operation = operations.get(id)
+  if (!operation || operation.project_slug !== slug) return null
+  if (operation.status === 'queued' || operation.status === 'running' || operation.status === 'stopping') {
+    operation.stop_requested = true
+    operation.status = 'stopping'
+    operation.updated_at = isoNow()
+  }
+  return cloneOperation(operation)
+}
+
+export function _setMediaCleanupHooksForTests(next: CleanupHooks): () => void {
+  const previous = hooks
+  hooks = { ...hooks, ...next }
+  return () => { hooks = previous }
+}
+
+export function _resetMediaCleanupStateForTests(): void {
+  operations.clear()
+  previews.clear()
+  consumedPreviews.clear()
+  hooks = {}
+}

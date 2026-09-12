@@ -4393,6 +4393,12 @@ function enqueuePrepared(
   opts: EnqueuePreparedOptions,
   contentPackProvenance: Job['content_pack_provenance'] = [],
 ): Job {
+  if (episodeMediaCleanupInProgress.has(episodeMediaAdmissionKey(opts.project_slug, opts.episode_id))) {
+    throw Object.assign(
+      new Error('Local media cleanup is in progress for this episode. Try again shortly.'),
+      { statusCode: 409 },
+    )
+  }
   if (projectRemovalInProgress.has(opts.project_slug)) {
     throw Object.assign(new Error('Project removal is in progress. Return later before starting new work.'), { statusCode: 409 })
   }
@@ -4487,10 +4493,44 @@ export function enqueuePreparedForTest(opts: EnqueueOptions & { started_at?: str
   return job
 }
 
+/**
+ * Serialize one episode's cleanup removal against queue admission. Existing
+ * running/queued jobs are still rejected by cleanup; this closes only the
+ * narrow gap where a new job could be admitted after cleanup's last check.
+ */
+const episodeMediaCleanupInProgress = new Set<string>()
+
+function episodeMediaAdmissionKey(projectSlug: string, episodeId: string): string {
+  return `${projectSlug}:${episodeId.toUpperCase()}`
+}
+
+export function withEpisodeMediaAdmissionLock<T>(
+  projectSlug: string,
+  episodeId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withLock(`episode-media-admission:${episodeMediaAdmissionKey(projectSlug, episodeId)}`, fn)
+}
+
+/** Hold the episode admission lock while a reviewed local file is being mutated. */
+export function withEpisodeMediaCleanupLock<T>(
+  projectSlug: string,
+  episodeId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const key = episodeMediaAdmissionKey(projectSlug, episodeId)
+  return withEpisodeMediaAdmissionLock(projectSlug, episodeId, async () => {
+    episodeMediaCleanupInProgress.add(key)
+    try { return await fn() }
+    finally { episodeMediaCleanupInProgress.delete(key) }
+  })
+}
+
 /** Resolve project pins exactly once, then construct the immutable queued job. */
 export async function enqueue(
   opts: EnqueueOptions,
   contentPackOptions: ContentPackProjectPinOptions = {},
+  beforeAdmission?: () => Promise<void>,
 ): Promise<Job> {
   const provenance = await snapshotProjectContentPackProvenance(
     opts.project_slug,
@@ -4513,11 +4553,16 @@ export async function enqueue(
   delete (safeOpts as EnqueueOptions & { paid_image_replacement?: unknown }).paid_image_replacement
   delete (safeOpts as EnqueueOptions & { genstudio_chat_recovery_preview?: unknown }).genstudio_chat_recovery_preview
   const { params, ...enqueueOpts } = safeOpts
-  return enqueuePrepared({
-    ...enqueueOpts,
-    ...(params ? { params: withoutPaidImageReplacementParam(params) } : {}),
-    ...(paid_image_replacement ? { paid_image_replacement } : {}),
-  }, provenance)
+  return withEpisodeMediaAdmissionLock(opts.project_slug, opts.episode_id, async () => {
+    // Pipeline must recheck deliberate cleanup after acquiring admission, so
+    // a cleanup completed while it prepared cannot trigger regeneration.
+    await beforeAdmission?.()
+    return enqueuePrepared({
+      ...enqueueOpts,
+      ...(params ? { params: withoutPaidImageReplacementParam(params) } : {}),
+      ...(paid_image_replacement ? { paid_image_replacement } : {}),
+    }, provenance)
+  })
 }
 
 export async function enqueueEpisodeRecoveryOnce(jobId: string, opts: EnqueueOptions): Promise<Job> {

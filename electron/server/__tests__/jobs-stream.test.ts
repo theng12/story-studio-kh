@@ -18,7 +18,10 @@ import assert from 'node:assert/strict'
 import http from 'http'
 import fs from 'fs/promises'
 import path from 'path'
+import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+import { createBufferedJobStream, durableJobScopes } from '../routes/jobs.js'
+import { softDeleteProjectAfterGuard } from '../services/soft-delete.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -32,6 +35,36 @@ interface SseFrame {
   event: string
   data: string
 }
+
+test('buffers job events until the initial snapshot has been sent', () => {
+  const sent: Array<{ event: string, payload: unknown }> = []
+  const stream = createBufferedJobStream((event, payload) => sent.push({ event, payload }))
+  const update = { job_id: 'during-snapshot', project_slug: 'alpha', status: 'queued' }
+  const snapshot = { jobs: [], stats: { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 } }
+
+  stream.send('update', update)
+  assert.deepEqual(sent, [], 'an update emitted while snapshot work is pending must not overtake the snapshot')
+
+  stream.sendSnapshot(snapshot)
+  assert.deepEqual(sent, [
+    { event: 'snapshot', payload: snapshot },
+    { event: 'update', payload: update },
+  ])
+})
+
+test('reports an initial snapshot failure before releasing buffered job events', () => {
+  const sent: Array<{ event: string, payload: unknown }> = []
+  const stream = createBufferedJobStream((event, payload) => sent.push({ event, payload }), 'Could not load project Jobs.')
+  const update = { job_id: 'during-failure', project_slug: 'alpha', status: 'queued' }
+
+  stream.send('update', update)
+  stream.sendSnapshotError()
+
+  assert.deepEqual(sent, [
+    { event: 'snapshot-error', payload: { detail: 'Could not load project Jobs.' } },
+    { event: 'update', payload: update },
+  ])
+})
 
 /**
  * Open an SSE subscription, collect frames, then close the connection and
@@ -304,6 +337,73 @@ describe('SSE /projects/:slug/jobs/stream', () => {
 })
 
 describe('SSE /jobs/all/stream', () => {
+  test('treats a missing durable root as empty but surfaces an unreadable root', async () => {
+    const missingRoot = path.join(tempDir, 'missing-projects-root')
+    assert.deepEqual(await durableJobScopes(missingRoot, new Set()), [])
+
+    const notDirectory = path.join(tempDir, 'projects-root-file')
+    await fs.writeFile(notDirectory, 'not a directory')
+    await assert.rejects(durableJobScopes(notDirectory, new Set()), { code: 'ENOTDIR' })
+  })
+
+  test('retains application-scoped jobs in the universal snapshot and stream', async () => {
+    const appJob = jq.enqueuePreparedForTest({
+      project_slug: '_app_', type: 'script-only', episode_id: 'APP_SCOPE', title: 'app scope', params: {},
+    })
+
+    const appJobs = await request(app).get('/api/jobs/app').expect(200)
+    assert.ok(appJobs.body.jobs.some((job: any) => job.job_id === appJob.job_id))
+
+    const allJobs = await request(app).get('/api/jobs/all').expect(200)
+    assert.ok(allJobs.body.jobs.some((job: any) => job.job_id === appJob.job_id))
+
+    const frames = await collectFrames('/api/jobs/all/stream', 50, f => hasEvent(f, 'snapshot'))
+    const snapshot = frames.find(frame => frame.event === 'snapshot')
+    assert.ok(snapshot, 'universal stream should send a snapshot')
+    assert.ok(JSON.parse(snapshot.data).jobs.some((job: any) => job.job_id === appJob.job_id))
+  })
+
+  test('does not resurrect a soft-deleted project through its durable jobs scope', async () => {
+    const slug = 'SSE_Hidden_Durable'
+    await fs.mkdir(path.join(tempDir, 'projects', slug), { recursive: true })
+    await fs.writeFile(path.join(tempDir, 'projects', slug, 'jobs.json'), JSON.stringify({ jobs: [{
+      job_id: 'hidden-durable-job', project_slug: slug, type: 'script-only', episode_id: 'HIDDEN_ONLY', title: 'hidden scope',
+      status: 'done', created_at: '2026-01-01T00:00:00.000Z', started_at: '2026-01-01T00:00:00.000Z',
+      finished_at: '2026-01-01T00:01:00.000Z', error: null, output_lines: [], params: {},
+    }] }))
+    await softDeleteProjectAfterGuard(slug)
+
+    const allJobs = await request(app).get('/api/jobs/all').expect(200)
+    assert.ok(!allJobs.body.jobs.some((job: any) => job.job_id === 'hidden-durable-job'),
+      'All Jobs must retain the Library\'s hidden-project boundary')
+  })
+
+  test('includes a durable project scope that the Library cannot list', async () => {
+    // A project Jobs URL hydrates its own durable scope directly. The all-jobs
+    // endpoints must include that same scope even when project.json is absent
+    // or unreadable and the Library therefore omits the folder.
+    const slug = 'SSE_Durable_Only'
+    await fs.mkdir(path.join(tempDir, 'projects', slug), { recursive: true })
+    await fs.writeFile(path.join(tempDir, 'projects', slug, 'jobs.json'), JSON.stringify({ jobs: [{
+      job_id: 'durable-only-job', project_slug: slug, type: 'script-only', episode_id: 'DURABLE_ONLY', title: 'durable scope',
+      status: 'done', created_at: '2026-01-01T00:00:00.000Z', started_at: '2026-01-01T00:00:00.000Z',
+      finished_at: '2026-01-01T00:01:00.000Z', error: null, output_lines: [], params: {},
+    }] }))
+
+    const projectJobs = await request(app).get(`/api/projects/${slug}/jobs`).expect(200)
+    assert.equal(projectJobs.body.jobs.length, 1, 'the project endpoint proves this durable scope is readable')
+
+    const allJobs = await request(app).get('/api/jobs/all').expect(200)
+    assert.ok(allJobs.body.jobs.some((job: any) => job.job_id === 'durable-only-job'),
+      'the all-jobs snapshot must include every readable per-project jobs scope')
+
+    const frames = await collectFrames('/api/jobs/all/stream', 50, f => hasEvent(f, 'snapshot'))
+    const snapshot = frames.find(frame => frame.event === 'snapshot')
+    assert.ok(snapshot, 'universal stream should send a snapshot')
+    assert.ok(JSON.parse(snapshot.data).jobs.some((job: any) => job.job_id === 'durable-only-job'),
+      'the universal stream snapshot must include every readable per-project jobs scope')
+  })
+
   test('initial snapshot combines jobs from every project', async () => {
     const a = await pm.createProject({ name: 'SSE_All_A' })
     const b = await pm.createProject({ name: 'SSE_All_B' })

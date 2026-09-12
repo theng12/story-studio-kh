@@ -1005,6 +1005,8 @@
         </div>
       </div>
 
+      <MediaCleanupPanel :slug="slug" />
+
       <!-- v1.4.5 — read-only. This panel used to Save and Clear a per-machine
            export root, but v1.4.3 made that folder derived (`<Library>/Exports`)
            and removed the setter route — so its buttons had been posting to a
@@ -3863,6 +3865,9 @@ function applyHash() {
   const target = resolveSettingsSectionHash(rawTarget, tabs.map(tab => tab.id))
   if (!target) return
   activeTab.value = target
+  if (rawTarget === 'free-up-space') {
+    nextTick(() => document.getElementById('free-up-space')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
   if (rawTarget === 'ffmpeg') {
     refreshFfmpegStatus()
     nextTick(() => {

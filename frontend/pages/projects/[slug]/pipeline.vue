@@ -454,6 +454,7 @@
             <div class="ep-head">
               <strong>{{ ep.episode_code }}</strong>
               <span class="ep-title">{{ ep.title }}</span>
+              <span v-if="localMediaStatusLabel(ep.local_media_status)" class="ep-media-status">{{ localMediaStatusLabel(ep.local_media_status) }}</span>
               <!-- Manual-done pill: visible only when the user explicitly
                    flagged this episode "already done" (e.g. for YouTube
                    imports the pipeline should stop nagging about). The pill
@@ -740,7 +741,7 @@
         <span class="force-rerun-label">
           Force re-run
           <span class="force-rerun-hint">
-            — regenerate every selected step even if its output already exists. Spends tokens on work that's already done.
+            — regenerate selected stages, including intentionally cleaned local sources. Normal prerequisites still apply and provider costs may repeat.
           </span>
         </span>
       </label>
@@ -764,6 +765,7 @@ import {
   type FlowStep,
   type VisualSource,
 } from '~/composables/useProjectFlow'
+import { localMediaStatusLabel, type LocalMediaCleanupStatus } from '~/composables/useEpisodes'
 import type { AudioQualityMode, AudioQualityPlan } from '~/types/audio-quality'
 
 definePageMeta({ layout: 'dashboard' })
@@ -1445,6 +1447,7 @@ interface Episode {
   title: string
   status: Record<string, unknown>
   visual_source?: unknown
+  local_media_status?: LocalMediaCleanupStatus | null
   // Optional provenance + override fields (Pipeline page reads them for
   // the manual-done pill + per-step "(manual)" annotation; back-end may
   // still omit them on stale rows so all are optional).
@@ -2324,7 +2327,7 @@ function removeResolvedSubmittedEpisodes(submittedEpisodeIds: string[], blocked:
 // don't silently burn tokens on work that's already done.
 const forceRerun = ref(false)
 const forceRerunTitle = computed(() => forceRerun.value
-  ? 'Force re-run is ON — every selected step will run for every selected episode, regardless of existing output.'
+  ? 'Force re-run is ON — every selected step will run. It may regenerate intentionally removed local sources, repeats provider costs, and still checks prerequisites.'
   : 'Force re-run is OFF — steps whose output already exists will be skipped automatically.')
 
 function formatFileSize(bytes: number): string {
@@ -2648,6 +2651,7 @@ async function submit() {
 .ep-main { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ep-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .ep-title { color: var(--text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ep-media-status { color: var(--text-muted); font-size: var(--font-xs); white-space: nowrap; }
 .ep-status { display: flex; gap: 6px; font-size: 13px; flex-wrap: wrap; }
 .ep-pill {
   position: relative;

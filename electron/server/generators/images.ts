@@ -43,11 +43,12 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import fs from 'fs/promises'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import {
+  assertReleasedZeroSettlementImageRetrySubmit,
   authoritativePaidImageSettledCredits,
   buildPaidImageOriginalIdentity,
   capturePaidImageReferenceIdentity,
   decidePaidImageReplacement,
-  isReleasedFailoverImageRetry,
+  isReleasedZeroSettlementImageRetry,
   readPaidImageOriginalRequest,
   revalidatePaidImageOutputPath,
   type PaidImageOutputSelector,
@@ -1140,11 +1141,12 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
         : null
 
       let attempt: DurableImageAttempt | null = null
-      let releasedFailoverRetryUsed = false
+      let releasedZeroSettlementRetryUsed = false
+      let zeroSettlementRetryPending = false
       for (let attemptNum = 1; ; attemptNum++) {
         let acceptedTaskId = ''
         let acceptedKey = ''
-        let releasedFailoverRetry = false
+        let releasedZeroSettlementRetry = false
         try {
           if (attemptNum === 1) {
             const currentManifest = await readManifest(thumbDir).catch(() => thumbManifest)
@@ -1185,6 +1187,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                 throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
               }
+              if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
               if (decision.action === 'commit') committedScope = decision.scope
             }
             attempt = submittedRecoveryEntry ? {
@@ -1253,6 +1256,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
               throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
             }
+            if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
           }
           if (current.recovery.kind === 'uncertain') {
             if (current.paidRecovery) throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
@@ -1321,6 +1325,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               beforeSubmit: () => jq.assertPaidImageReplacementSubmitPermission(
                 job, filename, thumbDir, filename, replacementEntry,
               ),
+            } : zeroSettlementRetryPending ? {
+              beforeSubmit: assertReleasedZeroSettlementImageRetrySubmit,
             } : {}),
             onQueueState: state => publishImageQueueState(key, label, state),
             isCancelled: () => jq.isCancelled(job.job_id),
@@ -1407,7 +1413,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                     modelId: resolvedModelConfig.api_model || modelName, apiKey,
                   },
                 })
-                releasedFailoverRetry = isReleasedFailoverImageRetry(e, decision)
+                releasedZeroSettlementRetry = isReleasedZeroSettlementImageRetry(e, decision)
+                zeroSettlementRetryPending ||= releasedZeroSettlementRetry
                 if (decision.action === 'wait') {
                   paidImageWaitRequested = true
                   return
@@ -1420,17 +1427,17 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               }
             }
           }
-          // Same two retryable refusals as `runScene`, on the same terms — see
-          // the comment there and `imageRetryPlan`.
+          // Fleet-busy and route refusals follow `imageRetryPlan`; a fully
+          // refunded, policy-approved terminal image failure gets one retry.
           const plan = imageRetryPlan(e, attemptNum)
-            || (releasedFailoverRetry && !releasedFailoverRetryUsed
-              ? { waitMs: 0, reason: 'Failover ended before an image was published', maxAttempts: attemptNum + 1 }
+            || (releasedZeroSettlementRetry && !releasedZeroSettlementRetryUsed
+              ? { waitMs: 0, reason: 'The image failed before any credits settled', maxAttempts: attemptNum + 1 }
               : null)
           const fleetBusy = isFleetBusyFailure(e, 'image')
-          const stoppableRetry = fleetBusy || releasedFailoverRetry
+          const stoppableRetry = fleetBusy || releasedZeroSettlementRetry
           if (plan && attempt && !jq.isCancelled(job.job_id)
             && !(stoppableRetry && jq.isPauseRequested(job.job_id))) {
-            if (releasedFailoverRetry) releasedFailoverRetryUsed = true
+            if (releasedZeroSettlementRetry) releasedZeroSettlementRetryUsed = true
             const { waitMs, reason, maxAttempts } = plan
             activeItems.set(key, {
               label,
