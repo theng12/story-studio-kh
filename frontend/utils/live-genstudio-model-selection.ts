@@ -1,4 +1,9 @@
-import { isCompleteTierCatalog, type GenStudioCostTier } from './genstudio-cost-tier.js'
+import {
+  isCompleteLlmTierCatalog,
+  isCompleteTierCatalog,
+  type GenStudioCostTier,
+  type GenStudioLlmCostTier,
+} from './genstudio-cost-tier.js'
 import { isGenStudioProduct } from '../../electron/server/contracts/genstudio-product-identity'
 
 /**
@@ -26,7 +31,7 @@ export interface LiveGenStudioModel {
   customer_handle?: string | null
   public_model_id?: string | null
   legacy_ids?: readonly string[]
-  cost_tier?: GenStudioCostTier
+  cost_tier?: GenStudioCostTier | GenStudioLlmCostTier
 }
 
 export function isUsableLiveGenStudioModel(
@@ -56,6 +61,7 @@ export function selectLiveGenStudioModel<T extends LiveGenStudioModel>(
   savedModelId: unknown,
   models: readonly T[],
   requireVision = false,
+  tierProfile: 'auto' | 'llm' | 'non-llm' = 'auto',
 ): T | null {
   const saved = typeof savedModelId === 'string' ? savedModelId.trim() : ''
   const usable = (model: T): boolean => isUsableLiveGenStudioModel(model, requireVision)
@@ -69,7 +75,13 @@ export function selectLiveGenStudioModel<T extends LiveGenStudioModel>(
   if (migrated) return migrated
 
   if (saved) return null
-  if (!isCompleteTierCatalog(models.map(model => ({ costTier: model.cost_tier })))) {
+  const tieredModels = models.map(model => ({ costTier: model.cost_tier }))
+  const hasLanguageTier = tierProfile === 'llm'
+    || (tierProfile === 'auto' && models.some(model => model.cost_tier === 'promotional' || model.cost_tier === 'value'))
+  if (hasLanguageTier && isCompleteLlmTierCatalog(tieredModels)) {
+    return models.find(model => model.cost_tier === 'promotional' && usable(model)) || null
+  }
+  if (hasLanguageTier || !isCompleteTierCatalog(tieredModels)) {
     return models.find(usable) || null
   }
   return models.find(model => model.cost_tier === 'economy' && usable(model)) || null

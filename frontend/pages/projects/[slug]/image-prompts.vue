@@ -1051,7 +1051,7 @@ import {
 } from '~/utils/prompt-char-cap'
 import { readRememberedImageModelId } from '~/utils/project-image-model'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
-import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
+import type { GenStudioLlmCostTier } from '~/utils/genstudio-cost-tier'
 import { thumbnailVisionModelMenuOption, type ThumbnailVisionModel } from '~/utils/thumbnail-vision-model-menu'
 definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
@@ -1212,7 +1212,7 @@ const customStyles = computed<StylePresetMeta[]>(
 )
 
 // ── Reference-image style extraction (pain-point #7) ─────────────────────
-interface VisionModelCap { id: string; available: boolean; cost_tier?: GenStudioCostTier }
+interface VisionModelCap { id: string; available: boolean; cost_tier?: GenStudioLlmCostTier }
 interface ThumbnailReferenceAsset {
   id: string
   filename: string
@@ -2058,7 +2058,7 @@ async function loadVisionCaps() {
       `/projects/${slug.value}/vision/caps`,
     )
     visionModels.value = data.models || []
-    const selected = selectLiveGenStudioModel(visionModel.value, visionModels.value)
+    const selected = selectLiveGenStudioModel(visionModel.value, visionModels.value, false, 'llm')
     if (selected) visionModel.value = selected.id
   } catch { /* tolerate — keep default */ }
 }
@@ -2072,6 +2072,8 @@ async function loadThumbnailVisionModels() {
     const selected = selectLiveGenStudioModel(
       thumbnailVisionModel.value,
       thumbnailVisionModels.value.map(model => ({ ...model, available: true })),
+      false,
+      'llm',
     )
     if (selected && selected.id !== thumbnailVisionModel.value) thumbnailVisionModel.value = selected.id
     if (!thumbnailVisionModels.value.length) {

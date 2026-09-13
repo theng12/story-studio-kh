@@ -88,12 +88,13 @@ const defaultModelMenuOptions = [
   { id: 'flagship', label: 'Flagship', costTier: 'premium' },
 ]
 
-async function mountModelMenu(options = defaultModelMenuOptions, modelValue = 'steady') {
+async function mountModelMenu(options = defaultModelMenuOptions, modelValue = 'steady', mediaType: 'llm' | 'image' = 'llm') {
   document.body.innerHTML = ''
   const host = document.body.appendChild(document.createElement('div'))
   const app = createApp(await loadModelMenu(), {
     modelValue,
     options,
+    mediaType,
   })
   app.component('PickerDialog', PickerDialogStub)
   app.component('NuxtLink', PickerDialogStub)
@@ -190,33 +191,46 @@ describe('picker dialog opening focus', () => {
     }
   })
 
-  test('ModelMenu keeps tab focus, selection, and roving tabindex synchronized for Home and End', async () => {
-    // Catches Home/End calling setTier directly: selection changes but DOM focus
-    // remains on the previous tab, so the next Arrow key starts from the wrong place.
-    const { host, unmount } = await mountModelMenu()
-    try {
-      const tab = (tier: string) => host.querySelector<HTMLButtonElement>(`#model-menu-tier-${tier}`)!
-      const assertActiveTier = (tier: string) => {
-        for (const candidate of ['economy', 'balanced', 'premium']) {
-          assert.equal(tab(candidate).getAttribute('aria-selected'), String(candidate === tier))
-          assert.equal(tab(candidate).getAttribute('tabindex'), candidate === tier ? '0' : '-1')
+  for (const { mediaType, tiers } of [
+    { mediaType: 'llm', tiers: ['promotional', 'value', 'economy', 'premium'] },
+    { mediaType: 'image', tiers: ['economy', 'balanced', 'premium'] },
+  ] as const) {
+    test(`ModelMenu ${mediaType} keeps tab focus, selection, and roving tabindex synchronized`, async () => {
+      // Exercise both published category profiles through the actual event handlers.
+      const options = tiers.map(costTier => ({ id: costTier, label: costTier, costTier }))
+      const { host, unmount } = await mountModelMenu(options, tiers[1], mediaType)
+      try {
+        const tab = (tier: string) => host.querySelector<HTMLButtonElement>(`#model-menu-tier-${tier}`)!
+        assert.deepEqual(
+          [...host.querySelectorAll('[role="tab"]')].map(element => element.id),
+          tiers.map(tier => `model-menu-tier-${tier}`),
+        )
+        const assertActiveTier = (tier: string) => {
+          for (const candidate of tiers) {
+            assert.equal(tab(candidate).getAttribute('aria-selected'), String(candidate === tier))
+            assert.equal(tab(candidate).getAttribute('tabindex'), candidate === tier ? '0' : '-1')
+          }
+          assert.equal((document.activeElement as HTMLElement | null)?.id, tab(tier).id)
         }
-        assert.equal((document.activeElement as HTMLElement | null)?.id, tab(tier).id)
+
+        tab('premium').focus()
+        tab('premium').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+        await nextTick()
+        assertActiveTier(tiers[0])
+
+        tab(tiers[1]).focus()
+        tab(tiers[1]).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+        await nextTick()
+        assertActiveTier('premium')
+
+        tab('premium').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+        await nextTick()
+        assertActiveTier(tiers[0])
+      } finally {
+        unmount()
       }
-
-      tab('premium').focus()
-      tab('premium').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
-      await nextTick()
-      assertActiveTier('economy')
-
-      tab('balanced').focus()
-      tab('balanced').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
-      await nextTick()
-      assertActiveTier('premium')
-    } finally {
-      unmount()
-    }
-  })
+    })
+  }
 
   test('ModelMenu retains the two-tick dialog focus handshake', () => {
     // Catches reducing ModelMenu to one tick, letting the shared focus trap steal search focus.

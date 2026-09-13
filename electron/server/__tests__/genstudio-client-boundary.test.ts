@@ -458,7 +458,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
         return Response.json([{
           id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false,
           provider_name: 'Published LLM creator',
-          cost_tier: 'economy',
+          cost_tier: 'promotional',
           locked: true,
           lock_reason: 'requires_paid_account',
           max_structured_items_per_request: 80,
@@ -475,6 +475,9 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
           lock_reason: 'must-not-survive-when-unlocked',
           modes: ['image-to-video'], aspect_ratios: ['16:9'],
           variants: [{ operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-v1' }],
+        }, {
+          id: 'video-language-tier', display_name: 'Video with language tier', available: true,
+          cost_tier: 'value', modes: [], aspect_ratios: [], variants: [],
         }])
       }
       throw new Error(`Unexpected request: ${url}`)
@@ -489,7 +492,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(chat[0]?.max_output_tokens, 65_536)
     assert.equal(chat[0]?.available, true)
     assert.equal(chat[0]?.provider_name, 'Published LLM creator')
-    assert.equal(chat[0]?.cost_tier, 'economy')
+    assert.equal(chat[0]?.cost_tier, 'promotional')
     assert.equal(chat[0]?.locked, true)
     assert.equal(chat[0]?.lock_reason, 'requires_paid_account')
     assert.equal(chat[0]?.max_structured_items_per_request, 80)
@@ -500,6 +503,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(video[0]?.locked, false)
     assert.equal(Object.hasOwn(video[0] ?? {}, 'lock_reason'), false)
     assert.equal(video[0]?.variants[0]?.price_version, 'video-v1')
+    assert.equal(video[1]?.cost_tier, undefined)
   } finally {
     globalThis.fetch = originalFetch
   }

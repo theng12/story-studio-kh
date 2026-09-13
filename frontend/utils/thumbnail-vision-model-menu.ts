@@ -1,5 +1,5 @@
 import { describeChatRate } from './genstudio-credit-cost'
-import type { GenStudioCostTier } from './genstudio-cost-tier'
+import type { GenStudioLlmCostTier } from './genstudio-cost-tier'
 import { describeModelRetirement, isRetiring } from './genstudio-model-retirement'
 import {
   describeRelaxedQueueHint,
@@ -25,7 +25,7 @@ export interface ThumbnailVisionModel {
   standard_output_credits_per_million_tokens?: number | null
   minimum_credits: number
   price_version: string
-  cost_tier?: GenStudioCostTier
+  cost_tier?: GenStudioLlmCostTier
   /** GenStudio's shelf, and the offer that shelf carries. Forwarded by the
    *  vision route for the same reason the language catalogue forwards them:
    *  this menu is a second place a customer commits to a chat product and

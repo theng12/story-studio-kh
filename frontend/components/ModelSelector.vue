@@ -53,7 +53,7 @@ import {
   genStudioSelectionGapMessage,
 } from '../utils/live-genstudio-model-selection.js'
 import { invalidateModelCatalogCache } from '../composables/useApi.js'
-import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
+import type { GenStudioLlmCostTier } from '../utils/genstudio-cost-tier.js'
 import { describeChatRate } from '../utils/genstudio-credit-cost.js'
 import {
   describeRelaxedQueueHint,
@@ -85,7 +85,7 @@ interface LlmModelRow {
   max_output_tokens?: number
   structured_output_mode?: 'json_object' | 'request_json_schema'
   legacy_ids?: string[]
-  cost_tier?: GenStudioCostTier
+  cost_tier?: GenStudioLlmCostTier
   locked?: boolean
   lock_reason?: string | null
   input_credits_per_million_tokens?: number | null
@@ -300,6 +300,7 @@ function syncModelSelection(): void {
     props.modelValue,
     allModels.value,
     props.requireVision === true,
+    'llm',
   )
   if (!selected) {
     const saved = props.modelValue.trim()

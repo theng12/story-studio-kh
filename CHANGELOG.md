@@ -9,6 +9,11 @@ What's new in each release. Newest first.
 - Character Sheet no longer shows the retired Visual timing & motion card or draft timing summary. Manage episode timing and motion in Scene Plan.
 - Applying a Character Sheet preset explains its saved rhythm beside the preset controls without presenting it as the saved Scene Plan timing.
 
+## v1.4.161
+
+- LLM pickers show Promotional first, followed by Value, Economy and Premium. Categories follow GenStudio's combined input/output price bands, with existing Relaxed models classified as Promotional.
+- Search, selected-model focus and keyboard navigation follow the four LLM categories; other model pickers retain their current categories.
+
 ## v1.4.160 — 2026-09-13
 
 - Episode lists reuse project information within each request, avoiding hundreds of repeated file reads when opening a large channel across workflow tabs.

@@ -54,7 +54,7 @@
         aria-label="Browse models by cost tier"
       >
         <button
-          v-for="tier in GENSTUDIO_COST_TIERS"
+          v-for="tier in tierCatalog"
           :id="tierTabId(tier.id)"
           :key="tier.id"
           type="button"
@@ -151,12 +151,19 @@
 <script setup lang="ts">
 import {
   GENSTUDIO_COST_TIERS,
+  GENSTUDIO_LLM_COST_TIERS,
   costTierLabel,
+  isCompleteLlmTierCatalog,
   isCompleteTierCatalog,
+  llmCostTierLabel,
+  llmTierForKeyboard,
+  llmTierForOpening,
   tierForKeyboard,
   tierForOpening,
+  visibleLlmTierOptions,
   visibleTierOptions,
   type GenStudioCostTier,
+  type GenStudioLlmCostTier,
 } from '../utils/genstudio-cost-tier'
 import { groupMenuOptions } from '../utils/genstudio-relaxed-queue'
 import { pickerTriggerLabel } from '../utils/picker-trigger-label'
@@ -187,7 +194,7 @@ interface ModelMenuOption {
   disabled?: boolean
   disabledReason?: string
   badges?: ModelMenuBadge[]
-  costTier?: GenStudioCostTier
+  costTier?: GenStudioCostTier | GenStudioLlmCostTier
 }
 
 const props = withDefaults(defineProps<{
@@ -253,7 +260,8 @@ const query = ref('')
 const searchEl = ref<HTMLInputElement | null>(null)
 const listEl = ref<HTMLElement | null>(null)
 const tierTabsEl = ref<HTMLElement | null>(null)
-const activeTier = ref<GenStudioCostTier>('economy')
+type ModelMenuCostTier = GenStudioCostTier | GenStudioLlmCostTier
+const activeTier = ref<ModelMenuCostTier>('economy')
 
 const kindLabel = computed(() => ({
   llm: 'AI',
@@ -297,7 +305,10 @@ const triggerLabel = computed(() => pickerTriggerLabel({
 const selectedAccessBadges = computed(() => (
   selectedOption.value?.badges?.filter(badge => badge.label.startsWith('∞')) || []
 ))
-const tierMode = computed(() => isCompleteTierCatalog(props.options))
+const tierCatalog = computed(() => props.mediaType === 'llm' ? GENSTUDIO_LLM_COST_TIERS : GENSTUDIO_COST_TIERS)
+const tierMode = computed(() => props.mediaType === 'llm'
+  ? isCompleteLlmTierCatalog(props.options)
+  : isCompleteTierCatalog(props.options))
 const searching = computed(() => query.value.trim().length > 0)
 const tierPanelId = 'model-menu-tier-results'
 const activeTierTabId = computed(() => tierTabId(activeTier.value))
@@ -323,10 +334,16 @@ const selectedSummary = computed(() => {
   if (!option) return ''
   return [option.provider, option.meta].filter(Boolean).join(' · ')
 })
-function tierLabel(costTier: GenStudioCostTier): string {
-  return costTierLabel(costTier)
+function tierLabel(costTier: ModelMenuCostTier): string {
+  if (props.mediaType === 'llm' && (costTier === 'promotional' || costTier === 'value' || costTier === 'economy' || costTier === 'premium')) {
+    return llmCostTierLabel(costTier)
+  }
+  if (costTier === 'economy' || costTier === 'balanced' || costTier === 'premium') {
+    return costTierLabel(costTier)
+  }
+  return costTier
 }
-function tierTabId(costTier: GenStudioCostTier): string {
+function tierTabId(costTier: ModelMenuCostTier): string {
   return `model-menu-tier-${costTier}`
 }
 const filteredOptions = computed(() => {
@@ -338,7 +355,9 @@ const filteredOptions = computed(() => {
       .toLowerCase()
     return terms.every(term => haystack.includes(term))
   })
-  return visibleTierOptions(matching, activeTier.value, searching.value)
+  return props.mediaType === 'llm'
+    ? visibleLlmTierOptions(matching, activeTier.value as GenStudioLlmCostTier, searching.value)
+    : visibleTierOptions(matching, activeTier.value as GenStudioCostTier, searching.value)
 })
 const selectableOptionCount = computed(() => filteredOptions.value.filter(option => !option.disabled).length)
 // Sectioning — including the rule that the relaxed shelf always comes last and
@@ -353,7 +372,9 @@ async function toggle() {
     return
   }
   query.value = ''
-  activeTier.value = tierForOpening(props.modelValue, props.options)
+  activeTier.value = props.mediaType === 'llm'
+    ? llmTierForOpening(props.modelValue, props.options)
+    : tierForOpening(props.modelValue, props.options)
   expanded.value = true
   // Two ticks: the shared focus trap moves focus to the dialog's first control
   // on the first tick, so the search field claims it on the one after.
@@ -371,11 +392,13 @@ function select(option: ModelMenuOption) {
   emit('update:modelValue', option.id)
   close()
 }
-function setTier(tier: GenStudioCostTier) {
+function setTier(tier: ModelMenuCostTier) {
   activeTier.value = tier
 }
 function moveTier(key: string) {
-  const tier = tierForKeyboard(activeTier.value, key)
+  const tier = props.mediaType === 'llm'
+    ? llmTierForKeyboard(activeTier.value as GenStudioLlmCostTier, key)
+    : tierForKeyboard(activeTier.value as GenStudioCostTier, key)
   if (!tier) return
   setTier(tier)
   tierTabsEl.value?.querySelector<HTMLButtonElement>(`#${tierTabId(tier)}`)?.focus()

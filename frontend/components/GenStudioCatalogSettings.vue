@@ -109,7 +109,7 @@
 import { formatGenStudioAge, normalizeGenStudioLoadedAt } from '~/utils/genstudio-freshness'
 import { createGenStudioCatalogCache, GENSTUDIO_CATALOG_FRESH_MS, GENSTUDIO_CATALOG_STALE_CEILING_MS } from '../composables/useGenStudioCatalogCache.js'
 import { useGenStudioTranscriptionCatalog } from '../composables/useGenStudioTranscription.js'
-import { costTierLabel, type GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
+import { costTierLabel, llmCostTierLabel, type GenStudioCostTier, type GenStudioLlmCostTier } from '../utils/genstudio-cost-tier.js'
 import { genStudioModelLockReason } from '../utils/live-genstudio-model-selection.js'
 
 const { get } = useApi()
@@ -172,7 +172,7 @@ interface CatalogEntry {
   available?: boolean
   generation_enabled?: boolean
   coming_soon?: boolean
-  cost_tier?: GenStudioCostTier
+  cost_tier?: GenStudioCostTier | GenStudioLlmCostTier
   locked?: boolean
   lock_reason?: string | null
 }
@@ -185,7 +185,7 @@ interface CatalogDiagnostic {
   statusLabel: 'Available' | 'Unavailable' | 'Coming soon' | 'Locked' | 'Last known'
   statusTone: 'available' | 'unavailable' | 'coming-soon' | 'locked' | 'last-known'
   lockReason?: string
-  costTier?: GenStudioCostTier
+  costTier?: GenStudioCostTier | GenStudioLlmCostTier
 }
 
 const accountConfigured = ref(false)
@@ -314,8 +314,8 @@ const connectionState = computed(() => {
   return { label: 'Connected', detail: 'Live catalog data received', tone: 'success' }
 })
 
-function tierLabel(tier: GenStudioCostTier): string {
-  return `${costTierLabel(tier)} cost tier`
+function tierLabel(tier: GenStudioCostTier | GenStudioLlmCostTier): string {
+  return `${tier === 'promotional' || tier === 'value' ? llmCostTierLabel(tier) : costTierLabel(tier)} cost tier`
 }
 
 const lastRefreshLabel = computed(() =>

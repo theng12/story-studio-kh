@@ -1,6 +1,6 @@
 # Character Sheet timing cleanup and LLM coordination
 
-Status: implementation, focused checks, and independent review complete; release integration pending. Worktree `.worktrees/character-sheet-timing-cleanup`, branch `codex/character-sheet-timing-cleanup`, base `b2795169` (1.4.160). Planned version 1.4.162 follows the other session's reserved 1.4.161; recheck main before integration.
+Status: combined release verification underway on 2026-09-14, following explicit owner direction to coordinate and build the combined DMG. Worktree `.worktrees/character-sheet-timing-cleanup`, branch `codex/character-sheet-timing-cleanup`, base `b2795169` (1.4.160). Planned version 1.4.162 follows the other session's reserved 1.4.161; recheck main before integration.
 
 ## Owner request
 
@@ -35,3 +35,15 @@ An inspector noted the generic `/v1/models` capability boundary drops `cost_tier
 ## Remaining release work
 
 After the owner of PR #120 completes or explicitly hands over its release: rebase this branch onto updated main, resolve only release metadata and the existing modelMenus test edits, run required release verification once without competing suites, independently inspect conflict resolution, then merge under standing authorization and build/verify the unsigned DMG from canonical main. Do not install or restart the running customer app or alter jobs.
+
+## Combined release coordination, 2026-09-14
+
+PR #120 merged at `3f6daa42`; its documented full gates passed. This session acknowledged the handoff and posted owner-authorized coordination at https://github.com/theng12/story-studio-kh/pull/120#issuecomment-5655332966, taking ownership of the combined Story 1.4.162 release. No direct cross-session messaging tool is available; a posted note is not proof of receipt.
+
+Merged current main into this published branch without rewriting history. Conflicts were limited to package version fields and changelog headings; resolved to 1.4.162 with both 1.4.162 and 1.4.161 entries retained. All LLM runtime changes are preserved. Earlier pending/rebase wording above is historical; combined verification, merge and canonical artifact evidence follows.
+
+## Combined verification result
+
+`npm run verify` completed with exit 0 on the combined 1.4.162 tree. Backend: 5,223 passing tests / 472 files. Frontend: 1,808 passing / 197 files. Release: 36 passing / 4 files. Content Packs: 366 passing and 2 existing skips / 38 files. Total: 7,433 passing, zero failures. Lint: zero errors and 1,884 existing warnings. Electron/Nuxt typechecks, changelog, typography, source/built security, model drift, desktop release checks, and production build passed. Full receipt: `logs/character-sheet-timing-cleanup/verify-combined.log`.
+
+Independent final combined-diff review approved with no blockers and no competing test processes. No runtime changes were made after the passing run; this receipt update is documentation only. Integration and artifact results are recorded in canonical-main `logs/character-sheet-timing-cleanup-1.4.162/release-result.md` after packaging.
