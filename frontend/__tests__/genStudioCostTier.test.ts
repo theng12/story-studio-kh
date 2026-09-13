@@ -2,9 +2,14 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   costTierLabel,
+  isCompleteLlmTierCatalog,
   isCompleteTierCatalog,
+  llmCostTierLabel,
+  llmTierForKeyboard,
+  llmTierForOpening,
   tierForKeyboard,
   tierForOpening,
+  visibleLlmTierOptions,
   visibleTierOptions,
 } from '../utils/genstudio-cost-tier.js'
 
@@ -12,6 +17,13 @@ const complete = [
   { id: 'fast', costTier: 'economy' as const },
   { id: 'steady', costTier: 'balanced' as const },
   { id: 'flagship', costTier: 'premium' as const },
+]
+
+const completeLlm = [
+  { id: 'promo', costTier: 'promotional' as const },
+  { id: 'value', costTier: 'value' as const },
+  { id: 'economy', costTier: 'economy' as const },
+  { id: 'premium', costTier: 'premium' as const },
 ]
 
 describe('GenStudio cost-tier policy', () => {
@@ -60,5 +72,32 @@ describe('GenStudio cost-tier policy', () => {
     assert.equal(tierForKeyboard('economy', 'ArrowLeft'), 'premium')
     assert.equal(tierForKeyboard('economy', 'End'), 'premium')
     assert.equal(tierForKeyboard('premium', 'ArrowRight'), 'economy')
+  })
+
+  test('recognizes and filters a complete four-tier language catalogue', () => {
+    assert.equal(isCompleteLlmTierCatalog(completeLlm), true)
+    assert.equal(isCompleteLlmTierCatalog([...completeLlm, { id: 'unknown' }]), false)
+    assert.equal(isCompleteLlmTierCatalog([...completeLlm, { id: 'invalid', costTier: 'balanced' }]), false)
+    assert.deepEqual(
+      visibleLlmTierOptions([...completeLlm].reverse(), 'promotional', false).map(option => option.id),
+      ['promo'],
+    )
+    assert.deepEqual(
+      visibleLlmTierOptions(completeLlm, 'promotional', true).map(option => llmCostTierLabel(option.costTier)),
+      ['Promotional', 'Value', 'Economy', 'Premium'],
+    )
+  })
+
+  test('opens and walks language tiers from Promotional through Premium', () => {
+    assert.equal(llmTierForOpening('', completeLlm), 'promotional')
+    assert.equal(llmTierForOpening('missing', completeLlm), 'promotional')
+    assert.equal(llmTierForOpening('value', completeLlm), 'value')
+    assert.equal(llmTierForOpening('premium', completeLlm), 'premium')
+    assert.equal(llmTierForOpening('stale', [{ id: 'stale', costTier: 'balanced' }]), 'promotional')
+    assert.equal(llmTierForKeyboard('promotional', 'Home'), 'promotional')
+    assert.equal(llmTierForKeyboard('promotional', 'ArrowLeft'), 'premium')
+    assert.equal(llmTierForKeyboard('promotional', 'ArrowRight'), 'value')
+    assert.equal(llmTierForKeyboard('premium', 'ArrowRight'), 'promotional')
+    assert.equal(llmTierForKeyboard('premium', 'End'), 'premium')
   })
 })

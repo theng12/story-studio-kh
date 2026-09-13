@@ -562,7 +562,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
-import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
+import type { GenStudioLlmCostTier } from '~/utils/genstudio-cost-tier'
 import { resolveResearchModelForRun, type ResearchMode } from '~/utils/research-model-selection'
 import { describeWebResearchRate } from '~/utils/genstudio-credit-cost'
 import { describeModelRetirement, isRetiring } from '~/utils/genstudio-model-retirement'
@@ -750,7 +750,7 @@ interface WebResearchModel {
   /** Published `returns_citations`. Optional so an older backend response
    *  still types; absent means unpublished, which states nothing. */
   returns_citations?: boolean
-  cost_tier?: GenStudioCostTier
+  cost_tier?: GenStudioLlmCostTier
   /** GenStudio's published retirement. Optional so an older backend response
    *  still types; absent means no retirement is published, which is a state,
    *  not a default. */
@@ -787,6 +787,8 @@ async function loadWebModels(): Promise<void> {
     const selected = selectLiveGenStudioModel(
       form.value.web_model,
       webModels.value.map(model => ({ ...model, available: true })),
+      false,
+      'llm',
     )
     if (selected && selected.id !== form.value.web_model) form.value.web_model = selected.id
   } catch {

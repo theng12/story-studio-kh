@@ -939,9 +939,16 @@ export interface GenStudioTtsSubmitRequest extends GenStudioTtsRequest {
 }
 
 export type GenStudioCostTier = 'economy' | 'balanced' | 'premium'
+export type GenStudioLlmCostTier = 'promotional' | 'value' | 'economy' | 'premium'
 
 function parseGenStudioCostTier(value: unknown): GenStudioCostTier | undefined {
   return value === 'economy' || value === 'balanced' || value === 'premium'
+    ? value
+    : undefined
+}
+
+function parseGenStudioLlmCostTier(value: unknown): GenStudioLlmCostTier | undefined {
+  return value === 'promotional' || value === 'value' || value === 'economy' || value === 'premium'
     ? value
     : undefined
 }
@@ -1543,7 +1550,7 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
   output_credits_per_million_tokens?: number
   minimum_credits: number
   price_version: string
-  cost_tier?: GenStudioCostTier
+  cost_tier?: GenStudioLlmCostTier
   /**
    * GenStudio offers some products at a reduced price in exchange for a data
    * arrangement, and publishes both the flag and the exact sentence describing
@@ -4603,7 +4610,7 @@ export async function listChatModelsSnapshot(
       ? Math.max(0, value.minimum_credits)
       : 0,
     price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
-    ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
+    ...(parseGenStudioLlmCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioLlmCostTier(value?.cost_tier) } : {}),
     // Read, never authored. An older GenStudio that publishes neither field
     // simply carries no notice — which is the truth, not a default.
     discount: value?.discount === true,

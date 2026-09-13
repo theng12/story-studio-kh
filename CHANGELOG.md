@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.161
+
+- LLM pickers show Promotional first, followed by Value, Economy and Premium. Categories follow GenStudio's combined input/output price bands, with existing Relaxed models classified as Promotional.
+- Search, selected-model focus and keyboard navigation follow the four LLM categories; other model pickers retain their current categories.
+
 ## v1.4.160 — 2026-09-13
 
 - Episode lists reuse project information within each request, avoiding hundreds of repeated file reads when opening a large channel across workflow tabs.

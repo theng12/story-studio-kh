@@ -25,6 +25,13 @@ const lockedModels = [
   { id: 'open-economy', available: true, cost_tier: 'economy' as const },
 ]
 
+const llmModels = [
+  { id: 'premium-model', available: true, cost_tier: 'premium' as const },
+  { id: 'promotional-model', available: true, cost_tier: 'promotional' as const },
+  { id: 'value-model', available: true, cost_tier: 'value' as const },
+  { id: 'economy-model', available: true, cost_tier: 'economy' as const },
+]
+
 test('a named saved product is never silently replaced', () => {
   assert.equal(selectLiveGenStudioModel('gpt-4o', models), null)
   assert.equal(selectLiveGenStudioModel('writer-retired', models), null)
@@ -41,6 +48,10 @@ test('a fully tiered empty selector chooses only an available Economy model', ()
   assert.equal(selectLiveGenStudioModel('', tieredWithoutEconomy), null)
   assert.equal(selectLiveGenStudioModel('premium-model', fullyTieredModels)?.id, 'premium-model')
   assert.equal(selectLiveGenStudioModel('missing-saved-model', fullyTieredModels), null)
+})
+
+test('a fully tiered language selector chooses Promotional before other language tiers', () => {
+  assert.equal(selectLiveGenStudioModel('', llmModels)?.id, 'promotional-model')
 })
 
 test('an untiered legacy catalog keeps its existing first-usable default', () => {
