@@ -911,7 +911,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
     // route below stays on the strict get().
     const [status, visualState] = await Promise.all([
       episodeStatusCache.getForList(slug, code, ideas, projectFacts),
-      readVideoVisualSource(slug, code),
+      readVideoVisualSource(slug, code, projectFacts),
     ])
     const episodeVisualSource = visualState.source
     const needsScenePlan = episodeVisualSource === 'scene_plan'

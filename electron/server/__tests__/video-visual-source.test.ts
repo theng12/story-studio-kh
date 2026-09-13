@@ -6,7 +6,7 @@ import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 import { buildImagePoolPlayOrder, readVideoVisualSource, resolveImagePoolSelection, writeVideoAssemblySourceStamp } from '../services/video-visual-source.js'
 import { getSelectionSidecar, saveSelectionSidecar } from '../services/broll-selection-sidecar.js'
-import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
+import { createProjectFactsCache, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 
 let tmp: { dir: string; cleanup: () => Promise<void> }
 const SLUG = 'visual-source-contract'
@@ -141,6 +141,16 @@ describe('Video Assembly visual source', () => {
     assert.equal(state.source, 'scene_plan')
     assert.equal(state.image_pool, null)
     assert.equal(await fs.readFile(sidecarPath, 'utf8'), before)
+  })
+
+  test('shares request facts without changing sidecar resolution or trusting another project cache', async () => {
+    await seedImagePoolEpisode('facts-selection')
+    const direct = await readVideoVisualSource('facts-selection', EPISODE)
+    const cached = await readVideoVisualSource('facts-selection', EPISODE, createProjectFactsCache('facts-selection'))
+    const foreign = await readVideoVisualSource('facts-selection', EPISODE, createProjectFactsCache('another-project'))
+
+    assert.deepEqual(cached, direct)
+    assert.deepEqual(foreign, direct)
   })
 
   test('records an Image Pool choice before an image selection exists', async () => {

@@ -120,6 +120,13 @@ describe('createProject / listProjects / getProject', () => {
     assert.ok(slugs.includes('beta'))
   })
 
+  test('listProjects includes a project niche id already read from metadata', async () => {
+    const project = await pm.createProject({ name: 'Niche summary', niche_id: 'history' })
+    const summary = (await pm.listProjects()).find(candidate => candidate.slug === project.slug)
+
+    assert.equal(summary?.niche_id, 'history')
+  })
+
   test('getProject returns null for non-existent slug', async () => {
     const p = await pm.getProject('does-not-exist')
     assert.equal(p, null)

@@ -728,6 +728,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       // 'sleep-story' alias); the frontend maps it to a friendly name via the
       // format registry, so this stays correct even as formats are renamed.
       format_id: typeof meta.format_id === 'string' ? meta.format_id : undefined,
+      niche_id: typeof meta.niche_id === 'string' && meta.niche_id ? meta.niche_id : undefined,
       status: 'ready',
     }
   }))

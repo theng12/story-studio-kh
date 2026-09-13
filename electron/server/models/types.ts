@@ -1685,6 +1685,8 @@ export interface ProjectSummary {
    *  badge. Undefined for projects with no format_id set (→ shown as the
    *  default format). */
   format_id?: string
+  /** The project's selected niche, already read with this list row's metadata. */
+  niche_id?: string
 }
 
 // ── Config ──────────────────────────────────────────────────────────────────

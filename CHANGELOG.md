@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.160 — 2026-09-13
+
+- Episode lists reuse project information within each request, avoiding hundreds of repeated file reads when opening a large channel across workflow tabs.
+- Historical completed jobs no longer trigger an unnecessary second episode-list load. New completions, including those arriving during a load, still refresh readiness.
+- Episode selectors now follow project switches correctly, including loading and error states; late responses from the previous project stay isolated.
+- Jobs checks advisory account capacity less often and suspends those checks while the window is hidden, while retaining live job updates and submission safeguards.
+- Old submission-block and local-waiting indicators expire when account-status refreshes stop succeeding.
+- Series Formula browsing and format loading reuse project metadata already read for the request.
+
 ## v1.4.159
 
 - YouTube uploads now retry temporary connection failures while opening an upload session, instead of immediately failing the job. Startup retries are bounded and shown in the job log; accepted videos and existing resumable sessions retain their recovery safeguards.
