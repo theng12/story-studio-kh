@@ -357,9 +357,9 @@ describe('Visual timing and motion', () => {
     }
   })
 
-  test('Character Sheet summarizes timing and points to Scene Plan', () => {
-    assert.match(characterSheet, /<h3>Visual timing & motion<\/h3>/)
-    assert.match(characterSheet, /Open Scene Plan/)
+  test('Character Sheet omits the retired timing card', () => {
+    assert.doesNotMatch(characterSheet, /<h3>Visual timing & motion<\/h3>/)
+    assert.doesNotMatch(characterSheet, /Open Scene Plan/)
     assert.match(characterSheet, /pacingPresetNotice/)
     assert.doesNotMatch(characterSheet, /<select id="cs-visual-pacing"/)
     assert.doesNotMatch(characterSheet, /formulaPacingProfile/)

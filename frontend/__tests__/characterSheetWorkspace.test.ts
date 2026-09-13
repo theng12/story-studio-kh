@@ -26,8 +26,8 @@ describe('Character Sheet workspace', () => {
   test('uses compact visual anchors and style controls, with Scene Plan owning timing and motion', () => {
     assert.match(characterSheet, /<h3>Visual anchors<\/h3>/)
     assert.match(characterSheet, /<h3>Visual art style<\/h3>/)
-    assert.match(characterSheet, /<h3>Visual timing & motion<\/h3>/)
-    assert.match(characterSheet, /Open Scene Plan/)
+    assert.doesNotMatch(characterSheet, /<h3>Visual timing & motion<\/h3>/)
+    assert.doesNotMatch(characterSheet, /Open Scene Plan/)
     assert.match(characterSheet, /Episode visual anchor/)
     assert.doesNotMatch(characterSheet, />3\. Style reference</)
     assert.doesNotMatch(characterSheet, />4\. Continuity settings</)

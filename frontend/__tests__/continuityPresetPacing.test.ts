@@ -438,12 +438,11 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
     assert.match(characterSheet, /pacingPresetNotice\.value = \{ applied, band:/)
     assert.match(characterSheet, /<WorkspaceNotice/)
     assert.match(characterSheet, /has no saved scene rhythm/)
-    assert.match(characterSheet, /save over the preset to capture it/)
   })
 
-  test('Character Sheet hands timing controls to Scene Plan', () => {
-    assert.match(characterSheet, /<h3>Visual timing & motion<\/h3>/)
-    assert.match(characterSheet, /Open Scene Plan/)
+  test('Character Sheet leaves timing controls in Scene Plan', () => {
+    assert.doesNotMatch(characterSheet, /<h3>Visual timing & motion<\/h3>/)
+    assert.doesNotMatch(characterSheet, /Open Scene Plan/)
     assert.doesNotMatch(characterSheet, /<select id="cs-visual-pacing"/)
     assert.doesNotMatch(characterSheet, /formulaPacingProfile/)
   })
