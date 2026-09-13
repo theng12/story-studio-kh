@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.156 — 2026-09-13
+
+- Audio, merge, recovery and status reads now look for narration in the selected episode first, avoiding a full-project folder walk for ordinary requests. Renamed folders and legacy Word narration remain supported.
+- Subtitle audio freshness checks stream source bytes in bounded chunks instead of loading whole chapter parts into memory. They retain the exact same byte-based identity and replacement detection.
+- Audio Generator no longer requests the chapter list again merely because its audio totals loaded. Repairs still refresh the list, and duplicate repair clicks are suppressed.
+- Slow audio and episode-status responses can no longer overwrite another project or episode after navigation. New selections clear the old status immediately while the current check completes.
+
 ## v1.4.155 — 2026-09-13
 
 - Scene Plan presets now capture the selected episode’s visual timing and portable motion scope from the timing panel. Explicit Apply fills that episode’s draft; Save timing & motion keeps it for the next build. Existing plans and generated media are unchanged.

@@ -1,4 +1,5 @@
 import fs from 'fs/promises'
+import { createReadStream } from 'node:fs'
 import { createHash } from 'crypto'
 import path from 'path'
 import { readSelectedSubtitle } from '../lib/subtitle-selection.js'
@@ -101,14 +102,21 @@ async function readExpectedSections(episodeDir: string): Promise<string[]> {
  */
 export async function hashSubtitleAudioSources(sourceFiles: string[]): Promise<string | null> {
   if (!sourceFiles.length) return null
-  const parts = await Promise.all(sourceFiles.map(async file => {
+  // Bound memory while keeping the exact byte-based identity. Reading all
+  // chapter parts at once held entire audio files in RAM and hashed them in
+  // one synchronous turn during ordinary status refreshes.
+  const parts: string[] = []
+  for (const file of sourceFiles) {
     try {
-      return createHash('sha256').update(await fs.readFile(file)).digest('hex')
+      const hash = createHash('sha256')
+      // Match the existing upload hasher's 4 MiB reads: bounded buffers
+      // without a separate event-loop turn for every 64 KiB of long audio.
+      for await (const chunk of createReadStream(file, { highWaterMark: 4 * 1024 * 1024 })) hash.update(chunk)
+      parts.push(hash.digest('hex'))
     } catch {
       return null
     }
-  }))
-  if (parts.some(part => part === null)) return null
+  }
   return `sha256:${createHash('sha256').update(JSON.stringify(parts)).digest('hex')}`
 }
 

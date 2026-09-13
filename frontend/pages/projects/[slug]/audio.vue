@@ -168,7 +168,7 @@
         v-model:selected="form.sections"
         :requested-section="requestedAudioSectionForEpisode"
         :model="form.model"
-        :refresh-key="audioStatus.total + sectionRefreshKey"
+        :refresh-key="sectionRefreshKey"
         :inline-generate-disabled="inlineGenerateDisabled"
         :inline-generate-disabled-reason="inlineGenerateDisabledReason"
         :quality-mode="audioQualityMode"
@@ -1822,13 +1822,43 @@ const audioStatus = reactive<AudioStatusState>({
 })
 const repairing = ref(false)
 const repairResult = ref<RepairResult | null>(null)
+let audioStatusRequestId = 0
+let repairRequestId = 0
+
+function clearAudioStatus() {
+  audioStatus.loading = false
+  audioStatus.error = ''
+  audioStatus.total = 0
+  audioStatus.present = 0
+  audioStatus.missing = 0
+  audioStatus.missing_files = []
+}
+
+function isCurrentAudioStatusScope(requestId: number, targetSlug: string, targetEpisode: string): boolean {
+  return requestId === audioStatusRequestId
+    && targetSlug === slug.value
+    && targetEpisode === form.episode_id
+}
+
+function isCurrentRepairScope(requestId: number, targetSlug: string, targetEpisode: string): boolean {
+  return requestId === repairRequestId
+    && targetSlug === slug.value
+    && targetEpisode === form.episode_id
+}
 
 async function refreshAudioStatus() {
-  if (!form.episode_id) return
+  const requestId = ++audioStatusRequestId
+  const targetSlug = slug.value
+  const targetEpisode = form.episode_id
+  if (!targetEpisode) {
+    clearAudioStatus()
+    return
+  }
   audioStatus.loading = true
   audioStatus.error = ''
   try {
-    const r = await get<any>(`/projects/${slug.value}/episodes/${form.episode_id}/audio-status`)
+    const r = await get<any>(`/projects/${targetSlug}/episodes/${targetEpisode}/audio-status`)
+    if (!isCurrentAudioStatusScope(requestId, targetSlug, targetEpisode)) return
     audioStatus.total = r.total ?? 0
     audioStatus.present = r.present ?? 0
     audioStatus.missing = r.missing ?? 0
@@ -1844,6 +1874,7 @@ async function refreshAudioStatus() {
     const isNarrationMissing =
       code === 'NARRATION_MISSING'
       || /Could not find .*_Script_Narration\.docx/i.test(msg)
+    if (!isCurrentAudioStatusScope(requestId, targetSlug, targetEpisode)) return
     if (isNarrationMissing) {
       audioStatus.total = 0; audioStatus.present = 0; audioStatus.missing = 0
       audioStatus.missing_files = []
@@ -1851,19 +1882,25 @@ async function refreshAudioStatus() {
       audioStatus.error = msg || 'Could not check audio integrity'
     }
   } finally {
-    audioStatus.loading = false
+    if (isCurrentAudioStatusScope(requestId, targetSlug, targetEpisode)) {
+      audioStatus.loading = false
+    }
   }
 }
 
 async function runRepair() {
-  if (!form.episode_id) return
+  if (!form.episode_id || repairing.value) return
+  const requestId = ++repairRequestId
+  const targetSlug = slug.value
+  const targetEpisode = form.episode_id
   repairing.value = true
   repairResult.value = null
   try {
     const r = await post<RepairResult>(
-      `/projects/${slug.value}/episodes/${form.episode_id}/audio-repair`,
+      `/projects/${targetSlug}/episodes/${targetEpisode}/audio-repair`,
       {},
     )
+    if (!isCurrentRepairScope(requestId, targetSlug, targetEpisode)) return
     repairResult.value = r
     if (r.recovered > 0) {
       success(`Recovered ${r.recovered} chunk(s)`)
@@ -1871,23 +1908,36 @@ async function runRepair() {
       success('Nothing to repair — all chunks already present')
     }
     await refreshAudioStatus()
+    if (isCurrentRepairScope(requestId, targetSlug, targetEpisode)) sectionRefreshKey.value++
   } catch (e: any) {
+    if (!isCurrentRepairScope(requestId, targetSlug, targetEpisode)) return
     console.error('[audio] repair failed:', e)
     showError(e?.data?.detail || 'Audio repair failed — GenStudio no longer has a recoverable result for this job.')
   } finally {
-    repairing.value = false
+    if (isCurrentRepairScope(requestId, targetSlug, targetEpisode)) {
+      repairing.value = false
+    }
   }
+}
+
+function onAudioScopeChanged(nextEpisode: string) {
+  audioStatusRequestId++
+  repairRequestId++
+  clearAudioStatus()
+  repairing.value = false
+  repairResult.value = null
+  form.sections = ''
+  effectiveSections.value = []
+  missingSections.value = []
+  if (nextEpisode) void refreshAudioStatus()
 }
 
 // Auto-refresh status when the selected episode changes. Also clear any
 // prior section selection so AudioChapterSelector re-applies its
 // "auto-select missing" default for the new episode.
-watch(() => form.episode_id, (v) => {
+watch([() => slug.value, () => form.episode_id], ([, nextEpisode]) => {
   repairResult.value = null
-  form.sections = ''
-  effectiveSections.value = []
-  missingSections.value = []
-  if (v) refreshAudioStatus()
+  onAudioScopeChanged(nextEpisode)
 }, { immediate: true })
 
 // ── Main generation ────────────────────────────────────────────────────

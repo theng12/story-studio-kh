@@ -64,6 +64,8 @@ export function useEpisodeStatus(
   const { jobs } = useJobs()
   const { error: showError, humanizeError } = useToast()
   const selectedEpisode = ref<any>(null)
+  let activeScope: { projectSlug: string; episodeCode: string } | null = null
+  let requestSequence = 0
 
   // `statusKnown` = "we have a confirmed status for the CURRENTLY-selected
   // episode id". It starts false, flips true once a refetch successfully
@@ -76,8 +78,9 @@ export function useEpisodeStatus(
 
   // Convenience: the most-asked-about flag is "does the script exist?",
   // because that's the universal upstream dependency. Other consumers
-  // can read selectedEpisode.value?.status?.<field> directly.
-  const scriptReady = computed(() => !!selectedEpisode.value?.status?.script)
+  // can read selectedEpisode.value?.status?.<field> directly. A row from the
+  // previous scope must never count while the current scope is still unknown.
+  const scriptReady = computed(() => statusKnown.value && !!selectedEpisode.value?.status?.script)
 
   /**
    * `quiet` skips the toast — use it for the auto-refresh path that fires
@@ -96,16 +99,28 @@ export function useEpisodeStatus(
    * externally-written-file case automatically.
    */
   async function refetch(quiet = false) {
-    if (!episodeIdRef.value) {
+    const projectSlug = slugRef.value
+    const code = episodeIdRef.value
+    const request = ++requestSequence
+    const previousScope = activeScope
+    activeScope = projectSlug && code ? { projectSlug, episodeCode: code } : null
+    const isCurrentRequest = () =>
+      request === requestSequence
+      && slugRef.value === projectSlug
+      && episodeIdRef.value === code
+
+    if (!projectSlug || !code) {
       selectedEpisode.value = null
       statusKnown.value = false
       return
     }
-    const code = episodeIdRef.value
     // A change of episode means the previous episode's status no longer
-    // describes what's selected — drop to "unknown" so the gate shows
-    // "Checking…" rather than the old episode's (or null's) answer.
-    if (selectedEpisode.value?.episode_code !== code) {
+    // describes what's selected — clear it so both the data and the gate show
+    // "unknown" rather than briefly exposing the old episode's answer.
+    if ((previousScope !== null
+      && (previousScope.projectSlug !== projectSlug || previousScope.episodeCode !== code))
+        || selectedEpisode.value?.episode_code !== code) {
+      selectedEpisode.value = null
       statusKnown.value = false
     }
 
@@ -120,14 +135,15 @@ export function useEpisodeStatus(
     // "Checking…" forever. The per-episode endpoint is ~600ms cold.
     const maxAttempts = 3
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (!isCurrentRequest()) return
       try {
         const data = await get<any>(
-          `/projects/${slugRef.value}/episodes/${encodeURIComponent(code)}/status?invalidate=1`,
+          `/projects/${projectSlug}/episodes/${encodeURIComponent(code)}/status?invalidate=1`,
         )
         // Race guard: if the user switched episodes while this request was in
         // flight, discard the stale result — applying it would show episode
         // A's status under episode B's selection.
-        if (episodeIdRef.value !== code) return
+        if (!isCurrentRequest()) return
         if (data && data.episode_code) {
           selectedEpisode.value = data
           statusKnown.value = true   // confirmed: we now know this episode's status
@@ -139,14 +155,15 @@ export function useEpisodeStatus(
         }
         return
       } catch (e: any) {
-        if (episodeIdRef.value !== code) return  // superseded; stop retrying
+        if (!isCurrentRequest()) return  // superseded; stop retrying
         if (attempt < maxAttempts) {
           await new Promise(r => setTimeout(r, attempt * 400))
+          if (!isCurrentRequest()) return
           continue
         }
-        // Exhausted retries. Keep the previous episode object (avoid blanking
-        // mid-edit) but leave statusKnown as-is: if we never knew, the gate
-        // stays "Checking…"; if we knew before, the last-known status holds.
+        // Exhausted retries. Keep a previously confirmed status for this same
+        // scope, but leave unknown scopes blank and visibly unconfirmed.
+        if (!isCurrentRequest()) return
         if (!quiet) {
           const raw = e?.data?.detail || e?.message || 'Failed to load episode status'
           showError(`Couldn't refresh episode "${code}": ${humanizeError(raw)}`)
@@ -157,7 +174,7 @@ export function useEpisodeStatus(
 
   // Hydrate on mount + every time the id changes (covers deep-links,
   // preset-apply that flips episode_id, batch resumption, etc.).
-  watch(episodeIdRef, () => { void refetch() }, { immediate: true })
+  watch([slugRef, episodeIdRef], () => { void refetch() }, { immediate: true, flush: 'sync' })
 
   // Auto-refresh when relevant jobs complete. Tracking seenDoneJobs
   // prevents re-triggering on every render of the jobs list.

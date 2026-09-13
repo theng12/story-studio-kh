@@ -8,7 +8,7 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
-import { resolveEpisodePathsByCodeWithSidecar, type ProjectFactsCache } from '../services/utils.js'
+import { createProjectFactsCache, resolveEpisodePathsByCode, resolveEpisodePathsByCodeWithSidecar, type ProjectFactsCache } from '../services/utils.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { resolveTtsControlValues } from '../lib/tts-controls.js'
 import {
@@ -163,7 +163,8 @@ export async function findNarrationFile(
   slug: string,
   episodeId: string,
   /**
-   * The caller's request-scoped project facts, when it has them.
+   * The caller's request-scoped project facts, when it has them. A lone
+   * lookup gets the same slug-bound cache so it follows the bounded path too.
    *
    * v1.4.76 — the recursive search below scans the ENTIRE episodes tree, with
    * no depth limit, for one code-specific filename. A cold 302-episode
@@ -184,7 +185,7 @@ export async function findNarrationFile(
    * episode folder renamed outside the app, where the templated path no longer
    * resolves. That is detected (the folder is not there) rather than assumed.
    */
-  cache?: ProjectFactsCache,
+  cache: ProjectFactsCache = createProjectFactsCache(slug),
 ): Promise<string> {
   const code = episodeId.toUpperCase()
   // Prefer the Markdown narration; fall back to a legacy .docx.
@@ -213,38 +214,46 @@ export async function findNarrationFile(
     return null
   }
 
-  if (cache) {
-    try {
-      const { resolveEpisodePathsByCode } = await import('../services/utils.js')
-      const paths = await resolveEpisodePathsByCode(slug, code, cache)
+  try {
+    const paths = await resolveEpisodePathsByCode(slug, code, cache)
 
-      // The canonical spot the script generator writes to — one stat, no walk.
-      // .md first, then the legacy .docx: the same precedence findRecursive
-      // applies within a single directory.
-      for (const name of [filename, `${code}_Script_Narration.docx`]) {
-        const candidate = path.join(paths.script_dir, name)
-        try {
-          if ((await fs.stat(candidate)).isFile()) return candidate
-        } catch { /* not there — try the next name */ }
-      }
-
-      // Not in the canonical spot. If the episode's folder is where the
-      // template says, the file is inside it or it does not exist — so search
-      // just that folder rather than the whole project.
-      let episodeDirPresent = false
-      try { episodeDirPresent = (await fs.stat(paths.episode_dir)).isDirectory() } catch { /* renamed or absent */ }
-      if (episodeDirPresent) {
-        const inEpisode = await findRecursive(paths.episode_dir)
-        if (inEpisode) return inEpisode
-        throw new NarrationMissingError(episodeId, filename)
-      }
-      // Episode folder is NOT where the template says (renamed outside the
-      // app) — fall through to the full search, which is exactly what it is
-      // for.
-    } catch (e) {
-      if (e instanceof NarrationMissingError) throw e
-      /* anything else: fall through to the full search */
+    // The canonical spot the script generator writes to — one stat, no walk.
+    // .md first, then the legacy .docx: the same precedence findRecursive
+    // applies within a single directory.
+    for (const name of [filename, `${code}_Script_Narration.docx`]) {
+      const candidate = path.join(paths.script_dir, name)
+      try {
+        if ((await fs.stat(candidate)).isFile()) return candidate
+      } catch { /* not there — try the next name */ }
     }
+
+    // Not in the canonical spot. If the episode's folder is where the
+    // template says, the file is inside it or it does not exist — so search
+    // just that folder rather than the whole project.
+    let episodeDirPresent = false
+    try { episodeDirPresent = (await fs.stat(paths.episode_dir)).isDirectory() } catch { /* renamed or absent */ }
+    if (episodeDirPresent) {
+      const inEpisode = await findRecursive(paths.episode_dir)
+      if (inEpisode) return inEpisode
+
+      // Before episode folders, scripts lived directly under the output root
+      // as `{CODE} - Script`. A later canonical folder can coexist with that
+      // legacy narration while generation is moving files, so probe the known
+      // flat location without reopening the project-wide walk.
+      for (const name of [filename, `${code}_Script_Narration.docx`]) {
+        const legacy = path.join(outputRoot, `${code} - Script`, name)
+        try {
+          if ((await fs.stat(legacy)).isFile()) return legacy
+        } catch { /* not there — preserve the genuine-missing result */ }
+      }
+      throw new NarrationMissingError(episodeId, filename)
+    }
+    // Episode folder is NOT where the template says (renamed outside the
+    // app) — fall through to the full search, which is exactly what it is
+    // for.
+  } catch (e) {
+    if (e instanceof NarrationMissingError) throw e
+    /* anything else: fall through to the full search */
   }
 
   const found = await findRecursive(outputRoot)
