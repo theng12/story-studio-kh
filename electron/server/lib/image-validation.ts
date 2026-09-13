@@ -1,4 +1,5 @@
 import fs from 'fs/promises'
+import { devNull } from 'node:os'
 import path from 'path'
 import sharp from 'sharp'
 
@@ -48,9 +49,18 @@ export async function assertDecodableImage(
     try {
       const image = sharp(filePath, { failOn: 'error' })
       const metadata = await image.metadata()
-      // metadata() only reads headers. stats() forces a complete pixel decode,
-      // which catches truncated IDAT/WebP/JPEG payloads before they reach FFmpeg.
-      await image.stats()
+      // Decode every pixel to catch truncated bodies; metadata alone cannot.
+      // Discard an uncompressed PNG through the native file sink: stats() also
+      // computes unused histograms/entropy/sharpness, while raw().toBuffer()
+      // (including Sharp's stream output) allocates the whole decoded image.
+      // No resize, input rewrite, temporary file, or retained output buffer.
+      if (['png', 'jpeg', 'webp'].includes(metadata.format || '')) {
+        await image.png({ compressionLevel: 0 }).toFile(devNull)
+      } else {
+        // Keep the existing validator for other imported/reference formats;
+        // their validity must not depend on whether PNG can represent them.
+        await image.stats()
+      }
       if (!metadata.width || !metadata.height || !metadata.format) {
         throw new Error('decoded image has no usable dimensions or format')
       }

@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.158 — 2026-09-13
+
+- Scene Review validates PNG, JPEG and WebP images with a cheaper full decode, avoiding unused pixel statistics on cold loads. Corrupt-download detection, image freshness, and verification before completion remain in place; original images are unchanged.
+- Scene Plan opens an episode link immediately without waiting for the full episode list. Loading and failed readiness checks now have clear status and Retry controls instead of temporary missing-audio or subtitle warnings.
+- Scene Plan discards late responses after project or episode switches so the previous selection cannot replace the current plan.
+
 ## v1.4.157 — 2026-09-13
 
 - All Jobs now shows the same amber sidebar badge as Project Jobs, counting running and queued jobs across every project. The count updates through the shared live job feed and disappears when no jobs are active.

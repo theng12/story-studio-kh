@@ -82,7 +82,17 @@
       title="1. Subtitles"
       description="Scene timing consumes the verified global subtitle timeline created in the Subtitles workspace."
     >
-      <div v-if="!status?.audio_merged" class="validation-msg text-sm mt-2">
+      <div v-if="statusLoading" class="text-muted text-sm mt-2">Checking this episode's readiness…</div>
+      <div v-else-if="statusLoadError" class="validation-msg text-sm mt-2" role="alert">
+        ⚠ Could not check this episode's readiness: {{ statusLoadError }}
+        <button type="button" class="btn btn-sm btn-ghost ml-2" @click="retryStatus">Retry</button>
+      </div>
+      <div v-else-if="!episodeId" class="text-muted text-sm mt-2">Pick an episode to check readiness.</div>
+      <div v-else-if="!status" class="validation-msg text-sm mt-2" role="alert">
+        ⚠ Episode readiness is unavailable. Retry to check the prerequisites before planning.
+        <button type="button" class="btn btn-sm btn-ghost ml-2" @click="retryStatus">Retry</button>
+      </div>
+      <div v-else-if="!status.audio_merged" class="validation-msg text-sm mt-2">
         ⚠ Audio Assembly hasn't run for this episode yet. It's needed before
         subtitles + stitching (provides per-section durations + the gap).
       </div>
@@ -928,9 +938,28 @@
       </template>
     </section>
 
+    <section v-else-if="statusLoading" class="card mt-3">
+      <p class="text-muted text-sm">Checking Scene Plan status…</p>
+    </section>
+
+    <section v-else-if="statusLoadError" class="card mt-3" role="alert">
+      <p class="text-muted text-sm">
+        Scene Plan status could not be loaded. Retry to check whether a saved plan exists.
+        <button type="button" class="btn btn-sm btn-ghost ml-2" @click="retryStatus">Retry</button>
+      </p>
+    </section>
+
+    <section v-else-if="episodeId && !status" class="card mt-3" role="alert">
+      <p class="text-muted text-sm">
+        Scene Plan status is unavailable. Retry to check whether a saved plan exists.
+        <button type="button" class="btn btn-sm btn-ghost ml-2" @click="retryStatus">Retry</button>
+      </p>
+    </section>
+
     <section v-else class="card mt-3">
       <p class="text-muted text-sm">
-        <span v-if="!status?.stitched_srt">Stitch subtitles first (step 1).</span>
+        <span v-if="!episodeId">Pick an episode first.</span>
+        <span v-else-if="!status?.stitched_srt">Stitch subtitles first (step 1).</span>
         <span v-else>No plan yet. Pick a model + click <strong>Plan scenes</strong> in the action bar to start.</span>
       </p>
     </section>
@@ -1187,7 +1216,12 @@ function identifyStyle(bible: string): StyleIdentity {
 
 const channelStyleIdentity = computed(() => identifyStyle(savedDefaultStyleBible.value))
 
-const episodeId = ref('')
+const initialEpisodeId = typeof route.query.episode_id === 'string'
+  ? route.query.episode_id
+  : typeof route.query.episode === 'string'
+    ? route.query.episode
+    : ''
+const episodeId = ref(initialEpisodeId)
 
 // ── Status payload (matches GET /scene-plan/:ep response) ───────────
 interface ScenePlanStatus {
@@ -1344,6 +1378,8 @@ interface ScenePlan {
 }
 
 const status = ref<ScenePlanStatus | null>(null)
+const statusLoading = ref(false)
+const statusLoadError = ref('')
 const plan = ref<ScenePlan | null>(null)
 const dirty = ref(false)
 const SCENE_RENDER_BATCH = 60
@@ -1961,6 +1997,9 @@ watch(publishedMaxOutput, (maximum) => {
 
 const scenePlanGenerationUnavailable = computed(() => episodeVisualSource.value !== 'scene_plan')
 const subtitleTimelineBlocker = computed(() => {
+  if (statusLoading.value) return 'Checking episode readiness…'
+  if (statusLoadError.value) return 'Episode readiness could not be checked. Retry to continue.'
+  if (!status.value) return 'Episode readiness is unavailable. Retry to continue.'
   if (!status.value?.audio_merged) return 'Generate and assemble audio first'
   if (!status.value?.stitched_srt) return 'Stitch subtitles first (step 1)'
   if (subtitleTimelineComplete.value) return ''
@@ -1974,6 +2013,9 @@ const canPlan = computed(() => {
 })
 const planDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
+  if (statusLoading.value) return 'Checking episode readiness…'
+  if (statusLoadError.value) return 'Episode readiness could not be checked. Retry to continue.'
+  if (!status.value) return 'Episode readiness is unavailable. Retry to continue.'
   if (episodeVisualSource.value !== 'scene_plan') return visualSourceError.value || 'Choose Scene Plan as this episode’s visual source to build a timeline'
   if (visualSettingsError.value) return visualSettingsError.value
   return subtitleTimelineBlocker.value
@@ -2065,6 +2107,10 @@ const headerPrimaryDisabled = computed(() => {
   return !!subtitleTimelineBlocker.value || !form.value.model || !plan.value
 })
 const headerPrimaryStatus = computed(() => {
+  if (!episodeId.value) return 'Pick an episode first'
+  if (statusLoading.value) return 'Checking episode readiness…'
+  if (statusLoadError.value) return 'Episode readiness could not be checked. Retry to continue.'
+  if (!status.value) return 'Episode readiness is unavailable. Retry to continue.'
   if (episodeVisualSource.value !== 'scene_plan') return visualSourceError.value || 'Image Pool visuals are configured in Video Assembly. Saved Scene Plan assets remain here.'
   if (planning.value || planJobActive.value) return `Scene Plan is working on ${episodeId.value}…`
   if (headerPrimaryStage.value === 'timeline') return canPlan.value ? '' : planDisabledReason.value
@@ -2085,17 +2131,23 @@ async function runHeaderPrimaryAction(): Promise<void> {
 
 async function loadStatus(): Promise<void> {
   const ep = episodeId.value
+  const project = slug.value
   const requestSequence = ++statusLoadSequence
   if (!ep) {
+    statusLoading.value = false
+    statusLoadError.value = ''
     status.value = null
     plan.value = null
     dirty.value = false
     return
   }
+  statusLoading.value = true
+  statusLoadError.value = ''
   try {
-    const r = await get<ScenePlanStatus>(`/projects/${slug.value}/scene-plan/${ep}`)
-    if (requestSequence !== statusLoadSequence || episodeId.value !== ep) return
+    const r = await get<ScenePlanStatus>(`/projects/${project}/scene-plan/${ep}`)
+    if (requestSequence !== statusLoadSequence || episodeId.value !== ep || slug.value !== project) return
     status.value = r
+    statusLoadError.value = ''
     if (r.scene_plan) {
       plan.value = r.scene_plan
       dirty.value = false
@@ -2110,12 +2162,22 @@ async function loadStatus(): Promise<void> {
       renderedSceneLimit.value = SCENE_RENDER_BATCH
     }
   } catch (e: any) {
-    if (requestSequence !== statusLoadSequence || episodeId.value !== ep) return
+    if (requestSequence !== statusLoadSequence || episodeId.value !== ep || slug.value !== project) return
     if (e?.__slugRace) return
     status.value = null
     plan.value = null
-    showError(e?.data?.detail || e?.message || 'Could not load this episode’s scene plan')
+    statusLoadError.value = e?.data?.detail || e?.message || 'Could not load this episode’s scene plan'
+    showError(statusLoadError.value)
+  } finally {
+    if (requestSequence === statusLoadSequence && episodeId.value === ep && slug.value === project) {
+      statusLoading.value = false
+    }
   }
+}
+
+function retryStatus(): void {
+  if (!episodeId.value || statusLoading.value) return
+  void loadStatus()
 }
 
 // v1.0.218 — stitching moved to the Subtitles workspace; this page only
@@ -2791,8 +2853,21 @@ const planPresets = usePresets<any>({
 
 watch([slug, episodeId], () => {
   visualPresetNotice.value = ''
+  status.value = null
+  plan.value = null
+  dirty.value = false
+  statusLoadError.value = ''
+  statusLoading.value = Boolean(episodeId.value)
   void Promise.all([loadStatus(), loadContinuity(), loadVisualSource()])
-}, { immediate: true })
+}, { immediate: true, flush: 'sync' })
+watch(() => [route.query.episode_id, route.query.episode], ([episodeFromId, episodeFromAlias]) => {
+  const nextEpisodeId = typeof episodeFromId === 'string'
+    ? episodeFromId
+    : typeof episodeFromAlias === 'string'
+      ? episodeFromAlias
+      : ''
+  if (nextEpisodeId !== episodeId.value) episodeId.value = nextEpisodeId
+})
 onMounted(() => {
   void planPresets.load().then(() => {
     const preset = planPresets.presets.value.find(p => p.id === planPresets.activeId.value)
