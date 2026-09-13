@@ -2,9 +2,8 @@
   v1.0.189 (CC2) — Character Sheet page (continuity-chain).
 
   The compact visual-setup step: select Channel Characters, optionally store
-  one episode visual anchor, choose the shared Style Library look, and set the
-  episode pacing. The config persists to <episode_dir>/continuity.json and
-  Scene Plan consumes its pacing guardrail.
+  one episode visual anchor, and choose the shared Style Library look.
+  Scene Plan owns episode timing and motion.
 
   Only reachable for continuity-chain projects (sidebar gates on
   isContinuityChain).
@@ -30,8 +29,23 @@
       @generate="saveConfig"
     />
 
+    <WorkspaceNotice
+      v-if="pacingPresetNotice"
+      class="mt-3"
+      :tone="pacingPresetNotice.applied ? 'success' : 'info'"
+      :title="pacingPresetNotice.applied ? 'The preset includes scene rhythm' : 'That preset has no saved scene rhythm'"
+    >
+      <template v-if="pacingPresetNotice.applied">
+        It stores {{ pacingPresetNotice.band }} in the visual setup draft. Save visual setup to keep it; manage the episode’s timing in Scene Plan.
+      </template>
+      <template v-else>
+        It was saved while presets did not record rhythm, so this episode stays on
+        {{ pacingPresetNotice.band }} — nothing was reset. Manage the episode’s timing in Scene Plan.
+      </template>
+    </WorkspaceNotice>
+
     <div v-if="!episodeId" class="card mt-3">
-      <p class="text-muted text-sm">Pick an episode above to configure its visual anchors, channel look, and scene rhythm.</p>
+      <p class="text-muted text-sm">Pick an episode above to configure its visual anchors and channel look.</p>
     </div>
 
     <template v-else>
@@ -182,33 +196,6 @@
           @apply="onStyleApply"
         />
       </section>
-
-      <section class="card mt-3 cs-rhythm-card">
-        <header class="cs-section-head">
-          <div>
-            <h3>Visual timing & motion</h3>
-            <p class="text-muted text-sm">{{ pacingSummary }} Scene Plan owns the saved episode timing and motion scope.</p>
-          </div>
-          <NuxtLink :to="{ path: `/projects/${slug}/scene-plan`, query: { episode_id: episodeId }, hash: '#visual-timing' }" class="btn btn-secondary btn-sm">Open Scene Plan →</NuxtLink>
-        </header>
-
-        <WorkspaceNotice
-          v-if="pacingPresetNotice"
-          class="cs-rhythm-notice"
-          :tone="pacingPresetNotice.applied ? 'success' : 'info'"
-          :title="pacingPresetNotice.applied ? 'The preset set this episode\'s scene rhythm' : 'That preset has no saved scene rhythm'"
-        >
-          <template v-if="pacingPresetNotice.applied">
-            It stores {{ pacingPresetNotice.band }}, and this episode now uses that. Save visual setup to keep it.
-          </template>
-          <template v-else>
-            It was saved while presets did not record rhythm, so this episode stays on
-            {{ pacingPresetNotice.band }} — nothing was reset. Choose the rhythm you want, then
-            save over the preset to capture it for next time.
-          </template>
-        </WorkspaceNotice>
-      </section>
-
     </template>
   </div>
 </template>
@@ -239,10 +226,6 @@ const episodeId = ref('')
 // Config shape, defaults, and the preset boundary live in the composable so
 // they are importable by tests — see composables/useContinuityConfig.ts.
 const config = ref<ContinuityConfig>(continuityDefaults())
-const pacingSummary = computed(() => config.value.pacing.mode === 'variable'
-  ? `Draft: ${config.value.pacing.periods.length} ordered pacing periods.`
-  : `Draft: uniform ${config.value.pacing.min_sec}–${config.value.pacing.max_sec} second scenes.`)
-
 // v1.2.5 — a Character Sheet preset carries the scene rhythm again (AGENTS.md,
 // Preset Boundaries; the owner's reversal of 2026-08-03, made 2026-08-18).
 // Presets saved during the exclusion window store NO rhythm, so applying one
@@ -616,11 +599,7 @@ watch([slug, episodeId], () => {
 :deep(.cs-reference-dropzone .ref-dropzone-icon) { font-size: 17px; }
 :deep(.cs-reference-dropzone-empty.ref-dropzone) { min-height: 118px; }
 .cs-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 4px; cursor: pointer; }
-.cs-range-row { display: flex; align-items: center; gap: 8px; }
-.input-inline { width: 70px; }
 .cs-look-card :deep(.style-picker) { margin-top: 14px; }
-.cs-rhythm-control { max-width: 560px; margin-top: 14px; }
-.cs-rhythm-notice { max-width: 560px; margin-top: 14px; }
 @media (max-width: 900px) {
   .cs-anchor-layout { grid-template-columns: 1fr; }
   .cs-episode-anchor { padding: 18px 0 0; border-top: 1px solid var(--border); border-left: 0; }

@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.162 — 2026-09-14
+
+- Character Sheet no longer shows the retired Visual timing & motion card or draft timing summary. Manage episode timing and motion in Scene Plan.
+- Applying a Character Sheet preset explains its saved rhythm beside the preset controls without presenting it as the saved Scene Plan timing.
+
 ## v1.4.160 — 2026-09-13
 
 - Episode lists reuse project information within each request, avoiding hundreds of repeated file reads when opening a large channel across workflow tabs.

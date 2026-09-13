@@ -314,14 +314,11 @@ test('the format wizard no longer restores a hardcoded paid model list', () => {
   })
 })
 
-test('Scene Plan owns strict episode timing while Character Sheet links to it', () => {
+test('Scene Plan owns strict episode timing without a duplicate Character Sheet card', () => {
   const characterSheet = source('../pages/projects/[slug]/character-sheet.vue')
   const scenePlan = source('../pages/projects/[slug]/scene-plan.vue')
   const visualTimingMotion = source('../components/VisualTimingMotion.vue')
-  assert.match(characterSheet, /<h3>Visual timing & motion<\/h3>/)
-  assert.match(characterSheet, /path: `\/projects\/\$\{slug\}\/scene-plan`/)
-  assert.match(characterSheet, /query: \{ episode_id: episodeId \}/)
-  assert.match(characterSheet, /hash: '#visual-timing'/)
+  assert.doesNotMatch(characterSheet, /<h3>Visual timing & motion<\/h3>/)
   assert.doesNotMatch(characterSheet, /Custom range…|safe word or sentence boundaries/)
   assert.match(scenePlan, /<VisualTimingMotion/)
   assert.match(scenePlan, /id="visual-timing"/)
