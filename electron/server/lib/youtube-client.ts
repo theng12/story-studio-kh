@@ -18,6 +18,7 @@
 import fs from 'fs'
 import fsp from 'fs/promises'
 import type { FileHandle } from 'node:fs/promises'
+import { setTimeout as delay } from 'node:timers/promises'
 import type { OAuthTokenBundle } from './youtube-oauth.js'
 import { refreshAccessToken } from './youtube-oauth.js'
 import { friendlyQuotaErrorMessage, QUOTA_COST, type QuotaKey } from '../services/upload-quota.js'
@@ -385,13 +386,42 @@ export async function fetchWithAuthRetry(
 }
 
 // ── Resumable upload ──────────────────────────────────────────────────────
-//
-// Two-step per Google's docs:
-//   1. POST the JSON metadata with `uploadType=resumable`; Google returns a
-//      `Location` header — the resumable session URL.
-//   2. PUT the video bytes to that URL. For Phase 2 we do a single-shot PUT
-//      (not chunked); the resumable URL will still accept a restart via the
-//      Range mechanism in Phase 3 if we add chunked retry.
+const UPLOAD_START_ATTEMPTS = 3
+const RETRYABLE_UPLOAD_START_STATUS = new Set([408, 429, 500, 502, 503, 504])
+const TRANSIENT_CONNECTION_CODES = new Set([
+  'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ECONNREFUSED',
+  'ENETUNREACH', 'EHOSTUNREACH', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET',
+  'UND_ERR_HEADERS_TIMEOUT',
+])
+const CERTIFICATE_CODES = new Set([
+  'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+])
+
+function uploadStartNetworkFailure(error: unknown): { detail: string; retry: boolean } | null {
+  // Only inspect errors from the transport itself. Never log raw messages:
+  // Undici errors can carry URLs, addresses and credentials in their cause.
+  const pending: unknown[] = [error]
+  const codes: string[] = []
+  for (let i = 0; i < pending.length && i < 12; i++) {
+    const item = pending[i]
+    if (!item || typeof item !== 'object') continue
+    const value = item as { code?: unknown; cause?: unknown; errors?: unknown[] }
+    if (typeof value.code === 'string') codes.push(value.code)
+    if (value.cause) pending.push(value.cause)
+    if (Array.isArray(value.errors)) pending.push(...value.errors.slice(0, 4))
+  }
+  const certificate = codes.find(code => CERTIFICATE_CODES.has(code))
+  if (certificate) return { detail: `secure connection rejected (${certificate})`, retry: false }
+  if (codes.length) {
+    const safeCodes = [...new Set(codes.filter(code => TRANSIENT_CONNECTION_CODES.has(code)))]
+    return { detail: safeCodes.length ? safeCodes.join(', ') : 'connection error',
+      retry: codes.every(code => TRANSIENT_CONNECTION_CODES.has(code)) }
+  }
+  return error instanceof TypeError && error.message === 'fetch failed'
+    ? { detail: 'connection interrupted', retry: true } : null
+}
 
 export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo> {
   // v1.4.84 — the gate lives HERE, and in `updateVideoMetadata`, because these
@@ -487,25 +517,61 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
           : {}),
       },
     }
-    const initResp = await fetchWithAuthRetry(args.slug, args.accountId, (accessToken) =>
-      youtubeFetch(`${UPLOAD_INIT_URL}?uploadType=resumable&part=snippet,status`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json; charset=UTF-8',
-          'X-Upload-Content-Length': String(totalBytes),
-          'X-Upload-Content-Type': 'video/*',
-        },
-        body: JSON.stringify(initBody),
-        signal: args.signal,
-      }),
-      'videos_insert',
-    )
-    if (!initResp.ok) {
+    let initResp: Response | undefined
+    for (let attempt = 1; attempt <= UPLOAD_START_ATTEMPTS; attempt++) {
+      args.signal?.throwIfAborted()
+      let networkFailure: ReturnType<typeof uploadStartNetworkFailure> = null
+      try {
+        initResp = await fetchWithAuthRetry(args.slug, args.accountId, async (accessToken) => {
+          args.signal?.throwIfAborted()
+          try {
+            return await youtubeFetch(`${UPLOAD_INIT_URL}?uploadType=resumable&part=snippet,status`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json; charset=UTF-8',
+                'X-Upload-Content-Length': String(totalBytes),
+                'X-Upload-Content-Type': 'video/*',
+              },
+              body: JSON.stringify(initBody),
+              signal: args.signal,
+            })
+          } catch (error) {
+            networkFailure = uploadStartNetworkFailure(error)
+            throw error
+          }
+        }, 'videos_insert')
+      } catch (error) {
+        args.signal?.throwIfAborted()
+        if (error instanceof Error && error.name === 'AbortError') throw error
+        // Auth, quota and local persistence failures retain their own errors.
+        // Only a failed network call is eligible for a startup retry.
+        const failure = networkFailure as ReturnType<typeof uploadStartNetworkFailure>
+        if (!failure) throw error
+        if (!failure.retry || attempt === UPLOAD_START_ATTEMPTS) {
+          // eslint-disable-next-line preserve-caught-error -- Raw transport causes can contain credentials and session URLs; retain only safe codes.
+          throw new Error(`YouTube upload could not start: ${failure.detail}. No video bytes were sent. Check your connection to Google, then Retry this job.`)
+        }
+        args.logLines?.push(`YouTube upload connection interrupted (${failure.detail}). Retrying session setup (${attempt + 1}/${UPLOAD_START_ATTEMPTS}); no video bytes sent.`)
+        await delay(backoffMs(attempt), undefined, { signal: args.signal })
+        continue
+      }
+      if (initResp.ok) break
+      const retryAfter = initResp.headers.get('retry-after')
+      const retryDelay = retryAfter === null ? 0 : /^\d+$/.test(retryAfter)
+        ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now())
+      if (RETRYABLE_UPLOAD_START_STATUS.has(initResp.status) && attempt < UPLOAD_START_ATTEMPTS
+        && (!Number.isFinite(retryDelay) || retryDelay <= 30_000)) {
+        args.logLines?.push(`YouTube session setup returned HTTP ${initResp.status}. Retrying (${attempt + 1}/${UPLOAD_START_ATTEMPTS}); no video bytes sent.`)
+        await initResp.body?.cancel().catch(() => {})
+        await delay(Math.max(backoffMs(attempt), Number.isFinite(retryDelay) ? retryDelay : 0), undefined, { signal: args.signal })
+        continue
+      }
       const text = await initResp.text().catch(() => '')
       const quotaMsg = friendlyQuotaErrorMessage(initResp.status, text)
       throw new Error(quotaMsg || `Upload init failed (${initResp.status}): ${text.slice(0, 400)}`)
     }
+    if (!initResp?.ok) throw new Error('YouTube upload could not start. No video bytes were sent. Retry this job.')
     // fetchWithAuthRetry records this init attempt even when it fails. Google
     // bills videos.insert at session creation, before any later chunk PUT.
     const location = initResp.headers.get('location') || initResp.headers.get('Location')

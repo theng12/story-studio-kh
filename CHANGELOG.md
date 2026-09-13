@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.159
+
+- YouTube uploads now retry temporary connection failures while opening an upload session, instead of immediately failing the job. Startup retries are bounded and shown in the job log; accepted videos and existing resumable sessions retain their recovery safeguards.
+- Upload startup errors now identify connection or certificate problems without exposing credentials, and explain when no video bytes were sent.
+
 ## v1.4.158 — 2026-09-13
 
 - Scene Review validates PNG, JPEG and WebP images with a cheaper full decode, avoiding unused pixel statistics on cold loads. Corrupt-download detection, image freshness, and verification before completion remain in place; original images are unchanged.
