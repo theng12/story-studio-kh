@@ -12,7 +12,7 @@ import { CreateProjectSchema, UpdateProjectSchema } from '../schemas/index.js'
 import { auditProjectAssets } from '../services/asset-status.js'
 import { auditAssets } from '../services/manifest-audit.js'
 import { getSecretsProvenanceStatus, resetSecretsForCurrentMachine } from '../services/secrets-store.js'
-import { listFormats, loadFormat, getEffectiveFormat, _clearFormatCaches } from '../services/format-loader.js'
+import { listFormats, loadFormat, getEffectiveFormatFor, _clearFormatCaches } from '../services/format-loader.js'
 import { buildFormatExtractionPrompt, parseExtractedFormatJson } from '../lib/format-extraction-prompt.js'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../lib/json-output-contract.js'
@@ -86,7 +86,8 @@ router.get('/formats/:id', async (req, res) => {
 
 router.get('/projects/:slug/effective-format', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const project = await pm.getProject(req.params.slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
     const episodeId = typeof req.query.episode_id === 'string' && req.query.episode_id.trim()
       ? req.query.episode_id.trim()
       : undefined
@@ -96,7 +97,7 @@ router.get('/projects/:slug/effective-format', async (req, res) => {
       )
       if (!accepted) return res.status(404).json({ detail: `No accepted episode matches '${episodeId}' in this project` })
     }
-    res.json(await getEffectiveFormat(req.params.slug, episodeId ? { episodeId } : undefined))
+    res.json(await getEffectiveFormatFor(project, episodeId ? { episodeId } : undefined))
   } catch (e: any) {
     respondWithError(res, e, 'Failed to resolve effective format')
   }

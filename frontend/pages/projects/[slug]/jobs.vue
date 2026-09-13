@@ -23,14 +23,14 @@
           </div>
           <div class="genstudio-capacity-summary" aria-label="GenStudio account capacity">
             <span
-              v-if="genStudioAdmission?.submissions_blocked"
+              v-if="freshQueueAdmission && genStudioAdmission?.submissions_blocked"
               class="capacity-error"
               :title="genStudioAdmission.submission_block_reason || undefined"
             >
               <strong>Submissions stopped</strong>
               GenStudio release not ready
             </span>
-            <span v-if="genStudioAdmission?.local_waiting">
+            <span v-if="freshQueueAdmission && genStudioAdmission?.local_waiting">
               <strong>{{ genStudioAdmission.local_waiting }}</strong>
               submissions waiting locally
             </span>
@@ -1665,7 +1665,11 @@ const globalQueueWork = ref<boolean | null>(null)
 const resumingQueue = ref(false)
 const changingQueueState = ref(false)
 let queueTimer: ReturnType<typeof setInterval> | null = null
+let capacityTimer: ReturnType<typeof setInterval> | null = null
 const genStudioAdmission = ref<GenStudioAdmissionSnapshot | null>(null)
+const capacityReceivedAt = ref<number | null>(null)
+const freshQueueAdmission = computed(() => capacityReceivedAt.value !== null
+  && now.value - capacityReceivedAt.value >= 0 && now.value - capacityReceivedAt.value <= 30_000)
 const verifiedGenStudioAdmission = computed(() => isVerifiedLiveCapacity(genStudioAdmission.value, now.value))
 let genStudioCapacityRequest: Promise<void> | null = null
 
@@ -1682,6 +1686,7 @@ async function refreshGenStudioCapacity(): Promise<void> {
   genStudioCapacityRequest = (async () => {
     try {
       genStudioAdmission.value = await get<GenStudioAdmissionSnapshot>('/app-settings/genstudio/admission')
+      capacityReceivedAt.value = Date.now()
     } catch {
       // Generation remains safe: the backend scheduler uses its conservative
       // fallback while the last visible account snapshot stays on screen.
@@ -1694,12 +1699,17 @@ async function refreshGenStudioCapacity(): Promise<void> {
   }
 }
 
+function refreshVisibleCapacity(): void {
+  if (document.visibilityState !== 'hidden') void refreshGenStudioCapacity()
+}
+
 async function resumeQueue(): Promise<void> {
   resumingQueue.value = true
   try {
     await post('/system/queue/resume', {})
     await net.refresh()        // re-probe so the indicator + sync state agree
     await checkQueuePaused()
+    void refreshGenStudioCapacity()
     if (!queuePaused.value) success('Job queue resumed')
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to resume the queue')
@@ -1713,6 +1723,7 @@ async function pauseQueue(): Promise<void> {
   try {
     await post('/system/queue/pause', {})
     await checkQueuePaused()
+    void refreshGenStudioCapacity()
     success('Queue paused. Waiting jobs will not be submitted.')
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to pause the queue')
@@ -1725,16 +1736,22 @@ onMounted(() => {
   void genStudioModels.refresh()
   timer = setInterval(() => now.value = Date.now(), 1000)
   void checkQueuePaused()
-  void refreshGenStudioCapacity()
+  refreshVisibleCapacity()
   queueTimer = setInterval(() => {
     void checkQueuePaused()
-    void refreshGenStudioCapacity()
   }, 5000)
+  // Capacity is advisory (the scheduler verifies admission at submission).
+  // Keep it within the existing 30s display freshness window without asking
+  // GenStudio on every local queue tick, or while this window is hidden.
+  capacityTimer = setInterval(refreshVisibleCapacity, 15_000)
+  document.addEventListener('visibilitychange', refreshVisibleCapacity)
 })
 onUnmounted(() => {
   if (isUniversal.value) universalQueue.stop()
   if (timer) clearInterval(timer)
   if (queueTimer) clearInterval(queueTimer)
+  if (capacityTimer) clearInterval(capacityTimer)
+  document.removeEventListener('visibilitychange', refreshVisibleCapacity)
 })
 
 // Post-bulk banner: show when a pipeline batch has completed (all its

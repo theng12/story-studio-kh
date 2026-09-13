@@ -11,7 +11,7 @@ import { createHash } from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
 import * as bp from './broll-pool-manager.js'
-import { resolveEpisodePathsByCode, resolveEpisodePathsByCodeWithSidecar } from './utils.js'
+import { resolveEpisodePathsByCode, resolveEpisodePathsByCodeWithSidecar, type ProjectFactsCache } from './utils.js'
 import { readBrollSelectionSource, type BrollSelectionSidecar, type BrollSelectionSource } from './broll-selection-sidecar.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
@@ -123,19 +123,19 @@ function isFilenameInside(folder: string, filename: string): boolean {
   return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
 }
 
-async function readSidecarForEpisode(slug: string, episodeId: string): Promise<{
+async function readSidecarForEpisode(slug: string, episodeId: string, cache?: ProjectFactsCache): Promise<{
   sidecar: VisualSourceSidecar | null
   episodeDir: string
 }> {
   const code = episodeId.toUpperCase()
-  const withSidecar = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'broll-selection.json')
+  const withSidecar = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'broll-selection.json', cache)
   const sidecarPath = path.join(withSidecar.episode_dir, 'broll-selection.json')
   let raw: string
   try {
     raw = await fs.readFile(sidecarPath, 'utf8')
   } catch (error: any) {
     if (error?.code !== 'ENOENT') throw error
-    const paths = await resolveEpisodePathsByCode(slug, code)
+    const paths = await resolveEpisodePathsByCode(slug, code, cache)
     return { sidecar: null, episodeDir: paths.episode_dir }
   }
   try {
@@ -176,8 +176,9 @@ function imagePoolSnapshot(sidecar: VisualSourceSidecar | null): ImagePoolVisual
 export async function readVideoVisualSource(
   slug: string,
   episodeId: string,
+  cache?: ProjectFactsCache,
 ): Promise<VideoVisualSourceState> {
-  const { sidecar, episodeDir } = await readSidecarForEpisode(slug, episodeId)
+  const { sidecar, episodeDir } = await readSidecarForEpisode(slug, episodeId, cache)
   const source: VideoVisualSource = sidecar?.source === 'image_pool' ? 'image_pool' : 'scene_plan'
   return { source, image_pool: source === 'image_pool' ? imagePoolSnapshot(sidecar) : null, sidecar, episode_dir: episodeDir }
 }

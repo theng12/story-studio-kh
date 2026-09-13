@@ -58,10 +58,7 @@ router.get('/niches', async (req, res) => {
     const projects = await pm.listProjects()
     const refCount: Record<string, number> = {}
     for (const summary of projects) {
-      try {
-        const meta = await pm.getProject(summary.slug)
-        if (meta?.niche_id) refCount[meta.niche_id] = (refCount[meta.niche_id] || 0) + 1
-      } catch { /* skip unreadable */ }
+      if (summary.niche_id) refCount[summary.niche_id] = (refCount[summary.niche_id] || 0) + 1
     }
     res.json({
       niches: niches.map(entry => ({

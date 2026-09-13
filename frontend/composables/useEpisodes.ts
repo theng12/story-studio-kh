@@ -133,6 +133,8 @@ interface SharedSlot {
   isRevalidating: Ref<boolean>
   error: Ref<unknown>
   fetchedAt: Ref<number>
+  /** Start of the read that produced the current data, for job freshness checks. */
+  fetchedFrom: Ref<number>
   /** In-flight fetch promise (shared by concurrent callers). */
   inflight: Promise<EpisodeRow[]> | null
   /** Monotonic request id so an older response cannot overwrite a mutation refresh. */
@@ -152,6 +154,7 @@ function getOrCreateSlot(slug: string): SharedSlot {
       isRevalidating: ref(false),
       error: ref<unknown>(null),
       fetchedAt: ref(0),
+      fetchedFrom: ref(0),
       inflight: null,
       requestSeq: 0,
     }
@@ -165,6 +168,7 @@ export function invalidateEpisodes(slug: string): void {
   const slot = slots.get(slug)
   if (!slot) return
   slot.fetchedAt.value = 0
+  slot.fetchedFrom.value = 0
   slot.error.value = null
   // Don't blank slot.data — let consumers keep showing the previous list
   // until the next refetch lands. Clearing here would cause an empty-state
@@ -218,6 +222,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
         ? `/projects/${slugRef.value}/episodes?refresh=1`
         : `/projects/${slugRef.value}/episodes`
     const requestId = ++slot.requestSeq
+    const requestStartedAt = Date.now()
 
     const promise = (async () => {
       try {
@@ -228,6 +233,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
         if (requestId === slot.requestSeq) {
           slot.data.value = list || []
           slot.fetchedAt.value = Date.now()
+          slot.fetchedFrom.value = requestStartedAt
           slot.error.value = null
         }
         return list || []
@@ -345,7 +351,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
     void load()
   })
 
-  // Auto-invalidate on relevant job completions. Tracking seen job IDs
+  // Auto-invalidate on relevant job completions. Tracking seen scoped job keys
   // prevents re-firing on every render when the jobs list mutates.
   //
   // v1.0.72: switched from `watch(jobs, ..., { deep: true })` to a derived
@@ -359,6 +365,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
   const seenDoneJobs = new Set<string>()
   const watchAll = opts.invalidateOnJobTypes === true || opts.invalidateOnJobTypes === undefined
   const allowedTypes = watchAll ? null : new Set(opts.invalidateOnJobTypes as string[])
+  const observedJobStatuses = new Map<string, string>()
   const jobsSignal = computed(() =>
     jobs.value
       .filter(j =>
@@ -371,24 +378,56 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
   )
   watch(jobsSignal, () => {
     for (const job of jobs.value) {
-      if (job.status !== 'done' || seenDoneJobs.has(job.job_id)) continue
+      const seenKey = `${job.project_slug}:${job.job_id}`
       if (allowedTypes !== null && !allowedTypes.has(job.type)) continue
       if (job.project_slug !== slugRef.value) continue
-      seenDoneJobs.add(job.job_id)
+
+      const previousStatus = observedJobStatuses.get(seenKey)
+      observedJobStatuses.set(seenKey, job.status)
+      if (job.status !== 'done' || seenDoneJobs.has(seenKey)) continue
+
+      seenDoneJobs.add(seenKey)
+      const completedAt = job.finished_at ? Date.parse(job.finished_at) : NaN
+      const fetchedFrom = currentSlot().fetchedFrom.value
+      const isObservedTransition = previousStatus !== undefined && previousStatus !== 'done'
+      // The first SSE snapshot commonly arrives after the episode list. A
+      // terminal job that finished before that list is historical and must
+      // not cause a second project-wide status scan. A completion after the
+      // list fetch still needs to invalidate, including when it arrives in a
+      // delayed initial or reconnect snapshot. Missing/invalid timestamps
+      // retain the old correctness-first refresh behaviour.
+      if (!isObservedTransition && fetchedFrom > 0 && Number.isFinite(completedAt) && completedAt <= fetchedFrom) continue
+      const completionSlug = slugRef.value
+      const slot = currentSlot()
       invalidate()
-      void load()
+      const inflight = slot.inflight
+      if (!inflight) {
+        void load()
+        return  // one invalidation per signal tick is enough
+      }
+      // If completion arrives while the list read is in flight, `load()`
+      // would join that read and let its pre-completion result stand. Queue a
+      // forced follow-up after the shared request settles instead.
+      const refreshAfterInflight = () => {
+        if (slugRef.value !== completionSlug || slot.inflight !== null) return
+        slot.isRevalidating.value = true
+        void fetchOnce(false).catch(() => { /* error already stored on slot */ })
+      }
+      inflight.then(refreshAfterInflight, refreshAfterInflight)
       return  // one invalidation per signal tick is enough
     }
   })
 
-  const slot = currentSlot()
   return {
-    episodes: slot.data,
-    isLoading: slot.isLoading,
-    isRevalidating: slot.isRevalidating,
-    error: slot.error,
+    // Resolve the shared slot at read time. A caller may keep this composable
+    // mounted while its slug ref changes; returning the initially selected
+    // slot would leave it displaying the old project's rows and status.
+    episodes: computed(() => currentSlot().data.value),
+    isLoading: computed(() => currentSlot().isLoading.value),
+    isRevalidating: computed(() => currentSlot().isRevalidating.value),
+    error: computed(() => currentSlot().error.value),
     isStale: computed(() => {
-      const t = slot.fetchedAt.value
+      const t = currentSlot().fetchedAt.value
       return t === 0 || (Date.now() - t) > TTL_MS
     }),
     load,

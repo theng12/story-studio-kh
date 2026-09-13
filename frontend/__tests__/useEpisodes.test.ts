@@ -18,7 +18,7 @@
 
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { defineComponent, h, nextTick, createApp } from 'vue'
+import { defineComponent, h, nextTick, createApp, ref } from 'vue'
 
 // ── Controllable $fetch stub ────────────────────────────────────────────────
 
@@ -31,9 +31,29 @@ let fetchCalls: string[] = []
   return await fetchHandler(url)
 }
 
+class FakeEventSource {
+  listeners: Record<string, Array<(event: MessageEvent) => void>> = {}
+  closed = false
+  constructor(public readonly url: string) {
+    FakeEventSource.last = this
+  }
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    ;(this.listeners[type] ||= []).push(listener)
+  }
+  fire(type: string, data: unknown) {
+    const event = new MessageEvent(type, { data: JSON.stringify(data) })
+    for (const listener of this.listeners[type] || []) listener(event)
+  }
+  close() { this.closed = true }
+  static last: FakeEventSource | null = null
+}
+
+;(globalThis as any).EventSource = FakeEventSource
+
 // useEpisodes wraps the useJobs import in try/catch so unit tests don't need
 // to provide an SSE-driven jobs source — auto-invalidation just disables.
 const { useEpisodes, invalidateEpisodes } = await import('../composables/useEpisodes.js')
+const { useJobs } = await import('../composables/useJobs.js')
 
 function fakeRow(code: string, scriptDone = true) {
   return {
@@ -51,15 +71,60 @@ function fakeRow(code: string, scriptDone = true) {
   }
 }
 
+function fakeJob(overrides: Record<string, unknown> = {}) {
+  return {
+    job_id: 'job-1',
+    project_slug: 'alpha',
+    type: 'script-only',
+    episode_id: 'EP001',
+    title: '',
+    status: 'queued',
+    created_at: new Date().toISOString(),
+    started_at: null,
+    finished_at: null,
+    error: null,
+    output_lines: [],
+    ...overrides,
+  }
+}
+
+function snapshot(jobs: any[]) {
+  const stats = { running: 0, queued: 0, done: 0, error: 0, total: jobs.length }
+  for (const job of jobs) {
+    if (job.status === 'running') stats.running++
+    else if (job.status === 'queued') stats.queued++
+    else if (job.status === 'done') stats.done++
+    else if (job.status === 'error') stats.error++
+  }
+  return { jobs, stats }
+}
+
+function startJobs(slug: string) {
+  const queue = useJobs()
+  queue.stopPolling()
+  // Force the module-scoped transport to clear any prior test's project.
+  queue.startPolling(`${slug}-reset`)
+  FakeEventSource.last?.fire('snapshot', snapshot([]))
+  queue.startPolling(slug)
+  return { queue, stream: FakeEventSource.last! }
+}
+
+async function settle() {
+  await nextTick()
+  await Promise.resolve()
+  await new Promise<void>(resolve => setImmediate(resolve))
+  await nextTick()
+}
+
 /**
  * Mount a tiny component that calls the composable, returning a handle
  * to its returned refs. Lets us exercise onMounted-driven side effects.
  */
-function mountWithComposable(slug: string) {
+function mountWithComposable(slug: string | ReturnType<typeof ref>, options: { invalidateOnJobTypes?: string[] | true } = { invalidateOnJobTypes: [] }) {
   let captured: ReturnType<typeof useEpisodes> | null = null
   const Comp = defineComponent({
     setup() {
-      captured = useEpisodes(slug, { invalidateOnJobTypes: [] })
+      captured = useEpisodes(slug, options)
       return () => h('div')
     },
   })
@@ -191,6 +256,197 @@ describe('useEpisodes', () => {
     assert.match(fetchCalls.at(-1) || '', /invalidate=EP001/)
     assert.equal(m.captured.episodes.value[0].status.script, true)
     assert.deepEqual(m.captured.episodes.value[0].status_overrides, { script: true })
+    m.app.unmount()
+  })
+
+  test('does not refetch for a historical done job in the initial or reconnect snapshot', async () => {
+    fetchHandler = () => [fakeRow('EP001')]
+    const { queue, stream } = startJobs('alpha')
+    const m = mountWithComposable('alpha', { invalidateOnJobTypes: true })
+    await settle()
+    assert.equal(fetchCalls.length, 1)
+
+    stream.fire('snapshot', snapshot([fakeJob({
+      status: 'done',
+      finished_at: '2020-01-01T00:00:00.000Z',
+    })]))
+    await settle()
+    assert.equal(fetchCalls.length, 1, 'historical completion does not duplicate the list fetch')
+
+    // A reconnect can replay the same completed history. It remains seen.
+    stream.fire('snapshot', snapshot([fakeJob({
+      status: 'done',
+      finished_at: '2020-01-01T00:00:00.000Z',
+    })]))
+    await settle()
+    assert.equal(fetchCalls.length, 1, 'reconnect snapshot does not rescan unchanged history')
+    queue.stopPolling()
+    m.app.unmount()
+  })
+
+  test('refetches when a completion lands after the episode list was fetched', async () => {
+    let call = 0
+    fetchHandler = () => call++ === 0 ? [fakeRow('EP001')] : [fakeRow('EP001'), fakeRow('EP002')]
+    const { queue, stream } = startJobs('alpha')
+    const m = mountWithComposable('alpha', { invalidateOnJobTypes: true })
+    await settle()
+
+    stream.fire('snapshot', snapshot([fakeJob({
+      status: 'done',
+      finished_at: new Date(Date.now() + 1_000).toISOString(),
+    })]))
+    await settle()
+
+    assert.equal(fetchCalls.length, 2, 'a newer completion invalidates once')
+    assert.equal(m.captured.episodes.value.length, 2)
+    queue.stopPolling()
+    m.app.unmount()
+  })
+
+  test('refetches when completion occurs during a list read and snapshot arrives after it', async () => {
+    let resolveInitial!: (rows: any[]) => void
+    const initial = new Promise<any[]>(resolve => { resolveInitial = resolve })
+    let call = 0
+    fetchHandler = () => call++ === 0 ? initial : [fakeRow('EP001'), fakeRow('EP002')]
+    const { queue, stream } = startJobs('alpha')
+    const m = mountWithComposable('alpha', { invalidateOnJobTypes: true })
+    await nextTick()
+    await new Promise<void>(resolve => setImmediate(resolve))
+
+    // The completion is recorded after the read starts but before its stale
+    // result is published. Delivering the SSE snapshot after that response
+    // must still trigger the corrective read.
+    const originalNow = Date.now
+    const requestStartedAt = originalNow()
+    let clock = requestStartedAt + 1
+    Date.now = () => clock
+    try {
+      const finishedAt = new Date(clock).toISOString()
+      resolveInitial([fakeRow('EP001')])
+      clock++
+      await settle()
+      assert.equal(fetchCalls.length, 1)
+      stream.fire('snapshot', snapshot([fakeJob({ status: 'done', finished_at: finishedAt })]))
+      await settle()
+
+      assert.equal(fetchCalls.length, 2, 'completion during the read is not discarded as historical')
+      assert.equal(m.captured.episodes.value.length, 2)
+    } finally {
+      Date.now = originalNow
+      queue.stopPolling()
+      m.app.unmount()
+    }
+  })
+
+  test('refetches on a real queued-to-done transition', async () => {
+    let call = 0
+    fetchHandler = () => call++ === 0 ? [fakeRow('EP001')] : [fakeRow('EP001'), fakeRow('EP002')]
+    const { queue, stream } = startJobs('alpha')
+    const m = mountWithComposable('alpha', { invalidateOnJobTypes: true })
+    await settle()
+    const queued = fakeJob({ status: 'queued' })
+    stream.fire('snapshot', snapshot([queued]))
+    await settle()
+
+    stream.fire('update', {
+      ...queued,
+      status: 'done',
+      // Status transition is authoritative even if the server clock predates
+      // the episode-list request.
+      finished_at: '2020-01-01T00:00:00.000Z',
+    })
+    await settle()
+
+    assert.equal(fetchCalls.length, 2, 'only the terminal transition starts a refresh')
+    queue.stopPolling()
+    m.app.unmount()
+  })
+
+  test('supersedes an in-flight list read when a job transitions to done', async () => {
+    let resolveInitial!: (rows: any[]) => void
+    const initial = new Promise<any[]>(resolve => { resolveInitial = resolve })
+    let call = 0
+    fetchHandler = () => call++ === 0 ? initial : [fakeRow('EP001'), fakeRow('EP002')]
+    const { queue, stream } = startJobs('alpha')
+    const m = mountWithComposable('alpha', { invalidateOnJobTypes: true })
+    await nextTick()
+    await new Promise<void>(resolve => setImmediate(resolve))
+
+    const queued = fakeJob({ status: 'queued' })
+    stream.fire('snapshot', snapshot([queued]))
+    await settle()
+    stream.fire('update', {
+      ...queued,
+      status: 'done',
+      finished_at: '2020-01-01T00:00:00.000Z',
+    })
+    await settle()
+    assert.equal(fetchCalls.length, 1, 'the completion waits for the shared read to settle')
+
+    resolveInitial([fakeRow('EP001')])
+    await settle()
+    assert.equal(fetchCalls.length, 2, 'a corrective read follows the obsolete in-flight result')
+    assert.equal(m.captured.episodes.value.length, 2)
+    queue.stopPolling()
+    m.app.unmount()
+  })
+
+  test('keeps completion invalidation scoped across project switches', async () => {
+    let call = 0
+    fetchHandler = () => call++ === 0 ? [fakeRow('EP001')] : [fakeRow('EP002')]
+    const slug = ref('alpha')
+    const first = startJobs('alpha')
+    const m = mountWithComposable(slug, { invalidateOnJobTypes: true })
+    await settle()
+
+    first.stream.fire('snapshot', snapshot([fakeJob({
+      status: 'done',
+      finished_at: '2020-01-01T00:00:00.000Z',
+    })]))
+    await settle()
+    assert.equal(fetchCalls.length, 1)
+
+    slug.value = 'beta'
+    await settle()
+    assert.equal(fetchCalls.length, 2, 'switch loads the new project once')
+
+    // The same job id completing in beta is a distinct scoped completion.
+    const second = startJobs('beta')
+    second.stream.fire('snapshot', snapshot([fakeJob({
+      project_slug: 'beta',
+      status: 'done',
+      finished_at: new Date(Date.now() + 1_000).toISOString(),
+    })]))
+    await settle()
+    assert.equal(fetchCalls.length, 3, 'beta completion is not hidden by alpha history')
+    second.queue.stopPolling()
+    m.app.unmount()
+  })
+
+  test('switching project scope follows the new slot and ignores delayed old data', async () => {
+    let resolveAlpha!: (rows: any[]) => void
+    const alpha = new Promise<any[]>(resolve => { resolveAlpha = resolve })
+    fetchHandler = (url) => url.includes('/projects/alpha/') ? alpha : [fakeRow('BETA')]
+
+    const slug = ref('alpha')
+    const m = mountWithComposable(slug, { invalidateOnJobTypes: [] })
+    await nextTick()
+    await new Promise<void>(resolve => setImmediate(resolve))
+    assert.equal(m.captured.isLoading.value, true, 'initial project is still loading')
+
+    slug.value = 'beta'
+    await settle()
+    assert.deepEqual(m.captured.episodes.value.map(row => row.episode_code), ['BETA'])
+    assert.equal(m.captured.isLoading.value, false, 'new project loading state resolved')
+    assert.equal(m.captured.isRevalidating.value, false)
+    assert.equal(m.captured.error.value, null, 'new project has no error')
+    assert.equal(m.captured.isStale.value, false, 'new project data is fresh')
+
+    resolveAlpha([fakeRow('ALPHA')])
+    await settle()
+    assert.deepEqual(m.captured.episodes.value.map(row => row.episode_code), ['BETA'],
+      'delayed old response cannot replace the current project')
+    assert.equal(m.captured.error.value, null)
     m.app.unmount()
   })
 })

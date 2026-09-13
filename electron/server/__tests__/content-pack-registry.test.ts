@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { afterEach, describe, test } from 'node:test'
+import { afterEach, describe, mock, test } from 'node:test'
 
 import JSZip from 'jszip'
 import express from 'express'
@@ -146,14 +146,33 @@ describe('verified Content Pack registry', () => {
       { formula: 'Natural World, Explained', topic: 'Wars, Treaties & World Order' },
     )
     await installContentPack({ archiveBytes: archive, source: 'local-import' }, { paths, policy })
+    const projectManager = await import('../services/project-manager.js')
+    const project = await projectManager.createProject({
+      name: 'Signed Formula Reference', niche_id: `${packId}.formula`,
+    })
     const app = express()
     app.locals.contentPackOptions = options
     app.use('/api', nichesRouter)
 
-    const formulas = (await request(app).get('/api/niches').expect(200)).body.niches
+    const projectMetaPath = path.join(projectManager.projectsRoot(), project.slug, 'project.json')
+    const realReadFile = fs.readFile.bind(fs)
+    let projectMetadataReads = 0
+    const readMock = mock.method(fs, 'readFile', async (file: any, ...args: any[]) => {
+      if (String(file) === projectMetaPath) projectMetadataReads++
+      return realReadFile(file, ...args as [])
+    })
+    let formulas: any[]
+    try {
+      formulas = (await request(app).get('/api/niches').expect(200)).body.niches
+    } finally {
+      readMock.mock.restore()
+    }
     const signedFormula = formulas.find((item: any) => item.id === `${packId}.formula`)
     const legacyFormula = formulas.find((item: any) => item.id === 'animals')
     assert.equal(signedFormula.name, legacyFormula.catalogName)
+    assert.equal(signedFormula.project_count, 1)
+    assert.equal(legacyFormula.project_count, 0)
+    assert.equal(projectMetadataReads, 1, 'the listing metadata must be reused for niche counts')
     assert.deepEqual(signedFormula.catalog, {
       source: 'signed-installed', pack_id: packId, version: '1.0.0',
     })
