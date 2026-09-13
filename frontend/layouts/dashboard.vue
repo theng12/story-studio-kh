@@ -100,7 +100,10 @@
               :to="{ path: `/projects/${slug}/jobs`, query: { scope: 'all' } }"
               class="nav-item"
               :class="{ active: isJobsScope('all') }"
-            >All Jobs</NuxtLink>
+            >
+              <span>All Jobs</span>
+              <span v-if="allActiveJobCount > 0" class="nav-badge">{{ allActiveJobCount }}</span>
+            </NuxtLink>
             <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="nav-item" active-class="active">Channel Characters</NuxtLink>
             <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active">Presets</NuxtLink>
             <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }" class="nav-item" active-class="active">Assets Library</NuxtLink>
@@ -171,6 +174,7 @@ const sidebar = ref<HTMLElement | null>(null)
 const { project, loadProject, clearProject } = useProject()
 const projectLoadError = ref('')
 const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling } = useJobs()
+const { stats: allJobStats, start: startAllJobs, stop: stopAllJobs } = useAllJobs()
 const { niches, isReady: nichesReady, error: nichesError } = useNiches()
 const { refreshReadiness } = useNotifications()
 const { online: networkOnline } = useNetworkStatus()
@@ -209,6 +213,7 @@ const productionPathName = computed(() => {
   }
 })
 const activeJobCount = computed(() => Number(stats.value.running || 0) + Number(stats.value.queued || 0))
+const allActiveJobCount = computed(() => Number(allJobStats.value.running || 0) + Number(allJobStats.value.queued || 0))
 function isJobsScope(scope: 'project' | 'all'): boolean {
   if (!route.path.endsWith('/jobs')) return false
   return scope === 'all' ? route.query.scope === 'all' : route.query.scope !== 'all'
@@ -317,10 +322,14 @@ watch(
 
 useBatchCompletionSignals(() => jobs.value as any)
 
-onMounted(() => document.addEventListener('keydown', onDocumentKeydown))
+onMounted(() => {
+  document.addEventListener('keydown', onDocumentKeydown)
+  startAllJobs()
+})
 onUnmounted(() => {
   document.removeEventListener('keydown', onDocumentKeydown)
   stopJobPolling()
+  stopAllJobs()
 })
 </script>
 

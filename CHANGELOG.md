@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.157 — 2026-09-13
+
+- All Jobs now shows the same amber sidebar badge as Project Jobs, counting running and queued jobs across every project. The count updates through the shared live job feed and disappears when no jobs are active.
+
 ## v1.4.156 — 2026-09-13
 
 - Audio, merge, recovery and status reads now look for narration in the selected episode first, avoiding a full-project folder walk for ordinary requests. Renamed folders and legacy Word narration remain supported.

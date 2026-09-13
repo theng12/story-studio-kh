@@ -157,3 +157,28 @@ test('All Jobs reports repeated refresh failure and clears stale status on a goo
     assert.equal(queue.jobsStale.value, false)
   } finally { queue.stop() }
 })
+
+
+test('sidebar and All Jobs page share one live stream until both leave', () => {
+  ;(globalThis as any).EventSource = Stream
+  const sidebar = useAllJobs()
+  const page = useAllJobs()
+  sidebar.start()
+  const stream = Stream.last
+  page.start()
+  try {
+    assert.equal(Stream.last, stream, 'opening All Jobs must reuse the sidebar stream')
+    stream.fire('snapshot', snapshot('alpha-active'))
+    stream.fire('update', { job_id: 'beta-active', project_slug: 'beta', status: 'running' })
+    assert.equal(sidebar.stats.value.running + sidebar.stats.value.queued, 2)
+    assert.equal(page.stats.value, sidebar.stats.value)
+    page.stop()
+    assert.equal(stream.closed, false, 'leaving the page must keep the sidebar live')
+    stream.fire('update', { ...snapshot('alpha-active').jobs[0], status: 'done' })
+    stream.fire('update', { job_id: 'beta-active', project_slug: 'beta', status: 'done' })
+    assert.equal(sidebar.stats.value.running + sidebar.stats.value.queued, 0)
+  } finally {
+    sidebar.stop()
+    assert.equal(stream.closed, true)
+  }
+})
