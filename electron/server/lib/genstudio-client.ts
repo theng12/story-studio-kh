@@ -1491,6 +1491,7 @@ export interface GenStudioModelCapability {
   pricing_unit?: string
   limits: Record<string, unknown>
   controls: Record<string, unknown>
+  cost_tier?: GenStudioCostTier | GenStudioLlmCostTier
 }
 
 /**
@@ -4550,6 +4551,9 @@ export async function listModelCapabilitiesSnapshot(
     modality: value?.modality,
     operation: value?.operation,
     availability: availability.has(value?.availability) ? value.availability : 'unknown',
+    cost_tier: value?.operation === 'chat.response'
+      ? parseGenStudioLlmCostTier(value?.cost_tier)
+      : parseGenStudioCostTier(value?.cost_tier),
     qualification_only: value?.qualification_only !== false,
     pricing_unit: typeof value?.pricing_unit === 'string' ? value.pricing_unit.trim() : undefined,
     limits: value?.limits && typeof value.limits === 'object' ? value.limits : {},

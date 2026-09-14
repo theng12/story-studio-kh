@@ -449,8 +449,12 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
           {
             id: 'voice-v1', revision: 'voice-r1', display_name: 'Voice V1', modality: 'audio',
             operation: 'voice.tts', availability: 'available', qualification_only: false,
-            pricing_unit: 'characters', limits: { max_characters: 15_000 }, controls: { speed: true },
+            pricing_unit: 'characters', cost_tier: 'value', limits: { max_characters: 15_000 }, controls: { speed: true },
           },
+          { id: 'chat-promo', revision: 'r1', display_name: 'Promo', modality: 'text',
+            operation: 'chat.response', availability: 'available', cost_tier: 'promotional' },
+          { id: 'chat-value', revision: 'r1', display_name: 'Value', modality: 'text',
+            operation: 'chat.response', availability: 'available', cost_tier: 'value' },
           { id: 'invalid', display_name: 'Invalid', modality: 'other', operation: 'unknown' },
         ])
       }
@@ -487,7 +491,10 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
       listChatModels('scoped-key'),
       listVideoModels('scoped-key'),
     ])
-    assert.equal(capabilities.length, 1)
+    assert.equal(capabilities.length, 3)
+    assert.equal(capabilities[0]?.cost_tier, undefined, 'language-only Value must not leak into audio categories')
+    assert.equal(capabilities[1]?.cost_tier, 'promotional')
+    assert.equal(capabilities[2]?.cost_tier, 'value')
     assert.equal(capabilities[0]?.operation, 'voice.tts')
     assert.equal(chat[0]?.max_output_tokens, 65_536)
     assert.equal(chat[0]?.available, true)

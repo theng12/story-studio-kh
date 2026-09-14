@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.164 — 2026-09-14
+
+- Catalogue diagnostics preserve GenStudio's Promotional and Value language categories alongside Economy and Premium. Published Promotional models keep their category even when their customer credit price is positive; other media keep their own category rules.
+
 ## v1.4.163 — 2026-09-14
 
 - Pipeline has a reusable LLM lineup for new queued writing jobs. Choose models once, prefer selected free and discounted choices, then continue to selected paid models. Existing content presets and explicit per-stage model choices remain in control of their settings.
