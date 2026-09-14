@@ -319,7 +319,7 @@ export async function latestFutureProjectClaimMs(
 export function computeSlots(
   schedule: UploadSchedule,
   count: number,
-  options?: { minStartDate?: Date },
+  options?: { minStartDate?: Date; notBefore?: Date },
 ): string[] {
   // Validate the timezone up front so `new Intl.DateTimeFormat({ timeZone })`
   // never throws mid-loop. An invalid tz (typo, legacy "America/Buenos_Aires"
@@ -341,6 +341,13 @@ export function computeSlots(
   if (options?.minStartDate) {
     const minDayAfter = addDays(startOfDayInTz(options.minStartDate, tz), 1)
     if (minDayAfter > startDate) startDate = minDayAfter
+  }
+
+  // An instant cutoff keeps a later-today slot available. A real claim above
+  // still reserves its entire local day; the cadence anchor never moves.
+  if (options?.notBefore) {
+    const cutoffDay = startOfDayInTz(options.notBefore, tz)
+    if (cutoffDay > startDate) startDate = cutoffDay
   }
 
   const slots: string[] = []
@@ -378,7 +385,8 @@ export function computeSlots(
     }
 
     if (matches) {
-      slots.push(isoAtTz(cursor, hh, mm, tz))
+      const slot = isoAtTz(cursor, hh, mm, tz)
+      if (!options?.notBefore || Date.parse(slot) > options.notBefore.getTime()) slots.push(slot)
     }
 
     cursor = addDays(cursor, 1)

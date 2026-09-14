@@ -220,3 +220,27 @@ describe('computeSlots — edge cases', () => {
     assert.equal(slots.length, 0)
   })
 })
+
+
+describe('computeSlots — future instant cutoff', () => {
+  const schedule = {
+    weekdays: [1, 2, 3, 4, 5, 6, 0], time_local: '21:00',
+    timezone: 'Asia/Phnom_Penh', start_date: '2026-08-01',
+  }
+  test('retains a later-today slot even when the plan ends today', () => {
+    assert.deepEqual(computeSlots({ ...schedule, end_date: '2026-09-15' }, 1, {
+      notBefore: new Date('2026-09-15T03:00:00.000Z'),
+    }), ['2026-09-15T14:00:00.000Z'])
+  })
+  test('skips elapsed slots, including an exact cutoff, without returning past dates', () => {
+    assert.deepEqual(computeSlots(schedule, 2, {
+      notBefore: new Date('2026-09-15T14:00:00.000Z'),
+    }), ['2026-09-16T14:00:00.000Z', '2026-09-17T14:00:00.000Z'])
+  })
+  test('a booked calendar day remains reserved despite a later slot on that day', () => {
+    assert.deepEqual(computeSlots(schedule, 1, {
+      notBefore: new Date('2026-09-15T03:00:00.000Z'),
+      minStartDate: new Date('2026-09-16T01:00:00.000Z'),
+    }), ['2026-09-17T14:00:00.000Z'])
+  })
+})

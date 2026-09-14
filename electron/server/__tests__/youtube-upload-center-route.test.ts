@@ -3443,6 +3443,213 @@ test('Upload Center plan assigns only missing rows and refuses a stale preview w
   assert.equal(fake.calls.length, 0)
 })
 
+test('Upload Center plan replaces overdue local claims while leaving future claims in place', async () => {
+  const slug = await registryOnlyProject()
+  const overdue = await acceptedEpisode(slug)
+  const missing = await acceptedEpisode(slug)
+  const future = await acceptedEpisode(slug)
+  const later = await acceptedEpisode(slug)
+  const legacy = await acceptedEpisode(slug)
+  const accountId = `registry:${CHANNEL}`
+  const plan = await uploadPlans.upsertPlan(slug, {
+    name: 'Resume overdue', platform: 'youtube', account_id: accountId,
+    schedule: {
+      weekdays: [0, 1, 2, 3, 4, 5, 6], time_local: '12:00', timezone: 'UTC',
+      start_date: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10),
+    },
+    defaults: { privacy_status: 'private' },
+  })
+  await uploadPlans.setActivePlanId(slug, 'youtube', accountId, plan.id)
+  const overdueClaim = new Date(Date.now() - 2 * 86_400_000).toISOString()
+  const futureClaim = new Date(Date.now() + 7 * 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, {
+    [overdue.episodeCode]: overdueClaim,
+    [future.episodeCode]: futureClaim,
+  })
+
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [overdue.episodeCode, missing.episodeCode, future.episodeCode],
+  })
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.deepEqual(preview.body.skipped_existing, [future.episodeCode])
+  assert.deepEqual(new Set(preview.body.assignments.map((entry: any) => entry.episode_code)),
+    new Set([overdue.episodeCode, missing.episodeCode]))
+  assert.ok(preview.body.assignments.every((entry: any) => Date.parse(entry.publishAt) > Date.now()))
+  assert.equal(preview.body.latest_existing_claim, futureClaim)
+
+  // The old local claim changes after review while remaining overdue. The
+  // assignment timestamp fence must reject the old preview even if its slot
+  // would otherwise be identical.
+  const changedPastClaim = new Date(Date.now() - 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, {
+    [overdue.episodeCode]: changedPastClaim,
+    [future.episodeCode]: futureClaim,
+  })
+  const changedPast = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [overdue.episodeCode, missing.episodeCode, future.episodeCode],
+    confirm: true, expected_assignments: preview.body.assignments,
+  })
+  assert.equal(changedPast.status, 409)
+  assert.equal(changedPast.body.code, 'YOUTUBE_PLAN_PREVIEW_STALE')
+  assert.equal(changedPast.body.assignments.find((entry: any) => entry.episode_code === overdue.episodeCode).previous_publish_at, changedPastClaim)
+  assert.equal((await uploadPlans.readItemSchedule(slug))[overdue.episodeCode], changedPastClaim)
+  assert.equal(fake.calls.length, 0)
+
+  // A new claim after review changes the allocator's next slot. Apply must
+  // reject the old assignment map and leave the overdue claim untouched.
+  const laterClaim = new Date(Date.now() + 10 * 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, {
+    [overdue.episodeCode]: changedPastClaim,
+    [future.episodeCode]: futureClaim,
+    [later.episodeCode]: laterClaim,
+  })
+  const stale = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [overdue.episodeCode, missing.episodeCode, future.episodeCode],
+    confirm: true, expected_assignments: preview.body.assignments,
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(stale.body.code, 'YOUTUBE_PLAN_PREVIEW_STALE')
+  assert.equal((await uploadPlans.readItemSchedule(slug))[overdue.episodeCode], changedPastClaim)
+  assert.equal(fake.calls.length, 0)
+
+  const saved = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [overdue.episodeCode, missing.episodeCode, future.episodeCode],
+    confirm: true, expected_assignments: stale.body.assignments,
+  })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  const schedule = await uploadPlans.readItemSchedule(slug)
+  assert.equal(schedule[overdue.episodeCode], saved.body.assignments.find((entry: any) => entry.episode_code === overdue.episodeCode).publishAt)
+  assert.equal(schedule[missing.episodeCode], saved.body.assignments.find((entry: any) => entry.episode_code === missing.episodeCode).publishAt)
+  assert.equal(schedule[future.episodeCode], futureClaim)
+  assert.equal(schedule[later.episodeCode], laterClaim)
+  await pm.updateConfig(slug, { [uploadPlans.LEGACY_SCHEDULE_FIELD]: { [legacy.episodeCode]: overdueClaim } } as any)
+  const legacyPreview = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL, episode_codes: [legacy.episodeCode],
+  })
+  const legacySaved = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL, episode_codes: [legacy.episodeCode],
+    confirm: true, expected_assignments: legacyPreview.body.assignments,
+  })
+  assert.equal(legacySaved.status, 200, JSON.stringify(legacySaved.body))
+  assert.ok(Date.parse((await uploadPlans.readItemSchedule(slug))[legacy.episodeCode]) > Date.now())
+  assert.equal(fake.calls.length, 0, 'local plan claims never change YouTube remotely')
+})
+
+test('Upload Center plan protects queued and remotely known targets, including missing claims', async () => {
+  const slug = await registryOnlyProject()
+  const movable = await acceptedEpisode(slug)
+  const queued = await acceptedEpisode(slug)
+  const remoteMissing = await acceptedEpisode(slug)
+  const remoteOverdue = await acceptedEpisode(slug)
+  const remoteMissingOperationId = await acceptedOperation(slug, remoteMissing.episodeCode, 'video-plan-private-missing')
+  const remoteMissingOperation = await operations.readYouTubeOperation(slug, remoteMissingOperationId)
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: remoteMissingOperationId, expected_revision: remoteMissingOperation!.revision,
+    mutate(record) {
+      record.remote_snapshot = {
+        fetched_at: new Date().toISOString(), title: remoteMissing.title, description: '', tags: [],
+        privacy_status: 'private', scheduled_for: null,
+      }
+    },
+  })
+  const remoteOverdueOperationId = await acceptedOperation(slug, remoteOverdue.episodeCode, 'video-plan-overdue')
+  const remoteOverdueOperation = await operations.readYouTubeOperation(slug, remoteOverdueOperationId)
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: remoteOverdueOperationId, expected_revision: remoteOverdueOperation!.revision,
+    mutate(record) {
+      record.remote_snapshot = {
+        fetched_at: new Date().toISOString(), title: remoteOverdue.title, description: '', tags: [],
+        privacy_status: 'private', scheduled_for: null,
+      }
+    },
+  })
+  const accountId = `registry:${CHANNEL}`
+  const plan = await uploadPlans.upsertPlan(slug, {
+    name: 'Protect active uploads', platform: 'youtube', account_id: accountId,
+    schedule: {
+      weekdays: [0, 1, 2, 3, 4, 5, 6], time_local: '12:00', timezone: 'UTC',
+      start_date: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10),
+    },
+    defaults: { privacy_status: 'private' },
+  })
+  await uploadPlans.setActivePlanId(slug, 'youtube', accountId, plan.id)
+  const movableClaim = new Date(Date.now() - 2 * 86_400_000).toISOString()
+  const remoteOverdueClaim = new Date(Date.now() - 3 * 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, {
+    [movable.episodeCode]: movableClaim,
+    [remoteOverdue.episodeCode]: remoteOverdueClaim,
+  })
+  const queuedJob = jobQueue.enqueuePreparedForTest({
+    project_slug: slug, type: 'youtube_upload', episode_id: queued.episodeCode,
+    title: queued.title, params: { expected_channel_id: CHANNEL },
+    episode_recovery_job_id: `upload-center-plan-${Date.now()}`,
+  })
+
+  try {
+    const fake = new FakeYouTube()
+    __setYouTubeTransportForTests(fake.transport())
+    const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
+      plan_id: plan.id, expected_channel_id: CHANNEL,
+      episode_codes: [movable.episodeCode, queued.episodeCode, remoteMissing.episodeCode, remoteOverdue.episodeCode],
+    })
+    assert.equal(preview.status, 200, JSON.stringify(preview.body))
+    assert.deepEqual(preview.body.assignments.map((entry: any) => entry.episode_code), [movable.episodeCode, remoteMissing.episodeCode])
+    assert.deepEqual(preview.body.skipped_existing, [remoteOverdue.episodeCode])
+    assert.equal((await uploadPlans.readItemSchedule(slug))[movable.episodeCode], movableClaim)
+    assert.equal(fake.calls.length, 0, 'protection checks are local-only')
+
+    const remoteCurrent = await operations.readYouTubeOperation(slug, remoteOverdueOperationId)
+    await operations.updateYouTubeOperation({
+      project_slug: slug, operation_id: remoteOverdueOperationId, expected_revision: remoteCurrent!.revision,
+      mutate(record) { record.remote_snapshot!.privacy_status = 'unlisted' },
+    })
+    const unlistedPreview = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
+      plan_id: plan.id, expected_channel_id: CHANNEL, episode_codes: [remoteOverdue.episodeCode],
+    })
+    assert.equal(unlistedPreview.status, 200)
+    assert.deepEqual(unlistedPreview.body.assignments, [], 'an unlisted receipt cannot hide an old sidecar date and make it movable')
+    assert.equal((await sidecars.readSidecarStrict(slug, remoteOverdue.episodeCode, 'youtube'))?.scheduled_for, remoteOverdueClaim)
+    // Restore the private receipt for the active-upload freshness check below.
+    const unlisted = await operations.readYouTubeOperation(slug, remoteOverdueOperationId)
+    await operations.updateYouTubeOperation({
+      project_slug: slug, operation_id: remoteOverdueOperationId, expected_revision: unlisted!.revision,
+      mutate(record) { record.remote_snapshot!.privacy_status = 'private' },
+    })
+
+    const remoteMissingJob = jobQueue.enqueuePreparedForTest({
+      project_slug: slug, type: 'youtube_upload', episode_id: remoteMissing.episodeCode,
+      title: remoteMissing.title, params: { expected_channel_id: CHANNEL },
+      episode_recovery_job_id: `upload-center-plan-active-${Date.now()}`,
+    })
+    try {
+      const stale = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+        plan_id: plan.id, expected_channel_id: CHANNEL,
+        episode_codes: [movable.episodeCode, queued.episodeCode, remoteMissing.episodeCode, remoteOverdue.episodeCode],
+        confirm: true, expected_assignments: preview.body.assignments,
+      })
+      assert.equal(stale.status, 409)
+      assert.equal(stale.body.code, 'YOUTUBE_PLAN_PREVIEW_STALE')
+      const unchanged = await uploadPlans.readItemSchedule(slug)
+      assert.equal(unchanged[movable.episodeCode], movableClaim)
+      assert.equal(unchanged[remoteOverdue.episodeCode], remoteOverdueClaim)
+      assert.equal(unchanged[remoteMissing.episodeCode], undefined)
+      assert.equal(fake.calls.length, 0)
+    } finally {
+      await jobQueue.requestJobCancellation(slug, remoteMissingJob.job_id)
+      jobQueue.removeTerminalJob(slug, remoteMissingJob.job_id)
+    }
+  } finally {
+    await jobQueue.requestJobCancellation(slug, queuedJob.job_id)
+    jobQueue.removeTerminalJob(slug, queuedJob.job_id)
+  }
+})
+
 test('publishable maps cached remote lifecycle and visibility without promoting private uploads', async () => {
   // Break caught: treating every accepted upload as published erases the
   // private/unlisted, processing, scheduled, failed, and rejected states the

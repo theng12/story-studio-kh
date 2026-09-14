@@ -2350,7 +2350,7 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
   }
 })
 
-type UploadCenterPlanAssignment = { episode_code: string, publishAt: string }
+type UploadCenterPlanAssignment = { episode_code: string, publishAt: string, previous_publish_at?: string }
 
 type UploadCenterPlanPreview = {
   plan_id: string
@@ -2360,6 +2360,7 @@ type UploadCenterPlanPreview = {
   skipped_existing: string[]
   latest_existing_claim: string | null
   schedule: Record<string, string>
+  sidecar_schedule: Record<string, string | null>
 }
 
 function scheduleRouteError(statusCode: number, detail: string): Error & { statusCode: number } {
@@ -2393,46 +2394,104 @@ async function previewUploadCenterPlan(
   }
   const requested = orderEpisodeCodes(Array.isArray(episodeCodes) ? episodeCodes : [])
   if (!requested.length) throw scheduleRouteError(400, 'Choose one or more episodes to plan.')
-  const accepted = new Set((await im.getIdeas(slug, 'accepted'))
+  const acceptedIdeas = await im.getIdeas(slug, 'accepted')
+  const accepted = new Set(acceptedIdeas
     .map(idea => idea.episode_code)
     .filter((code): code is string => !!code))
   const unknown = requested.find(code => !accepted.has(code))
   if (unknown) throw scheduleRouteError(404, `${unknown} is not an accepted episode.`)
 
-  // Keep every existing claim exactly as it is. Only missing selected entries
-  // receive new slots, and the selected existing entries still constrain the
-  // next slot so a preview cannot collide with the queue it displays.
-  const schedule = await readItemSchedule(slug)
-  const skipped_existing = requested.filter(code => !!schedule[code])
-  const missing = requested.filter(code => !schedule[code])
-  const latestMs = missing.length
-    ? await latestFutureProjectClaimMs(slug, 'youtube', new Set(missing))
+  // A local plan claim is movable only while it is still local planning data.
+  // Queue state and any canonical/legacy YouTube evidence belong to the
+  // upload/publication flows and must never be reassigned by this local save.
+  const [schedule, jobs, operations, publishingState] = await Promise.all([
+    readItemSchedule(slug),
+    getJobs(slug),
+    listYouTubeOperations(slug),
+    readYouTubeProjectPublishingState(slug),
+  ])
+  const activeUploadCodes = new Set(jobs
+    .filter(job => job.type === 'youtube_upload'
+      && ['queued', 'running', 'paused'].includes(job.status))
+    .map(job => job.episode_id))
+  const remoteByCode = new Map<string, Awaited<ReturnType<typeof remoteVideoFor>>>()
+  const missingRemoteCandidates = new Set<string>()
+  const now = Date.now()
+  const facts = createProjectFactsCache(slug)
+  const sidecar_schedule: Record<string, string | null> = {}
+  for (const code of requested) {
+    if (activeUploadCodes.has(code)) continue
+    const scheduledAt = schedule[code]
+    if (scheduledAt && Number.isFinite(Date.parse(scheduledAt)) && Date.parse(scheduledAt) > now) continue
+    sidecar_schedule[code] = (await readSidecarStrict(slug, code, 'youtube', facts))?.scheduled_for ?? null
+    const idea = acceptedIdeas.find(candidate => candidate.episode_code === code)
+    const remote = await remoteVideoFor(
+      slug, code, idea?.title || '', channelId, operations, publishingState, facts,
+    )
+    if (!remote) continue
+    remoteByCode.set(code, remote)
+    const operation = operations.find(record => record.episode_code === code
+      && onCurrentChannel(channelId, record.channel_id)
+      && !isYouTubeVideoRemoved(publishingState, code, record.channel_id, record.video_id)
+      && (record.video_id?.trim() === remote.video_id
+        || (remote.source === 'operation_record'
+          && !remote.video_id && OPEN_LIFECYCLES.includes(record.lifecycle))))
+    const publication = publicationProjection(
+      code, operation, remote, publishingState, channelId,
+    )
+    if (publication.state === 'uploaded'
+      && !publication.scheduled_at
+      && publication.visibility !== 'public'
+      && publication.visibility !== 'unlisted') {
+      missingRemoteCandidates.add(code)
+    }
+  }
+  const overdue = requested.filter(code => {
+    const value = schedule[code]
+    return !!value && Number.isFinite(Date.parse(value)) && Date.parse(value) <= now
+      && !activeUploadCodes.has(code)
+      && !remoteByCode.has(code)
+  })
+  const overdueCodes = new Set(overdue)
+  const missing = requested.filter(code => !schedule[code]
+    && !activeUploadCodes.has(code)
+    && (!remoteByCode.has(code) || missingRemoteCandidates.has(code)))
+  const candidateCodes = new Set([...overdue, ...missing])
+  const candidates = requested.filter(code => candidateCodes.has(code))
+  const skipped_existing = requested.filter(code => !!schedule[code] && !candidateCodes.has(code))
+  const latestMs = candidates.length
+    ? await latestFutureProjectClaimMs(slug, 'youtube', candidateCodes)
     : 0
-  const slots = missing.length
-    ? computeSlots(plan.schedule, missing.length, {
+  const slots = candidates.length
+    ? computeSlots(plan.schedule, candidates.length, {
+        notBefore: new Date(now),
         ...(latestMs ? { minStartDate: new Date(latestMs) } : {}),
       })
     : []
-  if (slots.length < missing.length) {
-    throw scheduleRouteError(400, `Plan "${plan.name}" cannot generate ${missing.length} future slot(s).`)
+  if (slots.length < candidates.length) {
+    throw scheduleRouteError(400, `Plan "${plan.name}" cannot generate ${candidates.length} future slot(s).`)
   }
-  const now = Date.now()
   const past = slots.find(slot => Date.parse(slot) <= now)
   if (past) throw scheduleRouteError(400, `Plan "${plan.name}" produced a past publish time (${past}).`)
   return {
     plan_id: plan.id,
     channel_id: channelId,
     ordered_episode_codes: requested,
-    assignments: missing.map((episode_code, index) => ({ episode_code, publishAt: slots[index]! })),
+    assignments: candidates.map((episode_code, index) => ({
+      episode_code,
+      publishAt: slots[index]!,
+      ...(overdueCodes.has(episode_code) ? { previous_publish_at: schedule[episode_code]! } : {}),
+    })),
     skipped_existing,
     latest_existing_claim: latestMs ? new Date(latestMs).toISOString() : null,
     schedule,
+    sidecar_schedule,
   }
 }
 
 function publicPlanPreview(preview: UploadCenterPlanPreview) {
-  const { schedule: _schedule, ...result } = preview
-  return result
+  const { plan_id, channel_id, ordered_episode_codes, assignments, skipped_existing, latest_existing_claim } = preview
+  return { plan_id, channel_id, ordered_episode_codes, assignments, skipped_existing, latest_existing_claim }
 }
 
 function sameAssignments(actual: UploadCenterPlanAssignment[], expected: unknown): boolean {
@@ -2442,10 +2501,11 @@ function sameAssignments(actual: UploadCenterPlanAssignment[], expected: unknown
     return !!candidate && typeof candidate === 'object'
       && (candidate as Record<string, unknown>).episode_code === assignment.episode_code
       && (candidate as Record<string, unknown>).publishAt === assignment.publishAt
+      && (candidate as Record<string, unknown>).previous_publish_at === assignment.previous_publish_at
   })
 }
 
-/** Read-only exact plan assignment for Upload Center's selected missing rows. */
+/** Read-only exact plan assignment for Upload Center's selected local rows. */
 router.post('/projects/:slug/youtube/plan/preview', async (req, res) => {
   try {
     const preview = await previewUploadCenterPlan(
@@ -2461,7 +2521,7 @@ router.post('/projects/:slug/youtube/plan/preview', async (req, res) => {
 })
 
 /**
- * Persist only the exact, previously previewed missing claims. This intentionally
+ * Persist only the exact, previously previewed local claims. This intentionally
  * makes no YouTube request: existing remote videos are scheduled individually
  * after their live private status and ETag have been checked.
  */
@@ -2493,7 +2553,12 @@ router.post('/projects/:slug/youtube/plan/apply', async (req, res) => {
         .filter(idea => !!idea.episode_code)
         .map(idea => [idea.episode_code!, idea.title || '']))
       for (const assignment of preview.assignments) {
-        await setScheduledFor(req.params.slug, assignment.episode_code, titles.get(assignment.episode_code) || '', 'youtube', assignment.publishAt)
+        const active = (await getJobs(req.params.slug)).some(job => job.type === 'youtube_upload'
+          && job.episode_id === assignment.episode_code
+          && ['queued', 'running', 'paused'].includes(job.status))
+        if (active) throw scheduleRouteError(409, `${assignment.episode_code} now has an upload in progress. Refresh and review its plan again.`)
+        await setScheduledFor(req.params.slug, assignment.episode_code, titles.get(assignment.episode_code) || '', 'youtube',
+          assignment.publishAt, preview.sidecar_schedule[assignment.episode_code] ?? null)
       }
       return { stale: false as const, preview }
     })

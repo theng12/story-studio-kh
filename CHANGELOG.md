@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.167 — 2026-09-15
+
+- Upload Center can move missed local publishing dates to future slots in the active channel plan. Missed dates have a filter and a direct action, with old and proposed dates shown before saving.
+- Replanning keeps existing future bookings, protects uploads already in progress and known YouTube videos, and checks the reviewed slots again before saving. Moving a local date does not upload or reschedule a video on YouTube.
+
 ## v1.4.166 — 2026-09-15
 
 - With automatic image replacement enabled, eligible fully refunded image failures keep retrying with a delay until complete, paused, cancelled, or disabled. Each retry verifies the previous task and preserves finished images; charged replacements retain their existing limits.

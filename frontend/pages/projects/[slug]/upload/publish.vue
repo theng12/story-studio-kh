@@ -46,9 +46,9 @@
               v-if="episodes.length" class="btn btn-ghost btn-sm" type="button"
               :disabled="busy !== '' || !planCandidates.length || !!planBlocked"
               :title="planBlocked || (!planCandidates.length ? 'No visible video needs a planned date.' : '')"
-              @click="planUnscheduledVideos"
+              @click="planUnscheduledVideos()"
             >
-              {{ busy === 'plan-batch' ? 'Planning…' : `Plan unscheduled videos (${planCandidates.length})` }}
+              {{ busy === 'plan-batch' ? 'Planning…' : `${planCandidates.some(hasMissedPlan) ? 'Plan missing or missed dates' : 'Plan unscheduled videos'} (${planCandidates.length})` }}
             </button>
             <button class="btn btn-ghost btn-sm" type="button" :disabled="refreshingList" @click="refreshList">
               {{ refreshingList ? 'Refreshing…' : 'Refresh list' }}
@@ -155,7 +155,12 @@
               <span class="fact-label">Publication</span>
               <span :class="['state-text', stateTone(publicationState(ep))]">{{ publicationLabel(ep) }}</span>
               <span v-if="publicationDate(ep)" class="fact-note">{{ publicationDate(ep) }}</span>
-              <span v-if="plannedDate(ep)" class="fact-note">Plan: {{ plannedDate(ep) }}</span>
+              <span v-if="plannedDate(ep)" :class="['fact-note', { 'tone-danger': hasMissedPlan(ep) }]">{{ hasMissedPlan(ep) ? 'Missed plan' : 'Plan' }}: {{ plannedDate(ep) }}</span>
+              <button
+                v-if="hasMissedPlan(ep) && canPlanEpisode(ep)" class="inline-action" type="button"
+                :disabled="busy !== '' || !!planBlocked" :title="planBlocked || ''"
+                @click="planUnscheduledVideos([ep.episode_code])"
+              >Move missed date forward</button>
               <span v-if="publicationReason(ep)" class="fact-note">{{ publicationReason(ep) }}</span>
               <span v-if="lastCheckedLabel(ep)" class="fact-note">{{ lastCheckedLabel(ep) }}</span>
             </div>
@@ -555,7 +560,7 @@ interface Operation {
 type RenderState = 'ready' | 'missing' | 'unknown'
 type UploadState = 'none' | 'queued' | 'running' | 'failed' | 'succeeded' | 'unknown'
 type PublicationState = 'unpublished' | 'uploaded' | 'processing' | 'published' | 'scheduled' | 'failed' | 'rejected' | 'unknown'
-type StatusFilter = 'all' | 'ready' | 'missing' | 'in_progress' | 'planned' | 'uploaded' | 'scheduled' | 'published' | 'attention'
+type StatusFilter = 'all' | 'ready' | 'missing' | 'in_progress' | 'planned' | 'missed' | 'uploaded' | 'scheduled' | 'published' | 'attention'
 type SortMode = 'episode_newest' | 'episode_oldest' | 'schedule_soonest' | 'status'
 type ReviewIntent = 'upload' | 'schedule'
 type TimingMode = 'planned' | 'custom' | 'private'
@@ -692,6 +697,7 @@ const statusOptions = computed(() => ([
   { key: 'missing' as const, label: 'Missing video', count: countStatus('missing') },
   { key: 'in_progress' as const, label: 'In progress', count: countStatus('in_progress') },
   { key: 'planned' as const, label: 'Planned', count: countStatus('planned') },
+  { key: 'missed' as const, label: 'Missed plans', count: countStatus('missed') },
   { key: 'uploaded' as const, label: 'Uploaded', count: countStatus('uploaded') },
   { key: 'scheduled' as const, label: 'Scheduled', count: countStatus('scheduled') },
   { key: 'published' as const, label: 'Published', count: countStatus('published') },
@@ -830,10 +836,23 @@ function formatZonedWhen(value: string | undefined, timezone?: string): string {
 }
 const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'your device timezone'
 
+// Refresh date-dependent controls while this page stays open, without network polling.
+const planClock = ref(Date.now())
+let planClockTimer: ReturnType<typeof setInterval> | undefined
+const refreshPlanClock = () => { planClock.value = Date.now() }
+onMounted(() => {
+  planClockTimer = setInterval(refreshPlanClock, 60_000)
+  window.addEventListener('focus', refreshPlanClock)
+})
+onUnmounted(() => {
+  clearInterval(planClockTimer)
+  window.removeEventListener('focus', refreshPlanClock)
+})
+
 function isFutureIso(value: string | undefined): value is string {
   if (!value) return false
   const at = new Date(value).getTime()
-  return Number.isFinite(at) && at > Date.now()
+  return Number.isFinite(at) && at > Math.max(planClock.value, Date.now())
 }
 const selectedEpisode = computed(() => episodes.value.find(ep => ep.episode_code === previewedEpisode.value) || null)
 const plannedPublishAt = computed(() => isFutureIso(selectedEpisode.value?.plan?.scheduled_at)
@@ -855,6 +874,13 @@ function plannedDate(ep: PublishableEpisode): string {
   if (!ep.plan?.scheduled_at) return ''
   return formatZonedWhen(ep.plan.scheduled_at, ep.plan.timezone)
 }
+function hasMissedPlan(ep: PublishableEpisode): boolean {
+  const at = Date.parse(ep.plan?.scheduled_at || '')
+  return Number.isFinite(at) && at <= Math.max(planClock.value, Date.now())
+    && !ep.has_remote_video && !associatedVideoId(ep)
+    && ['none', 'failed'].includes(uploadState(ep))
+    && ['unpublished', 'failed', 'rejected'].includes(publicationState(ep))
+}
 function lastCheckedLabel(ep: PublishableEpisode): string {
   const checkedAt = ep.publication?.last_checked_at || ep.operation?.processing?.checked_at
   if (checkedAt) return `YouTube checked ${formatWhen(checkedAt)}; cleanup verifies again.`
@@ -871,6 +897,7 @@ function matchesStatus(ep: PublishableEpisode, key: StatusFilter): boolean {
   if (key === 'missing') return renderState(ep) === 'missing'
   if (key === 'in_progress') return ['queued', 'running'].includes(uploadState(ep))
     || publicationState(ep) === 'processing'
+  if (key === 'missed') return hasMissedPlan(ep)
   if (key === 'planned') return !!ep.plan?.scheduled_at && publicationState(ep) !== 'scheduled'
   if (key === 'uploaded') return publicationState(ep) === 'uploaded'
   if (key === 'scheduled') return publicationState(ep) === 'scheduled'
@@ -984,7 +1011,7 @@ interface UploadPlan {
   account_id: string
   schedule?: { timezone?: string }
 }
-interface PlanAssignment { episode_code: string; publishAt: string }
+interface PlanAssignment { episode_code: string; publishAt: string; previous_publish_at?: string }
 
 async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promise<{ assignments: PlanAssignment[]; timezone: string } | null> {
   const channelId = assignedChannel.value?.channel_id
@@ -1006,11 +1033,15 @@ async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promi
     }
     const zone = plan.schedule?.timezone || deviceTimezone
     const proposedDates = previewResult.assignments
-      .map(item => `${item.episode_code}: ${formatZonedWhen(item.publishAt, zone)} (${item.publishAt})`)
+      .map(item => {
+        const previous = item.previous_publish_at
+        const from = previous ? `Previous: ${formatZonedWhen(previous, zone)} (${previous})\n` : ''
+        return `${item.episode_code}\n${from}New: ${formatZonedWhen(item.publishAt, zone)} (${item.publishAt})`
+      })
       .join('\n')
     const confirmed = await ask({
-      title: previewResult.assignments.length === 1 ? `Use the next ${plan.name} date?` : `Plan ${previewResult.assignments.length} unscheduled videos?`,
-      message: `The plan currently proposes:\n${proposedDates}\n\nStory Studio will check current claims again before saving. These are local planned dates; each YouTube upload or existing private video still needs its own confirmation.`,
+      title: previewResult.assignments.length === 1 ? `Use the next ${plan.name} date?` : `Review planned dates for ${previewResult.assignments.length} videos?`,
+      message: `The plan currently proposes:\n${proposedDates}\n\nExisting future bookings stay in place; new dates follow them in the channel’s cadence. Story Studio will check current claims again before saving. These are local planned dates; each YouTube upload or existing private video still needs its own confirmation.`,
       confirmLabel: previewResult.assignments.length === 1 ? 'Use planned date' : 'Save planned dates',
     })
     if (!actionIsCurrent(action)) return null
@@ -1053,16 +1084,17 @@ async function useNextPlanSlot(): Promise<void> {
   }
 }
 
-const planCandidates = computed(() => visibleEpisodes.value.filter(ep => {
+function canPlanEpisode(ep: PublishableEpisode): boolean {
   if (isFutureIso(ep.plan?.scheduled_at) || renderState(ep) !== 'ready') return false
-  if (canScheduleExisting(ep)) return true
+  if (canScheduleExisting(ep)) return !ep.plan?.scheduled_at
   const hasRemote = !!(ep.has_remote_video || ep.remote_video_id || ep.operation?.video_id)
   return !hasRemote && !ep.blocked_reason && ['none', 'failed'].includes(uploadState(ep))
     && ['unpublished', 'failed', 'rejected'].includes(publicationState(ep))
-}))
+}
+const planCandidates = computed(() => visibleEpisodes.value.filter(canPlanEpisode))
 
-async function planUnscheduledVideos(): Promise<void> {
-  const codes = [...planCandidates.value]
+async function planUnscheduledVideos(episodeCodes?: string[]): Promise<void> {
+  const codes = Array.isArray(episodeCodes) ? episodeCodes : [...planCandidates.value]
     .sort((a, b) => episodeNumber(a) - episodeNumber(b))
     .map(ep => ep.episode_code)
   if (!codes.length || busy.value) return
@@ -1868,6 +1900,7 @@ watch(slug, () => {
 .tone-info { color: var(--text-secondary); }
 .tone-danger { color: var(--danger); }
 .tone-muted { color: var(--text-muted); }
+.fact-note.tone-danger { color: var(--danger); }
 .fact-note { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; overflow-wrap: anywhere; }
 .upload-progress { margin-top: 3px; min-width: 120px; }
 .op-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }

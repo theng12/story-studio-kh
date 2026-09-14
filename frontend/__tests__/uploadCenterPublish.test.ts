@@ -20,7 +20,7 @@ async function loadPage(): Promise<Component> {
   })
   const vueUrl = await import.meta.resolve('vue')
   const support = `
-    import { ref, reactive, computed, watch, nextTick } from ${JSON.stringify(vueUrl)}
+    import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from ${JSON.stringify(vueUrl)}
     const useApi = () => globalThis.__ucApi
     const useRoute = () => globalThis.__ucRoute
     const useConfirm = () => ({ ask: async (o) => globalThis.__ucConfirm(o) })
@@ -567,6 +567,92 @@ describe('Upload Center Publish', () => {
     assert.equal(mounted.calls.some(call => call.path.endsWith('/youtube/upload')), false)
     assert.match(mounted.confirms[0].message, /local planned dates/)
     assert.match(mounted.text(), /YouTube has not been changed/)
+    mounted.destroy()
+  })
+
+  test('shows missed local plans and moves one through an old-to-new date confirmation without uploading', async () => {
+    const past = '2020-09-14T19:00:00.000Z'
+    const future = '2099-11-01T19:00:00.000Z'
+    const assignments = [{ episode_code: 'EP0001', publishAt: future, previous_publish_at: past }]
+    const mounted = await mount({
+      episodes: [
+        { ...NEVER_UPLOADED, plan: { scheduled_at: past, timezone: 'Asia/Phnom_Penh' } },
+        { ...NEVER_UPLOADED, episode_code: 'EP0002', plan: { scheduled_at: '2099-10-30T19:00:00.000Z' } },
+      ],
+      plans: {
+        plans: [{ id: 'plan-1', name: 'Weekdays', platform: 'youtube', account_id: 'registry:UC-x', schedule: { timezone: 'Asia/Phnom_Penh' } }],
+        active: { 'youtube:registry:UC-x': 'plan-1' },
+      },
+      planPreview: { assignments, skipped_existing: [] },
+      planApply: { assignments, skipped_existing: [] },
+    })
+    assert.match(mounted.text(), /Missed plan/)
+    assert.match(mounted.text(), /Plan missing or missed dates \(1\)/)
+    const move = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Move missed date forward'))
+    assert.ok(move, 'a missed date has a direct action beside the date')
+    move.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const preview = mounted.calls.find(call => call.path.endsWith('/youtube/plan/preview'))!
+    assert.deepEqual(preview.body.episode_codes, ['EP0001'], 'future bookings are not selected')
+    assert.ok(mounted.confirms[0].message.includes(past), 'review states the date being replaced')
+    assert.ok(mounted.confirms[0].message.includes(future), 'review states the proposed date')
+    assert.match(mounted.confirms[0].message, /Existing future bookings stay in place/)
+    assert.equal(mounted.calls.some(call => call.path.endsWith('/youtube/upload')), false)
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/plan/apply')).length, 1)
+    mounted.destroy()
+  })
+
+  test('a plan becomes visibly missed while the page stays open, without fetching or leaving a timer behind', async (t) => {
+    let now = Date.parse('2030-09-14T18:59:00.000Z')
+    let tick: (() => void) | undefined
+    const timer = {} as ReturnType<typeof setInterval>
+    t.mock.method(Date, 'now', () => now)
+    t.mock.method(globalThis, 'setInterval', (callback: () => void, delay: number) => {
+      assert.equal(delay, 60_000)
+      tick = callback
+      return timer
+    })
+    const cleared = t.mock.method(globalThis, 'clearInterval', () => {})
+    const mounted = await mount({ episodes: [{ ...NEVER_UPLOADED, plan: { scheduled_at: '2030-09-14T19:00:00.000Z' } }] })
+    assert.ok(!mounted.text().includes('Move missed date forward'))
+    const calls = mounted.calls.length
+    now += 120_000
+    tick!()
+    await nextTick()
+    assert.match(mounted.text(), /Missed plans 1/)
+    assert.match(mounted.text(), /Move missed date forward/)
+    assert.equal(mounted.calls.length, calls, 'time refresh makes no API request')
+    mounted.destroy()
+    assert.ok(cleared.mock.calls.some(call => call.arguments[0] === timer))
+  })
+
+  test('cancelling a missed-date review writes nothing and active or remote videos have no move action', async () => {
+    const past = '2020-09-14T19:00:00.000Z'
+    const mounted = await mount({
+      confirmAnswer: false,
+      episodes: [
+        { ...NEVER_UPLOADED, plan: { scheduled_at: past } },
+        { ...NEVER_UPLOADED, episode_code: 'EP0002', plan: { scheduled_at: past }, local: { render: { state: 'ready' }, upload: { state: 'queued' } } },
+        { ...NEVER_UPLOADED, episode_code: 'EP0003', plan: { scheduled_at: past }, has_remote_video: true, can_schedule_existing: true, publication: { state: 'uploaded' } },
+      ],
+      plans: {
+        plans: [{ id: 'plan-1', name: 'Weekdays', platform: 'youtube', account_id: 'registry:UC-x' }],
+        active: { 'youtube:registry:UC-x': 'plan-1' },
+      },
+      planPreview: { assignments: [{ episode_code: 'EP0001', publishAt: '2099-11-01T19:00:00.000Z' }], skipped_existing: [] },
+    })
+    const moves = [...mounted.el.querySelectorAll('button')].filter(button => button.textContent!.includes('Move missed date forward'))
+    assert.equal(moves.length, 1)
+    moves[0].click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(mounted.confirms.length, 1)
+    assert.equal(mounted.calls.some(call => call.path.endsWith('/youtube/plan/apply')), false)
+    const missedFilter = [...mounted.el.querySelectorAll('button')].find(button => button.textContent!.includes('Missed plans'))!
+    missedFilter.click()
+    await nextTick()
+    assert.equal(mounted.el.querySelectorAll('li.op').length, 1)
     mounted.destroy()
   })
 
