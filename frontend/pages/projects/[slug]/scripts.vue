@@ -32,6 +32,8 @@
       </p>
     </div>
 
+    <InheritedLlmLineupNotice :project-slug="slug" />
+
     <!-- v1.0.269 — Bring your own: paste a finished script or an outline and
          inject it into this episode, skipping format-shaped generation. -->
     <section v-if="form.episode_id" class="card workspace-section byo-card">

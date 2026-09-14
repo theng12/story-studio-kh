@@ -48,8 +48,8 @@ import { existsSync, statSync } from 'fs'
 import path from 'path'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
-import { assertPipelineModelRequestCapabilities, callAi, callAiWithRetry, executePipelineModelPolicy, parseStructuredJson } from './ai-client.js'
-import { pipelinePolicyInputFingerprint, type AssignedPipelineModelPolicy, type PipelinePolicyCheckpointStore } from './pipeline-model-policy.js'
+import { assertPipelineModelRequestCapabilities, callAi, callAiWithRetry, executePipelineModelPolicy, llmLineupAttemptRequestIdentity, llmLineupAvailabilityScope, parseStructuredJson, resolveLivePipelineModel } from './ai-client.js'
+import { pipelinePolicyInputFingerprint, rankedPipelineModelCandidates, readPipelinePolicyAttemptCheckpoint, type AssignedPipelineModelPolicy, type PipelinePolicyCheckpointStore } from './pipeline-model-policy.js'
 import { freshGenerationRequestIdentity } from './fresh-generation-action.js'
 import { GenStudioChatIncompleteError, GenStudioChatProductUnavailableError, isGenStudioInsufficientCredits, listChatModels } from './genstudio-client.js'
 import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration.js'
@@ -68,6 +68,7 @@ import { matchChapterFile, resolveReadPath } from './episode-artifacts.js'
 import * as jq from '../services/job-queue.js'
 import type { Job, Format, Character } from '../models/types.js'
 import type { GenStudioRequestPreview } from './genstudio-request-preview.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 
 // ── Tunables ───────────────────────────────────────────────────────────────
 
@@ -373,7 +374,7 @@ export async function resolveChunkingBudget(model: string): Promise<ChunkingBudg
     ])
     const modelId = resolveGenStudioModelId('chat', model)
     const product = modelId
-      ? (await listChatModels(apiKey)).find(candidate => candidate.id === modelId)
+      ? findGenStudioProduct(await listChatModels(apiKey), modelId)
       : null
     if (!product) return unresolvedChunkingBudget()
     return {
@@ -1058,19 +1059,36 @@ async function withModelFallback<T>(
     recovery?: { idempotencyKey: string },
     checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
     checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
+    retryEpoch?: number,
   ) => Promise<T>,
   policyRequest?: { key: string; inputFingerprint: string },
 ): Promise<T> {
   if (params.pipelineModelPolicy) {
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    const availabilityScope = apiKey ? llmLineupAvailabilityScope(apiKey) : undefined
+    const checkpointKey = policyRequest?.key || `${job.job_id}:chunked`
+    const saved = params.pipelinePolicyCheckpoint
+      ? readPipelinePolicyAttemptCheckpoint(params.pipelinePolicyCheckpoint.read(checkpointKey))
+      : null
+    const catalogue = apiKey && !saved ? await listChatModels(apiKey) : []
+    const candidateOrder = rankedPipelineModelCandidates(params.pipelineModelPolicy, catalogue)
     return executePipelineModelPolicy(
       params.pipelineModelPolicy,
-      async (model, recovery, checkpointAccepted, checkpointPrepared) => {
+      async (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => {
+        if (!recovery?.idempotencyKey) {
+          resolveLivePipelineModel(model, apiKey ? await listChatModels(apiKey) : [], {
+            accountId: availabilityScope,
+            shareTemporaryAvailability: params.pipelineModelPolicy?.wait_for_availability === true,
+          })
+        }
         job.output_lines.push(`[pipeline] script using GenStudio product "${model}".`)
-        return attempt(model, recovery, checkpointAccepted, checkpointPrepared)
+        return attempt(model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch)
       },
       params.pipelinePolicyCheckpoint,
-      policyRequest?.key || `${job.job_id}:chunked`,
+      checkpointKey,
       policyRequest?.inputFingerprint || pipelinePolicyInputFingerprint({ episode_id: params.episode_id, model: params.model }),
+      { candidates: candidateOrder, availabilityScope },
     )
   }
   try {
@@ -1113,6 +1131,10 @@ function pipelineAttemptContext<T extends Record<string, any>>(
   recovery?: { idempotencyKey: string },
   checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
   checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
+  retryEpoch = 0,
+  checkpointKey = '',
+  model = '',
+  policyOwnsFallback = false,
 ): T & Record<string, any> {
   return {
     ...context,
@@ -1125,6 +1147,10 @@ function pipelineAttemptContext<T extends Record<string, any>>(
       onJobAccepted: async (_jobId: string, idempotencyKey: string) => checkpointAccepted(idempotencyKey),
     } : {}),
     ...(checkpointPrepared ? { onRequestPrepared: checkpointPrepared } : {}),
+    ...(policyOwnsFallback ? { policyOwnsFallback: true } : {}),
+          ...((retryEpoch || 0) > 0 ? {
+      requestIdentity: llmLineupAttemptRequestIdentity(context.requestIdentity, checkpointKey, model, retryEpoch),
+    } : {}),
   }
 }
 
@@ -1215,9 +1241,9 @@ async function buildOutline(
   const maxChapters = Math.max(params.totalChapters, Math.floor(params.totalChapters * headroom))
   const outlineContract = outlineOutputContract(params.totalChapters, maxChapters)
   const outlineCheckpointKey = `${job.project_slug}:${params.episode_id}:script:outline`
-  const arr = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callForJsonArray(
+  const arr = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callForJsonArray(
     model, params.systemPrompt, prompt, params.apiKeys,
-    pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+    pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, outlineCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
     outlineContract,
     params.pipelineModelPolicy !== undefined,
   ), {
@@ -1465,12 +1491,14 @@ async function expandNarrativeSequential(
         chapters: repairBatch.map(entry => entry.n), system: params.systemPrompt,
         generation_params: params.generationParams,
       })
-      const recoveredRepairText = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(
+      const recoveredRepairText = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callAiWithRetry(
         model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
-          ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
-          recoverByIdempotencyKey: true,
-          idempotencyKey: recovery?.idempotencyKey || job.genstudio_chat_recovery_key,
-          allowedRecoveryKeys: recovery ? [recovery.idempotencyKey] : job.genstudio_chat_recovery_keys,
+          ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, repairCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
+          ...((retryEpoch || 0) > 0 ? {} : {
+            recoverByIdempotencyKey: true,
+            idempotencyKey: recovery?.idempotencyKey || job.genstudio_chat_recovery_key,
+            allowedRecoveryKeys: recovery ? [recovery.idempotencyKey] : job.genstudio_chat_recovery_keys,
+          }),
         },
       ), {
         key: repairCheckpointKey,
@@ -1489,9 +1517,9 @@ async function expandNarrativeSequential(
     let wrote: number[] = []
     let incomplete: GenStudioChatIncompleteError | null = null
     try {
-      const text = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) =>
+      const text = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) =>
         callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
-          ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+          ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, chapterCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
           ...uncreatedBatchRecovery,
         }), {
           key: chapterCheckpointKey,
@@ -1561,9 +1589,9 @@ async function expandNarrativeSequential(
         chapters: repairBatch.map(entry => entry.n), system: params.systemPrompt,
         generation_params: params.generationParams,
       })
-      const repairText = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(
+      const repairText = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => callAiWithRetry(
         model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
-          ...pipelineAttemptContext(repairCtx, recovery, checkpointAccepted, checkpointPrepared),
+          ...pipelineAttemptContext(repairCtx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, repairCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
         },
       ), {
         key: repairCheckpointKey,
@@ -1740,9 +1768,9 @@ async function expandListicleParallel(
           recoverByIdempotencyKey: job.genstudio_chat_recovery === true,
           allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
         }
-        const text = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) =>
+        const text = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) =>
           callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
-            ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+            ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared, retryEpoch, chapterCheckpointKey, model, params.pipelineModelPolicy?.wait_for_availability === true),
           }), {
             key: chapterCheckpointKey,
             inputFingerprint: pipelinePolicyInputFingerprint({ system: params.systemPrompt, user: prompt }),
@@ -2165,12 +2193,7 @@ async function callForJsonArray(
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const apiKey = await getApiKey('genstudio').catch(() => '')
     const modelId = stripGenStudioModelPrefix('chat', model)
-    const candidate = apiKey
-      ? (await listChatModels(apiKey)).find(item => item.id === modelId)
-      : null
-    if (!candidate || !candidate.available) {
-      throw new GenStudioChatProductUnavailableError(modelId)
-    }
+    const candidate = resolveLivePipelineModel(modelId, apiKey ? await listChatModels(apiKey) : [])
     assertPipelineModelRequestCapabilities(candidate, { outputContract, outputBudget: 'long' })
   }
   let lastErr = ''

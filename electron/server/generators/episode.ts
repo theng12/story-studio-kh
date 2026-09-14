@@ -6,7 +6,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { callAi, callAiWithModelPolicy, callAiWithRetry } from '../lib/ai-client.js'
+import { callAi, callAiWithModelPolicy, callAiWithRetry, type CallAiContext } from '../lib/ai-client.js'
 import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { stripEpisodeLabelFromDrawnText } from './image-prompts.js'
 import { matchChapterFile, introMarkerPath, resolveArtifact } from '../lib/episode-artifacts.js'
@@ -970,7 +970,7 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   const sectionLowerRegen = sectionSingularRegen.toLowerCase()
   const sectionLowerPluralRegen = sectionPluralRegen.toLowerCase()
 
-  const chapterPrompt = `Regenerate ONLY ${sectionSingularRegen} ${chapterNumber} of an existing narration script.
+  const generatedChapterPrompt = `Regenerate ONLY ${sectionSingularRegen} ${chapterNumber} of an existing narration script.
 
 Episode: "${title}" (code ${episode_id})
 Narrator style: Style ${style} — ${styleDesc}
@@ -991,21 +991,51 @@ Output format (markdown):
 
 Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${sectionLowerPluralRegen}.`
 
+  const chapterPolicy = pipelinePolicyForJob(req, 'script-only')
+  const chapterCheckpoint = chapterPolicy
+    ? pipelinePolicyCheckpointStore(req, () => jq.checkpointJobState(job))
+    : undefined
+  const frozenChapterRequest = (req as any).llm_lineup_chapter_request
+  if (chapterPolicy && frozenChapterRequest !== undefined
+    && (!frozenChapterRequest || typeof frozenChapterRequest !== 'object'
+      || frozenChapterRequest.chapter_number !== chapterNumber
+      || typeof frozenChapterRequest.system !== 'string'
+      || typeof frozenChapterRequest.user !== 'string')) {
+    throw new Error('Chapter regeneration has an invalid pending lineup request; start a new regeneration.')
+  }
+  const chapterSystemPrompt = chapterPolicy && frozenChapterRequest
+    ? frozenChapterRequest.system
+    : sysPrompt
+  const chapterPrompt = chapterPolicy && frozenChapterRequest
+    ? frozenChapterRequest.user
+    : generatedChapterPrompt
+  if (chapterPolicy && !frozenChapterRequest) {
+    ;(req as any).llm_lineup_chapter_request = {
+      chapter_number: chapterNumber,
+      system: sysPrompt,
+      user: generatedChapterPrompt,
+    }
+    await jq.checkpointJobState(job)
+  }
+
   job.output_lines.push(`Regenerating Chapter ${chapterNumber}…`)
   const controller = new AbortController()
   const cancelWatcher = setInterval(() => {
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
   try {
-    const chapterText = await callAiWithRetry(req.model, sysPrompt, chapterPrompt, apiKeys, true,
-      // Long: a full chapter of narration.
-      {
-        slug: project_slug,
-        jobId: job.job_id,
-        signal: controller.signal,
-        outputBudget: 'long',
-        requestIdentity: freshGenerationRequestIdentity(job, `chapter-${chapterNumber}`),
-      })
+    const chapterContext: CallAiContext = {
+      slug: project_slug,
+      jobId: job.job_id,
+      signal: controller.signal,
+      outputBudget: 'long' as const,
+      requestIdentity: freshGenerationRequestIdentity(job, `chapter-${chapterNumber}`),
+      pipelinePolicyCheckpoint: chapterCheckpoint,
+      pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:chapter:${chapterNumber}`,
+    }
+    const chapterText = chapterPolicy
+      ? await callAiWithModelPolicy(chapterPolicy, chapterSystemPrompt, chapterPrompt, apiKeys, true, chapterContext)
+      : await callAiWithRetry(req.model, chapterSystemPrompt, chapterPrompt, apiKeys, true, chapterContext)
 
     // Parse out the title from the heading the model produced. Fall back
     // to a synthesised title if the model omitted it.

@@ -32,8 +32,8 @@
 
 import { getApiKey } from '../app-secrets-store.js'
 import { callChatWithGenStudio, GenStudioChatCapabilityUnavailableError, GenStudioChatProductUnavailableError, listChatModels, type GenStudioChatModel } from '../../lib/genstudio-client.js'
-import { executePipelineModelPolicy } from '../../lib/ai-client.js'
-import { pipelinePolicyInputFingerprint } from '../../lib/pipeline-model-policy.js'
+import { executePipelineModelPolicy, llmLineupAttemptRequestIdentity, llmLineupAvailabilityScope, resolveLivePipelineModel } from '../../lib/ai-client.js'
+import { pipelinePolicyInputFingerprint, rankedPipelineModelCandidates, readPipelinePolicyAttemptCheckpoint } from '../../lib/pipeline-model-policy.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../../lib/json-output-contract.js'
 import type { ResearchAdapter } from './types.js'
 import type { ResearchOutput, ResearchRunOptions, ResearchWebRunReport } from '../../models/types.js'
@@ -46,6 +46,7 @@ import {
   selectWebResearchModels,
   toResearchCitations,
 } from './web-capability.js'
+import { findGenStudioProduct } from '../../contracts/genstudio-product-identity.js'
 
 export const GENSTUDIO_WEB_RESEARCH_PROVIDER = 'genstudio-web' as const
 
@@ -65,12 +66,19 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
     if (!apiKey) {
       throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before running research.')
     }
+    const availabilityScope = llmLineupAvailabilityScope(apiKey)
 
     const policy = opts.pipeline_model_policy
     // Policy candidates are checked only before a fresh POST. A saved key is
     // a read of already-submitted work, so it must not depend on today's
     // catalogue being reachable or still publishing the historical product.
+    const policyCheckpointKey = opts.pipeline_policy_checkpoint_key || opts.request_identity || 'research'
+    const policySaved = policy && opts.pipeline_policy_checkpoint
+      ? readPipelinePolicyAttemptCheckpoint(opts.pipeline_policy_checkpoint.read(policyCheckpointKey))
+      : null
+    const policyCatalogue = policy && !policySaved ? await listChatModels(apiKey) : []
     const qualified = policy ? [] : selectWebResearchModels(await listChatModels(apiKey))
+    const policyCandidateOrder = policy ? rankedPipelineModelCandidates(policy, policyCatalogue) : undefined
     if (!qualified.length && !policy) throw new Error(WEB_MODE_UNAVAILABLE_REASON)
 
     // An explicitly requested model is honoured only if it still qualifies.
@@ -79,7 +87,7 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
     const requested = opts.model?.trim() || ''
     let product = qualified[0]!
     if (requested && !policy) {
-      const match = qualified.find(model => model.id === requested)
+      const match = findGenStudioProduct(qualified, requested)
       if (!match) {
         throw new Error(
           `"${requested}" cannot be used for web research: it is not a model that returns structured citations and `
@@ -102,7 +110,14 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
       recovery?: { idempotencyKey: string },
       checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
       checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
+      retryEpoch = 0,
     ) => {
+      const requestIdentity = llmLineupAttemptRequestIdentity(
+        opts.request_identity,
+        policyCheckpointKey,
+        candidateId,
+        retryEpoch,
+      )
       if (recovery) {
         // Recovery is a GET by a server-owned key. Keep the run's persisted
         // options for its result record, but do not build a new request from
@@ -121,22 +136,24 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
           outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
           outputBudget: 'long',
           webSearch,
-          requestIdentity: opts.request_identity,
+          requestIdentity,
           ...(checkpointAccepted ? { onJobAccepted: (_jobId: string, idempotencyKey: string) => checkpointAccepted(idempotencyKey) } : {}),
           ...(checkpointPrepared ? { onRequestPrepared: checkpointPrepared } : {}),
           recoverByIdempotencyKey: true,
           idempotencyKey: recovery.idempotencyKey,
           allowedRecoveryKeys: [recovery.idempotencyKey],
+          policyOwnsFallback: policy?.wait_for_availability === true,
         })
       }
       // The preflight catalogue is only a selection snapshot. Re-read the
       // exact product immediately before each fresh submission so a capability
       // withdrawal (or account lock) cannot turn a web request into a plain
       // chat request after the policy was accepted.
-      const liveCandidate = (await listChatModels(apiKey)).find(item => item.id === candidateId)
-      if (!liveCandidate || !liveCandidate.available || liveCandidate.locked === true || liveCandidate.qualification_only) {
-        throw new GenStudioChatProductUnavailableError(candidateId)
-      }
+      const liveCandidate = resolveLivePipelineModel(candidateId, await listChatModels(apiKey), {
+        accountId: availabilityScope,
+        shareTemporaryAvailability: policy?.wait_for_availability === true,
+      })
+      if (liveCandidate.locked === true) throw new GenStudioChatProductUnavailableError(candidateId)
       if (!isWebResearchQualified(liveCandidate)) {
         const failed = failedWebResearchConditions(liveCandidate)
         throw new GenStudioChatCapabilityUnavailableError(
@@ -153,7 +170,9 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
       // asking the model for URLs that nothing will check.
       const { system, user } = buildResearchPrompt(opts, 'web', webSearch.claim_attribution === true)
       return callChatWithGenStudio(apiKey, {
-        modelId: candidate.id,
+        // Keep the policy's saved product identity on the wire. `candidate`
+        // is only the live capability record used to build this request.
+        modelId: candidateId,
         system,
         userMessage: user,
         outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
@@ -161,7 +180,8 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
         // truncation risk — web mode also has to fit its sources in.
         outputBudget: 'long',
         webSearch,
-        requestIdentity: opts.request_identity,
+        requestIdentity,
+        policyOwnsFallback: policy?.wait_for_availability === true,
         ...(checkpointAccepted ? { onJobAccepted: (_jobId: string, idempotencyKey: string) => checkpointAccepted(idempotencyKey) } : {}),
         ...(checkpointPrepared ? { onRequestPrepared: checkpointPrepared } : {}),
       })
@@ -171,8 +191,9 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
           policy,
           runProduct,
           opts.pipeline_policy_checkpoint,
-          opts.pipeline_policy_checkpoint_key || opts.request_identity || 'research',
+          policyCheckpointKey,
           pipelinePolicyInputFingerprint({ topic: opts.topic, specific_questions: opts.specific_questions, max_sources: opts.max_sources, web_search: opts.web_search }),
+          { candidates: policyCandidateOrder, availabilityScope },
         )
       : runProduct(product!.id)).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)

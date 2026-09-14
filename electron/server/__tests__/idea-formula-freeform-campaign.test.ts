@@ -283,3 +283,40 @@ test('formula-only shortfall keeps just-saved ideas at the front of a bounded AV
     await env.close()
   }
 })
+
+test('queued freeform Ideas can submit a frozen prompt through the shared lineup policy', async () => {
+  const env = await setup()
+  try {
+    const formatLoader = await import('../services/format-loader.js')
+    const ideas = await import('../services/freeform-idea-generation.js')
+    const format = await formatLoader.getEffectiveFormat('lineup-ideas')
+    const checkpoints: Record<string, any> = {}
+    env.service.queueScenario('chat', { outputText: JSON.stringify({ ideas: [idea('The Saffron Ledger and Coastal Trade')] }) })
+
+    const result = await ideas.generateFreeformIdeaBatch({
+      request: { count: 1, model: MODEL, genre: 'history', audience: 'curious adults' } as any,
+      format,
+      standards: '',
+      avoid: [],
+      apiKeys: {},
+      slug: 'lineup-ideas',
+      pipelineModelPolicy: {
+        mode: 'single', models: [MODEL], assigned_model: MODEL,
+        wait_for_availability: true,
+      },
+      pipelinePolicyCheckpoint: {
+        read: key => checkpoints[key],
+        write: async (key, value) => { checkpoints[key] = value },
+      },
+      pipelinePolicyCheckpointKey: 'lineup-ideas:ideas:1',
+      requestIdentity: 'lineup-ideas:ideas:1',
+      preparePrompt: () => 'FROZEN IDEAS PROMPT',
+    })
+
+    assert.equal(result[0]?.title, 'The Saffron Ledger and Coastal Trade')
+    assert.match(String((env.service.submissions[0]?.parsedBody?.input as any[])?.[0]?.content), /FROZEN IDEAS PROMPT/)
+    assert.equal(checkpoints['lineup-ideas:ideas:1']?.status, 'succeeded')
+  } finally {
+    await env.close()
+  }
+})

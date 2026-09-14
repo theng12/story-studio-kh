@@ -31,6 +31,8 @@
       </p>
     </div>
 
+    <InheritedLlmLineupNotice :project-slug="slug" />
+
     <!-- v1.0.296 — inline rescan-from-disk affordance, parity with audio.vue.
          Surfaces only once we KNOW the script is missing (statusKnown && !scriptReady),
          NOT during the loading window — so a script that's actually on disk but

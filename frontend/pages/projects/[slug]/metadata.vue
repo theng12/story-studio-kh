@@ -34,6 +34,8 @@
       </p>
     </div>
 
+    <InheritedLlmLineupNotice :project-slug="slug" />
+
     <!-- v1.0.298 — persistent generation feedback. The button spinner covers
          "is it running"; this row covers "is it done, and did it work" AFTER
          the spinner clears + the transient toast fades. Running → live status;

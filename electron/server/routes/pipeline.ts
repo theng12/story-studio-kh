@@ -47,7 +47,10 @@ import {
 } from '../lib/disk.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
-import { listChatModels, listTranscriptionModels, type GenStudioChatModel } from '../lib/genstudio-client.js'
+import { lineupModelPolicies, applyLlmLineupSnapshot, replaceRetiredLineupModels } from '../services/llm-lineup.js'
+import { normalizeLlmLineup } from '../contracts/llm-lineup.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
+import { listChatModels, listTranscriptionModels } from '../lib/genstudio-client.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
@@ -1660,13 +1663,24 @@ async function validatePipelinePoliciesAgainstCatalogue(policies: PipelineModelP
   } catch {
     return 'model_policies could not be checked against GenStudio’s live language-model catalogue. Nothing was started; retry when the catalogue is reachable.'
   }
-  const errors = validatePipelineModelCatalogue(policies, catalogue)
+  Object.assign(policies, replaceRetiredLineupModels({ pipeline_model_policy: policies }, catalogue).pipeline_model_policy)
+  const explicit = Object.fromEntries(Object.entries(policies).filter(([, policy]) => !policy?.wait_for_availability))
+  const errors = validatePipelineModelCatalogue(explicit, catalogue)
   const structuredStages = new Set<PipelineModelPolicyStage>(['research', 'image_prompts', 'scene_plan', 'contextual_cues'])
-  const byId = new Map(catalogue.map(model => [model.id, model]))
   for (const [stage, policy] of Object.entries(policies) as Array<[PipelineModelPolicyStage, PipelineModelPolicies[PipelineModelPolicyStage]]>) {
     if (!policy) continue
+    if (policy.wait_for_availability) {
+      const eligible = policy.models.some(modelId => {
+        const model = findGenStudioProduct(catalogue, modelId)
+        return model && !model.locked && !model.qualification_only
+          && (!model.available || (model.max_output_tokens > 0
+            && (!structuredStages.has(stage) || (model.supports_structured_output && model.structured_output_mode !== 'none'))))
+      })
+      if (!eligible) errors.push(`LLM lineup has no published model compatible with ${stage}. Update the lineup before starting this stage.`)
+      continue
+    }
     for (const modelId of policy.models) {
-      const model = byId.get(modelId) as GenStudioChatModel | undefined
+      const model = findGenStudioProduct(catalogue, modelId)
       if (!model) continue
       if (model.locked === true) {
         errors.push(`model_policies.${stage}: product "${modelId}" is locked for this account`)
@@ -1685,6 +1699,18 @@ async function validatePipelinePoliciesAgainstCatalogue(policies: PipelineModelP
     }
   }
   return errors.length ? errors.join('; ') : null
+}
+
+async function inheritSavedPipelineLineup(slug: string, parsed: ReturnType<typeof parseBatchRequest>) {
+  const lineup = normalizeLlmLineup((await pm.getConfig(slug))?.llm_lineup)
+  const inherited = lineupModelPolicies(lineup)
+  const stages = new Set<string>(parsed.steps)
+  if (stages.has('script-only')) stages.add('introduction-only')
+  parsed.modelPolicies = {
+    ...Object.fromEntries(Object.entries(inherited).filter(([stage]) => stages.has(stage))),
+    ...parsed.modelPolicies,
+  }
+  return lineup
 }
 
 function stableJson(value: unknown): string {
@@ -1784,6 +1810,7 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   const parsed = parseBatchRequest(req.body)
+  await inheritSavedPipelineLineup(slug, parsed)
   const { episodeIds, steps: requestedSteps, force } = parsed
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
@@ -1818,6 +1845,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const parsed = parseBatchRequest(req.body)
+  const lineup = await inheritSavedPipelineLineup(slug, parsed)
   const { episodeIds: episode_ids, steps: requestedSteps, force, repairMissing, actionId, operationId, modelPolicies } = parsed
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
@@ -2227,7 +2255,10 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       continue
     }
 
-    const [first, ...rest] = chain
+    // Freeze the complete run before any asynchronous handoff or config edit.
+    const [first, ...rest] = chain.map(step => ({
+      ...step, params: applyLlmLineupSnapshot(step.type, episodeId, step.params, lineup),
+    }))
 
     // Scene Review and Pipeline share one episode-wide render owner. If the
     // user already started images from Scene Review, join this Pipeline's

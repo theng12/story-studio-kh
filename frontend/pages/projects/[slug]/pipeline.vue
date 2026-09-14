@@ -56,6 +56,8 @@
       </WorkspaceNotice>
     </div>
 
+    <LlmLineupEditor :key="slug" :project-slug="slug" @loaded="onLlmLineupLoaded" @saved="onLlmLineupSaved" />
+
     <!-- ── Steps to run ─────────────────────────────────────────────────── -->
     <WorkspaceSection
       eyebrow="Stage selection"
@@ -1048,6 +1050,15 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   video_assembly: false,
 })
 
+interface SavedLlmLineup {
+  enabled: boolean
+  models: string[]
+  prefer_savings: boolean
+}
+const savedLlmLineup = ref<SavedLlmLineup>({ enabled: false, models: [], prefer_savings: true })
+function onLlmLineupLoaded(lineup: SavedLlmLineup): void { savedLlmLineup.value = { ...lineup, models: [...lineup.models] } }
+function onLlmLineupSaved(lineup: SavedLlmLineup): void { savedLlmLineup.value = { ...lineup, models: [...lineup.models] } }
+
 type EligibleModelPolicyStep = Extract<StepId,
   'script-only' | 'introduction-only' | 'research' | 'metadata' | 'image_prompts' | 'scene_plan' | 'contextual_cues'>
 type ModelPolicyMode = 'single' | 'distribute' | 'backup'
@@ -1200,13 +1211,23 @@ function modelCandidateLabel(stepId: StepId, index: number): string {
   if (policy?.mode === 'backup') return index === 0 ? 'Primary model' : `Backup ${index}`
   return policy?.mode === 'distribute' ? `Model ${index + 1}` : 'Model'
 }
-function modelPoliciesForRun(): Partial<Record<EligibleModelPolicyStep, { mode: ModelPolicyMode; models: string[] }>> {
-  const result: Partial<Record<EligibleModelPolicyStep, { mode: ModelPolicyMode; models: string[] }>> = {}
+type RunModelPolicy = { mode: ModelPolicyMode; models: string[]; wait_for_availability?: true; prefer_savings?: boolean }
+function modelPoliciesForRun(): Partial<Record<EligibleModelPolicyStep, RunModelPolicy>> {
+  const result: Partial<Record<EligibleModelPolicyStep, RunModelPolicy>> = {}
   for (const step of checkedStepsOrdered.value) {
     const policy = modelPolicyFor(step.id)
-    if (policy?.enabled && !modelPolicyError(step.id)) result[step.id as EligibleModelPolicyStep] = {
-      mode: policy.mode,
-      models: [...policy.models],
+    if (policy?.enabled && !modelPolicyError(step.id)) {
+      result[step.id as EligibleModelPolicyStep] = {
+        mode: policy.mode,
+        models: [...policy.models],
+      }
+    } else if (savedLlmLineup.value.enabled && savedLlmLineup.value.models.length) {
+      result[step.id as EligibleModelPolicyStep] = {
+        mode: savedLlmLineup.value.models.length >= 2 ? 'backup' : 'single',
+        models: [...savedLlmLineup.value.models],
+        wait_for_availability: true,
+        prefer_savings: savedLlmLineup.value.prefer_savings,
+      }
     }
   }
   return result
@@ -1220,7 +1241,10 @@ const modelPolicyRunSummary = computed(() => Object.entries(modelPoliciesForRun(
 
 // These choices apply only to the current batch. A project change must never
 // carry one channel's explicit products into another channel's request.
-watch(slug, resetModelPolicies)
+watch(slug, () => {
+  resetModelPolicies()
+  savedLlmLineup.value = { enabled: false, models: [], prefer_savings: true }
+})
 
 const channelIntroEnabled = ref(false)
 async function loadChannelIntroduction(): Promise<void> {

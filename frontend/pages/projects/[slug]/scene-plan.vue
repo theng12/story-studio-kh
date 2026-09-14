@@ -56,6 +56,8 @@
       </TopActionBar>
     </div>
 
+    <InheritedLlmLineupNotice :project-slug="slug" />
+
     <EpisodeVisualSource
       v-if="episodeId"
       :slug="slug"

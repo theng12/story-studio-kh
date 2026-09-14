@@ -1,7 +1,9 @@
 import { createHash } from 'crypto'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
+import { findGenStudioProduct, type GenStudioProductIdentity } from '../contracts/genstudio-product-identity.js'
 
 export const PIPELINE_MODEL_POLICY_STAGES = [
+  'ideas',
   'script-only',
   'introduction-only',
   'research',
@@ -17,13 +19,17 @@ export type PipelineModelPolicyMode = 'single' | 'distribute' | 'backup'
 export interface PipelineModelPolicy {
   mode: PipelineModelPolicyMode
   models: string[]
+  /** Shared LLM lineups may wait for a published temporary availability window. */
+  wait_for_availability?: true
+  /** Shared LLM lineups rank free and discounted products from the live catalog. */
+  prefer_savings?: boolean
 }
 
 export interface AssignedPipelineModelPolicy extends PipelineModelPolicy {
   assigned_model: string
 }
 
-export type PipelinePolicyAttemptStatus = 'in_flight' | 'accepted' | 'succeeded' | 'failed_unaccepted' | 'unknown' | 'exhausted'
+export type PipelinePolicyAttemptStatus = 'in_flight' | 'accepted' | 'succeeded' | 'failed_unaccepted' | 'failed_terminal' | 'unknown' | 'waiting' | 'exhausted'
 export interface PipelinePolicyAttemptCheckpoint {
   input_fingerprint: string
   candidates: string[]
@@ -31,7 +37,22 @@ export interface PipelinePolicyAttemptCheckpoint {
   candidate_model: string
   status: PipelinePolicyAttemptStatus
   idempotency_key?: string
+  /** Per-candidate replacement lineage after a proved zero-settlement quota stop. */
+  retry_epochs?: number[]
+  /** A GenStudio-published availability time, or this app's bounded local recheck time. */
+  retry_at?: string
   updated_at: string
+}
+
+/** The live fields a shared LLM lineup may use to order a new logical request. */
+export interface LlmLineupCatalogModel extends GenStudioProductIdentity {
+  input_credits_per_million_tokens?: number
+  output_credits_per_million_tokens?: number
+  minimum_credits?: number
+  standard_input_credits_per_million_tokens?: number | null
+  standard_output_credits_per_million_tokens?: number | null
+  standard_minimum_credits?: number | null
+  discount?: boolean
 }
 
 export interface PipelinePolicyCheckpointStore {
@@ -44,7 +65,7 @@ export type PipelineModelPolicies = Partial<Record<PipelineModelPolicyStage, Pip
 const STAGE_SET = new Set<string>(PIPELINE_MODEL_POLICY_STAGES)
 const MODES = new Set<PipelineModelPolicyMode>(['single', 'distribute', 'backup'])
 const ATTEMPT_STATUSES = new Set<PipelinePolicyAttemptStatus>([
-  'in_flight', 'accepted', 'succeeded', 'failed_unaccepted', 'unknown', 'exhausted',
+  'in_flight', 'accepted', 'succeeded', 'failed_unaccepted', 'failed_terminal', 'unknown', 'waiting', 'exhausted',
 ])
 
 /** Accept only a complete, self-consistent persisted attempt record. */
@@ -58,12 +79,17 @@ export function readPipelinePolicyAttemptCheckpoint(value: unknown): PipelinePol
     || typeof candidate.candidate_model !== 'string' || !candidate.candidate_model
     || typeof candidate.status !== 'string' || !ATTEMPT_STATUSES.has(candidate.status as PipelinePolicyAttemptStatus)
     || typeof candidate.updated_at !== 'string' || !candidate.updated_at
-    || (candidate.idempotency_key !== undefined && (typeof candidate.idempotency_key !== 'string' || !candidate.idempotency_key))) {
+    || (candidate.idempotency_key !== undefined && (typeof candidate.idempotency_key !== 'string' || !candidate.idempotency_key))
+    || (candidate.retry_epochs !== undefined && (!Array.isArray(candidate.retry_epochs)
+      || candidate.retry_epochs.length !== candidate.candidates.length
+      || candidate.retry_epochs.some(epoch => typeof epoch !== 'number' || !Number.isSafeInteger(epoch) || epoch < 0)))
+    || (candidate.retry_at !== undefined && (typeof candidate.retry_at !== 'string' || !candidate.retry_at))) {
     return null
   }
   const index = candidateIndex as number
   if (candidate.candidates[index] !== candidate.candidate_model) return null
   if (candidate.status === 'accepted' && !candidate.idempotency_key) return null
+  if (candidate.status === 'waiting' && !candidate.retry_at) return null
   return candidate as unknown as PipelinePolicyAttemptCheckpoint
 }
 
@@ -109,7 +135,18 @@ export function normalizePipelineModelPolicies(value: unknown): PipelineModelPol
     if ((mode === 'distribute' || mode === 'backup') && normalized.length < 2) {
       throw new Error(`model_policies.${stage}.${mode} requires at least two products`)
     }
-    result[stage as PipelineModelPolicyStage] = { mode: mode as PipelineModelPolicyMode, models: normalized }
+    if (candidate.wait_for_availability !== undefined && candidate.wait_for_availability !== true) {
+      throw new Error(`model_policies.${stage}.wait_for_availability must be true when set`)
+    }
+    if (candidate.prefer_savings !== undefined && typeof candidate.prefer_savings !== 'boolean') {
+      throw new Error(`model_policies.${stage}.prefer_savings must be a boolean when set`)
+    }
+    result[stage as PipelineModelPolicyStage] = {
+      mode: mode as PipelineModelPolicyMode,
+      models: normalized,
+      ...(candidate.wait_for_availability === true ? { wait_for_availability: true } : {}),
+      ...(typeof candidate.prefer_savings === 'boolean' ? { prefer_savings: candidate.prefer_savings } : {}),
+    }
   }
   return result
 }
@@ -167,7 +204,12 @@ export function pipelinePolicyForJob(jobParams: unknown, stage: PipelineModelPol
   if (typeof candidate.assigned_model !== 'string' || !candidate.assigned_model.trim()) return null
   try {
     const policy = normalizePipelineModelPolicies({
-      [stage]: { mode: candidate.mode, models: candidate.models },
+      [stage]: {
+        mode: candidate.mode,
+        models: candidate.models,
+        ...(candidate.wait_for_availability === true ? { wait_for_availability: true } : {}),
+        ...(typeof candidate.prefer_savings === 'boolean' ? { prefer_savings: candidate.prefer_savings } : {}),
+      },
     })[stage]
     const assignedModel = resolveGenStudioModelId('chat', candidate.assigned_model)
     if (!policy || !assignedModel || !policy.models.includes(assignedModel)) return null
@@ -177,16 +219,57 @@ export function pipelinePolicyForJob(jobParams: unknown, stage: PipelineModelPol
   }
 }
 
+/**
+ * Return the authored execution order, or its live price-aware order for a
+ * shared lineup. This resolves aliases only for inspection: the saved product
+ * string remains the string sent to GenStudio and folded into its request key.
+ */
+export function rankedPipelineModelCandidates(
+  policy: AssignedPipelineModelPolicy,
+  catalogue: readonly LlmLineupCatalogModel[],
+): string[] {
+  const candidates = policy.mode === 'backup'
+    ? [policy.assigned_model, ...policy.models.filter(model => model !== policy.assigned_model)]
+    : [policy.assigned_model]
+  if (policy.prefer_savings !== true) return candidates
+
+  const priceGroup = (savedModelId: string): number => {
+    const product = findGenStudioProduct(catalogue, savedModelId)
+    // Price is only free when both effective token rates are published and
+    // zero. A missing rate is not a zero rate and remains in authored order.
+    if (product
+      && product.input_credits_per_million_tokens === 0
+      && product.output_credits_per_million_tokens === 0
+      && product.minimum_credits === 0) return 0
+    const promotion = !!product && (
+      (typeof product.standard_input_credits_per_million_tokens === 'number'
+        && typeof product.input_credits_per_million_tokens === 'number'
+        && product.standard_input_credits_per_million_tokens > product.input_credits_per_million_tokens)
+      || (typeof product.standard_output_credits_per_million_tokens === 'number'
+        && typeof product.output_credits_per_million_tokens === 'number'
+        && product.standard_output_credits_per_million_tokens > product.output_credits_per_million_tokens)
+      || (typeof product.standard_minimum_credits === 'number'
+        && typeof product.minimum_credits === 'number'
+        && product.standard_minimum_credits > product.minimum_credits)
+    )
+    if (product?.discount === true || promotion) return 1
+    return 2
+  }
+  return candidates
+    .map((model, index) => ({ model, index, group: priceGroup(model) }))
+    .sort((left, right) => left.group - right.group || left.index - right.index)
+    .map(item => item.model)
+}
+
 /** Return blocking catalogue messages for an already-normalized policy. */
 export function validatePipelineModelCatalogue(
   policies: PipelineModelPolicies,
   catalogue: Array<{ id: string; available: boolean; qualification_only: boolean }>,
 ): string[] {
-  const byId = new Map(catalogue.map(model => [model.id, model]))
   const errors: string[] = []
   for (const [stage, policy] of Object.entries(policies)) {
     for (const modelId of policy?.models || []) {
-      const model = byId.get(modelId)
+      const model = findGenStudioProduct(catalogue, modelId)
       if (!model) errors.push(`model_policies.${stage}: product "${modelId}" is not in the live GenStudio catalogue`)
       // A temporarily unavailable row remains a valid explicit backup
       // candidate: the shared client may switch only after GenStudio proves

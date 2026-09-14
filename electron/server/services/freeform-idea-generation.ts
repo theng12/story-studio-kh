@@ -3,7 +3,8 @@
  * formula-only campaign jobs use this prompt, provider contract, and parser.
  * Topic Pack campaigns intentionally keep their structured planner path.
  */
-import { callAiWithRetry } from '../lib/ai-client.js'
+import { callAiWithModelPolicy, callAiWithRetry, type CallAiContext } from '../lib/ai-client.js'
+import type { AssignedPipelineModelPolicy, PipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 import { type Format, type GenerateIdeasRequest } from '../models/types.js'
 import { ideaOutputTokenBudget } from './idea-output-budget.js'
 import { ideaBatchOutputContract } from '../lib/story-output-contracts.js'
@@ -363,6 +364,14 @@ export interface GenerateFreeformIdeaBatchInput {
   topPerformersBlock?: string
   extraAvoidNote?: string
   onPrompt?: (prompt: string) => void
+  /** Explicit shared-lineup policy for queued campaign batches. */
+  pipelineModelPolicy?: AssignedPipelineModelPolicy
+  pipelinePolicyCheckpoint?: PipelinePolicyCheckpointStore
+  pipelinePolicyCheckpointKey?: string
+  pipelinePolicyInputFingerprint?: string
+  requestIdentity?: string
+  /** Reuse a prompt persisted before a lineup availability wait. */
+  preparePrompt?: () => string
 }
 
 /**
@@ -370,22 +379,29 @@ export interface GenerateFreeformIdeaBatchInput {
  * similarity filtering, and any durable campaign provenance.
  */
 export async function generateFreeformIdeaBatch(input: GenerateFreeformIdeaBatchInput): Promise<any[]> {
-  const prompt = buildFreeformIdeaPrompt(
-    input.request,
-    input.format,
-    input.standards,
-    input.avoid,
-    input.extraAvoidNote,
-    input.titleTemplate,
-    input.topPerformersBlock,
-  )
+  const prompt = input.preparePrompt?.() || buildFreeformIdeaPrompt(
+      input.request,
+      input.format,
+      input.standards,
+      input.avoid,
+      input.extraAvoidNote,
+      input.titleTemplate,
+      input.topPerformersBlock,
+    )
   input.onPrompt?.(prompt)
-  const raw = await callAiWithRetry(input.request.model, '', prompt, input.apiKeys, false, {
+  const context: CallAiContext = {
     slug: input.slug,
     jobId: input.jobId,
     signal: input.signal,
     outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(input.request.count) },
     outputContract: ideaBatchOutputContract(),
-  })
+    requestIdentity: input.requestIdentity,
+    pipelinePolicyCheckpoint: input.pipelineModelPolicy ? input.pipelinePolicyCheckpoint : undefined,
+    pipelinePolicyCheckpointKey: input.pipelinePolicyCheckpointKey,
+    pipelinePolicyInputFingerprint: input.pipelinePolicyInputFingerprint,
+  }
+  const raw = input.pipelineModelPolicy
+    ? await callAiWithModelPolicy(input.pipelineModelPolicy, '', prompt, input.apiKeys, false, context)
+    : await callAiWithRetry(input.request.model, '', prompt, input.apiKeys, false, context)
   return parseFreeformIdeas(raw)
 }

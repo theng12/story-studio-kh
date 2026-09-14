@@ -114,18 +114,6 @@ describe('the JSON call sites declare their contract', () => {
       declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
     },
     {
-      what: '4 · shared freeform idea generation',
-      file: 'services/freeform-idea-generation.ts',
-      anchor: 'const raw = await callAiWithRetry(input.request.model,',
-      declares: 'outputContract: ideaBatchOutputContract()',
-    },
-    {
-      what: '5 · idea campaign',
-      file: 'generators/idea-campaign.ts',
-      anchor: 'raw = await callAiWithRetry(request.model,',
-      declares: 'outputContract: ideaCampaignOutputContract(',
-    },
-    {
       what: '6 · metadata template placeholder extraction',
       file: 'generators/metadata.ts',
       // Metadata's policy-aware caller delegates to callAiWithRetry when no
@@ -160,6 +148,23 @@ describe('the JSON call sites declare their contract', () => {
         region.includes(site.declares),
         `${site.file}: this request is parsed as JSON but no longer declares ${site.declares}`,
       )
+    })
+  }
+
+  for (const [file, contract] of [
+    ['services/freeform-idea-generation.ts', 'ideaBatchOutputContract'],
+    ['generators/idea-campaign.ts', 'ideaCampaignOutputContract'],
+  ]) {
+    test(`${file}: both lineup and ordinary calls carry the same JSON contract`, () => {
+      const text = source(file!)
+      const start = text.indexOf('const context: CallAiContext = {')
+      const end = text.indexOf('const raw =', start)
+      assert.ok(start >= 0 && end > start, 'shared request context must precede dispatch')
+      assert.ok(text.slice(start, end).includes(`outputContract: ${contract}(`))
+      for (const caller of ['callAiWithModelPolicy', 'callAiWithRetry']) {
+        assert.match(callRegion(file!, `await ${caller}(`), /, context\)$/,
+          `${caller} must receive the context declaring the JSON contract`)
+      }
     })
   }
 
@@ -298,7 +303,7 @@ describe('the prose call sites are left alone', () => {
     for (const ctx of contexts) {
       assert.ok(!ctx.includes('outputContract'), 'chapter expansion output is markdown, never JSON')
     }
-    assert.ok(!callRegion('lib/chunked-narration.ts', 'const repairText = await withModelFallback(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(').includes('outputContract'))
+    assert.ok(!callRegion('lib/chunked-narration.ts', 'const repairText = await withModelFallback(').includes('outputContract'))
     // The one JSON call expansion depends on keeps its contract, passed as its
     // own argument rather than on the shared ctx above.
     //
