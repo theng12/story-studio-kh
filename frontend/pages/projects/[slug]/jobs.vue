@@ -1383,6 +1383,10 @@ function formatGenStudioQueueEta(seconds: number): string {
  * substitute when the provider did not publish one.
  */
 function genStudioQueueDetail(job: RJob): string {
+  const lineupRetryAt = job.params?.llm_lineup_retry_at
+  if (job.status === 'queued' && typeof lineupRetryAt === 'string' && Number.isFinite(Date.parse(lineupRetryAt))) {
+    return `Waiting for model availability. Story Studio will check again ${new Date(lineupRetryAt).toLocaleString()}. Completed work is kept; no local worker is held while waiting.`
+  }
   const remote = latestActiveGenStudioRequest(job)
   if (!remote) return ''
   const activeRequestCount = (job.genstudio_jobs || []).filter(item => {

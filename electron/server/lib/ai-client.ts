@@ -7,6 +7,7 @@
  * GenStudio credentials are read from the app-level secure store.
  */
 
+import { createHash } from 'crypto'
 import { registry } from '../providers/registry.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
@@ -22,18 +23,147 @@ import {
   GenStudioChatProductUnavailableError,
   GenStudioChatTerminalFailureError,
   hasFullyReleasedZeroSettlement,
+  isGenStudioLanguageQuotaExhausted,
   isGenStudioSubmissionUncertain,
   listChatModels,
 } from './genstudio-client.js'
 import { resolveOutputTokenBudget } from '../services/output-token-budget.js'
 import {
   pipelinePolicyInputFingerprint,
+  rankedPipelineModelCandidates,
   readPipelinePolicyAttemptCheckpoint,
   type AssignedPipelineModelPolicy,
   type PipelinePolicyAttemptCheckpoint,
   type PipelinePolicyCheckpointStore,
 } from './pipeline-model-policy.js'
 import type { GenStudioRequestPreview } from './genstudio-request-preview.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
+
+/** A short local recheck when GenStudio confirms temporary exhaustion but gives no reset time. */
+export const LLM_LINEUP_LOCAL_RECHECK_MS = 60_000
+
+/** A queue-safe pause for a shared lineup; workers must park rather than sleep. */
+export class LlmLineupWaitingError extends Error {
+  readonly retryAt: string
+
+  constructor(retryAt: string, message = 'Every eligible model in this LLM lineup is temporarily unavailable.') {
+    super(`${message} Recheck at ${retryAt}.`)
+    this.name = 'LlmLineupWaitingError'
+    this.retryAt = retryAt
+  }
+}
+
+export function isLlmLineupWaitingError(error: unknown): error is LlmLineupWaitingError {
+  return error instanceof LlmLineupWaitingError
+}
+
+type SharedLlmLineupAvailability = {
+  retryAt: string
+  reason: 'daily_quota_depleted' | 'temporary_backpressure'
+}
+
+const sharedLlmLineupAvailability = new Map<string, SharedLlmLineupAvailability>()
+const resolvedLlmLineupModels = new Map<string, string>()
+
+function sharedAvailabilityKey(accountId: string | undefined, modelId: string): string {
+  return `${accountId?.trim() || 'default'}:${modelId.trim().toLowerCase()}`
+}
+
+/** Never place a credential in a cooldown key or log; its stable digest scopes this process cache. */
+export function llmLineupAvailabilityScope(apiKey: string, accountId?: string): string {
+  if (accountId?.trim()) return accountId.trim()
+  return `key:${createHash('sha256').update(apiKey).digest('hex')}`
+}
+
+/**
+ * A replacement identity exists only after GenStudio durably proved the prior
+ * request was uncharged and fully released. It is deterministic from the
+ * checkpointed epoch, so a later restart resumes this replacement instead of
+ * creating another one.
+ */
+export function llmLineupAttemptRequestIdentity(
+  requestIdentity: string | undefined,
+  checkpointKey: string,
+  modelId: string,
+  retryEpoch: number,
+): string | undefined {
+  if (retryEpoch < 1) return requestIdentity
+  const base = requestIdentity?.trim() || checkpointKey
+  const modelDigest = createHash('sha256').update(modelId).digest('hex').slice(0, 12)
+  return `${base}:lineup:${modelDigest}:retry-${retryEpoch}`
+}
+
+function localAvailabilityRecheckAt(): string {
+  return new Date(Date.now() + LLM_LINEUP_LOCAL_RECHECK_MS).toISOString()
+}
+
+/**
+ * Resolve a saved wire id against the live catalogue without replacing it.
+ * The account/model cooldown is deliberately per product, never a guessed
+ * shared upstream quota pool.
+ */
+export function resolveLivePipelineModel(
+  savedModelId: string,
+  catalogue: readonly GenStudioChatModel[],
+  options: { accountId?: string; shareTemporaryAvailability?: boolean } = {},
+): GenStudioChatModel {
+  const model = findGenStudioProduct(catalogue, savedModelId)
+  if (!model || model.qualification_only) throw new GenStudioChatProductUnavailableError(savedModelId)
+  const canonicalKey = sharedAvailabilityKey(options.accountId, model.id)
+  const savedKey = sharedAvailabilityKey(options.accountId, savedModelId)
+  const reason = model.availability_reason === 'daily_quota_depleted' || model.availability_reason === 'temporary_backpressure'
+    ? model.availability_reason
+    : null
+  const publishedRetryAt = model.available_again_at && Date.parse(model.available_again_at) > Date.now()
+    ? model.available_again_at
+    : null
+  if (options.shareTemporaryAvailability === true) {
+    resolvedLlmLineupModels.set(savedKey, model.id)
+    // A live catalogue timestamp is GenStudio's fact and supersedes a local
+    // recheck left by an earlier terminal quota result.
+    if (!model.available && reason && publishedRetryAt) {
+      const value: SharedLlmLineupAvailability = { retryAt: publishedRetryAt, reason }
+      sharedLlmLineupAvailability.set(canonicalKey, value)
+      sharedLlmLineupAvailability.set(savedKey, value)
+      throw new GenStudioChatProductUnavailableError(savedModelId, { reason, availableAgainAt: publishedRetryAt })
+    }
+    const cached = sharedLlmLineupAvailability.get(canonicalKey) || sharedLlmLineupAvailability.get(savedKey)
+    if (cached && Date.parse(cached.retryAt) > Date.now()) {
+      const effectiveReason = !model.available && reason ? reason : cached.reason
+      const value: SharedLlmLineupAvailability = { retryAt: cached.retryAt, reason: effectiveReason }
+      sharedLlmLineupAvailability.set(canonicalKey, value)
+      sharedLlmLineupAvailability.set(savedKey, value)
+      throw new GenStudioChatProductUnavailableError(savedModelId, { reason: effectiveReason, availableAgainAt: cached.retryAt })
+    }
+    if (cached) {
+      sharedLlmLineupAvailability.delete(canonicalKey)
+      sharedLlmLineupAvailability.delete(savedKey)
+    }
+  }
+  if (model.available) {
+    return model
+  }
+  const retryAt = reason
+    ? publishedRetryAt || localAvailabilityRecheckAt()
+    : null
+  if (reason && options.shareTemporaryAvailability === true && retryAt) {
+    const value: SharedLlmLineupAvailability = { retryAt, reason }
+    sharedLlmLineupAvailability.set(canonicalKey, value)
+    sharedLlmLineupAvailability.set(savedKey, value)
+  }
+  throw new GenStudioChatProductUnavailableError(savedModelId, { reason, availableAgainAt: retryAt })
+}
+
+function noteLlmLineupQuotaExhaustion(accountScope: string | undefined, savedModelId: string): string {
+  const savedKey = sharedAvailabilityKey(accountScope, savedModelId)
+  const canonicalModelId = resolvedLlmLineupModels.get(savedKey) || savedModelId
+  const canonicalKey = sharedAvailabilityKey(accountScope, canonicalModelId)
+  const retryAt = localAvailabilityRecheckAt()
+  const value: SharedLlmLineupAvailability = { retryAt, reason: 'daily_quota_depleted' }
+  sharedLlmLineupAvailability.set(savedKey, value)
+  sharedLlmLineupAvailability.set(canonicalKey, value)
+  return retryAt
+}
 
 export interface CallAiContext {
   /** Project slug — enables account-aware key resolution. */
@@ -86,6 +216,8 @@ export interface CallAiContext {
   onRequestPrepared?: (idempotencyKey: string) => void | Promise<void>
   /** Durable Pipeline candidate checkpoint, supplied by a job executor. */
   pipelinePolicyCheckpoint?: PipelinePolicyCheckpointStore
+  /** Internal only: a shared lineup, not the legacy paid replacement, owns fallback. */
+  policyOwnsFallback?: boolean
   /** Stable key for this logical request; falls back to requestIdentity. */
   pipelinePolicyCheckpointKey?: string
   pipelinePolicyInputFingerprint?: string
@@ -154,6 +286,7 @@ export async function callAi(
     recoveryRequestPreview: ctx.recoveryRequestPreview,
     idempotencyKey: ctx.idempotencyKey,
     allowedRecoveryKeys: ctx.allowedRecoveryKeys,
+    policyOwnsFallback: ctx.policyOwnsFallback === true,
     onDiagnostics: ctx.onDiagnostics,
     onJobAccepted: ctx.onJobAccepted,
     onRequestPrepared: ctx.onRequestPrepared,
@@ -260,14 +393,24 @@ export async function callAiWithModelPolicy(
 ): Promise<string> {
   const fingerprint = ctx.pipelinePolicyInputFingerprint || pipelinePolicyInputFingerprint({ system, userMsg, outputBudget: ctx.outputBudget, maxTokens: ctx.maxTokens, outputContract: ctx.outputContract, images: ctx.images })
   const checkpointKey = ctx.pipelinePolicyCheckpointKey || ctx.requestIdentity || 'pipeline-request'
-  return executePipelineModelPolicy(policy, async (candidate, recovery, checkpointAccepted, checkpointPrepared) => {
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  const availabilityScope = apiKey ? llmLineupAvailabilityScope(apiKey, ctx.accountId) : ctx.accountId
+  const saved = ctx.pipelinePolicyCheckpoint
+    ? readPipelinePolicyAttemptCheckpoint(ctx.pipelinePolicyCheckpoint.read(checkpointKey))
+    : null
+  // A saved attempt can be a read-only recovery. It must never require a
+  // currently reachable catalogue before it reconnects to its own request.
+  const catalogue = apiKey && !saved ? await listChatModels(apiKey) : []
+  const candidateOrder = rankedPipelineModelCandidates(policy, catalogue)
+  return executePipelineModelPolicy(policy, async (candidate, recovery, checkpointAccepted, checkpointPrepared, retryEpoch) => {
     // Reattachment is a GET by the durable provider key. Do not re-size or
     // re-validate the old request against a catalogue that may have changed
     // after its POST; that would strand a request whose key we already saved.
     if (!recovery?.idempotencyKey) {
-      const apiKey = await getApiKey('genstudio').catch(() => '')
-      const live = apiKey ? (await listChatModels(apiKey)).find(model => model.id === candidate) : null
-      if (!live || !live.available) throw new GenStudioChatProductUnavailableError(candidate)
+      const live = resolveLivePipelineModel(candidate, apiKey ? await listChatModels(apiKey) : [], {
+        accountId: availabilityScope,
+        shareTemporaryAvailability: policy.wait_for_availability === true,
+      })
       assertPipelineModelRequestCapabilities(live, ctx)
       await ctx.beforeModelAttempt?.(candidate)
     }
@@ -283,8 +426,12 @@ export async function callAiWithModelPolicy(
     const attemptContext: CallAiContext = recovery?.idempotencyKey
       ? { ...ctx, ...(ctx.allowUncreatedRecovery ? { recoverByIdempotencyKey: false } : { recoverByIdempotencyKey: true }), idempotencyKey: recovery.idempotencyKey, allowedRecoveryKeys: [recovery.idempotencyKey], onJobAccepted, onRequestPrepared }
       : { ...ctx, onJobAccepted, onRequestPrepared }
-    return callAiWithRetry(candidate, system, userMsg, apiKeys, stream, attemptContext)
-  }, ctx.pipelinePolicyCheckpoint, checkpointKey, fingerprint)
+    return callAiWithRetry(candidate, system, userMsg, apiKeys, stream, {
+      ...attemptContext,
+      requestIdentity: llmLineupAttemptRequestIdentity(ctx.requestIdentity, checkpointKey, candidate, retryEpoch || 0),
+      policyOwnsFallback: policy.wait_for_availability === true,
+    })
+  }, ctx.pipelinePolicyCheckpoint, checkpointKey, fingerprint, { candidates: candidateOrder, availabilityScope })
 }
 
 /** Shared bounded candidate loop for adapters that call GenStudio directly. */
@@ -295,17 +442,25 @@ export async function executePipelineModelPolicy<T>(
     recovery?: { idempotencyKey: string },
     checkpointAccepted?: (idempotencyKey: string) => Promise<void>,
     checkpointPrepared?: (idempotencyKey: string) => Promise<void>,
+    retryEpoch?: number,
   ) => Promise<T>,
   checkpoint?: PipelinePolicyCheckpointStore,
   checkpointKey = 'pipeline-request',
   inputFingerprint = '',
+  options: { candidates?: string[]; availabilityScope?: string } = {},
 ): Promise<T> {
   const assigned = policy.assigned_model
-  const candidates = policy.mode === 'backup'
+  const policyCandidates = policy.mode === 'backup'
     ? [assigned, ...policy.models.filter(model => model !== assigned)]
     : [assigned]
-  if (policy.mode === 'backup' && !checkpoint) {
-    throw new Error('Pipeline backup policy requires durable checkpoint storage before any candidate can run.')
+  const orderedCandidates = options.candidates || policyCandidates
+  if (orderedCandidates.length !== policyCandidates.length
+    || new Set(orderedCandidates).size !== orderedCandidates.length
+    || orderedCandidates.some(candidate => !policyCandidates.includes(candidate))) {
+    throw new Error('Pipeline model policy candidate order does not match the selected products; no candidate was submitted.')
+  }
+  if ((policy.mode === 'backup' || policy.wait_for_availability === true) && !checkpoint) {
+    throw new Error('Pipeline backup or waiting policy requires durable checkpoint storage before any candidate can run.')
   }
   if (checkpoint && !inputFingerprint) {
     throw new Error('Pipeline model policy checkpoint requires an input fingerprint before any candidate can run.')
@@ -315,9 +470,13 @@ export async function executePipelineModelPolicy<T>(
   if (rawSaved !== undefined && rawSaved !== null && !saved) {
     throw new Error('Pipeline model policy checkpoint is invalid; no candidate was submitted.')
   }
+  const orderedCompatibility = saved?.candidates.length === orderedCandidates.length
+    && saved.candidates.every((candidate, index) => candidate === orderedCandidates[index])
+  const lineupMembershipCompatibility = saved?.candidates.length === policyCandidates.length
+    && new Set(saved.candidates).size === saved.candidates.length
+    && saved.candidates.every(candidate => policyCandidates.includes(candidate))
   const compatible = saved && saved.input_fingerprint === inputFingerprint
-    && saved.candidates.length === candidates.length
-    && saved.candidates.every((candidate, index) => candidate === candidates[index])
+    && (policy.prefer_savings === true ? lineupMembershipCompatibility : orderedCompatibility)
     && saved.candidates[saved.candidate_index] === saved.candidate_model
   if (saved && !compatible) {
     throw new Error('Pipeline model policy checkpoint does not match this logical request; no candidate was submitted.')
@@ -325,8 +484,15 @@ export async function executePipelineModelPolicy<T>(
   if (saved?.status === 'exhausted') {
     throw new Error('Every selected Pipeline backup was proved unaccepted; choose a new run before retrying.')
   }
+  if (saved?.status === 'failed_terminal') {
+    throw new Error(`The previously submitted Pipeline request for "${saved.candidate_model}" reached a terminal failure. Start a new run instead of replaying its failed request key.`)
+  }
+  const candidates = compatible && saved ? saved.candidates : orderedCandidates
+  const retryEpochs = compatible && saved?.retry_epochs
+    ? [...saved.retry_epochs]
+    : candidates.map(() => 0)
   const startIndex = compatible && saved
-    ? (saved.status === 'failed_unaccepted' ? saved.candidate_index + 1 : saved.candidate_index)
+    ? (saved.status === 'failed_unaccepted' ? saved.candidate_index + 1 : saved.status === 'waiting' ? 0 : saved.candidate_index)
     : 0
   if (startIndex >= candidates.length) {
     const exhausted = saved!
@@ -334,17 +500,24 @@ export async function executePipelineModelPolicy<T>(
     throw new Error('Every selected Pipeline backup was proved unaccepted; choose a new run before retrying.')
   }
   let lastError: unknown
+  let lineupRetryAt: string | null = null
   for (let candidateIndex = Math.max(0, startIndex); candidateIndex < candidates.length; candidateIndex++) {
     const candidate = candidates[candidateIndex]!
     const previous = compatible && saved && saved.candidate_index === candidateIndex ? saved : null
     let acceptedIdempotencyKey = previous?.idempotency_key
-    const checkpointState = (status: PipelinePolicyAttemptCheckpoint['status'], idempotencyKey?: string): PipelinePolicyAttemptCheckpoint => ({
+    const checkpointState = (
+      status: PipelinePolicyAttemptCheckpoint['status'],
+      idempotencyKey?: string,
+      retryAt?: string,
+    ): PipelinePolicyAttemptCheckpoint => ({
       input_fingerprint: inputFingerprint,
       candidates: [...candidates],
       candidate_index: candidateIndex,
       candidate_model: candidate,
       status,
       ...(idempotencyKey ? { idempotency_key: idempotencyKey } : acceptedIdempotencyKey ? { idempotency_key: acceptedIdempotencyKey } : {}),
+      ...(retryEpochs.some(epoch => epoch > 0) ? { retry_epochs: [...retryEpochs] } : {}),
+      ...(retryAt ? { retry_at: retryAt } : {}),
       updated_at: new Date().toISOString(),
     })
     try {
@@ -368,12 +541,22 @@ export async function executePipelineModelPolicy<T>(
         previous?.idempotency_key ? { idempotencyKey: previous.idempotency_key } : undefined,
         checkpointAccepted,
         checkpointPrepared,
+        retryEpochs[candidateIndex],
       ).then(async result => {
         await checkpoint?.write(checkpointKey, checkpointState('succeeded'))
         return result
       })
     } catch (error) {
       lastError = error
+      const temporaryRetryAt = policy.wait_for_availability === true
+        && error instanceof GenStudioChatProductUnavailableError
+        && error.availabilityReason !== null
+        ? error.availableAgainAt || localAvailabilityRecheckAt()
+        : null
+      const quotaExhausted = policy.wait_for_availability === true && isGenStudioLanguageQuotaExhausted(error)
+      const quotaRetryAt = quotaExhausted ? noteLlmLineupQuotaExhaustion(options.availabilityScope, candidate) : null
+      const availabilityRetryAt = temporaryRetryAt || quotaRetryAt
+      if (availabilityRetryAt && (!lineupRetryAt || availabilityRetryAt < lineupRetryAt)) lineupRetryAt = availabilityRetryAt
       const provenUnchargedTerminal = error instanceof GenStudioChatTerminalFailureError
         && !error.cancelled
         && !isGenStudioSubmissionUncertain(error)
@@ -381,12 +564,30 @@ export async function executePipelineModelPolicy<T>(
       // A catalog refusal is only a pre-submit proof when this candidate has
       // never been accepted. A durable terminal settlement can prove that an
       // accepted request released its entire reservation, so it may advance.
+      if (policy.wait_for_availability === true
+        && error instanceof GenStudioChatTerminalFailureError
+        && !provenUnchargedTerminal
+        && !isGenStudioSubmissionUncertain(error)) {
+        await checkpoint?.write(checkpointKey, checkpointState('failed_terminal'))
+        throw error
+      }
       if (!provenUnchargedTerminal && (acceptedIdempotencyKey || !isSafePipelineModelAdvance(error))) {
         await checkpoint?.write(checkpointKey, checkpointState('unknown'))
         throw error
       }
+      // The full settlement means this submitted identity is terminal and
+      // cannot be recovered. A lineup may now check another candidate, but it
+      // must never carry this failed key into a later availability recheck.
+      if (policy.wait_for_availability === true && provenUnchargedTerminal) {
+        acceptedIdempotencyKey = undefined
+        if (quotaExhausted) retryEpochs[candidateIndex] = (retryEpochs[candidateIndex] || 0) + 1
+      }
       await checkpoint?.write(checkpointKey, checkpointState('failed_unaccepted'))
       if (candidateIndex === candidates.length - 1) {
+        if (lineupRetryAt) {
+          await checkpoint?.write(checkpointKey, checkpointState('waiting', undefined, lineupRetryAt))
+          throw new LlmLineupWaitingError(lineupRetryAt)
+        }
         await checkpoint?.write(checkpointKey, checkpointState('exhausted'))
         throw error
       }

@@ -65,6 +65,8 @@
       </div>
     </div>
 
+    <InheritedLlmLineupNotice :project-slug="slug" />
+
     <WorkspaceSection
       eyebrow="Research brief"
       title="Define what needs evidence"

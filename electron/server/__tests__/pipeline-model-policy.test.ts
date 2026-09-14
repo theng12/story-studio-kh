@@ -4,16 +4,18 @@ import {
   assignedPipelineModel,
   normalizePipelineModelPolicies,
   pipelinePolicyForJob,
+  rankedPipelineModelCandidates,
   type PipelinePolicyAttemptCheckpoint,
   type PipelinePolicyCheckpointStore,
   validatePipelineModelCatalogue,
 } from '../lib/pipeline-model-policy.js'
-import { assertPipelineModelRequestCapabilities, executePipelineModelPolicy, isSafePipelineModelAdvance } from '../lib/ai-client.js'
+import { assertPipelineModelRequestCapabilities, executePipelineModelPolicy, isLlmLineupWaitingError, isSafePipelineModelAdvance, llmLineupAvailabilityScope, resolveLivePipelineModel } from '../lib/ai-client.js'
 import {
   GENSTUDIO_LANGUAGE_FAILURE_CODES,
   GenStudioChatCapabilityUnavailableError,
   GenStudioChatProductUnavailableError,
   GenStudioChatTerminalFailureError,
+  isGenStudioLanguageQuotaExhausted,
   type GenStudioChatModel,
 } from '../lib/genstudio-client.js'
 import { policyChapterGroups, type OutlineEntry } from '../lib/chunked-narration.js'
@@ -69,6 +71,56 @@ test('Pipeline catalogue validation names missing and qualification-only product
     { id: 'model-a', available: true, qualification_only: false },
     { id: 'model-b', available: true, qualification_only: true },
   ])[0]!, /qualification-only/)
+})
+
+test('A savings lineup resolves renamed products for ranking without rewriting its wire ids', () => {
+  const policy = {
+    mode: 'backup' as const,
+    models: ['paid', 'saved-free-id', 'discounted'],
+    assigned_model: 'paid',
+    wait_for_availability: true as const,
+    prefer_savings: true as const,
+  }
+  const ordered = rankedPipelineModelCandidates(policy, [
+    { id: 'paid', input_credits_per_million_tokens: 1, output_credits_per_million_tokens: 1, minimum_credits: 0 },
+    { id: 'renamed-free', legacy_ids: ['saved-free-id'], input_credits_per_million_tokens: 0, output_credits_per_million_tokens: 0, minimum_credits: 0 },
+    { id: 'discounted', input_credits_per_million_tokens: 1, output_credits_per_million_tokens: 1, minimum_credits: 0, discount: true },
+  ])
+  assert.deepEqual(ordered, ['saved-free-id', 'discounted', 'paid'])
+})
+
+test('A depleted free lineup candidate advances to the selected paid candidate before submission', async () => {
+  const policy = {
+    mode: 'backup' as const, models: ['paid', 'free'], assigned_model: 'paid',
+    wait_for_availability: true as const, prefer_savings: true as const,
+  }
+  const candidates = rankedPipelineModelCandidates(policy, [
+    { id: 'paid', input_credits_per_million_tokens: 1, output_credits_per_million_tokens: 1, minimum_credits: 0 },
+    { id: 'free', input_credits_per_million_tokens: 0, output_credits_per_million_tokens: 0, minimum_credits: 0 },
+  ])
+  const seen: string[] = []
+  const result = await executePipelineModelPolicy(policy, async model => {
+    seen.push(model)
+    if (model === 'free') throw new GenStudioChatProductUnavailableError(model, { reason: 'daily_quota_depleted' })
+    return 'paid result'
+  }, checkpointStore(), 'lineup:free-then-paid', 'same-input', { candidates })
+  assert.equal(result, 'paid result')
+  assert.deepEqual(seen, ['free', 'paid'])
+})
+
+test('A published rate promotion ranks ahead of an undiscounted paid lineup model', () => {
+  const policy = {
+    mode: 'backup' as const, models: ['regular', 'promotion'], assigned_model: 'regular',
+    prefer_savings: true as const,
+  }
+  assert.deepEqual(rankedPipelineModelCandidates(policy, [
+    { id: 'regular', input_credits_per_million_tokens: 4, output_credits_per_million_tokens: 4, minimum_credits: 2 },
+    {
+      id: 'promotion', input_credits_per_million_tokens: 3, output_credits_per_million_tokens: 3, minimum_credits: 1,
+      standard_input_credits_per_million_tokens: 4, standard_output_credits_per_million_tokens: 4,
+      standard_minimum_credits: 2,
+    },
+  ]), ['promotion', 'regular'])
 })
 
 test('Pipeline backup safety requires a typed zero-settlement terminal failure', () => {
@@ -321,6 +373,25 @@ test('An accepted candidate advances after its terminal settlement proves zero c
   assert.deepEqual(seen, ['primary', 'backup'])
 })
 
+test('An ordinary explicit policy retains an accepted recovery key after a charged terminal failure', async () => {
+  const entries = new Map<string, PipelinePolicyAttemptCheckpoint>([['ordinary:terminal', {
+    input_fingerprint: 'same-input', candidates: ['primary', 'backup'], candidate_index: 0, candidate_model: 'primary',
+    status: 'accepted', idempotency_key: 'accepted-primary-key', updated_at: '2026-09-09T00:00:00.000Z',
+  }]])
+  const store = checkpointStore(entries)
+  const policy = { mode: 'backup' as const, models: ['primary', 'backup'], assigned_model: 'primary' }
+  await assert.rejects(executePipelineModelPolicy(policy, async () => {
+    throw new GenStudioChatTerminalFailureError({ id: 'primary', state: 'failed', reserved_credits: 10, settled_credits: 1, released_credits: 9 })
+  }, store, 'ordinary:terminal', 'same-input'))
+  assert.equal(entries.get('ordinary:terminal')?.status, 'unknown')
+  const recovered: string[] = []
+  await executePipelineModelPolicy(policy, async (_model, recovery) => {
+    recovered.push(recovery?.idempotencyKey || '')
+    return 'legacy recovery'
+  }, store, 'ordinary:terminal', 'same-input')
+  assert.deepEqual(recovered, ['accepted-primary-key'])
+})
+
 test('Pipeline policy rejects a malformed durable binding before attempting any candidate', async () => {
   const entries = new Map<string, PipelinePolicyAttemptCheckpoint>([['metadata:EP0005', {
     input_fingerprint: 'same-input', candidates: ['primary', 'backup'], candidate_index: 0, candidate_model: 'backup',
@@ -346,4 +417,140 @@ test('Pipeline backup checkpoints exhaustion and never wraps back to its last ca
   let calls = 0
   await assert.rejects(executePipelineModelPolicy(policy, async () => { calls++; return 'unsafe' }, store, 'cues:EP0004', 'same-input'), /Every selected Pipeline backup/)
   assert.equal(calls, 0)
+})
+
+test('A shared lineup parks with a durable retry time then safely rechecks every unsubmitted candidate', async () => {
+  const entries = new Map<string, PipelinePolicyAttemptCheckpoint>()
+  const store = checkpointStore(entries)
+  const policy = {
+    mode: 'backup' as const, models: ['primary', 'backup'], assigned_model: 'primary',
+    wait_for_availability: true as const,
+  }
+  const retryAt = '2026-09-15T00:00:00.000Z'
+  const seen: string[] = []
+  await assert.rejects(executePipelineModelPolicy(policy, async model => {
+    seen.push(model)
+    throw new GenStudioChatProductUnavailableError(model, { reason: 'daily_quota_depleted', availableAgainAt: retryAt })
+  }, store, 'lineup:wait', 'same-input'), isLlmLineupWaitingError)
+  assert.deepEqual(seen, ['primary', 'backup'])
+  assert.equal(entries.get('lineup:wait')?.status, 'waiting')
+  assert.equal(entries.get('lineup:wait')?.retry_at, retryAt)
+
+  const resumed: string[] = []
+  const result = await executePipelineModelPolicy(policy, async model => {
+    resumed.push(model)
+    return 'rechecked'
+  }, store, 'lineup:wait', 'same-input')
+  assert.equal(result, 'rechecked')
+  assert.deepEqual(resumed, ['primary'])
+})
+
+test('A shared lineup clears a fully released terminal key before parking for another candidate', async () => {
+  const entries = new Map<string, PipelinePolicyAttemptCheckpoint>()
+  const store = checkpointStore(entries)
+  const policy = {
+    mode: 'backup' as const, models: ['primary', 'temporary'], assigned_model: 'primary',
+    wait_for_availability: true as const,
+  }
+  await assert.rejects(executePipelineModelPolicy(policy, async (model, _recovery, accepted) => {
+    if (model === 'primary') {
+      await accepted?.('released-primary-key')
+      throw new GenStudioChatTerminalFailureError({ id: 'primary', state: 'failed', reserved_credits: 10, settled_credits: 0, released_credits: 10 })
+    }
+    throw new GenStudioChatProductUnavailableError(model, { reason: 'temporary_backpressure', availableAgainAt: '2026-09-15T00:00:00.000Z' })
+  }, store, 'lineup:released-then-wait', 'same-input'), isLlmLineupWaitingError)
+  const waiting = entries.get('lineup:released-then-wait')
+  assert.equal(waiting?.status, 'waiting')
+  assert.equal(waiting?.idempotency_key, undefined)
+  const recovered: Array<{ model: string; key?: string }> = []
+  await executePipelineModelPolicy(policy, async (model, recovery) => {
+    recovered.push({ model, key: recovery?.idempotencyKey })
+    return 'fresh recheck'
+  }, store, 'lineup:released-then-wait', 'same-input')
+  assert.deepEqual(recovered, [{ model: 'primary', key: undefined }])
+})
+
+test('A fully released published quota exhaustion shares a bounded account/model recheck', async () => {
+  const quota = new GenStudioChatTerminalFailureError({
+    id: 'quota-job', state: 'failed', failure_code: GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED,
+    reserved_credits: 10, settled_credits: 0, released_credits: 10,
+  })
+  assert.equal(isGenStudioLanguageQuotaExhausted(quota), true)
+  const policy = { mode: 'single' as const, models: ['quota-model'], assigned_model: 'quota-model', wait_for_availability: true as const }
+  const scope = llmLineupAvailabilityScope('first-account-key')
+  await assert.rejects(executePipelineModelPolicy(policy, async () => { throw quota }, checkpointStore(), 'lineup:quota', 'same-input', { availabilityScope: scope }), isLlmLineupWaitingError)
+  const catalogue = [{ id: 'quota-model', available: true, qualification_only: false }] as GenStudioChatModel[]
+  assert.throws(() => resolveLivePipelineModel('quota-model', catalogue, { accountId: scope, shareTemporaryAvailability: true }), GenStudioChatProductUnavailableError)
+  assert.doesNotThrow(() => resolveLivePipelineModel('quota-model', catalogue, {
+    accountId: llmLineupAvailabilityScope('rotated-account-key'), shareTemporaryAvailability: true,
+  }))
+})
+
+test('A submitted terminal failure is never replayed as a new candidate identity', async () => {
+  const entries = new Map<string, PipelinePolicyAttemptCheckpoint>()
+  const store = checkpointStore(entries)
+  const policy = { mode: 'backup' as const, models: ['primary', 'backup'], assigned_model: 'primary', wait_for_availability: true as const }
+  await assert.rejects(executePipelineModelPolicy(policy, async (_model, _recovery, accepted) => {
+    await accepted?.('accepted-primary-key')
+    throw new GenStudioChatTerminalFailureError({
+      id: 'primary', state: 'failed', reserved_credits: 10, settled_credits: 1, released_credits: 9,
+    })
+  }, store, 'terminal:key', 'same-input'))
+  assert.equal(entries.get('terminal:key')?.status, 'failed_terminal')
+  let calls = 0
+  await assert.rejects(executePipelineModelPolicy(policy, async () => { calls++; return 'unsafe' }, store, 'terminal:key', 'same-input'), /terminal failure/)
+  assert.equal(calls, 0)
+})
+
+test('Temporary availability sharing stays within one account and never invents a shared quota pool', () => {
+  const catalogue = [{
+    id: 'live-product', legacy_ids: ['saved-product'], available: false, qualification_only: false,
+    availability_reason: 'daily_quota_depleted' as const, available_again_at: null,
+  }] as GenStudioChatModel[]
+  const originalNow = Date.now
+  try {
+    Date.now = () => 1_000
+    assert.throws(() => resolveLivePipelineModel('saved-product', catalogue, { accountId: 'account-a', shareTemporaryAvailability: true }), (error: unknown) => {
+      return error instanceof GenStudioChatProductUnavailableError && error.availableAgainAt === '1970-01-01T00:01:01.000Z'
+    })
+    Date.now = () => 2_000
+    assert.throws(() => resolveLivePipelineModel('saved-product', catalogue, { accountId: 'account-b', shareTemporaryAvailability: true }), (error: unknown) => {
+      return error instanceof GenStudioChatProductUnavailableError && error.availableAgainAt === '1970-01-01T00:01:02.000Z'
+    })
+    Date.now = () => 3_000
+    assert.throws(() => resolveLivePipelineModel('saved-product', catalogue, { accountId: 'account-a', shareTemporaryAvailability: true }), (error: unknown) => {
+      return error instanceof GenStudioChatProductUnavailableError && error.availableAgainAt === '1970-01-01T00:01:01.000Z'
+    })
+  } finally {
+    Date.now = originalNow
+  }
+})
+
+test('Live availability uses only future published resets and bounds stale catalogue rechecks', () => {
+  const staleCatalogue = [{
+    id: 'stale-reset', available: false, qualification_only: false,
+    availability_reason: 'daily_quota_depleted' as const, available_again_at: '1970-01-01T00:01:30.000Z',
+  }] as GenStudioChatModel[]
+  const invalidCatalogue = [{
+    id: 'invalid-reset', available: false, qualification_only: false,
+    availability_reason: 'temporary_backpressure' as const, available_again_at: 'not-a-date',
+  }] as GenStudioChatModel[]
+  const futureCatalogue = [{
+    id: 'future-reset', available: false, qualification_only: false,
+    availability_reason: 'daily_quota_depleted' as const, available_again_at: '1970-01-01T00:03:20.000Z',
+  }] as GenStudioChatModel[]
+  const originalNow = Date.now
+  try {
+    Date.now = () => 100_000
+    for (const [modelId, catalogue] of [['stale-reset', staleCatalogue], ['invalid-reset', invalidCatalogue]] as const) {
+      assert.throws(() => resolveLivePipelineModel(modelId, catalogue, { accountId: `catalogue-${modelId}`, shareTemporaryAvailability: true }), (error: unknown) => {
+        return error instanceof GenStudioChatProductUnavailableError && error.availableAgainAt === '1970-01-01T00:02:40.000Z'
+      })
+    }
+    assert.throws(() => resolveLivePipelineModel('future-reset', futureCatalogue, { accountId: 'catalogue-future', shareTemporaryAvailability: true }), (error: unknown) => {
+      return error instanceof GenStudioChatProductUnavailableError && error.availableAgainAt === '1970-01-01T00:03:20.000Z'
+    })
+  } finally {
+    Date.now = originalNow
+  }
 })

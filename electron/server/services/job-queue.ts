@@ -48,6 +48,12 @@ import { auditSceneImageCompletion } from './scene-media-checkpoint.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
 import { assertQueuedVisualSource } from './video-visual-source.js'
 import { getValidVideoAssemblyCheckpoint } from '../lib/video-assembly-checkpoint.js'
+import { isLlmLineupWaitingError } from '../lib/ai-client.js'
+import {
+  pipelinePolicyForJob,
+  readPipelinePolicyAttemptCheckpoint,
+} from '../lib/pipeline-model-policy.js'
+import { snapshotLlmLineupParams, writingStageForJob } from './llm-lineup.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -1151,6 +1157,147 @@ export function knownJobTypes(): JobType[] {
 /** Preventive audit hook: every declared job type must be wired at boot. */
 export function unregisteredJobTypes(): JobType[] {
   return knownJobTypes().filter(type => queues[type].executor == null)
+}
+
+// ── Shared LLM lineup availability holds ───────────────────────────────────
+//
+// A temporary language-product absence is neither a failure nor local work to
+// sleep through.  Keep the durable job queued, remove it from its lane while
+// it waits, and let the timer re-admit that exact job when the published (or
+// bounded local) availability time arrives.  This deliberately uses a
+// different state from the paid-image wait: no provider request was accepted
+// for a lineup hold, and the policy executor owns the saved request keys.
+const llmLineupWaitTimers = new Map<string, NodeJS.Timeout>()
+const MAX_QUEUE_TIMER_DELAY_MS = 0x7fffffff
+
+function validRetryAtMs(value: unknown): number | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * Trust a checkpoint wait only when this job carries the matching, enabled
+ * shared-lineup policy.  A loose `retry_at` field is never enough to defer a
+ * queue item, especially when it may have provider evidence from other work.
+ */
+function waitingCheckpointRetryAt(job: Job): string | null {
+  if (hasUnsettledProviderEvidence(job)) return null
+  const stage = writingStageForJob(job.type)
+  if (!stage) return null
+  const policy = pipelinePolicyForJob(job.params, stage)
+  if (policy?.wait_for_availability !== true) return null
+  const checkpoints = job.params?.pipeline_model_checkpoints
+  if (!checkpoints || typeof checkpoints !== 'object' || Array.isArray(checkpoints)) return null
+  let earliest: string | null = null
+  for (const checkpoint of Object.values(checkpoints as Record<string, unknown>)) {
+    const parsed = readPipelinePolicyAttemptCheckpoint(checkpoint)
+    if (parsed?.status !== 'waiting' || validRetryAtMs(parsed.retry_at) === null) continue
+    if (!earliest || Date.parse(parsed.retry_at!) < Date.parse(earliest)) earliest = parsed.retry_at!
+  }
+  return earliest
+}
+
+function lineupWaitRetryAt(job: Job, error?: unknown): string | null {
+  if (hasUnsettledProviderEvidence(job)) return null
+  if (isLlmLineupWaitingError(error) && validRetryAtMs(error.retryAt) !== null) return error.retryAt
+  return waitingCheckpointRetryAt(job)
+}
+
+function clearLlmLineupWaitTimer(jobId: string): void {
+  const timer = llmLineupWaitTimers.get(jobId)
+  if (!timer) return
+  clearTimeout(timer)
+  llmLineupWaitTimers.delete(jobId)
+}
+
+function lineUpWaitingMessage(retryAt: string): string {
+  return `Waiting for model availability until ${retryAt}. No provider request was submitted while every eligible model was temporarily unavailable.`
+}
+
+async function releaseLlmLineupWaitIfDue(jobId: string): Promise<void> {
+  const job = jobs.get(jobId)
+  if (!job || job.status !== 'queued' || job.force_abandoned || cancelled.has(jobId) || pauseRequested.has(jobId)) {
+    clearLlmLineupWaitTimer(jobId)
+    return
+  }
+  const retryAt = typeof job.params?.llm_lineup_retry_at === 'string' ? job.params.llm_lineup_retry_at : null
+  const retryAtMs = validRetryAtMs(retryAt)
+  if (!retryAt || retryAtMs === null) {
+    clearLlmLineupWaitTimer(jobId)
+    return
+  }
+  if (Date.now() < retryAtMs) {
+    scheduleLlmLineupWait(job)
+    return
+  }
+  // A global or per-job pause is authoritative over a due availability check.
+  // Resume's normal pump will re-admit this due row without changing the
+  // checkpoint or creating any provider identity.
+  if (queuePaused || job.pause_origin || job.pause_requested) return
+
+  clearLlmLineupWaitTimer(jobId)
+  delete job.params.llm_lineup_retry_at
+  job.error = null
+  job.finished_at = null
+  job.output_lines.push('Model availability recheck is due — returning this saved job to its queue lane.')
+  try {
+    await persistJob(job)
+  } catch (error) {
+    // Keep the durable hold in memory when storage is temporarily unavailable.
+    // Retrying the release later is safe because no executor was admitted.
+    job.params.llm_lineup_retry_at = retryAt
+    job.error = lineUpWaitingMessage(retryAt)
+    scheduleLlmLineupWait(job, 1_000)
+    throw error
+  }
+  // Controls can win while the durable release write is in flight. Never put
+  // a newly paused, cancelled, or abandoned row back into a pending lane.
+  if (job.status !== 'queued' || job.force_abandoned || cancelled.has(jobId)
+    || pauseRequested.has(jobId) || job.pause_requested || job.pause_origin) return
+  emitUpdate(job)
+  if (!pendingContains(job.type, job.job_id)) queues[job.type].pending.push(job)
+  if (IMAGE_EPISODE_TYPES.has(job.type)) pumpImageEpisodeGroup(imageEpisodeConcurrency)
+  else pump(job.type)
+}
+
+function scheduleLlmLineupWait(job: Job, minimumDelayMs = 0): boolean {
+  const retryAt = typeof job.params?.llm_lineup_retry_at === 'string' ? job.params.llm_lineup_retry_at : null
+  const retryAtMs = validRetryAtMs(retryAt)
+  if (!retryAt || retryAtMs === null || job.status !== 'queued' || job.force_abandoned || cancelled.has(job.job_id)) {
+    clearLlmLineupWaitTimer(job.job_id)
+    return false
+  }
+  clearLlmLineupWaitTimer(job.job_id)
+  const delayMs = Math.min(MAX_QUEUE_TIMER_DELAY_MS, Math.max(minimumDelayMs, retryAtMs - Date.now()))
+  const timer = setTimeout(() => {
+    llmLineupWaitTimers.delete(job.job_id)
+    void releaseLlmLineupWaitIfDue(job.job_id).catch(error => {
+      console.warn('[job-queue] failed to release LLM lineup availability wait', {
+        job_id: job.job_id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }, delayMs)
+  timer.unref()
+  llmLineupWaitTimers.set(job.job_id, timer)
+  return true
+}
+
+function parkForLlmLineupAvailability(job: Job, retryAt: string): void {
+  clearLlmLineupWaitTimer(job.job_id)
+  job.params.llm_lineup_retry_at = retryAt
+  job.status = 'queued'
+  job.finished_at = null
+  job.local_execution_complete = false
+  job.pause_requested = false
+  job.pause_origin = undefined
+  job.error = lineUpWaitingMessage(retryAt)
+  job.output_lines.push(job.error)
+}
+
+function isQueuedLlmLineupWait(job: Job): boolean {
+  return job.status === 'queued' && typeof job.params?.llm_lineup_retry_at === 'string'
 }
 
 // ── Concurrency groups ──────────────────────────────────────────────────────
@@ -2615,6 +2762,7 @@ async function hasManifestOnlyPaidImageCommitment(attempt: PaidImageReplacementA
 async function readPersistedJobs(projectSlug: string): Promise<void> {
   const p = jobsPath(projectSlug)
   const resumedTypes = new Set<JobType>()
+  const lineupWaitJobs: Job[] = []
   const reconciliationJobs: string[] = []
   // v1.2.6 — finished rows whose stored evidence is still non-terminal. They
   // never entered cancellation reconciliation (that path only accepts running
@@ -2641,21 +2789,34 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               if (requiresCancellationReconciliation(j)) reconciliationJobs.push(j.job_id)
               mutated = true
             } else {
-            const queue = queues[j.type as JobType]
-            if (queue?.executor) {
-              // An image job with a prior admission timestamp is recovery
-              // work. Preserve that class across every boot; ordinary lanes
-              // retain their historical reset behavior.
-              if (!IMAGE_EPISODE_TYPES.has(j.type as JobType)) j.started_at = null
-              j.finished_at = null
-              queue.pending.push(j)
-              resumedTypes.add(j.type as JobType)
-            } else {
-              j.status = 'error'
-              j.error = 'Interrupted by app restart'
-              j.finished_at = j.finished_at || new Date().toISOString()
-            }
-            mutated = true
+              const queuedRetryAt = typeof j.params?.llm_lineup_retry_at === 'string'
+                ? j.params.llm_lineup_retry_at
+                : null
+              const queuedRetryAtMs = validRetryAtMs(queuedRetryAt)
+              if (queuedRetryAt && queuedRetryAtMs !== null && queuedRetryAtMs > Date.now()) {
+                j.finished_at = null
+                lineupWaitJobs.push(j)
+              } else {
+                // A stale wait is ready immediately after boot. Its durable
+                // policy checkpoint stays intact and will make the executor
+                // retry the same logical request rather than minting a new one.
+                if (queuedRetryAt) delete j.params.llm_lineup_retry_at
+                const queue = queues[j.type as JobType]
+                if (queue?.executor) {
+                  // An image job with a prior admission timestamp is recovery
+                  // work. Preserve that class across every boot; ordinary lanes
+                  // retain their historical reset behavior.
+                  if (!IMAGE_EPISODE_TYPES.has(j.type as JobType)) j.started_at = null
+                  j.finished_at = null
+                  queue.pending.push(j)
+                  resumedTypes.add(j.type as JobType)
+                } else {
+                  j.status = 'error'
+                  j.error = 'Interrupted by app restart'
+                  j.finished_at = j.finished_at || new Date().toISOString()
+                }
+                mutated = true
+              }
             }
           } else if (j.status === 'running') {
             observePersistedRunningJobLoadStage(j, 'pause-requested')
@@ -2823,6 +2984,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
     }
     for (const jobId of reconciliationJobs) scheduleCancellationReconciliation(jobId)
     for (const jobId of historyRefreshJobs) scheduleHistoryEvidenceRefresh(jobId)
+    for (const job of lineupWaitJobs) scheduleLlmLineupWait(job)
   } catch { /* ignore corrupt file */ }
 }
 
@@ -3059,18 +3221,19 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
     if (job.params.subtitle_finalizer_dispatched === true) return
     await persistJob(job) // Derived jobs inherit the owner before any handoff side effect.
     const batchId = job.params?.pipeline_batch_id
+    const nextParams = await snapshotLlmLineupParams(job.project_slug, 'metadata', job.episode_id, {
+      ...(nextStep.params || {}),
+      episode_id: job.episode_id,
+      pipeline_chain: rest,
+      ...(batchId ? { pipeline_batch_id: batchId } : {}),
+      subtitle_verification_warning: job.error || 'Subtitle generation did not complete.',
+    })
     await enqueueEpisodeRecoveryOnce(handoffId, {
       project_slug: job.project_slug,
       type: 'metadata',
       episode_id: job.episode_id,
       title: nextStep.title || `[batch] metadata — ${job.episode_id}`,
-      params: {
-        ...(nextStep.params || {}),
-        episode_id: job.episode_id,
-        pipeline_chain: rest,
-        ...(batchId ? { pipeline_batch_id: batchId } : {}),
-        subtitle_verification_warning: job.error || 'Subtitle generation did not complete.',
-      },
+      params: nextParams,
     })
     job.params.subtitle_finalizer_dispatched = true
     job.output_lines.push(
@@ -3103,14 +3266,19 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
   }
   try {
     const batchId = job.params.pipeline_batch_id
-    const nextParams = {
+    const nextParams = await snapshotLlmLineupParams(job.project_slug, nextStep.type, job.episode_id, {
       ...(nextStep.params || {}),
       episode_id: job.episode_id,
       pipeline_chain: rest,
       ...(batchId ? { pipeline_batch_id: batchId } : {}),
-    }
+    })
     const joined = nextStep.type === 'continuity_render' && !nextParams.single_scene_id
-      ? await joinActiveBulkSceneRender({ project_slug: job.project_slug, episode_id: job.episode_id, pipeline_chain: rest, pipeline_batch_id: batchId })
+      ? await joinActiveBulkSceneRender({
+        project_slug: job.project_slug,
+        episode_id: job.episode_id,
+        pipeline_chain: Array.isArray(nextParams.pipeline_chain) ? nextParams.pipeline_chain : rest,
+        pipeline_batch_id: batchId,
+      })
       : null
     if (joined?.conflict) throw new Error(`An existing scene render already owns a different Pipeline continuation for ${job.episode_id}`)
     if (joined) job.output_lines.push(`→ Joined existing scene render ${joined.job.job_id}; duplicate Hub work was not queued.`)
@@ -3254,6 +3422,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           finalError = error
           if (cancelled.has(job.job_id)) throw error
           if (error instanceof JobPausedError || pauseRequested.has(job.job_id)) throw new JobPausedError()
+          // The policy executor has already proved every selected candidate
+          // unaccepted and written its waiting checkpoint. Do not consume a
+          // worker slot on local retry backoff; the outer lifecycle parks it.
+          if (lineupWaitRetryAt(job, error)) throw error
           if (!retryPolicy.eligible || attempt >= retryPolicy.max_attempts) break
 
           const delayMs = retryPolicy.delays_ms[attempt - 1] ?? retryPolicy.delays_ms.at(-1) ?? 2_000
@@ -3310,6 +3482,11 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         // Provider reconciliation above already finalized this job.
       } else if (cancelled.has(job.job_id)) {
         job.status = 'cancelled'
+      } else if (lineupWaitRetryAt(job, e)) {
+        // Do this before ordinary errors. The executor's checkpoint names a
+        // no-submit availability wait; partial files and provider identities
+        // stay exactly as the generator recorded them.
+        parkForLlmLineupAvailability(job, lineupWaitRetryAt(job, e)!)
       } else if (hasUnsettledProviderWork(job)) {
         const isPause = e instanceof JobPausedError || pauseRequested.has(job.job_id)
         const message = e instanceof Error ? e.message : String(e)
@@ -3332,7 +3509,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       }
     }
 
-    job.finished_at = job.status === 'paused' || hasUnsettledProviderWork(job)
+    job.finished_at = isQueuedLlmLineupWait(job) || job.status === 'paused' || hasUnsettledProviderWork(job)
       || (job.status === 'running' && hasCancellationContext(job))
       ? null
       : new Date().toISOString()
@@ -3356,7 +3533,13 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       })
       for (const lane of transitioned.lanes) pump(lane)
     }
-    if (TERMINAL_JOB_STATUSES.has(job.status)) clearPaidImageWaitTimer(job.job_id)
+    if (isQueuedLlmLineupWait(job)) {
+      scheduleLlmLineupWait(job)
+    }
+    if (TERMINAL_JOB_STATUSES.has(job.status)) {
+      clearPaidImageWaitTimer(job.job_id)
+      clearLlmLineupWaitTimer(job.job_id)
+    }
     if (job.status === 'running' && hasUnsettledProviderWork(job)) scheduleCancellationReconciliation(job.job_id)
     // v1.2.6 — a job can finish while one recorded provider task was still
     // mid-flight. Ask GenStudio now rather than freezing that snapshot into a
@@ -3441,6 +3624,14 @@ async function setQueuePausedUnlocked(paused: boolean): Promise<void> {
   await transitionPausedJobsToQueuedByProject([...jobs.values()].filter(job => (
     job.status === 'paused' && job.pause_origin === 'queue'
   )))
+  // A model-availability timer may have become due while the global queue was
+  // paused. Re-arm every durable hold here; due rows schedule a zero-delay
+  // release, while future rows keep their original retry time.
+  for (const job of jobs.values()) {
+    if (job.status === 'queued' && typeof job.params?.llm_lineup_retry_at === 'string') {
+      scheduleLlmLineupWait(job)
+    }
+  }
   // Kick every type so queued jobs that never started while held can run.
   for (const type of Object.keys(queues) as JobType[]) {
     pump(type)
@@ -4025,6 +4216,15 @@ async function transitionPausedJobsToQueuedByProject(
       || pauseRequested.has(job.job_id)
     ) continue
     const queue = queues[job.type]
+    const lineupRetryAt = typeof job.params?.llm_lineup_retry_at === 'string'
+      ? job.params.llm_lineup_retry_at
+      : null
+    if (lineupRetryAt && validRetryAtMs(lineupRetryAt) !== null) {
+      scheduleLlmLineupWait(job)
+      emitUpdate(job)
+      result.resumed.push(job)
+      continue
+    }
     if (!queue.pending.some(candidate => candidate.job_id === job.job_id)) {
       queue.pending.push(job)
     }
@@ -4084,6 +4284,7 @@ async function pauseJobUnlocked(jobId: string, origin: 'manual' | 'queue' | 'sta
   const job = jobs.get(jobId)
   if (!job) return null
   clearPaidImageWaitTimer(jobId)
+  clearLlmLineupWaitTimer(jobId)
   if (job.status === 'queued') {
     const q = queues[job.type]
     q.pending = q.pending.filter(candidate => candidate.job_id !== jobId)
@@ -4532,6 +4733,21 @@ export async function enqueue(
   contentPackOptions: ContentPackProjectPinOptions = {},
   beforeAdmission?: () => Promise<void>,
 ): Promise<Job> {
+  const safeOpts: EnqueueOptions = { ...opts, ...(opts.params ? { params: { ...opts.params } } : {}) }
+  delete (safeOpts as EnqueueOptions & { paid_image_replacement?: unknown }).paid_image_replacement
+  delete (safeOpts as EnqueueOptions & { genstudio_chat_recovery_preview?: unknown }).genstudio_chat_recovery_preview
+  // This marker belongs only to a queue-created availability hold. A request
+  // body cannot pre-park a job or suppress its first attempt.
+  if (safeOpts.params) delete safeOpts.params.llm_lineup_retry_at
+  const { params, ...enqueueOpts } = safeOpts
+  // Capture the shared lineup before this job crosses queue admission. The
+  // helper keeps an existing job snapshot and explicit stage policy intact.
+  const lineupParams = await snapshotLlmLineupParams(
+    opts.project_slug,
+    opts.type,
+    opts.episode_id,
+    withoutPaidImageReplacementParam(params) || {},
+  )
   const provenance = await snapshotProjectContentPackProvenance(
     opts.project_slug,
     opts.type,
@@ -4549,17 +4765,13 @@ export async function enqueue(
       snapshotted_at: new Date().toISOString(),
     }))
     : undefined
-  const safeOpts: EnqueueOptions = { ...opts }
-  delete (safeOpts as EnqueueOptions & { paid_image_replacement?: unknown }).paid_image_replacement
-  delete (safeOpts as EnqueueOptions & { genstudio_chat_recovery_preview?: unknown }).genstudio_chat_recovery_preview
-  const { params, ...enqueueOpts } = safeOpts
   return withEpisodeMediaAdmissionLock(opts.project_slug, opts.episode_id, async () => {
     // Pipeline must recheck deliberate cleanup after acquiring admission, so
     // a cleanup completed while it prepared cannot trigger regeneration.
     await beforeAdmission?.()
     return enqueuePrepared({
       ...enqueueOpts,
-      ...(params ? { params: withoutPaidImageReplacementParam(params) } : {}),
+      params: lineupParams,
       ...(paid_image_replacement ? { paid_image_replacement } : {}),
     }, provenance)
   })
@@ -5286,6 +5498,7 @@ async function cancelQueuedBeforeSubmit(job: Job): Promise<Job> {
 
 async function cancelQueuedBeforeSubmitUnlocked(job: Job): Promise<Job> {
   clearPaidImageWaitTimer(job.job_id)
+  clearLlmLineupWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   pauseRequested.delete(job.job_id)
   if (job.status === 'queued') {
@@ -5309,6 +5522,7 @@ async function stopLocalJob(job: Job): Promise<Job> {
 
 async function stopLocalJobUnlocked(job: Job): Promise<Job> {
   clearPaidImageWaitTimer(job.job_id)
+  clearLlmLineupWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   job.status = 'cancelled'
   job.finished_at = new Date().toISOString()
@@ -5336,6 +5550,7 @@ async function queueRemoteCancellationTargetsUnlocked(
   targets: NonNullable<JobControl['targets']>,
 ): Promise<Job> {
   clearPaidImageWaitTimer(job.job_id)
+  clearLlmLineupWaitTimer(job.job_id)
   const now = new Date().toISOString()
   const records = { ...(job.remote_cancellations || {}) }
   let added = 0
@@ -5480,6 +5695,7 @@ async function forceAbandonJobUnlocked(job: Job): Promise<Job> {
   ]
 
   clearPaidImageWaitTimer(job.job_id)
+  clearLlmLineupWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   pauseRequested.delete(job.job_id)
   const queue = queues[job.type]
@@ -5520,6 +5736,7 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   if (!TERMINAL_JOB_STATUSES.has(job.status)) return false
   if (!job.force_abandoned && hasUnsettledProviderEvidence(job)) return false
   clearPaidImageWaitTimer(jobId)
+  clearLlmLineupWaitTimer(jobId)
   jobs.delete(jobId)
   if (job.type === 'continuity_render') {
     void deactivateSceneRenderStatus(job.project_slug, job.episode_id, job.job_id).catch(() => {})
@@ -5568,6 +5785,7 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
   for (const [id, job] of jobs.entries()) {
     if (job.project_slug === projectSlug && matchesHistoryClearStatus(job, status) && (job.force_abandoned || !hasUnsettledProviderEvidence(job))) {
       clearPaidImageWaitTimer(id)
+      clearLlmLineupWaitTimer(id)
       jobs.delete(id)
       clearedIds.push(id)
       if (job.type === 'continuity_render') clearedSceneRenderJobs.push(job)

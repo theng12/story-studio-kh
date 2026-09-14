@@ -2,7 +2,7 @@ import type { Format, GenerateIdeasRequest, Job, Niche, StoryIdea } from '../mod
 import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
-import { callAiWithRetry } from '../lib/ai-client.js'
+import { callAiWithModelPolicy, callAiWithRetry, type CallAiContext } from '../lib/ai-client.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { composeNicheWithTopicPacks, loadNiche } from '../services/niche-loader.js'
 import {
@@ -25,7 +25,8 @@ import {
 } from '../services/formula-production-kit.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { applyEmojiPolicy, NO_EMOJI_DIRECTIVE } from '../lib/emoji-policy.js'
-import { generateFreeformIdeaBatch, rewriteLeadingCount, type AvoidItem } from '../services/freeform-idea-generation.js'
+import { buildFreeformIdeaPrompt, generateFreeformIdeaBatch, rewriteLeadingCount, type AvoidItem } from '../services/freeform-idea-generation.js'
+import { pipelinePolicyCheckpointStore, pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
 
 interface IdeaCampaignParams extends GenerateIdeasRequest {
   campaign_id: string
@@ -33,6 +34,33 @@ interface IdeaCampaignParams extends GenerateIdeasRequest {
   topic_pack_ids?: string[]
   title_prefix?: string
   title_suffix?: string
+}
+
+interface PendingIdeaBatch {
+  kind: 'freeform' | 'structured'
+  sequence: number
+  count: number
+  prompt: string
+  assignments?: IdeaAssignment[]
+}
+
+function pendingIdeaBatch(value: unknown): PendingIdeaBatch | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const row = value as Record<string, unknown>
+  if ((row.kind !== 'freeform' && row.kind !== 'structured')
+    || !Number.isInteger(row.sequence) || (row.sequence as number) < 1
+    || !Number.isInteger(row.count) || (row.count as number) < 1 || (row.count as number) > 100
+    || typeof row.prompt !== 'string' || !row.prompt) return null
+  if (row.kind === 'structured' && (!Array.isArray(row.assignments) || !row.assignments.length
+    || !row.assignments.every(value => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+      const assignment = value as Record<string, unknown>
+      return typeof assignment.idea_key === 'string' && !!assignment.idea_key
+        && typeof assignment.fingerprint === 'string' && !!assignment.fingerprint
+        && !!assignment.dimensions && typeof assignment.dimensions === 'object' && !Array.isArray(assignment.dimensions)
+        && Object.values(assignment.dimensions as Record<string, unknown>).every(item => typeof item === 'string')
+    }))) return null
+  return row as unknown as PendingIdeaBatch
 }
 
 export function parseArray(raw: string): any[] {
@@ -337,6 +365,14 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   const created: im.StoredIdea[] = []
   const batchSize = 10
   const maxCalls = Math.max(4, Math.ceil(remaining / batchSize) * 4)
+  const ideasPolicy = pipelinePolicyForJob(request, 'ideas')
+  const ideasCheckpoint = ideasPolicy
+    ? pipelinePolicyCheckpointStore(request, () => jq.checkpointJobState(job))
+    : undefined
+  const persistedPending = (request as any).pipeline_pending_idea_batch
+  if (ideasPolicy && persistedPending !== undefined && !pendingIdeaBatch(persistedPending)) {
+    throw new Error('Idea Campaign has an invalid pending lineup batch; start a new campaign before retrying.')
+  }
   let calls = 0
   job.progress = Math.round((alreadyCompleted.length / wanted) * 100)
   job.output_lines.push(isFormulaFreeform
@@ -346,7 +382,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   while (alreadyCompleted.length + created.length < wanted && (isFormulaFreeform || assignmentPool.length) && calls < maxCalls) {
     if (jq.isCancelled(job.job_id)) throw new Error('Idea Campaign cancelled')
     const needed = wanted - alreadyCompleted.length - created.length
-    const count = Math.min(batchSize, needed)
+    const pending = ideasPolicy ? pendingIdeaBatch((request as any).pipeline_pending_idea_batch) : null
+    const count = pending?.count || Math.min(batchSize, needed)
+    const sequence = pending?.sequence || (Number((request as any).pipeline_idea_batch_sequence) || 0) + 1
+    if (ideasPolicy && !pending) (request as any).pipeline_idea_batch_sequence = sequence
     calls++
     const controller = new AbortController()
     const watcher = setInterval(() => {
@@ -356,15 +395,31 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     try {
       if (isFormulaFreeform) {
         job.output_lines.push('Generating freeform batch ' + calls + ': ' + count + ' idea(s)…')
-        let prompt = ''
+        const requestForBatch = { ...request, count }
         const avoid: AvoidItem[] = similarityPool.map(item => ({
           title: item.title, mood: item.mood, themes: item.themes,
         }))
+        let prompt = pending?.kind === 'freeform' ? pending.prompt : ''
+        if (!prompt) {
+          prompt = buildFreeformIdeaPrompt(
+            requestForBatch, format, standards, avoid, undefined,
+            request.title_template, undefined,
+          )
+          if (ideasPolicy) {
+            ;(request as any).pipeline_pending_idea_batch = { kind: 'freeform', sequence, count, prompt }
+            await jq.checkpointJobState(job)
+          }
+        }
         const responseItems = await generateFreeformIdeaBatch({
-          request: { ...request, count }, format, standards, avoid, apiKeys,
+          request: requestForBatch, format, standards, avoid, apiKeys,
           slug: job.project_slug, jobId: job.job_id, signal: controller.signal,
           titleTemplate: request.title_template,
           onPrompt: value => { prompt = value },
+          pipelineModelPolicy: ideasPolicy || undefined,
+          pipelinePolicyCheckpoint: ideasCheckpoint,
+          pipelinePolicyCheckpointKey: `${job.project_slug}:${request.campaign_id}:ideas:${sequence}`,
+          requestIdentity: `${job.project_slug}:${request.campaign_id}:ideas:${sequence}`,
+          preparePrompt: () => prompt,
         })
         candidates = await Promise.all(responseItems
           .filter(item => String(item?.title || '').trim() && String(item?.logline || '').trim())
@@ -374,18 +429,34 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
             logline: await applyEmojiPolicy(String(item.logline || ''), [prompt]),
           }, request, formulaId || plannerNiche.id)))
       } else {
-        const assignments = assignmentPool.splice(0, count)
+        const assignments = pending?.kind === 'structured' && pending.assignments
+          ? pending.assignments
+          : assignmentPool.splice(0, count)
         job.output_lines.push('Generating coverage batch ' + calls + ': ' + assignments.length + ' reserved idea(s)…')
-        const prompt = campaignPrompt({
+        if (pending?.kind === 'structured' && pending.assignments) {
+          const pendingFingerprints = new Set(pending.assignments.map(assignment => assignment.fingerprint))
+          assignmentPool = assignmentPool.filter(assignment => !pendingFingerprints.has(assignment.fingerprint))
+        }
+        const prompt = pending?.kind === 'structured' ? pending.prompt : campaignPrompt({
           request, format, niche: plannerNiche, assignments, avoid: similarityPool, standards,
         })
-        const raw = await callAiWithRetry(request.model, '', prompt, apiKeys, false, {
+        if (ideasPolicy && !pending) {
+          ;(request as any).pipeline_pending_idea_batch = { kind: 'structured', sequence, count, prompt, assignments }
+          await jq.checkpointJobState(job)
+        }
+        const context: CallAiContext = {
           slug: job.project_slug,
           jobId: job.job_id,
           signal: controller.signal,
           outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(assignments.length) },
           outputContract: ideaCampaignOutputContract(assignments.map(item => item.idea_key)),
-        })
+          pipelinePolicyCheckpoint: ideasCheckpoint,
+          pipelinePolicyCheckpointKey: `${job.project_slug}:${request.campaign_id}:ideas:${sequence}`,
+          requestIdentity: `${job.project_slug}:${request.campaign_id}:ideas:${sequence}`,
+        }
+        const raw = ideasPolicy
+          ? await callAiWithModelPolicy(ideasPolicy, '', prompt, apiKeys, false, context)
+          : await callAiWithRetry(request.model, '', prompt, apiKeys, false, context)
         const responseItems = parseArray(raw)
         const byKey = new Map(
           responseItems
@@ -442,6 +513,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       if (isFormulaFreeform) similarityPool.unshift(...savedCandidates)
       else similarityPool.push(...savedCandidates)
       job.output_lines.push(`  ✓ Saved ${stored.length}; campaign now ${alreadyCompleted.length + created.length}/${wanted}.`)
+    }
+    if (ideasPolicy) {
+      delete (request as any).pipeline_pending_idea_batch
+      await jq.checkpointJobState(job)
     }
     job.progress = Math.min(99, Math.round(((alreadyCompleted.length + created.length) / wanted) * 100))
   }

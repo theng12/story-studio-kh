@@ -68,6 +68,8 @@
       </p>
     </div>
 
+    <InheritedLlmLineupNotice :project-slug="slug" />
+
     <!-- The setting was inferred rather than chosen. Say so, and ask. -->
     <WorkspaceNotice v-if="segment.inferred_at" tone="warning" title="This was worked out from your existing episodes">
       Nothing in this channel ever recorded whether it opens with an Introduction, so this app looked at

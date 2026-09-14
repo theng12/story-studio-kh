@@ -1984,6 +1984,7 @@ export interface AudioQualityProjectConfig {
 }
 
 export interface ProjectConfig {
+  llm_lineup?: import('../contracts/llm-lineup.js').LlmLineup
   /** Historical project files may contain retired fields; Story ignores them. */
   [key: string]: any
   genstudio_api_key?: string
@@ -2246,6 +2247,7 @@ export interface MetadataTemplate {
 }
 
 export interface SafeProjectConfig {
+  llm_lineup?: import('../contracts/llm-lineup.js').LlmLineup
   has_genstudio_key: boolean
   has_google_key?: boolean
   /** @deprecated v1.0.150 — removed alongside the standalone Chatterbox provider. */
@@ -2282,6 +2284,7 @@ export interface UpdateApiKeysRequest {
 }
 
 export interface UpdateConfigRequest {
+  llm_lineup?: import('../contracts/llm-lineup.js').LlmLineup
   image_models?: Record<string, ImageModelConfig>
   voice_presets?: VoicePreset[]
   voice_favourites?: string[]

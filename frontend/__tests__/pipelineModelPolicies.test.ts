@@ -22,6 +22,8 @@ function loadPolicies() {
   const source = `
     type StepId = 'research' | 'script-only' | 'introduction-only' | 'image_prompts' | 'metadata' | 'scene_plan' | 'contextual_cues' | 'audio'
     const slug = {}
+    const ref = (value: any) => ({ value })
+    const savedLlmLineup = ref({ enabled: false, models: [], prefer_savings: true })
     const checkedStepsOrdered = { value: [] as Array<{ id: StepId }> }
     const stepById = (id: StepId) => ({ label: id })
     ${policyCode()}

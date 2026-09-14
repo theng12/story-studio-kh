@@ -28,6 +28,8 @@
       />
     </div>
 
+    <InheritedLlmLineupNotice :project-slug="slug" />
+
     <section class="card cues-command">
       <div class="cue-toggle-copy">
         <span class="section-kicker">Project setting</span>

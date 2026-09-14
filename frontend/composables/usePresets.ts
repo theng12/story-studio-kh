@@ -35,7 +35,7 @@ import { useApi } from './useApi.js'
 // (`script-style` was a 2026 experiment that lived in the Script Generator's
 // "Reference Styles" panel — removed in favour of the more general Format
 // system + FormatFromSampleWizard, which cover the same need at a better scope.)
-export type PresetType = 'script' | 'introduction' | 'research' | 'art-style' | 'prompt-style' | 'broll' | 'scene-plan' | 'style-bible' | 'scene-review' | 'motion-review' | 'continuity-page' | 'contextual-cues' | 'sound-design' | 'all'
+export type PresetType = 'script' | 'introduction' | 'research' | 'art-style' | 'prompt-style' | 'broll' | 'scene-plan' | 'style-bible' | 'scene-review' | 'motion-review' | 'continuity-page' | 'contextual-cues' | 'sound-design' | 'llm-lineup' | 'all'
 export interface Preset {
   id: string
   name: string

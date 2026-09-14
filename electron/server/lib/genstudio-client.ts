@@ -54,6 +54,7 @@ import {
   type GenStudioRequestPreviewInput,
 } from './genstudio-request-preview.js'
 import type { JobRemoteOperation, ResearchEvidenceLevel } from '../models/types.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 
 /**
  * Job-poll cadence — ONE schedule shared by all five wait loops.
@@ -157,6 +158,8 @@ export type GenStudioQueueState =
 interface GenStudioOperationContext {
   /** Internal automatic replacement cap; only sent after a fresh server support check. */
   replacementChargeLimit?: number
+  /** Server-owned Pipeline lineup executes its own bounded fallback and wait policy. */
+  policyOwnsFallback?: boolean
   /** Called after admission/waits and immediately before each physical POST. */
   beforePost?: () => void | Promise<void>
   /** Optional per-attempt gate around the physical submission, not its retry wait. */
@@ -1594,6 +1597,8 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
    */
   standard_input_credits_per_million_tokens: number | null
   standard_output_credits_per_million_tokens: number | null
+  /** Undiscounted published request minimum, when the catalogue supplies it. */
+  standard_minimum_credits?: number | null
   // ── Published retirement schedule ─────────────────────────────────────
   // GenStudio records when a product stops being sellable and what replaces
   // it, and publishes the whole schedule on every catalogue row. Story Studio
@@ -2350,13 +2355,30 @@ function durableIncompleteChatError(job: GenStudioChatJob): GenStudioChatIncompl
  */
 export class GenStudioChatProductUnavailableError extends Error {
   readonly modelId: string
+  /** Present only when the live catalogue describes a temporary absence. */
+  readonly availabilityReason: 'daily_quota_depleted' | 'temporary_backpressure' | null
+  /** GenStudio's reported time, or a local bounded recheck timestamp. */
+  readonly availableAgainAt: string | null
 
-  constructor(modelId: string) {
+  constructor(
+    modelId: string,
+    availability?: {
+      reason?: 'daily_quota_depleted' | 'temporary_backpressure' | null
+      availableAgainAt?: string | null
+    },
+  ) {
     super(
       `The selected GenStudio language product "${modelId}" is not available. Choose a published product before retrying. No request or credit charge was made.`,
     )
     this.name = 'GenStudioChatProductUnavailableError'
     this.modelId = modelId
+    this.availabilityReason = availability?.reason === 'daily_quota_depleted'
+      || availability?.reason === 'temporary_backpressure'
+      ? availability.reason
+      : null
+    this.availableAgainAt = typeof availability?.availableAgainAt === 'string' && availability.availableAgainAt
+      ? availability.availableAgainAt
+      : null
   }
 }
 
@@ -2977,6 +2999,8 @@ function shouldReconnectAcceptedTask(
 export const GENSTUDIO_LANGUAGE_FAILURE_CODES = {
   PROVIDER_FAILED: 'LANGUAGE_PROVIDER_FAILED',
   PROVIDER_BACKPRESSURE: 'LANGUAGE_PROVIDER_BACKPRESSURE',
+  /** The product's provider quota is temporarily exhausted before work ran. */
+  QUOTA_EXHAUSTED: 'LANGUAGE_PROVIDER_QUOTA_EXHAUSTED',
   SUBMISSION_UNCERTAIN: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
   /** The provider returned output cut short by the published token limit. */
   INCOMPLETE: 'LANGUAGE_PROVIDER_INCOMPLETE',
@@ -3133,6 +3157,10 @@ export function describeGenStudioLanguageFailure(code: string | null | undefined
     return 'GenStudio KH could not admit this language request because its provider lane was under pressure. '
       + 'The durable job reports the exact credit settlement; Story Studio retries only when that record proves nothing was charged and the full reservation was released.'
   }
+  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED) {
+    return 'GenStudio KH reported that this language product\'s provider quota is temporarily exhausted. '
+      + 'The durable job reports the exact credit settlement; Story Studio advances only when that record proves nothing was charged and the full reservation was released.'
+  }
   return null
 }
 
@@ -3185,6 +3213,18 @@ export function isGenStudioRouteExhausted(error: unknown): error is GenStudioTer
   return error instanceof GenStudioTerminalFailureError
     && !error.cancelled
     && error.failureCode === GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE
+    && hasFullyReleasedZeroSettlement(error)
+}
+
+/**
+ * A published temporary language quota exhaustion is safe to leave behind
+ * only after the durable settlement proves the request never consumed a
+ * credit. Callers still choose whether to park/recheck or surface it.
+ */
+export function isGenStudioLanguageQuotaExhausted(error: unknown): error is GenStudioTerminalFailureError {
+  return error instanceof GenStudioTerminalFailureError
+    && !error.cancelled
+    && error.failureCode === GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED
     && hasFullyReleasedZeroSettlement(error)
 }
 
@@ -4631,6 +4671,7 @@ export async function listChatModelsSnapshot(
       publishedCredits(value?.standard_input_credits_per_million_tokens) ?? null,
     standard_output_credits_per_million_tokens:
       publishedCredits(value?.standard_output_credits_per_million_tokens) ?? null,
+    standard_minimum_credits: publishedCredits(value?.standard_minimum_credits) ?? null,
     // Retirement schedule, read exactly as published. Same contract as the
     // disclosure above: an older GenStudio that publishes none of this carries
     // no retirement, which is the truth rather than a default. Story Studio
@@ -6077,9 +6118,12 @@ async function prepareChatSubmission(
   if (request.inputImage) {
     throw new Error('The GenStudio language-product endpoint is text-only in this release. No request or credit charge was made.')
   }
-  const product = (await listChatModels(apiKey)).find(model => model.id === modelId)
+  const product = findGenStudioProduct(await listChatModels(apiKey), modelId)
   if (!product || !product.available || product.qualification_only || product.locked === true) {
-    throw new GenStudioChatProductUnavailableError(modelId)
+    throw new GenStudioChatProductUnavailableError(modelId, {
+      reason: product?.availability_reason,
+      availableAgainAt: product?.available_again_at,
+    })
   }
   // An explicit number still wins (and is still checked below). Otherwise the
   // workflow's declared tier is sized from THIS product's published ceiling —
@@ -6457,6 +6501,11 @@ async function replaceConfirmedGeneration<T>(
   submit: (key: string, cap: number, hooks: GenStudioOperationContext) => Promise<T>,
   quoteMaximum?: () => Promise<number | null>,
 ): Promise<T> {
+  // A shared lineup owns this exact fallback decision. In particular, a
+  // proved provider quota stop must return to its durable candidate ledger so
+  // it can advance or park; the legacy paid replacement would resubmit this
+  // same product before that evidence can be acted on.
+  if (request.policyOwnsFallback === true) throw error
   if (!(error instanceof GenStudioTerminalFailureError)
     || error.failureClass !== 'provider_transient' || error.cancelled
     || isUncertainGenerationCode(error.failureCode)

@@ -41,6 +41,7 @@ const genstudioProvider: TextProvider = {
       recoveryRequestPreview: request.recoveryRequestPreview,
       idempotencyKey: request.idempotencyKey,
       allowedRecoveryKeys: request.allowedRecoveryKeys,
+      policyOwnsFallback: request.policyOwnsFallback === true,
       outputContract: request.outputContract,
       jsonObject: !request.outputContract && request.jsonMode === true,
       signal: request.signal,

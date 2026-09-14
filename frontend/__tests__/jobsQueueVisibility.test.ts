@@ -84,3 +84,12 @@ test('Jobs distinguishes local handoff and GenStudio admission without inventing
   assert.match(jobs, /remote\.queue_position/)
   assert.match(jobs, /remote\.queue_eta_seconds/)
 })
+
+test('Jobs shows a local lineup availability wait and clears it once work resumes', () => {
+  const params = { llm_lineup_retry_at: '2026-09-15T08:00:00Z' }
+  const job = { status: 'queued', params, genstudio_jobs: [{ state: 'failed' }] }
+  assert.match(queueDetail(job), /Waiting for model availability/)
+  assert.match(queueDetail(job), /Completed work is kept/)
+  assert.equal(queueDetail({ ...job, status: 'running' }), '')
+  assert.equal(queueDetail({ ...job, params: { llm_lineup_retry_at: 'invalid' } }), '')
+})

@@ -218,6 +218,8 @@ export interface TextGenerationRequest {
   /** Server-owned durable key used only by read-only chat recovery. */
   idempotencyKey?: string
   allowedRecoveryKeys?: string[]
+  /** Server-owned shared Pipeline lineup bypasses legacy paid replacement. */
+  policyOwnsFallback?: boolean
   /** Provider response details used to explain truncation and token consumption. */
   onDiagnostics?: (diagnostics: TextGenerationDiagnostics) => void
   /** Durable accepted-job receipt used by explicit Pipeline policy checkpoints. */

@@ -90,6 +90,8 @@
       </p>
     </div>
 
+    <InheritedLlmLineupNotice :project-slug="slug" />
+
     <!-- ── Workflow tab ────────────────────────────────────────────────── -->
     <div v-show="ideasTab === 'workflow'">
 
