@@ -1141,7 +1141,6 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
         : null
 
       let attempt: DurableImageAttempt | null = null
-      let releasedZeroSettlementRetryUsed = false
       let zeroSettlementRetryPending = false
       for (let attemptNum = 1; ; attemptNum++) {
         let acceptedTaskId = ''
@@ -1428,16 +1427,15 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             }
           }
           // Fleet-busy and route refusals follow `imageRetryPlan`; a fully
-          // refunded, policy-approved terminal image failure gets one retry.
+          // refunded, policy-approved terminal failure keeps retrying with backoff.
           const plan = imageRetryPlan(e, attemptNum)
-            || (releasedZeroSettlementRetry && !releasedZeroSettlementRetryUsed
-              ? { waitMs: 0, reason: 'The image failed before any credits settled', maxAttempts: attemptNum + 1 }
+            || (releasedZeroSettlementRetry
+              ? { waitMs: imageRouteRetryDelayMs(attemptNum - 1), reason: 'The failed image was fully refunded', maxAttempts: attemptNum + 1 }
               : null)
           const fleetBusy = isFleetBusyFailure(e, 'image')
           const stoppableRetry = fleetBusy || releasedZeroSettlementRetry
           if (plan && attempt && !jq.isCancelled(job.job_id)
             && !(stoppableRetry && jq.isPauseRequested(job.job_id))) {
-            if (releasedZeroSettlementRetry) releasedZeroSettlementRetryUsed = true
             const { waitMs, reason, maxAttempts } = plan
             activeItems.set(key, {
               label,
@@ -1451,7 +1449,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             publishProgress()
             job.output_lines.push(
               `  Thumbnail ${thumb.number}: ${reason.toLowerCase()} — nothing was charged.`
-              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1} of ${maxAttempts}).`,
+              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1}${releasedZeroSettlementRetry ? '' : ` of ${maxAttempts}`}).`,
             )
             attempt = deriveRouteRetryAttempt(attempt, e.jobId || acceptedTaskId, finalPrompt)
             // v1.4.35 — the fleet-busy wait now ends on Pause too. Both

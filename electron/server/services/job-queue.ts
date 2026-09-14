@@ -35,6 +35,7 @@ import {
 } from '../lib/provider-task-state.js'
 import { reconciledGenStudioQueueState } from '../contracts/provider-task-state.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
+import { isRetryableZeroSettlementImageFailureCode } from './image-paid-replacement.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
 import {
@@ -3533,6 +3534,12 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       })
       for (const lane of transitioned.lanes) pump(lane)
     }
+    // A cooperative stall pause is safe to reconsider only after its final
+    // checkpoint is durable. The same recovery runs on project load, but an
+    // uninterrupted app used to leave this settled record paused forever.
+    if (job.status === 'paused' && job.pause_origin === 'stall') {
+      await recoverSafelySettledStallJobs([job])
+    }
     if (isQueuedLlmLineupWait(job)) {
       scheduleLlmLineupWait(job)
     }
@@ -3540,7 +3547,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       clearPaidImageWaitTimer(job.job_id)
       clearLlmLineupWaitTimer(job.job_id)
     }
-    if (job.status === 'running' && hasUnsettledProviderWork(job)) scheduleCancellationReconciliation(job.job_id)
+    if (
+      (job.status === 'running' && hasUnsettledProviderWork(job))
+      || (job.status === 'paused' && job.pause_origin === 'stall' && requiresCancellationReconciliation(job))
+    ) scheduleCancellationReconciliation(job.job_id)
     // v1.2.6 — a job can finish while one recorded provider task was still
     // mid-flight. Ask GenStudio now rather than freezing that snapshot into a
     // history row nobody can ever dismiss.
@@ -3932,7 +3942,7 @@ function isSafelyRetryableStallImageFailure(
     || entry.id.startsWith('pending:')
     || entry.state !== 'failed'
     || entry.cancelled === true
-    || !FLEET_BUSY_FAILURE_CODES.has(String(entry.failure_code || ''))
+    || !isRetryableZeroSettlementImageFailureCode(entry.failure_code)
   ) return false
   const reserved = entry.reserved_credits
   const settled = entry.settled_credits
@@ -3962,9 +3972,13 @@ function hasSafeTerminalStallEvidence(job: Job): boolean {
     if (
       entry.operation !== 'image.generation'
       || !entry.id
-      || entry.id.startsWith('pending:')
       || entry.cancelled === true
     ) return false
+    if (isNeverCreatedProviderTask(entry)) {
+      return Boolean(entry.request?.idempotency_key)
+        && entry.reserved_credits === 0 && entry.settled_credits === 0 && entry.released_credits === 0
+    }
+    if (entry.id.startsWith('pending:')) return false
     if (entry.state === 'succeeded') return true
     return isSafelyRetryableStallImageFailure(entry)
   })
@@ -4026,16 +4040,29 @@ async function hasDurableContinuityStallManifestOwnership(
     if (decodable && !requireOwnedExistingOutputs) continue
     if (
       manifestEntry?.operation !== 'image'
-      || !manifestEntry.task_id
       || !manifestEntry.idempotency_key
       || checkpointEntry?.operation !== 'image'
-      || checkpointEntry.job_id !== manifestEntry.task_id
       || checkpointEntry.idempotency_key !== manifestEntry.idempotency_key
       || (checkpointEntry.output_path !== undefined && (
         typeof checkpointEntry.output_path !== 'string'
         || path.resolve(checkpointEntry.output_path) !== path.resolve(outputPath)
       ))
     ) return false
+    // A stall can happen after reserving the local request key but before
+    // receiving its provider id. Reconciliation resolves that exact key; the
+    // executor will rejoin it or replay a proven-absent prepared request.
+    const prepared = !manifestEntry.task_id && manifestEntry.last_state === 'prepared'
+      && !checkpointEntry.job_id && checkpointEntry.state === 'prepared'
+      && Boolean(manifestEntry.input_hash) && checkpointEntry.input_hash === manifestEntry.input_hash
+    if (prepared && !requireOwnedExistingOutputs) {
+      const evidence = (job.genstudio_jobs || []).filter(entry => (
+        entry.operation === 'image.generation'
+        && entry.request?.idempotency_key === manifestEntry.idempotency_key
+      ))
+      if (evidence.length !== 1) return false
+      continue
+    }
+    if (!manifestEntry.task_id || checkpointEntry.job_id !== manifestEntry.task_id) return false
     const matchingEvidence = (job.genstudio_jobs || []).filter(entry => (
       entry.operation === 'image.generation' && entry.id === manifestEntry.task_id
     ))

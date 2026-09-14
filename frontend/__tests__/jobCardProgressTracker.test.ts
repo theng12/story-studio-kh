@@ -475,6 +475,18 @@ describe('exceptions', () => {
     ])
   })
 
+  test('does not promise automatic continuation for a paused job', () => {
+    const paused = describeJobExceptions({
+      status: 'paused',
+      item_progress: { total: 2, completed: 0, failed: 0, concurrency: 1, active: [{
+        label: 'Scene 1', state: 'waiting_retry' as const, attempt: 1, max_attempts: 4,
+        retry_at: new Date(nowMs + 30_000).toISOString(),
+      }] },
+      genstudio_jobs: [{ operation: 'image.generation', queue_state: 'waiting_account_capacity' }],
+    }, nowMs)
+    assert.equal(paused.some(line => /automatically/i.test(line.text)), false)
+  })
+
   test('active work with unpublished settlement says only that credit outcome is pending', () => {
     const healthy = {
       type: 'scene_images_batch',

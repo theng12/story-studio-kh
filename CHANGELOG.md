@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.166 — 2026-09-15
+
+- With automatic image replacement enabled, eligible fully refunded image failures keep retrying with a delay until complete, paused, cancelled, or disabled. Each retry verifies the previous task and preserves finished images; charged replacements retain their existing limits.
+- Scene Review jobs held automatically after a stall rejoin the queue once their accepted work has safely settled. Explicit pauses remain paused, and paused cards no longer promise automatic continuation.
+
 ## v1.4.165
 
 - Fixed Pipeline batches with a shared LLM lineup incorrectly applying writing-model policies to Scene Review and other non-writing stages. Image, audio, subtitle, motion, and assembly stages keep their own settings; eligible writing stages still use the lineup or their explicit overrides.

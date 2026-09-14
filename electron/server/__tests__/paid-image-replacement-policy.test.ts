@@ -473,7 +473,7 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     })
   }
 
-  await suite.test('fully released terminal failures receive one image-only safe retry with no policy writes', async () => {
+  await suite.test('fully released terminal failures receive image-only safe retries with no policy writes', async () => {
     for (const failureCode of ['SITE_FAILOVER_EXHAUSTED', 'IMAGE_FAILED']) {
       const zero = await decision({ dependencies: {
         readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: failureCode, reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
@@ -487,7 +487,7 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     }
   })
 
-  await suite.test('a fully released generic failure requires current opt-in and has no second retry after restart', async () => {
+  await suite.test('a fully released generic failure requires current opt-in and remains retryable after restart', async () => {
     const releasedGeneric = { id: 'original-task', state: 'failed', failure_code: 'IMAGE_FAILED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }
     const off = await decision({ dependencies: {
       readControl: async () => releasedGeneric, artifactExists: async () => false,
@@ -511,8 +511,7 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
         refreshAdmission: async () => ({}) as any,
       },
     })
-    assert.equal(restarted.result.action, 'blocked')
-    assert.equal(restarted.result.action === 'blocked' && restarted.result.public_reason, 'original_failure_not_eligible')
+    assert.equal(restarted.result.action, 'safe-zero-settlement-retry')
     assert.deepEqual(restarted.writes, [])
   })
 
