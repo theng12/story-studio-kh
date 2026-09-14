@@ -1221,7 +1221,7 @@ function modelPoliciesForRun(): Partial<Record<EligibleModelPolicyStep, RunModel
         mode: policy.mode,
         models: [...policy.models],
       }
-    } else if (savedLlmLineup.value.enabled && savedLlmLineup.value.models.length) {
+    } else if (policy && savedLlmLineup.value.enabled && savedLlmLineup.value.models.length) {
       result[step.id as EligibleModelPolicyStep] = {
         mode: savedLlmLineup.value.models.length >= 2 ? 'backup' : 'single',
         models: [...savedLlmLineup.value.models],

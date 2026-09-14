@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.165
+
+- Fixed Pipeline batches with a shared LLM lineup incorrectly applying writing-model policies to Scene Review and other non-writing stages. Image, audio, subtitle, motion, and assembly stages keep their own settings; eligible writing stages still use the lineup or their explicit overrides.
+
 ## v1.4.164 — 2026-09-14
 
 - Catalogue diagnostics preserve GenStudio's Promotional and Value language categories alongside Economy and Premium. Published Promotional models keep their category even when their customer credit price is positive; other media keep their own category rules.
