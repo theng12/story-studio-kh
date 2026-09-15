@@ -50,6 +50,14 @@
             >
               {{ busy === 'plan-batch' ? 'Planning…' : `${planCandidates.some(hasMissedPlan) ? 'Plan missing or missed dates' : 'Plan unscheduled videos'} (${planCandidates.length})` }}
             </button>
+            <button
+              v-if="episodes.length" class="btn btn-ghost btn-sm" type="button"
+              :disabled="busy !== '' || !selectedUploadEpisodes.length || !!planBlocked"
+              :title="planBlocked || (!selectedUploadEpisodes.length ? 'Select videos to re-date.' : 'Re-lay the planned dates of the selected videos from a start date using the active plan\'s cadence.')"
+              @click="openRelayout($event)"
+            >
+              Edit planned dates ({{ selectedUploadEpisodes.length }})
+            </button>
             <button class="btn btn-ghost btn-sm" type="button" :disabled="refreshingList" @click="refreshList">
               {{ refreshingList ? 'Refreshing…' : 'Refresh list' }}
             </button>
@@ -74,6 +82,7 @@
           <NuxtLink :to="`/projects/${slug}/settings#youtube`" class="btn btn-ghost btn-sm">Assign channel</NuxtLink>
         </div>
         <p v-if="planResult" :class="['result', planResult.kind]" role="status">{{ planResult.message }}</p>
+        <p v-if="relayoutResult" :class="['result', relayoutResult.kind]" role="status">{{ relayoutResult.message }}</p>
 
         <div v-if="episodes.length" class="episode-tools">
           <input
@@ -445,6 +454,83 @@
           </header>
           <div class="review-body">
             <p class="hint review-loading" role="status">Preparing this upload review. A large video takes a moment to verify.</p>
+          </div>
+        </section>
+      </Modal>
+
+      <Modal :visible="relayoutOpen" size="lg" labelledby="relayout-title" dialog-class="modal-flush" @close="closeRelayout">
+        <section class="relayout-review">
+          <header class="review-head">
+            <div>
+              <h2 id="relayout-title" ref="relayoutHeading" tabindex="-1">Edit planned dates</h2>
+              <p>{{ selectedUploadEpisodes.length }} selected · re-laid from a start date on the active plan's cadence</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" @click="closeRelayout">Close</button>
+          </header>
+
+          <div class="review-body">
+            <p class="hint">
+              This changes Story Studio's <strong>planned</strong> dates only. YouTube is not edited here,
+              so a video that already exists on the channel keeps its real publish time and is listed below as skipped.
+            </p>
+
+            <div class="field-row relayout-start">
+              <label for="relayout-start-date">Start from</label>
+              <input
+                id="relayout-start-date" v-model="relayoutStartDate" type="date"
+                :disabled="busy !== ''"
+              />
+              <button
+                class="btn btn-ghost btn-sm" type="button"
+                :disabled="busy !== '' || !relayoutStartDate"
+                @click="previewRelayout()"
+              >
+                {{ busy === 'relayout-preview' ? 'Checking…' : 'Preview dates' }}
+              </button>
+            </div>
+
+            <p v-if="relayoutError" class="row-result err" role="alert">{{ relayoutError }}</p>
+
+            <template v-if="relayoutPreview">
+              <p v-if="!relayoutPreview.assignments.length" class="hint" role="status">
+                Nothing selected can be re-dated. Every selected video is either already on YouTube or has an upload in progress.
+              </p>
+              <table v-else class="relayout-table">
+                <caption class="relayout-caption">
+                  Proposed dates on {{ relayoutPlanName || 'the active plan' }}
+                  <span v-if="relayoutPreview.timezone"> · times shown in {{ relayoutPreview.timezone }}</span>
+                </caption>
+                <thead>
+                  <tr><th scope="col">Episode</th><th scope="col">Planned now</th><th scope="col">Proposed</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="assignment in relayoutPreview.assignments" :key="assignment.episode_code">
+                    <td><strong>{{ assignment.episode_code }}</strong></td>
+                    <td>{{ assignment.previous_publish_at ? formatZonedWhen(assignment.previous_publish_at, relayoutPreview.timezone) : 'Not planned' }}</td>
+                    <td><strong>{{ formatZonedWhen(assignment.publishAt, relayoutPreview.timezone) }}</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p v-if="relayoutPreview.occupied_days.length" class="hint">
+                {{ relayoutPreview.occupied_days.length }} day{{ relayoutPreview.occupied_days.length === 1 ? '' : 's' }}
+                already held by other episodes {{ relayoutPreview.occupied_days.length === 1 ? 'was' : 'were' }} stepped over,
+                so no two videos share a date. The list above already accounts for that.
+              </p>
+
+              <div v-if="relayoutPreview.skipped.length" class="relayout-skipped">
+                <h3>Left unchanged ({{ relayoutPreview.skipped.length }})</h3>
+                <ul>
+                  <li v-for="skip in relayoutPreview.skipped" :key="skip.episode_code">{{ skip.reason }}</li>
+                </ul>
+              </div>
+
+              <div v-if="relayoutPreview.assignments.length" class="field-row upload-row">
+                <button class="btn btn-primary" type="button" :disabled="busy !== ''" @click="applyRelayout()">
+                  {{ busy === 'relayout-apply' ? 'Saving…' : `Save ${relayoutPreview.assignments.length} planned date${relayoutPreview.assignments.length === 1 ? '' : 's'}` }}
+                </button>
+              </div>
+            </template>
           </div>
         </section>
       </Modal>
@@ -1111,6 +1197,167 @@ async function planUnscheduledVideos(episodeCodes?: string[]): Promise<void> {
     planResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not plan those videos.' }
   }
 }
+
+// ── Edit planned dates (re-lay) ───────────────────────────────────────────
+//
+// The gap this closes: `canPlanEpisode` returns false the moment an episode
+// holds a FUTURE planned date, and the plan route reports the same episodes as
+// `skipped_existing`. That rule is right for "plan what is unscheduled" and left
+// the opposite intent unreachable — an episode handed a date it should not have
+// kept, because a failed render let the episode behind it take the slot, could
+// not be re-dated from ANY surface. Bulk is the point: at 70+ planned episodes
+// a one-row-at-a-time fix is not a fix.
+//
+// Local planned dates only. Nothing here writes to YouTube, so a video that
+// already exists on the channel is reported as skipped rather than re-dated
+// behind YouTube's back — a local date that disagrees with a live `publishAt`
+// would make the row lie about when the video actually goes live.
+
+interface RelayoutSkip { episode_code: string; reason: string }
+
+interface RelayoutPreview {
+  plan_id: string
+  channel_id: string
+  start_date: string
+  timezone: string
+  ordered_episode_codes: string[]
+  assignments: PlanAssignment[]
+  skipped: RelayoutSkip[]
+  occupied_days: string[]
+}
+
+const relayoutOpen = ref(false)
+const relayoutHeading = ref<HTMLElement | null>(null)
+const relayoutOpener = ref<HTMLElement | null>(null)
+const relayoutStartDate = ref('')
+const relayoutPreview = ref<RelayoutPreview | null>(null)
+const relayoutRequest = ref<{ plan_id: string; expected_channel_id: string; episode_codes: string[]; start_date: string } | null>(null)
+const relayoutPlanName = ref('')
+const relayoutError = ref('')
+const relayoutResult = ref<{ kind: 'ok' | 'warn' | 'err'; message: string } | null>(null)
+
+/** The `YYYY-MM-DD` an instant falls on in `tz` — a `<input type="date">` value. */
+function zonedDateInput(iso: string, tz: string): string {
+  const at = new Date(iso)
+  if (!Number.isFinite(at.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(at)
+  const year = parts.find(part => part.type === 'year')?.value
+  const month = parts.find(part => part.type === 'month')?.value
+  const day = parts.find(part => part.type === 'day')?.value
+  return year && month && day ? `${year}-${month}-${day}` : ''
+}
+
+async function openRelayout(event?: Event): Promise<void> {
+  relayoutError.value = ''
+  relayoutResult.value = null
+  relayoutPreview.value = null
+  relayoutRequest.value = null
+  relayoutOpener.value = (event?.currentTarget as HTMLElement) || null
+  const selected = selectedUploadEpisodes.value
+  if (!selected.length) return
+  // Default to the earliest date the selection already holds, so the common case
+  // — "put this scramble back onto the cadence" — needs no retyping. The date is
+  // read in the PLAN's timezone, not the device's, because that is the calendar
+  // the slots are laid out on.
+  const zone = selected.find(ep => ep.plan?.timezone)?.plan?.timezone || deviceTimezone
+  const planned = selected
+    .map(ep => ep.plan?.scheduled_at)
+    .filter((value): value is string => isFutureIso(value))
+    .sort()
+  relayoutStartDate.value = zonedDateInput(
+    planned[0] ?? new Date(Date.now() + 86_400_000).toISOString(),
+    zone,
+  )
+  relayoutOpen.value = true
+  await nextTick()
+  relayoutHeading.value?.focus()
+}
+
+function closeRelayout(): void {
+  relayoutOpen.value = false
+  relayoutPreview.value = null
+  relayoutRequest.value = null
+  relayoutError.value = ''
+  const opener = relayoutOpener.value
+  relayoutOpener.value = null
+  if (opener) nextTick(() => opener.focus())
+}
+
+async function previewRelayout(): Promise<void> {
+  // Production order, not selection order: the checkbox set preserves click
+  // order and the list default is newest-first, neither of which may decide
+  // which episode receives the earliest date. The route re-sorts too, so this
+  // only keeps the request itself stable and readable.
+  const codes = [...selectedUploadEpisodes.value]
+    .sort((a, b) => episodeNumber(a) - episodeNumber(b))
+    .map(ep => ep.episode_code)
+  const channelId = assignedChannel.value?.channel_id
+  if (!codes.length || !channelId || busy.value || !relayoutStartDate.value) return
+  const action = beginAction('relayout-preview')
+  relayoutError.value = ''
+  relayoutPreview.value = null
+  relayoutResult.value = null
+  try {
+    const listed = await get<{ plans: UploadPlan[]; active: Record<string, string> }>(`/projects/${action.slug}/upload/plans`)
+    if (!actionIsCurrent(action)) return
+    const planId = listed.active?.[`youtube:registry:${channelId}`]
+    const plan = listed.plans.find(candidate => candidate.id === planId)
+    if (!plan) throw new Error('This channel does not have an active upload plan. Create or activate one in Upload Center → Upload plans.')
+    const preview = await post<RelayoutPreview>(`/projects/${action.slug}/youtube/plan/relayout/preview`, {
+      plan_id: plan.id,
+      expected_channel_id: channelId,
+      episode_codes: codes,
+      start_date: relayoutStartDate.value,
+    })
+    if (!actionIsCurrent(action)) return
+    relayoutPlanName.value = plan.name
+    relayoutPreview.value = preview
+    // Kept so Apply sends the exact request this preview answered. A preview that
+    // cannot be replayed is a preview of a different operation.
+    relayoutRequest.value = {
+      plan_id: plan.id, expected_channel_id: channelId,
+      episode_codes: codes, start_date: relayoutStartDate.value,
+    }
+  } catch (error: any) {
+    relayoutError.value = error?.data?.detail || error?.message || 'Could not preview those dates.'
+  } finally {
+    if (actionIsCurrent(action)) busy.value = ''
+  }
+}
+
+async function applyRelayout(): Promise<void> {
+  const preview = relayoutPreview.value
+  const request = relayoutRequest.value
+  if (!preview || !request || busy.value || !preview.assignments.length) return
+  const action = beginAction('relayout-apply')
+  relayoutError.value = ''
+  try {
+    const applied = await post<RelayoutPreview>(`/projects/${action.slug}/youtube/plan/relayout/apply`, {
+      ...request, confirm: true, expected_assignments: preview.assignments,
+    })
+    if (!actionIsCurrent(action)) return
+    const saved = applied.assignments.length
+    const held = applied.skipped.length
+    relayoutResult.value = {
+      kind: held ? 'warn' : 'ok',
+      message: `Saved ${saved} planned date${saved === 1 ? '' : 's'}`
+        + (held ? `, and left ${held} unchanged.` : '.')
+        + ' YouTube was not changed — each video still needs its own schedule confirmation.',
+    }
+    relayoutOpen.value = false
+    relayoutPreview.value = null
+    relayoutRequest.value = null
+    selectedUploadCodes.value = []
+    await load()
+  } catch (error: any) {
+    relayoutError.value = error?.data?.detail || error?.message || 'Could not save those dates.'
+  } finally {
+    if (actionIsCurrent(action)) busy.value = ''
+  }
+}
+
 function thumbnailGeneratorLink(episodeCode: string): string {
   return `/projects/${slug.value}/images?tab=thumbnails&episode_id=${encodeURIComponent(episodeCode)}`
 }
@@ -1808,6 +2055,15 @@ watch(slug, () => {
   filter.value = typeof route.query.episode_id === 'string' ? route.query.episode_id : ''
   statusFilter.value = 'all'
   planResult.value = null
+  // The re-lay dialog names one project's episodes and one project's plan, and
+  // its previewed dates were computed against that project. Carrying any of it
+  // across a project switch would offer to save dates the new project never
+  // previewed.
+  relayoutResult.value = null
+  relayoutOpen.value = false
+  relayoutPreview.value = null
+  relayoutRequest.value = null
+  relayoutError.value = ''
   selectedUploadCodes.value = []
   bulkReviewOpen.value = false
   bulkReviews.value = []
@@ -1907,7 +2163,7 @@ watch(slug, () => {
 .forget-upload { flex-basis: 100%; margin-left: auto; color: var(--text-muted); }
 .row-result { grid-column: 1 / -1; margin: 0; padding-top: 7px; border-top: 1px solid var(--border); line-height: 1.5; }
 
-.upload-review, .bulk-upload-review, .video-review { display: grid; gap: 14px; min-width: 0; }
+.upload-review, .bulk-upload-review, .video-review, .relayout-review { display: grid; gap: 14px; min-width: 0; }
 /*
   The review dialogs paint their own bands (the Modal is passed `modal-flush`):
   the header with Close is pinned to the top of the dialog's own scroll box and
@@ -1915,9 +2171,9 @@ watch(slug, () => {
   scrolls between them. Sticky positioning needs the dialog's scroll box to be
   the nearest scrolling ancestor, which is exactly what Modal provides.
 */
-.upload-review, .bulk-upload-review { --uc-dialog-pad: 24px; gap: 0; }
+.upload-review, .bulk-upload-review, .relayout-review { --uc-dialog-pad: 24px; gap: 0; }
 .review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.upload-review .review-head, .bulk-upload-review .review-head {
+.upload-review .review-head, .bulk-upload-review .review-head, .relayout-review .review-head {
   position: sticky; top: 0; z-index: 2;
   padding: var(--uc-dialog-pad) var(--uc-dialog-pad) 12px;
   background: var(--bg-secondary); border-bottom: 1px solid var(--border);
@@ -1939,6 +2195,27 @@ watch(slug, () => {
 .review-head h2 { margin: 0; font-size: 18px; }
 .review-head h2:focus { outline: none; }
 .review-head p { margin: 4px 0 0; color: var(--text-muted); font-size: var(--font-xs); }
+/* Re-lay dialog: a before/after table is the whole point, so the two date
+   columns must stay visually distinct from the episode codes beside them. */
+.relayout-start { align-items: center; }
+.relayout-start label { font-size: var(--font-xs); color: var(--text-muted); }
+.relayout-table { width: 100%; border-collapse: collapse; font-size: var(--font-xs); }
+.relayout-table caption { margin-bottom: 6px; color: var(--text-muted); text-align: left; }
+.relayout-table th {
+  padding: 6px 8px; border-bottom: 1px solid var(--border);
+  color: var(--text-muted); font-weight: 600; text-align: left;
+}
+.relayout-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.relayout-table td:last-child { white-space: nowrap; }
+.relayout-skipped {
+  display: grid; gap: 6px; padding: 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary);
+}
+.relayout-skipped h3 { margin: 0; font-size: 14px; }
+.relayout-skipped ul {
+  display: grid; gap: 4px; margin: 0; padding-left: 18px;
+  color: var(--text-muted); font-size: var(--font-xs);
+}
 .video-review video { width: 100%; max-height: min(65vh, 560px); border-radius: var(--radius-sm); background: #000; }
 .changes, .warnings { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: var(--font-xs); }
 .warnings { color: var(--warning, #d97706); }
@@ -2048,8 +2325,8 @@ watch(slug, () => {
   .status-chip { flex: 1 1 auto; }
 }
 @media (max-width: 620px) {
-  .upload-review .review-head, .bulk-upload-review .review-head, .video-review .review-head { align-items: stretch; flex-direction: column; }
-  .upload-review, .bulk-upload-review { --uc-dialog-pad: 18px; }
+  .upload-review .review-head, .bulk-upload-review .review-head, .video-review .review-head, .relayout-review .review-head { align-items: stretch; flex-direction: column; }
+  .upload-review, .bulk-upload-review, .relayout-review { --uc-dialog-pad: 18px; }
   .bulk-background { grid-template-columns: 1fr; }
   .upload-review .payload > div { grid-template-columns: 1fr; }
   .timing-options { grid-template-columns: 1fr; }

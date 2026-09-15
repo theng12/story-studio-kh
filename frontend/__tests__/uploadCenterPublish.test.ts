@@ -66,6 +66,10 @@ async function mount(input: {
   planPreview?: any
   planApply?: any
   scheduleResponse?: any
+  /** POST /youtube/plan/relayout/preview — the re-lay proposal. */
+  relayoutPreview?: any
+  /** POST /youtube/plan/relayout/apply — what the save answers. */
+  relayoutApply?: any
 }): Promise<{
   el: HTMLElement; text: () => string; calls: Recorded[]
   setEpisode: (episode: string) => Promise<void>
@@ -144,6 +148,8 @@ async function mount(input: {
       }
       if (path.endsWith('/youtube/plan/preview')) return input.planPreview
       if (path.endsWith('/youtube/plan/apply')) return input.planApply
+      if (path.endsWith('/youtube/plan/relayout/preview')) return input.relayoutPreview
+      if (path.endsWith('/youtube/plan/relayout/apply')) return input.relayoutApply
       if (/\/youtube\/episodes\/[^/]+\/schedule$/.test(path)) return input.scheduleResponse
       if (path.endsWith('/refresh')) return input.refresh
       if (path.endsWith('/youtube/upload')) {
@@ -1806,6 +1812,199 @@ describe('Upload Center Publish', () => {
     assert.match(mounted.text(), /accepted/)
     assert.match(mounted.text(), /Video Assembly/)
     mounted.destroy()
+  })
+
+  // ── Editing planned dates in bulk ──────────────────────────────────────
+  //
+  // `canPlanEpisode` refuses an episode that already holds a FUTURE planned
+  // date, so the Plan button could never re-date one. These tests pin the
+  // separate action that can, because the whole point is the case the Plan
+  // button skips by design.
+
+  const PLANNED_EPISODES = [
+    { ...NEVER_UPLOADED, plan: { scheduled_at: '2099-10-05T12:00:00.000Z', timezone: 'UTC' } },
+    { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Second', plan: { scheduled_at: '2099-10-06T12:00:00.000Z', timezone: 'UTC' } },
+  ]
+  const RELAYOUT_PLANS = {
+    plans: [{ id: 'plan-1', name: 'Weekdays', platform: 'youtube', account_id: 'registry:UC-x', schedule: { timezone: 'UTC', time_local: '12:00' } }],
+    active: { 'youtube:registry:UC-x': 'plan-1' },
+  }
+
+  /** Select every row, then open the re-lay dialog. */
+  async function openRelayoutDialog(mounted: Awaited<ReturnType<typeof mount>>): Promise<void> {
+    const selectAll = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Select visible eligible'))!
+    selectAll.click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    const open = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Edit planned dates'))!
+    open.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+  }
+
+  test('the plan button still refuses future-dated episodes, so the re-lay action is not a duplicate route', async () => {
+    // Break caught: widening `canPlanEpisode` instead would silently re-plan
+    // already-booked videos as a side effect of the "plan what is unscheduled"
+    // button — the preset-boundary defect in a new place.
+    const mounted = await mount({ episodes: PLANNED_EPISODES, plans: RELAYOUT_PLANS })
+    assert.match(mounted.text(), /Plan unscheduled videos \(0\)/,
+      'an episode that already holds a future date is not a plan candidate')
+    const edit = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Edit planned dates'))!
+    assert.equal(edit.disabled, true, 'with nothing selected there is nothing to re-date')
+    mounted.destroy()
+  })
+
+  test('re-lays the selected planned episodes from a start date and shows what each date changes from', async () => {
+    const assignments = [
+      { episode_code: 'EP0001', publishAt: '2099-11-02T12:00:00.000Z', previous_publish_at: '2099-10-05T12:00:00.000Z' },
+      { episode_code: 'EP0002', publishAt: '2099-11-03T12:00:00.000Z', previous_publish_at: '2099-10-06T12:00:00.000Z' },
+    ]
+    const mounted = await mount({
+      episodes: PLANNED_EPISODES,
+      plans: RELAYOUT_PLANS,
+      relayoutPreview: {
+        plan_id: 'plan-1', channel_id: 'UC-x', start_date: '2099-11-02', timezone: 'UTC',
+        ordered_episode_codes: ['EP0001', 'EP0002'], assignments, skipped: [], occupied_days: [],
+      },
+      relayoutApply: {
+        plan_id: 'plan-1', channel_id: 'UC-x', start_date: '2099-11-02', timezone: 'UTC',
+        ordered_episode_codes: ['EP0001', 'EP0002'], assignments, skipped: [], occupied_days: [],
+      },
+    })
+    await openRelayoutDialog(mounted)
+
+    // The dialog defaults to the earliest date the selection already holds, so
+    // the common case needs no retyping.
+    const start = mounted.el.querySelector('#relayout-start-date') as HTMLInputElement
+    assert.equal(start.value, '2099-10-05')
+
+    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview dates')!
+    preview.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    const previewCall = mounted.calls.find(call => call.path.endsWith('/youtube/plan/relayout/preview'))!
+    assert.deepEqual(previewCall.body, {
+      plan_id: 'plan-1', expected_channel_id: 'UC-x',
+      episode_codes: ['EP0001', 'EP0002'], start_date: '2099-10-05',
+    })
+    // Both dates must be on screen: re-dating is exactly the case where the
+    // customer has to see what each row is moving FROM.
+    assert.match(mounted.text(), /EP0001/)
+    assert.match(mounted.text(), /Nov 2, 2099/)
+    assert.match(mounted.text(), /Nov 3, 2099/)
+
+    const save = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Save 2 planned dates'))!
+    save.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    const applyCall = mounted.calls.find(call => call.path.endsWith('/youtube/plan/relayout/apply'))!
+    assert.deepEqual(applyCall.body, {
+      plan_id: 'plan-1', expected_channel_id: 'UC-x',
+      episode_codes: ['EP0001', 'EP0002'], start_date: '2099-10-05',
+      confirm: true, expected_assignments: assignments,
+    }, 'apply must send back the exact assignments the preview produced')
+    assert.equal(mounted.calls.some(call => call.path.endsWith('/youtube/upload')), false)
+    assert.equal(mounted.calls.some(call => /\/youtube\/episodes\/.+\/schedule$/.test(call.path)), false,
+      're-dating planned episodes must not schedule anything on YouTube')
+    assert.match(mounted.text(), /YouTube was not changed/)
+    mounted.destroy()
+  })
+
+  test('names every episode it left alone and still saves the rest', async () => {
+    // Break caught: dropping skipped rows silently would let the customer
+    // believe a video on YouTube had been re-dated when nothing about it moved.
+    const assignments = [{ episode_code: 'EP0001', publishAt: '2099-11-02T12:00:00.000Z' }]
+    const skipped = [{
+      episode_code: 'EP0002',
+      reason: 'EP0002 already exists on YouTube. This action changes planned dates only, so that video\'s real publish time is unchanged — edit it from the video\'s own schedule.',
+    }]
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED, { ...NEVER_UPLOADED, episode_code: 'EP0002', title: 'Second' }],
+      plans: RELAYOUT_PLANS,
+      relayoutPreview: {
+        plan_id: 'plan-1', channel_id: 'UC-x', start_date: '2099-11-02', timezone: 'UTC',
+        ordered_episode_codes: ['EP0001', 'EP0002'], assignments, skipped, occupied_days: ['2099-11-03'],
+      },
+      relayoutApply: {
+        plan_id: 'plan-1', channel_id: 'UC-x', start_date: '2099-11-02', timezone: 'UTC',
+        ordered_episode_codes: ['EP0001', 'EP0002'], assignments, skipped, occupied_days: ['2099-11-03'],
+      },
+    })
+    await openRelayoutDialog(mounted)
+    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview dates')!
+    preview.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    assert.match(mounted.text(), /Left unchanged \(1\)/)
+    assert.match(mounted.text(), /already exists on YouTube/)
+    assert.match(mounted.text(), /already held by other episodes/, 'a stepped-over day is reported, not hidden')
+
+    const save = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.includes('Save 1 planned date'))!
+    save.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.match(mounted.text(), /left 1 unchanged/)
+    mounted.destroy()
+  })
+
+  test('surfaces a refused re-lay instead of reporting a save', async () => {
+    const mounted = await mount({
+      episodes: PLANNED_EPISODES,
+      plans: RELAYOUT_PLANS,
+      postOverride: (path) => {
+        if (path.endsWith('/youtube/plan/relayout/preview')) {
+          return Promise.reject(Object.assign(new Error('nope'), {
+            data: { detail: 'Plan "Weekdays" cannot fit 2 video(s) from 2099-10-05. Choose a later start date.' },
+          }))
+        }
+        return undefined
+      },
+    })
+    await openRelayoutDialog(mounted)
+    const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview dates')!
+    preview.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    for (let i = 0; i < 4; i++) await nextTick()
+
+    assert.match(mounted.text(), /cannot fit 2 video\(s\)/)
+    assert.equal(mounted.calls.some(call => call.path.endsWith('/youtube/plan/relayout/apply')), false,
+      'a failed preview must never be followed by a save')
+    mounted.destroy()
+  })
+
+  test('a project switch closes the re-lay dialog and drops its previewed dates', async () => {
+    // Break caught: the dialog names one project's episodes and holds dates
+    // computed against its plan, so carrying it across a project switch offers
+    // to save an assignment the new project never previewed.
+    const mounted = await mount({
+      episodes: PLANNED_EPISODES,
+      plans: RELAYOUT_PLANS,
+      relayoutPreview: {
+        plan_id: 'plan-1', channel_id: 'UC-x', start_date: '2099-11-02', timezone: 'UTC',
+        ordered_episode_codes: ['EP0001'],
+        assignments: [{ episode_code: 'EP0001', publishAt: '2099-11-02T12:00:00.000Z' }],
+        skipped: [], occupied_days: [],
+      },
+    })
+    try {
+      await openRelayoutDialog(mounted)
+      const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Preview dates')!
+      preview.click()
+      for (let i = 0; i < 8; i++) await nextTick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      for (let i = 0; i < 4; i++) await nextTick()
+      assert.ok(mounted.el.querySelector('#relayout-start-date'), 'the dialog is open before the switch')
+
+      await mounted.setSlug('other-project')
+      for (let i = 0; i < 4; i++) await nextTick()
+      assert.equal(mounted.el.querySelector('#relayout-start-date'), null,
+        'the dialog must not survive a project switch')
+      assert.equal(mounted.calls.some(call => call.path.endsWith('/youtube/plan/relayout/apply')), false)
+    } finally { mounted.destroy() }
   })
 })
 

@@ -319,7 +319,24 @@ export async function latestFutureProjectClaimMs(
 export function computeSlots(
   schedule: UploadSchedule,
   count: number,
-  options?: { minStartDate?: Date; notBefore?: Date },
+  options?: {
+    minStartDate?: Date
+    notBefore?: Date
+    /**
+     * Local calendar days (`YYYY-MM-DD` in the schedule's timezone) the caller
+     * has already reserved, so the walk steps over them instead of
+     * double-booking. Used by the re-lay action, where the customer picks the
+     * starting date and other episodes keep the slots they already hold.
+     *
+     * A blocked day is SKIPPED, not counted: it neither consumes one of the
+     * `count` slots nor moves the cadence anchor, so the chosen rhythm stays
+     * intact and the caller can still receive exactly `count` distinct days.
+     * Like `minStartDate`, this reserves the WHOLE local day, because a
+     * customer who hand-placed an episode at an off-pattern time still owns
+     * that date.
+     */
+    blockedDays?: ReadonlySet<string> | readonly string[]
+  },
 ): string[] {
   // Validate the timezone up front so `new Intl.DateTimeFormat({ timeZone })`
   // never throws mid-loop. An invalid tz (typo, legacy "America/Buenos_Aires"
@@ -357,6 +374,9 @@ export function computeSlots(
   const interval = Math.max(1, schedule.interval_weeks || 1)
   const weekdaysSet = new Set((schedule.weekdays || []).filter(d => d >= 0 && d <= 6))
   const monthlyMode = weekdaysSet.size === 0 && schedule.monthly_day != null
+  const blocked = options?.blockedDays
+    ? (options.blockedDays instanceof Set ? options.blockedDays : new Set(options.blockedDays))
+    : null
 
   // Anchor week for interval_weeks calc: first Sunday on/before the
   // PLAN's original start_date — not the (possibly advanced) walk
@@ -385,6 +405,13 @@ export function computeSlots(
     }
 
     if (matches) {
+      // An occupied local day is stepped over without consuming a slot, so a
+      // re-lay flows around existing bookings instead of double-booking them.
+      if (blocked?.has(localDayKeyInTz(cursor, tz))) {
+        cursor = addDays(cursor, 1)
+        daysWalked++
+        continue
+      }
       const slot = isoAtTz(cursor, hh, mm, tz)
       if (!options?.notBefore || Date.parse(slot) > options.notBefore.getTime()) slots.push(slot)
     }
@@ -478,6 +505,24 @@ function weekdayInTz(d: Date, tz: string): number {
 function dayOfMonthInTz(d: Date, tz: string): number {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, day: '2-digit' }).formatToParts(d)
   return Number(parts.find(p => p.type === 'day')?.value) || 1
+}
+
+/**
+ * The local calendar day (`YYYY-MM-DD`) an instant falls on in `tz`.
+ *
+ * Exported because the re-lay route must key an episode's existing claim by the
+ * same local day `computeSlots` uses to test occupancy. Two different notions of
+ * "the same day" — UTC vs local, say — would let a blocked slot through.
+ */
+export function localDayKeyInTz(d: Date, tz: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: isValidTimezone(tz) ? tz : 'UTC',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(d)
+  const y = parts.find(p => p.type === 'year')?.value ?? '1970'
+  const m = parts.find(p => p.type === 'month')?.value ?? '01'
+  const day = parts.find(p => p.type === 'day')?.value ?? '01'
+  return `${y}-${m}-${day}`
 }
 
 function startOfWeek(d: Date, tz: string): Date {

@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.169 — 2026-09-15
+
+- Publish can now re-date videos that already have a planned date. Select the episodes, choose a starting date, and their dates are laid out again on the active plan's cadence — the case the existing Plan button skips by design, because it only ever fills missing and missed dates.
+- Every proposed date is shown beside the date it replaces before anything is saved, and the exact previewed dates are re-checked at save time. Days another episode already holds are stepped over rather than double-booked, and the dialog names them.
+- Editing planned dates changes Story Studio only. YouTube is not touched, so a video that already exists on the channel is listed as left unchanged instead of being re-dated behind YouTube's back.
+
 ## v1.4.168 — 2026-09-15
 
 - Select several subtitle chapters and generate or regenerate only those sections in one queued action. Select needs attention finds missing, outdated, or flagged sections; selections clear when changing episodes.
