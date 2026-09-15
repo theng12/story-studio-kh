@@ -36,6 +36,9 @@ export interface GenStudioTtsModel {
   minimum_credits: number
   maximum_input_characters: number
   supports_speed: boolean
+  /** Exact numeric bounds GenStudio publishes for this model's speed control. */
+  minimum_speed: number | null
+  maximum_speed: number | null
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean

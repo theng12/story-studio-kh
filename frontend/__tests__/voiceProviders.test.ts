@@ -173,8 +173,17 @@ test('cost is the model rate before there is text, and a sum of GenStudio quotes
 
 test('speed is offered only when the selected model publishes supports_speed', () => {
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
-  assert.match(audioPage, /selectedTtsModel\.value\?\.supports_speed === true/)
+  assert.match(audioPage, /model\?\.supports_speed !== true/)
   assert.match(audioPage, /v-if="supportsSpeed"/)
+})
+
+test('speed bounds come from the selected GenStudio model catalogue row', () => {
+  const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  assert.match(audioPage, /publishedSpeedBounds\?\.minimum/)
+  assert.match(audioPage, /publishedSpeedBounds\?\.maximum/)
+  assert.match(audioPage, /Published range/)
+  assert.doesNotMatch(audioPage, /:min="0\.5"/)
+  assert.doesNotMatch(audioPage, /:max="2"/)
 })
 
 test('all Story Studio transcription UI uses the GenStudio model catalog only', () => {

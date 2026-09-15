@@ -371,7 +371,7 @@ export class MockGenStudioService {
   ttsModels: Array<Record<string, unknown>> = [{
     id: 'mock-tts-v1', display_name: 'Mock TTS', provider_id: 'mock-provider', provider_name: 'GenStudio mock',
     description: 'In-process TTS fixture.', credits_per_1000_characters: 1, minimum_credits: 1,
-    maximum_input_characters: 15_000, supports_speed: true, supports_voice_cloning: false,
+    maximum_input_characters: 15_000, supports_speed: true, minimum_speed: 0.5, maximum_speed: 2, supports_voice_cloning: false,
     preview_policy: '', generation_enabled: true, provider_submit_concurrency: null, controls: [],
   }]
 

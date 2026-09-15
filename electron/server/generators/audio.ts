@@ -20,6 +20,7 @@ import {
   recoverTtsToFile as recoverTtsGenStudio,
   listTtsModels as listGenStudioTtsModels,
   listVoices as listGenStudioVoices,
+  resolveGenStudioTtsSpeed,
   refreshGenStudioAdmission,
 } from '../lib/genstudio-client.js'
 import { isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
@@ -519,6 +520,15 @@ export async function generateAudio(job: Job): Promise<void> {
   // The product every request in this run buys. Read once here, beside the
   // boundary, because both have to survive the handover into `processTask`.
   const genStudioModelId = ttsModel.id
+  const genStudioSupportsSpeed = ttsModel.supports_speed
+  const genStudioMinimumSpeed = ttsModel.minimum_speed
+  const genStudioMaximumSpeed = ttsModel.maximum_speed
+  const genStudioSpeed = resolveGenStudioTtsSpeed(
+    req.speed ?? 1,
+    genStudioSupportsSpeed,
+    genStudioMinimumSpeed,
+    genStudioMaximumSpeed,
+  )
   const genStudioProviderLabel = ttsModel.provider_name || 'this voice provider'
   const admission = await refreshGenStudioAdmission(apiKey)
   const requestBudget = resolveTtsRequestBudget(ttsModel)
@@ -854,7 +864,10 @@ export async function generateAudio(job: Job): Promise<void> {
         // validated against the live catalogue and printed above has to reach
         // the wire — not just the log line.
         modelId: genStudioModelId,
-        speed: req.speed ?? 1,
+        speed: genStudioSpeed,
+        supportsSpeed: genStudioSupportsSpeed,
+        minimumSpeed: genStudioMinimumSpeed,
+        maximumSpeed: genStudioMaximumSpeed,
         controls: requestControls,
         // The PUBLISHED boundary, deliberately — this is the contract check
         // against what GenStudio will accept, not Story Studio's planning
@@ -905,7 +918,10 @@ export async function generateAudio(job: Job): Promise<void> {
         // has to travel on it. Carried on the recovery object too — harmless
         // there, and it keeps one literal serving both paths.
         modelId: genStudioModelId,
-        speed: req.speed ?? 1,
+        speed: genStudioSpeed,
+        supportsSpeed: genStudioSupportsSpeed,
+        minimumSpeed: genStudioMinimumSpeed,
+        maximumSpeed: genStudioMaximumSpeed,
         controls: requestControls,
         // The submit path rebuilds the request body from THIS object, so the
         // published boundary has to travel on it too. Without it the rebuild
@@ -987,7 +1003,7 @@ export async function generateAudio(job: Job): Promise<void> {
       requestIdentity,
       text: task.chunkText,
       voiceId: effectiveVoice || '',
-      speed: req.speed ?? 1,
+      speed: genStudioSpeed,
       maxInputCharacters: genStudioMaxCharacters,
       // Spread conditionally for the same reason the idempotency digest does
       // it: a model publishing no controls hashes exactly as before, so an
@@ -1043,7 +1059,9 @@ export async function generateAudio(job: Job): Promise<void> {
     const actionOwnedRecovery = !!qualityRepairActionId
       && reusableEntry?.idempotency_key === buildGenStudioSubmission({
         text: task.chunkText, voiceId: effectiveVoice, modelId: genStudioModelId,
-        speed: req.speed ?? 1, controls: requestControls, maxInputCharacters: genStudioMaxCharacters,
+        speed: genStudioSpeed, supportsSpeed: genStudioSupportsSpeed,
+        minimumSpeed: genStudioMinimumSpeed, maximumSpeed: genStudioMaximumSpeed,
+        controls: requestControls, maxInputCharacters: genStudioMaxCharacters,
         requestIdentity: `${requestIdentity}:regenerate:${generationActionId || job.job_id}`,
       }).idempotencyKey
     let recoveryEntry = terminalFailure || (explicitRegeneration && !actionOwnedRecovery) ? null : reusableEntry

@@ -884,6 +884,10 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
    */
   modelId?: string | null
   speed: number
+  /** Live selected model publication. An absent/incomplete range means neutral speed 1. */
+  supportsSpeed?: boolean | null
+  minimumSpeed?: number | null
+  maximumSpeed?: number | null
   /**
    * `TTSModelResponse.maximum_input_characters` for the model that will serve
    * this request. Story Studio never assumes a boundary: the caller resolves it
@@ -939,6 +943,24 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
 export interface GenStudioTtsSubmitRequest extends GenStudioTtsRequest {
   maxInputCharacters: number
   modelId: string
+}
+
+/** Resolve speed against the selected model's live publication. */
+export function resolveGenStudioTtsSpeed(
+  requested: unknown,
+  supportsSpeed?: boolean | null,
+  minimumSpeed?: number | null,
+  maximumSpeed?: number | null,
+): number {
+  const speed = requested == null ? 1 : Number(requested)
+  if (!Number.isFinite(speed)) throw new Error('GenStudio KH speed must be a finite number.')
+  if (supportsSpeed !== true) return 1
+  if (typeof minimumSpeed !== 'number' || !Number.isFinite(minimumSpeed) || minimumSpeed <= 0
+    || typeof maximumSpeed !== 'number' || !Number.isFinite(maximumSpeed) || maximumSpeed < minimumSpeed) return 1
+  if (speed < minimumSpeed || speed > maximumSpeed) {
+    throw new Error(`GenStudio KH speed must be between ${minimumSpeed} and ${maximumSpeed}.`)
+  }
+  return speed
 }
 
 export type GenStudioCostTier = 'economy' | 'balanced' | 'premium'
@@ -1349,6 +1371,9 @@ export interface GenStudioTtsModel extends GenStudioCatalogLock {
   minimum_credits: number
   maximum_input_characters: number
   supports_speed: boolean
+  /** Published numeric speed bounds. Absent means GenStudio did not publish a usable range. */
+  minimum_speed: number | null
+  maximum_speed: number | null
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
@@ -2927,9 +2952,12 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
   if (characterCount > maxCharacters) {
     throw new Error(`GenStudio KH accepts at most ${Math.floor(maxCharacters).toLocaleString()} characters per request for this voice model.`)
   }
-  if (!Number.isFinite(request.speed) || request.speed < 0.5 || request.speed > 2) {
-    throw new Error('GenStudio KH speed must be between 0.5 and 2.0.')
-  }
+  const speed = resolveGenStudioTtsSpeed(
+    request.speed,
+    request.supportsSpeed,
+    request.minimumSpeed,
+    request.maximumSpeed,
+  )
   // GenStudio hashes `controls` into ITS idempotency identity
   // (`_tts_idempotency_identity`), so two runs at different control settings
   // are different work over there. Story Studio's key must move with them or
@@ -2950,7 +2978,7 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
     model_id: modelId,
     voice_id: voiceId,
     text: request.text,
-    speed: request.speed,
+    speed,
     ...(controls ? { controls } : {}),
   }
   const digest = createHash('sha256').update(JSON.stringify({
@@ -4227,6 +4255,8 @@ export async function listTtsModelsSnapshot(
         minimum_credits: minimum,
         maximum_input_characters: maxCharacters,
         supports_speed: value?.supports_speed === true,
+        minimum_speed: optionalCount(value?.minimum_speed) ?? null,
+        maximum_speed: optionalCount(value?.maximum_speed) ?? null,
         supports_voice_cloning: value?.supports_voice_cloning === true,
         preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
         generation_enabled: value?.generation_enabled === true,
@@ -4437,6 +4467,9 @@ export async function requestGenStudioTtsQuote(
     voiceId: string
     text: string
     speed?: number
+    supportsSpeed?: boolean | null
+    minimumSpeed?: number | null
+    maximumSpeed?: number | null
     /**
      * Already resolved against the SELECTED model's published `controls[]`
      * (lib/tts-controls.ts). Sent verbatim so the quote prices the same
@@ -4461,7 +4494,12 @@ export async function requestGenStudioTtsQuote(
   if (!request.text.trim()) throw new Error('There is no text to quote.')
   const baseUrl = await getGenStudioUrl()
   const body: Record<string, unknown> = { model_id: modelId, voice_id: voiceId, text: request.text }
-  if (Number.isFinite(request.speed)) body.speed = request.speed
+  body.speed = resolveGenStudioTtsSpeed(
+    request.speed ?? 1,
+    request.supportsSpeed,
+    request.minimumSpeed,
+    request.maximumSpeed,
+  )
   // Omitted entirely when the model publishes no controls, so a request for
   // such a model is byte-identical to the one sent before controls existed.
   if (hasTtsControlValues(request.controls)) body.controls = orderedTtsControlValues(request.controls!)
@@ -8348,7 +8386,13 @@ function replaceFailedTts(apiKey: string, outPath: string, request: GenStudioTts
   return replaceConfirmedGeneration('audio', apiKey, originalKey, itemKey, error, request,
     (key, _cap, hooks) => generateTtsToFileAdmitted(apiKey, outPath, { ...submitRequest, ...hooks, idempotencyKey: key }),
     async () => {
-      const quote = await requestGenStudioTtsQuote(apiKey, { modelId: request.modelId!, voiceId: request.voiceId!, text: request.text, speed: request.speed, controls: request.controls })
+      const quote = await requestGenStudioTtsQuote(apiKey, {
+        modelId: request.modelId!, voiceId: request.voiceId!, text: request.text, speed: request.speed,
+        supportsSpeed: request.supportsSpeed,
+        minimumSpeed: request.minimumSpeed,
+        maximumSpeed: request.maximumSpeed,
+        controls: request.controls,
+      })
       return quote.maximum_credits ?? null
     })
 }

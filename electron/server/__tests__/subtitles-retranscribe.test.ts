@@ -28,10 +28,105 @@ import os from 'node:os'
 import { resolveActiveSubtitleChapterSources, selectRequestedSections } from '../generators/subtitles.js'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import type { TestContext } from 'node:test'
 import type { Job } from '../models/types.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
+
+async function createScopedSubtitleFixture(t: TestContext) {
+  const isolated = await useTempDataDir()
+  const mock = await startMockGenStudioService()
+  t.after(async () => { await mock.close(); await isolated.cleanup() })
+
+  const settings = await import('../services/app-settings.js')
+  const secrets = await import('../services/app-secrets-store.js')
+  const client = await import('../lib/genstudio-client.js')
+  const pm = await import('../services/project-manager.js')
+  const ideas = await import('../services/idea-manager.js')
+  const utils = await import('../services/utils.js')
+  const { generateSubtitlesTranscribe } = await import('../generators/subtitles.js')
+
+  await settings.setGenStudioUrl(mock.baseUrl)
+  await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+  client.clearGenStudioCatalogCache()
+  const project = await pm.createProject({ name: 'Scoped subtitle fixture', episode_prefix: 'EP', episode_digits: 4 })
+  const [idea] = await ideas.addIdeas(project.slug, [{
+    title: 'Three chapters', logline: 'A fixture.', themes: [], suggested_chapters: 3,
+    suggested_length: '3 minutes', mood: 'measured',
+  }], 'mock-chat-v1')
+  const accepted = await ideas.acceptIdea(project.slug, idea!.id, false)
+  const code = accepted.episode_code
+  const paths = await utils.resolveEpisodePathsByCode(project.slug, code)
+  const sections = ['Chapter_01', 'Chapter_02', 'Chapter_03']
+
+  await Promise.all([paths.script_dir, paths.audio_dir, paths.merged_audio_dir, paths.subtitles_dir].map(dir => fs.mkdir(dir, { recursive: true })))
+  await fs.writeFile(paths.narration_docx, sections.map((section, index) => `## Chapter ${String(index + 1).padStart(2, '0')}: Fixture\n\nNarration for ${section}.`).join('\n\n'))
+  await Promise.all(sections.map(section => fs.writeFile(path.join(paths.audio_dir, `${code}_${section}.mp3`), `audio-${section}`)))
+  await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
+    gap_duration_s: 1,
+    sections: sections.map(slug => ({ slug, duration_s: 1, source_file: `${code}_${slug}.mp3` })),
+  }))
+  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.mp3`), 'merged-audio')
+  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`), JSON.stringify({
+    output_filename: `${code}_merged_audio.mp3`, opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
+  }))
+
+  return {
+    mock,
+    code,
+    paths,
+    generateSubtitlesTranscribe,
+    makeJob: (jobId: string): Job => ({
+      job_id: jobId, project_slug: project.slug, episode_id: code,
+      type: 'subtitles_transcribe', status: 'running', progress: 0, output_lines: [],
+      params: {
+        per_chapter: true, engine: 'genstudio', model: 'mock-whisper-v1', language: 'en',
+        force: true, sections: ['Chapter_01'],
+      },
+    } as unknown as Job),
+  }
+}
+
+test('an explicitly selected subtitle succeeds while an unselected chapter is missing, without auto-stitching', async t => {
+  const fixture = await createScopedSubtitleFixture(t)
+  fixture.mock.queueScenario('transcription', { states: ['accepted', 'succeeded'] })
+  const job = fixture.makeJob('scoped-subtitle-success')
+
+  await fixture.generateSubtitlesTranscribe(job)
+
+  assert.equal(job.result?.complete, true, 'the queued scoped job is complete for its requested section')
+  assert.equal(job.result?.scope_complete, true)
+  assert.equal(job.result?.episode_complete, false, 'episode completion remains false while Chapter_02 and Chapter_03 are absent')
+  assert.equal(job.result?.stitch_complete, false)
+  assert.deepEqual(job.result?.scoped_sections, ['Chapter_01'])
+  assert.equal(job.result?.ready_sections, 1)
+  assert.deepEqual(job.result?.missing_sections, ['Chapter_02', 'Chapter_03'])
+  assert.match(await fs.readFile(path.join(fixture.paths.subtitles_dir, `${fixture.code}_Chapter_01.srt`), 'utf8'), /Hello from mock GenStudio/)
+  await assert.rejects(
+    fs.access(path.join(fixture.paths.subtitles_dir, `${fixture.code}_stitched.srt`)),
+    /ENOENT/,
+    'auto-stitch must wait for complete episode subtitle coverage',
+  )
+})
+
+test('an explicitly selected subtitle failure still fails the scoped job', async t => {
+  const fixture = await createScopedSubtitleFixture(t)
+  fixture.mock.queueScenario('transcription', {
+    states: ['accepted', 'failed'], failureCode: 'STT_PROVIDER_ERROR', reservedCredits: 7, finalCredits: 7,
+  })
+  const job = fixture.makeJob('scoped-subtitle-failure')
+
+  await assert.rejects(
+    fixture.generateSubtitlesTranscribe(job),
+    /Chapter_01/,
+    'a requested section failure must remain loud even when the request is scoped',
+  )
+  assert.equal(job.result?.complete, false)
+  assert.equal(job.result?.scope_complete, false)
+  assert.equal(job.result?.episode_complete, false)
+  assert.ok(job.result?.missing_sections?.includes('Chapter_01'))
+})
 
 
 describe('re-transcribing one chapter does not re-charge the episode', () => {
@@ -67,9 +162,13 @@ describe('re-transcribing one chapter does not re-charge the episode', () => {
     // thirteen because a slug was wrong.
     assert.throws(
       () => selectRequestedSections(sections, ['Chapter_99']),
-      /None of the requested chapters have audio: chapter_99/,
+      /Requested chapters have no matching audio: chapter_99/,
     )
     assert.throws(() => selectRequestedSections(sections, ['Chapter_99']), /Available: .*Chapter_03/)
+  })
+
+  test('a mixed valid and unknown scope fails instead of dropping requested work', () => {
+    assert.throws(() => selectRequestedSections(sections, ['Chapter_01', 'typo']), /no matching audio: typo/)
   })
 
   test('empty and blank entries are ignored rather than matching nothing', () => {
@@ -321,4 +420,16 @@ test('stamped pipeline repair transcribes only malformed and gap-mapped chapters
   assert.deepEqual(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_01.srt`)), good)
   assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_02.srt`), 'utf8'), /Hello from mock GenStudio/)
   assert.match(await fs.readFile(path.join(paths.subtitles_dir, `${code}_Chapter_03.srt`), 'utf8'), /Hello from mock GenStudio/)
+})
+
+
+test('a scoped subtitle job with Pipeline continuation still requires complete episode coverage', async t => {
+  const fixture = await createScopedSubtitleFixture(t)
+  fixture.mock.queueScenario('transcription', { states: ['accepted', 'succeeded'] })
+  const job = fixture.makeJob('scoped-subtitle-with-chain')
+  job.params.pipeline_chain = [{ type: 'scene_plan_run', params: {} }]
+  await assert.rejects(fixture.generateSubtitlesTranscribe(job), /Chapter_02/)
+  assert.equal(job.result?.complete, false)
+  assert.equal(job.result?.episode_complete, false)
+  await assert.rejects(fs.access(path.join(fixture.paths.subtitles_dir, `${fixture.code}_stitched.srt`)), /ENOENT/)
 })

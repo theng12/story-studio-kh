@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.168 — 2026-09-15
+
+- Select several subtitle chapters and generate or regenerate only those sections in one queued action. Select needs attention finds missing, outdated, or flagged sections; selections clear when changing episodes.
+- Scoped subtitle jobs verify the requested chapters without marking unfinished chapters or the full timeline complete.
+- Audio speed controls, quotes, and generation follow the selected model’s published speed range, including Qwen. Remembered and preset speeds are clamped to the live bounds.
+
 ## v1.4.167 — 2026-09-15
 
 - Upload Center can move missed local publishing dates to future slots in the active channel plan. Missed dates have a filter and a direct action, with old and proposed dates shown before saving.

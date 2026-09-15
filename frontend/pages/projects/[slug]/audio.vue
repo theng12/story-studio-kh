@@ -405,11 +405,17 @@
         <summary>Delivery and request controls <span>{{ advancedSummary }}</span></summary>
         <div class="audio-advanced-body">
       <div class="grid-3">
-        <!-- GenStudio publishes `supports_speed` per model. A model that does
-             not take a speed control does not get one. -->
+        <!-- GenStudio publishes `supports_speed` and the numeric bounds per
+             model. A model without a complete published range gets no slider. -->
         <div v-if="supportsSpeed" class="form-group">
-          <label>Speed ({{ form.speed.toFixed(2) }}) <span class="field-hint">Playback pace</span></label>
-          <SliderWithNumber v-model="form.speed" :min="0.5" :max="2" :step="0.01" :decimals="2" />
+          <label>Speed ({{ form.speed.toFixed(2) }}) <span class="field-hint">Playback pace · Published range {{ publishedSpeedBounds?.minimum?.toFixed(2) }}–{{ publishedSpeedBounds?.maximum?.toFixed(2) }}×</span></label>
+          <SliderWithNumber
+            v-model="form.speed"
+            :min="publishedSpeedBounds?.minimum"
+            :max="publishedSpeedBounds?.maximum"
+            :step="0.01"
+            :decimals="2"
+          />
           <p class="text-muted text-xs hint-line">
             <strong>0.95–1.05</strong> reads most naturally for narration. Below 0.9 can sound sluggish; above 1.1 rushes the delivery.
           </p>
@@ -417,8 +423,8 @@
         <div v-else-if="selectedTtsModel" class="form-group">
           <label>Speed <span class="field-hint">Not available on this model</span></label>
           <p class="text-muted text-xs hint-line">
-            GenStudio does not publish a speed control for <strong>{{ selectedTtsModel.display_name }}</strong>, so Story Studio
-            sends none. Choose a model that supports speed to change the pace.
+            GenStudio does not publish a usable speed range for <strong>{{ selectedTtsModel.display_name }}</strong>, so Story Studio
+            sends its neutral speed. Choose a model that publishes speed bounds to change the pace.
           </p>
         </div>
       </div>
@@ -900,8 +906,27 @@ const chunkSizeTooltip = computed(() => resolvedChunkCap.value
     + 'Both figures move with the selected model.'
   : 'Choose a voice model to see the request boundary GenStudio publishes for it.')
 
-/** GenStudio publishes whether a model takes a speed control. Gate on it. */
-const supportsSpeed = computed(() => selectedTtsModel.value?.supports_speed === true)
+/** GenStudio publishes whether a model takes speed and its exact numeric bounds. */
+const publishedSpeedBounds = computed<{ minimum: number; maximum: number } | null>(() => {
+  const model = selectedTtsModel.value
+  if (model?.supports_speed !== true) return null
+  if (typeof model?.minimum_speed !== 'number' || typeof model.maximum_speed !== 'number'
+    || !Number.isFinite(model.minimum_speed) || !Number.isFinite(model.maximum_speed)
+    || model.minimum_speed <= 0 || model.maximum_speed < model.minimum_speed) return null
+  return { minimum: model.minimum_speed, maximum: model.maximum_speed }
+})
+const supportsSpeed = computed(() => publishedSpeedBounds.value !== null)
+
+/** A remembered value or preset may belong to another model; clamp it as soon
+ * as this model's published range is available, before quoting or sending. */
+watch([publishedSpeedBounds, () => form.speed], ([bounds, value]) => {
+  if (!bounds) return
+  const numeric = Number(value)
+  const next = Number.isFinite(numeric)
+    ? Math.min(bounds.maximum, Math.max(bounds.minimum, numeric))
+    : bounds.minimum
+  if (next !== value) form.speed = next
+}, { immediate: true })
 const advancedSummary = computed(() => {
   const speed = supportsSpeed.value ? `${form.speed.toFixed(2)}× speed` : 'Model-set speed'
   const boundary = plannedRequestCap.value

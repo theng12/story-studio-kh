@@ -389,9 +389,10 @@ export function selectRequestedSections<T extends { slug: string }>(
     : []
   if (!wanted.length) return available
   const selected = available.filter(s => wanted.includes(s.slug.toLowerCase()))
-  if (!selected.length) {
+  const unknown = wanted.filter(slug => !selected.some(section => section.slug.toLowerCase() === slug))
+  if (unknown.length) {
     throw new Error(
-      `None of the requested chapters have audio: ${wanted.join(', ')}. ` +
+      `Requested chapters have no matching audio: ${unknown.join(', ')}. ` +
       `Available: ${available.map(s => s.slug).join(', ') || '(none)'}.`,
     )
   }
@@ -556,6 +557,9 @@ async function transcribePerChapter(
   const repairActionId = typeof req.pipeline_repair?.action_id === 'string'
     ? req.pipeline_repair.action_id.trim()
     : ''
+  const hasPipelineContinuation = Array.isArray(job.params?.pipeline_chain) && job.params.pipeline_chain.length > 0
+  const explicitlyScoped = !repairActionId && !hasPipelineContinuation && Array.isArray(req.sections)
+    && req.sections.some(section => typeof section === 'string' && section.trim() !== '')
   const generationActionId = req.generation_action?.kind === 'fresh'
     && typeof req.generation_action.id === 'string' && req.generation_action.id.trim()
     ? req.generation_action.id.trim()
@@ -743,27 +747,64 @@ async function transcribePerChapter(
   // coverage is useful evidence, but it cannot count as ready for this job's
   // result or Episode recovery would report a failed replacement as complete.
   const failedKeys = new Set(failedSlugs.map(slug => slug.toLowerCase()))
-  const readySections = coverage.completed_sections.filter(section => !failedKeys.has(section.toLowerCase()))
+  const scopeKeys = new Set(sections.map(section => section.slug.toLowerCase()))
+  const unselectedStaleKeys = new Set(Array.from(staleSections).filter(section => !scopeKeys.has(section)))
+  const unselectedStaleSections = Array.from(unselectedStaleKeys).map(key => (
+    allSections.find(section => section.slug.toLowerCase() === key)?.slug || key
+  ))
+  const completedScopeKeys = new Set(coverage.completed_sections
+    .filter(section => scopeKeys.has(section.toLowerCase()))
+    .map(section => section.toLowerCase()))
+  const scopeMissingSections = sections
+    .filter(section => !completedScopeKeys.has(section.slug.toLowerCase()))
+    .map(section => section.slug)
+  const scopeFailedSections = failures
+    .map(failure => failure.slug)
+    .filter(section => scopeKeys.has(section.toLowerCase()))
+  const scopeFailedSlugs = Array.from(new Set([...scopeMissingSections, ...scopeFailedSections]))
+  const scopeComplete = scopeFailedSlugs.length === 0
+  // An explicitly scoped job can finish its requested work while the episode
+  // still lacks other chapters or has stale unselected sources.
+  const episodeComplete = coverage.complete && failures.length === 0
+    && (!explicitlyScoped || unselectedStaleSections.length === 0)
+  const unselectedStaleLabelKeys = new Set(unselectedStaleSections.map(section => section.toLowerCase()))
+  const readySections = coverage.completed_sections.filter(section => !failedKeys.has(section.toLowerCase())
+    && !unselectedStaleLabelKeys.has(section.toLowerCase()))
+  const episodeMissingSlugs = Array.from(new Set([...failedSlugs, ...unselectedStaleSections]))
   job.result = {
     subtitles_dir: outDir,
-    complete: coverage.complete && failures.length === 0,
+    complete: explicitlyScoped ? scopeComplete : episodeComplete,
+    scope_complete: scopeComplete,
+    episode_complete: episodeComplete,
+    scoped_sections: explicitlyScoped ? sections.map(section => section.slug) : undefined,
+    ...(explicitlyScoped && !episodeComplete ? { stitch_complete: false } : {}),
     expected_sections: coverage.expected_sections.length,
     ready_sections: readySections.length,
     generated_sections: generatedSections,
     new_cues: totalCues,
-    missing_sections: failedSlugs,
+    missing_sections: episodeMissingSlugs,
     recovery_state: 'needs_attention',
   }
 
-  if (!coverage.complete || failures.length) {
-    const missingLabel = failedSlugs.length
-      ? failedSlugs.join(', ')
+  if (!scopeComplete || (!explicitlyScoped && !episodeComplete)) {
+    const incompleteSlugs = explicitlyScoped ? scopeFailedSlugs : failedSlugs
+    const missingLabel = incompleteSlugs.length
+      ? incompleteSlugs.join(', ')
       : 'coverage could not be verified; run Audio Assembly to rebuild audio_chapters.json'
     const message =
       `Transcription incomplete: ${readySections.length}/${coverage.expected_sections.length} sections ready. ` +
       `Missing: ${missingLabel}. Successful chapter files were saved; Retry fills only the missing sections.`
     job.output_lines.push(`✗ INCOMPLETE — ${message}`)
     throw new Error(message)
+  }
+
+  if (explicitlyScoped && !episodeComplete) {
+    job.output_lines.push(
+      `✓ Requested subtitle sections complete: ${sections.length}/${sections.length} ready. ` +
+      `Episode coverage remains incomplete (${readySections.length}/${coverage.expected_sections.length}); ` +
+      'auto-stitch waits until every chapter is present and current.',
+    )
+    return
   }
 
   job.output_lines.push(

@@ -90,9 +90,9 @@ describe('the app never edits anyone\'s subtitles', () => {
     // force:true is what makes GenStudio produce a fresh result instead of
     // replaying the stored one; sections narrows the charge to this chapter,
     // and one retained operation id keeps an uncertain submit idempotent.
-    assert.match(subtitlesPage, /force: sectionSlug \? true : force\.value/)
-    assert.match(subtitlesPage, /\.\.\.\(sectionSlug \? \{ sections: \[sectionSlug\] \} : \{\}\)/)
-    assert.match(subtitlesPage, /const payload = subtitleRequestPayload\(sectionSlug\)[\s\S]{0,180}freshSubtitleAction\.begin\(payload, `section:\$\{sectionSlug\}`\)[\s\S]{0,100}payload\.operation_id = operationId/)
+    assert.match(subtitlesPage, /force: selected\.length \? true : force\.value/)
+    assert.match(subtitlesPage, /const selected = sectionSlug \? \[sectionSlug\] : selectedSubtitleIds\.value/)
+    assert.match(subtitlesPage, /const payload = subtitleRequestPayload\(sectionSlug\)[\s\S]{0,180}freshSubtitleAction\.begin\(payload, subtitleActionTarget\(sectionSlug\)\)[\s\S]{0,100}payload\.operation_id = operationId/)
     assert.match(subtitlesPage, /await post\([^\n]+, payload\)[\s\S]{0,100}freshSubtitleAction\.complete\(operationId\)/)
   })
 

@@ -84,7 +84,8 @@ test('the voice model catalogue is published with its price, minimum and boundar
     return Response.json([{
       id: 'tts-qwen3', display_name: 'Qwen3 TTS', provider_id: 'fish', provider_name: 'Fish Audio',
       description: 'Multilingual narration', credits_per_1000_characters: 48, minimum_credits: 10,
-      maximum_input_characters: 12_000, supports_speed: true, supports_voice_cloning: false,
+      maximum_input_characters: 12_000, supports_speed: true, minimum_speed: 0.5, maximum_speed: 2,
+      supports_voice_cloning: false,
       preview_policy: 'catalog', generation_enabled: true, supported_languages: ['en'],
     }])
   }
@@ -96,6 +97,8 @@ test('the voice model catalogue is published with its price, minimum and boundar
   assert.equal(model.minimum_credits, 10)
   assert.equal(model.maximum_input_characters, 12_000)
   assert.equal(model.supports_speed, true)
+  assert.equal(model.minimum_speed, 0.5)
+  assert.equal(model.maximum_speed, 2)
   assert.deepEqual(model.supported_languages, ['en'])
   assert.equal(JSON.stringify(model).includes('km'), false, 'Story must not restore retired Khmer support')
 })
@@ -114,7 +117,7 @@ test('the voice model catalogue keeps direct and relaxed Fish products separate 
   const base = {
     provider_id: 'fish', provider_name: 'Fish Audio', description: 'Multilingual narration',
     credits_per_1000_characters: 48, minimum_credits: 10, maximum_input_characters: 12_000,
-    supports_speed: true, supports_voice_cloning: false, preview_policy: 'catalog',
+    supports_speed: true, minimum_speed: 0.5, maximum_speed: 2, supports_voice_cloning: false, preview_policy: 'catalog',
     generation_enabled: true, supported_languages: ['en'],
   }
 
@@ -276,7 +279,7 @@ test('GenStudio cost tiers pass through every Story catalog response without rep
     if (url.endsWith('/v1/tts/models')) return Response.json([{
       id: 'tts-tier-v1', display_name: 'Tier TTS', provider_id: 'tts-provider', provider_name: 'Published TTS provider',
       description: 'Narration', credits_per_1000_characters: 48, minimum_credits: 10,
-      maximum_input_characters: 12_000, supports_speed: true, supports_voice_cloning: false,
+      maximum_input_characters: 12_000, supports_speed: true, minimum_speed: 0.5, maximum_speed: 2, supports_voice_cloning: false,
       preview_policy: 'catalog', generation_enabled: true, cost_tier: 'economy',
     }])
     if (url.endsWith('/v1/chat/models')) return Response.json([{

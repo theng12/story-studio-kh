@@ -12,6 +12,7 @@ import {
   buildGenStudioTranscriptionIdempotencyKey,
   buildGenStudioImageIdempotencyKey,
   buildGenStudioSubmission,
+  resolveGenStudioTtsSpeed,
   callChatWithGenStudio,
   catalogHasVoice,
   describeGenStudioDetail,
@@ -79,6 +80,8 @@ test('TTS models carry only a positive published provider submit concurrency hin
         minimum_credits: 0,
         maximum_input_characters: 12_000,
         supports_speed: true,
+        minimum_speed: 0.5,
+        maximum_speed: 2,
         supports_voice_cloning: false,
         preview_policy: '',
         generation_enabled: true,
@@ -137,6 +140,9 @@ test('a request exactly at the published boundary stays one GenStudio request', 
     voiceId: 'voice_live',
     modelId: 'model_live',
     speed: 0.9,
+    supportsSpeed: true,
+    minimumSpeed: 0.5,
+    maximumSpeed: 2,
     maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
   })
   assert.equal(submission.body.text.length, PUBLISHED_MAX_CHARACTERS)
@@ -296,7 +302,10 @@ test('text longer than the retired 375-character cap remains one GenStudio reque
 })
 
 test('GenStudio JSON carries speed and retries reuse the same idempotency key', () => {
-  const request = { text: 'A calm long-form sample.', voiceId: 'voice_live', modelId: 'model_live', speed: 0.9, maxInputCharacters: PUBLISHED_MAX_CHARACTERS }
+  const request = {
+    text: 'A calm long-form sample.', voiceId: 'voice_live', modelId: 'model_live', speed: 0.9,
+    supportsSpeed: true, minimumSpeed: 0.5, maximumSpeed: 2, maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
+  }
   const first = buildGenStudioSubmission(request)
   const retry = buildGenStudioSubmission(request)
   assert.deepEqual(first.body, {
@@ -310,6 +319,29 @@ test('GenStudio JSON carries speed and retries reuse the same idempotency key', 
     first.idempotencyKey,
     buildGenStudioSubmission({ ...request, speed: 1 }).idempotencyKey,
   )
+})
+
+test('TTS speed validation uses the selected live range and neutralizes an unpublished range', () => {
+  assert.equal(resolveGenStudioTtsSpeed(undefined, false, null, null), 1)
+  assert.equal(resolveGenStudioTtsSpeed(undefined, true, 0.5, 2), 1)
+  const bounded = buildGenStudioSubmission({
+    text: 'A calm long-form sample.', voiceId: 'voice_live', modelId: 'model_live', speed: 0.25,
+    supportsSpeed: true, minimumSpeed: 0.25, maximumSpeed: 1.5, maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
+  })
+  assert.equal(bounded.body.speed, 0.25)
+  assert.throws(
+    () => resolveGenStudioTtsSpeed(0.6, true, 0.75, 1.25),
+    /between 0\.75 and 1\.25/,
+  )
+  assert.throws(
+    () => resolveGenStudioTtsSpeed(Number.NaN, true, 0.5, 2),
+    /finite number/,
+  )
+  const unpublished = buildGenStudioSubmission({
+    text: 'A calm long-form sample.', voiceId: 'voice_live', modelId: 'model_live', speed: 0.4,
+    supportsSpeed: true, minimumSpeed: null, maximumSpeed: null, maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
+  })
+  assert.equal(unpublished.body.speed, 1)
 })
 
 test('GenStudio chat retries keep one logical request identity', () => {
