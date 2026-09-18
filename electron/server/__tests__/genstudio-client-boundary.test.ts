@@ -588,6 +588,73 @@ test('transcription rows carry the published provider_name beside the legacy pro
   }
 })
 
+test('a catalogue is read whether it arrives as a bare array or a { models } envelope', async () => {
+  // Break caught: gateway-kh answers `{ models: [...], freshness: {...} }` (and
+  // `{ voices, models }` for /v1/voices), while the contract this client shipped
+  // against is a bare array. Every reader guarded with `!Array.isArray(payload)`,
+  // so EVERY live catalogue refresh began failing the moment the endpoint moved —
+  // and quietly, because the last-good cache kept the pickers populated on hours-old
+  // data until it aged out. Accepting both shapes is the fix; neither invents a row.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) {
+        // The envelope shape, exactly as gateway-kh publishes it.
+        return Response.json({
+          models: [{ id: 'chat-env', display_name: 'Enveloped', available: true, qualification_only: false }],
+          freshness: { stale: false, ageMs: 12 },
+        })
+      }
+      if (url.endsWith('/v1/videos/models')) {
+        // The bare-array shape the old endpoint served — still accepted.
+        return Response.json([{ id: 'video-bare', display_name: 'Bare', available: true, modes: [], aspect_ratios: [], variants: [] }])
+      }
+      if (url.includes('/v1/voices')) {
+        return Response.json({ voices: [{ id: 'voice-env', display_name: 'Enveloped Voice' }], models: [] })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const chat = await listChatModels('scoped-key')
+    assert.equal(chat.length, 1, 'the envelope is unwrapped, not treated as malformed')
+    assert.equal(chat[0]?.id, 'chat-env')
+
+    const video = await listVideoModels('scoped-key')
+    assert.equal(video.length, 1, 'the original bare-array shape keeps working')
+    assert.equal(video[0]?.id, 'video-bare')
+
+    const voices = await listVoices('scoped-key')
+    assert.equal(voices.length, 1)
+    assert.equal(voices[0]?.id, 'voice-env')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('a payload with NEITHER shape is still refused loudly, not read as zero models', async () => {
+  // The other half of the fix: tolerance must not become silence. An envelope
+  // without a usable list, or a scalar, must keep the loud refusal — otherwise a
+  // broken catalogue would present as an intentionally empty one.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    for (const bad of [{ models: 'nonsense' }, { unrelated: [] }, 'text', 42, null]) {
+      globalThis.fetch = async () => Response.json(bad)
+      await assert.rejects(
+        () => listChatModels('scoped-key'),
+        // The catalogue layer wraps the inner "invalid … catalog" refusal, so the
+        // customer-facing surface is the unverified-product message. What matters
+        // is that it THROWS rather than resolving with zero models.
+        /could not be refreshed/,
+        `expected ${JSON.stringify(bad)} to be refused`,
+      )
+    }
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('chat pricing preserves absent rates as unpublished while keeping a published zero', async () => {
   const originalFetch = globalThis.fetch
   clearGenStudioCatalogCache()

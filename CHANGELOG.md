@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.172 — 2026-09-18
+
+- The model catalogues load live again. Every picker — language, image, video, voice, music, transcription — had been quietly falling back to a cached copy hours out of date, because the current endpoint answers with a wrapped list rather than the plain list Story Studio reads. Both forms are now accepted, so the pickers show what the service actually publishes; a payload that is neither form is still refused loudly.
+- Models the previous endpoint offered but the current one does not have are gone from the pickers, as they should be.
+
 ## v1.4.171 — 2026-09-18
 
 - Scene Plan no longer stands in an invented 8,192-token output allowance when the selected model publishes none. That number could reach the panel as though it were the model's own limit; the request is now refused with the reason instead.

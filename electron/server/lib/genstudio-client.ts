@@ -4021,6 +4021,39 @@ async function fetchRetryingJson(
   throw new Error(unreachable, { cause: lastError })
 }
 
+/**
+ * Unwrap a published catalogue payload, accepting EITHER shape.
+ *
+ * WHY THIS EXISTS (2026-09-18). Every catalogue route used to answer with a bare
+ * JSON array, and that is the contract this client was built and tested against
+ * — provable from the last-good cache, which stores arrays, so only an array
+ * could ever have populated it. gateway-kh answers with an envelope instead:
+ *
+ *   { "models": [ ... ], "freshness": { ... } }        (and `voices` for /v1/voices)
+ *
+ * Because each reader guarded with `if (!Array.isArray(payload)) throw`, EVERY
+ * live catalogue refresh began failing the moment the endpoint moved — and the
+ * failure is quiet, because the last-good cache keeps the app looking alive on
+ * data that is hours old until it ages past the staleness limit and the pickers
+ * empty. That is the worst shape a bug can have: working, then empty.
+ *
+ * Accepting both costs nothing and cannot invent a row: it reads the same
+ * published rows from under the key the endpoint chose. `freshness` is
+ * deliberately IGNORED — Story Studio tracks its own catalogue freshness
+ * elsewhere and must not acquire a second, conflicting authority for it.
+ *
+ * Returns `null` when neither shape holds an array, so callers keep their
+ * existing loud refusal rather than silently reading zero models.
+ */
+function readCatalogRows(payload: unknown, key: 'models' | 'voices' = 'models'): unknown[] | null {
+  if (Array.isArray(payload)) return payload
+  if (payload && typeof payload === 'object') {
+    const rows = (payload as Record<string, unknown>)[key]
+    if (Array.isArray(rows)) return rows
+  }
+  return null
+}
+
 function catalogSnapshot<T>(
   kind: GenStudioCatalogKind,
   entry: CatalogCacheEntry<T>,
@@ -4214,8 +4247,10 @@ export async function listVoicesSnapshot(
   const suffix = query.size ? `?${query.toString()}` : ''
   return cachedCatalogSnapshot('voices', catalogCacheKey('voices', `${baseUrl}${suffix}`, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/voices${suffix}`, apiKey)
-  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid voice catalog')
-  return payload.map((value: any) => ({
+  // gateway-kh answers `{ voices, models }`; the old endpoint answered an array.
+  const rows = readCatalogRows(payload, 'voices')
+  if (!rows) throw new Error('GenStudio KH returned an invalid voice catalog')
+  return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     language: optionalText(value?.language),
@@ -4264,8 +4299,9 @@ export async function listTtsModelsSnapshot(
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('tts-models', catalogCacheKey('tts-models', baseUrl, apiKey), async () => {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/tts/models`, apiKey)
-    if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid voice model catalog')
-    return payload.flatMap((value: any): GenStudioTtsModel[] => {
+    const rows = readCatalogRows(payload)
+    if (!rows) throw new Error('GenStudio KH returned an invalid voice model catalog')
+    return rows.flatMap((value: any): GenStudioTtsModel[] => {
       const id = typeof value?.id === 'string' ? value.id.trim() : ''
       const displayName = typeof value?.display_name === 'string' ? value.display_name.trim() : ''
       const rate = optionalCount(value?.credits_per_1000_characters)
@@ -4327,8 +4363,9 @@ export async function listMusicModelsSnapshot(
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('music', catalogCacheKey('music', baseUrl, apiKey), async () => {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/music/models`, apiKey)
-    if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid music model catalog')
-    return payload.flatMap((value: any): GenStudioMusicModel[] => {
+    const rows = readCatalogRows(payload)
+    if (!rows) throw new Error('GenStudio KH returned an invalid music model catalog')
+    return rows.flatMap((value: any): GenStudioMusicModel[] => {
       const id = typeof value?.id === 'string' ? value.id.trim() : ''
       const displayName = typeof value?.display_name === 'string' ? value.display_name.trim() : ''
       const hasDescription = typeof value?.description === 'string'
@@ -4604,11 +4641,12 @@ export async function listModelCapabilitiesSnapshot(
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('capabilities', catalogCacheKey('capabilities', baseUrl, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/models`, apiKey)
-  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid capability catalog')
+  const rows = readCatalogRows(payload)
+  if (!rows) throw new Error('GenStudio KH returned an invalid capability catalog')
   const modalities = new Set(['audio', 'image', 'text', 'video'])
   const operations = new Set(['voice.tts', 'audio.transcription', 'image.generation', 'chat.response', 'video.generation'])
   const availability = new Set(['available', 'unavailable', 'unknown'])
-  return payload.map((value: any) => ({
+  return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     revision: typeof value?.revision === 'string' ? value.revision.trim() : '',
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
@@ -4695,8 +4733,9 @@ export async function listChatModelsSnapshot(
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('chat', catalogCacheKey('chat', baseUrl, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/chat/models`, apiKey)
-  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid chat model catalog')
-  return payload.map((value: any) => ({
+  const rows = readCatalogRows(payload)
+  if (!rows) throw new Error('GenStudio KH returned an invalid chat model catalog')
+  return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
@@ -4839,8 +4878,9 @@ export async function listVideoModelsSnapshot(
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('video', catalogCacheKey('video', baseUrl, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/videos/models`, apiKey)
-  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid video model catalog')
-  return payload.map((value: any) => ({
+  const rows = readCatalogRows(payload)
+  if (!rows) throw new Error('GenStudio KH returned an invalid video model catalog')
+  return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
@@ -7145,10 +7185,11 @@ export async function listTranscriptionModelsSnapshot(
   const key = catalogCacheKey('transcription', baseUrl, apiKey)
   return cachedCatalogSnapshot('transcription', key, async () => {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/transcription/models`, apiKey)
-    if (!Array.isArray(payload)) {
+    const rows = readCatalogRows(payload)
+    if (!rows) {
       throw new Error('GenStudio KH returned an invalid transcription model catalog')
     }
-    return payload.map((value: any) => ({
+    return rows.map((value: any) => ({
       id: typeof value?.id === 'string' ? value.id.trim() : '',
       display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
       // Provider transparency means pass through what GenStudio publishes.
@@ -7220,8 +7261,9 @@ function publishedCredits(value: unknown): number | undefined {
 /** Parse one direct image-catalogue response for both ordinary and force-live reads. */
 async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Promise<GenStudioImageModel[]> {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/image/models`, apiKey)
-    if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid image model catalog')
-    return payload.map((value: any) => ({
+    const rows = readCatalogRows(payload)
+    if (!rows) throw new Error('GenStudio KH returned an invalid image model catalog')
+    return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
