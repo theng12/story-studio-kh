@@ -526,6 +526,43 @@ describe('Content Pack verification memo', () => {
     )
   })
 
+  test('a RESOLVER-backed verification is memoized too, so a listing stops re-hashing every pack', async () => {
+    // Break caught: `verificationIdentity` returned `'resolver'` for any
+    // resolver-backed policy and the fingerprint was then set to `null`,
+    // disabling the memo outright. Story Studio ALWAYS runs resolver-backed (the
+    // Content Store key anchor), so the memo never applied in production and
+    // every catalogue request re-read and re-hashed all 115 installed packs.
+    // Measured live on the owner's library, while idle: `GET /niches` median
+    // 10.9s, `/visual-styles` 12.9s, `/topic-packs` 12.4s.
+    //
+    // The resolver is present but never invoked for a locally-built pack — its
+    // PRESENCE is what used to disable the memo, which is exactly what is tested.
+    const paths = await isolated()
+    const archiveBytes = await buildArchive()
+    const result = await installContentPack(request(archiveBytes), { paths, policy })
+    const state = await readContentPackState(paths)
+    const installed = state.packs[result.pack_id].versions[result.version]
+    const resolver = async () => 'unused: this pack is not store-sourced'
+
+    forgetVerifiedContentPackVersions()
+    const first = await verifyInstalledContentPackVersion(installed, policy, resolver)
+    const second = await verifyInstalledContentPackVersion(installed, policy, resolver)
+
+    // Identity is the proof: re-verification BUILDS a result, so getting the
+    // same object back means the disk work did not run.
+    assert.equal(second, first, 'resolver-backed verification must reuse an unchanged tree')
+
+    // And the safety property still holds with a resolver: a tampered file
+    // misses the memo immediately, because the fingerprint covers it.
+    const target = path.join(installed.install_path, 'content/visual-style.json')
+    await fs.writeFile(target, '{"tampered":true}')
+    await assert.rejects(
+      verifyInstalledContentPackVersion(installed, policy, resolver),
+      /differs from verified archive/i,
+      'the TTL must not let a changed tree pass',
+    )
+  })
+
   test('a file restored to its exact former size still misses the memo', async () => {
     // Size alone would collide; mtime is what makes the fingerprint honest.
     const paths = await isolated()

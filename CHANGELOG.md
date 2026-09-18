@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.174 — 2026-09-18
+
+- Library pages open much faster. Every listing was re-reading and re-checking all 115 installed content packs from disk on each request, measured at roughly 10–13 seconds per page even while the app sat idle. An unchanged pack is now checked once and reused, and any change to a pack's files still invalidates it immediately.
+
 ## v1.4.173 — 2026-09-18
 
 - The music picker lists the published music model again. It was being discarded because the service does not state several of its capability fields, and an unstated field was being treated as a broken row. An unstated field now reads as "not reported" rather than being guessed at, and only a genuinely malformed value discards a row.
