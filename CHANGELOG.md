@@ -4,9 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.176 — 2026-09-19
+
+- The old multi-Mac endpoint pool is gone. It let Story Studio name and switch off individual local Image Studio, Voice Studio and Chat Studio machines, and hand work to whichever was least busy. Nothing had used it for some time — every one of its functions had no caller left, and the only thing still touching it was a line at startup that filled a registry nothing read. Removing it changes no behaviour: Story Studio talks to exactly one service, and the models from your other machines arrive through it.
+- Your settings file is untouched. The list of machines you had switched off is still there, along with the names you gave them; nothing reads or writes them any more. Story Studio does not rewrite your settings to tidy up its own dead code.
+- Corrected a comment that pointed at the wrong port. It claimed the live service had moved to 8010 while nothing has listened there for some time — the service is on 8000. Only the note changed; the address Story Studio uses was already right.
+
 ## v1.4.175 — 2026-09-18
 
-- Episode lists load roughly 40% faster. On the 302-episode project, opening an episode list was doing about 236,000 separate file checks and taking 10–11 seconds; it now does about 125,000 and takes 6 seconds. The work was not the work — the same handful of project-level files were being re-read once per episode, so a list of 302 rows read the project's own YouTube records 10,180 times, its publishing state 604 times and its main project file 4,428 times to answer a question whose answer is identical for every row. Each of those is now read once per request, and any change on disk is still picked up by the very next request.
+- Episode lists load roughly 40% faster. On the 302-episode project, opening an episode list was doing about 211,000 separate file checks and taking 10–11 seconds; it now does about 125,000 and takes 6 seconds. The work was not the work — the same handful of project-level files were being re-read once per episode, so a list of 302 rows read the project's own YouTube records 10,180 times, its publishing state 604 times and its main project file 4,428 times to answer a question whose answer is identical for every row. Each of those is now read once per request, and any change on disk is still picked up by the very next request.
 - Two smaller repeated checks were folded into the same pass: asking whether a file exists and then asking its size (now one check), and re-reading the app's own settings for every episode. Neither changes what a list reports — only how often it asks.
 - Nothing about the numbers a list shows has changed. Episode titles, folder paths, done/pending marks and the search for a renamed episode folder all resolve exactly as before; the difference is that the request no longer goes back to disk to re-learn what it already knows.
 

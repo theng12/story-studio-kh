@@ -1108,19 +1108,25 @@ export async function setLastSeenVersion(version: string): Promise<void> {
 
 export const GENSTUDIO_URL_KEY = 'genstudio_url'
 /**
- * The built-in fallback endpoint.
+ * The built-in fallback endpoint — **gateway-kh on `:8000`**, correct as of
+ * 2026-09-19.
  *
- * `:8000` IS NOW THE RETIRED ENDPOINT (recorded 2026-09-18). The live service is
- * `gateway-kh` on **`http://127.0.0.1:8010`**, reached through the saved
- * `genstudio_url`. This default is deliberately NOT changed to 8010: the gateway
- * is a separate app a given Mac may not have installed, and a default naming a
- * service that might be absent is worse than one naming the historical service.
+ * This comment previously claimed the opposite: that `:8000` was the retired
+ * GenStudio and the live service was `gateway-kh` on `:8010`. That was true for
+ * part of 2026-09-18 and is now inverted — the gateway moved to `:8000` and
+ * **nothing listens on `:8010` at all** (verified: `:8000` answers 401 without
+ * a key, `:8010` refuses the connection). A reader following the old text would
+ * have gone looking for a live service on a dead port, so the record is
+ * corrected here rather than left to mislead.
  *
- * The trap worth knowing: the old GenStudio still listens on 8000 on a machine
- * that has moved to the gateway, so clearing this setting does not fail — it
- * silently repoints Story Studio at a stale catalogue that answers every
- * request. If the catalogue looks frozen or an expected model is missing, check
- * `genstudio_url` before suspecting the gateway.
+ * The default is still only a fallback. The owner's saved `genstudio_url` is
+ * what every call actually uses (`getGenStudioUrl` below).
+ *
+ * The trap worth knowing, and the reason this default is not simply deleted:
+ * the old GenStudio and the gateway have both occupied `:8000` at different
+ * times, so clearing this setting does not fail — it silently repoints Story
+ * Studio at whatever is listening. If the catalogue looks frozen or an expected
+ * model is missing, check `genstudio_url` before suspecting the service.
  * See `docs/genstudio-handoff/gateway-kh-story-studio-wiring.md` §1.
  */
 export const DEFAULT_GENSTUDIO_URL = 'http://127.0.0.1:8000'
@@ -1141,30 +1147,20 @@ export async function setGenStudioUrl(url: string): Promise<void> {
   await setAppSetting(GENSTUDIO_URL_KEY, cleaned)
 }
 
-// ── Disabled endpoints (v1.0.311) ───────────────────────────────────────────
+// ── Disabled endpoints — RETIRED v1.4.176 ───────────────────────────────────
 //
-// Which local-modal endpoints the user has manually switched OFF in Settings.
-// A disabled endpoint is never probed or dispatched to (see endpoint-pool.ts
-// parseEnabledEndpoints). Stored SEPARATELY from the URL list (which stays a
-// plain comma-joined string).
-//   app-settings.json
-//     "endpoint_disabled": { "<providerId>": ["http://host:port"], ... }
-// Keyed by provider id → array of cleaned (trailing-slash-stripped) URLs.
+// `endpoint_disabled` and `endpoint_labels` are read by nothing. They were part
+// of the retired direct-connection feature: naming and switching off individual
+// local Image Studio / Voice Studio / Chat Studio Macs, which only the (now
+// deleted) `lib/endpoint-pool.ts` understood.
 //
-// The per-provider getter/setter pair that used to back the (now-retired)
-// Image Studio / Voice Studio direct-connection settings panes is gone. What
-// remains is the boot-time reader: getAllDisabledEndpoints() still primes the
-// in-memory endpoint-pool registry at startup (boot/migrations.ts) for
-// whatever provider entries are already on disk.
-
-export const ENDPOINT_DISABLED_KEY = 'endpoint_disabled'
-type EndpointDisabledStore = Record<string, string[]>
-
-/** Every provider's disabled set — used to prime the in-memory registry at boot. */
-export async function getAllDisabledEndpoints(): Promise<EndpointDisabledStore> {
-  const all = (await getAppSetting(ENDPOINT_DISABLED_KEY)) as EndpointDisabledStore | undefined
-  return all && typeof all === 'object' ? all : {}
-}
+// The keys are deliberately LEFT ON DISK. Nothing reads them, nothing writes
+// them, and no migration removes them: they are the owner's record of which
+// machines used to serve which provider, and rewriting a customer's settings
+// file to tidy up our own dead code is not a trade this app makes. Same for
+// `hub_url`. A future reader who finds them should treat them as history, not
+// as configuration — the live inventory and dispatch path is `genstudio_url`
+// alone, and it must stay that way (see `DEFAULT_GENSTUDIO_URL`).
 
 /**
  * Bootstrap helper: if server mode is enabled but no credentials exist,
