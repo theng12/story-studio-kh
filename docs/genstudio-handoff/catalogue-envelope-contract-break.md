@@ -65,9 +65,16 @@ an ambiguous contract is how this happened.
 
 ## Second issue: one music row is silently dropped
 
+> **FIXED ON STORY STUDIO'S SIDE 2026-09-18 (v1.4.173) — no longer blocking.** The reader no
+> longer treats an ABSENT field as a malformed one: absent now reads as `null` ("not published"),
+> and only a field **present with the wrong type** costs the row. Suno V6 lists correctly now.
+> The ask below still stands as a *better* contract — stating a fact beats leaving the app to show
+> "not reported" — but nothing is blocked on it, and there is no longer any reason to publish a
+> value you cannot verify just to make the row survive.
+
 `/v1/music/models` publishes one row (Suno V6, `kie-ai-images::V6`). Story Studio's music reader
-**discards it**, so the music catalogue reads as empty. The reader rejects a row rather than
-inventing values for it, which is deliberate — but it means a real, usable model disappears with
+**discarded it**, so the music catalogue read as empty. The reader rejected a row rather than
+inventing values for it, which is deliberate — but it meant a real, usable model disappeared with
 no error.
 
 The row omits these fields, which the reader requires:
