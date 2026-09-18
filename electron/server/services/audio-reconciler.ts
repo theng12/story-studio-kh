@@ -109,7 +109,7 @@ export async function getAudioStatus(
   cache?: ProjectFactsCache,
 ): Promise<AudioStatus> {
   const narrationPath = await findNarrationFile(slug, episodeId, cache)
-  const audioDir = await resolveAudioDir(slug, narrationPath, episodeId)
+  const audioDir = await resolveAudioDir(slug, narrationPath, episodeId, cache)
   const sections = await parseNarrationDocx(narrationPath)
   const code = episodeId.toUpperCase()
 

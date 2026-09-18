@@ -155,6 +155,48 @@ describe('a snapshot is request-scoped, and refuses to be anything else', () => 
   })
   after(async () => { await tmp?.cleanup() })
 
+  test('the episode TITLE also comes from the snapshot, not from a fresh ideas.json', async () => {
+    // The title feeds the folder template (`{code} - {title}`), so it is the
+    // one observable consequence of whether `getIdeas` went through the
+    // snapshot. On a 302-episode list this path re-read and re-parsed the
+    // 227 KB ideas.json once per episode.
+    const { ideas } = await makeProject()
+    const cache = utils.createProjectFactsCache(SLUG)
+    const first = await utils.resolveEpisodePathsByCode(SLUG, ideas[0]!.episode_code, cache)
+    assert.ok(first.episode_dir.replace(/[\\/]+$/, '').endsWith(`${ideas[0]!.episode_code} - ${ideas[0]!.title}`))
+
+    // Rename every episode on disk mid-list.
+    const renamed = ideas.map(idea => ({ ...idea, title: `${idea.title} RENAMED` }))
+    await fs.writeFile(path.join(tmp.dir, 'projects', SLUG, 'ideas.json'), JSON.stringify({
+      ideas: renamed, next_episode_number: EPISODES + 1, recycled_numbers: [],
+    }))
+
+    for (const idea of renamed) {
+      const paths = await utils.resolveEpisodePathsByCode(SLUG, idea.episode_code, cache)
+      assert.ok(!paths.episode_dir.includes('RENAMED'),
+        `${idea.episode_code} went back to disk for a title the snapshot already answered`)
+    }
+
+    // A new snapshot — the next request — sees the rename.
+    const nextRequest = utils.createProjectFactsCache(SLUG)
+    const fresh = await utils.resolveEpisodePathsByCode(SLUG, renamed[0]!.episode_code, nextRequest)
+    assert.ok(fresh.episode_dir.includes('RENAMED'))
+  })
+
+  test('the episodes root is one answer per request, and the same answer either way', async () => {
+    await makeProject()
+    const cache = utils.createProjectFactsCache(SLUG)
+    const viaSnapshot = await utils.projectOutputRootOnce(SLUG, cache)
+    assert.equal(await utils.projectOutputRootOnce(SLUG, cache), viaSnapshot)
+    assert.equal(viaSnapshot, await utils.projectOutputRootOnce(SLUG))
+  })
+
+  test('an unknown project answers null rather than throwing', async () => {
+    // The 404 / empty-status behaviour every caller already handles.
+    const cache = utils.createProjectFactsCache('definitely-not-a-project')
+    assert.equal(await utils.projectOutputRootOnce('definitely-not-a-project', cache), null)
+  })
+
   test('a snapshot made for another project is ignored, not believed', async () => {
     const { ideas } = await makeProject('{code} - 01 Script')
     const foreign = utils.createProjectFactsCache('some-other-project')

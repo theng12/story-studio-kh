@@ -14,8 +14,14 @@ import { projectsRoot, getProjectDir } from './project-manager.js'
  * matters during fresh project creation, when the directory is about
  * to be created on disk.
  */
-function projectDirFor(slug: string): string {
-  return getProjectDir(slug) || path.join(projectsRoot(), slug)
+export function projectDirFor(slug: string, cache?: ProjectFactsCache): string {
+  const scoped = usableFor(cache, slug)
+  if (!scoped) return getProjectDir(slug) || path.join(projectsRoot(), slug)
+  // `getProjectDir` is an `existsSync` against `<library>/<slug>`. Nothing
+  // creates or removes a project directory while one response is being built,
+  // and a status list asks for it ~38 times per episode.
+  scoped.dir ??= getProjectDir(slug) || path.join(projectsRoot(), slug)
+  return scoped.dir
 }
 
 // ── Episode path resolver ───────────────────────────────────────────────────
@@ -124,6 +130,49 @@ export interface ProjectFactsCache {
    * CPU); the Upload Center listing asked for it once per episode, 302 times.
    */
   externalFinalVideoRoot?: Promise<string>
+  /**
+   * The project's own directory, resolved once per request.
+   *
+   * MEASURED 2026-09-18, cold `/episodes` on the 302-episode project: 11,357
+   * `existsSync` calls against `<library>/capi` — `getProjectDir` reached
+   * through `projectDirFor`, `ideasPath` and `applyAutoHeal`. It is a pure
+   * `existsSync` on a path that cannot move while one response is being built.
+   */
+  dir?: string
+  /**
+   * `<projectDir>/episodes`, resolved once per request. Same measurement, 907
+   * `existsSync` calls: `getProjectOutputRoot` is asked once per episode and
+   * only ever answers `resolveOutputRoot(projectDir)`.
+   */
+  outputRoot?: Promise<string | null>
+  /**
+   * The project's YouTube publishing state (`youtube/project-state.json`),
+   * parsed once per request. 604 reads in the measurement above — twice per
+   * episode, once from `readYouTubeRetentionStores` and once from the
+   * publication-status reader.
+   *
+   * Typed loosely on purpose: the owning module is
+   * `youtube-project-publishing-store.ts`, and importing its concrete type
+   * here would pull the whole YouTube store into every path resolver.
+   */
+  publishingState?: Promise<unknown>
+  /**
+   * Every YouTube operation record for the project, read once per request.
+   *
+   * The single largest redundancy in a cold `/episodes`: the store holds 34
+   * records on the owner's Mac, and `listYouTubeOperations` re-read, re-parsed
+   * and re-validated all 34 for EVERY episode — 10,180 `readFile` calls to
+   * answer a question whose answer is identical for all 302 rows.
+   */
+  youtubeOperations?: Promise<unknown>
+  /**
+   * The `{ records, state }` pair `readYouTubeRetentionStores` builds, resolved
+   * once per request. Both halves are individually memoized above; this saves
+   * the three `existsSync` probes (project dir, `youtube/operations`,
+   * `youtube/project-state.json`) that wrapped them, which the status sweep
+   * paid once per episode.
+   */
+  youtubeRetentionStores?: Promise<unknown>
 }
 
 export function createProjectFactsCache(slug?: string): ProjectFactsCache {
@@ -136,16 +185,54 @@ function usableFor(cache: ProjectFactsCache | undefined, slug: string): ProjectF
   return cache.slug === slug ? cache : undefined
 }
 
+/**
+ * The request-scoped facts cache, but only when it belongs to `slug`.
+ *
+ * Exported so the modules that own a memoized value (`youtube-operation-store`,
+ * `youtube-project-publishing-store`) apply the same two guarantees this file
+ * does: a cache accidentally reused for a different project is ignored rather
+ * than wrong, and `undefined` means "read disk exactly as before".
+ */
+export function projectFactsFor(cache: ProjectFactsCache | undefined, slug: string): ProjectFactsCache | undefined {
+  return usableFor(cache, slug)
+}
+
 /** The parsed `project.json`, read at most once per cache. */
 export async function projectMetaOnce(slug: string, cache?: ProjectFactsCache): Promise<any> {
   return projectMeta(slug, cache)
+}
+
+/**
+ * `<projectDir>/episodes`, resolved at most once per cache.
+ *
+ * Byte-for-byte `getProjectOutputRoot` without a cache; the only thing this
+ * adds is not asking the same question 302 times. It returns `null` for the
+ * same reason `getProjectOutputRoot` does — an absent project directory — so
+ * callers keep their existing 404 / empty-status handling unchanged.
+ */
+export async function projectOutputRootOnce(slug: string, cache?: ProjectFactsCache): Promise<string | null> {
+  const scoped = usableFor(cache, slug)
+  const read = async (): Promise<string | null> => {
+    const pm = await import('./project-manager.js')
+    return pm.getProjectOutputRoot(slug)
+  }
+  if (!scoped) return read()
+  scoped.outputRoot ??= read()
+  try {
+    return await scoped.outputRoot
+  } catch (error) {
+    // A failed read must not be remembered as the answer for the rest of the
+    // request: drop it so the next caller genuinely retries.
+    scoped.outputRoot = undefined
+    throw error
+  }
 }
 
 async function projectMeta(slug: string, cache?: ProjectFactsCache): Promise<any> {
   const scoped = usableFor(cache, slug)
   const read = async (): Promise<Record<string, unknown>> => {
     const { readFile } = await import('fs/promises')
-    return JSON.parse(await readFile(path.join(projectDirFor(slug), 'project.json'), 'utf-8'))
+    return JSON.parse(await readFile(path.join(projectDirFor(slug, cache), 'project.json'), 'utf-8'))
   }
   if (!scoped) return read()
   scoped.meta ??= read()
@@ -186,7 +273,10 @@ async function projectIdeas(slug: string, cache?: ProjectFactsCache): Promise<an
   const scoped = usableFor(cache, slug)
   const read = async (): Promise<Array<Record<string, unknown>>> => {
     const im = await import('./idea-manager.js')
-    return await im.getIdeas(slug) as unknown as Array<Record<string, unknown>>
+    // The cache reaches idea-manager too: without it, this one call re-read
+    // and re-parsed ideas.json (227 KB on a 302-episode project) AND
+    // project.json through `applyAutoHeal`, once per episode.
+    return await im.getIdeas(slug, undefined, cache) as unknown as Array<Record<string, unknown>>
   }
   if (!scoped) return read()
   scoped.ideas ??= read()
@@ -204,7 +294,7 @@ export async function resolveEpisodePaths(
   title: string,
   cache?: ProjectFactsCache,
 ): Promise<EpisodePaths> {
-  const projectDir = projectDirFor(slug)
+  const projectDir = projectDirFor(slug, cache)
   const meta = await projectMeta(slug, cache)
 
   const prefix = meta.episode_prefix || 'EP'

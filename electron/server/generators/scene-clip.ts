@@ -20,7 +20,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { downloadVideo } from '../lib/download-video.js'
 import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
-import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath, type ProjectFactsCache } from '../services/utils.js'
 import { resolveSceneImageReadPath } from './scene-image.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
@@ -144,9 +144,14 @@ export function sceneClipFleetBusyRetryPlan(e: unknown, attemptNum: number): Sce
  * Returns the existing on-disk folder when present, else the canonical path
  * (callers mkdir before writing).
  */
-export async function resolveVideoAssetsDir(slug: string, code: string, episodeDir: string): Promise<string> {
-  const names = await resolveSubfolderNames(slug, code)
-  const mediaBase = await mediaEpisodeBaseForCode(slug, code).catch(() => null)
+export async function resolveVideoAssetsDir(
+  slug: string,
+  code: string,
+  episodeDir: string,
+  cache?: ProjectFactsCache,
+): Promise<string> {
+  const names = await resolveSubfolderNames(slug, code, cache)
+  const mediaBase = await mediaEpisodeBaseForCode(slug, code, cache).catch(() => null)
   const parent = mediaBase || episodeDir
   const found = await findSubfolder(parent, names.video_assets)
   return found || path.join(parent, names.video_assets)

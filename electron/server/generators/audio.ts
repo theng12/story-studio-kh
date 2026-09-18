@@ -262,7 +262,12 @@ export async function findNarrationFile(
   throw new NarrationMissingError(episodeId, filename)
 }
 
-export async function resolveAudioDir(projectSlug: string, narrationPath: string, episodeId: string): Promise<string> {
+export async function resolveAudioDir(
+  projectSlug: string,
+  narrationPath: string,
+  episodeId: string,
+  cache?: ProjectFactsCache,
+): Promise<string> {
   const code = episodeId.toUpperCase()
   const parent = path.dirname(narrationPath)
   const parentName = path.basename(parent).replace(/^✅\s*/, '').toLowerCase()
@@ -272,14 +277,14 @@ export async function resolveAudioDir(projectSlug: string, narrationPath: string
 
   // Use centralized config helper for subfolder name
   const { resolveSubfolderNames } = await import('../services/utils.js')
-  const names = await resolveSubfolderNames(projectSlug, code)
+  const names = await resolveSubfolderNames(projectSlug, code, cache)
   const audioName = names.audio // e.g. "TN0024 - 07 Audio Assets"
 
   // Level B (opt-in): audio is heavy media — route to the external media root
   // when the project configured one; otherwise resolve under the iCloud
   // episodeDir exactly as before.
   const { mediaEpisodeBaseForCode } = await import('../services/media-root.js')
-  const base = (await mediaEpisodeBaseForCode(projectSlug, code)) ?? episodeDir
+  const base = (await mediaEpisodeBaseForCode(projectSlug, code, cache)) ?? episodeDir
 
   // v1.0.338 — shared lookup (handles the ✅ done-marker prefix); falls
   // back to the config-based path, which the writer creates on demand.

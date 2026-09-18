@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.175 — 2026-09-18
+
+- Episode lists load roughly 40% faster. On the 302-episode project, opening an episode list was doing about 236,000 separate file checks and taking 10–11 seconds; it now does about 125,000 and takes 6 seconds. The work was not the work — the same handful of project-level files were being re-read once per episode, so a list of 302 rows read the project's own YouTube records 10,180 times, its publishing state 604 times and its main project file 4,428 times to answer a question whose answer is identical for every row. Each of those is now read once per request, and any change on disk is still picked up by the very next request.
+- Two smaller repeated checks were folded into the same pass: asking whether a file exists and then asking its size (now one check), and re-reading the app's own settings for every episode. Neither changes what a list reports — only how often it asks.
+- Nothing about the numbers a list shows has changed. Episode titles, folder paths, done/pending marks and the search for a renamed episode folder all resolve exactly as before; the difference is that the request no longer goes back to disk to re-learn what it already knows.
+
 ## v1.4.174 — 2026-09-18
 
 - Library pages open much faster. Every listing was re-reading and re-checking all 115 installed content packs from disk on each request, measured at roughly 10–13 seconds per page even while the app sat idle. An unchanged pack is now checked once and reused, and any change to a pack's files still invalidates it immediately.

@@ -7,6 +7,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import type { YouTubeFoundationErrorCode } from '../contracts/youtube-upload-center.js'
 import { getProjectDir, getUserDataDir } from './project-manager.js'
+import { projectFactsFor, type ProjectFactsCache } from './utils.js'
 import { authorizeProjectYouTubeAction } from './youtube-connection-store.js'
 import {
   linkYouTubeEpisodeVideo,
@@ -125,9 +126,9 @@ function assertStoreOperationId(operationId: unknown): asserts operationId is st
   }
 }
 
-async function resolveProject(projectSlug: string): Promise<ProjectResolution> {
+async function resolveProject(projectSlug: string, cache?: ProjectFactsCache): Promise<ProjectResolution> {
   // Task 6 owns strict project.json validation. Do this before deriving any operation path.
-  await readYouTubeProjectPublishingState(projectSlug)
+  await readYouTubeProjectPublishingState(projectSlug, cache)
   const projectDir = getProjectDir(projectSlug)
   if (!projectDir) throw new Error(`YouTube project '${projectSlug}' was not found`)
   return { project_slug: projectSlug, project_dir: path.resolve(projectDir) }
@@ -633,15 +634,43 @@ export async function readYouTubeOperation(project_slug: string, operation_id: s
   })
 }
 
-export async function listYouTubeOperations(project_slug: string): Promise<YouTubeOperationRecordV1[]> {
-  const project = await resolveProject(project_slug)
-  const indexPath = operationIndexPath(project.project_dir)
-  return withLock(indexPath, async () => {
-    const index = await readIndexUnlocked(indexPath, project.project_slug)
-    const loaded = await readAllUnlocked(project, index)
-    if (loaded.repaired) await writeIndexUnlocked(indexPath, loaded.index)
-    return loaded.records.map(cloneRecord)
-  })
+/**
+ * Every operation record for the project, read at most once per cache.
+ *
+ * MEASURED 2026-09-18, cold `/episodes` on the 302-episode project: this held
+ * 34 records and was called once per episode — 10,180 `readFile` calls, each
+ * re-parsing and re-validating all 34, to answer a question whose answer is
+ * identical for all 302 rows. Reading it once per request is the same answer.
+ *
+ * Only pass a cache on a READ path. A write path must call this without one:
+ * the store is a read-modify-write, and a memo taken before the write would
+ * hand the caller the pre-write records.
+ */
+export async function listYouTubeOperations(
+  project_slug: string,
+  cache?: ProjectFactsCache,
+): Promise<YouTubeOperationRecordV1[]> {
+  const scoped = projectFactsFor(cache, project_slug)
+  const read = async (): Promise<YouTubeOperationRecordV1[]> => {
+    const project = await resolveProject(project_slug, cache)
+    const indexPath = operationIndexPath(project.project_dir)
+    return withLock(indexPath, async () => {
+      const index = await readIndexUnlocked(indexPath, project.project_slug)
+      const loaded = await readAllUnlocked(project, index)
+      if (loaded.repaired) await writeIndexUnlocked(indexPath, loaded.index)
+      return loaded.records.map(cloneRecord)
+    })
+  }
+  if (!scoped) return read()
+  scoped.youtubeOperations ??= read()
+  try {
+    return await scoped.youtubeOperations as YouTubeOperationRecordV1[]
+  } catch (error) {
+    // A failed read must not be remembered as the answer for the rest of the
+    // request: drop it so the next caller genuinely retries.
+    scoped.youtubeOperations = undefined
+    throw error
+  }
 }
 
 type OperationUpdateInput = {

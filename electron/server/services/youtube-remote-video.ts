@@ -40,6 +40,7 @@
 import { listYouTubeOperations } from './youtube-operation-store.js'
 import { readSidecarStrict } from './upload-sidecar.js'
 import type { ProjectFactsCache } from './utils.js'
+import { projectFactsFor } from './utils.js'
 import { isYouTubeVideoRemoved, readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import { isContentSha256Revision, resolveYouTubeSourceRevision } from './youtube-source-video.js'
@@ -119,20 +120,39 @@ export function usableYouTubeRemoteEvidence(
   return { usable: false }
 }
 
-export async function readYouTubeRetentionStores(slug: string): Promise<{
+export async function readYouTubeRetentionStores(
+  slug: string,
+  cache?: ProjectFactsCache,
+): Promise<{
   records: YouTubeOperationRecordV1[]
   state: Pick<YouTubeProjectPublishingStateV1, 'episode_video_links' | 'removed_videos'>
 }> {
-  const projectDir = getProjectDir(slug)
-  if (!projectDir) throw new Error(`Project ${slug} not found`)
-  const youtubeDir = path.join(projectDir, 'youtube')
-  const operationsDir = path.join(youtubeDir, 'operations')
-  const statePath = path.join(youtubeDir, 'project-state.json')
-  const records = existsSync(operationsDir) ? await listYouTubeOperations(slug) : []
-  const state = existsSync(statePath)
-    ? await readYouTubeProjectPublishingState(slug)
-    : { episode_video_links: {} }
-  return { records, state }
+  const scoped = projectFactsFor(cache, slug)
+  const read = async (): Promise<{
+    records: YouTubeOperationRecordV1[]
+    state: Pick<YouTubeProjectPublishingStateV1, 'episode_video_links' | 'removed_videos'>
+  }> => {
+    const projectDir = getProjectDir(slug)
+    if (!projectDir) throw new Error(`Project ${slug} not found`)
+    const youtubeDir = path.join(projectDir, 'youtube')
+    const operationsDir = path.join(youtubeDir, 'operations')
+    const statePath = path.join(youtubeDir, 'project-state.json')
+    const records = existsSync(operationsDir) ? await listYouTubeOperations(slug, cache) : []
+    const state = existsSync(statePath)
+      ? await readYouTubeProjectPublishingState(slug, cache)
+      : { episode_video_links: {} }
+    return { records, state }
+  }
+  if (!scoped) return read()
+  scoped.youtubeRetentionStores ??= read()
+  try {
+    return await scoped.youtubeRetentionStores as Awaited<ReturnType<typeof read>>
+  } catch (error) {
+    // A failed read must not be remembered as the answer for the rest of the
+    // request: drop it so the next caller genuinely retries.
+    scoped.youtubeRetentionStores = undefined
+    throw error
+  }
 }
 
 /** Read every historical channel when deciding whether a local master may go. */
@@ -144,7 +164,7 @@ export async function youtubeRetentionEvidenceFor(
   state?: Pick<YouTubeProjectPublishingStateV1, 'episode_video_links' | 'removed_videos'>,
   cache?: ProjectFactsCache,
 ): Promise<YouTubeRetentionEvidence> {
-  const stores = records && state ? null : await readYouTubeRetentionStores(slug)
+  const stores = records && state ? null : await readYouTubeRetentionStores(slug, cache)
   const all = records ?? stores!.records
   const publishing = state ?? stores!.state
   const episodeRecords = all.filter(record => record.episode_code === episodeCode
@@ -293,10 +313,10 @@ export async function remoteVideoFor(
   state?: Pick<YouTubeProjectPublishingStateV1, 'episode_video_links' | 'removed_videos'>,
   cache?: ProjectFactsCache,
 ): Promise<RemoteVideo | null> {
-  const links = state ?? await readYouTubeProjectPublishingState(slug)
+  const links = state ?? await readYouTubeProjectPublishingState(slug, cache)
 
   // 1. The durable operation record. Ours, channel-scoped, richest.
-  const all = records ?? await listYouTubeOperations(slug)
+  const all = records ?? await listYouTubeOperations(slug, cache)
   const record = all.find(entry => entry.episode_code === episodeCode
     && entry.channel_id === channelId
     && (!!entry.video_id?.trim() || OPEN_LIFECYCLES.includes(entry.lifecycle))
