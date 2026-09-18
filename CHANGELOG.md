@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.173 — 2026-09-18
+
+- The music picker lists the published music model again. It was being discarded because the service does not state several of its capability fields, and an unstated field was being treated as a broken row. An unstated field now reads as "not reported" rather than being guessed at, and only a genuinely malformed value discards a row.
+
 ## v1.4.172 — 2026-09-18
 
 - The model catalogues load live again. Every picker — language, image, video, voice, music, transcription — had been quietly falling back to a cached copy hours out of date, because the current endpoint answers with a wrapped list rather than the plain list Story Studio reads. Both forms are now accepted, so the pickers show what the service actually publishes; a payload that is neither form is still refused loudly.

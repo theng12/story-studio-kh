@@ -1433,14 +1433,24 @@ export interface GenStudioMusicModel extends GenStudioCatalogLock {
   sale_credits: number | null
   sale_ends_at: string | null
   sale_disclaimer: string | null
-  supports_instrumental: boolean
-  supports_vocals: boolean
-  requires_lyrics: boolean
+  /**
+   * Capability facts. `null` means GENSTUDIO PUBLISHED NOTHING — it is not
+   * `false`, and it is never a local guess at what the model can do.
+   *
+   * These were declared non-nullable and treated as required, so a row that
+   * omitted them was DROPPED — which is how `kie-ai-images::V6` (Suno V6), the
+   * only published music model, disappeared from the picker entirely while the
+   * endpoint was serving it. Absence is a legitimate publication, distinct from
+   * a malformed value; only the latter should cost the row.
+   */
+  supports_instrumental: boolean | null
+  supports_vocals: boolean | null
+  requires_lyrics: boolean | null
   max_prompt_characters: number
   max_prompt_without_lyrics_characters: number | null
-  min_prompt_characters: number
+  min_prompt_characters: number | null
   max_lyrics_characters: number
-  min_lyrics_characters: number
+  min_lyrics_characters: number | null
   max_title_characters: number
   outputs_per_request: number | null
 }
@@ -4370,22 +4380,31 @@ export async function listMusicModelsSnapshot(
       const displayName = typeof value?.display_name === 'string' ? value.display_name.trim() : ''
       const hasDescription = typeof value?.description === 'string'
       const description = hasDescription ? value.description.trim() : ''
-      const isNullableInteger = (field: unknown): field is number | null => field === null || Number.isInteger(field)
-      const isNullableText = (field: unknown): field is string | null => field === null || typeof field === 'string'
+      // ABSENT AND MALFORMED ARE DIFFERENT QUESTIONS, and collapsing them is what
+      // emptied the music picker. `null`/omitted means "GenStudio published
+      // nothing" — legal, and read as null below. A field PRESENT with the wrong
+      // type is malformed, and still costs the row.
+      const isAbsent = (field: unknown): boolean => field === null || field === undefined
+      const isNullableInteger = (field: unknown): boolean => isAbsent(field) || Number.isInteger(field)
+      const isNullableText = (field: unknown): boolean => isAbsent(field) || typeof field === 'string'
+      const isNullableFlag = (field: unknown): boolean => isAbsent(field) || typeof field === 'boolean'
       if (
         !id || !displayName || !hasDescription || typeof value?.coming_soon !== 'boolean'
         || !Number.isInteger(value?.credits_per_request) || !Number.isInteger(value?.minimum_credits)
         || typeof value?.price_version !== 'string'
         || !isNullableInteger(value?.standard_credits) || !isNullableInteger(value?.sale_credits)
         || !isNullableText(value?.sale_ends_at) || !isNullableText(value?.sale_disclaimer)
-        || typeof value?.supports_instrumental !== 'boolean' || typeof value?.supports_vocals !== 'boolean'
-        || typeof value?.requires_lyrics !== 'boolean'
+        || !isNullableFlag(value?.supports_instrumental) || !isNullableFlag(value?.supports_vocals)
+        || !isNullableFlag(value?.requires_lyrics)
         || !Number.isInteger(value?.max_prompt_characters)
         || !isNullableInteger(value?.max_prompt_without_lyrics_characters)
-        || !Number.isInteger(value?.min_prompt_characters) || !Number.isInteger(value?.max_lyrics_characters)
-        || !Number.isInteger(value?.min_lyrics_characters) || !Number.isInteger(value?.max_title_characters)
+        || !isNullableInteger(value?.min_prompt_characters) || !Number.isInteger(value?.max_lyrics_characters)
+        || !isNullableInteger(value?.min_lyrics_characters) || !Number.isInteger(value?.max_title_characters)
         || !isNullableInteger(value?.outputs_per_request)
       ) return []
+      // An absent figure becomes null — NEVER false or 0. `supports_vocals: false`
+      // would be a capability claim the catalogue never made.
+      const publishedOrNull = <T>(field: T | null | undefined): T | null => field ?? null
       return [{
         id,
         display_name: displayName,
@@ -4397,20 +4416,20 @@ export async function listMusicModelsSnapshot(
         minimum_credits: value.minimum_credits,
         price_version: value.price_version.trim(),
         ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
-        standard_credits: value.standard_credits,
-        sale_credits: value.sale_credits,
-        sale_ends_at: value.sale_ends_at,
-        sale_disclaimer: value.sale_disclaimer,
-        supports_instrumental: value.supports_instrumental,
-        supports_vocals: value.supports_vocals,
-        requires_lyrics: value.requires_lyrics,
+        standard_credits: publishedOrNull(value.standard_credits),
+        sale_credits: publishedOrNull(value.sale_credits),
+        sale_ends_at: publishedOrNull(value.sale_ends_at),
+        sale_disclaimer: publishedOrNull(value.sale_disclaimer),
+        supports_instrumental: publishedOrNull(value.supports_instrumental),
+        supports_vocals: publishedOrNull(value.supports_vocals),
+        requires_lyrics: publishedOrNull(value.requires_lyrics),
         max_prompt_characters: value.max_prompt_characters,
-        max_prompt_without_lyrics_characters: value.max_prompt_without_lyrics_characters,
-        min_prompt_characters: value.min_prompt_characters,
+        max_prompt_without_lyrics_characters: publishedOrNull(value.max_prompt_without_lyrics_characters),
+        min_prompt_characters: publishedOrNull(value.min_prompt_characters),
         max_lyrics_characters: value.max_lyrics_characters,
-        min_lyrics_characters: value.min_lyrics_characters,
+        min_lyrics_characters: publishedOrNull(value.min_lyrics_characters),
         max_title_characters: value.max_title_characters,
-        outputs_per_request: value.outputs_per_request,
+        outputs_per_request: publishedOrNull(value.outputs_per_request),
       }]
     })
   }, { ...options, baseUrl, apiKey })

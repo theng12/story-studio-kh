@@ -1,5 +1,17 @@
 # Wiring Story Studio to gateway-kh: verified state, the two asks, and the owner's calls
 
+> **PORT — read this first (updated 2026-09-18 21:00).** The gateway moved from `:8010` to
+> **`:8000`**. It restarted at 20:26 and its log shows repeated
+> `[Errno 48] bind on 127.0.0.1:8010: address already in use`, after which it served on 8000
+> (its own menubar state records `"port": 8000`). The old GenStudio that previously held 8000 is
+> gone, so the two swapped.
+>
+> **Story Studio's `genstudio_url` already reads `http://127.0.0.1:8000` and everything works
+> there** — verified live: 86 models, `freshness.ageMs: 2`, all seven catalogues loading. Every
+> `:8010` reference below is therefore historical. The durable lesson is the one in §1: the saved
+> setting is what matters, and it has to be re-checked whenever the gateway restarts, not assumed
+> from an earlier handoff.
+
 Date: 2026-09-18
 From: the **Story Studio KH** session
 To: the **gateway-kh** session, and the owner

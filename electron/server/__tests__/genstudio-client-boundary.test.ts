@@ -655,6 +655,64 @@ test('a payload with NEITHER shape is still refused loudly, not read as zero mod
   }
 })
 
+test('a music row that omits capability fields is published with nulls, not dropped', async () => {
+  // Break caught: `kie-ai-images::V6` (Suno V6) — the ONLY published music model —
+  // vanished from the picker because this reader treated ten ABSENT fields as
+  // malformed and dropped the row. Absence is a legitimate publication and reads
+  // as null; `supports_vocals: false` would be a capability the catalogue never
+  // stated, which is why null is the only honest answer.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/v1\/music\/models$/)
+      // Exactly the fields the live gateway publishes — nothing more.
+      return Response.json({
+        models: [{
+          id: 'kie-ai-images::V6', display_name: 'Suno V6',
+          description: 'Image, video and music aggregator.', coming_soon: false,
+          credits_per_request: 0, minimum_credits: 0, price_version: 'flat',
+          supports_instrumental: true,
+          max_prompt_characters: 2000, max_lyrics_characters: 4000, max_title_characters: 200,
+        }],
+        freshness: { stale: false, ageMs: 4 },
+      })
+    }
+    const models = await listMusicModels('scoped-key')
+    assert.equal(models.length, 1, 'the row survives its absent fields')
+    assert.equal(models[0]?.id, 'kie-ai-images::V6')
+    assert.equal(models[0]?.supports_vocals, null, 'absent is null, never false')
+    assert.equal(models[0]?.requires_lyrics, null)
+    assert.equal(models[0]?.min_prompt_characters, null)
+    assert.equal(models[0]?.outputs_per_request, null)
+    assert.equal(models[0]?.supports_instrumental, true, 'a published flag is still read')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('a music row with a WRONG-typed field is still dropped', async () => {
+  // The other half of the distinction: absence is legal, malformed is not.
+  // `supports_vocals: 'yes'` must cost the row rather than be coerced.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async () => Response.json({
+      models: [{
+        id: 'bad::1', display_name: 'Bad', description: 'd', coming_soon: false,
+        credits_per_request: 0, minimum_credits: 0, price_version: 'flat',
+        supports_vocals: 'yes',
+        max_prompt_characters: 2000, max_lyrics_characters: 4000, max_title_characters: 200,
+      }],
+      freshness: { stale: false },
+    })
+    const models = await listMusicModels('scoped-key')
+    assert.deepEqual(models, [], 'a malformed row is not published')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('chat pricing preserves absent rates as unpublished while keeping a published zero', async () => {
   const originalFetch = globalThis.fetch
   clearGenStudioCatalogCache()
