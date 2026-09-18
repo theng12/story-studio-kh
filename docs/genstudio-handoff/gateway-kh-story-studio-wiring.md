@@ -230,3 +230,69 @@ To be explicit, so nobody spends time on them:
   weakened, and no boundary test needs rewriting.
 - **No fallback pricing.** `0` is accepted as a reported value. Story Studio will not compute a
   charge locally, and nothing here needs a substitute number.
+
+## 9. Outcome — gateway-kh replied, and the fallback is fixed (v1.4.171)
+
+gateway-kh answered by adding a section to `gateway-kh-replacement-endpoint.md`. It **found the
+same `scene-prompt-batching.ts` fallback independently** and made the point that matters most:
+
+> **That fallback was unreachable until this change.** This endpoint previously always sent an
+> integer: `max_output_tokens: 8192`, hardcoded for every model. … I removed the fabrication and
+> started publishing `null` — which is correct, and which turned a dormant bug into a live one.
+
+That is right, and it is the honest reading: their fix did not create the defect, it made a
+dormant one reachable. **Story Studio fixed it in v1.4.171** — `normalizeMaxOutputTokens` now
+refuses, matching its sibling `productCeiling`, and the 8,192 constant is deleted outright.
+
+**One thing the fix had to get right, and nearly did not.** `scene-plan.ts` passed
+`promptModel?.max_output_tokens`, and `promptModel` is `null` for a **timeline-only** run — which
+is deliberately model-free (deterministic engine, no GenStudio request). So the retired 8,192 was
+serving *two different facts*: "the selected product published no allowance" (must refuse) and
+"this run has no model at all" (perfectly valid). Refusing both would have broken every
+timeline-only run. They are now told apart: `SCENE_TIMELINE_ONLY_OUTPUT_BUDGET` covers the
+model-free case and is never displayed as a model's figure (`!timelineOnly` guards the line that
+prints the arithmetic).
+
+### Every field gateway-kh reports as newly nullable — audited
+
+gateway-kh published the full list, which is more than we had asked for. Story Studio's readers
+were checked one by one:
+
+| field | null on | Story Studio's reader | verdict |
+|---|---|---|---|
+| `supports_vision` | 43/66 | `value?.supports_vision === true` | fail-closed → `false` |
+| `input_modalities` | 43/66 | array filter | fail-closed → `[]` |
+| `supports_structured_output` | 43/66 | `=== true` | fail-closed → `false` |
+| `supports_web_search` | 43/66 | `=== true` | fail-closed → `false` |
+| `context_window_tokens` | 18/66 | `readPublishedTokenLimit` | `null` → `0` = "not published" |
+| `max_output_tokens` | **24/66** | `readPublishedTokenLimit` | `null` → `0`; now REFUSES (v1.4.171) |
+| `structured_output_mode` | 43/66 | ternary, else `'json_object'` | see note |
+
+**No crash and no fabricated capability in any of them.** All five booleans/lists coerce to the
+safe answer, which is a legitimate "the answer is none" — not an invented one.
+
+**One latent note, not a live bug.** `structured_output_mode` defaults optimistically to
+`'json_object'` while its gate defaults conservatively, so a silent provider reads as
+"JSON-object capable" even though nothing said so. It is harmless today only because the gate at
+`ai-client.ts:603` reads `supports_structured_output`, which is `false` for exactly those rows, so
+it refuses first. Worth an explicit decision if that gate is ever loosened.
+
+**Value-changed fields, which bite differently because nothing is null:** `supports_speed` (now
+per-model; `eleven_v3` is `false`), `maximum_input_characters` (now per model — 40,000 for
+ElevenLabs flash/turbo, 25,000 for Fish and the local lane), and transcription `language`
+(`"multilingual"`). Story Studio holds **no** local copy of any of these figures — a source grep
+for `40000`/`25000` finds nothing — so they track the catalogue with no release on our side.
+
+### The product consequence, stated plainly
+
+**24 of 66 live chat rows now have no output allowance** — tokenharbor (9), nvidia-nim (5),
+anthropic (4), experiential-labs (3), deepseek (2), openai (1) — because those six providers
+state no limits at all. Since v1.4.171 Story Studio **refuses** these rather than inventing a
+ceiling, so they are unusable for Scene Plan until either a provider states a figure or the owner
+decides otherwise.
+
+gateway-kh was explicit that it **will not curate numbers to hide the hole**, and that is the
+right call: stating a limit nobody published is the defect being fixed. The remaining question is
+the owner's, and it is a product question rather than a technical one — 24 unusable rows against
+24 rows running on a number no provider ever stated.
+

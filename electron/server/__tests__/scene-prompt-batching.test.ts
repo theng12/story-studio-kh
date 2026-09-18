@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   SCENE_PROMPT_PACK_TUNING_DEFAULTS,
+  SCENE_TIMELINE_ONLY_OUTPUT_BUDGET,
   automaticScenePromptPackSize,
   describeScenePromptPackSize,
   parseScenePromptPackSetting,
@@ -21,6 +22,44 @@ describe('adaptive scene prompt batching', () => {
     assert.equal(resolveScenePromptPackSize(4_096, 30), 10)
     assert.equal(resolveScenePromptPackSize(16_384, 30), 30)
     assert.equal(resolveScenePromptPackSize(8_192, 12), 12)
+  })
+
+  test('an unpublished allowance is refused, never replaced by an invented 8,192', () => {
+    // Break caught: this module substituted 8,192 whenever the catalogue
+    // published no usable allowance, and `describeScenePromptPackSize` then
+    // printed it as the model's own figure —
+    //   "8,192 output tokens × 0.75 ÷ 300 per scene = 20 max"
+    // for a product that had published nothing at all. Its sibling
+    // `productCeiling` (output-token-budget.ts) throws for the identical
+    // condition, so this module was the odd one out rather than the rule.
+    const expected = /does not substitute a ceiling of its own/
+    for (const missing of [undefined, null, 0, -1, 8_192.5, 'nonsense']) {
+      const label = JSON.stringify(missing)
+      assert.throws(() => maxSafeScenePromptPackSize(missing), expected, `maxSafe ${label}`)
+      assert.throws(() => automaticScenePromptPackSize(missing), expected, `automatic ${label}`)
+      assert.throws(() => resolveScenePromptPackSize(missing, 'auto'), expected, `packSize ${label}`)
+      assert.throws(() => resolveScenePromptTokenBudget(missing, 'auto'), expected, `tokenBudget ${label}`)
+      assert.throws(() => describeScenePromptPackSize(missing, 'auto'), expected, `describe ${label}`)
+    }
+    // The refusal names what the catalogue actually published, so the operator
+    // can tell "absent" from "zero" without the page stating either as a limit.
+    assert.throws(() => maxSafeScenePromptPackSize(undefined), /got undefined/)
+    assert.throws(() => maxSafeScenePromptPackSize(0), /got 0/)
+  })
+
+  test('a model-free run has its OWN budget and does not borrow a model allowance', () => {
+    // A timeline-only Scene Plan run is deliberately model-free, so there is no
+    // published allowance to read. It is a VALID run and must not be refused —
+    // which is exactly why the two facts get two different answers: the resolver
+    // refuses an absent MODEL allowance, and this named constant covers the
+    // no-model case. The retired 8,192 fallback gave both the same value, which
+    // is the defect (a value meaning two things), not the fix.
+    assert.equal(SCENE_TIMELINE_ONLY_OUTPUT_BUDGET, 8_192)
+    assert.throws(
+      () => resolveScenePromptTokenBudget(undefined, 'auto'),
+      /does not substitute a ceiling of its own/,
+      'the resolver still refuses the absence it is actually about',
+    )
   })
 
   test('uses the model maximum automatically and never requests more than it publishes', () => {

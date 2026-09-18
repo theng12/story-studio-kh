@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.171 — 2026-09-18
+
+- Scene Plan no longer stands in an invented 8,192-token output allowance when the selected model publishes none. That number could reach the panel as though it were the model's own limit; the request is now refused with the reason instead.
+- A timeline-only Scene Plan run, which has no model by design, keeps working and uses Story Studio's own local budget. "The model published nothing" and "this run has no model" are now told apart rather than sharing one value.
+
 ## v1.4.170 — 2026-09-18
 
 - Transcription and video models now show the provider GenStudio publishes for them. The field was arriving and being discarded, so those rows could not say who serves them; an unpublished provider still shows as unknown rather than being guessed.

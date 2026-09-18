@@ -41,6 +41,7 @@ import {
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob, pipelinePolicyInputFingerprint } from '../lib/pipeline-model-policy.js'
 import {
+  SCENE_TIMELINE_ONLY_OUTPUT_BUDGET,
   describeScenePromptPackSize,
   parseScenePromptPackSetting,
   parseScenePromptPackTuning,
@@ -705,8 +706,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (promptModel) model = `genstudio-chat:${promptModel.id}`
 
   const promptTokenSetting = parseScenePromptTokenSetting(params.prompt_max_tokens)
+  // A timeline-only run is deliberately model-free, so the model-derived
+  // resolver must not be asked for a product allowance it does not have: it
+  // would either invent one (the retired 8,192 fallback) or refuse a run that is
+  // perfectly valid. `SCENE_TIMELINE_ONLY_OUTPUT_BUDGET` is Story Studio's own
+  // local budget and is never displayed as a model's figure — the line that
+  // prints the token arithmetic is guarded by `!timelineOnly`.
   const visualMaxTokens = savedRequestPlan?.visual_max_tokens
-    ?? resolveScenePromptTokenBudget(promptModel?.max_output_tokens, promptTokenSetting)
+    ?? (promptModel
+      ? resolveScenePromptTokenBudget(promptModel.max_output_tokens, promptTokenSetting)
+      : SCENE_TIMELINE_ONLY_OUTPUT_BUDGET)
   // Motion records are intentionally short; keeping their batches within 4K
   // prevents a large visual-model allowance from creating truncated motion JSON.
   const activePromptOutputBudget = savedRequestPlan?.active_output_budget ?? (requestedStage === 'motion'

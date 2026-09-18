@@ -223,6 +223,64 @@ the word and I will move it.
 Only voices whose source states nothing fall back, and those now fall back to `"multilingual"`
 rather than `"en"`.
 
+## URGENT-ish: fields that became nullable, and the fallbacks that read them
+
+Story Studio found a real one, and my change is what triggered it. `scene-prompt-batching.ts:103`
+has `SCENE_PROMPT_FALLBACK_OUTPUT_TOKENS = 8192`, and `normalizeMaxOutputTokens` returns it
+whenever the catalogue published no usable allowance — then `describeScenePromptPackSize` prints
+it to the customer as *"8,192 output tokens × 0.75 + 300 per scene = 20 max"*, i.e. as the
+model's own published figure.
+
+**That fallback was unreachable until this change.** This endpoint previously always sent an
+integer: `max_output_tokens: 8192`, hardcoded for every model. Story Studio's own fallback never
+fired because the catalogue never left a hole. I removed the fabrication and started publishing
+`null` — which is correct, and which turned a dormant bug into a live one.
+
+It is worth fixing on your side independently of me, because it contradicts its own sibling:
+`output-token-budget.ts` throws on the same condition with the note *"Story Studio does not
+substitute a ceiling of its own."* Same condition, two opposite policies — one refuses, the other
+invents 8,192.
+
+**I will not curate these numbers to hide the hole.** For Anthropic, OpenAI and DeepSeek the model
+ids here (`claude-sonnet-5`, `gpt-5.6-luna`, `deepseek-v4-pro`) are beyond anything I can verify,
+and stating a limit I cannot verify is the exact defect being fixed.
+
+### Every field whose type or guarantee changed
+
+If a reader assumed a non-null value, this is where to look. Counts are over the 66 live chat rows.
+
+| field | was | now | null on |
+|---|---|---|---|
+| `context_window_tokens` | int | int \| null | 18/66 |
+| `max_output_tokens` | int | int \| null | **24/66** |
+| `supports_vision` | bool | bool \| null | 43/66 |
+| `input_modalities` | list | list \| null | 43/66 |
+| `supports_structured_output` | bool | bool \| null | 43/66 |
+| `structured_output_mode` | str | str \| null | 43/66 |
+| `supports_web_search` | bool | bool \| null | 43/66 |
+
+Values that changed while staying the same type — these bite differently, because nothing is
+null and an old preset may simply fall outside the new figure:
+
+| field | was | now |
+|---|---|---|
+| `maximum_input_characters` (tts) | `40000` for every model | per model: `40000` ElevenLabs flash/turbo, `25000` Fish and the local lane |
+| `language` (transcription) | `"en"` | `"multilingual"` (sentinel; `supported_languages` is `[]`) |
+| `supported_languages` (tts) | `["en"]` fallback, or stringified objects | real codes, or `[]` |
+| `supports_speed` (tts) | `true` for every model | per model — `eleven_v3` is `false` |
+| `provider_name` (video) | absent | published |
+
+The 24 rows with no output allowance come from six providers that publish no limits at all:
+tokenharbor (9), nvidia-nim (5), anthropic (4), experiential-labs (3), deepseek (2), openai (1).
+Verified individually: DeepSeek's `/v1/models` returns only `id/object/owned_by`, Anthropic's
+404s, and OpenAI's and NVIDIA's return non-JSON. Fully complete lanes: openrouter (23/23),
+google-ai (10/10), google-ai-free (9/9).
+
+**The general rule this is an instance of:** this endpoint now publishes `null` wherever a
+provider is silent, on every field, rather than a plausible-looking default. Wherever Story
+Studio has a `fallback`/`default`/`||` for one of these, that default is now reachable and should
+be a deliberate decision rather than an accident.
+
 ## Housekeeping
 
 The graph being 9 days stale is worth fixing before wiring, since this handoff is precisely

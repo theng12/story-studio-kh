@@ -29,6 +29,26 @@ export type ScenePromptTokenSetting = 'auto' | number
 export const SCENE_PROMPT_PACK_MIN = 1
 
 /**
+ * Story Studio's own output budget for a MODEL-FREE deterministic timeline run.
+ *
+ * THIS IS NOT A MODEL ALLOWANCE, and nothing may present it as one.
+ *
+ * A timeline-only Scene Plan run deliberately has no selected model (`needsModel`
+ * is false, the engine is `deterministic-timeline`) and makes no GenStudio
+ * request, so there is no published figure to read. This value sizes local work
+ * only, and the line that prints a model's token arithmetic is guarded by
+ * `!timelineOnly`, so it can never be read as the model's own.
+ *
+ * It exists because the resolvers below now REFUSE an absent allowance. Before
+ * 2026-09-18 they silently substituted 8,192, which conflated two different
+ * facts — "the selected product published no allowance" and "this run has no
+ * model at all" — into one value. Those need opposite answers: the first must
+ * refuse, the second is perfectly valid. Sharing a number between them is the
+ * defect, not the fix.
+ */
+export const SCENE_TIMELINE_ONLY_OUTPUT_BUDGET = 8_192
+
+/**
  * WHY THERE IS NO `SCENE_PROMPT_PACK_MAX` ANY MORE.
  * ----------------------------------------------------------------------
  * There used to be one, fixed at 50, and `maxSafeScenePromptPackSize` ended
@@ -94,14 +114,6 @@ export const SCENE_PROMPT_PACK_TUNING_DEFAULTS: Readonly<ScenePromptPackTuning> 
   batchSize: 250,
 })
 
-/**
- * Used ONLY when the catalogue published no usable allowance for the selected
- * product (a malformed or missing entry). It is a last-resort fallback so a
- * broken catalogue read degrades to a small, safe request instead of throwing
- * — never a cap on what a healthy product may be asked for.
- */
-export const SCENE_PROMPT_FALLBACK_OUTPUT_TOKENS = 8192
-
 /** The two ladder seeds. Doubling each of them and merging reproduces the
  *  historical 4,096 / 6,144 / 8,192 / 12,288 / 16,384 / 24,576 / 32,768 steps
  *  and keeps going for as long as the selected product allows. */
@@ -131,9 +143,37 @@ export function parseScenePromptPackTuning(config: unknown): ScenePromptPackTuni
   }
 }
 
+/**
+ * Read a published output allowance, or REFUSE.
+ *
+ * THIS USED TO SUBSTITUTE 8,192 (removed 2026-09-18). That was the third
+ * instance of the same mistake this module's header already records twice: a
+ * number invented where the catalogue published none. It was worse than the
+ * earlier two because it did not merely cap a correct derivation — it FED one,
+ * so `describeScenePromptPackSize` printed
+ *
+ *   8,192 output tokens × 0.75 ÷ 300 per scene = 20 max
+ *
+ * for a product that had published nothing at all. A figure the customer would
+ * reasonably read as the model's own, produced from no data.
+ *
+ * The sibling `productCeiling` in `output-token-budget.ts` already threw for
+ * the identical condition — "Story Studio does not substitute a ceiling of its
+ * own" — so this module was the odd one out, not the rule.
+ *
+ * It throws rather than degrading because every alternative states an allowance
+ * the selected product never published. A caller that wants to show a control
+ * should disable it when this throws; it must not invent a ceiling.
+ */
 function normalizeMaxOutputTokens(value: unknown): number {
   const parsed = Number(value)
-  if (!Number.isInteger(parsed) || parsed < 1) return SCENE_PROMPT_FALLBACK_OUTPUT_TOKENS
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(
+      'Cannot resolve a scene-prompt output budget: the selected GenStudio product published '
+      + `no usable max_output_tokens (got ${JSON.stringify(value)}). `
+      + 'Story Studio does not substitute a ceiling of its own.',
+    )
+  }
   return parsed
 }
 
