@@ -1107,6 +1107,22 @@ export async function setLastSeenVersion(version: string): Promise<void> {
 }
 
 export const GENSTUDIO_URL_KEY = 'genstudio_url'
+/**
+ * The built-in fallback endpoint.
+ *
+ * `:8000` IS NOW THE RETIRED ENDPOINT (recorded 2026-09-18). The live service is
+ * `gateway-kh` on **`http://127.0.0.1:8010`**, reached through the saved
+ * `genstudio_url`. This default is deliberately NOT changed to 8010: the gateway
+ * is a separate app a given Mac may not have installed, and a default naming a
+ * service that might be absent is worse than one naming the historical service.
+ *
+ * The trap worth knowing: the old GenStudio still listens on 8000 on a machine
+ * that has moved to the gateway, so clearing this setting does not fail — it
+ * silently repoints Story Studio at a stale catalogue that answers every
+ * request. If the catalogue looks frozen or an expected model is missing, check
+ * `genstudio_url` before suspecting the gateway.
+ * See `docs/genstudio-handoff/gateway-kh-story-studio-wiring.md` §1.
+ */
 export const DEFAULT_GENSTUDIO_URL = 'http://127.0.0.1:8000'
 
 /**

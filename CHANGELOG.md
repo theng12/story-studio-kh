@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.170 — 2026-09-18
+
+- Transcription and video models now show the provider GenStudio publishes for them. The field was arriving and being discarded, so those rows could not say who serves them; an unpublished provider still shows as unknown rather than being guessed.
+- The Audio page states plainly when a model publishes no per-request character ceiling, instead of failing to display the quote. An unpublished limit is now reported as missing rather than filled in with a figure the model never published.
+- A GenStudio key refused for insufficient credits no longer stays refused indefinitely. The refusal now expires and is retried, so an endpoint that reports a constant balance cannot leave a key permanently unusable.
+
 ## v1.4.169 — 2026-09-15
 
 - Publish can now re-date videos that already have a planned date. Select the episodes, choose a starting date, and their dates are laid out again on the active plan's cadence — the case the existing Plan button skips by design, because it only ever fills missing and missed dates.

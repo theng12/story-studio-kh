@@ -507,6 +507,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
         return Response.json([{
           id: 'video-v1', display_name: 'Video V1', available: false,
           cost_tier: 'premium',
+          provider_name: 'Published video creator',
           locked: false,
           lock_reason: 'must-not-survive-when-unlocked',
           modes: ['image-to-video'], aspect_ratios: ['16:9'],
@@ -539,10 +540,49 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(chat[0]?.price_version, 'chat-price-v1')
     assert.deepEqual(video[0]?.modes, ['image-to-video'])
     assert.equal(video[0]?.cost_tier, 'premium')
+    // Published on video rows by gateway-kh since 2026-09-18. It arrived and was
+    // DISCARDED before that — the field was neither declared nor read, so a
+    // published fact was lost at the parse boundary and the row rendered blank.
+    assert.equal(video[0]?.provider_name, 'Published video creator')
+    assert.equal(video[1]?.provider_name, undefined, 'an unpublished provider stays unset, never the gateway name')
     assert.equal(video[0]?.locked, false)
     assert.equal(Object.hasOwn(video[0] ?? {}, 'lock_reason'), false)
     assert.equal(video[0]?.variants[0]?.price_version, 'video-v1')
     assert.equal(video[1]?.cost_tier, undefined)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('transcription rows carry the published provider_name beside the legacy provider field', async () => {
+  // Break caught: gateway-kh publishes `provider_name` on transcription rows and
+  // keeps `provider` for older readers. This transport read ONLY `provider`, so
+  // the shared contract's field arrived and was discarded — every transcription
+  // row would have rendered without its provider, and nothing would have failed.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/v1\/transcription\/models$/)
+      return Response.json([
+        {
+          id: 'whisper-a', display_name: 'Whisper A', available: true, qualification_only: false,
+          provider: 'Legacy field', provider_name: 'Published transcription creator',
+          language: 'multilingual', supported_languages: [], supports_language_auto_detect: true,
+          credits_per_second: 0.1, minimum_credits: 1, price_version: 'flat',
+        },
+        {
+          id: 'whisper-b', display_name: 'Whisper B', available: true, qualification_only: false,
+          provider: 'Only legacy', language: 'multilingual', supported_languages: [],
+          supports_language_auto_detect: true, credits_per_second: 0.1, minimum_credits: 1, price_version: 'flat',
+        },
+      ])
+    }
+    const models = await listTranscriptionModels('scoped-key')
+    assert.equal(models[0]?.provider_name, 'Published transcription creator')
+    assert.equal(models[0]?.provider, 'Legacy field', 'the legacy field is kept so older readers still work')
+    assert.equal(models[1]?.provider_name, undefined, 'an unpublished provider_name stays unset, never the gateway name')
+    assert.equal(models[1]?.provider, 'Only legacy')
   } finally {
     globalThis.fetch = originalFetch
   }

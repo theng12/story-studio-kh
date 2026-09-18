@@ -146,6 +146,20 @@ test('the boundary shown is the one planning enforces, with the published one be
   assert.doesNotMatch(audioPage, /0\.9\s*\*|\*\s*0\.9|SAFETY_MARGIN\s*=/)
 })
 
+test('the quote renders an unpublished character ceiling instead of crashing on it', () => {
+  const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  // Break caught: `maximum_input_characters` is nullable on the wire, and the
+  // page called `.toLocaleString()` on it unconditionally. A published `null`
+  // therefore crashed the narration page rather than degrading it — which is
+  // exactly why gateway-kh kept publishing an invented 40,000 instead of null.
+  // The renderer handling absence is what lets the gateway stop inventing one.
+  assert.match(audioPage, /narrationQuote\.maximum_input_characters != null/)
+  assert.match(audioPage, /did not report a per-request character ceiling/)
+  // `??` and not `||`: a planning boundary of 0 is a real value, and only an
+  // actually-absent one may fall back to the published maximum.
+  assert.match(audioPage, /planned_request_characters \?\? narrationQuote\.maximum_input_characters/)
+})
+
 test('cost is the model rate before there is text, and a sum of GenStudio quotes after', () => {
   const audioPage = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   assert.match(audioPage, /describeVoiceRate\(selectedTtsModel\.value\)/)

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  CREDIT_HOLD_MAX_MS,
   GenStudioAdmissionPool,
   type GenStudioAccountCapacity,
 } from '../lib/genstudio-admission.js'
@@ -40,6 +41,35 @@ test('insufficient credits reject same-key waiters without touching another key'
   await active
   await fullKey
   assert.equal(fullKeySubmitted, true)
+})
+
+test('a credit hold expires, so a constant-zero balance cannot disable a key forever', async (t) => {
+  // Break caught: a hold was released ONLY when the balance was strictly GREATER
+  // than when it was taken. That is the right test for a real account, but an
+  // endpoint reporting a permanent 0 can never satisfy it — so a single 402 would
+  // hold that API key for the life of the process and re-throw a stale error on
+  // every later request. gateway-kh never returns 402, so this is dormant today;
+  // it is what stops the next charging endpoint from bricking a key.
+  t.mock.timers.enable({ apis: ['Date'] })
+  try {
+    const pool = new GenStudioAdmissionPool(async () => capacity({ credit_balance: 0 }))
+    pool.noteInsufficientCredits('zero-key', new Error('insufficient credits'))
+
+    let suppressed = false
+    await assert.rejects(
+      pool.run('zero-key', undefined, async () => { suppressed = true }),
+      /insufficient credits/,
+    )
+    assert.equal(suppressed, false, 'the hold suppresses submission while it stands')
+
+    t.mock.timers.tick(CREDIT_HOLD_MAX_MS)
+
+    let afterExpiry = false
+    await pool.run('zero-key', undefined, async () => { afterExpiry = true })
+    assert.equal(afterExpiry, true, 'an expired hold no longer suppresses the request')
+  } finally {
+    t.mock.timers.reset()
+  }
 })
 
 test('a 402 cannot race another queued same-key request into dispatch', async () => {

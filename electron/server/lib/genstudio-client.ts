@@ -1043,7 +1043,23 @@ function parseGenStudioProductAliases(value: unknown): GenStudioProductAliases {
 export interface GenStudioTranscriptionModel extends GenStudioCatalogLock {
   id: string
   display_name: string
+  /**
+   * The legacy single provider field. Kept because gateway-kh publishes it
+   * alongside `provider_name` on transcription rows so older readers keep
+   * working; `provider_name` is the field the shared contract moved to.
+   */
   provider: string
+  /**
+   * The serving provider, as GenStudio publishes it.
+   *
+   * This arrived on transcription and video rows and was DISCARDED here until
+   * 2026-09-18: the field was neither declared nor read, so a published fact was
+   * thrown away at the parse boundary and every row rendered a blank provider.
+   * `AGENTS.md`'s Provider Transparency section requires a published provider be
+   * shown, so the fix is to carry it, never to derive one. Empty means not
+   * published — never the gateway's own name, and never guessed from the id.
+   */
+  provider_name?: string
   /**
    * `TranscriptionModelResponse.language` — one string, usually the sentinel
    * `"multilingual"`. EMPTY when GenStudio published nothing, which is a
@@ -1749,6 +1765,17 @@ export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioProd
   id: string
   display_name: string
   description?: string
+  /**
+   * The serving provider, as GenStudio publishes it.
+   *
+   * Video rows published NO provider field at all until gateway-kh fixed it
+   * (2026-09-18), and this transport had no declaration to receive it either —
+   * so the row would have read as a blank provider the moment the gateway
+   * started sending one, without anything failing. `AGENTS.md`'s Provider
+   * Transparency section requires a published provider be shown. Empty means
+   * not published; never derived from the model id.
+   */
+  provider_name?: string
   available: boolean
   cost_tier?: GenStudioCostTier
   /**
@@ -4615,6 +4642,23 @@ export async function listModelCapabilities(apiKey: string): Promise<GenStudioMo
  * moment the catalogue changes. `0` means "not published", which every caller
  * must treat as "unknown", not as "zero budget".
  */
+/**
+ * Normalize a published token limit onto Story Studio's `number` contract.
+ *
+ * THE WIRE FORM AND THE LOCAL SENTINEL ARE DIFFERENT, AND THAT IS DELIBERATE
+ * (recorded 2026-09-18). gateway-kh publishes `context_window_tokens: null` and
+ * `max_output_tokens: null` when a provider states no figure. Story Studio's
+ * sentinel for "not published" is `0`. This function is the ONE place the two
+ * meet: every non-integer — including `null` — becomes `0`, so `null` never
+ * reaches the declared `number` fields and no caller ever does arithmetic on it
+ * (`availableInputTokens` is `max(0, context − output)`).
+ *
+ * Do not "fix" this into a nullable type. Callers downstream are fail-closed on
+ * `0`: `productCeiling` throws rather than inventing a ceiling, and
+ * `chunkingOutputBudget` returns `null` rather than a fabricated threshold. A
+ * nullable field here would spread a second absence convention through all of
+ * them for no gain.
+ */
 function readPublishedTokenLimit(preferred: unknown, deprecatedAlias: unknown): number {
   if (Number.isInteger(preferred)) return Math.max(1, preferred as number)
   if (Number.isInteger(deprecatedAlias)) return Math.max(1, deprecatedAlias as number)
@@ -4801,6 +4845,11 @@ export async function listVideoModelsSnapshot(
     ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
+    // Published by gateway-kh for every model kind since 2026-09-18. Read here
+    // so the fact survives the transport instead of being discarded.
+    provider_name: typeof value?.provider_name === 'string' && value.provider_name.trim()
+      ? value.provider_name.trim()
+      : undefined,
     available: value?.available === true,
     ...parseGenStudioCatalogLock(value),
     ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
@@ -7105,6 +7154,10 @@ export async function listTranscriptionModelsSnapshot(
       // Provider transparency means pass through what GenStudio publishes.
       // An absent provider is unknown, never the gateway name.
       provider: typeof value?.provider === 'string' ? value.provider.trim() : '',
+      // The shared contract's field, published alongside `provider` on these
+      // rows. Declared and read since 2026-09-18 — before that it arrived and
+      // was dropped here, which rendered every transcription row providerless.
+      provider_name: publishedText(value?.provider_name),
       // NOT defaulted to 'multilingual': an absent field is missing data, and
       // collapsing it into a sentinel makes a gap look like a published fact.
       language: typeof value?.language === 'string' ? value.language.trim() : '',

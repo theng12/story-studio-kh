@@ -512,10 +512,15 @@
         <p v-else-if="quoteUnavailableNote" class="text-muted text-xs hint-line">{{ quoteUnavailableNote }}</p>
         <p v-else-if="narrationQuote && narrationQuote.part_count > 1" class="text-muted text-xs hint-line">
           This narration is generated in <strong>{{ narrationQuote.part_count.toLocaleString() }} parts</strong> across
-          {{ narrationQuote.section_count.toLocaleString() }} section(s), because
-          <strong>{{ selectedTtsModel.display_name }}</strong> accepts
-          {{ narrationQuote.maximum_input_characters.toLocaleString() }} characters per request and these parts were
-          planned at {{ (narrationQuote.planned_request_characters || narrationQuote.maximum_input_characters).toLocaleString() }}.
+          {{ narrationQuote.section_count.toLocaleString() }} section(s).
+          <template v-if="narrationQuote.maximum_input_characters != null">
+            <strong>{{ selectedTtsModel.display_name }}</strong> accepts
+            {{ narrationQuote.maximum_input_characters.toLocaleString() }} characters per request, and these parts were
+            planned at {{ (narrationQuote.planned_request_characters ?? narrationQuote.maximum_input_characters).toLocaleString() }}.
+          </template>
+          <template v-else>
+            <strong>{{ selectedTtsModel.display_name }}</strong> did not report a per-request character ceiling.
+          </template>
           Each part is its own
           GenStudio job, carrying that model's published minimum of
           {{ formatCredits(narrationQuote.minimum_credits) }} in its own right — so GenStudio was asked to price every
