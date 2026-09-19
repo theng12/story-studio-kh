@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.190 — 2026-09-19
+
+- Updating a video's thumbnail is no longer reported as done just because the upload call returned. The check asserted a fixed "1 of 1" without looking at anything, so an update the provider accepted but Story Studio failed to record could still read as finished. It now reads the stored record back and only counts the update as done when that record says it succeeded.
+
 ## v1.4.189 — 2026-09-19
 
 - Retrying a transcription no longer keeps a transcript whose audio has changed. The existing transcript was kept whenever it had at least one cue, without checking whether the audio underneath it was still the audio it was made from — so re-running Audio and then Retry left the old captions in place and reported the job finished. It now checks the audio first, and says which chapters changed when it regenerates.

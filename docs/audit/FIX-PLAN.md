@@ -328,11 +328,18 @@ nothing in some modes — they must keep today's behaviour.
             `completed: written.length ? 1 : 0` (fails an empty proposal) and
             recording the count while passing. **That is a product question, not a
             mechanical one** — ask rather than guess.
-      - [ ] **FIX `youtube-thumbnail-refresh.ts:235`.** Same tautology, and the
-            audit MISSED it: the declaration sits after a successful upload (the
-            error branch rethrows first), so it certifies on the strength of "did
-            not throw". Verify the thumbnail actually changed — the PATCH result or
-            the operation record's action state — rather than asserting a constant.
+      - [x] **FIXED `youtube-thumbnail-refresh.ts:235` (v1.4.190).** The tautology
+            is replaced by `thumbnailUpdateWasRecorded()`, which READS THE
+            OPERATION RECORD BACK and requires a `thumbnail_update` action in state
+            `succeeded`. Extracted so it is testable without uploading to YouTube.
+            4 tests in `thumbnail-update-recorded.test.ts`: succeeded action →
+            recorded; no action → NOT; a `failed` action → NOT; unknown operation →
+            NOT and does not throw. `--only youtube --only thumbnail` is 610 pass /
+            0 fail.
+            My first version of the test failed 3 of 4 for a SETUP reason, not a
+            predicate one: each test created a new project and re-assigned the same
+            channel, which 409s ("already assigned to another project"). The project
+            is now created once and each test gets a fresh operation.
       - [ ] `metadata.ts:658` — `completed: expected - missing.length` where the
             audit notes the expected counts come from the same in-memory arrays
             being checked (self-referential). Lower priority: the numbers are
