@@ -546,9 +546,43 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
 - [ ] `character-sheet.vue:534`, `motion-review.vue:886`, `metadata.vue:279` —
       replaced only on a *successful* load, never blanked.
 - [ ] The ownership-by-prefix matcher, four copies:
-      `asset-status.ts:366` + `:383`, `folder-resolver.ts:132`,
-      `manifest-audit.ts:127`, `audio-merge.ts:119`. Must match
-      `code` or `` `${code} - ` ``, never a bare `startsWith`.
+      `asset-status.ts:366` + `:383`, `manifest-audit.ts:127`,
+      `audio-merge.ts:119/127`, `folder-resolver.ts` (site not yet located).
+      Proposed rule: match `code` or `` `${code} - ` ``, never a bare
+      `startsWith`.
+
+      **ROUND 27 — SETTLED BY MEASUREMENT. Reading 1 was right, but only
+      incidentally, and the strict rule is now safe to apply mechanically.**
+
+      Enumerated every episode folder in the live library
+      (`find <projects> -maxdepth 5 -type d -name 'EP*'`, 4,971 distinct names):
+
+      - **4,971 of 4,971 contain ` - `** — the count of names *without* it is
+        exactly 0. So `code` or `` `${code} - ` `` matches every real folder;
+        reading 2's worry (a hand-renamed folder with no separator) is not
+        present in the data.
+      - **All 4,971 code prefixes are 6 characters** (`EP` + 4 digits) — one
+        distinct length, `uniq -c` = 4971/6.
+      - Duplicate code prefixes (EP0001 in several projects) are expected and
+        irrelevant: matching is always scoped to one project, and within a
+        project `episode_digits` is uniform, so a 6-char code can never be a
+        strict prefix of another 6-char code. **The `EP0001`/`EP00012` collision
+        the utils.ts comment warns about cannot occur once all codes are the
+        same width — it is currently prevented by the data, not by the code.**
+
+      That is the argument for changing it: the prefix test is safe today only
+      because every project happens to use fixed-width codes. It is one
+      `episode_digits` change away from matching the wrong episode, and the
+      strict rule costs nothing now.
+
+      **When applying:** fix ALL copies in one change (a partial fix is worse
+      than none — it looks done), accept exact `code` as well as
+      `` `${code} - ` ``, and **rewrite the `utils.ts:118-127` comment in the same
+      commit**, because it currently instructs a future reader to preserve the
+      exact behaviour being removed. Then re-run the same `find` as the
+      regression check: every distinct folder name must satisfy the new
+      predicate. `storage-audit.ts:114` stays as it is — `isPerSceneClipName`
+      matches `{code}_Scene01` file names and needs the bare prefix.
 
 # Group 3 — honesty: numbers that lie
 
