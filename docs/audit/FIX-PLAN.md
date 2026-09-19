@@ -290,38 +290,44 @@ nothing in some modes — they must keep today's behaviour.
       stitch. Do NOT simply refuse to skip when the stitch is absent — falling
       through would RE-TRANSCRIBE, which costs money to repair a local file.
 
-      STATUS (round 26) — **half done, deliberately stopped at the halfway line.**
+      STATUS (round 27) — **DONE, v1.4.191.**
 
-      DONE, committed: the stitch is extracted into a private helper
-      `stitchAndVerifyTranscript(job, code, epaths, outDir)` and the full path
-      calls it, replacing the inline try/catch. This is a **pure refactor** — no
-      behaviour changes, and it is the prerequisite the fix needs, because now
-      both paths can call one function.
+      The wiring is applied: the skip path resolves its own episode paths and
+      awaits `stitchAndVerifyTranscript` before returning.
 
-      NOT DONE, reverted rather than shipped: routing the skip path through the
-      helper. I wrote it, it compiled, and `--only subtitle` was 352/352 — but
-      **352/352 proves nothing here**, because every existing subtitle test
-      exercises the **per-chapter** path, which routes BEFORE the skip. No test
-      in the suite enters the merged-transcript skip path at all, so a green
-      suite is exactly the trap rule 8 warns about: a generator returning without
-      throwing is not evidence.
+      The fixture that was blocking this turned out to be cheap, because the
+      skip path makes **no provider calls** — it needs disk state only. The
+      existing `createScopedSubtitleFixture` in `subtitles-retranscribe.test.ts`
+      already satisfies `requireAudioAssemblyReady` (chapter audio + a
+      `duration_s > 0` timeline manifest + merged audio), so the new tests reuse
+      it with `per_chapter: false`, which is the one lever no prior test pulled.
 
-      The test that WOULD prove it is cheap in one respect — the skip path makes
-      no provider calls, so it needs disk fixtures only, no mock. The obstacle is
-      the fixture: `requireAudioAssemblyReady` gates the call before the skip, so
-      it needs an Audio Assembly-ready episode (manifest + `audio_chapters.json`
-      + per-chapter SRTs + merged audio + a current `_whisper.srt`) and no
-      stitched file. That is a real fixture, not a two-line test, and guessing at
-      `requireAudioAssemblyReady`'s contract to save time is how the containment
-      fix and the `assertSafeNicheId` fix both broke the gate earlier in this
-      audit.
+      Two tests, appended to `subtitles-retranscribe.test.ts`:
+      (1) a current whole-track transcript with per-chapter SRTs present and no
+      stitched file → `${code}_stitched.srt` exists after the run, `skipped` is
+      still true, and `providerSubmissionCount('transcription') === 0`;
+      (2) a second run does not rebuild a current stitch (mtime unchanged).
 
-      NEXT: build that fixture, then apply the wiring, then two tests —
-      (a) skip path with a whole-track transcript present, stitched timeline
-      absent, run `generateSubtitlesTranscribe` with `force:false,
-      per_chapter:false` → `${code}_stitched.srt` exists afterwards;
-      (b) control: status `'fresh'` is not re-stitched. Both must FAIL before the
-      wiring and pass after — assert the sentinel file, never an error string.
+      Making the transcript count as current needed the audio byte identity, so
+      the fixture writes `.subtitle-recovery.json` with a real
+      `hashSubtitleAudioSources` result per chapter. That is deliberate — a
+      fixture that skips because freshness was never consulted would not test
+      the branch it claims to.
+
+      PROVEN, not assumed: both tests **failed before the wiring with `ENOENT`
+      on the stitched file** — the defect reproduced exactly — and pass after.
+      `--only subtitle` is 354/354 (31 suites).
+
+      **One case this deliberately does NOT decide.** `ensureStitchedSubtitle`
+      returns `'not-applicable'` when no per-chapter transcript matches any audio
+      section, and `requireWrittenSubtitleStitch` treats that as a failure. So an
+      episode carrying ONLY a whole-track transcript now fails loudly where it
+      previously reported `skipped, complete: true`. That is the honest answer if
+      the stitched timeline is genuinely required, and a regression if a
+      whole-track transcript is a legitimate finished state. `inspectSubtitleSourceFreshness`
+      comments that "an intentional whole-track has no per-section source to
+      stale", which suggests the latter — so this is an OWNER DECISION, recorded
+      below rather than guessed at.
 
       **`broll_normalize` ALSO shrinks — it already fails loudly.** `normalizeBroll`
       throws for a missing pool/filename, an offline pool ("plug in the SSD"),
@@ -671,6 +677,20 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
    clipped, or raise the limit?
 3. **`images.vue` "View all caps"** — delete the table (it prints copied caps and
    prices as if current), or rebuild it from the live catalogue?
+4. **Is a whole-track-only subtitle state legitimate?** (raised round 27.)
+   `ensureStitchedSubtitle` reports `not-applicable` when no per-chapter
+   transcript matches an audio section, and the completion contract treats that
+   as failure. So an episode whose ONLY transcript is `${code}_whisper.srt` now
+   fails loudly instead of reporting `skipped, complete: true`. If the merged
+   transcript is a legitimate finished state that never needs `_stitched.srt`,
+   this is a regression and the check needs to accept it; if Scene Plan always
+   needs the stitched timeline, the new failure is correct. Our own
+   `inspectSubtitleSourceFreshness` comment ("an intentional whole-track has no
+   per-section source to stale") hints the former, which is why I am not ruling
+   on it from the code.
+5. **`ttl-cache.ts`** — delete the module and its test?
+6. **Four chat models publish `max_output_tokens: null`** — grey them out, or
+   leave selectable and fail at submit?
 
 Everything else in this plan is unblocked and I will proceed unless told
 otherwise.

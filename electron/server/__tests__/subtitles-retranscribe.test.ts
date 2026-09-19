@@ -76,13 +76,15 @@ async function createScopedSubtitleFixture(t: TestContext) {
     mock,
     code,
     paths,
+    sections,
     generateSubtitlesTranscribe,
-    makeJob: (jobId: string): Job => ({
+    makeJob: (jobId: string, params: Record<string, unknown> = {}): Job => ({
       job_id: jobId, project_slug: project.slug, episode_id: code,
       type: 'subtitles_transcribe', status: 'running', progress: 0, output_lines: [],
       params: {
         per_chapter: true, engine: 'genstudio', model: 'mock-whisper-v1', language: 'en',
         force: true, sections: ['Chapter_01'],
+        ...params,
       },
     } as unknown as Job),
   }
@@ -432,4 +434,76 @@ test('a scoped subtitle job with Pipeline continuation still requires complete e
   assert.equal(job.result?.complete, false)
   assert.equal(job.result?.episode_complete, false)
   await assert.rejects(fs.access(path.join(fixture.paths.subtitles_dir, `${fixture.code}_stitched.srt`)), /ENOENT/)
+})
+
+/**
+ * The skip path must still stitch — v1.4.191
+ *
+ * `existingTranscriptIsCurrent` answers "is the transcript on disk still the
+ * right consequence of this episode's audio?" Publishing that answer as
+ * `{ skipped: true, complete: true }` is correct for the TRANSCRIPT and was
+ * wrong for the JOB, because the job also owes Scene Plan a stitched timeline.
+ *
+ * The skip path returned before the stitch, so an episode whose stitched
+ * timeline was missing — the exact state the stitch error names — reported
+ * itself finished. Worse, the message the customer was shown said "Retry the
+ * local subtitle stitch before Scene Plan", and the Retry took this same branch
+ * and returned again without stitching. **The Retry could not perform the
+ * repair its own error named.**
+ *
+ * Every other subtitle test drives `per_chapter: true`, which routes BEFORE
+ * this branch — so the whole suite could stay green while this path did
+ * nothing. These two tests are the only ones that enter it.
+ */
+async function seedMergedTranscriptFixture(fixture: Awaited<ReturnType<typeof createScopedSubtitleFixture>>) {
+  const { code, paths } = fixture
+  const cue = (text: string) => `1\n00:00:00,000 --> 00:00:02,000\n${text}\n\n`
+  await Promise.all(fixture.sections.map(section =>
+    fs.writeFile(path.join(paths.subtitles_dir, `${code}_${section}.srt`), cue(`Narration for ${section}.`)),
+  ))
+  await fs.writeFile(path.join(paths.subtitles_dir, `${code}_whisper.srt`), cue('Whole-track transcript.'))
+  // Record the byte identity of each chapter's audio, which is what makes the
+  // transcript on disk count as current rather than stale.
+  const recorded: Record<string, { sourceAudioHash: string }> = {}
+  for (const section of fixture.sections) {
+    const hash = await hashSubtitleAudioSources([path.join(paths.audio_dir, `${code}_${section}.mp3`)])
+    assert.ok(hash, `the fixture must be able to hash ${section}'s audio`)
+    recorded[`${code}_${section}.srt`] = { sourceAudioHash: hash }
+  }
+  await fs.writeFile(
+    path.join(paths.subtitles_dir, '.subtitle-recovery.json'),
+    JSON.stringify({ sections: recorded }),
+  )
+}
+
+test('a current whole-track transcript still stitches a missing timeline on the merged path', async t => {
+  const fixture = await createScopedSubtitleFixture(t)
+  await seedMergedTranscriptFixture(fixture)
+  const stitched = path.join(fixture.paths.subtitles_dir, `${fixture.code}_stitched.srt`)
+  await assert.rejects(fs.access(stitched), /ENOENT/, 'the fixture starts with no stitched timeline')
+
+  const job = fixture.makeJob('merged-skip-restitch', { per_chapter: false, force: false })
+  await fixture.generateSubtitlesTranscribe(job)
+
+  assert.equal(job.result?.skipped, true, 'the verified transcript is still skipped, not re-transcribed')
+  assert.equal(fixture.mock.providerSubmissionCount('transcription'), 0, 'repairing a local file must not cost a transcription')
+  await fs.access(stitched)
+  assert.equal(job.result?.stitch_complete, true)
+  assert.equal(job.result?.complete, true)
+})
+
+test('the skip path does not rebuild a stitched timeline that is already current', async t => {
+  const fixture = await createScopedSubtitleFixture(t)
+  await seedMergedTranscriptFixture(fixture)
+  const stitched = path.join(fixture.paths.subtitles_dir, `${fixture.code}_stitched.srt`)
+
+  await fixture.generateSubtitlesTranscribe(fixture.makeJob('merged-skip-first', { per_chapter: false, force: false }))
+  const first = await fs.stat(stitched)
+
+  const second = fixture.makeJob('merged-skip-second', { per_chapter: false, force: false })
+  await fixture.generateSubtitlesTranscribe(second)
+
+  assert.equal(second.result?.skipped, true)
+  assert.equal((await fs.stat(stitched)).mtimeMs, first.mtimeMs, 'a current stitch must be left exactly as it is')
+  assert.equal(fixture.mock.providerSubmissionCount('transcription'), 0)
 })

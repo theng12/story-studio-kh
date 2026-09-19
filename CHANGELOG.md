@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.191 — 2026-09-20
+
+- Retrying subtitles can now actually perform the repair it asks for. When a subtitle run left the stitched timeline missing, the app told you to "retry the local subtitle stitch before Scene Plan" — and the retry took a shortcut that returned *before* the stitch, so pressing it changed nothing and the same message came back. A retry now stitches, confirms the timeline was written, and only then reports the job finished. It still reuses the transcript already on disk, so repairing the local file costs nothing.
+
 ## v1.4.190 — 2026-09-19
 
 - Updating a video's thumbnail is no longer reported as done just because the upload call returned. The check asserted a fixed "1 of 1" without looking at anything, so an update the provider accepted but Story Studio failed to record could still read as finished. It now reads the stored record back and only counts the update as done when that record says it succeeded.

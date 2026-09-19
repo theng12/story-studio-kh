@@ -415,6 +415,16 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
       job.output_dir = outDir
       ;(job as any).result = { srt_path: outPath, cues: current.cues, skipped: true, complete: true }
       job.progress = 100
+      // THE FIX. Return only AFTER the stitch has run and been verified. The
+      // skip path used to return here, before the stitch, so a job that had
+      // failed the stitch was told "Retry the local subtitle stitch before
+      // Scene Plan" and the Retry came straight back through this branch and
+      // out again without stitching — the Retry could not perform the repair
+      // its own error named.
+      const skipPaths = await resolveEpisodePathsByCodeWithSidecar(
+        project_slug, episode_id, 'audio_chapters.json',
+      )
+      await stitchAndVerifyTranscript(job, code, skipPaths, outDir)
       return
     }
     job.output_lines.push(`Existing ${code}_whisper.srt is not current — regenerating: ${current.reason}`)
