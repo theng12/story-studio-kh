@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.186 — 2026-09-19
+
+- A generation step can no longer be marked finished on the strength of nothing. The app asked each generator "are you complete?", and unless it answered "no" the job was marked done — so a generator that checked nothing at all passed by default, and the Production Board could go green over missing output. For the job types that already have an independent checker, the app now re-reads the produced files itself before marking the job finished. This is the first of several steps against that class of bug.
+
 ## v1.4.185 — 2026-09-19
 
 - File previews can no longer read anything on your Mac. Four preview routes and the thumbnail reference analyser took a file path from the request and checked only the file type — so any file with a matching extension could be streamed back, and the analyser would send it to the AI provider. Previews now read from your Library and any media folder you have configured, and nothing else. If you had been previewing a file from somewhere unrelated, such as your Desktop, that will now be refused.
