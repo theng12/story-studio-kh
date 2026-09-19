@@ -265,12 +265,36 @@ nothing in some modes — they must keep today's behaviour.
       The key case WOULD have failed before: the old predicate had no staleness
       input at all, so it returned skip for that exact fixture.
 
-      **Problem 3, the stitch, IS STILL OPEN** and is the one that makes Retry
-      useless: this path returns before the stitch runs, so a job that failed at
-      `:113` ("Subtitle stitch did not complete… Retry the local subtitle stitch")
-      is 'repaired' by Retry taking the skip path instead. Needs its own change —
-      decide whether the whole-track mode requires the stitched timeline, and if
-      so refuse to skip when it is absent.
+      **Problem 3, the stitch — DESIGN WORKED OUT (round 25), not yet applied.**
+
+      The shape, verified by reading the flow:
+
+        :110  requireWrittenSubtitleStitch(outcome)  throws
+              "Subtitle stitch did not complete: … Retry the local subtitle stitch
+               before Scene Plan."
+        :294  the skip path returns EARLY — before the stitch
+        :884  ensureStitchedSubtitle({ episodeDir, subtitlesDir, mergedAudioDir,
+                                     audioDir, episodeCode })
+              returns status 'stitched' | 'fresh' | … — **'fresh' already means
+              "the existing stitch is current"**, so that function owns the
+              freshness decision.
+        :895  if the status is neither, requireWrittenSubtitleStitch throws
+
+      So a job that fails the stitch is told to "Retry the local subtitle stitch",
+      and Retry then takes the :294 skip path and returns before ever reaching
+      :884. **Retry cannot perform the repair its own error names.**
+
+      THE FIX: route the skip path through `ensureStitchedSubtitle` too, then
+      `requireWrittenSubtitleStitch`. It is the same call the full path makes,
+      it returns 'fresh' when nothing needs doing, and it makes a Retry actually
+      stitch. Do NOT simply refuse to skip when the stitch is absent — falling
+      through would RE-TRANSCRIBE, which costs money to repair a local file.
+
+      Why it is not done yet: it is a structural change inside a
+      `generateSubtitlesTranscribe` ~900 lines long, with the transcription body
+      between :294 and :884. It needs the stitch extracted into a helper both
+      paths call, a test for "skip path still stitches when the stitch is
+      missing", and a test that "fresh" does not re-stitch. Not a rushed edit.
 
       **`broll_normalize` ALSO shrinks — it already fails loudly.** `normalizeBroll`
       throws for a missing pool/filename, an offline pool ("plug in the SSD"),
