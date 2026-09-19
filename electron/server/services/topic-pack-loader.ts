@@ -165,8 +165,24 @@ export async function listTopicPacks(registryOptions: ContentPackRegistryOptions
   return (await listTopicPackCatalogEntries(registryOptions)).map(entry => entry.value)
 }
 
+/**
+ * A user Topic Pack id must be a safe filename segment. See `nicheFilePath` for
+ * the incident: the loader's pattern was applied only on the miss branch, so an
+ * id naming an existing file reached `path.join` unchecked and
+ * `DELETE /api/topic-packs/..%2F<project>%2Fconfig` unlinked a project's own
+ * `config.json`. Starting with an alphanumeric makes `.`/`..` impossible as a
+ * whole segment, and `/` is excluded.
+ */
+function assertSafeTopicPackId(id: unknown): string {
+  const value = String(id ?? '')
+  if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(value)) {
+    throw new Error(`Invalid topic pack id '${value}'`)
+  }
+  return value
+}
+
 export function topicPackFilePath(id: string): string {
-  return path.join(userDir(), `${id}.json`)
+  return path.join(userDir(), `${assertSafeTopicPackId(id)}.json`)
 }
 
 export async function ensureTopicPacksDir(): Promise<void> {

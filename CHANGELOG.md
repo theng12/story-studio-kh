@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.177 — 2026-09-19
+
+- Closed five ways a single request could have destroyed your library, found by an audit of every one of the app's 53 route files. The worst was one HTTP request that deleted the entire Library — every project, and all 107 GB of media. It is fixed, and so are the four others of the same shape: one that deleted a whole project, one that deleted a whole season of episodes, one that deleted any `.json` file on the machine, and one that deleted any file from the music pool by naming a path instead of a track.
+- "Reveal in Finder" could be turned into running a program. It forwarded whatever path it was given to the system handler that LAUNCHES a file, so pointing it at an application or a script ran it. It now reveals the file in Finder, which is what the button says it does.
+- A file folder name could be made to point outside the project. Episode codes, episode titles and the per-project subfolder names were all pasted into a folder path with nothing checking where the result landed — and several of the things that used those paths then delete what they find there. All three are now checked where the path is built, so a name that would escape is refused instead of followed.
+- Deleting an episode folder by name could be aimed at the folder that CONTAINS episodes. Naming a season deleted every episode inside it. It now only accepts a whole episode code.
+- Also fixed: a Pipeline repair run silently dropped every remaining step for an episode while still reporting the batch as started, so a run that should have rendered a video did nothing and said nothing.
+- 15 new tests cover these, each one asserting that a file outside the folder is still there afterwards rather than only that the bad input was refused — a test that checks the error message passes even when the damage happened first, which is how the original defects stayed invisible.
+
 ## v1.4.176 — 2026-09-19
 
 - The old multi-Mac endpoint pool is gone. It let Story Studio name and switch off individual local Image Studio, Voice Studio and Chat Studio machines, and hand work to whichever was least busy. Nothing had used it for some time — every one of its functions had no caller left, and the only thing still touching it was a line at startup that filled a registry nothing read. Removing it changes no behaviour: Story Studio talks to exactly one service, and the models from your other machines arrive through it.

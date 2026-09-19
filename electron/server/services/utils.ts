@@ -321,6 +321,42 @@ export async function resolveEpisodePaths(
 
   const episodeDir = path.join(outputRoot, episodeRel)
 
+  // ── CONTAINMENT ─────────────────────────────────────────────────────────
+  //
+  // `{code}` and `{title}` are substituted RAW into the folder template, and
+  // both arrive straight from HTTP — a `:code` path segment (Express decodes
+  // `%2F` and `%2e%2e` into `req.params`), a `?title=` query, or an idea title
+  // in a request body. `path.join` normalises `..` away, so a title of
+  // `../../../../tmp/pwn` resolved to a directory outside the Library and every
+  // caller then wrote, renamed or RECURSIVELY DELETED there. The routes that
+  // reach this function include several `fs.rm(dir, { recursive: true })`
+  // calls, so the blast radius was the owner's whole machine.
+  //
+  // This is asserted here, at the one resolver ~40 callers share, rather than at
+  // each route: a per-route guard is the arrangement that let this class exist
+  // in the first place. A folder name cannot contain a path separator on any
+  // platform this app ships for, so refusing one rejects nothing legitimate.
+  const assertSafeSegment = (value: string, field: string): void => {
+    const raw = String(value ?? '')
+    if (/[/\\\u0000]/.test(raw) || raw === '..' || raw === '.') {
+      throw new Error(
+        `Refusing an episode ${field} that would resolve outside the episodes folder. ` +
+        `A folder name cannot contain a path separator.`,
+      )
+    }
+  }
+  assertSafeSegment(code, 'code')
+  assertSafeSegment(title, 'title')
+
+  const containedRoot = path.resolve(outputRoot)
+  const containedDir = path.resolve(episodeDir)
+  if (containedDir !== containedRoot && !containedDir.startsWith(containedRoot + path.sep)) {
+    throw new Error(
+      `Refusing to resolve an episode folder outside the episodes root. ` +
+      `Check the project's folder template in project.json.`,
+    )
+  }
+
   // Level B (opt-in): when `media_root` is set, HEAVY subfolders live under a
   // separate root (typically an external SSD, off iCloud) mirroring the same
   // episodeRel; light subfolders stay under the episodes folder. `mediaBase` falls back
@@ -356,6 +392,37 @@ export async function resolveEpisodePaths(
   const mergedAudioDir = path.join(mediaBase, mergedAudioName)
   const videoDir = path.join(mediaBase, videoName)
   const videoAssetsDir = path.join(mediaBase, videoAssetsName)
+
+  // Subfolder names come from `project.json` (`subfolder_names`), are written by
+  // `PUT /settings/subfolder-config`, and are joined here with no check. That
+  // route only asserted each value CONTAINS `{code}`, so
+  // `{"subfolder_names":{"video":"../../../../tmp/escape/{code}"}}` was
+  // persisted and every later resolution for that project — including the
+  // generators' mkdir and several recursive removes — pointed outside the
+  // Library. Containing the episode dir alone does not catch this: these escape
+  // from INSIDE it. Anything that is not a plain child of its own root is
+  // refused rather than silently relocated.
+  const assertChildDir = (dir: string, root: string, field: string): void => {
+    const resolvedRoot = path.resolve(root)
+    const resolvedDir = path.resolve(dir)
+    if (resolvedDir !== resolvedRoot && !resolvedDir.startsWith(resolvedRoot + path.sep)) {
+      throw new Error(
+        `Refusing a ${field} folder name that resolves outside the episode folder. ` +
+        `Check this project's subfolder names in project settings.`,
+      )
+    }
+  }
+  assertChildDir(scriptDir, episodeDir, 'script')
+  assertChildDir(scenePromptsDir, episodeDir, 'scene prompts')
+  assertChildDir(thumbPromptsDir, episodeDir, 'thumbnail prompts')
+  assertChildDir(metadataDir, episodeDir, 'metadata')
+  assertChildDir(subtitlesDir, episodeDir, 'subtitles')
+  assertChildDir(bgDir, mediaBase, 'scene images')
+  assertChildDir(thumbDir, mediaBase, 'thumbnails')
+  assertChildDir(audioDir, mediaBase, 'audio')
+  assertChildDir(mergedAudioDir, mediaBase, 'merged audio')
+  assertChildDir(videoDir, mediaBase, 'video')
+  assertChildDir(videoAssetsDir, mediaBase, 'video assets')
 
   return {
     output_root: outputRoot,

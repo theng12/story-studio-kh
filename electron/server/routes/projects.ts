@@ -204,6 +204,14 @@ router.post('/formats/custom', async (req, res) => {
 
 router.delete('/formats/custom/:id', async (req, res) => {
   const id = req.params.id
+  // The sibling POST above already rejects a non-kebab id; this DELETE took the
+  // raw route param straight into `path.join` and `fs.rm`. `%2F` and `%2e%2e`
+  // are decoded into `req.params`, so `..%2F..%2Ftmp%2Fvictim` unlinked
+  // `${projectsRoot}/.formats/../../tmp/victim.json` — an arbitrary `*.json`
+  // delete anywhere the process can write.
+  if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]?$/.test(String(id))) {
+    return res.status(400).json({ detail: `Invalid format id "${id}" — must be kebab-case` })
+  }
   const filePath = path.join(pm.projectsRoot(), '.formats', `${id}.json`)
   if (!existsSync(filePath)) return res.status(404).json({ detail: `Custom format "${id}" not found` })
   try {

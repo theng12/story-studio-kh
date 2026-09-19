@@ -38,8 +38,22 @@ function libraryRoot(): string {
   return path.join(pm.projectsRoot(), '.character-library')
 }
 
+/**
+ * A library character's folder.
+ *
+ * VALIDATED AT THIS CHOKEPOINT, not at each caller. `validateId` already
+ * existed here and `createLibraryCharacter` called it, but every other entry
+ * point — including `deleteLibraryCharacter`, which recursively removes the
+ * result — took the id straight from an HTTP route param. `path.join` resolves
+ * `..`, so `DELETE /api/character-library/%2e%2e` produced
+ * `path.join(<projectsRoot>, '.character-library', '..')`, which IS
+ * `projectsRoot`, and `fs.rm(..., { recursive: true, force: true })` deleted
+ * the entire Library: every project, and on the owner's machine 107 GB of
+ * media. Validating in the one function that builds the path means a future
+ * caller cannot reintroduce it by forgetting a check.
+ */
 function libraryDir(characterId: string): string {
-  return path.join(libraryRoot(), characterId)
+  return path.join(libraryRoot(), validateId(characterId))
 }
 
 /**

@@ -806,6 +806,30 @@ export async function deleteEpisodeFolder(slug: string, episodeCode: string): Pr
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
 
+  // ── What this is allowed to delete ──────────────────────────────────────
+  //
+  // `episodeCode` arrives straight from the route param, and the matcher below
+  // had an `entry.name === episodeCode` branch — so ANY directory name matched.
+  // `DELETE /api/projects/<slug>/episodes/Season%20001` resolved to the season
+  // folder and recursively removed every episode in it (5–10 GB each).
+  //
+  // The code is deliberately NOT required to have an accepted idea: the Jobs
+  // page uses this for folders that never had one, which is the documented
+  // reason this function is separate from the idea lifecycle.
+  //
+  // `episodeNumber` is deliberately NOT used here: it is an UNANCHORED
+  // `${prefix}(\d+)` search, so `"EP0001 - A Real Episode"` matches it and would
+  // sail through — and the matcher below has an `entry.name === episodeCode`
+  // branch, so that string names a real episode folder and would be recursively
+  // deleted. The code must be EXACTLY the prefix plus digits, nothing else.
+  const prefix = String((meta as any).episode_prefix || 'EP').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (!new RegExp(`^${prefix}\\d+$`, 'i').test(episodeCode.trim())) {
+    throw new Error(
+      `Refusing to delete: '${episodeCode}' is not an episode code for this project. ` +
+      `Only a whole episode ("${String((meta as any).episode_prefix || 'EP')}0001") can be deleted this way.`,
+    )
+  }
+
   // Find the episode folder by searching
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) throw new Error('Project directory not found')

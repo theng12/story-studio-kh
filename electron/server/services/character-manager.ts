@@ -38,8 +38,27 @@ function projectCharactersDir(slug: string): string {
   return path.join(dir, 'characters')
 }
 
+/**
+ * A character id must be kebab-case. This is the ONLY thing standing between
+ * an HTTP route param and `fs.rm(..., { recursive: true, force: true })`.
+ *
+ * `createCharacter` validated inline; `deleteCharacter` — which recursively
+ * removes `characterDir(slug, characterId)` — did not. `path.join` resolves
+ * `..`, so `DELETE /api/projects/<slug>/characters/..%2F..` produced
+ * `projectsRoot()` and deleted every project on the machine. Validating inside
+ * the path builder means no future caller can reintroduce it by omitting a
+ * check of its own.
+ */
+function validateCharacterId(value: string): string {
+  const id = String(value ?? '').trim()
+  if (!id || !/^[a-z0-9][a-z0-9-]*[a-z0-9]?$/.test(id)) {
+    throw new Error(`Invalid character id '${id}' — must be kebab-case (lowercase, hyphens, alphanumeric)`)
+  }
+  return id
+}
+
 function characterDir(slug: string, characterId: string): string {
-  return path.join(projectCharactersDir(slug), characterId)
+  return path.join(projectCharactersDir(slug), validateCharacterId(characterId))
 }
 
 /**
