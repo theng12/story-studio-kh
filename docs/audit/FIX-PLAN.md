@@ -230,8 +230,35 @@ nothing in some modes — they must keep today's behaviour.
       than one branch) needs per-file reading before any of them is called clean.
       That is the next step, not this table.
 
-      **Genuinely silent, so far:** `broll_assemble` (fixed, v1.4.188),
-      `broll_normalize`, `subtitles` (`subtitles_transcribe`).
+      **`subtitles_transcribe` is NOT silent either — third correction.**
+      `generators/subtitles.ts` throws in 30+ places and computes completion from
+      Audio Assembly's authoritative section manifest via
+      `inspectSubtitleCompletion(..., { require_per_section: true })`, tracking
+      `scopeComplete` / `episodeComplete`, failed slugs and stale sections. It
+      explicitly documents "never trust 'the worker returned'". It needs no auditor.
+
+      Its REAL gap is narrow and CONFIRMED — the merged-transcript skip at
+      `subtitles.ts:294`:
+
+        if (!effectiveForce && await fileExistsWithContent(outPath)) {
+          const existing = normalizeSrtOrVtt(await fs.readFile(outPath, 'utf-8'))
+          if (existing.cues > 0) { … result = { …, complete: true }; return }
+        }
+
+      Three problems, in order of harm:
+        1. **No staleness check.** The per-chapter path at `:540` consults
+           `staleSections`; this one does not. Re-run Audio, then Retry
+           transcription, and the existing SRT is blessed as current.
+        2. **`cues > 0` is not coverage.** One cue over a 40-minute episode passes.
+        3. **It short-circuits BEFORE the stitch**, so a run that failed at
+           `:113` ("Subtitle stitch did not complete … Retry the local subtitle
+           stitch before Scene Plan") is "repaired" by Retry taking this skip path
+           — the Retry cannot repair the failure its own error named.
+      FIX: before declaring complete, require no stale sections
+      (`inspectSubtitleSourceFreshness`) and, when the mode needs it, that the
+      stitched timeline exists. Cheap, local, no auditor involved.
+
+      **Still genuinely silent: `broll_normalize`** (0 calls) — examine next.
       **Not yet located:** `images_repair`, `expression_markup` — neither is a
       `generators/*.ts` file, so they are handled elsewhere; find them before
       concluding anything.
