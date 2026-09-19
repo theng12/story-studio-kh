@@ -306,6 +306,74 @@ export async function existingTranscriptIsCurrent(input: {
   return { skip: true, cues, reason: `${cues} cue(s)` }
 }
 
+/**
+ * Roll the per-chapter SRTs up into {CODE}_stitched.srt, and PROVE the timeline.
+ *
+ * Extracted so the successful-transcription path and the "transcript is already
+ * current" skip path run the SAME stitch. Before this, the skip path returned at
+ * :294 — before the stitch — so a job that failed the stitch was told "Retry the
+ * local subtitle stitch before Scene Plan", and the Retry then skipped straight
+ * back out without stitching. **The Retry could not perform the repair its own
+ * error named.**
+ *
+ * `ensureStitchedSubtitle` owns the freshness decision and returns `'fresh'`
+ * when the existing stitch is current, so calling it on the skip path is cheap
+ * and idempotent. Deliberately NOT "refuse to skip when the stitch is missing":
+ * falling through would re-transcribe, spending money to repair a local file.
+ */
+async function stitchAndVerifyTranscript(
+  job: Job,
+  code: string,
+  epaths: Awaited<ReturnType<typeof resolveEpisodePathsByCodeWithSidecar>>,
+  outDir: string,
+): Promise<void> {
+  try {
+    // v1.0.397 — offset the stitched timeline by the intro lead-in so the
+    // burned captions line up with the merged audio (which plays the intro
+    // before any narration). Read-only against the merged file + sidecar.
+    //
+    // v1.3.4 — the bare `catch {}` that used to wrap this is gone. It spelled
+    // "I could not work out the intro" and "there is no intro" the same way —
+    // `leadIn = 0`, no log line — so a stitched timeline running sixteen
+    // seconds ahead of the video reported itself as a clean success. The
+    // resolver now returns a measurement and every outcome is stated below.
+    // v1.4.0 — through `ensureStitchedSubtitle`, which measures the lead-in and
+    // records the fingerprint of every input in the meta sidecar. A transcribe
+    // has by definition just rewritten those inputs, so this always restitches;
+    // routing it here is about the RECORD, so the render-time freshness check
+    // finds one and does not rebuild a good file on every render.
+    const { describeEpisodeIntroLeadIn } = await import('../lib/intro-lead-in.js')
+    const { ensureStitchedSubtitle } = await import('../lib/subtitle-autostitch.js')
+    const outcome = await ensureStitchedSubtitle({
+      episodeDir: epaths.episode_dir,
+      subtitlesDir: outDir,
+      mergedAudioDir: epaths.merged_audio_dir,
+      audioDir: epaths.audio_dir,
+      episodeCode: code,
+    })
+    if (outcome.status !== 'stitched' && outcome.status !== 'fresh') {
+      requireWrittenSubtitleStitch(outcome)
+      throw new Error('Unreachable subtitle stitch state')
+    }
+    const timeline = await readSubtitleTimelineIntegrity(outDir, code)
+    if (!timeline.complete) {
+      throw new Error(`Subtitle stitch did not verify: ${timeline.missing_sections.join(', ')}. Retry the local subtitle stitch before Scene Plan.`)
+    }
+    job.result = { ...job.result, complete: true, stitch_complete: true, recovery_state: 'repaired' }
+    job.output_lines.push(outcome.status === 'stitched'
+      ? `✓ Auto-stitched ${outcome.result.total_cues} cue(s) (${outcome.result.total_duration_sec.toFixed(1)}s)` +
+        ` → ${path.basename(outcome.result.output_path)}. Re-run Scene Plan to pick up the new timeline.`
+      : `✓ Stitched transcript is already current → ${path.basename(outcome.path)}.`)
+    job.output_lines.push(`${outcome.lead_in.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(outcome.lead_in)}`)
+  } catch (e: any) {
+    const msg = (e as Error)?.message || String(e)
+    const hint = msg.includes('audio_chapters.json not found') ? 'run Audio Assembly first' : msg
+    job.result = { ...job.result, complete: false, stitch_complete: false, stitch_error: hint }
+    job.output_lines.push(`✗ STITCH INCOMPLETE — ${hint}`)
+    throw new Error(`Subtitle transcription is incomplete because its stitched timeline is not ready: ${hint}`)
+  }
+}
+
 export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as TranscribeSubtitlesRequest
@@ -868,51 +936,7 @@ async function transcribePerChapter(
   // planner on a stale timeline. Roll the fresh per-chapter SRTs up into
   // {CODE}_stitched.srt right here. A stitch failure remains visible because
   // downstream Scene Plan must never consume a stale or partial timeline.
-  try {
-    // v1.0.397 — offset the stitched timeline by the intro lead-in so the
-    // burned captions line up with the merged audio (which plays the intro
-    // before any narration). Read-only against the merged file + sidecar.
-    //
-    // v1.3.4 — the bare `catch {}` that used to wrap this is gone. It spelled
-    // "I could not work out the intro" and "there is no intro" the same way —
-    // `leadIn = 0`, no log line — so a stitched timeline running sixteen
-    // seconds ahead of the video reported itself as a clean success. The
-    // resolver now returns a measurement and every outcome is stated below.
-    // v1.4.0 — through `ensureStitchedSubtitle`, which measures the lead-in and
-    // records the fingerprint of every input in the meta sidecar. A transcribe
-    // has by definition just rewritten those inputs, so this always restitches;
-    // routing it here is about the RECORD, so the render-time freshness check
-    // finds one and does not rebuild a good file on every render.
-    const { describeEpisodeIntroLeadIn } = await import('../lib/intro-lead-in.js')
-    const { ensureStitchedSubtitle } = await import('../lib/subtitle-autostitch.js')
-    const outcome = await ensureStitchedSubtitle({
-      episodeDir: epaths.episode_dir,
-      subtitlesDir: outDir,
-      mergedAudioDir: epaths.merged_audio_dir,
-      audioDir: epaths.audio_dir,
-      episodeCode: code,
-    })
-    if (outcome.status !== 'stitched' && outcome.status !== 'fresh') {
-      requireWrittenSubtitleStitch(outcome)
-      throw new Error('Unreachable subtitle stitch state')
-    }
-    const timeline = await readSubtitleTimelineIntegrity(outDir, code)
-    if (!timeline.complete) {
-      throw new Error(`Subtitle stitch did not verify: ${timeline.missing_sections.join(', ')}. Retry the local subtitle stitch before Scene Plan.`)
-    }
-    job.result = { ...job.result, complete: true, stitch_complete: true, recovery_state: 'repaired' }
-    job.output_lines.push(outcome.status === 'stitched'
-      ? `✓ Auto-stitched ${outcome.result.total_cues} cue(s) (${outcome.result.total_duration_sec.toFixed(1)}s)` +
-        ` → ${path.basename(outcome.result.output_path)}. Re-run Scene Plan to pick up the new timeline.`
-      : `✓ Stitched transcript is already current → ${path.basename(outcome.path)}.`)
-    job.output_lines.push(`${outcome.lead_in.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(outcome.lead_in)}`)
-  } catch (e: any) {
-    const msg = (e as Error)?.message || String(e)
-    const hint = msg.includes('audio_chapters.json not found') ? 'run Audio Assembly first' : msg
-    job.result = { ...job.result, complete: false, stitch_complete: false, stitch_error: hint }
-    job.output_lines.push(`✗ STITCH INCOMPLETE — ${hint}`)
-    throw new Error(`Subtitle transcription is incomplete because its stitched timeline is not ready: ${hint}`)
-  }
+  await stitchAndVerifyTranscript(job, code, epaths, outDir)
 }
 
 /**

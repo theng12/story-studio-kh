@@ -290,11 +290,38 @@ nothing in some modes — they must keep today's behaviour.
       stitch. Do NOT simply refuse to skip when the stitch is absent — falling
       through would RE-TRANSCRIBE, which costs money to repair a local file.
 
-      Why it is not done yet: it is a structural change inside a
-      `generateSubtitlesTranscribe` ~900 lines long, with the transcription body
-      between :294 and :884. It needs the stitch extracted into a helper both
-      paths call, a test for "skip path still stitches when the stitch is
-      missing", and a test that "fresh" does not re-stitch. Not a rushed edit.
+      STATUS (round 26) — **half done, deliberately stopped at the halfway line.**
+
+      DONE, committed: the stitch is extracted into a private helper
+      `stitchAndVerifyTranscript(job, code, epaths, outDir)` and the full path
+      calls it, replacing the inline try/catch. This is a **pure refactor** — no
+      behaviour changes, and it is the prerequisite the fix needs, because now
+      both paths can call one function.
+
+      NOT DONE, reverted rather than shipped: routing the skip path through the
+      helper. I wrote it, it compiled, and `--only subtitle` was 352/352 — but
+      **352/352 proves nothing here**, because every existing subtitle test
+      exercises the **per-chapter** path, which routes BEFORE the skip. No test
+      in the suite enters the merged-transcript skip path at all, so a green
+      suite is exactly the trap rule 8 warns about: a generator returning without
+      throwing is not evidence.
+
+      The test that WOULD prove it is cheap in one respect — the skip path makes
+      no provider calls, so it needs disk fixtures only, no mock. The obstacle is
+      the fixture: `requireAudioAssemblyReady` gates the call before the skip, so
+      it needs an Audio Assembly-ready episode (manifest + `audio_chapters.json`
+      + per-chapter SRTs + merged audio + a current `_whisper.srt`) and no
+      stitched file. That is a real fixture, not a two-line test, and guessing at
+      `requireAudioAssemblyReady`'s contract to save time is how the containment
+      fix and the `assertSafeNicheId` fix both broke the gate earlier in this
+      audit.
+
+      NEXT: build that fixture, then apply the wiring, then two tests —
+      (a) skip path with a whole-track transcript present, stitched timeline
+      absent, run `generateSubtitlesTranscribe` with `force:false,
+      per_chapter:false` → `${code}_stitched.srt` exists afterwards;
+      (b) control: status `'fresh'` is not re-stitched. Both must FAIL before the
+      wiring and pass after — assert the sentinel file, never an error string.
 
       **`broll_normalize` ALSO shrinks — it already fails loudly.** `normalizeBroll`
       throws for a missing pool/filename, an offline pool ("plug in the SSD"),
