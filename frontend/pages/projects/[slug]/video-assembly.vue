@@ -6036,6 +6036,37 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* This page's picker dialogs ("+ Add Overlay", "Background plate → + Pick",
+   "Pick image/video", "Pick media") used `class="modal-overlay"` /
+   `class="modal-content"` while defining neither — and NOTHING in the app
+   defines `.modal-content`. Every other `.modal-overlay` in the repo lives
+   inside some other component's `<style scoped>` block, so it could never match
+   here. The result was not a broken-looking dialog but NO dialog: the content
+   rendered as a bare in-flow list inside the narrow controls column, with no
+   fixed positioning, no backdrop, no z-index and no scroll, and
+   `@click.self` on a zero-size overlay could never dismiss it. Declared here,
+   in this page's own scope, mirroring ideas.vue's proven rules. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 24px;
+}
+.modal-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 32px;
+  box-sizing: border-box;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  width: 100%;
+}
+
 .video-assembly-workspace :deep(.workspace-command-surface .top-action-bar) {
   margin: 0;
   border: 0;

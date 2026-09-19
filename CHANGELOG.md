@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.179 — 2026-09-19
+
+- "Add Overlay" and "Pick media" open a dialog again. Both were written as dialogs but the classes they used — `modal-overlay` and `modal-content` — were never defined anywhere in the app, so instead of a dialog the contents appeared as a plain list inside the narrow controls column, with no backdrop, no positioning and no close button. They now use the same dialog styling as the rest of the app.
+
 ## v1.4.178 — 2026-09-19
 
 - The buttons that stop running work are reachable again. Jobs shows each job in a card, and the card clipped its own "More actions" menu, so with more than one secondary control (Cancel, Stop local work, Pause new submissions, Clear history) the trailing ones were cut off with no scrollbar and could not be clicked at all.
