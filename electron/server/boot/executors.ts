@@ -125,6 +125,42 @@ export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repa
   return audit.missing_ids.length === 0 ? 'complete' : 'repair-required'
 }
 
+/**
+ * `broll_assemble` — does the assembled video actually cover the narration?
+ *
+ * The generator trims each clip to its sidecar `target_duration`, mixes
+ * narration + B-Roll audio + music, and encodes with `-shortest`. So when the
+ * selection covers less than the narration the video simply STOPS at the last
+ * clip while the narration keeps going — and nothing failed, because
+ * `broll_assemble` had no auditor AND no `requireJobCompletion`: it reported
+ * Done over a video that cuts off mid-sentence, with the Production Board's
+ * final-video cell green.
+ *
+ * Decided from the SIDECAR alone, deliberately. `-shortest` guarantees the
+ * shortfall becomes a short video, so the sidecar's coverage is sufficient
+ * evidence — and it avoids re-deriving the output path (which may sit under a
+ * configured external root) and ffprobing it, both of which would be more
+ * fragile than the question needs.
+ */
+export async function auditBrollAssemblyOutput(job: any): Promise<'complete' | 'repair-required'> {
+  const { getSelectionSidecar } = await import('../services/broll-selection-sidecar.js')
+  const { COVERAGE_FAIL_SEC } = await import('../services/scene-planner.js')
+  const sidecar = await getSelectionSidecar(job.project_slug, job.episode_id, job.title || '')
+  // The generator refuses to run at all without a sidecar, so a null here means
+  // the output cannot be judged — and an unjudged output is not a complete one.
+  if (!sidecar?.selection?.length) return 'repair-required'
+  const narration = Number(sidecar.target_duration)
+  // A sidecar written before `target_duration` existed carries no coverage
+  // claim. Failing it would invent a requirement that never existed, which is
+  // the mirror-image defect of the one being fixed.
+  if (!Number.isFinite(narration) || narration <= 0) return 'complete'
+  const covered = sidecar.selection.reduce(
+    (total: number, entry: any) => total + (Number(entry?.target_duration) || 0),
+    0,
+  )
+  return narration - covered > COVERAGE_FAIL_SEC ? 'repair-required' : 'complete'
+}
+
 /** Register only producer-specific completion proofs; no generic file guess. */
 function registerCancellationAuditors(): void {
   registerJobCancellationAuditor('audio', async job => {
@@ -191,6 +227,9 @@ function registerCancellationAuditors(): void {
     registerJobCancellationAuditor(type, auditSceneClips)
   }
   registerJobCancellationAuditor('scene_plan_run', auditScenePlanOutput)
+  // Group 1.1b — `broll_assemble` had no auditor at all, so a truncated video
+  // (the generator encodes `-shortest`) reported Done over a cut-off render.
+  registerJobCancellationAuditor('broll_assemble', auditBrollAssemblyOutput)
   registerJobCancellationAuditor('video', async job => {
     const status = await getVideoStatus(job.project_slug, job.episode_id)
     return status.total > 0 && status.present === status.total ? 'complete' : 'repair-required'

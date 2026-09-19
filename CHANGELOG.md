@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.188 — 2026-09-19
+
+- A B-Roll render that cuts off before the narration ends is no longer reported as finished. When the clip pool is too small to cover the episode, the video simply stops at the last clip while the narration keeps going — and the step used to report Done, with the finished-video indicator green. The app now checks the pick against the narration length before signing the render off, and says so instead. This is the first of the job types that had no independent check at all.
+
 ## v1.4.187 — 2026-09-19
 
 - A generation step can no longer be marked finished on the strength of nothing. The app asked each generator "are you complete?", and unless it answered "no" the job was marked done — so a generator that checked nothing at all passed by default, and the Production Board could go green over missing output. For the job types that already have an independent checker, the app now re-reads the produced files itself before marking a job finished. Steps whose work was done by the AI service were already checked once, at settlement; this closes the gap for the ones it never reached.

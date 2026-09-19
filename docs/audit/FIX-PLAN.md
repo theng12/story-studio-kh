@@ -180,7 +180,27 @@ nothing in some modes — they must keep today's behaviour.
           runs the auditor EXACTLY ONCE (spy on the auditor, assert one call)
         - a locally-completed job whose executor declared nothing and whose
           auditor says `repair-required` does NOT end `done`
-- [ ] **(1b)** Write auditors for the 13 artifact-producing types above, starting
+- [~] **(1b) IN PROGRESS — `broll_assemble` DONE (v1.4.188).** Auditor
+      `auditBrollAssemblyOutput` in `boot/executors.ts`, registered beside the
+      other 11. Decided from the SELECTION SIDECAR alone — `-shortest`
+      guarantees a short selection becomes a short video, so measuring coverage
+      is sufficient and avoids re-deriving the output path (which may sit under
+      an external root) and ffprobing it. Threshold reuses `COVERAGE_FAIL_SEC`
+      (2s) so a frame-level trim cannot fail a good render, and a **legacy
+      sidecar with no `target_duration` returns `complete`** — failing it would
+      invent a requirement that never existed.
+      Tests: `broll-assembly-audit.test.ts`, 6 cases. `--only broll --only
+      job-cancel` is 73 pass / 0 fail.
+      NOTE: registering an auditor also changes the SETTLEMENT path, which
+      previously held any type with no auditor ("keeping this job running until
+      output can be verified"). `broll_assemble` is now audited there instead of
+      held — checked, and nothing broke.
+      Remaining in 1.1b: `audio_merge`, `youtube_upload`,
+      `youtube_playlist_update`, `youtube_thumbnail_refresh`, `music_generate`,
+      `music_video`, `broll_normalize`, `images_repair`, `image_prompts`,
+      `metadata`, `contextual_cues`, `expression_markup` (12).
+
+- [ ] **(1b-original-note)** Write auditors for the 13 artifact-producing types above, starting
       with the four that cost or lose the most: `broll_assemble` (truncated
       video), `audio_merge` (transcription on a stale mix), `youtube_upload`
       (claims success over a failed upload), `music_generate` (unmeasurable
