@@ -17,6 +17,7 @@
  */
 
 import { test, describe, before, after } from 'node:test'
+import { waitForValue } from './_timing.js'
 import assert from 'node:assert/strict'
 import { spawn } from 'child_process'
 import express from 'express'
@@ -484,6 +485,42 @@ describe('remote cancellation checkpoints', () => {
     assert.equal(audits, 1)
     assert.equal((await jq.getJobs(project.slug)).filter(candidate => candidate.type === 'broll_assemble').length, 1)
     registerJobCancellationAuditor('audio', async () => 'complete')
+  })
+
+  test('a locally-completed job whose executor declared nothing is failed when its auditor finds output missing', async () => {
+    // Group 1.1a. The success path called only `assertJobDidNotDeclareIncomplete`,
+    // which fires solely when the executor itself set `result.complete === false`.
+    // An executor that audits nothing passed untouched, so a job could report
+    // `done` over missing output and turn a Production Board cell green.
+    //
+    // This is the LOCAL completion path — no provider work, so the settlement
+    // path (which audits, and which `simultaneous final provider updates…` pins
+    // to exactly once) never runs for it. Re-reading the artifacts is the only
+    // thing that can catch it.
+    const project = await pm.createProject({ name: 'LocalCompletionAudit' })
+    jq.registerExecutor('audio', async () => { /* returns normally, declares nothing */ })
+    registerJobCancellationAuditor('audio', async () => 'repair-required')
+    try {
+      const job = jq.enqueuePreparedForTest({
+        project_slug: project.slug, type: 'audio', episode_id: 'LOCAL_AUDIT', title: 'local audit', params: {},
+      })
+      // `waitForValue`, not a fixed-ms poll: the suite forbids a new
+      // `setTimeout` followed by an assertion (see no-new-wallclock-sleeps), and
+      // it is right to — a fixed sleep asserts that this machine schedules
+      // promptly, which stops being true under load.
+      const settled = await waitForValue(
+        () => {
+          const current = jq.getJob(job.job_id)
+          return current && current.status !== 'running' ? current : undefined
+        },
+        { label: 'the locally-completed job to settle', timeoutMs: 2_000 },
+      )
+      assert.notEqual(settled.status, 'done',
+        'a job whose own auditor finds the output missing must not be reported as done')
+      assert.equal(settled.status, 'error')
+    } finally {
+      registerJobCancellationAuditor('audio', async () => 'complete')
+    }
   })
 
   test('coalesces cold persisted cancellation requests before the project load finishes', async () => {

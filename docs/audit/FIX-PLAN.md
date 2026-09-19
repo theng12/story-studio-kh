@@ -93,8 +93,23 @@ nothing in some modes — they must keep today's behaviour.
 
 **So this group is two steps, and the first is still the right first:**
 
-- [ ] **(1a)** Run the existing auditor on the ordinary success path for the 11
-      types that have one. Apply only when the executor declared nothing
+- [x] **(1a) DONE — commit pending, v1.4.187.** `assertAuditedCompletionOnSuccess`
+      in `job-queue.ts`, called from the local completion inside the shared
+      `completeSuccessfulJob`, skipping jobs the settlement path owns.
+      The predicate that finally worked, found by the SECOND test rather than by
+      reasoning: **skip when the job has recorded provider work**
+      (`genstudio_jobs.length > 0`). The executor returns BEFORE settlement
+      audits — `provider success during a live executor waits for local output
+      before auditing` pins that ordering — so without the skip the local pass
+      audited first and settlement audited again: two audits, which the gate
+      caught as `2 !== 1`.
+      That is a fact about the JOB, not an inference about which path ran. Two
+      earlier attempts failed on inferred predicates; this one is checkable.
+      Tests: the new local-completion failure case, plus the three existing
+      once-only/settlement tests still green.
+
+- [ ] **(1a-original-note, superseded)** Run the existing auditor on the
+      ordinary success path for the 11 types that have one. Apply only when the executor declared nothing
       (`result.complete === undefined`) — a declared `true` means the executor
       already audited, and a declared `false` already throws. Behaviour changes
       only for a job whose executor audited nothing AND whose auditor finds a

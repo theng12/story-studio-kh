@@ -976,6 +976,13 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         job.result = { ...(job.result || {}), provider_settled: 'succeeded', repair_required: true }
         job.output_lines.push(job.error)
       } else {
+        // Mark that THIS path has already re-read the output (it audited just
+        // above), so the shared `completeSuccessfulJob` does not audit a second
+        // time. `simultaneous final provider updates run the auditor and
+        // terminal transition once` pins that contract — an unguarded audit
+        // inside `completeSuccessfulJob` broke it, which is why this marker
+        // exists instead of a second call.
+        job.result = { ...(job.result || {}), provider_settled: 'succeeded', output_audited: 'provider-settlement' }
         await completeSuccessfulJob(job)
         job.error = null
         job.output_lines.push('Provider work settled and required output was verified.')
@@ -3248,6 +3255,58 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
   }
 }
 
+/**
+ * Group 1.1a. `assertJobDidNotDeclareIncomplete` fires only when the executor
+ * itself set `result.complete === false`, so an executor that audits nothing
+ * passed untouched and a job could report `done` over missing output.
+ *
+ * For job types that already have a per-type auditor, re-read the artifacts and
+ * fail the job when the auditor says `repair-required`.
+ *
+ * THREE DELIBERATE LIMITS:
+ *
+ *  1. Skipped when `result.output_audited` is set. The PROVIDER-SETTLEMENT path
+ *     audits (`:955`) and then calls this same shared function, so without the
+ *     marker every settled job would be audited twice — which is exactly what
+ *     the first attempt did, and `simultaneous final provider updates run the
+ *     auditor and terminal transition once` caught it.
+ *  2. Skipped when the executor declared a verdict (`result.complete` is not
+ *     undefined). A declared `true` means it audited its own output; a declared
+ *     `false` already threw above.
+ *  3. Applies ONLY to types with a registered auditor. The 13 artifact-producing
+ *     types that still have none keep today's behaviour — authoring those
+ *     auditors is group 1.1b in docs/audit/FIX-PLAN.md.
+ *
+ * An auditor FAULT is fail-closed, because `registerJobCancellationAuditor`
+ * wraps every auditor with `catch { return 'repair-required' }` ("provider
+ * success does not make malformed or unreadable local output complete"). The
+ * message therefore says "missing or could not verify" rather than claiming the
+ * output is missing.
+ */
+export async function assertAuditedCompletionOnSuccess(job: Job): Promise<void> {
+  // A job with recorded provider work is OWNED by the provider-settlement path,
+  // which audits once the executor has checkpointed (:955). The executor returns
+  // BEFORE that — `provider success during a live executor waits for local
+  // output before auditing` pins exactly that ordering — so without this the
+  // local pass would audit first and settlement would audit again: two audits,
+  // which is what the gate caught.
+  //
+  // This is a fact about the job (does it have provider work recorded?), not an
+  // inference about which code path ran — the distinction that matters, because
+  // two earlier attempts failed on inferred predicates.
+  if ((job.genstudio_jobs || []).length > 0) return
+  if (job.result?.output_audited) return
+  if (job.result?.complete !== undefined) return
+  const auditor = getJobCancellationAuditor(job.type)
+  if (!auditor) return
+  const verdict = await auditor(job)
+  if (verdict === 'complete') return
+  throw new Error(
+    `${job.type} reported success, but re-reading its output found required items missing or could not verify it. ` +
+    `Nothing already produced was discarded — Retry repairs only the gaps.`,
+  )
+}
+
 /** One success path for ordinary completions and reconciled provider outputs. */
 async function completeSuccessfulJob(job: Job): Promise<void> {
   if (job.status !== 'running') return
@@ -3402,6 +3461,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           }
           job.local_execution_complete = true
           assertJobDidNotDeclareIncomplete(job)
+          await assertAuditedCompletionOnSuccess(job)
           const completedBeforeAutomaticHold = job.type === 'continuity_render'
             && job.pause_origin === 'stall'
             && pauseRequested.has(job.job_id)

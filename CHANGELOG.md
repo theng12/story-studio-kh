@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.187 — 2026-09-19
+
+- A generation step can no longer be marked finished on the strength of nothing. The app asked each generator "are you complete?", and unless it answered "no" the job was marked done — so a generator that checked nothing at all passed by default, and the Production Board could go green over missing output. For the job types that already have an independent checker, the app now re-reads the produced files itself before marking a job finished. Steps whose work was done by the AI service were already checked once, at settlement; this closes the gap for the ones it never reached.
+
 ## v1.4.186 — 2026-09-19
 
 - "We don't know" no longer gets reported as "no". The service now publishes a blank where a provider never stated something, and one field — whether a model returns citations for what it searched — was being read as an explicit "does not cite" for every model. No behaviour changes today, because nothing enables a feature on an unstated value; the point is that the app can now tell the two apart instead of putting words in a provider's mouth.
