@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.186 — 2026-09-19
+
+- "We don't know" no longer gets reported as "no". The service now publishes a blank where a provider never stated something, and one field — whether a model returns citations for what it searched — was being read as an explicit "does not cite" for every model. No behaviour changes today, because nothing enables a feature on an unstated value; the point is that the app can now tell the two apart instead of putting words in a provider's mouth.
+- The Audio page no longer assumes a model always publishes a language list. Every voice model publishes one today, but the service has just started blanking fields it cannot vouch for, and a blank would have crashed the page rather than showing "no languages stated".
+
 ## v1.4.185 — 2026-09-19
 
 - File previews can no longer read anything on your Mac. Four preview routes and the thumbnail reference analyser took a file path from the request and checked only the file type — so any file with a matching extension could be streamed back, and the analyser would send it to the AI provider. Previews now read from your Library and any media folder you have configured, and nothing else. If you had been previewing a file from somewhere unrelated, such as your Desktop, that will now be refused.

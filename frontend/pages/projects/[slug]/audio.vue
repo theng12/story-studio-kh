@@ -722,7 +722,13 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
     priceTitle: rate.title,
     priceNote: rate.notice,
     meta: [
-      ...(model.supported_languages.length ? [`Languages ${model.supported_languages.join(', ')}`] : []),
+      // `?.` on purpose. The declared type is `string[]` and every TTS row
+      // publishes an array today (either `[]` or the real list), but music's
+      // `supported_languages` just moved from `["en"]` to `[]` under the
+      // gateway's "null unless the provider stated it" rule. If TTS follows,
+      // `.length` on null would throw and take the Audio page down; this makes
+      // it degrade to "no languages stated" instead.
+      ...(model.supported_languages?.length ? [`Languages ${model.supported_languages.join(', ')}`] : []),
       `Minimum ${formatCredits(model.minimum_credits)} per request`,
       `Up to ${model.maximum_input_characters.toLocaleString()} characters per request`,
     ].join(' · '),

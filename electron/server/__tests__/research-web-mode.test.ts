@@ -19,6 +19,7 @@ import {
   normalizeDomainList,
   selectWebResearchModels,
   toResearchCitations,
+  toWebResearchModelOption,
 } from '../services/research/web-capability.js'
 import {
   DEFAULT_RESEARCH_MODE,
@@ -143,6 +144,28 @@ describe('web research capability filter', () => {
   it('accepts a model that passes all seven published conditions', () => {
     assert.equal(isWebResearchQualified(qualifiedModel()), true)
     assert.deepEqual(failedWebResearchConditions(qualifiedModel()), [])
+  })
+
+  it('keeps "the provider did not say" distinct from "the provider said no"', () => {
+    // The gateway publishes `null` where no provider stated a value — every row
+    // today for `returns_citations` — and it used to arrive here flattened to
+    // `false`, which reads as a claim the provider never made (§6).
+    //
+    // The OUTCOME must not change: an unstated citation capability must not
+    // enable web research, so the qualification gate still requires `=== true`.
+    // What changes is that the two facts stop sharing a value.
+    const stated = qualifiedModel({ returns_citations: false })
+    const unstated = qualifiedModel({ returns_citations: null as unknown as boolean })
+
+    assert.equal(toWebResearchModelOption(stated).returns_citations, false)
+    assert.equal(toWebResearchModelOption(unstated).returns_citations, null,
+      'an unstated value must survive as null, not be reported as a refusal')
+
+    // Same gate outcome for both — the safe direction is preserved.
+    for (const model of [stated, unstated]) {
+      assert.equal(isWebResearchQualified(model), false)
+      assert.deepEqual(failedWebResearchConditions(model), ['returns_citations'])
+    }
   })
 
   it('excludes a model on EACH condition independently', () => {

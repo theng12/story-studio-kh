@@ -117,8 +117,13 @@ export interface WebResearchModelOption {
   supports_domain_filters: boolean
   /** Published `returns_citations`. Carried so the picker can state what the
    *  model gives back, rather than the reader having to infer it from the fact
-   *  that the model appears in this list at all. */
-  returns_citations: boolean
+   *  that the model appears in this list at all.
+   *
+   *  `null` means the provider did not state it — distinct from `false`, which
+   *  would be a claim it does not cite (§6). The qualification test above still
+   *  requires `=== true`: an unstated citation capability must not enable web
+   *  research. */
+  returns_citations: boolean | null
   /** GenStudio's published retirement flag and the date the product stops
    *  being available. Carried for the same reason every other picker carries
    *  them: this is a third place a customer commits to a chat product, and a
@@ -150,7 +155,7 @@ export function toWebResearchModelOption(model: GenStudioChatModel): WebResearch
     credits_per_request: model.web_research_credits_per_request,
     max_web_searches: model.max_web_searches,
     supports_domain_filters: model.supports_domain_filters === true,
-    returns_citations: model.returns_citations === true,
+    returns_citations: model.returns_citations ?? null,
     deprecation_warning: model.deprecation_warning === true,
     retires_at: model.retires_at ?? null,
   }

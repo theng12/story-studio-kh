@@ -751,7 +751,7 @@ interface WebResearchModel {
   supports_domain_filters: boolean
   /** Published `returns_citations`. Optional so an older backend response
    *  still types; absent means unpublished, which states nothing. */
-  returns_citations?: boolean
+  returns_citations?: boolean | null
   cost_tier?: GenStudioLlmCostTier
   /** GenStudio's published retirement. Optional so an older backend response
    *  still types; absent means no retirement is published, which is a state,

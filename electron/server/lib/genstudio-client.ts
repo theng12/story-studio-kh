@@ -1711,8 +1711,18 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
   // infer any of this from a provider or model name.
   /** The product can run provider-side web searches. */
   supports_web_search: boolean
-  /** The product returns citations for what it searched. */
-  returns_citations: boolean
+  /** The product returns citations for what it searched.
+   *
+   *  `null` means the provider did not state it — which is the case for every
+   *  row today. It is deliberately NOT flattened to `false`: "this provider
+   *  does not cite" and "this provider did not say" are different facts
+   *  (AGENTS.md §6), and the gateway now publishes the distinction.
+   *
+   *  The one consumer that gates a FEATURE keeps testing `=== true`, and that
+   *  is correct — a capability must not be enabled on an unstated value. What
+   *  changes is that a reader can now tell the two apart instead of being told
+   *  a provider said "no" when it said nothing. */
+  returns_citations: boolean | null
   /** Shape of those citations. Only 'structured' is machine-readable; any
    *  other value (including a prose format) is unusable as evidence. */
   citation_format: string | null
@@ -4864,7 +4874,13 @@ export async function listChatModelsSnapshot(
     // never heard of web search must read as "not web-capable", never as
     // "capable and unrestricted".
     supports_web_search: value?.supports_web_search === true,
-    returns_citations: value?.returns_citations === true,
+    // NOT `=== true`. `null` is a real answer here — the provider did not say —
+    // and the gateway now publishes it that way for every row. Flattening it to
+    // `false` would report a provider as having refused citations when it was
+    // never asked. Consumers that gate a capability still require `=== true`,
+    // so the outcome is unchanged; what changes is that the two facts stop
+    // sharing a value.
+    returns_citations: typeof value?.returns_citations === 'boolean' ? value.returns_citations : null,
     citation_format: typeof value?.citation_format === 'string' && value.citation_format.trim()
       ? value.citation_format.trim()
       : null,
