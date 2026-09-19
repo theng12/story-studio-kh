@@ -1360,6 +1360,15 @@ router.post('/projects/:slug/episodes/:code/audio-ingest', async (req, res) => {
           ? `Chapter_${String(n).padStart(2, '0')}`
           : ''
     if (!sectionSlug) return res.status(400).json({ detail: 'Provide chapterNumber or slug.' })
+    // `sectionSlug` becomes a FILENAME below (`${code}_${sectionSlug}.${ext}`) and
+    // is then written with `fs.writeFile`. It arrives from the request body with
+    // only a `.trim()`, so `{"slug":"../../../../tmp/pwn"}` wrote outside the
+    // project — an arbitrary-path file write of up to the body cap. A section
+    // slug is a name: a path separator, a NUL, or a leading dot is never
+    // legitimate, and traversal needs one of those.
+    if (/[/\\\u0000]/.test(sectionSlug) || sectionSlug.startsWith('.')) {
+      return res.status(400).json({ detail: 'Invalid slug — a chapter slug cannot contain a path separator.' })
+    }
     if (typeof audioBase64 !== 'string' || !audioBase64) {
       return res.status(400).json({ detail: 'audioBase64 is required.' })
     }

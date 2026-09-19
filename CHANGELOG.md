@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.180 — 2026-09-19
+
+- Imported audio can no longer be written outside the project. The chapter name that becomes the saved filename was taken from the request without checking it, so a name containing a path (`../../../../tmp/x`) wrote the file wherever it pointed. A chapter name is a name; it may not contain a path separator.
+
 ## v1.4.179 — 2026-09-19
 
 - "Add Overlay" and "Pick media" open a dialog again. Both were written as dialogs but the classes they used — `modal-overlay` and `modal-content` — were never defined anywhere in the app, so instead of a dialog the contents appeared as a plain list inside the narrow controls column, with no backdrop, no positioning and no close button. They now use the same dialog styling as the rest of the app.
