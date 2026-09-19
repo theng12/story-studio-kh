@@ -130,6 +130,41 @@ nothing in some modes — they must keep today's behaviour.
       (iii) write the test as "the auditor runs ONCE when both paths could fire",
       which is the test that was missing from the first attempt and is the whole
       reason the gate caught it.
+
+      **SOLVED (round 14) — here is the exact shape, do not re-derive it.**
+
+      `completeSuccessfulJob` (`job-queue.ts:3252`) is **shared**, and that is the
+      whole reason the first attempt failed. Its callers:
+
+        :979   the PROVIDER-SETTLEMENT path, AFTER it has already audited (:955)
+        :3467  the ordinary/local completion path
+
+      My check went at :3404, inside that shared function, so every settled job
+      was audited twice. Two other completion sites exist and were not involved:
+      `enqueueOrRun` (:4564, the direct executor runner used by routes and
+      tests) and the settlement path itself.
+
+      **The scoping fix is a marker, not an inference.** The settlement path's
+      SUCCESS branch (:985) sets nothing on the job before calling
+      `completeSuccessfulJob` — only its repair branch sets `provider_settled`.
+      So:
+
+        1. In the success branch, before `await completeSuccessfulJob(job)` at
+           :985, record that the output was audited:
+           `job.result = { ...(job.result || {}), provider_settled: 'succeeded', output_audited: 'provider-settlement' }`
+        2. In the new check, skip when `job.result?.output_audited` is set.
+           Everything else keeps the limits already written above (only when
+           `result.complete === undefined`; only for types with an auditor).
+
+      Do NOT scope it by "has provider evidence" — that is an inference about
+      which path ran, and this state machine has now punished two of those.
+
+      **Write these two tests FIRST**, because the first attempt had neither and
+      the gate is what found it:
+        - a job that settled with provider work and passed the settlement audit
+          runs the auditor EXACTLY ONCE (spy on the auditor, assert one call)
+        - a locally-completed job whose executor declared nothing and whose
+          auditor says `repair-required` does NOT end `done`
 - [ ] **(1b)** Write auditors for the 13 artifact-producing types above, starting
       with the four that cost or lose the most: `broll_assemble` (truncated
       video), `audio_merge` (transcription on a stale mix), `youtube_upload`
