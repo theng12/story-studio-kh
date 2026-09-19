@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.185 — 2026-09-19
+
+- File previews can no longer read anything on your Mac. Four preview routes and the thumbnail reference analyser took a file path from the request and checked only the file type — so any file with a matching extension could be streamed back, and the analyser would send it to the AI provider. Previews now read from your Library and any media folder you have configured, and nothing else. If you had been previewing a file from somewhere unrelated, such as your Desktop, that will now be refused.
+
 ## v1.4.184 — 2026-09-19
 
 - Title alternatives no longer carry from one episode to the next. Opening an episode that had none kept the previous episode's generated titles and saved them as its own, so the metadata for the wrong episode could be written. They are now cleared when you switch episodes.

@@ -12,6 +12,7 @@ import { scanEpisodeAudioAssets } from '../generators/audio-merge.js'
 import { checkFfmpeg } from '../lib/ffmpeg-utils.js'
 import { getAudioMergeStatus } from '../services/asset-status.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { isPreviewablePath } from '../lib/preview-roots.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
 import {
@@ -122,6 +123,16 @@ router.get('/projects/:slug/audio-editor/preview-audio', async (req, res) => {
     filePath = resolveAssetPath(rawPath, outputRoot)
   } catch (e: any) {
     return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
+  }
+  // CONTAINMENT. `resolveAssetPath` returns a plain absolute path unchanged, so
+  // before this the only gate was the file extension and ANY file on the machine
+  // with a matching one was streamed back — and in server mode this binds
+  // 0.0.0.0. A preview may read the Library and media folders the owner
+  // configured, nothing else. See `lib/preview-roots.ts`.
+  if (!await isPreviewablePath(filePath, slug)) {
+    return res.status(403).json({
+      detail: 'That file is outside this project. Previews can read your Library and any media folder you configured.',
+    })
   }
   if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
 

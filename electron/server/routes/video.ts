@@ -49,6 +49,7 @@ import { inspectSubtitleText, type SubtitleQualityReport } from '../lib/subtitle
 import { inspectSubtitleCompletion, inspectSubtitleSourceFreshness } from '../services/subtitle-completion.js'
 import { inspectExistingTranscriptSource } from '../services/subtitle-correction.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { isPreviewablePath } from '../lib/preview-roots.js'
 import { findFreshActionJob, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
@@ -481,6 +482,16 @@ router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
   } catch (e: any) {
     return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
   }
+  // CONTAINMENT. `resolveAssetPath` returns a plain absolute path unchanged, so
+  // before this the only gate was the file extension and ANY file on the machine
+  // with a matching one was streamed back — and in server mode this binds
+  // 0.0.0.0. A preview may read the Library and media folders the owner
+  // configured, nothing else. See `lib/preview-roots.ts`.
+  if (!await isPreviewablePath(filePath, slug)) {
+    return res.status(403).json({
+      detail: 'That file is outside this project. Previews can read your Library and any media folder you configured.',
+    })
+  }
   if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
 
   // Gate by file type only — this backend binds localhost, so the risk
@@ -544,6 +555,16 @@ router.get('/projects/:slug/video-editor/preview-media', async (req, res) => {
   } catch (e: any) {
     return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
   }
+  // CONTAINMENT. `resolveAssetPath` returns a plain absolute path unchanged, so
+  // before this the only gate was the file extension and ANY file on the machine
+  // with a matching one was streamed back — and in server mode this binds
+  // 0.0.0.0. A preview may read the Library and media folders the owner
+  // configured, nothing else. See `lib/preview-roots.ts`.
+  if (!await isPreviewablePath(filePath, slug)) {
+    return res.status(403).json({
+      detail: 'That file is outside this project. Previews can read your Library and any media folder you configured.',
+    })
+  }
   if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
   const mimeTypes: Record<string, string> = {
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
@@ -592,6 +613,16 @@ router.get('/projects/:slug/video-editor/preview-image', async (req, res) => {
     filePath = resolveAssetPath(rawPath, outputRoot)
   } catch (e: any) {
     return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
+  }
+  // CONTAINMENT. `resolveAssetPath` returns a plain absolute path unchanged, so
+  // before this the only gate was the file extension and ANY file on the machine
+  // with a matching one was streamed back — and in server mode this binds
+  // 0.0.0.0. A preview may read the Library and media folders the owner
+  // configured, nothing else. See `lib/preview-roots.ts`.
+  if (!await isPreviewablePath(filePath, slug)) {
+    return res.status(403).json({
+      detail: 'That file is outside this project. Previews can read your Library and any media folder you configured.',
+    })
   }
   if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
 

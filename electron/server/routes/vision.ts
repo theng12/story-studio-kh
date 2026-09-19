@@ -14,6 +14,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
+import { isPreviewablePath } from '../lib/preview-roots.js'
 import { GENSTUDIO_VISION_UNAVAILABLE } from '../lib/vision-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { callChatWithGenStudio, listChatModels, uploadImageSourceWithGenStudio, type GenStudioChatModel } from '../lib/genstudio-client.js'
@@ -107,6 +108,16 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
     const mime = imageMime(sourcePath)
     if (!mime || !model.accepted_image_mime_types.includes(mime)) {
       return res.status(422).json({ detail: `This model accepts ${model.accepted_image_mime_types.join(', ') || 'no published image formats'}, not this file type.` })
+    }
+    // CONTAINMENT. `source_path` comes straight from the request body. Before
+    // this the only gate was the image extension, so any image on the machine
+    // could be read AND UPLOADED to GenStudio — a read-and-exfiltrate
+    // primitive, not just a read. Same rule as the preview routes: the Library
+    // and media folders the owner configured. See `lib/preview-roots.ts`.
+    if (!await isPreviewablePath(sourcePath, slug)) {
+      return res.status(403).json({
+        detail: 'That file is outside this project. Reference images must come from your Library or a media folder you configured.',
+      })
     }
     const bytes = await fs.readFile(sourcePath)
     if (!bytes.length) return res.status(422).json({ detail: 'Reference image is empty.' })
