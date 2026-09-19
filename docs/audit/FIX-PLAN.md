@@ -254,9 +254,23 @@ nothing in some modes — they must keep today's behaviour.
            `:113` ("Subtitle stitch did not complete … Retry the local subtitle
            stitch before Scene Plan") is "repaired" by Retry taking this skip path
            — the Retry cannot repair the failure its own error named.
-      FIX: before declaring complete, require no stale sections
-      (`inspectSubtitleSourceFreshness`) and, when the mode needs it, that the
-      stitched timeline exists. Cheap, local, no auditor involved.
+      **FIXED (v1.4.189) for problems 1 and 2.** The decision is extracted as
+      `existingTranscriptIsCurrent()` in `subtitles.ts` — testable without driving
+      the generator — and now consults `inspectSubtitleSourceFreshness`, the same
+      authority the per-chapter path uses. `cues > 0` remains as the floor.
+      4 tests in `subtitle-transcript-skip.test.ts`, driving the freshness
+      authority's legacy mtime branch: audio older than the transcript → skip;
+      audio NEWER → regenerate and name the changed sections; no cues → no skip;
+      unreadable → no skip. `--only subtitle` is 352 pass / 0 fail.
+      The key case WOULD have failed before: the old predicate had no staleness
+      input at all, so it returned skip for that exact fixture.
+
+      **Problem 3, the stitch, IS STILL OPEN** and is the one that makes Retry
+      useless: this path returns before the stitch runs, so a job that failed at
+      `:113` ("Subtitle stitch did not complete… Retry the local subtitle stitch")
+      is 'repaired' by Retry taking the skip path instead. Needs its own change —
+      decide whether the whole-track mode requires the stitched timeline, and if
+      so refuse to skip when it is absent.
 
       **Still genuinely silent: `broll_normalize`** (0 calls) — examine next.
       **Not yet located:** `images_repair`, `expression_markup` — neither is a

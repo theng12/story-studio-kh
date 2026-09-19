@@ -259,6 +259,53 @@ async function resolveGenStudioTranscription(
   return { apiKey, modelId: selected.id, language }
 }
 
+/**
+ * May an existing whole-track transcript be kept instead of transcribed again?
+ *
+ * This was `existing.cues > 0`, and that alone was not enough for three reasons:
+ *
+ *  1. **No staleness check.** The per-chapter path consults `staleSections`; this
+ *     one did not, so re-running Audio and then Retry left the OLD transcript in
+ *     place and blessed it as current.
+ *  2. **`cues > 0` is not coverage.** One cue over a 40-minute episode passed.
+ *  3. It short-circuits before the stitch, which is recorded separately below.
+ *
+ * The check now also asks `inspectSubtitleSourceFreshness`, the same authority
+ * the per-chapter path uses, so "the audio changed under this transcript" cannot
+ * be skipped. Extracted as a predicate rather than inlined so the decision is
+ * unit-testable without driving the generator, which would call a provider.
+ */
+export async function existingTranscriptIsCurrent(input: {
+  projectSlug: string
+  episodeId: string
+  code: string
+  outDir: string
+}): Promise<{ skip: boolean; reason: string; cues: number }> {
+  const outPath = path.join(input.outDir, `${input.code}_whisper.srt`)
+  let cues = 0
+  try {
+    cues = normalizeSrtOrVtt(await fs.readFile(outPath, 'utf-8')).cues
+  } catch {
+    return { skip: false, reason: 'the existing transcript could not be read', cues: 0 }
+  }
+  if (!(cues > 0)) return { skip: false, reason: 'the existing transcript has no valid cues', cues: 0 }
+
+  const epaths = await resolveEpisodePathsByCodeWithSidecar(
+    input.projectSlug, input.episodeId, 'audio_chapters.json',
+  )
+  const freshness = await inspectSubtitleSourceFreshness(
+    epaths.episode_dir, epaths.audio_dir, input.outDir, input.code,
+  )
+  if (freshness.stale_sections.length) {
+    return {
+      skip: false,
+      cues,
+      reason: `the audio changed for ${freshness.stale_sections.length} section(s): ${freshness.stale_sections.join(', ')}`,
+    }
+  }
+  return { skip: true, cues, reason: `${cues} cue(s)` }
+}
+
 export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as TranscribeSubtitlesRequest
@@ -292,15 +339,17 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   const outDir = await resolveSubtitlesDir(project_slug, code)
   const outPath = path.join(outDir, `${code}_whisper.srt`)
   if (!effectiveForce && await fileExistsWithContent(outPath)) {
-    const existing = normalizeSrtOrVtt(await fs.readFile(outPath, 'utf-8'))
-    if (existing.cues > 0) {
-      job.output_lines.push(`Skipping — ${code}_whisper.srt already exists and ${existing.cues} cue(s) were verified. Tick "Re-run transcription" to overwrite.`)
+    const current = await existingTranscriptIsCurrent({
+      projectSlug: project_slug, episodeId: episode_id, code, outDir,
+    })
+    if (current.skip) {
+      job.output_lines.push(`Skipping — ${code}_whisper.srt already exists and ${current.reason} were verified. Tick "Re-run transcription" to overwrite.`)
       job.output_dir = outDir
-      ;(job as any).result = { srt_path: outPath, cues: existing.cues, skipped: true, complete: true }
+      ;(job as any).result = { srt_path: outPath, cues: current.cues, skipped: true, complete: true }
       job.progress = 100
       return
     }
-    job.output_lines.push(`Existing ${code}_whisper.srt has no valid cues — regenerating it.`)
+    job.output_lines.push(`Existing ${code}_whisper.srt is not current — regenerating: ${current.reason}`)
   }
 
   const config = await pm.getConfig(project_slug)

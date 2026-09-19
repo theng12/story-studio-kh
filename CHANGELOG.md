@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.189 — 2026-09-19
+
+- Retrying a transcription no longer keeps a transcript whose audio has changed. The existing transcript was kept whenever it had at least one cue, without checking whether the audio underneath it was still the audio it was made from — so re-running Audio and then Retry left the old captions in place and reported the job finished. It now checks the audio first, and says which chapters changed when it regenerates.
+
 ## v1.4.188 — 2026-09-19
 
 - A B-Roll render that cuts off before the narration ends is no longer reported as finished. When the clip pool is too small to cover the episode, the video simply stops at the last clip while the narration keeps going — and the step used to report Done, with the finished-video indicator green. The app now checks the pick against the narration length before signing the render off, and says so instead. This is the first of the job types that had no independent check at all.
