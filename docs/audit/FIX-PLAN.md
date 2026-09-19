@@ -295,6 +295,48 @@ nothing in some modes — they must keep today's behaviour.
       eleven types that DO declare completion — is each declaration covering its
       whole success path, or only one branch? That is the check that could still
       find a real hole, and it is reading work, not auditor writing.
+
+      **PER-FILE PASS DONE (round 23) — result below.**
+
+      Every `requireJobCompletion` in the eleven, by the shape of its numbers:
+
+      | file | declaration | verdict |
+      |---|---|---|
+      | `audio-merge.ts:1134` | `finalBytes > 0 && finalDuration > 0` | real |
+      | `music-generate.ts:308` | `planned.length - failures.length` | real |
+      | `metadata.ts:658` | `expected - missing.length` | real, but self-referential (below) |
+      | `image-prompts.ts:680` | `count - missing.length` | real |
+      | `youtube-upload.ts:499` | `expected: 1, completed: 0` | **false alarm** — inside `if (identityErrors.length)`, always throws with `invalid` |
+      | `youtube-upload.ts:570` | `sidecarErrors.length ? 0 : 1` | real |
+      | `youtube-playlist-update.ts:91` | `expected: 0, completed: 0` | deliberate opt-out (0/0 passes by design) |
+      | `youtube-playlist-update.ts:193` | `checkpointErrors.length ? 0 : 1` | real |
+      | `youtube-thumbnail-refresh.ts:235` | **`expected: 1, completed: 1`** | **TAUTOLOGY — NOT in the audit** |
+      | `youtube-thumbnail-refresh.ts:335` | `targets.length` / `durable.size` | real |
+      | `music-video.ts:150` | `stat?.isFile() && stat.size > 0` | real |
+      | `video.ts:187` | `valid ? 1 : 0` | real |
+      | `images.ts:1677` | `expectedItems.length - missing.length` | real |
+      | `contextual-cues.ts:578` | **`expected: 1, completed: 1`** | **TAUTOLOGY — the audit flagged this one** |
+
+      - [ ] **FIX `contextual-cues.ts:578`.** `{ expected: 1, completed: 1 }` asserts
+            nothing. The surrounding code validates with
+            `validateContextualCueTimeline` and writes the timeline, so the artifact
+            exists — but the declaration must come from READING IT BACK, per §8
+            ("a generator returning without throwing is not evidence"). The audit's
+            case: `parseCandidates` returning `[]` for every batch saves a 0-cue
+            timeline that is then certified as a verified proposal. Decide whether
+            0 cues is a legitimate outcome for this product before choosing between
+            `completed: written.length ? 1 : 0` (fails an empty proposal) and
+            recording the count while passing. **That is a product question, not a
+            mechanical one** — ask rather than guess.
+      - [ ] **FIX `youtube-thumbnail-refresh.ts:235`.** Same tautology, and the
+            audit MISSED it: the declaration sits after a successful upload (the
+            error branch rethrows first), so it certifies on the strength of "did
+            not throw". Verify the thumbnail actually changed — the PATCH result or
+            the operation record's action state — rather than asserting a constant.
+      - [ ] `metadata.ts:658` — `completed: expected - missing.length` where the
+            audit notes the expected counts come from the same in-memory arrays
+            being checked (self-referential). Lower priority: the numbers are
+            computed, just not independently sourced.
       **Not yet located:** `images_repair`, `expression_markup` — neither is a
       `generators/*.ts` file, so they are handled elsewhere; find them before
       concluding anything.
