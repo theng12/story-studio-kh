@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.183 — 2026-09-19
+
+- Corrected the archive-scan limit above. The first attempt refused any folder outside your Library, which also refused an external drive you had deliberately pointed it at — it would have broken a working feature to close a hole. It now refuses only a root that means "everything": the whole disk, your home folder, or a path too shallow to be a specific folder.
+
 ## v1.4.182 — 2026-09-19
 
 - "Force re-run" is no longer still ticked on your next batch. It is a per-run choice, but it was never cleared — not when the dialog closed, not when the run finished, and not when you switched channels — so one forced run left every later Run Batch opening with Force already on and the button reading "Start batch (force)". Pressing Start then regenerated every selected stage and repeated the charges.
@@ -11,7 +15,7 @@ What's new in each release. Newest first.
 
 ## v1.4.181 — 2026-09-19
 
-- The Library archive scan can no longer be pointed at your whole disk. It reads and hashes every file it is given, and the folder it was asked to scan came from the request unchecked — so asking it to scan `/` walked and hashed everything on the Mac. It now refuses any folder outside your Library.
+- The Library archive scan can no longer be pointed at your whole disk. It reads and hashes every file it is given, and the folder it was asked to scan came from the request unchecked — so asking it to scan `/`, or your home folder, walked and hashed everything on the Mac. Scanning a folder you chose still works, including one on an external drive; what is refused is a root that means "everything".
 
 ## v1.4.180 — 2026-09-19
 
