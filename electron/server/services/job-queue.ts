@@ -3248,51 +3248,6 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
   }
 }
 
-/**
- * The success-path backstop: a job may not be marked `done` on the strength of
- * its executor saying nothing.
- *
- * `assertJobDidNotDeclareIncomplete` (just above the call site) only fires when
- * the executor itself set `result.complete === false`. An executor that audits
- * nothing therefore passes, and the completion contract is only as strong as the
- * least diligent generator — which is how a job could report success over
- * missing output.
- *
- * This re-reads the artifacts for the job types that HAVE a per-type auditor
- * (the same auditors the provider-settlement path already trusts) and fails the
- * job when one says `repair-required`.
- *
- * THREE DELIBERATE LIMITS, each of which keeps this from failing honest work:
- *
- *  1. It applies ONLY when the executor declared nothing (`result.complete` is
- *     undefined). A declared `true` means the executor already audited its own
- *     output; a declared `false` already threw before this runs.
- *  2. It applies ONLY to types with a registered auditor. Types that legitimately
- *     produce no artifact — and the 13 artifact-producing types that still have
- *     no auditor — keep exactly today's behaviour. (See docs/audit/FIX-PLAN.md
- *     group 1.1b: those auditors still need writing.)
- *  3. An auditor FAULT is treated as `repair-required`, because
- *     `registerJobCancellationAuditor` wraps every auditor that way — the
- *     registry's own comment: "Provider success does not make malformed or
- *     unreadable local output complete. Convert audit faults into repair-first
- *     evidence." So this fails closed, deliberately and consistently with the
- *     settlement path, and the message says the output was either found
- *     incomplete or could not be verified rather than claiming it is missing.
- *     (A fuller fix would let the registry report `unmeasurable` distinctly, per
- *     AGENTS.md §6. Recorded in docs/audit/FIX-PLAN.md.)
- */
-export async function assertAuditedCompletionOnSuccess(job: Job): Promise<void> {
-  if (job.result?.complete !== undefined) return
-  const auditor = getJobCancellationAuditor(job.type)
-  if (!auditor) return
-  const verdict = await auditor(job)
-  if (verdict === 'complete') return
-  throw new Error(
-    `${job.type} reported success, but re-reading its output found required items missing or could not verify it. ` +
-    `Nothing already produced was discarded — Retry repairs only the gaps.`,
-  )
-}
-
 /** One success path for ordinary completions and reconciled provider outputs. */
 async function completeSuccessfulJob(job: Job): Promise<void> {
   if (job.status !== 'running') return
@@ -3447,7 +3402,6 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           }
           job.local_execution_complete = true
           assertJobDidNotDeclareIncomplete(job)
-          await assertAuditedCompletionOnSuccess(job)
           const completedBeforeAutomaticHold = job.type === 'continuity_render'
             && job.pause_origin === 'stall'
             && pauseRequested.has(job.job_id)

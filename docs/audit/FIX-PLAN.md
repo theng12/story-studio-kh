@@ -93,22 +93,43 @@ nothing in some modes — they must keep today's behaviour.
 
 **So this group is two steps, and the first is still the right first:**
 
-- [x] **(1a)** Run the existing auditor on the ordinary success path for the 11
+- [ ] **(1a)** Run the existing auditor on the ordinary success path for the 11
       types that have one. Apply only when the executor declared nothing
       (`result.complete === undefined`) — a declared `true` means the executor
       already audited, and a declared `false` already throws. Behaviour changes
       only for a job whose executor audited nothing AND whose auditor finds a
       problem.
-      **DONE — commit `a8d15229`, v1.4.186.** `assertAuditedCompletionOnSuccess`
-      in `job-queue.ts`, called from `completeSuccessfulJob` right after
-      `assertJobDidNotDeclareIncomplete`. 6 tests in
-      `job-success-completion-audit.test.ts`.
-      *Correction found by the test:* an auditor FAULT is fail-closed, not
-      fail-open — `registerJobCancellationAuditor` wraps every auditor with
-      `catch { return 'repair-required' }`, so my first version's try/catch was
-      unreachable and its comment described the opposite of the behaviour.
-      *Worth a later refinement:* the registry flattens "unmeasurable" and
-      "found missing" into one verdict. §6 would want them distinguishable.
+
+      **ATTEMPTED AND REVERTED (round 13).** Commit `a8d15229` added
+      `assertAuditedCompletionOnSuccess` and the full gate failed immediately,
+      in `remote cancellation checkpoints`:
+
+        ✖ simultaneous final provider updates run the auditor and terminal
+          transition once
+        ✖ provider success during a live executor waits for local output before
+          auditing or releasing the lock
+
+      **Why it was wrong.** The PROVIDER-SETTLEMENT path already audits
+      (`job-queue.ts:955`), and is stricter than I assumed: for a type with no
+      auditor it refuses to finish at all — *"Provider work settled, but no
+      output auditor is registered. Keeping this job running until output can be
+      verified."* My addition ran the auditor a SECOND time on the same job, and
+      those tests pin "the auditor and terminal transition run ONCE".
+
+      **The correct target.** The hole is not "the success path audits nothing"
+      — it is narrower: **the path where no provider settlement audit ran**, i.e.
+      local-only completions and types the settlement path never reaches. The
+      fix must be scoped to that path, not applied blanket at
+      `completeSuccessfulJob`. Do not re-derive this from the audit report; the
+      report's recommendation ("run the existing auditor on the success path")
+      was based on the premise that it was wired to only one path, and the
+      stronger truth is that the settlement path is already the audit.
+
+      **Next attempt, in order:** (i) find what marks a job as already audited by
+      the settlement path; (ii) scope the new check to jobs that lack that mark;
+      (iii) write the test as "the auditor runs ONCE when both paths could fire",
+      which is the test that was missing from the first attempt and is the whole
+      reason the gate caught it.
 - [ ] **(1b)** Write auditors for the 13 artifact-producing types above, starting
       with the four that cost or lose the most: `broll_assemble` (truncated
       video), `audio_merge` (transcription on a stale mix), `youtube_upload`
