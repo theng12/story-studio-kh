@@ -272,7 +272,29 @@ nothing in some modes — they must keep today's behaviour.
       decide whether the whole-track mode requires the stitched timeline, and if
       so refuse to skip when it is absent.
 
-      **Still genuinely silent: `broll_normalize`** (0 calls) — examine next.
+      **`broll_normalize` ALSO shrinks — it already fails loudly.** `normalizeBroll`
+      throws for a missing pool/filename, an offline pool ("plug in the SSD"),
+      a missing source clip, and — the one that matters — a missing or EMPTY
+      output: `if (!stat.isFile() || stat.size <= 0) throw new Error('Normalized
+      clip is empty')`. So it proves non-emptiness; it does not need an auditor to
+      stop reporting done over a MISSING file.
+
+      Its only real gap is narrower than the audit implied: a non-empty but
+      UNPLAYABLE encode would pass, and it declares nothing structurally. The repo
+      already has `assertPlayableSceneClip` (used by the scene-clip auditors) if
+      that is judged worth adding. NOT a group-1 correctness hole.
+
+      **CONCLUSION FOR 1.1b: there is no remaining "reports done over missing
+      output" generator among the types the audit named.** All three it called
+      silent either proved their output already (`broll_normalize`), proved it
+      through a manifest (`subtitles`), or are now fixed (`broll_assemble`). The
+      audit's central claim for this group was overstated; the enumeration found
+      the real gap, which was one skip path in `subtitles.ts`.
+
+      WHAT REMAINS IN 1.1b is therefore only the per-file judgement pass over the
+      eleven types that DO declare completion — is each declaration covering its
+      whole success path, or only one branch? That is the check that could still
+      find a real hole, and it is reading work, not auditor writing.
       **Not yet located:** `images_repair`, `expression_markup` — neither is a
       `generators/*.ts` file, so they are handled elsewhere; find them before
       concluding anything.
