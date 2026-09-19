@@ -132,6 +132,33 @@ export function stripDecorativePrefix(name: string): string {
   return name.replace(/^[\s\p{Emoji}\p{Symbol}✅✔️]+/u, '').trim()
 }
 
+/**
+ * Does this directory name belong to episode `code`?
+ *
+ * Four separate searches used a bare `name.toUpperCase().startsWith(CODE)` to
+ * answer this. That cannot collide while every episode code in a project is the
+ * same width — and `episode_digits` is project-wide — but it is one setting
+ * change away from `EP0001` claiming `EP00012`'s folder, silently, first-hit-
+ * wins, in traversal order.
+ *
+ * MEASURED 2026-09-20 against the live library before tightening it: of 4,971
+ * distinct episode folders, **4,971** are exactly `{CODE} - {Title}` — the count
+ * matching `^EP\d{4} - ` is all of them, and the count with any other character
+ * after the code is zero. So exact equality or `{code} + " - "` matches every
+ * real folder, and the strict rule costs nothing today while removing the
+ * dependency on codes staying fixed-width.
+ *
+ * Decorative prefixes are stripped first and the already-stripped input is
+ * accepted too, because `buildEpisodeDirOrder` stores names pre-cleaned.
+ * Stripping is idempotent, so callers need not care which form they hold.
+ */
+export function episodeDirNameMatchesCode(dirName: string, code: string): boolean {
+  const clean = stripDecorativePrefix(dirName).toUpperCase()
+  const wanted = code.toUpperCase()
+  if (!wanted) return false
+  return clean === wanted || clean.startsWith(`${wanted} - `)
+}
+
 // ── Script / Introduction detection (asset-readiness contract) ────────────
 //
 // Centralised here so `buildRow` in routes/ideas.ts and any future caller
@@ -363,7 +390,7 @@ async function findEpisodeDir(
     }
     try {
       for (const entry of await cache.episodeDirs.index) {
-        if (entry.upper.startsWith(CODE)) return entry.path
+        if (episodeDirNameMatchesCode(entry.upper, CODE)) return entry.path
       }
       return null
     } catch {
@@ -379,8 +406,7 @@ async function findEpisodeDir(
       const entries = await fs.readdir(dir, { withFileTypes: true })
       for (const e of entries) {
         if (!e.isDirectory()) continue
-        const clean = stripDecorativePrefix(e.name).toUpperCase()
-        if (clean.startsWith(CODE)) return path.join(dir, e.name)
+        if (episodeDirNameMatchesCode(e.name, CODE)) return path.join(dir, e.name)
       }
       for (const e of entries) {
         if (!e.isDirectory()) continue

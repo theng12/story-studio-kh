@@ -19,6 +19,7 @@ import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
 import { resolveSubfolderNames, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
+import { episodeDirNameMatchesCode } from '../services/asset-status.js'
 import { runFfmpeg, getAudioDuration, formatConcatFileLine, appendCappedTail } from '../lib/ffmpeg-utils.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
@@ -123,8 +124,7 @@ async function findEpisodeDir(projectDir: string, code: string): Promise<string 
       const entries = await fs.readdir(dir, { withFileTypes: true })
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
-        const cleanName = entry.name
-        if (cleanName.toUpperCase().startsWith(code)) {
+        if (episodeDirNameMatchesCode(entry.name, code)) {
           return path.join(dir, entry.name)
         }
       }

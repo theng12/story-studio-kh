@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.192 — 2026-09-20
+
+- Story Studio is now strict about which episode folder belongs to which episode. Five separate searches matched a folder by asking only whether its name *started with* the episode code, so `EP0001` would have accepted a folder named for `EP00012` — silently, and whichever it hit first. Every project currently uses the same code width, so this could not actually go wrong yet, but that safety came from your data rather than from the code. The rule is now an exact match on the code, or the code followed by " - ", which every one of the 4,971 episode folders in your library already uses. The same strict rule now also guards the media-cleanup check that decides which files may be deleted.
+
 ## v1.4.191 — 2026-09-20
 
 - Retrying subtitles can now actually perform the repair it asks for. When a subtitle run left the stitched timeline missing, the app told you to "retry the local subtitle stitch before Scene Plan" — and the retry took a shortcut that returned *before* the stitch, so pressing it changed nothing and the same message came back. A retry now stitches, confirms the timeline was written, and only then reports the job finished. It still reuses the transcript already on disk, so repairing the local file costs nothing.

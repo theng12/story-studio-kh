@@ -545,14 +545,50 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       the new episode.
 - [ ] `character-sheet.vue:534`, `motion-review.vue:886`, `metadata.vue:279` —
       replaced only on a *successful* load, never blanked.
-- [ ] The ownership-by-prefix matcher, four copies:
-      `asset-status.ts:366` + `:383`, `manifest-audit.ts:127`,
-      `audio-merge.ts:119/127`, `folder-resolver.ts` (site not yet located).
-      Proposed rule: match `code` or `` `${code} - ` ``, never a bare
-      `startsWith`.
+- [x] **DONE, v1.4.192.** The ownership-by-prefix matcher. There were **FIVE**
+      sites, not four — the plan's list was wrong twice: `folder-resolver.ts`
+      does exist (at `electron/server/lib/folder-resolver.ts:132`, missed by a
+      first grep because it reads `codeUpper`, not `code`), and
+      `asset-status.ts:660` was listed as a sixth but is an exact-equality match
+      and not in this class.
 
-      **ROUND 27 — SETTLED BY MEASUREMENT. Reading 1 was right, but only
-      incidentally, and the strict rule is now safe to apply mechanically.**
+      All five now call one exported predicate,
+      `episodeDirNameMatchesCode(dirName, code)` in `services/asset-status.ts`
+      (exact code, or `code + " - "`, after `stripDecorativePrefix`):
+      `asset-status.ts` index `:393` and search `:409`,
+      `manifest-audit.ts:126`, `audio-merge.ts:127`, `folder-resolver.ts:133`.
+
+      **A SIXTH, worse site was found while sweeping:**
+      `services/episode-media-cleanup.ts:369` — and it was the only one on a
+      destructive path. That gate decides whether a media root may be
+      ENUMERATED FOR DELETION; a bare prefix there meant `EP0001`'s cleanup
+      could accept an `EP00012 - ...` ancestor. It is now on the same predicate.
+      **Caveat, stated plainly:** I could not build a test that reaches the
+      collision, and my first attempt proved the premise wrong in a useful way —
+      the guard's owner segment is the *app-generated* episode folder, so it
+      always carries the real code and the mismatch is unreachable by
+      construction. **This change is therefore defensive hardening, not a fix
+      for a reachable data-loss bug**, and I have not claimed otherwise. It can
+      only make the guard stricter, so it cannot cause a deletion.
+
+      Tests: `electron/server/__tests__/episode-dir-prefix-ownership.test.ts`
+      (6). Three cover the rule; three drive the two `asset-status` sites
+      end-to-end — the uncached `search` and the cached in-memory tree index —
+      with a fixture whose ONLY folder is `EP00012 - Impostor`. **Proven red:**
+      against the old bare-prefix rule exactly the 3 collision tests fail, at
+      both sites, while the "a real folder is still found" tests keep passing.
+      The other three sites share the same predicate, so they are covered by
+      construction rather than by their own fixtures — recorded as a known
+      limit, not glossed.
+
+      The misleading comment at `services/utils.ts:118-130` was rewritten in the
+      same change: it described the rule as a prefix test and cited the
+      `EP0001`/`EP00012` example as the reason the index must stay ordered. The
+      ordered-not-Map argument still holds (first hit in traversal order decides
+      *which* folder wins when a project holds duplicates), so that part was kept.
+
+      **ROUND 27 — SETTLED BY MEASUREMENT.** Reading 1 was right, but only
+      incidentally, and the strict rule is safe to apply mechanically.
 
       Enumerated every episode folder in the live library
       (`find <projects> -maxdepth 5 -type d -name 'EP*'`, 4,971 distinct names):

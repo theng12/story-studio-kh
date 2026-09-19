@@ -118,10 +118,18 @@ export interface ProjectFactsCache {
    * answer a question whose answer is the same for every episode in the request.
    *
    * Walking it once per request turns each of those searches into an in-memory
-   * scan. Ordered, NOT a Map: the match rule is a PREFIX test
-   * (`name.startsWith(CODE)`) returning the FIRST hit in traversal order, so a
-   * Map keyed on the exact code would silently pick a different folder
-   * whenever two share a prefix (`EP0001` vs `EP00012`).
+   * scan. Ordered, NOT a Map, because the match still resolves by being the
+   * FIRST hit in traversal order — `episodeDirNameMatchesCode` decides *whether*
+   * a folder belongs to the code, and the walk order decides *which* folder wins
+   * when the same project holds more than one. A Map keyed on the exact code
+   * would silently pick a different folder than the original search did.
+   *
+   * v1.4.192 — this used to describe the rule as a bare prefix test and cite
+   * `EP0001` vs `EP00012` as the reason a Map would be wrong. That example is
+   * now unreachable: the rule is `exact code` or `code + " - "`, so a longer
+   * code no longer matches (see `episodeDirNameMatchesCode`, and the 4,971-folder
+   * measurement recorded there). The ordering argument above never depended on
+   * the loose rule and still holds.
    */
   episodeDirs?: { root: string; index: Promise<Array<{ upper: string; path: string }>> }
   /**

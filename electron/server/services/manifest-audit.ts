@@ -46,7 +46,7 @@ import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { readManifest as readTaskManifest } from './task-manifest.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
-import { stripDecorativePrefix } from './asset-status.js'
+import { episodeDirNameMatchesCode, stripDecorativePrefix } from './asset-status.js'
 
 export type AuditStage =
   | 'audio'
@@ -123,8 +123,7 @@ async function findEpisodeDir(root: string, code: string): Promise<string | null
     } catch { return null }
     for (const e of entries) {
       if (!e.isDirectory()) continue
-      const clean = stripDecorativePrefix(e.name).toUpperCase()
-      if (clean.startsWith(CODE)) return path.join(d, e.name)
+      if (episodeDirNameMatchesCode(e.name, CODE)) return path.join(d, e.name)
     }
     for (const e of entries) {
       if (!e.isDirectory()) continue

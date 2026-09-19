@@ -22,6 +22,7 @@
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
+import { episodeDirNameMatchesCode } from '../services/asset-status.js'
 
 /** Strip the user-applied "✅ " done-marker prefix from a folder name. */
 function cleanName(name: string): string {
@@ -129,7 +130,7 @@ export async function findEpisodeDir(
       }
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
-        if (cleanName(entry.name).toUpperCase().startsWith(codeUpper)) {
+        if (episodeDirNameMatchesCode(entry.name, codeUpper)) {
           return path.join(dir, entry.name)
         }
       }
