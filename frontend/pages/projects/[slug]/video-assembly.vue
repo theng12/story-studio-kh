@@ -2927,10 +2927,28 @@ const unifiedTimingProblems = computed<string[]>(() => {
   const out: string[] = []
   const cov = scannedAssets.value?.scene_plan_coverage
   if (cov && cov.total > 0 && cov.ready !== cov.total) {
+    // These are ARRAYS of `{ id, scene_index }` (see the backend's
+    // `scene_plan_coverage`), not counts. Interpolating them printed literal
+    // "[object Object]" in the one sentence that explains why Generate is
+    // disabled — so the reader could not learn which scenes to fix. Count them,
+    // and name the scene numbers, which is what the reader actually needs.
+    const nameScenes = (rows: unknown): string => {
+      if (!Array.isArray(rows) || rows.length === 0) return ''
+      const numbers = rows
+        .map((row: any) => Number(row?.scene_index))
+        .filter((n: number) => Number.isFinite(n))
+        .sort((a: number, b: number) => a - b)
+      const shown = numbers.slice(0, 8).join(', ')
+      const rest = numbers.length > 8 ? ` +${numbers.length - 8} more` : ''
+      return shown ? ` (scene${numbers.length === 1 ? '' : 's'} ${shown}${rest})` : ''
+    }
     const bits: string[] = []
-    if (cov.missing) bits.push(`${cov.missing} missing image(s)`)
-    if (cov.unapproved) bits.push(`${cov.unapproved} not approved`)
-    if (cov.stale) bits.push(`${cov.stale} stale`)
+    if (cov.missing?.length) bits.push(`${cov.missing.length} missing image(s)${nameScenes(cov.missing)}`)
+    if (cov.unapproved?.length) bits.push(`${cov.unapproved.length} not approved${nameScenes(cov.unapproved)}`)
+    if (cov.stale?.length) bits.push(`${cov.stale.length} stale${nameScenes(cov.stale)}`)
+    // A payload that says "not all ready" but names nothing must still read as a
+    // sentence rather than trailing off after the dash.
+    if (bits.length === 0) bits.push('some scenes need attention in Scene Review')
     out.push(`${cov.ready}/${cov.total} scenes are render-ready — ${bits.join(', ')}.`)
   }
   if (t.head_gap_sec > 0) {

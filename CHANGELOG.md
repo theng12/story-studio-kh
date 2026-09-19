@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.178 — 2026-09-19
+
+- The buttons that stop running work are reachable again. Jobs shows each job in a card, and the card clipped its own "More actions" menu, so with more than one secondary control (Cancel, Stop local work, Pause new submissions, Clear history) the trailing ones were cut off with no scrollbar and could not be clicked at all.
+- A sentence that explains why a render is blocked no longer prints `[object Object]`. It read each group of scenes as if it were a number, so instead of "3 missing image(s)" it printed the raw objects — and this is the only sentence telling you which scenes to fix. It now counts them and names the scene numbers.
+- The quiet "ghost" button style now works everywhere. It was defined inside one dialog's private styles, so the other 52 buttons using it across the app rendered with no border and no hover feedback.
+- The "More actions" menu is bounded and scrolls, so a job with many controls cannot run off the bottom of the window.
+
 ## v1.4.177 — 2026-09-19
 
 - Closed five ways a single request could have destroyed your library, found by an audit of every one of the app's 53 route files. The worst was one HTTP request that deleted the entire Library — every project, and all 107 GB of media. It is fixed, and so are the four others of the same shape: one that deleted a whole project, one that deleted a whole season of episodes, one that deleted any `.json` file on the machine, and one that deleted any file from the music pool by naming a path instead of a track.

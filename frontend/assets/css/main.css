@@ -176,6 +176,24 @@ a:hover {
   border-color: var(--border-light);
 }
 
+/* The quiet third button. This lived ONLY inside ConfirmDialog's `<style
+   scoped>` block, so it compiled to `.btn-ghost[data-v-685856ab]` and matched
+   nothing anywhere else: `class="btn btn-ghost"` appears 52 times across the
+   app (publish.vue, settings.vue, broll.vue, music.vue, the upload pages…), and
+   every one of those buttons rendered with no border and no hover feedback —
+   `.btn` sets `border: none` and no background. The typography gate sees a
+   valid font size and passes. Declared here so it is reachable app-wide. */
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
 .btn-danger {
   background: rgba(248, 113, 113, 0.15);
   color: var(--error);
