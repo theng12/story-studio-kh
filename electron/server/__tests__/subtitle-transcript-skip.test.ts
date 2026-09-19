@@ -114,4 +114,39 @@ describe('an existing whole-track transcript is kept only while it is current', 
     assert.equal(verdict.skip, false)
     assert.match(verdict.reason, /could not be read/i)
   })
+
+  /**
+   * v1.4.193 — "I could not measure the audio" was reported as "the audio is
+   * unchanged", by two different routes. Both made a deleted narration file
+   * read as a current transcript, so the skip kept captions for audio that no
+   * longer exists. AGENTS.md §6: a zero that means two things is a defect.
+   */
+  test('narration that cannot be stat-ed does not read as unchanged (mtime branch)', async () => {
+    await writeFixture()
+    // Transcript strictly newest, so ONLY the unmeasurable audio can decide.
+    await setMtimes(
+      [path.join(audioDir, `${EPISODE}_${SECTION}.mp3`), path.join(outDir, `${EPISODE}_${SECTION}.srt`)],
+      [path.join(outDir, `${EPISODE}_whisper.srt`)],
+    )
+    await fs.rm(path.join(audioDir, `${EPISODE}_${SECTION}.mp3`), { force: true })
+
+    const verdict = await run()
+    assert.equal(verdict.skip, false, 'a missing narration file must not read as "unchanged"')
+    assert.match(verdict.reason, /audio changed/i)
+  })
+
+  test('narration that cannot be re-hashed does not read as a match', async () => {
+    await writeFixture()
+    const { hashSubtitleAudioSources } = await import('../services/subtitle-completion.js')
+    const hash = await hashSubtitleAudioSources([path.join(audioDir, `${EPISODE}_${SECTION}.mp3`)])
+    assert.ok(hash, 'the fixture must be able to hash its narration')
+    await fs.writeFile(path.join(outDir, '.subtitle-recovery.json'), JSON.stringify({
+      sections: { [`${EPISODE}_${SECTION}.srt`]: { sourceAudioHash: hash } },
+    }))
+    await fs.rm(path.join(audioDir, `${EPISODE}_${SECTION}.mp3`), { force: true })
+
+    const verdict = await run()
+    assert.equal(verdict.skip, false, 'an unreadable source is not evidence that it matches')
+    assert.match(verdict.reason, /audio changed/i)
+  })
 })

@@ -511,16 +511,44 @@ these are the specific lies a user can hit today.
 
 ## 1.3 Duplicate upload across projects
 
-- [ ] `video-claims.json` has one reader and one writer, both inside
-      `acceptYouTubeOperation` — i.e. **after** YouTube accepted the bytes.
-      Admission (`routes/youtube-upload-center.ts:2218`) asks only
-      `remoteVideoFor`, which is project-scoped. Two projects sharing an episode
-      code on the same channel can both upload; the conflict is then downgraded
-      to a warning (`generators/youtube-upload.ts:511`).
-      **Fix at admission**, and let a `completeYouTubeOperation` conflict fail
-      the job loudly. Needs a design decision on where the cross-project claim
-      is read — the claims store keys on `(channel, video)` and does not carry
-      the episode code.
+- [ ] **ROUND 29 — TRACED. The plan's own prescription is WRONG; do not apply
+      it.** Two separate questions were bundled here, and they have different
+      answers.
+
+      **What is true.** `video-claims.json` is the only cross-project store
+      (`services/youtube-operation-store.ts:177`, global under userDataDir),
+      keyed `(channel_id, video_id)` with an owner of
+      `(project_slug, operation_id)` — **it carries no episode code**. Everything
+      admission asks (`routes/youtube-upload-center.ts:2218`) goes through
+      `remoteVideoFor`, whose every branch reads *this* project's operation
+      records and *this* project's publishing state. So project B cannot see
+      project A's upload of the same episode code. That part of the finding is
+      correct.
+
+      **"Let `completeYouTubeOperation` conflict fail the job loudly" is
+      wrong, and would be a regression.** That call sits in
+      `generators/youtube-upload.ts:506-520`, *after* YouTube has accepted the
+      bytes and returned a permanent video id. The existing comment says exactly
+      why the failure is downgraded to a warning: the video is already uploaded,
+      so failing the job invites a retry that **uploads it a second time** —
+      spending quota to duplicate a video that is already live. AGENTS.md §8
+      demands the opposite: preserve valid partial output and make Retry repair
+      *without repeating completed work*. The warning is the correct behaviour,
+      and a loud failure here would be a worse defect than the one it claims to
+      fix.
+
+      **The real fix needs a decision, because it changes what users may do.**
+      Admission cannot ask "has any project already uploaded this channel +
+      episode code?" while the claim has no episode code. Adding one (schema v2
+      plus a v1 migration that reads old claims as "episode unknown") makes the
+      question answerable — but the answer then **refuses to upload an episode
+      code that another project has already used on that channel**. Two
+      different series legitimately sharing one channel, each with its own
+      "Episode 1", would be blocked. That is a product decision, not a code
+      decision → recorded below as an owner decision.
+
+      Until it is answered, **the safe change is not to change this**, and the
+      existing warning must stay a warning.
 
 ---
 
@@ -536,6 +564,43 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       the script preset; plus the per-run `force` flag.
 - [ ] `services/audio-reconciler.ts:157` — `|| audioJobs[0]` takes **another
       episode's** TTS model to predict this episode's chunk split.
+
+      **ROUND 29 — CONFIRMED as a §4 leak, but NOT a clear-cut fix; both
+      available answers have a real cost, so this is an owner decision.**
+
+      The defect is real and I traced the damage: the borrowed model is turned
+      into `requestBudget` via `resolveTtsRequestBudget`, and `requestBudget`
+      decides how the section is split (`splitGenStudioApiRequests`) and
+      therefore **which `_partN.mp3` filenames this episode is expected to
+      have**. So the failure mode is a wrong number, not a crash: episode A
+      generates under a model with a 3,000-character boundary, the customer
+      switches to a model with a 6,000 boundary, episode B's own job has aged
+      out, B borrows A's model id, predicts `_part1/_part2` for a section that
+      the new model renders as one file — and B reports missing parts that were
+      never supposed to exist. Nothing announces it.
+
+      I did **not** simply delete `|| audioJobs[0]`, because the honest
+      replacement is a regression. There is **no per-episode record of the TTS
+      model** — I looked; `audio_chapters.json` does not carry one and the audio
+      generator persists no model field, so "resolve it from this episode's own
+      artifacts" is not available. The only two options are:
+
+      (a) **Borrow (today).** May be wrong after a model change, and is wrong
+          silently.
+      (b) **Blank it.** Falls into the `requestBudget === undefined` path at
+          `:182-193`, which expects the section as **one request**. That is
+          honest, but for an episode whose files genuinely are `_part1/_part2`
+          it predicts the wrong filenames and reports **false missing parts** —
+          trading a silent wrong number for a loud wrong answer.
+
+      Neither is derivable, which is exactly the condition AGENTS.md §4 gives
+      for escalating rather than ruling from the code. The design that would
+      actually settle it is to make the model derivable — record the TTS model
+      id (and the boundary it implied) in the episode's own audio sidecar at
+      generation time, then resolve from that, falling back to (b) only when the
+      sidecar predates the change. That is the recommendation, and it is a
+      schema addition plus a migration, so it wants the owner's go-ahead →
+      recorded below.
 - [ ] `image-prompts.vue:1398` — episode-scoped cast ids persist in a
       project-only blob and are submitted for the new episode.
 - [ ] `broll.vue:922` — selection / narration target not cleared.
@@ -631,8 +696,20 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       "0 B" and the space cannot be reclaimed. Use the repo's own
       `MERGED_AUDIO_FILENAME` shape.
 - [ ] `music-library.ts:132` — unmeasured tracks understate "usable minutes".
-- [ ] `subtitle-completion.ts:189` — a failed `stat` becomes mtime 0 = "not
-      stale".
+- [x] **DONE, v1.4.193.** `subtitle-completion.ts:189` — a failed `stat` became
+      mtime 0 = "not stale". **The finding was right and understated: there were
+      TWO routes, not one.** The reported one was the legacy mtime branch
+      (`stat?.mtimeMs || 0`, where a missing file yields 0, which is never newer
+      than the SRT). The second is the byte-identity branch directly above it:
+      `if (currentHash && savedHash !== currentHash)` — `hashSubtitleAudioSources`
+      returns `null` for "I could not read the audio", and `null && …` is falsy,
+      so an unreadable source was folded into "the bytes are unchanged".
+      **Both made a deleted narration file read as a CURRENT transcript.**
+
+      Fixed both: an unmeasurable hash is stale, and a failed `stat` on any
+      source file is stale. Tests in `subtitle-transcript-skip.test.ts` (now 6),
+      one per branch. **Proven red:** with the old expressions restored, both
+      fail; the other four keep passing. `--only subtitle` 356/356.
 - [ ] `sound-design.ts:70` — `Math.max(0, ...[])` manufactures a 0 timeline.
 - [ ] `soft-delete.ts:157` — the `-1` "unknown size" sentinel is unreachable;
       an unreadable folder reports 0 B.
@@ -761,6 +838,24 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
 5. **`ttl-cache.ts`** — delete the module and its test?
 6. **Four chat models publish `max_output_tokens: null`** — grey them out, or
    leave selectable and fail at submit?
+
+7. **Cross-project duplicate upload** (Group 1.3, round 29). Should an upload be
+   refused when *another project* has already used this episode code on the same
+   YouTube channel? Saying yes is the plan's finding, and needs an `episode_code`
+   field added to `video-claims.json` (schema v2 + migration). Saying yes also
+   blocks two different series that legitimately share one channel and both have
+   an "Episode 1". I have deliberately NOT changed this, and I have deliberately
+   NOT made the post-upload bookkeeping conflict fail loudly — see 1.3 for why
+   that would invite a second upload of a video that is already live.
+8. **The reconciler's borrowed TTS model** (Group 2, round 29). Today the audio
+   reconciler takes the project's most recent audio job's model when this
+   episode has no job of its own, which can predict the wrong `_partN` filenames
+   after a model change. The honest alternatives are "borrow" (silently wrong
+   after a model change) or "blank" (loudly wrong for genuinely multi-part
+   episodes), and neither is derivable because no per-episode record of the TTS
+   model exists. My recommendation is to add that record to the episode's own
+   audio sidecar and resolve from it — a schema addition plus migration. Your
+   call.
 
 Everything else in this plan is unblocked and I will proceed unless told
 otherwise.

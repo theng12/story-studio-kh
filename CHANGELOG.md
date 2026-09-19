@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.193 — 2026-09-20
+
+- Subtitles are no longer kept on the strength of narration the app cannot find. Deciding whether an existing transcript was still current compared the audio to the transcript, but when a narration file was missing or unreadable that came out as "unchanged" rather than "unknown" — so an episode whose audio had been deleted kept its old captions and reported the transcript up to date. Not being able to read the audio is now treated as the audio having changed.
+
 ## v1.4.192 — 2026-09-20
 
 - Story Studio is now strict about which episode folder belongs to which episode. Five separate searches matched a folder by asking only whether its name *started with* the episode code, so `EP0001` would have accepted a folder named for `EP00012` — silently, and whichever it hit first. Every project currently uses the same code width, so this could not actually go wrong yet, but that safety came from your data rather than from the code. The rule is now an exact match on the code, or the code followed by " - ", which every one of the 4,971 episode folders in your library already uses. The same strict rule now also guards the media-cleanup check that decides which files may be deleted.
