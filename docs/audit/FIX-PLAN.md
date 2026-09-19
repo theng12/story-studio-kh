@@ -185,6 +185,51 @@ nothing in some modes — they must keep today's behaviour.
       video), `audio_merge` (transcription on a stale mix), `youtube_upload`
       (claims success over a failed upload), `music_generate` (unmeasurable
       tracks counted complete).
+
+      **1.1a IS DONE AND GATE-VERIFIED (v1.4.187, commit `ebaf4e97`).** Full gate
+      5383/5383, 476/476 files, 0 fail. Read the design notes below before
+      starting 1.1b — an auditor written to the wrong contract will fail the
+      once-only tests.
+
+      **THE AUDITOR CONTRACT** (from `auditScenePlanOutput`, the cleanest
+      example, `boot/executors.ts`):
+
+        export async function auditX(job: any): Promise<'complete' | 'repair-required'> {
+          const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+          … read the authoritative artifacts off disk, name what is missing …
+        }
+
+      Registered with `registerJobCancellationAuditor(type, auditX)` in
+      `boot/executors.ts`, inside the same block as the existing 11. It takes
+      `job: any` and must RE-DERIVE everything from disk — it may not trust
+      anything on the job except `project_slug`, `episode_id`, `title` and
+      `params`. It returns a verdict; it throws only on programmer error
+      (`registerJobCancellationAuditor` converts a throw into
+      `repair-required`).
+
+      **Do NOT add a completion call to the generator.** 1.1a already runs the
+      auditor on the local completion path for any type that has one. Registering
+      the auditor is the whole fix — that is the point of having centralised it.
+
+      **`broll_assemble` — the design, worked out and ready to write:**
+        - the selection sidecar (`services/broll-selection-sidecar.ts`
+          `getSelectionSidecar(project_slug, episode_id, title)`) carries
+          `target_duration: number` — the narration length the selection must
+          cover — and `selection[]`, each with its own `target_duration`.
+        - the assembled file is the one the generator writes at
+          `broll-assemble.ts:165` (`outPath`) and renames into at `:467`.
+        - VERDICT: `repair-required` when the summed selection is materially short
+          of `target_duration` (the generator encodes `-shortest`, so the video
+          ends at the last clip while narration continues — the failure is a
+          video that cuts off mid-sentence), or when the assembled file is
+          missing/zero-length/undecodable.
+        - ALSO fix the generator's own reporting: `broll-assemble.ts:409-471` has
+          no `requireJobCompletion` at all, so even with the auditor the job's own
+          declaration is silent. Prefer the auditor alone if the generator's
+          params make a positive declaration awkward — 1.1a covers it either way.
+        - Tests, written FIRST: a short selection must be `repair-required`; a
+          complete one `complete`; a legacy sidecar with no `target_duration`
+          must not be failed for missing data it never carried.
 - [ ] Decide the shape: run the per-type auditor on the ordinary success path
       and require a positive `result.completion` declaration with `expected > 0`
       for artifact-producing types. **Enumerate every registered job type and
