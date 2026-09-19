@@ -195,10 +195,53 @@ nothing in some modes — they must keep today's behaviour.
       previously held any type with no auditor ("keeping this job running until
       output can be verified"). `broll_assemble` is now audited there instead of
       held — checked, and nothing broke.
-      Remaining in 1.1b: `audio_merge`, `youtube_upload`,
-      `youtube_playlist_update`, `youtube_thumbnail_refresh`, `music_generate`,
-      `music_video`, `broll_normalize`, `images_repair`, `image_prompts`,
-      `metadata`, `contextual_cues`, `expression_markup` (12).
+      **1.1b IS MUCH SMALLER THAN THE AUDIT CLAIMED — verified, not assumed.**
+
+      The audit said "seven executors never call `requireJobCompletion`" and
+      named `generateAudioMerge`, `generateVideoAssembly`,
+      `generateSubtitlesTranscribe`, `generateYoutubeUpload`,
+      `generateYoutubePlaylistUpdate`, `generateThumbnailRefresh` and
+      `broll_assemble`. Counting the calls in each file contradicts most of that:
+
+      | file | `requireJobCompletion` |
+      |---|---|
+      | `broll-assemble.ts` | **0** — the real one, now FIXED |
+      | `broll-normalize.ts` | **0** |
+      | `subtitles.ts` | **0** |
+      | `audio-merge.ts` | 2 |
+      | `youtube-upload.ts` | 3 |
+      | `youtube-playlist-update.ts` | 3 |
+      | `youtube-thumbnail-refresh.ts` | 3 |
+      | `music-generate.ts` | 2 |
+      | `music-video.ts` | 2 |
+      | `image-prompts.ts` | 2 |
+      | `metadata.ts` | 2 |
+      | `contextual-cues.ts` | 2 |
+      | `video.ts` | 2 |
+      | `images.ts` | 5 |
+
+      So FOUR of the seven the audit named DO declare completion. The audit said
+      its method was "grep over electron/server/generators/*.ts", which should
+      have found them — the claim looks simply wrong, and it is the second
+      enumeration in this group to change the plan's shape.
+
+      **A count is a SCREEN, not proof.** It shows a file declares completion
+      somewhere; whether the declaration covers the whole success path (rather
+      than one branch) needs per-file reading before any of them is called clean.
+      That is the next step, not this table.
+
+      **Genuinely silent, so far:** `broll_assemble` (fixed, v1.4.188),
+      `broll_normalize`, `subtitles` (`subtitles_transcribe`).
+      **Not yet located:** `images_repair`, `expression_markup` — neither is a
+      `generators/*.ts` file, so they are handled elsewhere; find them before
+      concluding anything.
+
+      `hasUsableMergedAudio` (`services/audio-workflow-readiness.ts:50`) is a
+      SEPARATE finding and still open: it accepts ANY audio file with size > 0 in
+      the merge folder, rather than the expected
+      `_merged_audio(_v\d+)?.mp3` that `lib/intro-lead-in.ts:161` already matches.
+      It is what gates paid transcription, so a superseded take reads as ready.
+      That belongs to group 1, not to 1.1b.
 
 - [ ] **(1b-original-note)** Write auditors for the 13 artifact-producing types above, starting
       with the four that cost or lose the most: `broll_assemble` (truncated
