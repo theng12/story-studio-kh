@@ -21,6 +21,8 @@ import {
   listMigrationNotices,
 } from '../services/library-migration.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import path from 'path'
+import * as pm from '../services/project-manager.js'
 
 export const router = Router()
 
@@ -179,6 +181,21 @@ router.post('/library/archive/preview', async (req, res) => {
   void (async () => {
     try {
       const { previewArchiveSweep } = await import('../services/archive-sweep.js')
+      // `source_root` is walked AND HASHED by the sweep, and it arrives from the
+      // request body unchecked — `{"source_root":"/"}` walked the entire
+      // filesystem. The sweep exists to find finished videos inside project
+      // trees, so the Library is the only sensible boundary; anything outside is
+      // refused rather than scanned. (The run path is separately safe: it may
+      // only act on the list the owner reviewed.)
+      const requestedRoot = typeof req.body?.source_root === 'string' ? req.body.source_root.trim() : ''
+      if (requestedRoot) {
+        const libraryRoot = path.resolve(pm.projectsRoot())
+        const resolvedRoot = path.resolve(requestedRoot)
+        if (resolvedRoot !== libraryRoot && !resolvedRoot.startsWith(libraryRoot + path.sep)) {
+          sweep.error = 'That folder is not inside your Library. Choose a folder within the Library to scan for finished videos.'
+          return
+        }
+      }
       sweep.result = await previewArchiveSweep({
         sourceRoot: req.body?.source_root,
         shouldStop: () => sweep.stop,
