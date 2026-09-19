@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.184 — 2026-09-19
+
+- Title alternatives no longer carry from one episode to the next. Opening an episode that had none kept the previous episode's generated titles and saved them as its own, so the metadata for the wrong episode could be written. They are now cleared when you switch episodes.
+- Six more shared styles that were defined inside a single component now work everywhere: small inputs, icon-only buttons, link-style buttons, checkbox labels, section labels and card action rows. Between them they are used in 69 files; like the ghost buttons fixed in v1.4.178, they were rendering as if the class were absent.
+
 ## v1.4.183 — 2026-09-19
 
 - Corrected the archive-scan limit above. The first attempt refused any folder outside your Library, which also refused an external drive you had deliberately pointed it at — it would have broken a working feature to close a hole. It now refuses only a root that means "everything": the whole disk, your home folder, or a path too shallow to be a specific folder.

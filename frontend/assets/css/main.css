@@ -194,6 +194,61 @@ a:hover {
   color: var(--text-primary);
 }
 
+/* Same defect as `.btn-ghost` above, found in the same sweep: these six class
+   names are used across 69 files but declared ONLY inside individual
+   components' `<style scoped>` blocks, so they compile with a scope hash and
+   match nothing anywhere else. Verified against the built CSS — zero unscoped
+   occurrences of any of them. Every element carrying one has been rendering as
+   if the class were absent. Declared globally so the names mean what they say. */
+.input-sm {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 1;
+}
+.btn-icon:hover:not(:disabled) { color: var(--text-primary); }
+.btn-icon:disabled { opacity: 0.5; cursor: not-allowed; }
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.link-btn:hover:not(:disabled) { text-decoration: underline; }
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.section-kicker {
+  display: block;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .btn-danger {
   background: rgba(248, 113, 113, 0.15);
   color: var(--error);
