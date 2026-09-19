@@ -50,6 +50,70 @@ The infrastructure already exists: `registerJobCancellationAuditor`
 
 - [ ] Read `job-cancellation-auditors.ts` and `job-completion.ts` fully; write
       down what the success path does today and which types have an auditor.
+      **DONE — and the result changes this group's shape. See below.**
+
+### What the enumeration actually found (round 13)
+
+`requireJobCompletion(job, audit)` is the correct mechanism: it sets
+`result.complete` and throws with an item-naming message. The queue's success
+path (`completeSuccessfulJob`, `job-queue.ts:3252`, with
+`assertJobDidNotDeclareIncomplete` at `:3404`) only calls
+`assertJobDidNotDeclareIncomplete`, which returns immediately unless
+`job.result?.complete === false`. So an executor that audits nothing passes.
+
+**Auditors exist for only 11 of the 40 job types:** `audio`,
+`subtitles_transcribe`, `thumb_images`, `scene_image_generate`,
+`continuity_render`, `composition_generate`, `image_pool_generate`,
+`scene_clip_generate`, `scene_clips_batch`, `scene_plan_run`, `video`.
+
+**Six of the seven types the audit named have NO auditor**, so "run the existing
+per-type auditor on the success path" cannot close them — it would close the 11
+above and leave the named ones exactly as they are:
+
+| Type | Auditor? | Produces |
+|---|---|---|
+| `broll_assemble` | ✗ | the assembled video |
+| `audio_merge` | ✗ | merged audio |
+| `youtube_upload` | ✗ | the upload itself |
+| `youtube_playlist_update` | ✗ | playlist membership |
+| `youtube_thumbnail_refresh` | ✗ | the pinned thumbnail |
+| `music_generate` | ✗ | tracks |
+| `music_video` | ✗ | a video |
+| `broll_normalize` | ✗ | normalised clips |
+| `images_repair` | ✗ | repaired images |
+| `image_prompts` | ✗ | prompt docs |
+| `metadata` | ✗ | metadata package |
+| `contextual_cues` | ✗ | cue timeline |
+| `expression_markup` | ✗ | markup |
+
+Text/chat types (`idea_campaign`, `script-only`, `chapter-only`,
+`outline_only`, `expand_chapters`, `introduction-only`, `research_run`) audit
+themselves through their own `requireJobCompletion` and legitimately declare
+nothing in some modes — they must keep today's behaviour.
+
+**So this group is two steps, and the first is still the right first:**
+
+- [x] **(1a)** Run the existing auditor on the ordinary success path for the 11
+      types that have one. Apply only when the executor declared nothing
+      (`result.complete === undefined`) — a declared `true` means the executor
+      already audited, and a declared `false` already throws. Behaviour changes
+      only for a job whose executor audited nothing AND whose auditor finds a
+      problem.
+      **DONE — commit `a8d15229`, v1.4.186.** `assertAuditedCompletionOnSuccess`
+      in `job-queue.ts`, called from `completeSuccessfulJob` right after
+      `assertJobDidNotDeclareIncomplete`. 6 tests in
+      `job-success-completion-audit.test.ts`.
+      *Correction found by the test:* an auditor FAULT is fail-closed, not
+      fail-open — `registerJobCancellationAuditor` wraps every auditor with
+      `catch { return 'repair-required' }`, so my first version's try/catch was
+      unreachable and its comment described the opposite of the behaviour.
+      *Worth a later refinement:* the registry flattens "unmeasurable" and
+      "found missing" into one verdict. §6 would want them distinguishable.
+- [ ] **(1b)** Write auditors for the 13 artifact-producing types above, starting
+      with the four that cost or lose the most: `broll_assemble` (truncated
+      video), `audio_merge` (transcription on a stale mix), `youtube_upload`
+      (claims success over a failed upload), `music_generate` (unmeasurable
+      tracks counted complete).
 - [ ] Decide the shape: run the per-type auditor on the ordinary success path
       and require a positive `result.completion` declaration with `expected > 0`
       for artifact-producing types. **Enumerate every registered job type and
