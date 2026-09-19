@@ -324,6 +324,59 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
 
 ---
 
+# Gateway-kh handoff, 2026-09-19 — verified, not assumed
+
+The owner asked me to verify the gateway's note (which claimed no code change was
+needed) rather than trust it. Method: read the note, then check every claim
+against the live service and our own code.
+
+**Endpoint — confirmed.** `genstudio_url` is `http://127.0.0.1:8000` in the saved
+setting AND the code default; `:8000` answers 401 (up); `:8010` refuses the
+connection. The note's correction to the earlier note is right.
+*(Probe gotcha for next time: the video catalogue is `/v1/videos/models`, plural.
+`/v1/video/models` returns `Not Found` — my first probe was wrong, not the
+gateway.)*
+
+**Catalogue — confirmed exactly.** chat 66 · image 9 · video 9 · tts 13 ·
+music 2 · transcription 3, all `stale=false`, no 402 in any request.
+
+**Nothing disappeared — confirmed against our own last-good cache**, which is the
+prior state: image 3→9, video 1→9, tts 12→13, music 1→2, voices 12→13, chat
+66→66, transcription 3→3. Voices now resolve for `studio-hub::` models (10 for
+the Qwen3 rows; before, an empty list). One row to confirm gateway-side rather
+than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
+
+**Field families — four of seven need nothing:**
+
+| Field | Live | Verdict |
+|---|---|---|
+| video `generates_audio` | `null` ×9 | `boolean \| null` end to end; UI claims audio only on `=== true`. Correct. |
+| music `supported_languages` | `[]` ×2 | Nothing reads it for music, so `[]` cannot mean English-only. Correct. |
+| music `supports_instrumental` | `null` ×2 | Nullable via `isNullableFlag`/`publishedOrNull`; unused in the UI. Correct. |
+| TTS `maximum_input_characters` | 25000 ×11, 40000 ×2 | Never null, so `.toLocaleString()` is safe. Guarantee holds. |
+| video `modes`, `variants[].operation` | 6 i2v-only, 3 **also text-to-video** | **Safe.** `STORY_STUDIO_VIDEO_MODE` enforced in `providers/video/genstudio.ts:50` AND `genstudio-client.ts:5122` — both throw on any other operation — and all 9 still publish i2v. Text-to-video cannot reach dispatch. |
+| chat `context_window_tokens` / `max_output_tokens` | ctx numeric; `max` null ×4 | 0 means "not published" and consumers fail closed. Correct — but see below. |
+
+- [x] **`returns_citations` null was flattened to `false`** — the one claim in the
+      note that was NOT implemented. Type is now `boolean | null` and the parse
+      preserves it; the qualification gate still requires `=== true` so an
+      unstated capability cannot ENABLE research. **Commit `57494344`**, v1.4.186,
+      pinned in `research-web-mode.test.ts` (null survives as null, `false`
+      survives as false, both still fail the gate).
+- [x] **`audio.vue:725` `.length` hardening** — `?.length`. Every TTS row
+      publishes an array today, but the gateway's rule is now "null unless
+      stated", and music's list already moved. Same commit.
+
+- [ ] **NEEDS THE OWNER'S NOD.** Four chat rows publish `max_output_tokens: null`
+      — `openrouter/free`, `xai-direct::grok-4.3`, `grok-4.6`,
+      `grok-build-0.1`. We correctly refuse to invent a ceiling, so selecting one
+      FAILS. They remain selectable in the picker. Greying them out with "no
+      stated output limit" is a UI change that hides rows, so it waits for a
+      decision. **This is new exposure**: xAI is a new lane, so these rows did
+      not exist before.
+
+---
+
 # Owner decisions still outstanding
 
 1. **Opening-duration semantics** (Group 3, first item). Reserving 5s instead of
