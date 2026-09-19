@@ -167,15 +167,17 @@ export async function listTopicPacks(registryOptions: ContentPackRegistryOptions
 
 /**
  * A user Topic Pack id must be a safe filename segment. See `nicheFilePath` for
- * the incident: the loader's pattern was applied only on the miss branch, so an
- * id naming an existing file reached `path.join` unchecked and
- * `DELETE /api/topic-packs/..%2F<project>%2Fconfig` unlinked a project's own
- * `config.json`. Starting with an alphanumeric makes `.`/`..` impossible as a
- * whole segment, and `/` is excluded.
+ * the incident and for why the rule is the security property rather than the
+ * loader's own regex: legacy user forks are named `user:<uuid>`, which that
+ * regex rejects, and it had never actually been applied to them.
  */
 function assertSafeTopicPackId(id: unknown): string {
   const value = String(id ?? '')
-  if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(value)) {
+  if (
+    !value || value.length > 200 || value !== value.trim()
+    || /[/\\\u0000]/.test(value)
+    || value.startsWith('.')
+  ) {
     throw new Error(`Invalid topic pack id '${value}'`)
   }
   return value
