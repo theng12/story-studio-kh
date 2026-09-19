@@ -1020,7 +1020,17 @@ async function deleteSrt(filename: string): Promise<void> {
   try {
     const r = await del<{ existing_srts: ExistingSrt[] }>(`/projects/${slug.value}/video-editor/subtitles/${episodeId.value}/${encodeURIComponent(filename)}`)
     if (episode !== episodeSequence) return
-    if (status.value) status.value.existing_srts = r.existing_srts || []
+    // Reload the full status rather than adopting the DELETE response. That
+    // response carries a NARROWER row than the status endpoint — only
+    // `{ path, filename, mtime }`, without `word_timings` or `quality` — so
+    // swapping it in stripped the "garbled text" tag, the quality panel, the
+    // chapter-level garbled marker and the word-timings explainer from every
+    // REMAINING file. That is a false "all clean" on the one signal that flags a
+    // hallucinated transcript, and it lasted until a full reload. `r` is unused
+    // now on purpose: the list it returns is not the list this page renders.
+    void r
+    await loadStatus()
+    if (episode !== episodeSequence) return
     if (previewFilename.value === filename) closePreview()
     success(`Deleted ${filename}`)
   } catch (e: any) {
