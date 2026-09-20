@@ -4,6 +4,37 @@ Working record for the fixes listed in `2026-09-19-defect-audit.md`. **This file
 is the durable memory** — the working context resets between rounds, so a group
 is not finished until its box is ticked here.
 
+## STATUS at v1.4.202 — read this first
+
+**Where the work stands.** Groups 1–3 are effectively closed; Group 4 is barely
+started. Roughly **12 releases** shipped (v1.4.187 … v1.4.202), each with a test
+proven red against the old behaviour and a green full gate.
+
+- **Group 1 — output integrity.** Completion-contract class CLOSED. One item
+  open: the cross-project duplicate-upload guard, blocked on **owner decision 7**.
+- **Group 2 — data integrity.** DONE. 8 fixed, 3 escalated as **decisions 9–10**.
+- **Group 3 — honesty.** DONE. 6 fixed, 1 blocked on **decision 1**
+  (opening-duration semantics), 1 investigated and closed as a deliberate
+  named choice (`thumbnail-prepare.ts:38` — see its entry; do NOT "fix" it).
+- **Group 4 — long tail.** One fix landed (`health.ts` `/models`). The queue
+  `cancelled` item is fully traced and is the best next target; the rest is
+  unstarted.
+
+**10 owner decisions are outstanding** and listed at the end of this file.
+
+**Do not trust this audit's coordinates.** Verified across four rounds of
+checking: its line numbers and site lists were wrong or incomplete *every time*
+— a file that does not exist, a non-member listed, a member missed, a stale line
+number — and **six** findings turned out not to be defects at all (code already
+correct, or a deliberate named choice). The defects it points at are real; the
+map is not. **Enumerate from the code before acting on any entry.**
+
+**Two habits that paid for themselves repeatedly here**, both worth keeping:
+write the test and watch it fail against the OLD code before believing the fix
+(the gate caught three of my own wrong fixes this way), and assert consequences
+rather than strings — several pre-existing tests broke on unrelated edits
+because they pinned exact statements or whitespace.
+
 ## The loop, per item
 
 1. **Trace it first.** Read the code and confirm the failure is real. Four audit
