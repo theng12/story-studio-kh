@@ -1139,13 +1139,27 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
 
 # Owner decisions still outstanding
 
-1. **Opening-duration semantics** (Group 3, first item). Reserving 5s instead of
-   0 for an unprobeable intro shifts affected timelines. Editorial.
+1. ~~**Opening-duration semantics**~~ **ANSWERED BY THE OWNER 2026-09-20: FAIL
+   LOUDLY. DONE, v1.4.203.** `measureClipSec` no longer falls back to
+   `fallback_sec || 0` for a clip that exists but cannot be probed; it throws and
+   names the file. Both real callers pass `fallback_sec: 5`, so the old behaviour
+   was silently reserving an unmeasured five seconds — and the plan reserved `0`
+   for the same clip, which is how plan and render came to disagree about the
+   caption offset. A wrong offset shifts every caption in the episode.
+   `fallback_sec` is still honoured for a clip with NO path, where no file exists
+   to measure and the stated length is the only information there is.
+   **This REVERSES two existing tests on purpose** — they now assert the throw
+   and say so in place. Do not restore the old expectations.
 2. **`scene-plan.vue` Style Bible cap** — show a counter and say when a save was
    clipped, or raise the limit?
 3. **`images.vue` "View all caps"** — delete the table (it prints copied caps and
    prices as if current), or rebuild it from the live catalogue?
-4. **Is a whole-track-only subtitle state legitimate?** (raised round 27.)
+4. ~~**Is a whole-track-only subtitle state legitimate?**~~ **ANSWERED BY THE
+   OWNER 2026-09-20: NO — ALWAYS NEEDS THE STITCH.** So the behaviour shipped in
+   v1.4.191 is CORRECT and needs no change: an episode whose only transcript is
+   `${code}_whisper.srt` fails loudly, because Scene Plan consumes the stitched
+   timeline and the per-chapter sources it is built from. **Do not "fix" this.**
+   Kept for the record: (raised round 27.)
    `ensureStitchedSubtitle` reports `not-applicable` when no per-chapter
    transcript matches an audio section, and the completion contract treats that
    as failure. So an episode whose ONLY transcript is `${code}_whisper.srt` now
