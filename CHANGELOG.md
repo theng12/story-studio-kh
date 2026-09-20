@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.199 — 2026-09-20
+
+- The Music Library no longer reports a total it cannot stand behind. It adds up the playable length of your enabled tracks, and a track whose length it could not measure simply added nothing — so the figure was quietly too low while being shown as the whole answer. When any enabled track has no measured length the header now reads "at least" and says how many tracks are unaccounted for, so the number is understood as a floor rather than a total.
+
 ## v1.4.198 — 2026-09-20
 
 - Sound Design no longer blames your cues for a missing Scene Plan. It worked out the episode's length from the Scene Plan's scene timings, and when there were none it treated the episode as zero seconds long — so every cue failed the "start is outside the episode timeline" check and the message pointed at the cue. It now says plainly that the Scene Plan has no measured timings, and only checks cues against the length when there is a length to check against.

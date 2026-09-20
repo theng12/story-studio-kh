@@ -51,8 +51,22 @@ export interface LibraryState {
   tracks: LibraryTrack[]
   /** Absolute path, so the UI can offer "reveal in Finder". */
   folder: string
-  /** Total playable seconds across ENABLED tracks — what a mix can draw on. */
+  /**
+   * Total playable seconds across ENABLED tracks whose length could be measured
+   * — what a mix can draw on, as far as the app can prove.
+   *
+   * v1.4.199 — read this WITH `unmeasured_enabled_tracks`. An enabled track whose
+   * duration could not be probed contributed `0` to the total while still
+   * counting as available, so the figure was silently LOW and the UI presented
+   * it as the whole answer. AGENTS.md §6: a number that cannot be measured must
+   * not be reported as a small one.
+   */
   available_seconds: number
+  /**
+   * Enabled tracks whose `duration_sec` is unknown. Greater than zero means
+   * `available_seconds` is a **floor**, not a total, and the UI must say so.
+   */
+  unmeasured_enabled_tracks: number
   recent_usage: MusicLibraryUsageEntry[]
 }
 
@@ -98,7 +112,7 @@ function usageIndex(cfg: ProjectConfig | null): Map<string, { last: string | nul
  */
 export async function listLibrary(slug: string): Promise<LibraryState> {
   const dir = await getLibraryDir(slug)
-  if (!dir) return { tracks: [], folder: '', available_seconds: 0, recent_usage: [] }
+  if (!dir) return { tracks: [], folder: '', available_seconds: 0, unmeasured_enabled_tracks: 0, recent_usage: [] }
   const cfg = await pm.getConfig(slug).catch(() => null)
   const entries = await fs.readdir(dir).catch(() => [] as string[])
   const files = entries.filter(f => AUDIO_EXT.test(f)).sort((a, b) => a.localeCompare(b))
@@ -132,6 +146,9 @@ export async function listLibrary(slug: string): Promise<LibraryState> {
     available_seconds: tracks
       .filter(t => t.enabled)
       .reduce((total, t) => total + (t.duration_sec || 0), 0),
+    unmeasured_enabled_tracks: tracks
+      .filter(t => t.enabled && !(Number(t.duration_sec) > 0))
+      .length,
     recent_usage: [...(cfg?.music_library_usage_log || [])]
       .sort((a, b) => b.used_at.localeCompare(a.used_at))
       .slice(0, 20),

@@ -81,6 +81,34 @@ describe('what a mix can actually draw on', () => {
     const state = await listLibrary(SLUG)
     assert.equal(state.available_seconds, 182,
       'a disabled track stays on disk and in the list, but a mix must not count on it')
+    assert.equal(state.unmeasured_enabled_tracks, 0, 'this library measured every enabled track')
+  })
+
+  /**
+   * v1.4.199 — an enabled track whose length could not be probed added 0 to the
+   * total while still counting as available, so "usable" was silently LOW and
+   * was presented as the whole answer. AGENTS.md §6.
+   */
+  test('a track with no measured length makes the total a floor, and says so', async () => {
+    const before = await listLibrary(SLUG)
+    assert.equal(before.unmeasured_enabled_tracks, 0)
+
+    // Enabled, on disk, playable — but no duration was ever recorded for it.
+    await writeTrack('unmeasured-take.mp3')
+    const after = await listLibrary(SLUG)
+
+    assert.equal(
+      after.unmeasured_enabled_tracks, 1,
+      'the app must account for an enabled track it could not measure',
+    )
+    assert.equal(
+      after.available_seconds, before.available_seconds,
+      'the unmeasured track contributes no seconds, so the total must not move',
+    )
+    assert.ok(
+      after.available_seconds > 0,
+      'and the total must still be a real measurement, not flattened to zero',
+    )
   })
 })
 

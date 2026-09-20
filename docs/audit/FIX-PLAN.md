@@ -784,7 +784,33 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       `asset-status.ts:1019` — `_final_video_v2.mp4` invisible, so Settings shows
       "0 B" and the space cannot be reclaimed. Use the repo's own
       `MERGED_AUDIO_FILENAME` shape.
-- [ ] `music-library.ts:132` — unmeasured tracks understate "usable minutes".
+- [x] **DONE, v1.4.199.** `music-library.ts:132` — unmeasured tracks understated
+      "usable minutes". `available_seconds` summed `t.duration_sec || 0` over
+      enabled tracks, so an enabled track whose length could not be probed added
+      nothing while still counting as available: the figure was silently LOW and
+      `music.vue:35` rendered it as `{{ formatMinutes(available_seconds) }} usable`
+      — the whole answer, not a floor.
+
+      Fixed on both halves, because an honesty fix that never reaches the screen
+      is not one: `LibraryState` gained `unmeasured_enabled_tracks`, and the
+      header now reads "at least N usable (M without a measured length)" when it
+      is non-zero. `available_seconds` keeps its meaning as a measured floor.
+
+      Tests: 2 in `music-library.test.ts` (now 13). **Proven red:** removing the
+      accounting fails exactly those two and leaves the other 11 green.
+      `--only music-library` 13/13; frontend lane 1,836/1,836, 199/199 files.
+
+- [ ] **ROUND 35 — TRACED, NOT YET FIXED.** `soft-delete.ts:157` — the `-1`
+      "unknown size" sentinel is unreachable, and the audit is right. The line is
+      `estimated_bytes = await tallyDirSize(candidatePath).catch(() => -1)`, but
+      `tallyDirSize` never rejects — its own contract (see `storage-audit.ts`) is
+      "returns 0 on a missing dir or any read failure, never throws". So the
+      `.catch` is dead code and a folder whose size could not be read is reported
+      as **0 bytes** rather than as unknown, which is the §6 conflation the `-1`
+      sentinel was written to avoid. Closing it means giving the tally a way to
+      say "unmeasurable" (a nullable count) rather than teaching the caller to
+      guess, and `tallyDirSize` is shared with `storage-audit.ts`, so the change
+      spans both callers. Recorded rather than rushed.
 - [x] **DONE, v1.4.193.** `subtitle-completion.ts:189` — a failed `stat` became
       mtime 0 = "not stale". **The finding was right and understated: there were
       TWO routes, not one.** The reported one was the legacy mtime branch
