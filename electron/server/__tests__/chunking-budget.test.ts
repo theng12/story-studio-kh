@@ -290,7 +290,7 @@ test('a product with a small ceiling clamps the request instead of over-asking',
   assert.equal(resolveOutputTokenBudget(request, 4_096), 4_096)
   for (const ceiling of [1_024, 4_096, 8_000, 32_768, LUNA_OUTPUT_TOKENS]) {
     assert.ok(
-      resolveOutputTokenBudget(request, ceiling) <= ceiling,
+      (resolveOutputTokenBudget(request, ceiling) ?? 0) <= ceiling,
       `a ${ceiling}-token product was asked for more than it publishes`,
     )
   }

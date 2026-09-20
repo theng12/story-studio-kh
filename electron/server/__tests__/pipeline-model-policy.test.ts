@@ -163,6 +163,42 @@ test('Pipeline capability guard advances only for the exact structured request r
   }))
 })
 
+test('a candidate publishing no output ceiling is usable, and a published one keeps its teeth', () => {
+  // Owner decision #6, 2026-09-20. This guard used to compare EVERY request
+  // against `candidate.max_output_tokens`, so the catalogue parser's `0` ("not
+  // published") made every request look oversized and the four shipped
+  // `max_output_tokens: null` products were refused before anything was
+  // submitted. They are usable now, because the request carries no ceiling.
+  const unpublished = {
+    id: 'unpublished-ceiling', available: true, max_output_tokens: 0,
+    structured_output_mode: 'json_object', supports_structured_output: true,
+    supports_vision: false, max_input_images: 0,
+  } as GenStudioChatModel
+
+  assert.doesNotThrow(() => assertPipelineModelRequestCapabilities(unpublished, {
+    outputContract: { mode: 'json_object' }, outputBudget: 'long',
+  }))
+  assert.doesNotThrow(() => assertPipelineModelRequestCapabilities(unpublished, {
+    outputContract: { mode: 'prose' },
+  }))
+  // A named allowance is the CALLER's own ceiling, not a claim about the
+  // product, so it is still submitted.
+  assert.doesNotThrow(() => assertPipelineModelRequestCapabilities(unpublished, { maxTokens: 4_096 }))
+  // But a malformed named allowance is still refused — "the product published
+  // nothing" and "this number is unusable" must not collapse together.
+  assert.throws(
+    () => assertPipelineModelRequestCapabilities(unpublished, { maxTokens: 1.5 }),
+    GenStudioChatCapabilityUnavailableError,
+  )
+
+  const published = { ...unpublished, max_output_tokens: 8_192 } as GenStudioChatModel
+  assert.doesNotThrow(() => assertPipelineModelRequestCapabilities(published, { outputBudget: 'maximum' }))
+  assert.throws(
+    () => assertPipelineModelRequestCapabilities(published, { maxTokens: 8_193 }),
+    GenStudioChatCapabilityUnavailableError,
+  )
+})
+
 test('Pipeline backup advances once after a proven pre-submit refusal and stays bounded', async () => {
   const seen: string[] = []
   const store = checkpointStore()

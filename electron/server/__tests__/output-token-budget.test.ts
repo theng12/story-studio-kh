@@ -30,7 +30,7 @@ function source(relative: string): string {
   return readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
 }
 
-function catalog(maxOutputTokens: number) {
+function catalog(maxOutputTokens: number | null) {
   return [{
     id: 'writer-alpha',
     display_name: 'Writer Alpha',
@@ -81,13 +81,15 @@ function chatJob(fields: Record<string, unknown> = {}) {
   }
 }
 
-/** Run one chat call against a fixture product and report what it ASKED for. */
+/** Run one chat call against a fixture product and report what it ASKED for.
+ *  `maxOutputTokens` is `undefined` when the request carried no ceiling at all,
+ *  which is the shape an unpublished product must produce. */
 async function submittedTokenLimit(
   request: Parameters<typeof callChatWithGenStudio>[1],
-  productMaxOutputTokens = 65_536,
-): Promise<{ maxOutputTokens: number; submissions: number }> {
+  productMaxOutputTokens: number | null = 65_536,
+): Promise<{ maxOutputTokens: number | undefined; submissions: number }> {
   const originalFetch = globalThis.fetch
-  let maxOutputTokens = -1
+  let maxOutputTokens: number | undefined
   let submissions = 0
   try {
     globalThis.fetch = async (input, init) => {
@@ -138,7 +140,7 @@ test('every long-form tier scales with the product instead of a constant', () =>
   // Every long-form tier is strictly more room than the 2,048 that truncated.
   for (const tier of ['standard', 'long', 'maximum'] as const) {
     assert.ok(
-      resolveOutputTokenBudget(tier, 65_536) > SHORT_FORM_OUTPUT_TOKENS,
+      (resolveOutputTokenBudget(tier, 65_536) ?? 0) > SHORT_FORM_OUTPUT_TOKENS,
       `${tier} must not resolve to the short-form default`,
     )
   }
@@ -147,7 +149,7 @@ test('every long-form tier scales with the product instead of a constant', () =>
 test('no tier can ever exceed the published product ceiling', () => {
   for (const ceiling of [1, 512, 2_048, 4_096, 8_192, 32_768, 65_536, 200_000]) {
     for (const tier of ['short', 'standard', 'long', 'maximum'] as const) {
-      const resolved = resolveOutputTokenBudget(tier, ceiling)
+      const resolved = resolveOutputTokenBudget(tier, ceiling)!
       assert.ok(resolved <= ceiling, `${tier}@${ceiling} resolved to ${resolved}`)
       assert.ok(resolved >= 1, `${tier}@${ceiling} resolved to ${resolved}`)
     }
@@ -167,18 +169,42 @@ test('a workload floor raises the request but is still clamped to the product', 
   assert.equal(resolveOutputTokenBudget({ tier: 'long', minimumTokens: 100 }, 65_536), 32_768)
 })
 
-test('a malformed catalogue entry is refused, never quietly resized to short-form', () => {
-  // v1.0.786 — this used to assert the opposite: that an unpublished ceiling
-  // "degrades to short-form". Degrading is what made it dangerous. A `long` or
-  // `workload` caller silently squeezed into 2,048 tokens gets a chapter that
-  // stops at `finish_reason: "length"` — written to disk and paid for as if
-  // complete. There is no honest stand-in for a ceiling nobody published, so
-  // the caller is told. AGENTS.md: fail loudly or show nothing.
-  for (const bad of [undefined, null, 0, -5, 1.5, 'many', Number.NaN]) {
+test('an UNPUBLISHED ceiling resolves to no ceiling at all, for every tier', () => {
+  // Owner decision #6, 2026-09-20 — REVERSES what this file asserted before.
+  //
+  // It used to require a throw for `undefined`/`null`/`0`, on the reasoning
+  // that no honest stand-in exists. The reasoning was right and the conclusion
+  // was wrong: there IS an honest answer, and it is "no ceiling". Four shipped
+  // products publish `max_output_tokens: null` (Free Models Router, grok-4.3,
+  // grok-4.6, grok-build-0.1), and the owner's ruling is that they are usable
+  // by OMITTING the field — "no output limit is fine" — rather than refused.
+  //
+  // `null` is not zero and not a default: it is the absence, carried instead of
+  // flattened (AGENTS.md §6). The catalogue parser normalises an unpublished
+  // figure to `0` before this function sees it, so `0` is that same absence.
+  for (const unpublished of [undefined, null, 0]) {
+    for (const tier of ['short', 'standard', 'long', 'maximum'] as const) {
+      assert.equal(
+        resolveOutputTokenBudget(tier, unpublished),
+        null,
+        `${tier} with an unpublished ceiling must be "no ceiling", not a number`,
+      )
+    }
+    assert.equal(resolveOutputTokenBudget({ tier: 'workload', minimumTokens: 8_000 }, unpublished), null,
+      'a caller-supplied floor cannot become a ceiling the product never published')
+  }
+})
+
+test('a MALFORMED catalogue entry is still refused, never read as "not published"', () => {
+  // "The product published nothing" and "I could not read what it published"
+  // must not produce the same value (AGENTS.md §6). Only the three real
+  // absences are allowed to mean "no ceiling"; a value that is present and
+  // unreadable is a programming error and says so.
+  for (const malformed of [-5, 1.5, 'many', Number.NaN]) {
     assert.throws(
-      () => resolveOutputTokenBudget('maximum', bad),
-      /published no usable max_output_tokens/,
-      `resolved a budget from ${String(bad)} instead of refusing`,
+      () => resolveOutputTokenBudget('maximum', malformed),
+      /malformed max_output_tokens/,
+      `resolved a budget from ${String(malformed)} instead of refusing`,
     )
   }
   // A published ceiling still resolves normally — the rule is "never invent".
@@ -217,6 +243,23 @@ test('an explicit number still wins over a tier', async () => {
   assert.equal(explicit.maxOutputTokens, 4_096)
 })
 
+test('a product publishing NO ceiling is usable: the request omits the field and is submitted', async () => {
+  // Owner decision #6, 2026-09-20. The consequence, not the string: this used
+  // to reject before the network ("Story Studio cannot size this request
+  // without it"), so the four shipped `max_output_tokens: null` products could
+  // not be used at all. Now the call goes out and carries NO ceiling — nothing
+  // is attributed to the product, and the provider decides.
+  const unpublished = await submittedTokenLimit({ ...baseRequest, outputBudget: 'long' }, null)
+  assert.equal(unpublished.submissions, 1, 'the product must actually be used, not refused')
+  assert.equal(unpublished.maxOutputTokens, undefined,
+    'the wire body must OMIT max_output_tokens rather than carry a number Story Studio chose')
+
+  // An explicit caller number is still that caller's own ceiling, and is sent.
+  const explicit = await submittedTokenLimit({ ...baseRequest, maxOutputTokens: 4_096 }, null)
+  assert.equal(explicit.maxOutputTokens, 4_096,
+    'an explicit allowance is not a claim about the product, so it is still submitted')
+})
+
 test('the product ceiling is still enforced BEFORE anything is submitted', async () => {
   const originalFetch = globalThis.fetch
   let submissions = 0
@@ -252,7 +295,8 @@ test('a tier can never be the thing that trips the ceiling guard', async () => {
     for (const ceiling of [1_024, 65_536]) {
       const result = await submittedTokenLimit({ ...baseRequest, outputBudget: tier }, ceiling)
       assert.equal(result.submissions, 1, `${tier}@${ceiling} was refused`)
-      assert.ok(result.maxOutputTokens <= ceiling)
+      // A published ceiling always produces a number, never an omission.
+      assert.ok(result.maxOutputTokens !== undefined && result.maxOutputTokens <= ceiling)
     }
   }
 })

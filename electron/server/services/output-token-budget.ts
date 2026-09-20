@@ -31,6 +31,16 @@
  * "insufficient credits" for a request that would have been cheap. It also
  * removes the ceiling as a brake, so a model that wants to ramble now can —
  * and rambling is charged. Tier by what the workflow genuinely needs.
+ *
+ * WHEN THE PRODUCT PUBLISHES NO CEILING (owner decision #6, 2026-09-20)
+ * ---------------------------------------------------------------------
+ * Four shipped chat products publish `max_output_tokens: null`. The owner's
+ * ruling is that they are USABLE with no stated limit: the request OMITS the
+ * field and the provider — the only authority on what it will return — decides.
+ * `resolveOutputTokenBudget` therefore answers `null` for them rather than
+ * refusing or substituting a number, and every caller must omit the wire field
+ * accordingly. GenStudio makes its own reservation in that case, because there
+ * is no ceiling for Story Studio to reserve against.
  */
 
 /**
@@ -90,22 +100,33 @@ function roundDown(value: number): number {
 }
 
 /**
- * The product ceiling. REFUSES a missing or malformed one.
+ * The product ceiling, or `null` when the product published none.
  *
- * It used to substitute `SHORT_FORM_OUTPUT_TOKENS` here. That is a number
- * Story Studio invented, and it is the most damaging place to invent one: a
- * ceiling of 2,048 silently squeezes a `long` or `workload` request down to
- * short-form size, the provider stops at exactly that many completion tokens
- * with `finish_reason: "length"`, and a truncated chapter is billed and
- * written. There is no safe stand-in, so the caller is told instead — the one
- * production caller (`prepareChatSubmission`) checks the product first and
- * fails pre-network, so this is a backstop, not the customer-facing message.
+ * `null` is a real answer and is the ONE new thing here — owner decision #6,
+ * 2026-09-20. Four shipped chat products publish `max_output_tokens: null`
+ * (Free Models Router, grok-4.3, grok-4.6, grok-build-0.1), and the owner's
+ * ruling is to make them usable by OMITTING the field and letting the provider
+ * decide: "no output limit is fine." Nothing is invented; the absence is
+ * carried, and the caller sends no ceiling.
+ *
+ * A value that is present but MALFORMED — a string, a fraction, a negative —
+ * still throws. "The product published nothing" and "I could not read what it
+ * published" must not produce the same value (AGENTS.md §6), and the catalogue
+ * parser already normalises an unpublished figure to `0` before this point.
+ *
+ * It used to substitute `SHORT_FORM_OUTPUT_TOKENS` for BOTH cases. That is a
+ * number Story Studio invented, and it is the most damaging place to invent
+ * one: a ceiling of 2,048 silently squeezes a `long` or `workload` request down
+ * to short-form size, the provider stops at exactly that many completion tokens
+ * with `finish_reason: "length"`, and a truncated chapter is billed and written.
+ * Neither a substitute nor a refusal is right; carrying the absence is.
  */
-function productCeiling(maxOutputTokens: unknown): number {
+function productCeiling(maxOutputTokens: unknown): number | null {
+  if (maxOutputTokens === null || maxOutputTokens === undefined || maxOutputTokens === 0) return null
   if (!Number.isInteger(maxOutputTokens) || (maxOutputTokens as number) < 1) {
     throw new Error(
-      'Cannot resolve an output-token budget: the selected GenStudio product published no '
-      + `usable max_output_tokens (got ${JSON.stringify(maxOutputTokens)}). `
+      'Cannot resolve an output-token budget: the selected GenStudio product published a malformed '
+      + `max_output_tokens (got ${JSON.stringify(maxOutputTokens)}). `
       + 'Story Studio does not substitute a ceiling of its own.',
     )
   }
@@ -129,16 +150,22 @@ function tierTokens(tier: OutputBudgetTier, ceiling: number): number {
 /**
  * Resolve one workflow's budget against one product's published ceiling.
  *
+ * `null` means "this product publishes no ceiling, so send none" — every tier
+ * here is a FRACTION of the published ceiling (or, for `maximum`, the ceiling
+ * itself), so with no ceiling there is no honest number to return. Callers must
+ * OMIT the wire field rather than substitute one.
+ *
  * An absent budget resolves to the historical short-form default, so callers
- * that never opted in behave exactly as they did before. The result is ALWAYS
- * `<= productMaxOutputTokens`, which keeps the pre-network guard in
+ * that never opted in behave exactly as they did before. A resolved number is
+ * ALWAYS `<= productMaxOutputTokens`, which keeps the pre-network guard in
  * genstudio-client.ts a genuine backstop rather than a load-bearing check.
  */
 export function resolveOutputTokenBudget(
   budget: OutputBudget | undefined,
   productMaxOutputTokens: unknown,
-): number {
+): number | null {
   const ceiling = productCeiling(productMaxOutputTokens)
+  if (ceiling === null) return null
   const tier: OutputBudgetTier = typeof budget === 'string'
     ? budget
     : budget?.tier ?? 'short'

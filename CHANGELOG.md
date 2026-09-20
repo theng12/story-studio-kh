@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.209 — 2026-09-20
+
+- Writing models that do not publish a maximum answer length now work. Four of the models GenStudio offers — the Free Models Router and three xAI Grok models — state no output limit, and Story Studio used to refuse them outright because it could not work out how long a reply they would accept. It now sends the request without a length limit and lets the provider decide, instead of inventing a number or turning the model away.
+
 ## v1.4.208 — 2026-09-20
 
 - Uploading an episode whose number is already on this YouTube channel now warns you first and lets you continue. If a channel has moved between projects, or two series share one, a second "Episode 1" is sometimes exactly what you meant — so the app tells you which project already used that number on that channel and uploads anyway when you confirm. It never blocks the upload.

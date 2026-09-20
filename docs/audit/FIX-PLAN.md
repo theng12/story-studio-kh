@@ -4,31 +4,36 @@ Working record for the fixes listed in `2026-09-19-defect-audit.md`. **This file
 is the durable memory** — the working context resets between rounds, so a group
 is not finished until its box is ticked here.
 
-## STATUS at v1.4.208 — read this first
+## STATUS at v1.4.209 — read this first
 
 **Where the work stands.** Groups 1–3 are effectively closed; Group 4 is barely
-started. **16 releases** shipped (v1.4.187 … v1.4.208), each with a test proven
-red against the old behaviour and a green full gate (frontend lane 1,847 tests /
-201 files, backend gate 5,424 tests / 483 files at v1.4.208).
+started. **17 releases** shipped (v1.4.187 … v1.4.209), each with a test proven
+red against the old behaviour and a green full gate.
 
-**ALL TEN OWNER DECISIONS ARE ANSWERED, and five are implemented:** #1
+**ALL TEN OWNER DECISIONS ARE ANSWERED, and six are implemented:** #1
 (v1.4.203), #3 (v1.4.206), #5 (v1.4.204), #10 (v1.4.205 + v1.4.207), #9's
-exclusion (v1.4.207), #2 (v1.4.207), #8 (v1.4.207), #7 (v1.4.208).
-**THREE ITEMS REMAIN, in this order:**
+exclusion (v1.4.207), #2 (v1.4.207), #8 (v1.4.207), #7 (v1.4.208), #6's
+submission path (v1.4.209).
 
-- **E. Decision 6 — make the four null-ceiling chat models usable.** The largest
-  item. `productCeiling` (`services/output-token-budget.ts:104`) throws today.
-  The tier resolver **and** the credit-quote path must both learn an
-  "unpublished" case, and neither may invent a number. The four, verified
-  against the live gateway 2026-09-20: **Free Models Router** (OpenRouter, 200k
-  ctx) · **grok-4.3** (xAI, 1M) · **grok-4.6** (xAI, 500k) ·
-  **grok-build-0.1** (xAI, 256k). Concretely: `resolveOutputTokenBudget` must be
-  able to answer "no ceiling" (a `number | null`), `prepareChatSubmission`
-  (`lib/genstudio-client.ts:6277`) must stop throwing at `:6312` and must OMIT
-  `max_output_tokens` from the wire body, the request preview and the
-  idempotency digest, and `ai-client.ts:606`'s capability assertion must accept
-  the unpublished case. Both `max_output_tokens` and `max_completion_tokens`
-  bodies are built in this file (`:6938`, `:7025`, `:7150`).
+**REMAINING, in this order:**
+
+- **E-2. Decision 6's OTHER site, found while finishing E — and it is reachable.**
+  `services/scene-prompt-batching.ts:168` (`normalizeMaxOutputTokens`) throws for
+  exactly the same condition v1.4.209 removed from `productCeiling`, and
+  `generators/scene-plan.ts:717` feeds it the selected prompt model's
+  `max_output_tokens`. So a Pipeline **`scene_plan_run`** with one of the four
+  null-ceiling models still fails, even though the model now works everywhere
+  else. The Scene Plan PAGE gates itself too: `hasPublishedPromptBudget`
+  (`scene-plan.vue:1810`) hides the "Next / All pending" buttons and disables the
+  batch controls whenever no ceiling is published, so a chosen model looks inert.
+  **This needs the owner, because it decides what the app SAYS:** with no
+  published ceiling there is no derivable batch maximum, so the honest rule is
+  "use this channel's configured batch size and send no token ceiling; GenStudio
+  validates". The module already has that shape for model-free runs
+  (`SCENE_TIMELINE_ONLY_OUTPUT_BUDGET`), but it removed an 8,192 substitute once
+  and calls it "the third instance of the same mistake", so the wording and the
+  fallback both want a ruling rather than a guess. Recommendation: adopt the
+  configured batch size, say so on the card, and omit `prompt_max_tokens`.
 - **F. Decision 9's channel-specific box** — new UI. Add a second, clearly
   labelled channel-level guidance field on Scene Plan whose text IS in a preset
   (unlike `custom_instructions`); decide with the owner whether it writes to
@@ -47,13 +52,15 @@ number — and **six** findings turned out not to be defects at all. The defects
 it points at are real; the map is not. **Enumerate from the code before acting
 on any entry.**
 
-**Two habits that paid for themselves repeatedly here**, both worth keeping:
-write the test and watch it fail against the OLD code before believing the fix,
-and assert consequences rather than strings. A third joined them in v1.4.207/208:
-**a hand-written test stub is a claim about the real module** — two harnesses
-stubbed `promptLengthState` with an object the real function never returns, and
-one of them broke the moment production code read a field the stub omitted.
-Where a harness can import the real module, it should.
+**Three habits that paid for themselves repeatedly here**, all worth keeping:
+write the test and watch it fail against the OLD code before believing the fix;
+assert consequences rather than strings; and remember that **a hand-written test
+stub is a claim about the real module** — two harnesses stubbed
+`promptLengthState` with an object the real function never returns, and one broke
+the moment production code read a field the stub omitted. Where a harness can
+import the real module, it should. A fourth, from v1.4.209: **a failed assertion
+that skips teardown turns a red test into a hang**, which reports nothing at all
+— tear down in `finally`.
 
 **Do not trust this audit's coordinates.** Verified across four rounds of
 checking: its line numbers and site lists were wrong or incomplete *every time*
@@ -1241,13 +1248,14 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
       publishes an array today, but the gateway's rule is now "null unless
       stated", and music's list already moved. Same commit.
 
-- [ ] **NEEDS THE OWNER'S NOD.** Four chat rows publish `max_output_tokens: null`
-      — `openrouter/free`, `xai-direct::grok-4.3`, `grok-4.6`,
-      `grok-build-0.1`. We correctly refuse to invent a ceiling, so selecting one
-      FAILS. They remain selectable in the picker. Greying them out with "no
-      stated output limit" is a UI change that hides rows, so it waits for a
-      decision. **This is new exposure**: xAI is a new lane, so these rows did
-      not exist before.
+- [x] **ANSWERED BY THE OWNER (decision 6) AND SHIPPED — v1.4.209.** Four chat
+      rows publish `max_output_tokens: null` — `openrouter/free`,
+      `xai-direct::grok-4.3`, `grok-4.6`, `grok-build-0.1`. The owner's ruling
+      was to make them usable by omitting the field ("no output limit is fine"),
+      NOT to grey them out or refuse them. They are selectable AND now run: the
+      request carries no ceiling. See decision 6 for the shipped change and for
+      **E-2**, the separate scene-plan site that is still open. **This was new
+      exposure**: xAI is a new lane, so these rows did not exist before.
 
 ---
 
@@ -1317,41 +1325,69 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
 6. ~~**Four chat models publish `max_output_tokens: null`**~~ **ANSWERED
    2026-09-20: MAKE THEM USABLE — omit `max_output_tokens` and let the provider
    decide.** Owner: "no output limit is fine. we never got close to 10% of their
-   output anyways for request." **This is NOT a no-op:** the app currently
-   REFUSES them — `productCeiling` (`services/output-token-budget.ts:102-111`)
-   throws "the selected GenStudio product published no usable max_output_tokens".
-   Making them work means the tier resolver AND the credit-quote path
-   (`quote_language_reservation` holds credits for `max_output_tokens`) must both
-   learn an "unpublished" case, and neither may invent a number. OPEN — the
-   largest remaining item.
+   output anyways for request." **THE SUBMISSION PATH IS DONE, v1.4.209. ONE
+   MORE SITE WAS FOUND WHILE DOING IT AND IS STILL OPEN (E-2 below).**
 
    The four, verified against the live gateway on 2026-09-20: **Free Models
    Router** (OpenRouter, 200k ctx) · **grok-4.3** (xAI, 1M) · **grok-4.6** (xAI,
    500k) · **grok-build-0.1** (xAI, 256k). All `available`, unlocked. The other 44
    null rows are image/video/audio models where no token ceiling applies.
 
-   **THE CONCRETE PLAN (traced 2026-09-20 at v1.4.208, not yet applied):**
-   - `services/output-token-budget.ts` — `productCeiling` (`:104`) must become a
-     NULLABLE answer (`productCeilingOrNull`), and `resolveOutputTokenBudget`
-     must return `number | null`, where `null` means "the product publishes no
-     ceiling; send nothing". Every tier derives from the ceiling
-     (`tierTokens`, the `workload` fallback), so there is no honest number to
-     return — which is exactly why the type has to carry the absence (§6).
-   - `lib/genstudio-client.ts` — `PreparedChatSubmission.maxOutputTokens`
-     becomes `number | null`; the `:6312` refusal goes; the wire bodies at
-     `:6938` (`max_output_tokens`), `:7025` (`max_completion_tokens`) and the
-     preview `tokenLimits` at `:6906`/`:7003`/`:7150` must OMIT the field when
-     it is null; the idempotency digest at `:6831` must hash the absence
-     distinctly (not as `undefined` collapsing into a published value).
-   - `lib/ai-client.ts:606` — `assertPipelineModelRequestCapabilities` must not
-     compare against `candidate.max_output_tokens` when it is unpublished, and
-     must not print `.toLocaleString()` on it (`:608`).
-   - `lib/chunked-narration.ts` — reads `max_output_tokens` for its chunking
-     threshold; an unpublished ceiling must not become 0 (it already documents
-     `0` as the parser's "not published" marker — check `chunkingOutputBudget`
-     and `chunkThresholdWords` before changing anything).
-   - Tests: `output-token-budget.test.ts` pins the throw today — that
-     expectation is the one to reverse, deliberately and in place.
+   **WHAT SHIPPED (v1.4.209).** The refusal is gone and the field is omitted:
+   - `services/output-token-budget.ts` — `productCeiling` now answers
+     `number | null`, and `resolveOutputTokenBudget` returns `number | null`.
+     `null` is returned for the three real absences (`undefined`, `null`, `0` —
+     the catalogue parser normalises an unpublished figure to `0`), while a
+     value that is present but MALFORMED (`-5`, `1.5`, `'many'`, `NaN`) still
+     throws with "published a malformed max_output_tokens". §6: "the product
+     published nothing" and "I could not read what it published" must not
+     collapse into one value.
+   - `lib/genstudio-client.ts` — `PreparedChatSubmission.maxOutputTokens` is
+     `number | null`; the pre-network refusal at the old `:6312` is replaced by
+     a guard that validates only a NUMBER (positive integer, and not above a
+     PUBLISHED ceiling); the two wire bodies (`max_output_tokens`,
+     `max_completion_tokens`), the three request previews and
+     `chatReplacementItemKey` all omit or null the field rather than carrying a
+     substitute. `buildGenStudioChatIdempotencyKey` needed no change: it hashes
+     the CALLER's `request.maxOutputTokens ?? 2_048`, a frozen digest component,
+     not the resolved ceiling — so every pre-existing key is byte-identical.
+   - `lib/ai-client.ts` — `assertPipelineModelRequestCapabilities` validates a
+     number only. Its old unconditional comparison against
+     `candidate.max_output_tokens` meant the parser's `0` made every request look
+     oversized, so the four products were refused before submission.
+   - `lib/chunked-narration.ts` needed NO change: `chunkingOutputBudget` and
+     `chunkThresholdWords` already answer `null` honestly, and
+     `batchSizeForBudget` already documents that a mode keeps its own batch size
+     with no published cap.
+
+   Tests: 2 reversed/added in `output-token-budget.test.ts` (an unpublished
+   ceiling resolves to `null` for EVERY tier including `workload`; the malformed
+   set still throws; and a wire test proving the call is SUBMITTED with no
+   `max_output_tokens` key), 1 in `pipeline-model-policy.test.ts` (the
+   capability gate accepts it, a published ceiling keeps its teeth), and a
+   nullable narrow in `chunking-budget.test.ts`. **Proven red twice:** restoring
+   the old throwing `productCeiling` fails exactly the two new budget tests; the
+   old unconditional capability guard fails exactly the new policy test.
+
+   **E-2 — THE OTHER SITE, STILL OPEN (needs the owner; see STATUS).**
+   `services/scene-prompt-batching.ts:168` (`normalizeMaxOutputTokens`) throws
+   for the identical condition, and `generators/scene-plan.ts:717` passes it the
+   selected prompt model's `max_output_tokens`. Reachable from Pipeline
+   `scene_plan_run`, so the four models still fail THERE. The Scene Plan page
+   compounds it: `hasPublishedPromptBudget` (`scene-plan.vue:1810`) hides the
+   prompt-stage buttons and disables the batch controls when no ceiling is
+   published. What it needs is a rule for "no derivable batch maximum" — the
+   recommendation is the channel's configured `scene_prompt_batch_size` (a value
+   the owner sets) with `prompt_max_tokens` omitted and the card saying so, but
+   the module once substituted 8,192 here and still calls that "the third
+   instance of the same mistake", so the fallback and the wording want a ruling.
+   Files to touch when ruled on: `scene-prompt-batching.ts`
+   (`normalizeMaxOutputTokens`, `maxSafeScenePromptPackSize`,
+   `automaticScenePromptPackSize`, `resolveScenePromptPackSize`,
+   `resolveScenePromptTokenBudget`, `describeScenePromptPackSize`),
+   `generators/scene-plan.ts:717` (`visualMaxTokens` nullable, the motion clamp
+   at `:723`, `pipeline_scene_request_plan`), and the Scene Plan page's batch
+   card (copy + the `hasPublishedPromptBudget` gate).
 
 7. ~~**Cross-project duplicate upload**~~ **ANSWERED 2026-09-20: WARN, WITH A
    CLICK-THROUGH. DONE, v1.4.208.** Owner: "should be a warning that can be

@@ -6232,7 +6232,17 @@ export interface GenStudioChatResult {
 interface PreparedChatSubmission {
   modelId: string
   product: GenStudioChatModel
-  maxOutputTokens: number
+  /**
+   * The output ceiling this request carries, or `null` when the product
+   * publishes none (owner decision #6, 2026-09-20).
+   *
+   * `null` is NOT zero and NOT a default: the field is OMITTED from the wire
+   * body, the request preview and the replacement identity, and the provider
+   * decides. Four shipped products publish `max_output_tokens: null`, and the
+   * owner's ruling is that they are usable with no stated limit rather than
+   * refused.
+   */
+  maxOutputTokens: number | null
   outputContract: TextOutputContract
   responseFormat: Record<string, unknown>
   /** system (+ wrapper instruction) then user — but ONLY when the product
@@ -6302,27 +6312,38 @@ async function prepareChatSubmission(
   // published ceiling remains the real and only limit — the durable migration
   // does not shrink any allowance shipped in v1.0.765/766.
   //
-  // A product that publishes NO output ceiling cannot be sized at all, so the
-  // request is refused here rather than sized against a number Story Studio
-  // made up. Same reasoning as `splitGenStudioApiRequests`, which refuses to
-  // pick a TTS request boundary GenStudio did not publish: guessing an output
-  // budget too low truncates a chapter mid-sentence, and truncated output has
-  // already cost the customer by the time anyone notices. Pre-network — no
-  // request is made and no credit is charged.
-  if (!Number.isInteger(product.max_output_tokens) || product.max_output_tokens < 1) {
-    throw new Error(
-      `GenStudio KH published no max_output_tokens for ${product.display_name}. `
-      + 'Story Studio cannot size this request without it and will not invent a ceiling. '
-      + 'Refresh the model catalogue or choose another published product. '
-      + 'No request or credit charge was made.',
-    )
-  }
+  // A product that publishes NO output ceiling is USABLE, and the request
+  // carries no ceiling at all — owner decision #6, 2026-09-20: "make them
+  // usable by omitting max_output_tokens. no output limit is fine."
+  //
+  // This used to refuse here ("Story Studio cannot size this request without it
+  // and will not invent a ceiling"). Refusing was the honest response to an
+  // invented number but the wrong response to a provider that genuinely states
+  // no limit: four shipped products publish `max_output_tokens: null`, and
+  // their own provider is the authority on what they will return. Omitting the
+  // field claims nothing about the product, so nothing is invented.
+  //
+  // A NUMBER is still validated: it must be a positive integer and, when the
+  // product publishes a ceiling, must not exceed it. `/v1/chat/responses`
+  // publishes NO maximum of its own for `max_output_tokens` (the old 32,768
+  // route cap is gone), so the product's published ceiling remains the real and
+  // only limit — the durable migration does not shrink any allowance shipped in
+  // v1.0.765/766.
+  const publishedCeiling = Number.isInteger(product.max_output_tokens) && product.max_output_tokens >= 1
+    ? product.max_output_tokens
+    : null
   const maxOutputTokens = request.maxOutputTokens
     ?? resolveOutputTokenBudget(request.outputBudget, product.max_output_tokens)
-  if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > product.max_output_tokens) {
-    throw new Error(
-      `This workflow requested ${maxOutputTokens.toLocaleString()} output tokens, but ${product.display_name} publishes a ${product.max_output_tokens.toLocaleString()}-token limit. No request or credit charge was made.`,
-    )
+  if (maxOutputTokens !== null) {
+    const malformed = !Number.isInteger(maxOutputTokens) || maxOutputTokens < 1
+    const overPublished = !malformed && publishedCeiling !== null && maxOutputTokens > publishedCeiling
+    if (malformed || overPublished) {
+      throw new Error(
+        overPublished
+          ? `This workflow requested ${maxOutputTokens.toLocaleString()} output tokens, but ${product.display_name} publishes a ${publishedCeiling!.toLocaleString()}-token limit. No request or credit charge was made.`
+          : `The output-token budget for ${product.display_name} is not a usable number (${JSON.stringify(maxOutputTokens)}). No request or credit charge was made.`,
+      )
+    }
   }
   const outputContract = request.outputContract
     ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT)
@@ -6903,7 +6924,9 @@ async function callChatViaResponsesOnce(
     path: '/v1/chat/responses',
     modelId: prepared.modelId,
     responseFormat: prepared.responseFormat,
-    tokenLimits: { max_output_tokens: prepared.maxOutputTokens },
+    // Omitted entirely when the product publishes no ceiling, so the retained
+    // preview describes the request that was actually sent (owner decision #6).
+    ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_output_tokens: prepared.maxOutputTokens } }),
     idempotencyKey: prepared.idempotencyKey,
     messages: prepared.messages,
     fields: chatPreviewFields(request, prepared),
@@ -6935,7 +6958,9 @@ async function callChatViaResponsesOnce(
           response_format: prepared.responseFormat,
           // Only the sampling fields this product publishes. Never `top_p`.
           ...prepared.samplingFields,
-          max_output_tokens: prepared.maxOutputTokens,
+          // Omitted when the product publishes no ceiling — no number is
+          // attributed to it and the provider decides (owner decision #6).
+          ...(prepared.maxOutputTokens === null ? {} : { max_output_tokens: prepared.maxOutputTokens }),
           ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}),
           // Present only for a deliberate web-search request. `web_search` is
           // available on this route too, so web research is durable as well.
@@ -7000,7 +7025,7 @@ async function callChatViaCompletions(
     path: '/v1/chat/completions',
     modelId: prepared.modelId,
     responseFormat: prepared.responseFormat,
-    tokenLimits: { max_completion_tokens: prepared.maxOutputTokens },
+    ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_completion_tokens: prepared.maxOutputTokens } }),
     idempotencyKey: prepared.idempotencyKey,
     messages: prepared.messages,
     fields: [['stream', false], ...chatPreviewFields(request, prepared)],
@@ -7022,7 +7047,8 @@ async function callChatViaCompletions(
         stream: false,
         // Only the sampling fields this product publishes. Never `top_p`.
         ...prepared.samplingFields,
-        max_completion_tokens: prepared.maxOutputTokens,
+        // Omitted when the product publishes no ceiling (owner decision #6).
+        ...(prepared.maxOutputTokens === null ? {} : { max_completion_tokens: prepared.maxOutputTokens }),
         ...(request.webSearch ? { web_search: request.webSearch } : {}),
       }),
     },
@@ -7147,7 +7173,9 @@ async function callChatWithGenStudioAdmitted(
       path: '/v1/chat/responses',
       modelId: prepared.modelId,
       responseFormat: prepared.responseFormat,
-      tokenLimits: { max_output_tokens: prepared.maxOutputTokens },
+      // Omitted entirely when the product publishes no ceiling, so the retained
+    // preview describes the request that was actually sent (owner decision #6).
+    ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_output_tokens: prepared.maxOutputTokens } }),
       idempotencyKey: prepared.idempotencyKey,
       messages: prepared.messages,
       fields: chatPreviewFields(request, prepared),
