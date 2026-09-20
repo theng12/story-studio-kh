@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.196 — 2026-09-20
+
+- Two more screens stopped showing one episode's results while another was open. On Images, the integrity card (how many pictures are missing) and the Browse grid were cleared only when you switched to *no* episode, so moving from one episode to the next left the previous episode's numbers and file list on screen — and there for good if the new read failed. On Research, a failed read left the previous episode's finished research on screen as though it belonged to the new episode, and saving would have written it into that episode. Both now clear the moment the episode changes.
+
 ## v1.4.195 — 2026-09-20
 
 - Two more screens no longer carry one episode's work into another. B-Roll kept the manual clip pick — a list of clips with per-clip durations chosen for one episode — so opening a new episode showed the previous episode's footage still queued and ready to assemble. Scene Review kept an open image lightbox and the ticked batch of scenes; the lightbox rebuilt its image address from the *new* episode with the *old* scene id, so it either failed to load or showed a different episode's picture, and a batch action would have named scenes that did not belong to the episode on screen.

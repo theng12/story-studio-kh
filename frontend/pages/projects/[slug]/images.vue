@@ -1353,12 +1353,23 @@ interface RepairPoolStatus {
   with_manifest: number; without_manifest: number
   missing_items: RepairMissingItem[]
 }
-const imageStatus = reactive<ImageStatusState>({
-  loading: false, error: '', hasAny: false,
-  scenes: null, thumbnails: null,
-  hasMissing: false, totalMissing: 0,
-  missingScenesList: '', missingThumbsList: '',
-})
+/**
+ * v1.4.196 — one definition of "nothing loaded yet".
+ *
+ * The reset in the episode-change watcher has to blank EVERY episode-scoped
+ * field. Writing the literal twice is how a field gets forgotten, which is the
+ * same drift that produced several defects in this audit, so the reset reuses
+ * this factory rather than repeating it.
+ */
+function emptyImageStatus(): ImageStatusState {
+  return {
+    loading: false, error: '', hasAny: false,
+    scenes: null, thumbnails: null,
+    hasMissing: false, totalMissing: 0,
+    missingScenesList: '', missingThumbsList: '',
+  }
+}
+const imageStatus = reactive<ImageStatusState>(emptyImageStatus())
 let imageStatusLoadSequence = 0
 
 // v1.0.306 — the integrity card is scoped to the ACTIVE generator pool. The
@@ -1675,14 +1686,20 @@ watch([slug, () => form.episode_id], ([, v]) => {
   lastRepairJobId.value = ''
   repairStatus.scene = null
   repairStatus.thumb = null
+  // v1.4.196 — blank on the CHANGE, not only when the episode becomes empty.
+  // `refreshImageStatus` and `loadEditScan` replace their results only on a
+  // SUCCESSFUL read, so switching from one episode to another left the previous
+  // episode's integrity figures and Browse grid on screen for the whole load —
+  // and permanently if the read failed (AGENTS.md §4). The old code cleared
+  // these ONLY in the else branch, i.e. when there was no episode at all.
+  Object.assign(imageStatus, emptyImageStatus())
+  editScenes.value = []
+  editThumbs.value = []
+  outlineChapterCount.value = null
   if (v) {
     refreshImageStatus()
     void loadEditScan()
     void loadOutlineChapterCount()
-  } else {
-    editScenes.value = []
-    editThumbs.value = []
-    outlineChapterCount.value = null
   }
 }, { immediate: true })
 

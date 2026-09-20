@@ -623,9 +623,37 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       and leaves the other 1,832 green. Frontend lane 1,834/1,834, 199/199 files.
       Stated limit: static analysis proves the reset is wired, not that the DOM
       clears — that needs a screenshot (AGENTS.md §3).
-- [ ] `images.vue:1411` — integrity status + Browse grid not blanked.
-- [ ] `research.vue:1207` — stale research durable on a failed read, and PUT to
-      the new episode.
+- [x] **DONE, v1.4.196.** `images.vue:1411` — the audit's line pointed at
+      `refreshImageStatus`, but the page has TWO episode-change watchers and the
+      defect was in the second one. It cleared `imageStatus`, `editScenes`,
+      `editThumbs` and `outlineChapterCount` **only in the else branch** — that
+      is, only when the episode became empty — so switching A → B kept A's
+      integrity figures and Browse grid on screen for the whole load and
+      permanently if the read failed. Now blanked before the `if (v)` guard. The
+      reset reuses a new `emptyImageStatus()` factory rather than repeating the
+      nine-field literal, so it cannot drift from the declaration — the exact
+      two-lists-drifting failure this audit keeps producing.
+- [x] **DONE, v1.4.196.** `research.vue:1207` — `loadExisting` replaced
+      `result`/`serverResult` only on a successful read, and its catch is
+      deliberately empty on the reasoning that "the empty-state card renders".
+      That is true only while `result` is null, so after a failed read the
+      PREVIOUS episode's research rendered as the new episode's — and saving
+      would have PUT it there. The `[slug, episodeId]` watcher now blanks both,
+      which is what makes that empty-state comment true.
+
+      Tests: two more in `episodeScopedStateReset.test.ts` (now 4).
+      **Proven red:** reverting both changes fails exactly these two and leaves
+      the other 1,834 green. Frontend lane 1,836/1,836, 199/199 files.
+
+      **One pre-existing test had to be repaired, and it is worth recording
+      why.** `writingWorkflowSafety.test.ts:48` pinned the research watcher's
+      EXACT statements and whitespace —
+      `/watch\(\[slug, episodeId\], \(\) => \{\s*researchScopeEpoch\+\+\s*void loadExisting\(\)\s*\}/`.
+      Any unrelated addition inside that watcher fails it, which is a false
+      alarm rather than a caught defect. Relaxed to assert the INTENT (the
+      watcher bumps the scope epoch and reloads) while still requiring both
+      statements to be inside it. Same judgement as the `existingTranscriptIsCurrent`
+      assertion relaxed in round 26.
 - [x] **2 of 3 DONE, v1.4.194.** `character-sheet.vue:534` was already correct
       (its watcher blanks `masterExists`/`compositionExists` and bumps the
       version counters). The other two were real:

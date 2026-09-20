@@ -1408,6 +1408,14 @@ onMounted(async () => {
 })
 watch([slug, episodeId], () => {
   researchScopeEpoch++
+  // v1.4.196 — blank on the CHANGE (AGENTS.md §4). `loadExisting` replaced these
+  // only on a SUCCESSFUL read, and its catch is deliberately empty because "the
+  // empty-state card renders" — which is true only while `result` is null. After
+  // a failed read the PREVIOUS episode's research kept rendering as this
+  // episode's, and saving would have written it to the newly opened episode.
+  // Blanking here is what makes that empty-state comment true.
+  result.value = null
+  serverResult.value = ''
   void loadExisting()
 }, { immediate: true })
 
