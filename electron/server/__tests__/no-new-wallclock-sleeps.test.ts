@@ -51,7 +51,6 @@
  *     - deliberate observation windows: hold still for N and prove a
  *       concurrency cap held. `chapter-only-stays-serial.test.ts` says so in
  *       its own comment; the window is load-bearing, not padding
- *     - `ttl-cache.test.ts` (3 sites) — checked, all one-sided floors
  *
  * DELIBERATELY NOT TAKEN: `job-cancel.test.ts` (37) and `job-queue.test.ts`
  * (23) are the bulk of the remaining fail-closed risk. They were left on

@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.204 — 2026-09-20
+
+- Removed an unused caching module left over from an earlier design. It had no callers anywhere in the app — only its own test — so nothing changes for you; the code is simply smaller.
+
 ## v1.4.203 — 2026-09-20
 
 - An opening clip the app cannot measure now stops the render and says so, instead of quietly reserving five seconds for it. The reserved number was never measured, and because the plan and the render disagree about it, every caption in the episode could sit too early or too late — the whole episode, from one unreadable file. Re-run Audio Assembly so the merge records its opening, then retry.
