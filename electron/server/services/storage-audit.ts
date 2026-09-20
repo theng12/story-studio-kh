@@ -22,6 +22,7 @@
  * exact bytes and current remote processing state.
  */
 
+import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import fs from 'fs/promises'
 import { constants, existsSync } from 'fs'
 import path from 'path'
@@ -103,7 +104,7 @@ function ext(name: string): string {
 }
 
 function isFinalVideoName(code: string, name: string): boolean {
-  return name.startsWith(`${code}_final_video.`) && VIDEO_EXTS.has(ext(name))
+  return isFinalVideoFilename(code, name) && VIDEO_EXTS.has(ext(name))
 }
 
 function isPerSceneClipName(code: string, name: string): boolean {

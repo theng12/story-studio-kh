@@ -780,10 +780,34 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       "nothing precedes the scenes" and "the probe returned nothing"; plan and
       render disagree by construction. **Editorial — the fix shifts timelines,
       so it needs the owner's yes.**
-- [ ] `storage-audit.ts:105` + `episode-media-cleanup.ts:307` +
-      `asset-status.ts:1019` — `_final_video_v2.mp4` invisible, so Settings shows
-      "0 B" and the space cannot be reclaimed. Use the repo's own
-      `MERGED_AUDIO_FILENAME` shape.
+- [x] **DONE, v1.4.201.** `storage-audit.ts:105` + `episode-media-cleanup.ts:307`
+      + `asset-status.ts:1045` — `_final_video_v2.mp4` invisible. **The finding
+      was right, including the count of three** — one of the few times the
+      audit's coordinates held up. The third site is at `:1045`
+      (`hasFinalVideoFast`), not `:1019`; `:1019` is a doc comment.
+
+      The shape is real and normal: `upload-queue.ts:391-392` writes
+      `{code}_final_video_v{N}{ext}` whenever the canonical name is taken. All
+      three matchers required `_final_video` to be followed IMMEDIATELY by the
+      extension dot, so every versioned final was invisible — Settings counted
+      0 B, `hasFinalVideoFast` reported no video for an episode that has one, and
+      media cleanup would not reclaim the space. Nothing announced it: the file
+      was simply not seen, which is why it survived three separate checks each
+      looking reasonable on its own.
+
+      Unified into `lib/final-video-name.ts` (`isFinalVideoFilename`), a
+      dependency-free module so all three can import it without a cycle. This
+      follows `episodeDirNameMatchesCode`: one predicate, not three copies.
+
+      Tests: `final-video-name.test.ts` (4). **Proven red:** under the old
+      canonical-only rule the two versioned-name tests fail and the two
+      near-miss tests stay green — so the fix broadens exactly the intended
+      case and nothing else.
+
+      My own test caught a hazard before it shipped: with an empty `code` the
+      predicate matched ANY `_final_video.*` on disk. Now refused explicitly,
+      because the deletion gate is a caller and must not depend on every call
+      site remembering to pass a real code.
 - [x] **DONE, v1.4.199.** `music-library.ts:132` — unmeasured tracks understated
       "usable minutes". `available_seconds` summed `t.duration_sec || 0` over
       enabled tracks, so an enabled track whose length could not be probed added

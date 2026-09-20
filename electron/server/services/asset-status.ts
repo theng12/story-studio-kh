@@ -13,6 +13,7 @@
  * constraint, so we just regenerate.
  */
 
+import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
@@ -1042,7 +1043,7 @@ function _isVideoFile(name: string): boolean {
 async function findCanonicalFinal(dir: string, code: string): Promise<string | null> {
   const files = await safeReaddir(dir)
   for (const file of files) {
-    if (_isVideoFile(file) && file.startsWith(`${code}_final_video.`)
+    if (_isVideoFile(file) && isFinalVideoFilename(code, file)
       && await fileHasContent(path.join(dir, file))) return file
   }
   return null

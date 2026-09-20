@@ -1,3 +1,4 @@
+import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import { randomUUID } from 'node:crypto'
 import { episodeDirNameMatchesCode } from './asset-status.js'
 import { constants as fsConstants, existsSync, lstatSync, realpathSync, unlinkSync } from 'node:fs'
@@ -305,7 +306,7 @@ async function assertScopesIdle(slug: string, codes: string[], categories: Media
 }
 
 function isFinalName(code: string, name: string): boolean {
-  return name.toUpperCase().startsWith(`${code.toUpperCase()}_FINAL_VIDEO.`) && VIDEO_EXT.test(name)
+  return isFinalVideoFilename(code, name) && VIDEO_EXT.test(name)
 }
 
 async function rootsFor(slug: string, code: string, title: string, categories: MediaCleanupCategory[]): Promise<RootSpec[]> {

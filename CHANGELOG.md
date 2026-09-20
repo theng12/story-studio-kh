@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.201 — 2026-09-20
+
+- Versioned final videos are no longer invisible. Story Studio saves a second render as `_final_video_v2` and so on when the first name is already taken — a perfectly normal file — but three separate checks only recognised the unversioned name. Those videos counted as zero bytes in Settings, a versioned-only episode could look like it had no finished video at all, and storage cleanup could not reclaim the space. All three checks now recognise both names.
+
 ## v1.4.200 — 2026-09-20
 
 - Deleted projects no longer claim to be zero bytes when the app cannot read them. The size shown for a project waiting to be forgotten was measured best-effort, and a folder it could not read came out as 0 bytes rather than "unknown" — so a project of any size could be listed as empty. It now reports the size as unknown in that case, and if any part of the folder cannot be read the whole figure is treated as unknown rather than quietly under-counted.
