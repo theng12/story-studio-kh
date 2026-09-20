@@ -8,14 +8,16 @@ Fresh setup on this computer is explicitly selected. No migration backup or
 old Library restoration is required; normal GenStudio/provider, Store, and
 YouTube authentication remains ordinary user setup. Source **v1.4.213** has
 completed independent scoped review, corrected full test lanes and production
-build. See [local release acceptance](2026-09-21-local-release.md) for the current
+build. PR #123 is merged; the main-built DMG and installed first run are verified.
+See [local release acceptance](2026-09-21-local-release.md) for the current
 integration/artifact state, exact counts and explicit remaining limitations.
 
 A5 and A6 have bounded accepted evidence in the current ledger, while their
 broader acceptance remains open. A8 deliberately preserves valid zero/no-op
 operations and uses only narrow caller fixes; it was never blanket-fixed. The
 89-row ledger contains many open/source-only cases and is not an 89-fixed-bug
-claim. No usable or released claim is made.
+claim. The local unsigned app is installed/open for fresh setup; normal account
+configuration and historical follow-ups remain separate from release acceptance.
 
 The migration and backup instructions below are retained as dated historical
 contingency guidance, not as a requirement for the selected fresh setup.
@@ -37,7 +39,9 @@ priorities are instructions/judgment, not claims that a repair already exists.
 The migration branch is **`codex/recover-interrupted-audit`**. It contains the
 70 inherited local commits plus recovery checkpoint
 `fca27c955225134ae78c2ac51744c858b10772eb`, and this handoff's documentation.
-Use the latest commit of that branch, not the default branch, to resume.
+Historical starting instruction: before PR #123, this branch was required to
+resume. The reviewed recovery is now integrated into `main`; use current main
+for normal development. The recovery branch remains preserved.
 
 ```sh
 git clone --branch codex/recover-interrupted-audit https://github.com/theng12/story-studio-kh.git

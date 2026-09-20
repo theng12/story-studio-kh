@@ -22,6 +22,9 @@ Latest owner ruling: orchestrator owns planning, architecture, independent revie
 
 ## Latest evidence refresh — 2026-09-21
 
+- Local release completed: official clean-main `npm run dist:smoke` exited 0 at `d51849be`; artifact `dist/Story Studio KH 1.4.213-arm64.dmg`, 241,994,638 bytes, SHA-256 `addf94fb8fe727356043cdb43afffb5f1b1cfcbba5b50ac27b63935f6297dcc8`. Version, read-only DMG mount, ad-hoc signature, 98-package closure and isolated health/Upload Center launch passed. Explicit `verify:deps` and `verify:launch` also exited 0 (health v1.4.213, boot complete, 1,142 ms). Installed into the previously absent Applications path; app.asar matches the main-built bundle. Native welcome-screen accessibility and screenshot are verified; Library choice remains with the user. Full details and limits: [local release acceptance](../handoffs/2026-09-21-local-release.md).
+- Packaging environment recovery: the first main attempt exited 1 after the default Electron download's HTTP stream failed and the redundant retry was stopped. Its partial official archive was preserved and resumed using HTTP/1.1; the completed v43.4.0 arm64 archive matched package pin `827f9f182566f46846377575b51c547b9926b111637313a373b6f717462aebac`. The official installer consumed the verified cache before unchanged `dist:smoke` was rerun. No source, lockfile or security-check workaround was needed.
+- Reviewed source was committed as `8453e148`, pushed, and integrated by PR #123 into main merge `d51849be`. Local conflict-free merge-tree proof exactly matched the reviewed source tree, and post-pull main comparison was byte-identical. Actions remained disabled before/after the push. Recovery branch/worktree and ignored evidence remain preserved. Main dependencies were recreated from lockfiles; both npm installs exited 0 with zero reported vulnerabilities. Official `dist:smoke` is running from clean main, not from the recovery worktree.
 - Corrected production `npm run build` exited 0. Both new Store-source comparisons now explain their frozen provenance discriminator using the existing model-drift annotation convention; schema/callers and comment-only diff were independently checked. The guard itself is unchanged and passes 707 source files with 38 justified annotations. Changelog, typography, source/built security, release source/built-startup checks, frontend generation and Electron compilation all passed. Four complete lanes total 7,858 tests: 7,855 pass, 0 fail, 3 explicit skips. The original combined verify failures remain historical; these are separately completed corrected lanes. Source is accepted for integration; main-built packaging/startup remain pending.
 - The third full backend gate passed: exit 0, 5,579 tests, 5,578 pass, 0 fail, 1 platform-alias skip, 695 suites, 509/509 files, 6,274 marks, configured-projects sentinel unchanged. The corrected TTS Pause/Resume case passed in 3.447 seconds. Lint and both typechecks also passed (0 lint errors, 1,925 warnings). The chained command nevertheless exited 1 in the subsequent build: the model-drift guard mistook two new comparisons of the persisted `genstudio-store` provenance discriminator for model IDs. Existing neighboring comparisons already carry justified frozen-source annotations. A bounded comment-only correction is assigned; no application behavior or checker is being changed, and build success remains pending.
 - The second complete backend attempt exited 1: 5,579 tests, 5,577 pass, 1 fail, 1 platform-alias skip; 695 suites, 509/509 files, 6,274 marks, configured-projects sentinel unchanged. All nine prior fixture failures passed. The remaining TTS fixture accidentally planned five serial parts: four pending polls legitimately require 3.2–4.8 seconds before I/O, exceeding its four-second resume wait. The correction uses exactly two parts, retaining actual Pause/Resume, same-key provider replay and complete activation assertions. Existing exact-job queue-release observation now joins the disposable worker before cleanup, including the claimed-before-executor failure path. No runtime or timeout change was made.
@@ -97,7 +100,7 @@ Latest owner ruling: orchestrator owns planning, architecture, independent revie
 - Main was independently rechecked clean at `9d34df7d`; recovery HEAD remains `652041b1`. All repair/report workers are closed. Nothing was staged, committed, pushed, merged, published or deployed.
 - Final post-fixture Electron/frontend typecheck exited 0. Final code-only Graphify refresh also exited 0: 22,385 nodes, 53,468 edges, same known install-queue extraction warning, zero paid extraction calls. Final `git diff --check` and the new-document home-prefix privacy scan passed.
 
-## Current automated checkpoint
+## Earlier automated checkpoint (superseded by the latest evidence above)
 
 | Check | Actual exit | Completion evidence |
 |---|---:|---|
@@ -114,7 +117,7 @@ These are local source checks on Node v26.8.2, not a packaged desktop, visual,
 private migration, or complete historical-audit sign-off. The original failed
 runs and their bounded corrections are retained above and in the ignored logs.
 
-## Next bounded reproductions (not executed)
+## Historical follow-up execution chronology
 
 ### Execution resumed, 2026-09-21
 

@@ -3,8 +3,9 @@
 ## Current checkpoint — 2026-09-21
 
 Source **v1.4.213** has passed the corrected full backend/frontend/release/Content
-Pack lanes and production build, with independent scoped review. Integration and
-the main-built DMG are next. See [local release acceptance](../handoffs/2026-09-21-local-release.md)
+Pack lanes and production build, with independent scoped review. PR #123 merged
+the source into main; the main-built DMG passed packaged verification and the
+app is installed/open for fresh setup. See [local release acceptance](../handoffs/2026-09-21-local-release.md)
 for the current integration/artifact state, exact counts and explicit skips.
 
 - A5 has accepted bounded audio-readiness/retranscription evidence; the broader
@@ -14,8 +15,8 @@ for the current integration/artifact state, exact counts and explicit skips.
 - A8 deliberately preserves valid zero/no-op completion. Only narrow caller
   fixes are in scope; there is no blanket `expected > 0` change.
 - The 89-row inventory is not 89 fixed bugs: many rows remain open,
-  source-only, partial, dormant, duplicate, or retracted. No usable/released
-  claim is made here.
+  source-only, partial, dormant, duplicate, or retracted. The local app is
+  available, but exhaustive backlog closure is not claimed.
 
 The original tables and their older evidence are preserved below as dated
 historical audit material.

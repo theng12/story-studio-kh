@@ -16,11 +16,23 @@ review and completed corrected full test lanes: 7,855 pass, 3 explicit skips,
 The TTS queue fixture also passes in the full backend gate. Universal media
 resources are verified. Historical-candidate inventory is complete as an inventory,
 not exhaustive behavioral closure (30 open and 2 partial rows remain). Integration
-and main-built packaging are next. See
+and main-built packaging are complete through PR #123 and its verified local
+v1.4.213 artifact; the installed native app is open at fresh Library setup. See
 [the evidence/status ledger](../../audit/2026-09-20-workflow-progress.md) for
 accepted results, partial task completion, full-verification status and remaining
 limitations. The unchecked task lists below are acceptance criteria for the whole
 handoff, not a claim that every listed action is still untouched.
+
+### Final task acceptance summary
+
+Tasks 1–9 are accepted within their named repair/toolchain scopes; Task 10 is a
+complete evidence inventory, not 89 closed defects. The selected repairs in
+Tasks 11–13 are accepted, while their historical open/partial candidates retain
+specific follow-up checks. Task 14's inherited findings were routed and scoped
+re-reviews closed the resulting blockers; the Upload Center branch is already
+patch-equivalent. Tasks 15–16 are complete for the local unsigned application
+release. The original detailed checklists below are retained as planning history,
+not a claim that every historical matrix was exhaustively executed.
 
 ## Global constraints
 
@@ -228,21 +240,21 @@ The orchestrator grants the test lane by explicit agent message. A worker withou
 **Owner:** orchestrator alone executes tests/typechecks/builds; independent reviewers inspect evidence without competing runs.
 **Depends on:** frozen accepted source, toolchain, stable dependencies and version/changelog.
 
-- [ ] Reserve verification lane exclusively; record HEAD, dirty diff and environment.
-- [ ] Run `npm run verify`, retaining each stage's actual exit/count/completion line. Diagnose failures; do not weaken gates.
-- [ ] Repeat four dependency audits, check packaged runtime closure, and run isolated build/startup smoke using disposable Library.
-- [ ] Render A2 and any changed recovery/UI states; verify backend address and version. Do not use real credentials, paid jobs or upload.
-- [ ] Refresh code-only graph after structural changes; keep graphs ignored and note extraction limitations.
-- [ ] Separate missing customer data/credentials/external evidence from code failures. No green release claim while required checks remain failed.
+- [x] Reserve verification lane exclusively; record HEAD, dirty diff and environment.
+- [x] Run `npm run verify`, retaining each stage's actual exit/count/completion line. Diagnose failures; do not weaken gates. Original failures are retained; corrected full lanes and build passed separately.
+- [x] Repeat four dependency audits, check packaged runtime closure, and run isolated build/startup smoke using disposable Library.
+- [x] Render A2 and changed recovery/UI states; verify backend address and version. No real credentials, paid jobs or upload were used.
+- [x] Refresh code-only graph after structural changes; keep graphs ignored and note extraction limitations.
+- [x] Separate missing customer data/credentials/external evidence from code failures; three explicit skips remain documented.
 
 ### Task 16: Integrate, produce local artifact, and close handoff
 
 **Owner:** Astra orchestrator. **Depends on:** accepted Task 14 and green applicable Task 15 gates.
 
-- [ ] Recheck remote state, Actions disabled, mergeability, independent review, version and changelog.
-- [ ] Under existing integration authorization, commit reviewed work, push/create PR, attach PR to this task, and merge only when all required gates are met. No force push.
-- [ ] Build official unsigned smoke artifact from main with `npm run dist:smoke`; public signing/publication needs separately authorized release intent.
-- [ ] Verify root dist/ versioned arm64 filename, bundled app.asar version, startup and dependency closure against main.
-- [ ] Update handoff/backlog with exact commits, artifacts, tests, candidate dispositions, and unresolved migration/product inputs.
+- [x] Recheck remote state, Actions disabled, mergeability, independent review, version and changelog.
+- [x] Commit reviewed work, push/create and attach PR #123, then merge under existing authorization after gates. No force push.
+- [x] Build official unsigned smoke artifact from main with `npm run dist:smoke`; no public signing/publication.
+- [x] Verify root dist/ versioned arm64 filename, bundled app.asar version, startup and dependency closure against main.
+- [x] Update handoff/backlog with exact commits, artifact hash, tests, candidate dispositions, and remaining product/account setup.
 - [x] Resolve old-machine migration choice: owner selected a fresh setup on this Mac. No prior Library or private backup is required.
-- [ ] Verify isolated first-run and packaged startup, then hand off normal GenStudio/Store/YouTube authentication without inventing credentials or ownership.
+- [x] Verify isolated packaged startup and installed native first-run screen, then hand off normal Library/account setup without inventing credentials or ownership.
