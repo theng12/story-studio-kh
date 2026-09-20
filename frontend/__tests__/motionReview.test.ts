@@ -87,3 +87,44 @@ test('Motion Review keeps catalogue selection healing and batch eligibility expl
   assert.match(source, /scene\.end_sec - scene\.start_sec >= animateMinSeconds\.value/)
   assert.doesNotMatch(source, /exact \|\| mapped \|\| genStudioVideoModels\.value\.find/)
 })
+
+/**
+ * v1.4.194 — an episode change must blank the motion state it belongs to.
+ *
+ * `loadReview` replaced the scene list, stats, motion scope and checked ids ONLY
+ * on a successful load. Switching episodes therefore left the previous episode's
+ * scenes on screen for the whole of the new load, and permanently when that load
+ * failed — with an error banner as the only signal. `cacheBuster` was bumped only
+ * on success too, so every image URL kept resolving to the PREVIOUS episode's
+ * cached thumbnails at the previous episode's ids.
+ *
+ * AGENTS.md §4: an episode change REPLACES the field, or blanks it.
+ */
+test('switching episodes blanks the previous episode\'s motion state instead of keeping it', () => {
+  const file = scriptAst(source)
+  const reset = namedFunction(file, 'resetEpisodeScopedMotionState')
+  const body = reset.body?.getText() ?? ''
+
+  for (const field of ['scenes', 'stats', 'motionScope', 'motionSceneIds', 'motionCrossingSceneIds']) {
+    assert.match(
+      body,
+      new RegExp(`\\b${field}\\.value\\s*=`),
+      `${field} belongs to one episode and must be replaced or blanked on an episode change`,
+    )
+  }
+  // The image/clip URLs are keyed on it, so it has to move with the episode or
+  // the new episode renders the old episode's cached thumbnails.
+  assert.match(body, /cacheBuster\.value\s*=\s*Date\.now\(\)/)
+
+  const watcher = descendants(file).find((node): node is ts.CallExpression => (
+    ts.isCallExpression(node)
+    && node.expression.getText() === 'watch'
+    && node.arguments[0]?.getText() === 'episodeId'
+  ))
+  assert.ok(watcher, 'expected the episodeId watcher')
+  assert.match(
+    watcher.getText(),
+    /resetEpisodeScopedMotionState\(\)/,
+    'the reset must run on the episode change, not only inside loadReview',
+  )
+})

@@ -696,14 +696,7 @@ async function loadReview() {
   const ep = episodeId.value
   const requestSequence = ++reviewLoadSequence
   if (!ep) {
-    scenes.value = []
-    stats.value = null
-    animateMinSeconds.value = 0
-    motionScope.value = { mode: 'off' }
-    motionSceneIds.value = []
-    motionCrossingSceneIds.value = []
-    motionScopeError.value = ''
-    visualSource.value = 'scene_plan'
+    resetEpisodeScopedMotionState()
     return
   }
   loading.value = true
@@ -883,8 +876,36 @@ onBeforeUnmount(() => {
   sceneLoadObserver?.disconnect()
   sceneLoadObserver = null
 })
+/**
+ * v1.4.194 — episode-scoped state must not survive an episode change.
+ *
+ * `loadReview` only ever REPLACED these on a successful load, so switching
+ * episodes left the previous episode's scenes, stats, motion scope and checked
+ * ids on screen for the whole of the new load — and permanently if the new load
+ * failed, with an error banner as the only sign anything was wrong. The image
+ * URLs were stale too: `cacheBuster` was bumped only on success, so every
+ * `.../image/${scene.id}?t=...` kept resolving to the PREVIOUS episode's cached
+ * thumbnails at the previous episode's ids.
+ *
+ * AGENTS.md §4: an episode change REPLACES the field, or blanks it. This blanks
+ * it, and announces nothing because there is nothing yet to announce — the load
+ * that follows either fills it or reports its own failure.
+ */
+function resetEpisodeScopedMotionState() {
+  scenes.value = []
+  stats.value = null
+  animateMinSeconds.value = 0
+  motionScope.value = { mode: 'off' }
+  motionSceneIds.value = []
+  motionCrossingSceneIds.value = []
+  motionScopeError.value = ''
+  visualSource.value = 'scene_plan'
+  cacheBuster.value = Date.now()
+}
+
 watch(episodeId, () => {
   renderedSceneLimit.value = SCENE_RENDER_BATCH
+  resetEpisodeScopedMotionState()
   void loadReview()
 }, { immediate: true })
 </script>

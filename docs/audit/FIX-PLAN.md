@@ -608,8 +608,33 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
 - [ ] `images.vue:1411` — integrity status + Browse grid not blanked.
 - [ ] `research.vue:1207` — stale research durable on a failed read, and PUT to
       the new episode.
-- [ ] `character-sheet.vue:534`, `motion-review.vue:886`, `metadata.vue:279` —
-      replaced only on a *successful* load, never blanked.
+- [x] **2 of 3 DONE, v1.4.194.** `character-sheet.vue:534` was already correct
+      (its watcher blanks `masterExists`/`compositionExists` and bumps the
+      version counters). The other two were real:
+
+      - `motion-review.vue:886` — `loadReview` replaced `scenes`, `stats`,
+        `motionScope`, `motionSceneIds`, `motionCrossingSceneIds` only on
+        success, so an episode change showed the previous episode's scenes for
+        the whole load and permanently after a failure. It also bumped
+        `cacheBuster` only on success, so every `.../image/${scene.id}?t=` URL
+        kept resolving to the PREVIOUS episode's cached thumbnails at the
+        previous episode's ids — the audit did not mention that part. Fixed with
+        `resetEpisodeScopedMotionState()`, called from the `episodeId` watcher;
+        `loadReview`'s empty-episode branch now calls it too instead of
+        duplicating it.
+      - `metadata.vue:279` — `finalizationStatus` was replaced only on success,
+        and `finalizerGateReason` answers from it, so the YouTube Finalizer
+        reported the previous episode's readiness between the change and the new
+        load, and indefinitely after a failed one. Now blanked in the
+        `[slug, episodeId]` watcher, with `finalizationLoadSequence++` so a
+        response already in flight for the closed episode is discarded (the
+        loader already guards on that sequence, so this is the missing half).
+
+      Tests: one each in `motionReview.test.ts` and
+      `youtubeFinalizerWorkflow.test.ts`, following the lane's convention of
+      static analysis over the `.vue` source. **Proven red:** reverting each
+      watcher fails its own test with the expected assertion and leaves the rest
+      green. Frontend lane 1,832/1,832, 198/198 files.
 - [x] **DONE, v1.4.192.** The ownership-by-prefix matcher. There were **FIVE**
       sites, not four — the plan's list was wrong twice: `folder-resolver.ts`
       does exist (at `electron/server/lib/folder-resolver.ts:132`, missed by a

@@ -376,6 +376,15 @@ watch([slug, episodeId], ([projectSlug, newEp], [previousSlug, oldEp]) => {
     // them. Blanked here as well as in `applyVersion` so the window before the
     // new episode's version loads cannot submit the old episode's titles.
     titleOptions.value = []
+    // v1.4.194 — the finalization status belongs to one episode too. It was
+    // replaced only when a load SUCCEEDED, so between the episode change and
+    // the new status arriving `finalizerGateReason` kept answering from the
+    // previous episode's readiness — and after a failed load it kept answering
+    // from it indefinitely. Bumping the sequence discards any response already
+    // in flight for the episode that is no longer open.
+    finalizationStatus.value = null
+    finalizationChecking.value = false
+    finalizationLoadSequence++
   }
 })
 

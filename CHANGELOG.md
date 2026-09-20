@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.194 — 2026-09-20
+
+- Motion Review and the YouTube Finalizer now clear the episode they were showing before they load the next one. Both replaced their contents only when a new load *succeeded*, so switching episodes left the previous episode's scenes and readiness on screen while the new one loaded — and left them there for good if that load failed, with an error message as the only hint. In Motion Review the scene thumbnails were stale as well, still pointing at the previous episode's cached images. Both now blank the old episode's state the moment the episode changes.
+
 ## v1.4.193 — 2026-09-20
 
 - Subtitles are no longer kept on the strength of narration the app cannot find. Deciding whether an existing transcript was still current compared the audio to the transcript, but when a narration file was missing or unreadable that came out as "unchanged" rather than "unknown" — so an episode whose audio had been deleted kept its old captions and reported the transcript up to date. Not being able to read the audio is now treated as the audio having changed.
