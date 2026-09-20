@@ -243,6 +243,17 @@ export interface ContentStoreUiError {
   recalledAt?: string | null
 }
 
+export interface ContentPackRecovery {
+  incidentId: string
+  kind: 'invalid_state_reset'
+  detectedAt: string
+}
+
+export interface ContentPackRecoveryError {
+  action: 'check' | 'dismiss'
+  detail: string
+}
+
 /**
  * How much of what is on screen GenStudio has actually confirmed.
  *
@@ -365,6 +376,8 @@ const sharedAttempts = ref<PublicContentPurchaseAttempt[]>([])
 const sharedCatalogFreshness = ref<ContentStoreCatalogFreshness>('unavailable')
 const sharedLastVerifiedAt = ref<string | null>(null)
 const sharedLastVerifiedProof = ref<ContentStoreCachedProof | null>(null)
+const sharedRecovery = ref<ContentPackRecovery | null>(null)
+const sharedRecoveryError = ref<ContentPackRecoveryError | null>(null)
 const sharedCachedProof = computed<ContentStoreCachedProof | null>(() =>
   sharedCatalogFreshness.value === 'cached' ? sharedLastVerifiedProof.value : null)
 /**
@@ -376,6 +389,7 @@ const sharedCachedProof = computed<ContentStoreCachedProof | null>(() =>
  */
 const sharedOwnershipResolved = computed<boolean>(() => sharedCatalogFreshness.value !== 'restored')
 let sharedOverviewGeneration = 0
+let sharedRecoveryGeneration = 0
 let catalogHydrationAttempted = false
 let lastCatalogPersist: Promise<void> = Promise.resolve()
 
@@ -462,7 +476,10 @@ export function _clearContentStoreSessionCacheForTests(): void {
   sharedCatalogFreshness.value = 'unavailable'
   sharedLastVerifiedAt.value = null
   sharedLastVerifiedProof.value = null
+  sharedRecovery.value = null
+  sharedRecoveryError.value = null
   sharedOverviewGeneration = 0
+  sharedRecoveryGeneration = 0
   catalogHydrationAttempted = false
   clearStoredCatalog()
 }
@@ -497,15 +514,19 @@ export function useContentStore(): {
   ownershipResolved: Readonly<Ref<boolean>>
   lastVerifiedAt: Readonly<Ref<string | null>>
   cachedProof: Readonly<Ref<ContentStoreCachedProof | null>>
+  recovery: Readonly<Ref<ContentPackRecovery | null>>
+  recoveryError: Readonly<Ref<ContentPackRecoveryError | null>>
   loading: Readonly<Ref<boolean>>
   error: Readonly<Ref<ContentStoreUiError | null>>
   refresh: (options?: { background?: boolean }) => Promise<void>
+  refreshRecovery: () => Promise<void>
+  dismissRecovery: (incidentId: string) => Promise<void>
   requestQuote: (productId: string, releaseId?: string | null) => Promise<PublicContentPurchaseAttempt>
   confirmPurchase: (quoteId: string, options?: { refreshOverview?: boolean }) => Promise<PublicContentPurchaseAttempt>
   restoreOwnership: () => Promise<void>
   installRelease: (releaseId: string, options?: { refreshOverview?: boolean; onProgress?: (operation: ContentStoreInstallOperation) => void }) => Promise<{ pack_id: string; version: string; activated: boolean }>
 } {
-  const { get, post } = useApi()
+  const { get, post, del } = useApi()
   const loading = ref(false)
   const error = ref<ContentStoreUiError | null>(null)
   // Before the first render, not after it: the whole point is that the Store
@@ -513,6 +534,7 @@ export function useContentStore(): {
   hydrateRestoredCatalog()
 
   function beginOverviewRequest(): number { sharedOverviewGeneration += 1; return sharedOverviewGeneration }
+  function beginRecoveryRequest(): number { sharedRecoveryGeneration += 1; return sharedRecoveryGeneration }
   function applyOverview(overview: ContentStoreOverview, generation: number): void {
     if (generation !== sharedOverviewGeneration) return
     const verifiedAt = new Date().toISOString()
@@ -689,6 +711,38 @@ export function useContentStore(): {
     }
   }
 
+  /** This local recovery check has no dependency on a remote Store overview. */
+  async function refreshRecovery(): Promise<void> {
+    const generation = beginRecoveryRequest()
+    try {
+      const response = await get<{ recovery: ContentPackRecovery | null }>('/content-packs/recovery', { cache: 'no-store' })
+      if (generation !== sharedRecoveryGeneration) return
+      sharedRecovery.value = response.recovery
+      sharedRecoveryError.value = null
+    } catch (cause: any) {
+      if (generation !== sharedRecoveryGeneration) return
+      sharedRecoveryError.value = { action: 'check', detail: uiError(cause, 'Your Content Pack recovery notice could not be read.').detail }
+    }
+  }
+
+  async function dismissRecovery(incidentId: string): Promise<void> {
+    const generation = beginRecoveryRequest()
+    try {
+      const response = await del<{ ok: true }>(`/content-packs/recovery/${encodeURIComponent(incidentId)}`)
+      if (response?.ok !== true) throw new Error('This recovery notice could not be dismissed.')
+      // Invalidate every in-flight read, including one that began while this
+      // exact dismissal was pending, before it can restore the old incident.
+      sharedRecoveryGeneration += 1
+      if (sharedRecovery.value?.incidentId === incidentId) sharedRecovery.value = null
+      sharedRecoveryError.value = null
+    } catch (cause: any) {
+      if (generation === sharedRecoveryGeneration) {
+        sharedRecoveryError.value = { action: 'dismiss', detail: uiError(cause, 'This recovery notice could not be dismissed.').detail }
+      }
+      throw cause
+    }
+  }
+
   async function installRelease(
     releaseId: string,
     options: { refreshOverview?: boolean; onProgress?: (operation: ContentStoreInstallOperation) => void } = {},
@@ -757,9 +811,13 @@ export function useContentStore(): {
     ownershipResolved: readonly(sharedOwnershipResolved),
     lastVerifiedAt: readonly(sharedLastVerifiedAt),
     cachedProof: readonly(sharedCachedProof),
+    recovery: readonly(sharedRecovery),
+    recoveryError: readonly(sharedRecoveryError),
     loading: readonly(loading),
     error: readonly(error),
     refresh,
+    refreshRecovery,
+    dismissRecovery,
     requestQuote,
     confirmPurchase,
     restoreOwnership,

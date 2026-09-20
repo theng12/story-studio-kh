@@ -33,6 +33,23 @@ import type { Job } from '../models/types.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
+import { runFfmpeg } from '../lib/ffmpeg-utils.js'
+
+async function writeValidMergedAudio(mergedDir: string, code: string, durationSec = 0.25): Promise<void> {
+  const filename = `${code}_merged_audio.mp3`
+  const target = path.join(mergedDir, filename)
+  await runFfmpeg([
+    '-y', '-f', 'lavfi', '-i', `anullsrc=channel_layout=mono:sample_rate=8000,atrim=duration=${durationSec}`,
+    '-codec:a', 'libmp3lame', '-q:a', '9', target,
+  ])
+  const stat = await fs.stat(target)
+  await fs.writeFile(path.join(mergedDir, `${code}_merged_audio.completion.json`), JSON.stringify({
+    output_filename: filename,
+    bytes: stat.size,
+    duration_sec: durationSec,
+    opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
+  }))
+}
 
 async function createScopedSubtitleFixture(t: TestContext) {
   const isolated = await useTempDataDir()
@@ -67,10 +84,7 @@ async function createScopedSubtitleFixture(t: TestContext) {
     gap_duration_s: 1,
     sections: sections.map(slug => ({ slug, duration_s: 1, source_file: `${code}_${slug}.mp3` })),
   }))
-  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.mp3`), 'merged-audio')
-  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`), JSON.stringify({
-    output_filename: `${code}_merged_audio.mp3`, opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
-  }))
+  await writeValidMergedAudio(paths.merged_audio_dir, code)
 
   return {
     mock,
@@ -250,8 +264,7 @@ test('a stamped fresh retry reuses its accepted Chapter_12 task instead of skipp
     duration_s: 1,
     source_file: slug === selectedChapter ? selectedAudio : `${code}_${slug}.mp3`,
   })) }))
-  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.mp3`), 'merged-audio')
-  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`), JSON.stringify({ output_filename: `${code}_merged_audio.mp3`, opening: { lead_in_sec: 0, music_lead_in_sec: 0 } }))
+  await writeValidMergedAudio(paths.merged_audio_dir, code)
 
   const preserved = new Map<string, Buffer>()
   for (const section of sections.filter(section => section !== 'Chapter_12')) {
@@ -332,14 +345,17 @@ test('a changed active chapter source is re-transcribed instead of reusing its o
     gap_duration_s: 1,
     sections: [{ slug: section, duration_s: 1, source_file: sourceName }],
   }))
-  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.mp3`), 'merged-audio')
-  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`), JSON.stringify({
-    output_filename: `${code}_merged_audio.mp3`, opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
-  }))
+  await writeValidMergedAudio(paths.merged_audio_dir, code)
   await fs.writeFile(srtPath, '1\n00:00:00,000 --> 00:00:01,000\nOld captions must not be reused.\n')
   await recordSubtitleSourceEvidence(paths.subtitles_dir, srtName, (await hashSubtitleAudioSources([source]))!, 'mock-whisper-v1')
 
   await fs.writeFile(source, 'new chapter bytes')
+  // Audio Assembly is a strict prerequisite. Refresh its canonical output
+  // after changing the selected chapter source so this regression reaches the
+  // subtitle source-hash decision instead of correctly stopping at a stale
+  // merge. The assertion below still proves the changed chapter bytes cause a
+  // new transcription request.
+  await writeValidMergedAudio(paths.merged_audio_dir, code)
   const job = {
     job_id: 'changed-source-subtitle', project_slug: project.slug, episode_id: code,
     type: 'subtitles_transcribe', status: 'running', progress: 0, output_lines: [],
@@ -384,10 +400,13 @@ test('stamped pipeline repair transcribes only malformed and gap-mapped chapters
   await Promise.all(sections.map(section => fs.writeFile(path.join(paths.audio_dir, `${code}_${section}.mp3`), `audio-${section}`)))
   await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
     gap_duration_s: 1,
-    sections: [{ slug: 'Chapter_01', duration_s: 2 }, { slug: 'Chapter_02', duration_s: 90 }, { slug: 'Chapter_03', duration_s: 2 }],
+    sections: sections.map((slug, index) => ({
+      slug,
+      duration_s: [2, 90, 2][index],
+      source_file: `${code}_${slug}.mp3`,
+    })),
   }))
-  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.mp3`), 'merged-audio')
-  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`), JSON.stringify({ output_filename: `${code}_merged_audio.mp3`, opening: { lead_in_sec: 0, music_lead_in_sec: 0 } }))
+  await writeValidMergedAudio(paths.merged_audio_dir, code, 96)
 
   const good = Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nGood chapter.\n')
   const gap = '1\n00:00:00,000 --> 00:00:01,000\nBefore gap.\n\n2\n00:00:38,580 --> 00:00:39,000\nAfter gap.\n'

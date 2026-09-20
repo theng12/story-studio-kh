@@ -33,7 +33,7 @@
       <template #aside>
         <div class="workspace-metrics" aria-label="Research workspace context">
           <span class="workspace-metric" :data-tone="episodeId ? 'success' : 'warning'"><strong>{{ episodeId || 'No episode' }}</strong> target</span>
-          <span class="workspace-metric"><strong>{{ result?.claims.length || 0 }}</strong> claims</span>
+          <span class="workspace-metric"><strong>{{ result?.claims?.length || 0 }}</strong> claims</span>
           <span class="workspace-metric" :data-tone="researchReadinessTone"><strong>{{ researchReadinessLabel }}</strong> status</span>
         </div>
       </template>
@@ -987,6 +987,14 @@ interface ResearchOutput {
   review?: ResearchReviewRecord
 }
 
+function normalizeResearchOutput(raw: ResearchOutput): ResearchOutput {
+  return {
+    ...raw,
+    claims: Array.isArray(raw?.claims) ? raw.claims : [],
+    citations: Array.isArray(raw?.citations) ? raw.citations : [],
+  }
+}
+
 const result = ref<ResearchOutput | null>(null)
 const serverResult = ref<string>('')  // JSON snapshot of last save for diff
 // v1.0.268 — track WHICH episode is researching, not just a global boolean.
@@ -1215,26 +1223,27 @@ async function loadExisting(): Promise<void> {
     )
     if (requestSequence !== loadExistingSequence || researchScopeEpoch !== scopeEpoch || slug.value !== projectSlug || episodeId.value !== ep) return
     if (r.exists && r.research) {
-      result.value = r.research
-      serverResult.value = JSON.stringify(r.research)
+      const loaded = normalizeResearchOutput(r.research)
+      result.value = loaded
+      serverResult.value = JSON.stringify(loaded)
       // Hydrate the form from the loaded research so re-running shows
       // the same topic / questions / model the user used last time. Historical
       // source_provider values remain audit evidence and never restore a route.
-      form.value.topic = r.research.topic
-      form.value.specific_questions = r.research.specific_questions || ''
+      form.value.topic = loaded.topic
+      form.value.specific_questions = loaded.specific_questions || ''
       // Re-running should repeat what this episode last did — but only if that
       // mode is still on offer. A previously-web episode falls back to model
       // knowledge rather than presenting a mode that cannot run.
       const loadedMode = resultMode.value
       if (loadedMode === 'web-search' && webModeAvailable.value) {
         form.value.research_mode = 'web-search'
-        if (r.research.source_model && webModels.value.some(m => m.id === r.research!.source_model)) {
-          form.value.web_model = r.research.source_model
+        if (loaded.source_model && webModels.value.some(m => m.id === loaded.source_model)) {
+          form.value.web_model = loaded.source_model
         }
       } else {
         form.value.research_mode = 'model-knowledge'
-        if (r.research.source_model && loadedMode !== 'web-search') {
-          form.value.source_model = r.research.source_model
+        if (loaded.source_model && loadedMode !== 'web-search') {
+          form.value.source_model = loaded.source_model
         }
       }
     } else {

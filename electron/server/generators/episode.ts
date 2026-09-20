@@ -1526,7 +1526,6 @@ export async function generateOutlineOnly(job: Job): Promise<void> {
         { length: Math.max(0, params.totalChapters - result.outline.length) },
         (_, index) => `Chapter ${result.outline.length + index + 1}`,
       ),
-      invalid: result.outline.length > params.totalChapters ? ['extra outline chapters'] : [],
       retry_hint: 'The partial outline was kept. Retry outline generation before approval and expansion.',
     })
     job.output_lines.push(

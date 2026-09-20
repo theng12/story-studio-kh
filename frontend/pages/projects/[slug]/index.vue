@@ -187,13 +187,15 @@
             <div>
               <strong>Asset integrity</strong>
               <p v-if="auditRunning">Checking every expected artifact against disk...</p>
+              <p v-else-if="audit && audit.total_missing && hasUnmeasurableAudit">{{ audit.total_missing }} missing across {{ audit.episodes_with_missing }} episodes. Some checks could not be completed; check storage access and re-scan.</p>
               <p v-else-if="audit && audit.total_missing">{{ audit.total_missing }} missing across {{ audit.episodes_with_missing }} episodes.</p>
+              <p v-else-if="audit && hasUnmeasurableAudit">Some audit checks could not be completed. Check that project storage is available, then re-scan.</p>
               <p v-else-if="audit">Last audit found no missing assets.</p>
               <p v-else>Deep audit is manual so large projects stay fast.</p>
             </div>
             <div class="operation-actions">
-              <button v-if="audit?.total_missing" class="btn btn-sm btn-secondary" @click="showDialog = true">Details</button>
-              <button class="btn btn-sm" :class="audit?.total_missing ? 'btn-primary' : 'btn-secondary'" :disabled="auditRunning" @click="runAudit">
+              <button v-if="hasAuditDetails" class="btn btn-sm btn-secondary" @click="showDialog = true">Details</button>
+              <button class="btn btn-sm" :class="hasAuditDetails ? 'btn-primary' : 'btn-secondary'" :disabled="auditRunning" @click="runAudit">
                 {{ audit ? 'Re-scan' : 'Run audit' }}
               </button>
             </div>
@@ -238,9 +240,11 @@
     <MissingAssetsDialog
       v-if="audit"
       :visible="showDialog"
+      :busy="auditRunning"
       :slug="slug"
       :report="audit"
       @close="showDialog = false"
+      @rescan="runAudit"
     />
   </div>
 </template>
@@ -465,6 +469,10 @@ const auditError = ref('')
 const showDialog = ref(false)
 const auditCache = useState<Record<string, { result: ProjectAudit; ts: number }>>('dashboard-audit-cache', () => ({}))
 const AUDIT_TTL_MS = 30 * 60 * 1000
+const hasUnmeasurableAudit = computed(() => audit.value?.episodes.some(episode =>
+  episode.stages.some(stage => stage.outcome === 'unmeasurable'),
+) || false)
+const hasAuditDetails = computed(() => !!audit.value && (audit.value.total_missing > 0 || hasUnmeasurableAudit.value))
 
 function hydrateAudit() {
   const cached = auditCache.value[slug.value]
@@ -560,7 +568,18 @@ function reportReadiness() {
   } else {
     notif.clear(projectSlug, 'dashboard-load-error')
   }
-  if (audit.value && audit.value.total_missing > 0) {
+  if (audit.value && hasUnmeasurableAudit.value) {
+    notif.report(projectSlug, {
+      key: 'assets',
+      severity: 'warning',
+      title: audit.value.total_missing
+        ? `${audit.value.total_missing} measured missing asset${audit.value.total_missing === 1 ? '' : 's'}; some checks incomplete`
+        : 'Some asset checks could not be completed',
+      detail: 'Check that project storage is connected and readable, then retry the audit.',
+      onClick: runAudit,
+      actionLabel: 'Re-scan audit',
+    })
+  } else if (audit.value && audit.value.total_missing > 0) {
     notif.report(projectSlug, {
       key: 'assets',
       severity: 'warning',

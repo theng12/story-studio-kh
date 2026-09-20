@@ -311,6 +311,13 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   assertScenePromptsRenderable(plan.scenes, requestedIds)
   const scenes = [...plan.scenes].sort((a, b) => a.scene_index - b.scene_index)
   if (!scenes.length) throw new Error('scene_plan.json has no scenes.')
+  if (params.scene_ids?.length) {
+    const planIds = new Set(scenes.map(scene => scene.id))
+    const unknownIds = [...new Set(params.scene_ids.filter(id => !planIds.has(id)))]
+    if (unknownIds.length) {
+      throw new Error(`Unknown scene ID(s) in the requested batch: ${unknownIds.join(', ')}. Refresh Scene Review and try again.`)
+    }
+  }
 
   // v1.4.72+ — the Character Sheet contributes text context AND, when the
   // customer switches it on, ONE reference image for every character scene.

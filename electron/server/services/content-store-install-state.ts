@@ -121,7 +121,7 @@ export async function resolveContentStoreInstallSnapshot(
       if (exact?.archive_sha256 === release.archiveSha256) {
         const closure = await inspect(release.packId, release.version)
         if (closure.installState === 'incomplete') return closure
-        return { installState: pack.active_version === release.version ? 'installed_current' : 'installed_other_version', installedVersion: pack.active_version ?? release.version, missingDependencies: [] } satisfies ContentStoreClosureState
+        return { installState: pack.active_version === release.version ? 'installed_current' : 'installed_other_version', installedVersion: release.version, missingDependencies: [] } satisfies ContentStoreClosureState
       }
       const activeVersion = pack.active_version
       if (!activeVersion) return { installState: release.archiveAvailable ? 'not_installed' : 'unavailable', installedVersion: null, missingDependencies: [] } satisfies ContentStoreClosureState

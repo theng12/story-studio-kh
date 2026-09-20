@@ -37,6 +37,15 @@ import * as jq from '../services/job-queue.js'
 import { getSelectionSidecar } from '../services/broll-selection-sidecar.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { withFinalVideoPathLock } from '../services/final-video-lock.js'
+import {
+  inspectBrollAssemblyOutput,
+  inspectBrollRenderCoverage,
+  readVideoVisualSource,
+  resolveAuthoritativeBrollNarration,
+  snapshotBrollNarration,
+  writeVideoAssemblySourceStamp,
+} from '../services/video-visual-source.js'
+import { requireJobCompletion } from '../services/job-completion.js'
 import { getFFmpegPath, getFFprobePath } from '../services/ffmpeg-manager.js'
 import { buildBrollMotion, type BrollMotion, pickRotatedMotion } from '../lib/broll-motion.js'
 import { getTransition } from '../models/transitions.js'
@@ -88,6 +97,61 @@ interface AssembleParams {
   subtitles_style?: VideoSubtitleStyle
 }
 
+/** The testable producer boundary: reject unusable staged bytes before the
+ * canonical final is touched, then promote/stamp/re-audit under one lock. */
+export async function promoteVerifiedBrollFinal(input: {
+  tempPath: string
+  finalPath: string
+  projectSlug: string
+  episodeId: string
+  title: string
+  narrationPath: string
+  paths: Awaited<ReturnType<typeof resolveEpisodePaths>>
+  visualSource: Awaited<ReturnType<typeof readVideoVisualSource>>
+  narrationEvidence: Awaited<ReturnType<typeof snapshotBrollNarration>>
+}): Promise<{ bytes: number; completion: Awaited<ReturnType<typeof inspectBrollAssemblyOutput>> }> {
+  return withFinalVideoPathLock(input.finalPath, async () => {
+    const currentNarration = await snapshotBrollNarration(
+      input.narrationPath, input.paths, input.episodeId,
+    )
+    if (currentNarration.location !== input.narrationEvidence.location
+      || currentNarration.filename !== input.narrationEvidence.filename
+      || currentNarration.sha256 !== input.narrationEvidence.sha256
+      || Math.abs(currentNarration.duration_sec - input.narrationEvidence.duration_sec) > 0.05) {
+      throw new Error('Narration changed during B-Roll Assembly. The prior final was preserved; Retry Assembly against the current audio.')
+    }
+    const staged = await inspectBrollRenderCoverage(
+      input.tempPath, input.narrationEvidence.duration_sec,
+    )
+    if (!staged.complete) {
+      throw new Error(`${staged.reason} The prior final was preserved. ${staged.retry_hint}`.trim())
+    }
+
+    await fsp.rename(input.tempPath, input.finalPath)
+    const stat = await fsp.stat(input.finalPath)
+    if (!stat.isFile() || stat.size <= 0) {
+      throw new Error(`Final video is empty: ${path.basename(input.finalPath)}`)
+    }
+    await writeVideoAssemblySourceStamp(
+      input.finalPath,
+      input.episodeId,
+      input.visualSource.source,
+      input.visualSource.image_pool,
+      input.narrationEvidence,
+    )
+    const completion = await inspectBrollAssemblyOutput({
+      project_slug: input.projectSlug,
+      episode_id: input.episodeId,
+      title: input.title,
+      final_video_path: input.finalPath,
+    })
+    if (!completion.complete) {
+      throw new Error(`${completion.reason} ${completion.retry_hint}`.trim())
+    }
+    return { bytes: stat.size, completion }
+  })
+}
+
 export async function generateBrollAssemble(job: Job): Promise<void> {
   const { project_slug, episode_id } = job
   const {
@@ -137,8 +201,10 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   // selector's duration probe; we re-walk here so a sidecar generated
   // pre-merge but assembled post-merge picks up the merged file.
   const paths = await resolveEpisodePaths(project_slug, episode_id, title || '')
-  const narrationPath = await findNarrationPath(paths.merged_audio_dir, paths.audio_dir)
+  const narrationPath = await resolveAuthoritativeBrollNarration(paths, episode_id)
   if (!narrationPath) throw new Error('No narration audio found — generate audio (and merge if multi-chapter) first.')
+  const visualSource = await readVideoVisualSource(project_slug, episode_id)
+  const narrationEvidence = await snapshotBrollNarration(narrationPath, paths, episode_id)
 
   // v1.0.130+ — Resolve the final output directory BEFORE the render so
   // ffmpeg writes its temp file directly into the final destination. Two
@@ -461,39 +527,39 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
 
   if (generatedSubtitleAssPath) await fsp.rm(generatedSubtitleAssPath, { force: true }).catch(() => { /* swallow */ })
 
-  // Atomic rename so a half-encoded file never appears as final. Same
-  // filesystem (we write the temp INTO finalDir in v1.0.130+), so this
-  // is a metadata-only rename — no cross-volume copy needed.
-  await withFinalVideoPathLock(outPath, () => fsp.rename(tempPath, outPath))
-  const stat = await fsp.stat(outPath)
-  if (!stat.isFile() || stat.size <= 0) throw new Error(`Final video is empty: ${outFilename}`)
-  job.output_lines.push(`Done → ${outFilename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
+  // Reject a short/unprobeable staged render before touching any valid prior
+  // final, then promote, stamp, and re-prove under one final-path lock.
+  let promoted: Awaited<ReturnType<typeof promoteVerifiedBrollFinal>>
+  try {
+    promoted = await promoteVerifiedBrollFinal({
+      tempPath,
+      finalPath: outPath,
+      projectSlug: project_slug,
+      episodeId: episode_id,
+      title,
+      narrationPath,
+      paths,
+      visualSource,
+      narrationEvidence,
+    })
+  } catch (error) {
+    await fsp.rm(tempPath, { force: true }).catch(() => { /* promotion may already have consumed it */ })
+    throw error
+  }
+  requireJobCompletion(job, {
+    label: 'B-Roll Assembly',
+    expected: 1,
+    completed: promoted.completion.complete ? 1 : 0,
+    invalid: promoted.completion.complete ? [] : [outFilename],
+    item_name: 'final video',
+    retry_hint: promoted.completion.retry_hint || 'Retry B-Roll Assembly; completed inputs are preserved.',
+  })
   job.output_dir = finalDir
+  job.output_lines.push(`Done → ${outFilename} (${(promoted.bytes / 1024 / 1024).toFixed(1)} MB)`)
 
   // Append usage log (per-channel) — for cross-episode repeat avoidance.
   // Image pools use a SEPARATE log so their dedup never collides with B-Roll's.
   await appendUsageLog(project_slug, episode_id, sidecar.selection, isImage)
-}
-
-async function findNarrationPath(mergedDir: string, audioDir: string): Promise<string | null> {
-  const candidates: Array<{ p: string }> = []
-  if (existsSync(mergedDir)) {
-    const files = await fsp.readdir(mergedDir).catch(() => [])
-    for (const f of files) if (/\.(mp3|wav|m4a)$/i.test(f) && !f.startsWith('.tmp_')) candidates.push({ p: path.join(mergedDir, f) })
-  }
-  if (!candidates.length && existsSync(audioDir)) {
-    const files = await fsp.readdir(audioDir).catch(() => [])
-    for (const f of files) if (/\.mp3$/i.test(f) && !f.startsWith('.tmp_')) candidates.push({ p: path.join(audioDir, f) })
-  }
-  if (!candidates.length) return null
-  // Prefer the largest file as a proxy for "the full / merged track."
-  let best: { p: string; size: number } | null = null
-  for (const c of candidates) {
-    const stat = await fsp.stat(c.p).catch(() => null)
-    if (!stat) continue
-    if (!best || stat.size > best.size) best = { p: c.p, size: stat.size }
-  }
-  return best?.p || null
 }
 
 async function appendUsageLog(

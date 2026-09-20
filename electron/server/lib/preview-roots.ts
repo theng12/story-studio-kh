@@ -33,16 +33,42 @@
 
 import path from 'path'
 
-/** Resolve `p` to a real path, falling back to a lexical resolve when it does not exist. */
+function isMissingPathError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code
+  return code === 'ENOENT' || code === 'ENOTDIR'
+}
+
+/** Resolve `p`, preserving missing suffixes only below a canonical existing ancestor. */
 async function realOrResolved(p: string): Promise<string> {
-  const { realpath } = await import('fs/promises')
+  const { lstat, realpath } = await import('fs/promises')
   const { resolve } = path
+  const resolved = resolve(p)
   try {
-    return await realpath(resolve(p))
-  } catch {
-    // A file that does not exist cannot be read anyway; a lexical answer is
-    // only used to decide allow/deny, and the caller 404s afterwards.
-    return resolve(p)
+    return await realpath(resolved)
+  } catch (error) {
+    if (!isMissingPathError(error)) throw error
+  }
+
+  // A missing file still needs its existing ancestor's canonical spelling
+  // (`/tmp` is `/private/tmp` on macOS). Walk lexical nodes with lstat so an
+  // existing dangling symlink cannot disappear into the unresolved suffix.
+  const suffix: string[] = []
+  let cursor = resolved
+  while (true) {
+    try {
+      await lstat(cursor)
+    } catch (error) {
+      if (!isMissingPathError(error)) throw error
+      const parent = path.dirname(cursor)
+      if (parent === cursor) throw error
+      suffix.unshift(path.basename(cursor))
+      cursor = parent
+      continue
+    }
+
+    // If this existing node is a dangling or otherwise unresolvable symlink,
+    // realpath fails and admission must fail closed.
+    return path.join(await realpath(cursor), ...suffix)
   }
 }
 
@@ -87,7 +113,9 @@ export async function allowedPreviewRoots(slug?: string): Promise<string[]> {
       const folder = typeof (pool as { folder_path?: unknown })?.folder_path === 'string'
         ? (pool as { folder_path: string }).folder_path
         : ''
-      if (folder) roots.push(await realOrResolved(folder))
+      if (folder) {
+        try { roots.push(await realOrResolved(folder)) } catch { /* this pool is unavailable */ }
+      }
     }
   } catch { /* no pools registered */ }
 
@@ -100,7 +128,12 @@ export async function allowedPreviewRoots(slug?: string): Promise<string[]> {
  */
 export async function isPreviewablePath(filePath: string, slug?: string): Promise<boolean> {
   if (typeof filePath !== 'string' || !filePath.trim()) return false
-  const target = await realOrResolved(filePath)
+  let target: string
+  try {
+    target = await realOrResolved(filePath)
+  } catch {
+    return false
+  }
   for (const root of await allowedPreviewRoots(slug)) {
     if (isInside(target, root)) return true
   }

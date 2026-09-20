@@ -14,6 +14,9 @@ import * as bp from './broll-pool-manager.js'
 import { resolveEpisodePathsByCode, resolveEpisodePathsByCodeWithSidecar, type ProjectFactsCache } from './utils.js'
 import { readBrollSelectionSource, type BrollSelectionSidecar, type BrollSelectionSource } from './broll-selection-sidecar.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { getAudioDuration } from '../lib/ffmpeg-utils.js'
+import { getMediaInfo } from '../lib/ffmpeg-validation.js'
+import { COVERAGE_FAIL_SEC } from './scene-planner.js'
 import type { Job } from '../models/types.js'
 import type { SelectionEntry } from '../lib/broll-selector.js'
 import {
@@ -49,6 +52,16 @@ export interface VideoVisualSourceState {
   episode_dir: string
 }
 
+/** A video-pick sidecar identifies the bespoke B-Roll assembler even though
+ * its legacy visual-source value is `scene_plan`. Unstamped Scene Plan finals
+ * have no selection sidecar and retain their compatibility path. */
+export function videoVisualSourceRequiresBrollProof(source: VideoVisualSourceState): boolean {
+  return !!source.sidecar
+    && 'selection' in source.sidecar
+    && Array.isArray(source.sidecar.selection)
+    && source.sidecar.media !== 'image'
+}
+
 export interface ResolvedImagePoolSelection extends ImagePoolVisualSource {
   files: Array<{ filename: string; sha256: string; path: string }>
 }
@@ -63,6 +76,27 @@ export interface VideoAssemblySourceStamp {
     selected_images: Array<{ filename: string; sha256: string }>
     seconds_per_image: number
   }
+  /** Exact local narration rendered by the B-Roll assembler. Scene-based
+   *  assembly stamps omit this and retain their existing compatibility. */
+  broll_assembly?: {
+    narration: BrollNarrationEvidence
+  }
+}
+
+export interface BrollNarrationEvidence {
+  location: 'merged_audio' | 'audio'
+  filename: string
+  sha256: string
+  duration_sec: number
+}
+
+export interface BrollAssemblyInspection {
+  complete: boolean
+  reason: string
+  retry_hint: string
+  final_video_path?: string
+  output_duration_sec?: number
+  target_duration_sec?: number
 }
 
 export function videoAssemblySourceStampPath(finalVideoPath: string, episodeId: string): string {
@@ -93,6 +127,7 @@ export async function writeVideoAssemblySourceStamp(
   episodeId: string,
   source: VideoVisualSource,
   imagePool?: ImagePoolVisualSource | null,
+  brollNarration?: BrollNarrationEvidence,
 ): Promise<void> {
   const stat = await fs.stat(finalVideoPath)
   await writeJsonAtomic(
@@ -100,6 +135,7 @@ export async function writeVideoAssemblySourceStamp(
     {
       ...buildVideoAssemblySourceStamp(episodeId, source, imagePool),
       final_video: { size: stat.size, mtime_ms: Math.round(stat.mtimeMs) },
+      ...(brollNarration ? { broll_assembly: { narration: brollNarration } } : {}),
     },
   )
 }
@@ -151,6 +187,294 @@ async function sha256File(filePath: string): Promise<string> {
   const hash = createHash('sha256')
   for await (const chunk of createReadStream(filePath)) hash.update(chunk as Buffer)
   return hash.digest('hex')
+}
+
+async function eligibleMediaPaths(folder: string, pattern: RegExp): Promise<string[]> {
+  let names: string[]
+  try {
+    names = await fs.readdir(folder)
+  } catch (error: any) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return []
+    throw error
+  }
+  const candidates: string[] = []
+  for (const name of names) {
+    if (name.startsWith('.tmp_') || !pattern.test(name)) continue
+    const candidate = path.join(folder, name)
+    if (await existingFile(candidate)) candidates.push(candidate)
+  }
+  return candidates
+}
+
+/** One narration authority shared by picker, producer, and completion audit. */
+export async function resolveAuthoritativeBrollNarration(
+  paths: Pick<Awaited<ReturnType<typeof resolveEpisodePathsByCode>>, 'episode_dir' | 'merged_audio_dir' | 'audio_dir'>,
+  episodeId: string,
+): Promise<string | null> {
+  const { inspectAudioMergeAtPaths } = await import('./asset-status.js')
+  const merge = await inspectAudioMergeAtPaths(paths, episodeId)
+  if (merge.present && merge.path) return merge.path
+
+  if ((await eligibleMediaPaths(paths.merged_audio_dir, /\.(mp3|wav|m4a)$/i)).length) {
+    throw new Error('Merged narration exists but is stale or unverified. Repair Audio Assembly before B-Roll Assembly.')
+  }
+
+  const raw = await eligibleMediaPaths(paths.audio_dir, /\.mp3$/i)
+  if (raw.length > 1) {
+    throw new Error('Raw narration is ambiguous: B-Roll Assembly requires exactly one eligible raw MP3 or a verified Audio Assembly merge.')
+  }
+  return raw[0] || null
+}
+
+/** Capture the exact narration identity before B-Roll rendering starts. */
+export async function snapshotBrollNarration(
+  narrationPath: string,
+  paths: Pick<Awaited<ReturnType<typeof resolveEpisodePathsByCode>>, 'episode_dir' | 'merged_audio_dir' | 'audio_dir'>,
+  episodeId: string,
+): Promise<BrollNarrationEvidence> {
+  const absolute = path.resolve(narrationPath)
+  const parent = path.dirname(absolute)
+  const location = parent === path.resolve(paths.merged_audio_dir)
+    ? 'merged_audio'
+    : parent === path.resolve(paths.audio_dir)
+      ? 'audio'
+      : null
+  if (!location) throw new Error('B-Roll Assembly cannot prove narration outside this episode. Retry after Audio Assembly.')
+  const authoritative = await resolveAuthoritativeBrollNarration(paths, episodeId)
+  if (!authoritative || path.resolve(authoritative) !== absolute) {
+    throw new Error('B-Roll Assembly selected narration that is not the current authoritative source. Repair Audio Assembly, then Retry.')
+  }
+  const duration = await getAudioDuration(absolute)
+  if (!Number.isFinite(duration) || Number(duration) <= 0) {
+    throw new Error('B-Roll Assembly could not measure the selected narration. Repair Audio Assembly, then Retry.')
+  }
+  return {
+    location,
+    filename: path.basename(absolute),
+    sha256: await sha256File(absolute),
+    duration_sec: Number(duration),
+  }
+}
+
+export function videoAssemblySourceStampMatches(
+  stamp: VideoAssemblySourceStamp,
+  source: VideoVisualSourceState,
+  episodeId: string,
+): boolean {
+  if (stamp.schema_version !== 1
+    || stamp.episode_code !== episodeId.toUpperCase()
+    || stamp.source !== source.source) return false
+  if (source.source !== 'image_pool') return true
+  const current = source.image_pool
+  const saved = stamp.image_pool
+  if (!current || !saved || saved.pool_id !== current.pool_id
+    || Math.abs(saved.seconds_per_image - current.seconds_per_image) > 0.001
+    || saved.selected_images.length !== current.selected_images.length) return false
+  return saved.selected_images.every((row, index) => {
+    const currentRow = current.selected_images[index]
+    return !!currentRow && row.filename === currentRow.filename && row.sha256 === currentRow.sha256
+  })
+}
+
+function incompleteBroll(reason: string): BrollAssemblyInspection {
+  return {
+    complete: false,
+    reason,
+    retry_hint: 'Retry B-Roll Assembly; completed inputs are preserved.',
+  }
+}
+
+/** Probe the staged/final bytes against the frozen rendered narration target. */
+export async function inspectBrollRenderCoverage(
+  renderPath: string,
+  targetDurationSec: number,
+): Promise<BrollAssemblyInspection> {
+  if (!await existingFile(renderPath)) {
+    return incompleteBroll('B-Roll rendered video is missing or empty.')
+  }
+  if (!Number.isFinite(targetDurationSec) || targetDurationSec <= 0) {
+    return incompleteBroll('B-Roll narration target duration is missing or unusable.')
+  }
+  let media: Awaited<ReturnType<typeof getMediaInfo>>
+  try {
+    media = await getMediaInfo(renderPath)
+  } catch {
+    return incompleteBroll('B-Roll rendered video could not be inspected.')
+  }
+  if (!media.hasVideo) {
+    return incompleteBroll('B-Roll rendered output has no video stream.')
+  }
+  if (!media.hasAudio) {
+    return incompleteBroll('B-Roll rendered output has no narration audio stream.')
+  }
+  const videoDuration = media.videoDurationSec
+  if (!Number.isFinite(videoDuration) || Number(videoDuration) <= 0) {
+    return incompleteBroll('B-Roll rendered video stream duration could not be measured.')
+  }
+  const audioDuration = media.audioDurationSec
+  if (!Number.isFinite(audioDuration) || Number(audioDuration) <= 0) {
+    return incompleteBroll('B-Roll rendered narration audio stream duration could not be measured.')
+  }
+  if (targetDurationSec - Number(videoDuration) > COVERAGE_FAIL_SEC) {
+    return {
+      ...incompleteBroll(
+        `B-Roll rendered video is partial (${Number(videoDuration).toFixed(1)}s of ${targetDurationSec.toFixed(1)}s narration).`,
+      ),
+      output_duration_sec: Number(videoDuration),
+      target_duration_sec: targetDurationSec,
+    }
+  }
+  if (targetDurationSec - Number(audioDuration) > COVERAGE_FAIL_SEC) {
+    return {
+      ...incompleteBroll(
+        `B-Roll rendered narration audio is partial (${Number(audioDuration).toFixed(1)}s of ${targetDurationSec.toFixed(1)}s narration).`,
+      ),
+      output_duration_sec: Number(audioDuration),
+      target_duration_sec: targetDurationSec,
+    }
+  }
+  const outputDuration = Math.min(Number(videoDuration), Number(audioDuration))
+  return {
+    complete: true,
+    reason: 'rendered video covers its narration target',
+    retry_hint: '',
+    output_duration_sec: Number(outputDuration),
+    target_duration_sec: targetDurationSec,
+  }
+}
+
+async function existingFile(filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(filePath)
+    return stat.isFile() && stat.size > 0
+  } catch (error: any) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return false
+    throw error
+  }
+}
+
+async function resolveBrollFinalPath(input: {
+  project_slug: string
+  episode_id: string
+  title?: string
+  output_dir?: string
+  final_video_path?: string
+}): Promise<{ path?: string; error?: string }> {
+  const filename = `${input.episode_id.toUpperCase()}_final_video.mp4`
+  if (input.final_video_path) return { path: path.resolve(input.final_video_path) }
+  if (input.output_dir) return { path: path.resolve(input.output_dir, filename) }
+
+  const paths = await resolveEpisodePathsByCodeWithSidecar(
+    input.project_slug, input.episode_id, 'broll-selection.json',
+  )
+  const candidates = [path.join(paths.video_dir, filename)]
+  const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
+  const external = await resolveExternalFinalVideoDir(
+    input.project_slug, input.episode_id, input.title || '',
+  )
+  if (external) candidates.push(path.join(external, filename))
+  const present: string[] = []
+  for (const candidate of new Set(candidates.map(value => path.resolve(value)))) {
+    if (await existingFile(candidate)) present.push(candidate)
+  }
+  if (present.length === 1) return { path: present[0] }
+  if (present.length > 1) {
+    return { error: 'B-Roll final video is ambiguous across project and external storage.' }
+  }
+  return { error: 'B-Roll final video is missing.' }
+}
+
+/**
+ * Prove one B-Roll final from the promoted file and the producer's durable
+ * narration evidence. Legacy sidecars are context only, never completion.
+ */
+export async function inspectBrollAssemblyOutput(input: {
+  project_slug: string
+  episode_id: string
+  title?: string
+  output_dir?: string
+  final_video_path?: string
+}): Promise<BrollAssemblyInspection> {
+  const sidecarState = await readVideoVisualSource(input.project_slug, input.episode_id)
+  const legacyTarget = Number(
+    sidecarState.sidecar && 'target_duration' in sidecarState.sidecar
+      ? sidecarState.sidecar.target_duration
+      : NaN,
+  )
+  const resolved = await resolveBrollFinalPath(input)
+  if (!resolved.path) return incompleteBroll(`${resolved.error} Run B-Roll Assembly again.`)
+  const finalPath = resolved.path
+  if (!await existingFile(finalPath)) {
+    return incompleteBroll('B-Roll final video is missing or empty. Run B-Roll Assembly again.')
+  }
+
+  let stamp: VideoAssemblySourceStamp
+  try {
+    stamp = JSON.parse(await fs.readFile(
+      videoAssemblySourceStampPath(finalPath, input.episode_id), 'utf8',
+    )) as VideoAssemblySourceStamp
+  } catch (error: any) {
+    if (!Number.isFinite(legacyTarget) || legacyTarget <= 0) {
+      return incompleteBroll('B-Roll target duration is unknown. Pick B-Roll again, then Retry Assembly.')
+    }
+    return incompleteBroll('B-Roll final video has no durable narration proof. Retry B-Roll Assembly.')
+  }
+
+  if (!videoAssemblySourceStampMatches(stamp, sidecarState, input.episode_id)) {
+    return incompleteBroll('B-Roll visual-source proof is stale. Retry B-Roll Assembly.')
+  }
+  const finalStat = await fs.stat(finalPath)
+  if (!stamp.final_video
+    || stamp.final_video.size !== finalStat.size
+    || stamp.final_video.mtime_ms !== Math.round(finalStat.mtimeMs)) {
+    return incompleteBroll('B-Roll final video changed after its completion proof. Retry B-Roll Assembly.')
+  }
+
+  const narration = stamp.broll_assembly?.narration
+  if (!narration || !['merged_audio', 'audio'].includes(narration.location)
+    || !narration.filename || path.basename(narration.filename) !== narration.filename
+    || !narration.sha256 || !Number.isFinite(narration.duration_sec) || narration.duration_sec <= 0) {
+    return incompleteBroll('B-Roll narration proof is missing or unusable. Retry B-Roll Assembly.')
+  }
+  // The sidecar is the existing authority for the titled episode directory.
+  // Code-only resolution can choose the legacy code-only sibling in imported
+  // projects and falsely report the rendered narration as missing.
+  const paths = await resolveEpisodePathsByCodeWithSidecar(
+    input.project_slug, input.episode_id, 'broll-selection.json',
+  )
+  const narrationDir = narration.location === 'merged_audio' ? paths.merged_audio_dir : paths.audio_dir
+  const narrationPath = path.join(narrationDir, narration.filename)
+  if (!await existingFile(narrationPath)) {
+    return incompleteBroll('B-Roll rendered narration is missing. Repair Audio Assembly, then Retry B-Roll Assembly.')
+  }
+  let authoritativeNarration: string | null
+  try {
+    authoritativeNarration = await resolveAuthoritativeBrollNarration(paths, input.episode_id)
+  } catch (error: any) {
+    return incompleteBroll(error?.message || 'B-Roll narration authority could not be resolved.')
+  }
+  if (!authoritativeNarration || path.resolve(authoritativeNarration) !== path.resolve(narrationPath)) {
+    return incompleteBroll('B-Roll rendered narration is no longer the authoritative episode narration. Retry B-Roll Assembly.')
+  }
+  const [currentHash, currentDuration] = await Promise.all([
+    sha256File(narrationPath),
+    getAudioDuration(narrationPath),
+  ])
+  if (currentHash !== narration.sha256
+    || !Number.isFinite(currentDuration)
+    || Math.abs(Number(currentDuration) - narration.duration_sec) > 0.05) {
+    return incompleteBroll('B-Roll rendered narration changed after this final was made. Retry B-Roll Assembly.')
+  }
+  const coverage = await inspectBrollRenderCoverage(finalPath, narration.duration_sec)
+  if (!coverage.complete) return { ...coverage, final_video_path: finalPath }
+  return {
+    complete: true,
+    reason: 'final video and rendered narration proof are current',
+    retry_hint: '',
+    final_video_path: finalPath,
+    output_duration_sec: coverage.output_duration_sec,
+    target_duration_sec: narration.duration_sec,
+  }
 }
 
 function isImagePoolSelectionSidecar(sidecar: VisualSourceSidecar | null): sidecar is BrollSelectionSidecar {

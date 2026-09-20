@@ -3,10 +3,27 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 
 let finalizer: typeof import('../services/youtube-metadata-finalizer.js')
 let pm: typeof import('../services/project-manager.js')
 let cleanup: () => Promise<void>
+
+async function writeValidMergedAudio(mergedDir: string, code: string, durationSec: number): Promise<void> {
+  const filename = `${code}_merged_audio.mp3`
+  const target = path.join(mergedDir, filename)
+  await runFfmpeg([
+    '-y', '-f', 'lavfi', '-i', `anullsrc=channel_layout=mono:sample_rate=8000,atrim=duration=${durationSec}`,
+    '-codec:a', 'libmp3lame', '-q:a', '9', target,
+  ])
+  const stat = await fs.stat(target)
+  await fs.writeFile(path.join(mergedDir, `${code}_merged_audio.completion.json`), JSON.stringify({
+    output_filename: filename,
+    bytes: stat.size,
+    duration_sec: durationSec,
+    opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
+  }))
+}
 
 before(async () => {
   const temp = await useTempDataDir()
@@ -135,13 +152,13 @@ describe('YouTube metadata finalizer', () => {
         Buffer.from(`audio-${n}`),
       )
     }
-    await fs.writeFile(path.join(paths.merged_audio_dir, `${episodeId}_merged_audio.mp3`), Buffer.from('merged'))
+    await writeValidMergedAudio(paths.merged_audio_dir, episodeId, 394)
     await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
       gap_duration_s: 2,
       sections: [
-        { slug: 'Chapter_01', duration_s: 120 },
-        { slug: 'Chapter_02', duration_s: 180 },
-        { slug: 'Chapter_03', duration_s: 90 },
+        { slug: 'Chapter_01', duration_s: 120, source_file: `${episodeId}_Chapter_01.mp3` },
+        { slug: 'Chapter_02', duration_s: 180, source_file: `${episodeId}_Chapter_02.mp3` },
+        { slug: 'Chapter_03', duration_s: 90, source_file: `${episodeId}_Chapter_03.mp3` },
       ],
     }))
     const { writeImportedOutline } = await import('../lib/chunked-narration.js')

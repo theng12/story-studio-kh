@@ -268,6 +268,7 @@ describe('Motion Review duration controls', () => {
         scene({ id: 'still', scene_index: 6, motion_choice: 'still' }),
       ],
     })
+    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Published aspect ratio"]')!, '16:9')
     clickRadio(mounted.el, 'follow_narration')
     await settle()
     assert.match(mounted.text(), /1 clip · Listed total 80 credits/)
@@ -284,6 +285,7 @@ describe('Motion Review duration controls', () => {
 
   test('presets retain the manual value and old presets remain manual', async () => {
     const mounted = await mount({ models: [model('sparse', [variant(5, '720p'), variant(8, '720p')])] })
+    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Published aspect ratio"]')!, '16:9')
     const field = mounted.el.querySelector<HTMLInputElement>('input[aria-label="Manual clip length"]')!
     field.value = '8'
     field.dispatchEvent(new Event('input', { bubbles: true }))
@@ -327,6 +329,7 @@ describe('Motion Review duration controls', () => {
       motion_scene_ids: ['opening'],
       motion_crossing_scene_ids: ['crossing'],
     })
+    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Published aspect ratio"]')!, '16:9')
     await settle()
 
     assert.match(mounted.text(), /Opening.*12s/i)

@@ -106,9 +106,10 @@ export function clampOutputAllowance(
  */
 export function availableInputTokens(
   contextWindow: number,
-  selectedMaxOutputTokens: number,
+  selectedMaxOutputTokens: number | null | undefined,
 ): number {
   const window = positiveInt(contextWindow)
+  if (selectedMaxOutputTokens == null || selectedMaxOutputTokens === 0) return 0
   if (!window) return 0
   const output = Number.isInteger(Number(selectedMaxOutputTokens)) && Number(selectedMaxOutputTokens) > 0
     ? Number(selectedMaxOutputTokens)

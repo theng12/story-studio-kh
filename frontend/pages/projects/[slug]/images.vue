@@ -615,7 +615,7 @@ const defaultSubForm = (): ImagesSubForm => ({
   // The live GenStudio image catalog selects a usable model on mount. This
   // must stay empty so retired image-provider ids cannot leak into renders.
   model: '',
-  aspect_ratio: '16:9',
+  aspect_ratio: '',
   // Unified Generation Mode (M6) — replaces the standalone `force` checkbox.
   // Translated to `force` at submit time; the backend's image generator
   // (generators/images.ts) only knows about that boolean today, so this
@@ -684,16 +684,14 @@ const modelTiers = computed<{ id: string; label: string; credits: number }[]>(()
   return Array.isArray(m?.tiers) ? m.tiers : []
 })
 
-// Per-tab prompt-character cap + friendly label. Threaded into each
-// ImageGeneratorPanel so the per-row char badge can colour-code against
-// the provider's documented limit (advisory — see types.ts:prompt_char_cap).
-// Each tab can be configured with a different model, so we resolve caps
-// from form.thumbnail.model and form.scene.model independently.
+// Per-tab prompt-character cap + friendly label. Both come from the selected
+// live GenStudio row, so the advisory badge agrees with preview admission.
+// Each tab can select a different model.
 function modelInfoFor(modelId: string) {
-  const m = config.value?.image_models?.[modelId] as any
+  const m = genStudioImageModels.value.find(model => model.id === modelId)
   return {
-    cap: (m && typeof m.prompt_char_cap === 'number') ? (m.prompt_char_cap as number) : null,
-    label: (m?.label as string) || modelId || '',
+    cap: typeof m?.max_prompt_characters === 'number' ? m.max_prompt_characters : null,
+    label: m?.display_name || modelId || '',
   }
 }
 const thumbnailModelInfo = computed(() => modelInfoFor(form.thumbnail.model))
@@ -731,26 +729,30 @@ watch(() => [activeForm.value.model, genStudioImageModels.value.length], () => {
     const def = tiers.find((t: any) => t.id === m.default_tier) ?? tiers[0]
     activeForm.value.tier = def?.id || ''
   }
-  // v1.0.478 — if the new model advertises a size menu and the current aspect
-  // ratio isn't one it offers, snap to its default AR so the select isn't blank
-  // and modelDims resolves cleanly.
-  const ars = modelArs(activeForm.value.model)
-  if (ars && ars.length && !ars.includes(activeForm.value.aspect_ratio)) {
-    const info = isCatalog.value.get(activeForm.value.model)
-    activeForm.value.aspect_ratio = (info?.default_aspect_ratio && ars.includes(info.default_aspect_ratio))
-      ? info.default_aspect_ratio
-      : ars[0]!
-  }
-  const genStudio = activeGenStudioModel.value
-  if (genStudio) {
-    const supported = genStudio.aspect_ratios || []
-    if (supported.length && !supported.includes(activeForm.value.aspect_ratio)) {
-      activeForm.value.aspect_ratio = supported.includes(genStudio.default_aspect_ratio)
-        ? genStudio.default_aspect_ratio
-        : supported[0]!
-    }
-  }
 }, { immediate: true })
+
+function normalizeImageAspectRatio(target: ImagesSubForm): boolean {
+  const ratios = modelArs(target.model) || []
+  if (!ratios.includes(target.aspect_ratio)) {
+    const model = genStudioImageModels.value.find(row => row.id === target.model)
+    const defaultRatio = model
+      ? model.default_aspect_ratio
+      : isCatalog.value.get(target.model)?.default_aspect_ratio
+    target.aspect_ratio = defaultRatio && ratios.includes(defaultRatio) ? defaultRatio : ratios[0] || ''
+  }
+  return !!target.aspect_ratio && ratios.includes(target.aspect_ratio)
+}
+
+// Both saved forms follow their actual catalogue lists, including same-count
+// refreshes and preset edits. Preserve any choice the model still publishes.
+for (const kind of ['thumbnail', 'scene'] as const) {
+  watch(() => {
+    const target = form[kind]
+    const model = genStudioImageModels.value.find(row => row.id === target.model)
+    return [target.model, target.aspect_ratio, modelArs(target.model),
+      model?.default_aspect_ratio, isCatalog.value.get(target.model)?.default_aspect_ratio]
+  }, () => normalizeImageAspectRatio(form[kind]), { immediate: true })
+}
 
 // ── Presets ─────────────────────────────────────────────────────────────
 // v1.0.88+: presets are SPLIT per kind (thumbnail_generator vs
@@ -806,12 +808,8 @@ const imgPresets = computed(() => thumbnailGeneratorPresets)
 
 /**
  * Format-aware seeding of aspect_ratio BEFORE preset loaders run. The
- * page default is hardcoded '16:9' (sleep-story); the format schema
- * already exposes `imagePrompts.recommendedAspect` for image-prompts.vue,
- * so we read the same field here. Listicle / explainer channels currently
- * also recommend 16:9 (chroma-key compositing assumes landscape) but
- * vertical / Shorts-format custom formats can declare 9:16 and the page
- * will pick it up.
+ * format schema exposes `imagePrompts.recommendedAspect`. The live catalogue
+ * watcher retains that preference only while the selected model publishes it.
  *
  * Saved presets still override these — preset.load() runs after seeding.
  */
@@ -827,7 +825,7 @@ async function applyImageFormatDefaultsIfNoPreset() {
       form.scene.aspect_ratio = ip.recommendedAspect
     }
   } catch {
-    // Format endpoint unavailable — keep the legacy '16:9' default.
+    // Format endpoint unavailable — use the selected model's published options.
   }
 }
 
@@ -1038,29 +1036,8 @@ const imageUnitCost = computed(() => describeImageUnitCost(
   { referenceGuided: thumbnailReferenceActive.value },
 ))
 
-const aspectRatios = computed(() => {
-  if (activeGenStudioModel.value?.aspect_ratios?.length) {
-    return activeGenStudioModel.value.aspect_ratios.map(v => ({ value: v, label: AR_LABELS[v] || v }))
-  }
-  // v1.0.478 — when the selected model advertises a `sizes` menu, its ARs win.
-  const fromModel = modelArs(activeForm.value.model)
-  if (fromModel) return fromModel.map(v => ({ value: v, label: AR_LABELS[v] || v }))
-  if (form.mode === 'thumbs') {
-    return [
-      { value: '16:9', label: 'YouTube Thumbnail' },
-      { value: '1:1',  label: 'Square' },
-      { value: '4:3',  label: 'Classic' },
-    ]
-  }
-  return [
-    { value: '16:9',  label: 'Landscape' },
-    { value: '1:1',   label: 'Square' },
-    { value: '9:16',  label: 'Portrait' },
-    { value: '4:3',   label: 'Standard' },
-    { value: '3:4',   label: 'Tall' },
-    { value: '21:9',  label: 'Ultrawide' },
-  ]
-})
+const aspectRatios = computed(() => (modelArs(activeForm.value.model) || [])
+  .map(value => ({ value, label: AR_LABELS[value] || value })))
 
 // ── Render dimensions ─────────────────────────────────────────────────────
 // Compatibility aspect presets for catalog entries that expose an aspect ratio
@@ -1109,7 +1086,7 @@ function modelSizes(modelId: string | undefined): IsSize[] | null {
 /** Distinct aspect ratios the model supports (menu order), or null when no menu. */
 function modelArs(modelId: string | undefined): string[] | null {
   const genStudio = genStudioImageModels.value.find(model => model.id === modelId)
-  if (genStudio?.aspect_ratios?.length) return [...genStudio.aspect_ratios]
+  if (genStudio) return [...(genStudio.aspect_ratios || [])]
   const sizes = modelSizes(modelId)
   if (!sizes) return null
   const out: string[] = []
@@ -1637,6 +1614,8 @@ watch([slug, () => form.episode_id], ([, v]) => {
 }, { immediate: true })
 
 function generationParams(forceOverride?: boolean) {
+  // A submit can occur before Vue flushes a catalogue/preset watcher.
+  if (!normalizeImageAspectRatio(activeForm.value)) return null
   // Missing-only is the safe default. Regeneration is the one explicit
   // overwrite action exposed by the thumbnail and scene boards.
   const force = forceOverride ?? activeForm.value.generation_mode === 'regenerate'
@@ -1676,7 +1655,18 @@ function generationParams(forceOverride?: boolean) {
 
 async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image generation queued!') {
   const params = generationParams(forceOverride)
+  if (!params) {
+    showError('This model has no published aspect ratios. Refresh the catalogue or choose another model before generating.')
+    return
+  }
   if (!await confirmGeneration(slug.value, getConfirmationType(), params)) return
+  // Never replace a confirmed choice with a new model/ratio behind the dialog.
+  if (activeForm.value.model !== params.model || form.mode !== params.mode
+    || activeForm.value.aspect_ratio !== params.aspect_ratio
+    || !modelArs(params.model)?.includes(params.aspect_ratio)) {
+    showError('The image model or aspect ratio changed during confirmation. Review the current selection and generate again to confirm it.')
+    return
+  }
   const operationId = params.force ? freshImagesAction.begin(params) : null
   if (operationId) params.operation_id = operationId
 

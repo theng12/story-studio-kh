@@ -1233,7 +1233,7 @@ export function resolveStepParams(
     return {
       episode_id: episodeId,
       model: data.model,
-      aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
+      aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : undefined,
       operation: data.operation,
       duration_seconds: data.duration_seconds,
       resolution: data.resolution,

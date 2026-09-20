@@ -213,7 +213,7 @@
            effective format JSON; range chips light up amber when the
            user's current input falls outside the recommended envelope —
            purely informational, not a block. -->
-      <div v-if="false && formatContext" class="format-context-card">
+      <div v-if="formatContext" class="format-context-card">
         <div class="format-context-header">
           <span class="format-context-icon" aria-hidden="true">ⓘ</span>
           <span class="format-context-name">{{ formatContext.name }}</span>

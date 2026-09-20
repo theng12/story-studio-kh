@@ -297,8 +297,25 @@ test('Scene Plan accepts only a complete persisted request shape for saved-key r
     visual_max_tokens: 16_384, active_output_budget: 16_384, prompt_pack_size: 4,
   }
   assert.deepEqual(readScenePolicyRequestPlan(saved), saved)
+  assert.deepEqual(readScenePolicyRequestPlan({
+    ...saved, max_output_tokens: null, visual_max_tokens: null, active_output_budget: null,
+  }), {
+    ...saved, max_output_tokens: null, visual_max_tokens: null, active_output_budget: null,
+  })
+  assert.deepEqual(readScenePolicyRequestPlan({
+    ...saved, max_output_tokens: 0, visual_max_tokens: null, active_output_budget: null,
+  }), {
+    ...saved, max_output_tokens: null, visual_max_tokens: null, active_output_budget: null,
+  })
   assert.equal(readScenePolicyRequestPlan({ ...saved, prompt_pack_size: 0 }), null)
   assert.equal(readScenePolicyRequestPlan({ ...saved, model_id: '' }), null)
+  for (const value of ['4096', 1.5, -1]) {
+    assert.equal(readScenePolicyRequestPlan({ ...saved, max_output_tokens: value }), null)
+    assert.equal(readScenePolicyRequestPlan({ ...saved, visual_max_tokens: value }), null)
+    assert.equal(readScenePolicyRequestPlan({ ...saved, active_output_budget: value }), null)
+  }
+  assert.equal(readScenePolicyRequestPlan({ ...saved, visual_max_tokens: 0 }), null)
+  assert.equal(readScenePolicyRequestPlan({ ...saved, active_output_budget: 0 }), null)
 })
 
 test('Pipeline backup resumes at the ordered next candidate after a durable uncharged primary failure', async () => {

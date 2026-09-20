@@ -1776,6 +1776,11 @@ router.get('/projects/:slug/video-editor/subtitle-preflight/:episodeId/fingerpri
     } catch (e: any) {
       return res.status(400).json(humanizeBackendError(e, 'Could not resolve subtitle path'))
     }
+    if (!await isPreviewablePath(filePath, req.params.slug)) {
+      return res.status(403).json({
+        detail: 'That file is outside this project. Subtitle checks can read your Library and any media folder you configured.',
+      })
+    }
     try {
       const st = await fs.stat(filePath)
       res.json({ fingerprint: { mtime_ms: Math.round(st.mtimeMs), size: st.size } })

@@ -27,6 +27,7 @@ import { DEV_BACKEND_PORT } from './lib/dev-backend.js'
 import { buildRequireSession } from './lib/auth-session.js'
 import { router as authRouter } from './routes/auth.js'
 import { errorBoundary } from './lib/error-boundary.js'
+import { resolveStoryStudioVersion } from './lib/app-version.js'
 import { getApiKey } from './services/app-secrets-store.js'
 import {
   refreshGenStudioAdmission,
@@ -118,10 +119,10 @@ app.use((req, res, next) => {
 //
 // `boot_complete` flips true once every async boot migration has settled
 // (or after the 20 s safety-net timeout).
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
   res.json({
     status: 'ok',
-    version: '0.1.0',
+    version: await resolveStoryStudioVersion(),
     boot_complete: isBootComplete(),
   })
 })
@@ -130,14 +131,14 @@ app.get('/api/health', (_req, res) => {
 // for the diagnostic card on the Settings page.
 const PROCESS_START_MS = Date.now()
 
-app.get('/api/server-info', (_req, res) => {
+app.get('/api/server-info', async (_req, res) => {
   const cfg = getServerModeConfig()
   // Read it fresh — credentials could have been rotated since boot.
   const hasCredentials = !!cfg?.auth?.password_hash && !!cfg?.auth?.session_secret
   res.json({
     server_mode: SERVER_MODE,
     app_name: 'Story Studio KH',
-    version: '0.1.0',
+    version: await resolveStoryStudioVersion(),
     // v1.0.99+ — diagnostic surface for the Settings → Server Mode card.
     // All fields are safe to expose unauthenticated: they reveal whether
     // server mode is on + which bind/port is in use (the user already knows

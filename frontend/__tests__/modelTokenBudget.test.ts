@@ -12,6 +12,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
+import { nextTick } from 'vue'
+import { transform } from 'esbuild'
 import {
   availableInputTokens,
   clampOutputAllowance,
@@ -29,6 +31,46 @@ function source(path: string): string {
 const scenePlan = source('../pages/projects/[slug]/scene-plan.vue')
 const modelSelector = source('../components/ModelSelector.vue')
 const research = source('../pages/projects/[slug]/research.vue')
+
+/**
+ * Runs the shipped Scene Plan budget computed block and its model-switch
+ * watcher. The support only supplies reactive inputs; the formulas and watcher
+ * are sliced from the page, so this fails if the production derivation drifts.
+ */
+async function loadScenePlanBudgetDerivation() {
+  const start = scenePlan.indexOf('const liveModelLimits = computed')
+  const end = scenePlan.indexOf('\nfunction pacingSummary', start)
+  const watcherStart = scenePlan.indexOf('watch(publishedMaxOutput,', end)
+  const watcherEnd = scenePlan.indexOf('\n\nconst scenePlanGenerationUnavailable', watcherStart)
+  assert.ok(start >= 0 && end > start && watcherStart >= 0 && watcherEnd > watcherStart)
+
+  const vueUrl = await import.meta.resolve('vue')
+  const budgetUrl = await import.meta.resolve('../utils/model-token-budget.js')
+  const support = `
+    import { computed, ref, watch } from ${JSON.stringify(vueUrl)}
+    import {
+      availableInputTokens, clampOutputAllowance, contextWindowTokens,
+      formatTokenCount, maxOutputTokens as publishedMaxOutputTokens,
+      outputAllowanceOptions,
+    } from ${JSON.stringify(budgetUrl)}
+    const PROMPT_PACK_MIN = 1
+    const PROMPT_PACK_PRESETS = [1, 5, 10, 25, 50, 100, 250, 500]
+    const form = ref({ model: '', prompt_max_tokens: 'auto', prompt_pack_size: 'auto' })
+    const selectedModelMeta = ref(null)
+    const promptSafetyFraction = ref(0.75)
+    const promptTokensPerScene = ref(300)
+    const promptBatchSizeDefault = ref(250)
+    function setModel(model) {
+      selectedModelMeta.value = model
+      form.value.model = model.id
+    }
+  `
+  const compiled = await transform(`${support}\n${scenePlan.slice(start, end)}\n${scenePlan.slice(watcherStart, watcherEnd)}\nexport {
+    form, setModel, effectivePromptTokenBudget, maximumPromptPackSize,
+    automaticPromptPackSize, effectivePromptPackSize, hasUnpublishedExplicitPromptBudget,
+  }`, { loader: 'ts', format: 'esm' })
+  return import(`data:text/javascript;base64,${Buffer.from(compiled.code).toString('base64')}`)
+}
 
 describe('published context window', () => {
   test('context_window_tokens is preferred over the deprecated alias', () => {
@@ -78,9 +120,15 @@ describe('clamping on model switch', () => {
     assert.equal(clampOutputAllowance(16_384, 128_000), 16_384)
   })
 
-  test('auto survives every switch — it MEANS this product\'s maximum', () => {
+  test('auto survives every switch — it MEANS this product\'s maximum or an omitted request', () => {
     assert.equal(clampOutputAllowance('auto', 32_768), 'auto')
     assert.equal(clampOutputAllowance('auto', 128_000), 'auto')
+    assert.equal(clampOutputAllowance('auto', 0), 'auto')
+  })
+
+  test('an explicit allowance survives an unpublished or malformed maximum', () => {
+    assert.equal(clampOutputAllowance(8192, 0), 8192)
+    assert.equal(clampOutputAllowance(8192, Number.NaN), 8192)
   })
 })
 
@@ -97,6 +145,7 @@ describe('available input budget', () => {
 
   test('claims nothing when the context window is unpublished', () => {
     assert.equal(availableInputTokens(0, 32_768), 0)
+    assert.equal(availableInputTokens(1_050_000, null as any), 0)
   })
 })
 
@@ -134,6 +183,48 @@ describe('Scene Plan workspace wiring', () => {
     assert.match(scenePlan, /Output allowance/)
     assert.match(scenePlan, /Available input budget at this setting/)
     assert.match(scenePlan, /availableInputTokens\(selectedModelContextWindow\.value/)
+  })
+
+  test('a model without a published output ceiling stays usable and is explained', () => {
+    assert.match(scenePlan, /hasSelectedPromptModel/)
+    assert.match(scenePlan, /publishes no output ceiling/)
+    assert.match(scenePlan, /Story Studio omits/)
+  })
+
+  test('an explicit allowance on a no-ceiling model remains selected, sent, and sizes its batch', () => {
+    assert.match(scenePlan, /<option v-if="hasUnpublishedExplicitPromptBudget" :value="effectivePromptTokenBudget">[\s\S]*User-chosen · \{\{ effectivePromptTokenBudget\.toLocaleString\(\) \}\} tokens/)
+    assert.match(scenePlan, /v-else-if="hasUnpublishedExplicitPromptBudget">up to \{\{ effectivePromptTokenBudget\.toLocaleString\(\) \}\} output tokens · user-chosen allowance/)
+    assert.match(scenePlan, /prompt_max_tokens: stage === 'visual' \? form\.value\.prompt_max_tokens : undefined/)
+    assert.match(scenePlan, /prompt_max_tokens: form\.value\.prompt_max_tokens/)
+  })
+
+  test('runs the shipped no-ceiling allowance and batch derivation across model switches', async () => {
+    const budget = await loadScenePlanBudgetDerivation()
+    budget.setModel({ id: 'published-large', max_output_tokens: 32_768 })
+    budget.form.value.prompt_max_tokens = 8192
+    await nextTick()
+    assert.equal(budget.effectivePromptTokenBudget.value, 8192)
+    assert.equal(budget.automaticPromptPackSize.value, 20)
+
+    budget.setModel({ id: 'no-ceiling', max_output_tokens: null })
+    await nextTick()
+    assert.equal(budget.form.value.prompt_max_tokens, 8192)
+    assert.equal(budget.hasUnpublishedExplicitPromptBudget.value, true)
+    assert.equal(budget.effectivePromptTokenBudget.value, 8192)
+    assert.equal(budget.effectivePromptPackSize.value, 20)
+
+    budget.form.value.prompt_max_tokens = 'auto'
+    await nextTick()
+    assert.equal(budget.effectivePromptTokenBudget.value, 0)
+    assert.equal(budget.automaticPromptPackSize.value, 250)
+    assert.equal(budget.effectivePromptPackSize.value, 250)
+
+    budget.form.value.prompt_max_tokens = 8192
+    budget.setModel({ id: 'published-smaller', max_output_tokens: 4096 })
+    await nextTick()
+    assert.equal(budget.form.value.prompt_max_tokens, 4096)
+    assert.equal(budget.effectivePromptTokenBudget.value, 4096)
+    assert.equal(budget.automaticPromptPackSize.value, 10)
   })
 
   test('the budget is presented as an estimate, and is never turned into characters', () => {

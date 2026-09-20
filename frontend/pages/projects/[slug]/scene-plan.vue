@@ -36,7 +36,7 @@
         filter-field="scene_plan"
         :presets="planPresets"
         :generate-label="headerPrimaryLabel"
-        :loading-label="headerPrimaryLoadingLabel"
+        :generate-loading-label="headerPrimaryLoadingLabel"
         :generate-loading="planning || planJobActive"
         :generate-disabled="headerPrimaryDisabled"
         :generate-status="headerPrimaryStatus"
@@ -248,10 +248,21 @@
             the selected GenStudio model cannot return that many complete in one response. Its published output
             limit is the only ceiling — {{ maximumPromptPackSize.toLocaleString() }} scenes on the model chosen now.
           </p>
-          <p v-else class="scene-setting-help">Choose a prompt model to see its published output allowance and safe batch size.</p>
-          <div v-if="hasPublishedPromptBudget" class="scene-batch-summary">
+          <p v-else-if="hasUnpublishedExplicitPromptBudget" class="scene-setting-help">
+            This model publishes no output ceiling. Story Studio sends your selected allowance of up to
+            {{ effectivePromptTokenBudget.toLocaleString() }} output tokens and sizes this batch from that allowance;
+            GenStudio still decides when the response ends.
+          </p>
+          <p v-else-if="hasSelectedPromptModel" class="scene-setting-help">
+            This model publishes no output ceiling. Story Studio omits <code>max_output_tokens</code> and uses your
+            configured default of {{ promptBatchSizeDefault }} scenes per request; GenStudio decides when the response ends.
+          </p>
+          <p v-else class="scene-setting-help">Choose a prompt model to see its published output allowance and batch size.</p>
+          <div v-if="hasSelectedPromptModel" class="scene-batch-summary">
             <span><strong>{{ effectivePromptPackSize }} scenes</strong> per request</span>
-            <span>up to {{ effectivePromptTokenBudget.toLocaleString() }} output tokens</span>
+            <span v-if="hasPublishedPromptBudget">up to {{ effectivePromptTokenBudget.toLocaleString() }} output tokens</span>
+            <span v-else-if="hasUnpublishedExplicitPromptBudget">up to {{ effectivePromptTokenBudget.toLocaleString() }} output tokens · user-chosen allowance</span>
+            <span v-else>no output-token limit is sent</span>
           </div>
           <!-- Shown when the batch may outlast the request, never when it will
                not. It warns and stops there: the batch is still sent exactly as
@@ -262,15 +273,16 @@
             <div class="scene-compact-fields mt-1">
               <div class="form-group">
                 <label>Output allowance</label>
-                <select v-model="form.prompt_max_tokens" class="select" :disabled="!hasPublishedPromptBudget">
-                  <option value="auto">{{ hasPublishedPromptBudget ? 'Automatic · model maximum' : 'Choose a model' }}</option>
+                <select v-model="form.prompt_max_tokens" class="select" :disabled="!hasSelectedPromptModel">
+                  <option value="auto">{{ hasPublishedPromptBudget ? 'Automatic · model maximum' : hasSelectedPromptModel ? 'Not published · omitted' : 'Choose a model' }}</option>
+                  <option v-if="hasUnpublishedExplicitPromptBudget" :value="effectivePromptTokenBudget">User-chosen · {{ effectivePromptTokenBudget.toLocaleString() }} tokens</option>
                   <option v-for="budget in availableOutputBudgets" :key="budget" :value="budget">{{ budget.toLocaleString() }} tokens</option>
                 </select>
               </div>
               <div class="form-group">
                 <label>Scenes per request</label>
-                <select v-model="promptPackPickerValue" class="select" :disabled="!hasPublishedPromptBudget">
-                  <option value="auto">{{ hasPublishedPromptBudget ? `Automatic · ${automaticPromptPackSize} scenes` : 'Choose a model' }}</option>
+                <select v-model="promptPackPickerValue" class="select" :disabled="!hasSelectedPromptModel">
+                  <option value="auto">{{ hasSelectedPromptModel ? `Automatic · ${automaticPromptPackSize} scenes` : 'Choose a model' }}</option>
                   <option v-for="size in availablePromptPackPresets" :key="size" :value="String(size)">{{ size }} scenes</option>
                   <option value="custom">Custom…</option>
                 </select>
@@ -280,6 +292,8 @@
                 <div v-if="promptPackPickerValue === 'custom'" class="scene-pack-custom">
                   <input v-model.number="customPromptPackSize" class="input" type="number" min="1" step="1" @change="applyCustomPromptPackSize" />
                   <span v-if="hasPublishedPromptBudget" class="text-xs text-muted">Any whole number. This model returns up to {{ maximumPromptPackSize.toLocaleString() }} complete.</span>
+                  <span v-else-if="hasUnpublishedExplicitPromptBudget" class="text-xs text-muted">Any whole number. Story Studio sizes this request from your selected {{ effectivePromptTokenBudget.toLocaleString() }} output tokens.</span>
+                  <span v-else-if="hasSelectedPromptModel" class="text-xs text-muted">Any whole number. This model publishes no output ceiling, so Story Studio will send no token limit.</span>
                   <span v-else class="text-xs text-muted">Choose a model before checking this batch size.</span>
                 </div>
                 <p v-if="promptPackReductionNotice" class="scene-setting-warn">{{ promptPackReductionNotice }}</p>
@@ -311,7 +325,7 @@
               measured yet. Raise it once it has, or give requests longer in This Mac → Throughput.
               <button type="button" class="btn btn-ghost btn-xs" @click="resetBatchTuning">Reset to defaults</button>
             </p>
-            <p v-if="hasPublishedPromptBudget" class="scene-setting-help mt-1">Context: {{ selectedModelContextLabel }} · Output is the response limit, so it—not context—sets the safe batch size.</p>
+            <p v-if="hasSelectedPromptModel" class="scene-setting-help mt-1">Context: {{ selectedModelContextLabel }} · {{ hasPublishedPromptBudget ? 'Output is the response limit, so it—not context—sets the safe batch size.' : hasUnpublishedExplicitPromptBudget ? 'Your selected output allowance, not context, caps the safe batch size.' : 'No output limit is published or selected; the batch is the channel setting, not a model guarantee.' }}</p>
           </details>
         </div>
 
@@ -568,20 +582,20 @@
           <span>{{ visualDoneCount }}/{{ plan?.scenes?.length || 0 }} ready</span>
           <span class="stage-setting">Full detail · 110–150 words per scene</span>
           <div class="flex gap-1 mt-2 flex-wrap">
-            <button v-if="hasPublishedPromptBudget" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
+            <button v-if="hasSelectedPromptModel" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
             <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !plan || !visualPendingCount || planning || planJobActive" @click="runPromptStage('visual')">All pending</button>
           </div>
-          <small v-if="hasPublishedPromptBudget">{{ effectivePromptPackSize }} scenes per GenStudio request. GenStudio queues and distributes eligible requests at your available concurrency.</small>
-          <small v-else>Choose a prompt model to see a model-backed Next batch size. All pending remains available after a model is selected.</small>
+          <small v-if="hasSelectedPromptModel">{{ effectivePromptPackSize }} scenes per GenStudio request. GenStudio queues and distributes eligible requests at your available concurrency.</small>
+          <small v-else>Choose a prompt model to see the Next batch size. All pending remains available after a model is selected.</small>
         </div>
         <div class="stage-step" :class="{ optional: true }">
           <strong>3. Motion prompts <em>optional</em></strong>
           <span>{{ motionDoneCount }}/{{ motionTargetCount }} animated · {{ motionStillCount }} held still</span>
           <div v-if="form.generate_motion_prompts" class="flex gap-1 mt-2 flex-wrap">
-            <button v-if="hasPublishedPromptBudget" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
+            <button v-if="hasSelectedPromptModel" class="btn btn-primary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion', effectivePromptPackSize)">Next {{ effectivePromptPackSize }}</button>
             <button class="btn btn-secondary" :disabled="scenePlanGenerationUnavailable || !subtitleTimelineComplete || !form.model || !motionPendingCount || planning || planJobActive" @click="runPromptStage('motion')">All pending</button>
           </div>
-          <small v-if="form.generate_motion_prompts && hasPublishedPromptBudget">Uses the same {{ effectivePromptPackSize }}-scene request size saved for visual prompts. Held-still scenes stay valid in final assembly without an image-to-video render.</small>
+          <small v-if="form.generate_motion_prompts && hasSelectedPromptModel">Uses the same {{ effectivePromptPackSize }}-scene request size saved for visual prompts. Held-still scenes stay valid in final assembly without an image-to-video render.</small>
           <small v-else-if="form.generate_motion_prompts">Choose a prompt model to see a model-backed Next batch size. All pending remains available after a model is selected.</small>
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
         </div>
@@ -1807,6 +1821,7 @@ const liveModelLimits = computed<SelectedModelMeta | null>(() =>
  *  128,000 is offered 128,000. */
 const publishedMaxOutput = computed(() => publishedMaxOutputTokens(liveModelLimits.value))
 const selectedModelMaxOutput = computed(() => publishedMaxOutput.value || 0)
+const hasSelectedPromptModel = computed(() => !!form.value.model && !!liveModelLimits.value)
 const hasPublishedPromptBudget = computed(() => !!form.value.model && selectedModelMaxOutput.value > 0)
 /** Published `context_window_tokens`, falling back to the deprecated
  *  `context_limit_tokens` alias only when the current field is absent. */
@@ -1824,43 +1839,61 @@ const availableInputBudget = computed(() =>
   availableInputTokens(selectedModelContextWindow.value, effectivePromptTokenBudget.value),
 )
 const availableInputBudgetLabel = computed(() =>
-  selectedModelContextWindow.value ? availableInputBudget.value.toLocaleString() : 'not published',
+  selectedModelContextWindow.value && effectivePromptTokenBudget.value
+    ? availableInputBudget.value.toLocaleString()
+    : 'not published',
 )
 const automaticTokenBudget = computed<number>(() => selectedModelMaxOutput.value)
 const effectivePromptTokenBudget = computed<number>(() => {
-  if (!hasPublishedPromptBudget.value) return 0
+  if (!hasSelectedPromptModel.value) return 0
   const requested = form.value.prompt_max_tokens === 'auto'
     ? automaticTokenBudget.value : Number(form.value.prompt_max_tokens)
+  if (!selectedModelMaxOutput.value) return Number.isInteger(requested) && requested >= 1 ? requested : 0
   return Math.min(selectedModelMaxOutput.value, Math.max(1, requested))
 })
-/** The only ceiling on this page: what the SELECTED model's published output
- *  allowance can return complete, at this channel's own tuning. Derived, never
- *  declared — a bigger model means a bigger number, with nothing capping it. */
+const hasUnpublishedExplicitPromptBudget = computed(() =>
+  !hasPublishedPromptBudget.value && effectivePromptTokenBudget.value > 0,
+)
+/** A published output ceiling, or the operator's explicit allowance, can bound
+ *  complete scenes at this channel's own tuning. Auto with no published ceiling
+ *  has no numeric budget, so it keeps the configured batch size instead. */
 const maximumPromptPackSize = computed<number>(() => {
-  if (!hasPublishedPromptBudget.value) return 0
+  if (!effectivePromptTokenBudget.value) return 0
   const scenes = Math.floor((effectivePromptTokenBudget.value * promptSafetyFraction.value) / promptTokensPerScene.value)
   return Math.max(PROMPT_PACK_MIN, scenes)
 })
 /** "Automatic" = the channel's default batch, or the model's derived maximum
  *  when the model cannot return even that much. */
 const automaticPromptPackSize = computed<number>(() =>
-  Math.min(promptBatchSizeDefault.value, maximumPromptPackSize.value),
+  !hasSelectedPromptModel.value
+    ? 0
+    : maximumPromptPackSize.value
+      ? Math.min(promptBatchSizeDefault.value, maximumPromptPackSize.value)
+      : promptBatchSizeDefault.value,
 )
 const effectivePromptPackSize = computed<number>(() => {
-  if (!hasPublishedPromptBudget.value) return 0
+  if (!hasSelectedPromptModel.value) return 0
   const requested = form.value.prompt_pack_size === 'auto'
     ? automaticPromptPackSize.value : Number(form.value.prompt_pack_size)
-  return Math.min(Math.max(PROMPT_PACK_MIN, requested), maximumPromptPackSize.value)
+  return maximumPromptPackSize.value
+    ? Math.min(Math.max(PROMPT_PACK_MIN, requested), maximumPromptPackSize.value)
+    : Math.max(PROMPT_PACK_MIN, requested)
 })
 /** Said out loud when an explicit choice cannot be honoured by the chosen
  *  model. The number is never silently rewritten behind the operator's back. */
 const promptPackReductionNotice = computed<string>(() => {
-  if (!hasPublishedPromptBudget.value) return ''
+  if (!maximumPromptPackSize.value) return ''
   if (form.value.prompt_pack_size === 'auto') return ''
   const requested = Number(form.value.prompt_pack_size)
   if (!Number.isFinite(requested) || requested <= maximumPromptPackSize.value) return ''
-  return `This model can only return ${maximumPromptPackSize.value} scenes complete in one response, `
-    + `so ${requested} would be reduced to ${maximumPromptPackSize.value}. Pick a larger model or a smaller batch.`
+  const allowance = hasPublishedPromptBudget.value
+    ? 'This model can only return'
+    : `Your selected ${effectivePromptTokenBudget.value.toLocaleString()} output tokens can return`
+  return `${allowance} ${maximumPromptPackSize.value} scenes complete in one response, `
+    + `so ${requested} would be reduced to ${maximumPromptPackSize.value}. `
+    + (hasPublishedPromptBudget.value
+      ? 'Pick a larger model or a smaller batch.'
+      : 'Choose Automatic to omit the allowance or a smaller batch.')
 })
 // ── Will this batch finish in time? ─────────────────────────────────────────
 // Token maths says what the model can RETURN. It says nothing about whether
@@ -1895,13 +1928,15 @@ async function loadRequestTimeout(): Promise<void> {
 // of this page's derivations, so it can be tested directly rather than through
 // a rendered component.
 const promptBatchTimeoutWarning = computed<string>(() => batchTimeoutWarning({
-  packSize: hasPublishedPromptBudget.value ? effectivePromptPackSize.value : 0,
+  packSize: hasSelectedPromptModel.value ? effectivePromptPackSize.value : 0,
   tokensPerScene: promptTokensPerScene.value,
   timeoutMinutes: languageTimeoutMinutes.value,
   floorTokensPerSecond: floorTokensPerSecond.value,
   preferredTokensPerSecond: preferredTokensPerSecond.value,
 }))
-const availablePromptPackPresets = computed(() => PROMPT_PACK_PRESETS.filter(size => size <= maximumPromptPackSize.value))
+const availablePromptPackPresets = computed(() => maximumPromptPackSize.value
+  ? PROMPT_PACK_PRESETS.filter(size => size <= maximumPromptPackSize.value)
+  : hasSelectedPromptModel.value ? PROMPT_PACK_PRESETS : [])
 /** Derived from the SELECTED product's published `max_output_tokens`, never
  *  from a fixed list. The product's own maximum is always the top option. */
 const availableOutputBudgets = computed(() => outputAllowanceOptions(selectedModelMaxOutput.value))

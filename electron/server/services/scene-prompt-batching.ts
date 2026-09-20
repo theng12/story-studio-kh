@@ -13,7 +13,8 @@
  *
  * The option ladder is now GENERATED from the product's live
  * `max_output_tokens`, and the product's own number is always offered as the
- * top choice. No allowance, context window, or model name is hardcoded.
+ * top choice. A product that publishes no ceiling has no ladder; its request
+ * omits the output limit. No allowance, context window, or model name is hardcoded.
  *
  * The SAME MISTAKE was made a second time, in the batch sizer below, and lived
  * until 2026-08-28 — see the note above `SCENE_PROMPT_PACK_MIN`. That one hurt
@@ -22,8 +23,8 @@
  */
 export type ScenePromptPackSize = number
 export type ScenePromptPackSetting = 'auto' | ScenePromptPackSize
-/** 'auto' = the selected product's published maximum; a number is an explicit
- *  allowance, always clamped to that same published maximum at resolve time. */
+/** 'auto' = the selected product's published maximum when one exists; a number
+ * is an explicit allowance, clamped only when that product publishes a maximum. */
 export type ScenePromptTokenSetting = 'auto' | number
 
 export const SCENE_PROMPT_PACK_MIN = 1
@@ -39,12 +40,12 @@ export const SCENE_PROMPT_PACK_MIN = 1
  * only, and the line that prints a model's token arithmetic is guarded by
  * `!timelineOnly`, so it can never be read as the model's own.
  *
- * It exists because the resolvers below now REFUSE an absent allowance. Before
- * 2026-09-18 they silently substituted 8,192, which conflated two different
- * facts — "the selected product published no allowance" and "this run has no
- * model at all" — into one value. Those need opposite answers: the first must
- * refuse, the second is perfectly valid. Sharing a number between them is the
- * defect, not the fix.
+ * It exists because the resolvers below still need a local-only value when
+ * there is no selected model. Before 2026-09-18 they silently substituted
+ * 8,192 for both that case and a selected product with no published allowance,
+ * conflating two different facts into one value. A model-free run may use this
+ * local budget; a selected no-ceiling product must instead omit the request
+ * field. Sharing a number between them is the defect, not the fix.
  */
 export const SCENE_TIMELINE_ONLY_OUTPUT_BUDGET = 8_192
 
@@ -144,7 +145,7 @@ export function parseScenePromptPackTuning(config: unknown): ScenePromptPackTuni
 }
 
 /**
- * Read a published output allowance, or REFUSE.
+ * Read a published output allowance.
  *
  * THIS USED TO SUBSTITUTE 8,192 (removed 2026-09-18). That was the third
  * instance of the same mistake this module's header already records twice: a
@@ -161,13 +162,14 @@ export function parseScenePromptPackTuning(config: unknown): ScenePromptPackTuni
  * the identical condition — "Story Studio does not substitute a ceiling of its
  * own" — so this module was the odd one out, not the rule.
  *
- * It throws rather than degrading because every alternative states an allowance
- * the selected product never published. A caller that wants to show a control
- * should disable it when this throws; it must not invent a ceiling.
+ * `null` means the selected product published no ceiling. That is an honest
+ * usable state: callers omit the request field and use an explicit/configured
+ * batch choice instead. A malformed published value still throws.
  */
-function normalizeMaxOutputTokens(value: unknown): number {
+function normalizeMaxOutputTokens(value: unknown): number | null {
+  if (value == null || value === 0) return null
   const parsed = Number(value)
-  if (!Number.isInteger(parsed) || parsed < 1) {
+  if (typeof value !== 'number' || !Number.isInteger(parsed) || parsed < 1) {
     throw new Error(
       'Cannot resolve a scene-prompt output budget: the selected GenStudio product published '
       + `no usable max_output_tokens (got ${JSON.stringify(value)}). `
@@ -184,6 +186,7 @@ function normalizeMaxOutputTokens(value: unknown): number {
  */
 export function scenePromptTokenOptions(modelMaxOutputTokens: unknown): number[] {
   const maximum = normalizeMaxOutputTokens(modelMaxOutputTokens)
+  if (maximum === null) return []
   const options = new Set<number>()
   for (const seed of TOKEN_LADDER_SEEDS) {
     for (let step = seed; step <= maximum; step *= 2) options.add(step)
@@ -237,8 +240,9 @@ export function parseScenePromptTokenSetting(value: unknown): ScenePromptTokenSe
 export function maxSafeScenePromptPackSize(
   maxOutputTokens?: unknown,
   tuning: ScenePromptPackTuning = SCENE_PROMPT_PACK_TUNING_DEFAULTS,
-): ScenePromptPackSize {
+): ScenePromptPackSize | null {
   const maxOutput = normalizeMaxOutputTokens(maxOutputTokens)
+  if (maxOutput === null) return null
   const scenes = Math.floor((maxOutput * tuning.safetyFraction) / tuning.tokensPerScene)
   return Math.max(SCENE_PROMPT_PACK_MIN, scenes)
 }
@@ -255,16 +259,17 @@ export function automaticScenePromptPackSize(
   maxOutputTokens?: unknown,
   tuning: ScenePromptPackTuning = SCENE_PROMPT_PACK_TUNING_DEFAULTS,
 ): ScenePromptPackSize {
-  return Math.min(tuning.batchSize, maxSafeScenePromptPackSize(maxOutputTokens, tuning))
+  const safeMaximum = maxSafeScenePromptPackSize(maxOutputTokens, tuning)
+  return safeMaximum === null ? tuning.batchSize : Math.min(tuning.batchSize, safeMaximum)
 }
 
 export function resolveScenePromptTokenBudget(
   modelMaxOutputTokens: unknown,
   setting: ScenePromptTokenSetting,
-): number {
+): number | null {
   const modelMaximum = normalizeMaxOutputTokens(modelMaxOutputTokens)
   const requested = setting === 'auto' ? modelMaximum : setting
-  return Math.min(requested, modelMaximum)
+  return requested === null ? null : modelMaximum === null ? requested : Math.min(requested, modelMaximum)
 }
 
 /**
@@ -283,7 +288,9 @@ export function resolveScenePromptPackSize(
   const requested = setting === 'auto'
     ? automaticScenePromptPackSize(outputBudget, tuning)
     : setting
-  return Math.min(safeMaximum, Math.max(SCENE_PROMPT_PACK_MIN, requested))
+  return safeMaximum === null
+    ? Math.max(SCENE_PROMPT_PACK_MIN, requested)
+    : Math.min(safeMaximum, Math.max(SCENE_PROMPT_PACK_MIN, requested))
 }
 
 /**
@@ -298,15 +305,21 @@ export function describeScenePromptPackSize(
   const safeMaximum = maxSafeScenePromptPackSize(outputBudget, tuning)
   const resolved = resolveScenePromptPackSize(outputBudget, setting, tuning)
   const budget = normalizeMaxOutputTokens(outputBudget)
+  if (budget === null) {
+    const basis = 'the selected GenStudio product publishes no output ceiling; Story Studio sends no output-token limit'
+    return setting === 'auto'
+      ? `Batch: ${resolved} scenes per request (project default; ${basis}).`
+      : `Batch: ${resolved} scenes per request (requested; ${basis}).`
+  }
   const basis = `${budget.toLocaleString()} output tokens × ${tuning.safetyFraction} ÷ `
-    + `${tuning.tokensPerScene} per scene = ${safeMaximum.toLocaleString()} max`
+    + `${tuning.tokensPerScene} per scene = ${safeMaximum!.toLocaleString()} max`
   if (setting === 'auto') {
     return resolved < tuning.batchSize
-      ? `Batch: ${resolved} scenes per request — this model cannot safely return the ${tuning.batchSize}-scene default (${basis}).`
+      ? `Batch: ${resolved} scenes per request — the selected output allowance caps this batch at ${resolved} complete instead of the ${tuning.batchSize}-scene default (${basis}).`
       : `Batch: ${resolved} scenes per request (project default; ${basis}).`
   }
   return resolved < setting
-    ? `Batch: ${resolved} scenes per request — ${setting} was requested, but this model can only return ${safeMaximum} complete (${basis}).`
+    ? `Batch: ${resolved} scenes per request — ${setting} was requested, but the selected output allowance caps this batch at ${resolved} complete (${basis}).`
     : `Batch: ${resolved} scenes per request (requested; ${basis}).`
 }
 
@@ -324,6 +337,7 @@ export function availableInputTokens(
   selectedMaxOutputTokens: unknown,
 ): number {
   const contextWindow = Number(contextWindowTokens)
+  if (selectedMaxOutputTokens == null || selectedMaxOutputTokens === 0) return 0
   const output = Number(selectedMaxOutputTokens)
   if (!Number.isInteger(contextWindow) || contextWindow < 1) return 0
   if (!Number.isInteger(output) || output < 0) return contextWindow

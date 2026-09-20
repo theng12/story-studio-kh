@@ -8,6 +8,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import request from 'supertest'
+import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
@@ -108,13 +109,28 @@ void test('audio and subtitles route replay and Jobs Retry keep one provider req
     // Audio Assembly is deliberately a local prerequisite for subtitle work.
     // The valid chapter output above is the active source; the small merge and
     // timeline sidecar model an already-completed local assembly.
+    const sourceFile = `${episodeId}_Chapter_01.mp3`
     await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
       gap_duration_s: 0,
-      sections: [{ slug: 'Chapter_01', duration_s: 1 }],
+      sections: [{
+        slug: 'Chapter_01',
+        duration_s: 1,
+        source_file: sourceFile,
+        source_files: [sourceFile],
+      }],
     }))
-    await fs.writeFile(path.join(paths.merged_audio_dir, `${episodeId}_merged_audio.mp3`), 'merged mock audio')
+    const mergedFilename = `${episodeId}_merged_audio.mp3`
+    const mergedPath = path.join(paths.merged_audio_dir, mergedFilename)
+    await runFfmpeg([
+      '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
+      '-codec:a', 'libmp3lame', '-q:a', '9', mergedPath,
+    ])
+    const mergedStat = await fs.stat(mergedPath)
     await fs.writeFile(path.join(paths.merged_audio_dir, `${episodeId}_merged_audio.completion.json`), JSON.stringify({
-      output_filename: `${episodeId}_merged_audio.mp3`, opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
+      output_filename: mergedFilename,
+      bytes: mergedStat.size,
+      duration_sec: 1,
+      opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
     }))
 
     const subtitleBody = (operationId?: string, force = true) => ({

@@ -13,7 +13,13 @@ export function projectSettingsSavePlan(
       project: { youtube_channel_url: draft.youtube_channel_url },
       config: {
         category_id: typeof draft.category_id === 'number' && draft.category_id > 0 ? draft.category_id : undefined,
-        mark_as_ai_generated: typeof draft.mark_as_ai_generated === 'boolean' ? draft.mark_as_ai_generated : undefined,
+        // `undefined` is omitted by JSON.stringify, which cannot clear a
+        // previously persisted boolean override. `null` is the established
+        // explicit-inherit sentinel: upload settings resolve booleans only,
+        // so it follows the current app default without inventing ON or OFF.
+        mark_as_ai_generated: typeof draft.mark_as_ai_generated === 'boolean'
+          ? draft.mark_as_ai_generated
+          : null,
       },
       hasPendingSeasonSize: false,
     }

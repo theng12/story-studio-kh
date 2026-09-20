@@ -1,5 +1,4 @@
 import { existsSync } from 'fs'
-import fs from 'fs/promises'
 import * as pm from './project-manager.js'
 import * as bp from './broll-pool-manager.js'
 import * as im from './idea-manager.js'
@@ -7,7 +6,7 @@ import { selectBroll } from '../lib/broll-selector.js'
 import { saveSelectionSidecar } from './broll-selection-sidecar.js'
 import { resolveEpisodePaths } from './utils.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
-import { readVideoVisualSource } from './video-visual-source.js'
+import { readVideoVisualSource, resolveAuthoritativeBrollNarration } from './video-visual-source.js'
 import type { BrollUsageEntry } from '../models/types.js'
 
 export interface BrollSelectionParams {
@@ -32,17 +31,9 @@ async function titleFor(slug: string, episodeId: string): Promise<string> {
 
 async function narrationDuration(slug: string, episodeId: string, title: string): Promise<number> {
   const paths = await resolveEpisodePaths(slug, episodeId, title)
-  const candidates: string[] = []
-  for (const dir of [paths.merged_audio_dir, paths.audio_dir]) {
-    if (!existsSync(dir)) continue
-    for (const name of await fs.readdir(dir).catch(() => [] as string[])) {
-      if (/\.(mp3|wav|m4a)$/i.test(name) && !name.startsWith('.tmp_')) candidates.push(`${dir}/${name}`)
-    }
-    if (candidates.length) break
-  }
-  let longest = 0
-  for (const candidate of candidates) longest = Math.max(longest, await getAudioDuration(candidate) || 0)
-  return longest
+  const narrationPath = await resolveAuthoritativeBrollNarration(paths, episodeId)
+  if (!narrationPath) return 0
+  return await getAudioDuration(narrationPath) || 0
 }
 
 export async function pickBrollForEpisode(slug: string, episodeId: string, params: BrollSelectionParams): Promise<{ count: number; warnings: string[]; title: string }> {

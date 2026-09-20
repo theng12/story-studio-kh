@@ -17,14 +17,17 @@
  * parts that were never supposed to exist. Nothing announced it — AGENTS.md §4,
  * an episode-specific value reaching another episode.
  *
- * WHAT REPLACES IT. The generator writes this record into the episode's own
- * directory before it submits any TTS work, so the record exists even when
- * generation is interrupted part-way (which is exactly when the reconciler is
- * used). The reconciler resolves the boundary from it first, and falls back to
- * the cross-episode borrow only for episodes that predate the record. Both the
- * model id AND the boundary it implied are stored: the filenames on disk were
- * produced under that boundary, so a later catalogue change must not silently
- * re-interpret them.
+ * WHAT REPLACES IT. A fresh episode writes this record into its own directory
+ * before the first TTS submission, so the boundary survives a part-way
+ * interruption. Once an episode already has active audio, however, that record
+ * stays a committed-active pointer: a replacement run keeps its request in the
+ * existing task manifest/job checkpoint and moves this record only when the
+ * new files are promoted as active. A refused or partial replacement therefore
+ * cannot reinterpret still-active prior audio. The reconciler resolves the
+ * boundary from this record first, and falls back to the cross-episode borrow
+ * only for episodes that predate it. Both the model id AND the boundary it
+ * implied are stored: the filenames on disk were produced under that boundary,
+ * so a later catalogue change must not silently re-interpret them.
  *
  * Corrupt or missing = "no record", never a guess. A record that carries no
  * usable budget still names its model, and the caller re-resolves that model

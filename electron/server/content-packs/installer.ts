@@ -34,6 +34,7 @@ const SAFE_QUARANTINE_REASON = /^[a-z0-9][a-z0-9_-]{0,63}$/
 export interface ContentPackInstallerHooks {
   afterStageWrite?: () => Promise<void>
   beforeVersionRename?: () => Promise<void>
+  afterRepairBackupRename?: (backupPath: string) => Promise<void>
   beforeActivationWrite?: () => Promise<void>
   beforeRequiredFsync?: () => Promise<void>
   afterRequiredFsync?: (directories: readonly string[]) => Promise<void>
@@ -49,6 +50,12 @@ export interface ContentPackInstallOptions {
   resolveGenStudioSigningKey?: (evidence: NonNullable<ContentPackInstallRequest['deliveryAttestation']>) => Promise<string>
   /** Keep a verified immutable version inactive until a caller commits a wider transaction. */
   activate?: boolean
+  /**
+   * Store-delivery-only repair seam. The incoming archive and delivery
+   * attestation are verified before a same-identity corrupt retained version
+   * may be replaced. Local imports must never use this path.
+   */
+  repairCorruptExactStoreVersion?: boolean
 }
 
 function sha256(bytes: Uint8Array): string {
@@ -459,12 +466,17 @@ async function verifiedManifestGraph(
   resolveSigningKey?: ContentPackInstallOptions['resolveGenStudioSigningKey'],
 ): Promise<void> {
   const manifests = new Map<string, VerifiedContentPack['manifest']>()
+  const candidateKey = nodeKey(candidate.manifest.pack_id, candidate.manifest.version)
   for (const [packId, pack] of Object.entries(state.packs)) {
     for (const [version, installed] of Object.entries(pack.versions)) {
       // A recalled retained version is preserved as evidence, not an available
       // graph node. It must not block unrelated installs, while any exact
       // dependency on it still fails below as missing.
       if (installed.recalled) continue
+      // A same-identity reinstall replaces this graph node. Its incoming
+      // archive is already verified; do not let the corrupt copy it repairs
+      // prevent validation of the replacement graph.
+      if (nodeKey(packId, version) === candidateKey) continue
       const verified = await verifyInstalledContentPackVersion(installed, policy, resolveSigningKey)
       if (verified.manifest.pack_id !== packId || verified.manifest.version !== version) {
         throw new Error(`Content Pack immutable archive identity does not match state: ${packId}@${version}`)
@@ -472,7 +484,6 @@ async function verifiedManifestGraph(
       manifests.set(nodeKey(packId, version), verified.manifest)
     }
   }
-  const candidateKey = nodeKey(candidate.manifest.pack_id, candidate.manifest.version)
   manifests.set(candidateKey, candidate.manifest)
   for (const [key, manifest] of manifests) {
     for (const dependency of manifest.dependencies ?? []) {
@@ -582,6 +593,7 @@ async function materialiseVerifiedPack(
   finalPath: string,
   hooks?: ContentPackInstallerHooks,
   policy?: ContentPackVerificationPolicy,
+  repairPaths?: ContentPackRuntimePaths,
 ): Promise<void> {
   const versionRoot = path.join(stagingRoot, 'version')
   const createdDirectories = new Set<string>()
@@ -595,7 +607,28 @@ async function materialiseVerifiedPack(
   await fsyncParents(stagingRoot, versionRoot)
   await hooks?.afterRequiredFsync?.(syncedDirectories)
   await ensureExclusiveDirectory(installedRoot, path.dirname(finalPath))
-  if (await existingSafeDirectory(finalPath)) {
+  const finalExists = await existingSafeDirectory(finalPath)
+  if (repairPaths) {
+    const { root, quarantineRoot } = repairPaths
+    await ensureExclusiveDirectory(root, quarantineRoot)
+    await fsyncParents(root, quarantineRoot)
+    if (finalExists) {
+      const backupPath = assertContained(quarantineRoot, path.join(
+        quarantineRoot,
+        `repair-${verified.manifest.pack_id}-${verified.manifest.version}-${randomUUID()}`,
+      ))
+      await fs.rename(finalPath, backupPath)
+      await fsyncParents(installedRoot, path.dirname(finalPath))
+      await fsyncDirectory(quarantineRoot)
+      // The quarantine copy is evidence, not temporary rollback material. It
+      // remains uniquely named across failed and successful retries.
+      await hooks?.afterRepairBackupRename?.(backupPath)
+    }
+    await fs.rename(versionRoot, finalPath)
+    await fsyncParents(installedRoot, path.dirname(finalPath))
+    return
+  }
+  if (finalExists) {
     if (!policy) throw new Error('Content Pack verification policy is required to adopt an orphaned version')
     const orphaned = await verifyInstalledContentPackVersion({
       install_path: finalPath,
@@ -682,7 +715,54 @@ export async function installContentPackLocked(
         if (existing.pending_removal) throw new Error(`Content Pack version is pending removal: ${packId}@${version}`)
         if (existing.archive_sha256 !== archiveSha) throw new Error(`Content Pack version is immutable and already has a different archive: ${packId}@${version}`)
         if (existing.recalled) throw new Error(`GenStudio recalled Content Pack version: ${packId}@${version}`)
-        const verifiedExisting = await verifyInstalledContentPackVersion(existing, policy, options.resolveGenStudioSigningKey)
+        let verifiedExisting: VerifiedContentPack
+        try {
+          verifiedExisting = await verifyInstalledContentPackVersion(existing, policy, options.resolveGenStudioSigningKey)
+        } catch (error) {
+          const mayRepair = options.repairCorruptExactStoreVersion === true
+            // model-drift-allow: Frozen Content Store source discriminator identifies receipt provenance, not a GenStudio catalog product ID.
+            && request.source === 'genstudio-store'
+            // model-drift-allow: Frozen Content Store source discriminator identifies receipt provenance, not a GenStudio catalog product ID.
+            && existing.source === 'genstudio-store'
+          if (!mayRepair) throw error
+          // The retained ownership evidence must independently authorize the
+          // replacement bytes too. Repair never replaces that evidence with a
+          // newer receipt, or moves a copy before checking the original receipt.
+          await verifyArchiveForRequest(request.archiveBytes, {
+            source: existing.source,
+            deliveryAttestation: existing.delivery_attestation,
+          }, policy, options.resolveGenStudioSigningKey)
+          await verifiedManifestGraph(state, verified, policy, options.resolveGenStudioSigningKey)
+          const finalPath = installedVersionPath(paths, verified.manifest)
+          if (existing.install_path !== finalPath) throw new Error(`Content Pack state install path does not match signed identity: ${packId}@${version}`)
+          await materialiseVerifiedPack(
+            request.archiveBytes,
+            verified,
+            request,
+            transactionRoot,
+            paths.installedRoot,
+            finalPath,
+            options.hooks,
+            policy,
+            paths,
+          )
+          forgetVerifiedContentPackVersions()
+          await verifyInstalledContentPackVersion({
+            ...existing,
+            install_path: finalPath,
+            archive_sha256: archiveSha,
+            manifest: verified.manifest,
+          }, policy, options.resolveGenStudioSigningKey)
+          existing.manifest = verified.manifest
+          existing.verified_at = new Date().toISOString()
+          return {
+            pack_id: packId,
+            version,
+            archive_sha256: archiveSha,
+            activated: state.packs[packId].active_version === version,
+            retained_versions: retainedVersions(state, packId),
+          }
+        }
         if (verifiedExisting.manifest.pack_id !== packId || verifiedExisting.manifest.version !== version) throw new Error(`Content Pack immutable archive identity does not match state: ${packId}@${version}`)
         await verifiedManifestGraph(state, verified, policy, options.resolveGenStudioSigningKey)
         // The retained signed archive is the authority. Repair a stale or

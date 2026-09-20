@@ -48,6 +48,7 @@ import { auditSceneClipCompletion, auditSceneImageCompletion } from '../services
 import { auditScenePromptCompletion } from '../services/scene-prompt-checkpoint.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
+import { inspectBrollAssemblyOutput } from '../services/video-visual-source.js'
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -125,40 +126,21 @@ export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repa
   return audit.missing_ids.length === 0 ? 'complete' : 'repair-required'
 }
 
-/**
- * `broll_assemble` — does the assembled video actually cover the narration?
- *
- * The generator trims each clip to its sidecar `target_duration`, mixes
- * narration + B-Roll audio + music, and encodes with `-shortest`. So when the
- * selection covers less than the narration the video simply STOPS at the last
- * clip while the narration keeps going — and nothing failed, because
- * `broll_assemble` had no auditor AND no `requireJobCompletion`: it reported
- * Done over a video that cuts off mid-sentence, with the Production Board's
- * final-video cell green.
- *
- * Decided from the SIDECAR alone, deliberately. `-shortest` guarantees the
- * shortfall becomes a short video, so the sidecar's coverage is sufficient
- * evidence — and it avoids re-deriving the output path (which may sit under a
- * configured external root) and ffprobing it, both of which would be more
- * fragile than the question needs.
- */
+/** Re-use the producer's concrete final/narration proof during recovery. */
 export async function auditBrollAssemblyOutput(job: any): Promise<'complete' | 'repair-required'> {
-  const { getSelectionSidecar } = await import('../services/broll-selection-sidecar.js')
-  const { COVERAGE_FAIL_SEC } = await import('../services/scene-planner.js')
-  const sidecar = await getSelectionSidecar(job.project_slug, job.episode_id, job.title || '')
-  // The generator refuses to run at all without a sidecar, so a null here means
-  // the output cannot be judged — and an unjudged output is not a complete one.
-  if (!sidecar?.selection?.length) return 'repair-required'
-  const narration = Number(sidecar.target_duration)
-  // A sidecar written before `target_duration` existed carries no coverage
-  // claim. Failing it would invent a requirement that never existed, which is
-  // the mirror-image defect of the one being fixed.
-  if (!Number.isFinite(narration) || narration <= 0) return 'complete'
-  const covered = sidecar.selection.reduce(
-    (total: number, entry: any) => total + (Number(entry?.target_duration) || 0),
-    0,
-  )
-  return narration - covered > COVERAGE_FAIL_SEC ? 'repair-required' : 'complete'
+  try {
+    const inspection = await inspectBrollAssemblyOutput({
+      project_slug: job.project_slug,
+      episode_id: job.episode_id,
+      title: job.title || '',
+      output_dir: typeof job.output_dir === 'string' ? job.output_dir : undefined,
+    })
+    if (inspection.complete) return 'complete'
+    job.output_lines?.push(`${inspection.reason} ${inspection.retry_hint}`.trim())
+  } catch (error: any) {
+    job.output_lines?.push(`B-Roll completion proof could not be read (${error?.message || error}). Retry B-Roll Assembly.`)
+  }
+  return 'repair-required'
 }
 
 /** Register only producer-specific completion proofs; no generic file guess. */

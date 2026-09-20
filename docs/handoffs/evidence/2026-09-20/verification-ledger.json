@@ -53,7 +53,7 @@
           "verify:deps",
           "--",
           "--app",
-          "/build/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app"
+          "<owner-home>/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app"
         ],
         "log": "logs/takeover-2026-09-20/preview-deps.log",
         "exit_code": 0
@@ -65,7 +65,7 @@
           "verify:launch",
           "--",
           "--app",
-          "/build/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app"
+          "<owner-home>/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app"
         ],
         "log": "logs/takeover-2026-09-20/preview-launch.log",
         "exit_code": 0
@@ -139,13 +139,13 @@
     "preview-package.log": {
       "sha256": "b8c5dff0c8aa13364e133fb263e52da42fd81e01dc5260e7ec0d1aff7e691cc9",
       "summary_lines": [
-        "LOCAL PREVIEW ONLY: /build/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app"
+        "LOCAL PREVIEW ONLY: <owner-home>/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app"
       ]
     },
     "preview-deps.log": {
       "sha256": "4c1d06799608c306fe6a60a406d46cd870394b6ffca24157af3addaf70fa5be8",
       "summary_lines": [
-        "Packaged runtime dependencies verified: /build/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app/Contents/Resources/app.asar"
+        "Packaged runtime dependencies verified: <owner-home>/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app/Contents/Resources/app.asar"
       ]
     },
     "preview-launch.log": {

@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.213 — 2026-09-21
+
+- Audio replacements become active only after every selected section is ready. Refused or incomplete replacements keep the prior model selection; Resume preserves the completed provider task identity, and multipart replacements stay selected even before Audio Assembly creates its selector.
+- Moving media to external storage now verifies exact file identity and durable destination writes before removing the source. Unsafe links, changed files and failed durability checks retain the source for a safe retry.
+- Image ratios follow the selected model's live catalogue, including refreshed options and published defaults. Unsupported choices cannot slip through a delayed generation confirmation. Scene Plan shows its busy action label while building the timeline.
+- B-Roll completion now checks the actual final video's visual and narration streams against the recorded narration source before promotion. Missing, short or stale output fails with a retry path; ambiguous raw narration requires Audio Assembly instead of guessing a track.
+- Scene Plan keeps an explicit output allowance visible when the selected model publishes no ceiling. Saved-key retries preserve the original omitted allowance and batch size without submitting replacement paid work. Malformed catalogue output ceilings are rejected before submission.
+- Subtitle fingerprint checks refuse dangling paths that could escape approved media roots. An unavailable B-Roll pool no longer prevents previews from another healthy pool.
+- Content Pack index recovery keeps its quarantined evidence and records a durable local notice. Acknowledging the notice does not activate packs or delete retained files.
+- Health and server diagnostics report the actual application version. Updated affected image, document, request-parser and build dependencies within their existing supported ranges.
+- Transcription uses Audio Assembly's current, decodable output and rejects stale or superseded inputs before submission. A changed whole-track source is transcribed again; valid paid results remain reusable on retry.
+- Missing explicit scene or thumbnail requests now fail clearly instead of reporting an empty success. A deliberately all-Still motion plan remains a valid no-op. Cached outlines retain their supported extra-chapter headroom.
+- Upload scheduling preserves timezone-local days across clock changes and compensates earlier local writes when a later episode fails. If YouTube accepted a schedule but its local receipt could not be saved, the error says so and instructs a same-time retry.
+- Upload metadata reads the newest usable saved version. Reinstalling an owned, damaged Content Pack retains its corrupt evidence and signed ownership record; exact-version details no longer show a different active version.
+- An unreadable asset audit now reports what could not be checked, preserves healthy measurements, and offers Re-scan instead of claiming the episode is intact.
+- Motion Review takes aspect ratios from the selected live model and clears incompatible choices on model changes. Clip generation preserves the exact published choice and refuses an omitted or unsupported ratio. Image prompt badges follow live catalogue limits, and absent image defaults are no longer invented.
+- Ordinary Scene Plan continuation preserves approved prompts and retries only missing work when timing, rhythm and source evidence still match. Incompatible or unreadable saved plans stop with repair guidance; explicit rebuilds remain deliberate.
+- Upload relayout previews expire when their start date changes. Publishing's Use app default choice now clears an earlier override correctly. Research safely loads older records with missing arrays, and Script Generator shows its published format context again.
+
+## v1.4.212 — 2026-09-20
+
+- Scene Plan now accepts GenStudio models that publish no output-token ceiling. It leaves `max_output_tokens` out of those requests, keeps the configured batch size available, and explains the choice instead of refusing the model or inventing a limit.
+
+## v1.4.211 — 2026-09-20
+
+- Subtitle freshness checks now refuse files outside the Library or a configured media folder before reading their size or timestamp. Missing files inside an approved location still return a truthful invalidation result, including on macOS where filesystem paths have a canonical `/private` prefix.
+
 ## v1.4.210 — 2026-09-20
 
 - Cancelled-job history now releases its cancellation record once both the row and its worker are gone. Deleting, clearing, or retrying a cancelled job while its worker is stopping keeps the stop signal active, and the old worker cannot restore the removed history row. Generated files and provider-evidence safeguards are preserved.

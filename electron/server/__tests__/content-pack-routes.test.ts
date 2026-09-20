@@ -167,6 +167,61 @@ async function install(
 }
 
 describe('local Content Pack management routes', () => {
+  test('first local recovery GET resets a corrupt index and returns its redacted incident', async () => {
+    const { app, paths } = await isolated()
+    const invalid = '{"schema_version":1,"packs":{},"surprise":true}\n'
+    const retained = path.join(paths.installedRoot, 'retained-pack', 'payload.bin')
+    await fs.mkdir(path.dirname(retained), { recursive: true })
+    await fs.writeFile(retained, 'retained', { mode: 0o600 })
+    await fs.writeFile(paths.statePath, invalid, { mode: 0o600 })
+
+    const response = await request(app).get('/api/content-packs/recovery').expect(200)
+    assert.equal(response.body.recovery.kind, 'invalid_state_reset')
+    assert.match(response.body.recovery.incidentId, /^[0-9a-f-]{36}$/i)
+    assert.equal(typeof response.body.recovery.detectedAt, 'string')
+    assert.doesNotMatch(
+      JSON.stringify(response.body),
+      /quarantine|sha256|install_path|acknowledged_at|\/Users\//i,
+    )
+    assert.deepEqual(await readContentPackState(paths), { schema_version: 1, packs: {} })
+    const hash = createHash('sha256').update(invalid).digest('hex')
+    assert.equal(await fs.readFile(path.join(paths.quarantineRoot, `state-invalid-${hash}.json`), 'utf8'), invalid)
+    assert.equal(await fs.readFile(retained, 'utf8'), 'retained')
+  })
+
+  test('local recovery DELETE rejects stale IDs and acknowledges only the displayed incident', async () => {
+    const { app, paths } = await isolated()
+    const invalid = '{"schema_version":1,"packs":{},"surprise":true}\n'
+    await fs.mkdir(paths.root, { recursive: true })
+    await fs.writeFile(paths.statePath, invalid, { mode: 0o600 })
+    const incident = (await request(app).get('/api/content-packs/recovery').expect(200)).body.recovery
+
+    const stale = await request(app)
+      .delete('/api/content-packs/recovery/11111111-1111-4111-8111-111111111111')
+      .expect(409)
+    assert.equal(stale.body.code, 'CONTENT_PACK_RECOVERY_INCIDENT_CHANGED')
+    assert.equal((await request(app).get('/api/content-packs/recovery').expect(200)).body.recovery.incidentId, incident.incidentId)
+
+    await request(app).delete(`/api/content-packs/recovery/${incident.incidentId}`).expect(200, { ok: true })
+    await request(app).delete(`/api/content-packs/recovery/${incident.incidentId}`).expect(200, { ok: true })
+    assert.equal((await request(app).get('/api/content-packs/recovery').expect(200)).body.recovery, null)
+    const hash = createHash('sha256').update(invalid).digest('hex')
+    assert.equal(await fs.readFile(path.join(paths.quarantineRoot, `state-invalid-${hash}.json`), 'utf8'), invalid)
+  })
+
+  test('local recovery routes reject invalid input and preserve malformed evidence', async () => {
+    const { app, paths } = await isolated()
+    await fs.mkdir(paths.root, { recursive: true })
+    const malformed = '{"schema_version":1,"incident":"damaged"}\n'
+    await fs.writeFile(paths.recoveryStatePath, malformed, { mode: 0o600 })
+
+    const invalidId = await request(app).delete('/api/content-packs/recovery/not-a-uuid').expect(400)
+    assert.equal(invalidId.body.code, 'CONTENT_PACK_RECOVERY_REQUEST_INVALID')
+    const failed = await request(app).get('/api/content-packs/recovery').expect(500)
+    assert.equal(failed.body.code, 'CONTENT_PACK_RECOVERY_STATE_INVALID')
+    assert.equal(await fs.readFile(paths.recoveryStatePath, 'utf8'), malformed)
+  })
+
   test('imports only bounded binary signed archives and never accepts JSON archives', async () => {
     const { app, paths } = await isolated()
     const archive = await buildArchive()

@@ -59,6 +59,80 @@ export interface UploadPlan {
   updated_at: string
 }
 
+export interface UploadScheduleAssignment {
+  episode_code: string
+  publishAt: string
+}
+
+export type UploadScheduleCasWriter = (
+  episodeCode: string,
+  scheduledFor: string | null,
+  expectedScheduledFor: string | null,
+) => Promise<void>
+
+/**
+ * A batch failed and at least one compensating CAS could not prove restoration.
+ * The caller must surface these exact episode sets instead of claiming the
+ * whole request failed atomically.
+ */
+export class UploadScheduleBatchWriteError extends Error {
+  readonly code = 'YOUTUBE_PLAN_PARTIAL_WRITE'
+  readonly expose = true
+  readonly statusCode: number
+  readonly committed_episode_codes: string[]
+  readonly uncertain_episode_codes: string[]
+
+  constructor(cause: unknown, committed: string[], uncertain: string[]) {
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    const named = uncertain.length ? uncertain.join(', ') : 'none'
+    super(`The schedule write stopped (${detail}). Story Studio could not prove the final planned date for: ${named}. Refresh the Upload Center and review those episodes before trying again.`)
+    this.name = 'UploadScheduleBatchWriteError'
+    this.statusCode = 500
+    this.committed_episode_codes = [...committed]
+    this.uncertain_episode_codes = [...uncertain]
+    ;(this as any).cause = cause
+  }
+}
+
+/**
+ * Apply reviewed per-episode claims in order. If a later CAS fails, compensate
+ * only values this request successfully wrote, using that new value as the
+ * compensation expectation. A concurrent writer can therefore never be
+ * overwritten by an old-map rollback.
+ */
+export async function applyScheduleAssignmentsWithRollback(
+  assignments: readonly UploadScheduleAssignment[],
+  previous: Readonly<Record<string, string | null>>,
+  writer: UploadScheduleCasWriter,
+): Promise<void> {
+  const completed: UploadScheduleAssignment[] = []
+  try {
+    for (const assignment of assignments) {
+      await writer(
+        assignment.episode_code,
+        assignment.publishAt,
+        previous[assignment.episode_code] ?? null,
+      )
+      completed.push(assignment)
+    }
+  } catch (cause) {
+    const uncertain: string[] = []
+    for (const assignment of completed.reverse()) {
+      try {
+        await writer(
+          assignment.episode_code,
+          previous[assignment.episode_code] ?? null,
+          assignment.publishAt,
+        )
+      } catch {
+        uncertain.push(assignment.episode_code)
+      }
+    }
+    if (uncertain.length) throw new UploadScheduleBatchWriteError(cause, [], uncertain.sort())
+    throw cause
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, any> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
@@ -356,7 +430,7 @@ export function computeSlots(
   // time. Never moves earlier than the plan's own start_date.
   let startDate = planStartDate
   if (options?.minStartDate) {
-    const minDayAfter = addDays(startOfDayInTz(options.minStartDate, tz), 1)
+    const minDayAfter = addDays(startOfDayInTz(options.minStartDate, tz), 1, tz)
     if (minDayAfter > startDate) startDate = minDayAfter
   }
 
@@ -408,7 +482,7 @@ export function computeSlots(
       // An occupied local day is stepped over without consuming a slot, so a
       // re-lay flows around existing bookings instead of double-booking them.
       if (blocked?.has(localDayKeyInTz(cursor, tz))) {
-        cursor = addDays(cursor, 1)
+        cursor = addDays(cursor, 1, tz)
         daysWalked++
         continue
       }
@@ -416,7 +490,7 @@ export function computeSlots(
       if (!options?.notBefore || Date.parse(slot) > options.notBefore.getTime()) slots.push(slot)
     }
 
-    cursor = addDays(cursor, 1)
+    cursor = addDays(cursor, 1, tz)
     daysWalked++
   }
   return slots
@@ -527,15 +601,22 @@ export function localDayKeyInTz(d: Date, tz: string): string {
 
 function startOfWeek(d: Date, tz: string): Date {
   const day = weekdayInTz(d, tz)
-  return addDays(startOfDayInTz(d, tz), -day)
+  return addDays(startOfDayInTz(d, tz), -day, tz)
 }
 
-function addDays(d: Date, days: number): Date {
-  return new Date(d.getTime() + days * 86_400_000)
+function addDays(d: Date, days: number, tz: string): Date {
+  const key = localDayKeyInTz(d, tz)
+  const [year, month, day] = key.split('-').map(Number)
+  const shifted = new Date(Date.UTC(year!, month! - 1, day! + days))
+  return dateAtTzLocal(
+    shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate(), 0, 0, tz,
+  )
 }
 
-function daysBetween(a: Date, b: Date, _tz: string): number {
-  return Math.round((b.getTime() - a.getTime()) / 86_400_000)
+function daysBetween(a: Date, b: Date, tz: string): number {
+  const [ay, am, ad] = localDayKeyInTz(a, tz).split('-').map(Number)
+  const [by, bm, bd] = localDayKeyInTz(b, tz).split('-').map(Number)
+  return Math.round((Date.UTC(by!, bm! - 1, bd!) - Date.UTC(ay!, am! - 1, ad!)) / 86_400_000)
 }
 
 // ── Per-item publication facts and schedule map ───────────────────────────

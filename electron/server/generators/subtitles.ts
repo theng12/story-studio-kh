@@ -20,7 +20,7 @@ import {
   hashSubtitleAudioSources,
   isPipelineRepairTranscriptUsable,
 } from '../services/subtitle-completion.js'
-import { recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
+import { readSubtitleSourceAudioHashes, recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { scanEpisodeAssets } from './video.js'
 import {
@@ -67,7 +67,7 @@ export const TRANSCRIPTION_WORD_TIMESTAMPS = true
 
 export interface TranscribeSubtitlesRequest {
   episode_id: string
-  audio_path?: string        // overrides the default merged-audio discovery
+  audio_path?: string        // may pin Audio Assembly's authoritative merged output
   language?: string
   model?: string
   /**
@@ -174,9 +174,20 @@ export function isFleetBusyTranscriptionFailure(error: unknown): boolean {
 }
 
 
-async function hashTranscriptionAudio(audioPath: string): Promise<string> {
+async function hashTranscriptionAudio(audioPath: string): Promise<{
+  requestHash: string
+  evidenceHash: string
+}> {
   const audio = await fs.readFile(audioPath)
-  return `sha256:${createHash('sha256').update(audio).digest('hex')}`
+  const raw = createHash('sha256').update(audio).digest('hex')
+  return {
+    // GenStudio's idempotency contract uses the raw file SHA-256.
+    requestHash: `sha256:${raw}`,
+    // Subtitle provenance uses the shared ordered-source hash contract, even
+    // for one whole-track file. Derive it from the same read rather than
+    // streaming a potentially large merged track twice.
+    evidenceHash: `sha256:${createHash('sha256').update(JSON.stringify([raw])).digest('hex')}`,
+  }
 }
 
 /**
@@ -280,6 +291,8 @@ export async function existingTranscriptIsCurrent(input: {
   episodeId: string
   code: string
   outDir: string
+  /** Audio Assembly's exact selected merge. Omitted only by legacy callers. */
+  sourceAudio?: string
 }): Promise<{ skip: boolean; reason: string; cues: number }> {
   const outPath = path.join(input.outDir, `${input.code}_whisper.srt`)
   let cues = 0
@@ -289,6 +302,39 @@ export async function existingTranscriptIsCurrent(input: {
     return { skip: false, reason: 'the existing transcript could not be read', cues: 0 }
   }
   if (!(cues > 0)) return { skip: false, reason: 'the existing transcript has no valid cues', cues: 0 }
+
+  if (input.sourceAudio) {
+    const manifestKey = path.basename(outPath)
+    const savedHash = (await readSubtitleSourceAudioHashes(input.outDir))[manifestKey]
+    if (savedHash) {
+      const currentHash = await hashSubtitleAudioSources([input.sourceAudio])
+      if (!currentHash || currentHash !== savedHash) {
+        return { skip: false, cues, reason: 'the authoritative merged audio changed' }
+      }
+    } else {
+      // Migration fallback for imported and pre-provenance whole tracks. A
+      // legacy transcript remains intentional unless Audio Assembly has since
+      // replaced its source; cue duration is deliberately not a completeness
+      // heuristic because sparse timing can be intentional.
+      const statOrAbsent = async (filePath: string, label: string) => {
+        try {
+          return await fs.stat(filePath)
+        } catch (error: any) {
+          if (error?.code === 'ENOENT') return null
+          throw new Error(
+            `Could not inspect ${label} (${error?.code || error?.message || error}); no transcription was submitted.`,
+          )
+        }
+      }
+      const [transcriptStat, audioStat] = await Promise.all([
+        statOrAbsent(outPath, 'the existing transcript'),
+        statOrAbsent(input.sourceAudio, 'authoritative merged audio'),
+      ])
+      if (!transcriptStat || !audioStat || audioStat.mtimeMs > transcriptStat.mtimeMs) {
+        return { skip: false, cues, reason: 'the authoritative merged audio changed' }
+      }
+    }
+  }
 
   const epaths = await resolveEpisodePathsByCodeWithSidecar(
     input.projectSlug, input.episodeId, 'audio_chapters.json',
@@ -402,13 +448,22 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
     return await transcribePerChapter(job, project_slug, episode_id, req)
   }
 
+  const sourceAudio = assembly.merged_audio_path
+  if (!sourceAudio) throw new Error('No authoritative merged audio file found — run Audio Assembly first')
+  if (req.audio_path && path.resolve(req.audio_path) !== path.resolve(sourceAudio)) {
+    throw new Error(
+      `The requested audio_path is not Audio Assembly's authoritative output (${path.basename(sourceAudio)}). ` +
+      'Re-run Audio Assembly or omit audio_path; no transcription was submitted or charged.',
+    )
+  }
+
   // Preserve already-verified work. GenStudio has its own durable idempotency,
   // while this file guard prevents an unnecessary new Story job entirely.
   const outDir = await resolveSubtitlesDir(project_slug, code)
   const outPath = path.join(outDir, `${code}_whisper.srt`)
   if (!effectiveForce && await fileExistsWithContent(outPath)) {
     const current = await existingTranscriptIsCurrent({
-      projectSlug: project_slug, episodeId: episode_id, code, outDir,
+      projectSlug: project_slug, episodeId: episode_id, code, outDir, sourceAudio,
     })
     if (current.skip) {
       job.output_lines.push(`Skipping — ${code}_whisper.srt already exists and ${current.reason} were verified. Tick "Re-run transcription" to overwrite.`)
@@ -435,20 +490,6 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
 
   const genstudio = await resolveGenStudioTranscription(job, req)
 
-  // Resolve the audio source: explicit override wins; otherwise we use the
-  // first merged-audio file the scanner surfaces. Rejecting the chapter
-  // files here is intentional — transcribing 10+ small clips ~double-counts
-  // the Whisper API call budget and produces stitched-together offsets we'd
-  // have to reconcile manually.
-  let audioPath = req.audio_path
-  if (!audioPath) {
-    const assets = await scanEpisodeAssets(project_slug, episode_id)
-    const merged = assets.merged_audio[0]
-    if (!merged) throw new Error('No merged audio file found — run Audio Assembly first')
-    audioPath = merged.path
-  }
-  // `const` so TS keeps the string narrowing inside the async closures below.
-  const sourceAudio: string = audioPath
   job.output_lines.push(`Source: ${path.basename(sourceAudio)}`)
   const manifestKey = path.basename(outPath)
 
@@ -459,15 +500,15 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   }, 500)
 
   try {
-    const currentAudioHash = await hashTranscriptionAudio(sourceAudio)
+    const audioIdentity = await hashTranscriptionAudio(sourceAudio)
     const requestIdentity = `${project_slug}:${code}:transcription:${manifestKey}`
     const currentInputHash = hashInput(JSON.stringify({
-      requestIdentity, audioHash: currentAudioHash, modelId: genstudio.modelId,
+      requestIdentity, audioHash: audioIdentity.requestHash, modelId: genstudio.modelId,
       language: genstudio.language, wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
     }))
     const result = await runSubtitleTranscription({
       job, outDir, section: 'merged', manifestKey, inputHash: currentInputHash,
-      audioHash: currentAudioHash, apiKey: genstudio.apiKey, force: effectiveForce,
+      audioHash: audioIdentity.requestHash, apiKey: genstudio.apiKey, force: effectiveForce,
       generationActionId,
       manualCreditCeiling: req.subtitle_purchase?.additional_credit_ceiling,
       request: {
@@ -479,7 +520,11 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
     // Run the rest of the pipeline under the same try so `finally` always
     // clears the watcher interval — otherwise a parse failure would leak
     // a 500 ms timer per cancelled-during-parse job.
-    return await finalizeTranscript(job, project_slug, episode_id, result.srt)
+    return await finalizeTranscript(job, project_slug, episode_id, result.srt, {
+      manifestKey,
+      sourceAudioHash: audioIdentity.evidenceHash,
+      modelId: result.modelId,
+    })
   } finally {
     clearInterval(cancelWatcher)
   }
@@ -775,15 +820,15 @@ async function transcribePerChapter(
         sec.files.map(file => path.join(audioDir, file)),
       )
       if (!sourceAudioHash) throw new Error(`Could not fingerprint active audio for ${sec.slug}`)
-      const currentAudioHash = await hashTranscriptionAudio(audioPath)
+      const currentAudioIdentity = await hashTranscriptionAudio(audioPath)
       const requestIdentity = `${projectSlug}:${code}:transcription:${manifestKey}`
       const currentInputHash = hashInput(JSON.stringify({
-        requestIdentity, audioHash: currentAudioHash, modelId: genstudio.modelId,
+        requestIdentity, audioHash: currentAudioIdentity.requestHash, modelId: genstudio.modelId,
         language: genstudio.language, wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
       }))
       const result = await runSubtitleTranscription({
         job, outDir, section: sec.slug, manifestKey, inputHash: currentInputHash,
-        audioHash: currentAudioHash, apiKey: genstudio.apiKey, force,
+        audioHash: currentAudioIdentity.requestHash, apiKey: genstudio.apiKey, force,
         generationActionId,
         ...(repairSection ? {
           pipelineRepair: { actionId: repairActionId, isResultUsable: isPipelineRepairTranscriptUsable },
@@ -959,6 +1004,7 @@ async function finalizeTranscript(
   projectSlug: string,
   episodeId: string,
   srtRaw: string,
+  evidence?: { manifestKey: string; sourceAudioHash: string; modelId: string },
 ): Promise<void> {
   const code = episodeId.toUpperCase()
 
@@ -976,6 +1022,14 @@ async function finalizeTranscript(
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${code}_whisper.srt`)
   await fs.writeFile(outPath, srt, 'utf-8')
+  if (evidence) {
+    await recordSubtitleSourceEvidence(
+      outDir,
+      evidence.manifestKey,
+      evidence.sourceAudioHash,
+      evidence.modelId,
+    )
+  }
 
   job.output_lines.push(`Wrote ${cues} cues → ${outPath}`)
   job.output_dir = outDir

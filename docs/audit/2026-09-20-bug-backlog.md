@@ -1,9 +1,40 @@
 # Bug candidates and repair plan — 2026-09-20
 
+## Current checkpoint — 2026-09-21
+
+Source **v1.4.213** has passed the corrected full backend/frontend/release/Content
+Pack lanes and production build, with independent scoped review. Integration and
+the main-built DMG are next. See [local release acceptance](../handoffs/2026-09-21-local-release.md)
+for the current integration/artifact state, exact counts and explicit skips.
+
+- A5 has accepted bounded audio-readiness/retranscription evidence; the broader
+  historical contract and release integration remain open.
+- A6 has accepted bounded manifest-uncertainty evidence; all-stage and release
+  acceptance remain open.
+- A8 deliberately preserves valid zero/no-op completion. Only narrow caller
+  fixes are in scope; there is no blanket `expected > 0` change.
+- The 89-row inventory is not 89 fixed bugs: many rows remain open,
+  source-only, partial, dormant, duplicate, or retracted. No usable/released
+  claim is made here.
+
+The original tables and their older evidence are preserved below as dated
+historical audit material.
+
 Start from `codex/recover-interrupted-audit`, runtime checkpoint `fca27c95`.
 This is a handoff inventory, not permission to implement every historical claim
 blindly. The [new-computer handoff](../handoffs/2026-09-20-new-computer.md)
 defines setup, migration, integration, and the next agent's working rules.
+
+## Recovery-worktree update — 2026-09-21
+
+The tables below preserve the original handoff evidence, not the latest patch
+status. See [workflow progress](2026-09-20-workflow-progress.md) for current
+verification and remaining limits. A1 containment, A2 no-ceiling requests and
+retry/disclosure, A3 local Content Pack recovery, and A7 version reporting now
+have uncommitted repairs with independently passing focused checks. A4 has
+compatible dependency updates and four independently clean dependency audits.
+None is yet an integrated release. A5, A6, A8 and substantive historical-candidate
+reproduction remain open; 89 inventory rows must not be described as 89 bugs.
 
 ## How to read this backlog
 
@@ -31,8 +62,8 @@ every UI geometry, and every inherited commit were not exhaustively retested.
 | A2 / high | **[MEASURED — executed pure resolver + source]** `scene-prompt-batching.ts:168-177` rejects `null`, `undefined`, and `0`; direct calls reproduced all three refusals while `8192` returned `8192`. `generators/scene-plan.ts:715-718` uses this resolver. `scene-plan.vue:571-575` hides Next without a published budget but leaves All pending available. Owner decision 6 already allows models with no published ceiling. | Represent absence distinctly from malformed values; omit the request limit when unpublished. Resolve batching from an explicit configured choice without pretending it is the model's maximum. Update UI, Pipeline request snapshots, retries and motion handling consistently. | No-ceiling model succeeds through direct and Pipeline paths with no invented token field; malformed published values still fail; explicit batch choice and model changes work; saved paid-work recovery is preserved; rendered UI explains the choice. |
 | A3 / high | **[MEASURED — source]** `content-packs/state.ts:75-104` preserves invalid bytes under a hash-named quarantine file, writes empty state, and returns that state without a recovery discriminator. `readContentPackState:108-113` exposes the same return shape as first install; registry/routes consume it. I/O errors correctly throw. | Preserve quarantine/locking/atomic writes. Carry recovery status to an actionable Store notice and a supported reconciliation/restore path. Do not report invalid/recovered state as an ordinary empty library. | Invalid vs missing vs I/O failure remain distinct; original bytes survive; notice/recovery is visible; installed identity/ownership/signature checks remain fail-closed; restart does not hide the incident. |
 | A4 / high | **[MEASURED — dependency audit]** Root production audit exits 1: `@xmldom/xmldom` high, `sharp` high, `qs` moderate. Frontend production audit exits 1: `svgo` high, `devalue` moderate. These are vulnerable package results, not established exploitability in this app. | Trace each direct/transitive consumer and runtime/build exposure. Prefer safe patch/minor lockfile updates; do not run a blind force upgrade or weaken audit rules. | Root/frontend production and all-dependency audits, package/runtime closure, relevant media/import/render regressions, full required local suites/build and packaging checks. Record anything still unfixed explicitly. |
-| A5 / medium-high | **[MEASURED — source predicate only]** `audio-workflow-readiness.ts:50-57` treats any nonempty audio file in the merged directory as usable; called at `:139`. The broader allegation that this admits a superseded take has not been reproduced here. | First prove the current wrong-artifact/stale-take case through the actual transcription preflight. Reuse the authoritative merged artifact/freshness rule rather than broad extension matching. | Noncanonical, stale, empty, malformed and unreadable audio cannot satisfy readiness; current valid merged audio can; no duplicate paid transcription on repair. |
-| A6 / medium-high | **[MEASURED — source]** `manifest-audit.ts:365-369` converts stage exceptions to `notStarted`; `notStarted:112-114` returns `expected:0, present:0, missing:[]`. The user-facing false-intact conclusion needs a route/UI reproduction. | Give failed measurements an explicit error/unmeasurable state, preserve successful stage results, and surface the affected stage. | Inject directory/read failures and prove the API/UI cannot report intact/empty; a genuinely unstarted episode remains legitimate. |
+| A5 / medium-high | **[MEASURED — accepted ledger]** The focused audio-readiness/retranscription checks reject unrelated or stale assembly before provider work, including the corrected affected mixed run. The original broad predicate and its wider override/caller contract remain historical concerns, not a claim that all A5 evidence is untouched. | Retain the authoritative merged artifact/freshness rule and finish the remaining caller/override and integration review. | Noncanonical, stale, empty, malformed and unreadable audio cannot satisfy readiness; current valid merged audio can; no duplicate paid transcription on repair. |
+| A6 / medium-high | **[MEASURED — accepted ledger]** Bounded manifest-uncertainty checks preserve an explicit unmeasurable outcome for exercised directory, manifest and stat faults, with frontend uncertainty evidence. Full all-stage and integrated release acceptance remain open. | Complete the remaining caller/UI review while preserving successful stage results and surfacing the affected stage. | Inject directory/read failures and prove the API/UI cannot report intact/empty; a genuinely unstarted episode remains legitimate. |
 | A7 / low | **[MEASURED — source + launch output]** `/api/health` and `/api/server-info` use literal `version:'0.1.0'` at `app.ts:124,140`; the v1.4.210 launch smoke returned that value. | Use the existing application version source consistently, including packaged runtime. | Both routes agree with the packaged `app.asar/package.json`; startup/version diagnostics remain available. |
 | A8 / contract review | **[MEASURED — source only]** `job-completion.ts:68` permits `expected >= 0`; a zero/zero declaration can be complete. This is not automatically a bug: an optional/no-op operation can validly expect zero. | Enumerate all callers and distinguish legitimate no-op completion from unmeasurable or missing required output. Do not change every zero to failure globally. | For each artifact-producing caller, empty/unmeasurable output fails while a deliberately skipped optional operation remains allowed. |
 

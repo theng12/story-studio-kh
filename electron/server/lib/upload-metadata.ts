@@ -111,36 +111,88 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
   let description = ''
   let tags: string[] = []
 
+  const metadataDir = path.dirname(paths.metadata_json)
+  let metadataFiles: string[]
   try {
-    if (existsSync(paths.metadata_json)) {
-      const raw = await fsp.readFile(paths.metadata_json, 'utf-8')
-      const data = JSON.parse(raw)
-      // v1.4.84 — the saved title, unless what was saved is the metadata
-      // document's own heading.
-      //
-      // Episodes have been published titled
-      // `# SEO-Optimized Video Titles — EP0061`, because the generator picked
-      // the model's list heading as title[0]. The generator no longer does
-      // that, but the files are already on disk and their real titles are
-      // sitting right beside them in `title_options`. Saved files are never
-      // rewritten — the same rule as the section-label leak — so the recovery
-      // happens here, on the way out. The operator clicking "Update metadata"
-      // on one of those rows now pushes the title the document actually
-      // contains, rather than being refused.
-      title = pickUsableTitle([
-        typeof data.title === 'string' ? data.title : '',
-        ...(Array.isArray(data.title_options) ? data.title_options : []),
-        ...(Array.isArray(data.titles) ? data.titles : []),
-      ])
-      description = typeof data.description === 'string' ? data.description : ''
-      tags = Array.isArray(data.tags) ? data.tags.filter((t: any) => typeof t === 'string' && t.trim()) : []
-    }
-  } catch { /* swallow — fall through to txt parse */ }
+    metadataFiles = await fsp.readdir(metadataDir)
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    metadataFiles = []
+  }
+  const escapedCode = input.episode_code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const jsonPattern = new RegExp(`^${escapedCode}_Metadata(?:_v(\\d+))?\\.json$`, 'i')
+  const txtPattern = new RegExp(`^${escapedCode}_Metadata(?:_v(\\d+))?\\.txt$`, 'i')
+  const versioned = (pattern: RegExp) => metadataFiles.flatMap(filename => {
+    const match = filename.match(pattern)
+    return match ? [{ filename, version: match[1] ? Number(match[1]) : 1 }] : []
+  }).sort((left, right) => right.version - left.version || right.filename.localeCompare(left.filename))
 
-  if ((!title || !description || !tags.length) && existsSync(paths.metadata_txt)) {
+  let selectedVersion: number | null = null
+  for (const candidate of versioned(jsonPattern)) {
+    let raw: string
     try {
-      const raw = await fsp.readFile(paths.metadata_txt, 'utf-8')
+      raw = await fsp.readFile(path.join(metadataDir, candidate.filename), 'utf-8')
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+      throw error
+    }
+    let data: any
+    try {
+      data = JSON.parse(raw)
+    } catch (error: unknown) {
+      if (error instanceof SyntaxError) continue
+      throw error
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) continue
+    const candidateTitle = pickUsableTitle([
+      typeof data.title === 'string' ? data.title : '',
+      ...(Array.isArray(data.title_options) ? data.title_options : []),
+      ...(Array.isArray(data.titles) ? data.titles : []),
+    ])
+    const candidateDescription = typeof data.description === 'string' ? data.description : ''
+    const candidateTags = Array.isArray(data.tags) ? data.tags.filter((t: any) => typeof t === 'string' && t.trim()) : []
+    // A syntactically valid but empty metadata object is not a saved upload
+    // result. Continue to an older usable version instead of allowing `{}` to
+    // mask it.
+    if (!candidateTitle && !candidateDescription.trim() && !candidateTags.length) continue
+    // v1.4.84 — the saved title, unless what was saved is the metadata
+    // document's own heading.
+    //
+    // Episodes have been published titled
+    // `# SEO-Optimized Video Titles — EP0061`, because the generator picked
+    // the model's list heading as title[0]. The generator no longer does
+    // that, but the files are already on disk and their real titles are
+    // sitting right beside them in `title_options`. Saved files are never
+    // rewritten — the same rule as the section-label leak — so the recovery
+    // happens here, on the way out. The operator clicking "Update metadata"
+    // on one of those rows now pushes the title the document actually
+    // contains, rather than being refused.
+    title = candidateTitle
+    description = candidateDescription
+    tags = candidateTags
+    selectedVersion = candidate.version
+    break
+  }
+
+  if (!title || !description || !tags.length) {
+    const textCandidates = versioned(txtPattern)
+      .filter(candidate => selectedVersion === null || candidate.version === selectedVersion)
+    for (const candidate of textCandidates) {
+      let raw: string
+      try {
+        raw = await fsp.readFile(path.join(metadataDir, candidate.filename), 'utf-8')
+      } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw error
+      }
       const parsed = parseMetadataTxt(raw)
+      const candidateTitle = pickUsableTitle([
+        typeof parsed.title === 'string' ? parsed.title : '',
+        parsed.description?.split('\n')[0] || '',
+      ])
+      const candidateDescription = parsed.description || ''
+      const candidateTags = Array.isArray(parsed.tags) ? parsed.tags.filter(tag => typeof tag === 'string' && tag.trim()) : []
+      if (!candidateTitle && !candidateDescription.trim() && !candidateTags.length) continue
       if (!title) {
         // The txt's own TITLE section first. Only if that is missing do we
         // look at the description's opening line — and v1.4.84 requires that
@@ -148,14 +200,12 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
         // `# <the episode title as a markdown heading>` contributes nothing.
         // Falling back to a heading is what put document furniture on YouTube
         // in the first place.
-        title = pickUsableTitle([
-          typeof parsed.title === 'string' ? parsed.title : '',
-          parsed.description?.split('\n')[0] || '',
-        ])
+        title = candidateTitle
       }
-      if (!description) description = parsed.description || ''
-      if (!tags.length) tags = Array.isArray(parsed.tags) ? parsed.tags : []
-    } catch { /* swallow */ }
+      if (!description) description = candidateDescription
+      if (!tags.length) tags = candidateTags
+      break
+    }
   }
 
   // v1.4.75 — the generator's own output, cleaned of any internal section name

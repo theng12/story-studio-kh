@@ -1276,14 +1276,28 @@ async function openRelayout(event?: Event): Promise<void> {
 }
 
 function closeRelayout(): void {
+  invalidateRelayoutPreview()
   relayoutOpen.value = false
-  relayoutPreview.value = null
-  relayoutRequest.value = null
-  relayoutError.value = ''
   const opener = relayoutOpener.value
   relayoutOpener.value = null
   if (opener) nextTick(() => opener.focus())
 }
+
+function invalidateRelayoutPreview(): void {
+  // A relayout preview belongs to one date. Its response cannot restore an
+  // old proposal after that date changes or the dialog closes.
+  actionRevision++
+  if (busy.value === 'relayout-preview') busy.value = ''
+  relayoutPreview.value = null
+  relayoutRequest.value = null
+  relayoutError.value = ''
+}
+
+watch(relayoutStartDate, () => {
+  if (relayoutOpen.value && (relayoutPreview.value || relayoutRequest.value || busy.value === 'relayout-preview')) {
+    invalidateRelayoutPreview()
+  }
+})
 
 async function previewRelayout(): Promise<void> {
   // Production order, not selection order: the checkbox set preserves click

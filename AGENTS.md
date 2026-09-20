@@ -248,6 +248,20 @@ Production Board completion, or `all_done` — no project gate, no `research_req
 
 ## 10. Working in this repo
 
+**Delegation — owner ruling, 2026-09-20.** Act as the orchestrator: own planning,
+architecture, independent review, verification, and integration. Delegate
+bounded implementation work with a base commit, owned files, deliverable, and
+proving checks. Prefer Luna for straightforward tasks, Terra for involved
+cross-file work, and Sol at no more than high reasoning for data-integrity,
+security, and lifecycle work. Run independent tasks concurrently without
+overlapping edits. Use Ponytail and Graphify, verify findings against current
+source, reproduce uncertain bugs before fixing them, and choose the smallest
+complete solution. Keep updates concise and distinguish verified results from
+remaining limitations. This supersedes earlier Luna-only or unrestricted
+model-selection guidance. Workers must not recursively delegate, commit, push,
+merge, publish, deploy, or make paid calls unless specifically assigned that
+authority. Run only one test suite at a time across all workers.
+
 **Tests.** `npm run test:backend` runs every backend file and **is the release gate** — do not
 narrow it when verifying a release. While iterating, run only what you are working on:
 `node scripts/testing/run-backend-tests.mjs --only <substring>` (repeatable; the substring matches

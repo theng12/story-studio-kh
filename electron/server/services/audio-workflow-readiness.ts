@@ -1,6 +1,8 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { getAudioStatus } from './audio-reconciler.js'
+import { inspectAudioMergeAtPaths } from './asset-status.js'
 import { resolveEpisodePathsByCodeWithSidecar } from './utils.js'
 
 export interface ChapterAudioReadiness {
@@ -18,6 +20,7 @@ export interface AudioAssemblyReadiness extends ChapterAudioReadiness {
   expected_sections: string[]
   timeline_sections: string[]
   missing_timeline_sections: string[]
+  merged_audio_path: string | null
 }
 
 interface AudioChaptersManifest {
@@ -45,16 +48,6 @@ function chapterKeyOf(filename: string, code: string): string {
     base = base.replace(/(?:_part\d+|_v\d+)$/i, '')
   }
   return base
-}
-
-async function hasUsableMergedAudio(directory: string): Promise<boolean> {
-  const names = await fs.readdir(directory).catch(() => [] as string[])
-  for (const name of names) {
-    if (!/\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(name) || name.startsWith('.tmp_')) continue
-    const stat = await fs.stat(path.join(directory, name)).catch(() => null)
-    if (stat?.isFile() && stat.size > 0) return true
-  }
-  return false
 }
 
 export function evaluateAudioTimelineManifest(
@@ -130,15 +123,21 @@ export async function inspectAudioAssemblyReadiness(
   let expectedSections = unique(chapterAudio.expected_files.map(filename => chapterKeyOf(filename, code)))
 
   let mergedAudioReady = false
+  let mergedAudioPath: string | null = null
   let timelineManifestReady = false
   let timelineSections: string[] = []
   let missingTimelineSections = [...expectedSections]
 
   try {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
-    mergedAudioReady = await hasUsableMergedAudio(paths.merged_audio_dir)
+    const merge = await inspectAudioMergeAtPaths(paths, code)
+    const duration = merge.present && merge.path
+      ? await getAudioDuration(merge.path).catch(() => undefined)
+      : undefined
+    mergedAudioReady = Number.isFinite(duration) && Number(duration) > 0
+    mergedAudioPath = mergedAudioReady ? merge.path! : null
     if (!mergedAudioReady) {
-      issues.push('No usable merged narration exists. Run Audio Assembly first.')
+      issues.push('No current, decodable merged narration exists. Re-run Audio Assembly first.')
     }
 
     const manifest = JSON.parse(
@@ -169,6 +168,7 @@ export async function inspectAudioAssemblyReadiness(
     expected_sections: expectedSections,
     timeline_sections: timelineSections,
     missing_timeline_sections: missingTimelineSections,
+    merged_audio_path: mergedAudioPath,
     issues: unique(issues),
   }
 }

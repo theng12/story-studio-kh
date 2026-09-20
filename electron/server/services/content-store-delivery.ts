@@ -30,6 +30,7 @@ import {
   installContentPackLocked,
   resolveContentPackAppVersion,
   verifyInstalledContentPackClosure,
+  verifyInstalledContentPackVersion,
 } from '../content-packs/installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
@@ -528,7 +529,12 @@ async function alreadyInstalled(
   const pack = state.packs[release.packId]
   const installed = pack?.versions[release.version]
   if (!installed || installed.pending_removal || installed.archive_sha256 !== release.archiveSha256) return null
-  const verified = await verifyInstalledContentPackClosure(state, release.packId, release.version, context.policy, context.appVersion)
+  let verified: Awaited<ReturnType<typeof verifyInstalledContentPackVersion>>
+  try {
+    verified = await verifyInstalledContentPackVersion(installed, context.policy)
+  } catch {
+    return null
+  }
   return {
     install: {
       pack_id: release.packId,
@@ -622,7 +628,12 @@ async function installOwnedEntitlement(
       expectedPackId: release.packId,
       expectedVersion: release.version,
       deliveryAttestation: evidence,
-    }, { activate: false, policy: context.policy, appVersion: context.appVersion }, context.paths)
+    }, {
+      activate: false,
+      policy: context.policy,
+      appVersion: context.appVersion,
+      repairCorruptExactStoreVersion: true,
+    }, context.paths)
     const installedState = await readContentPackState(context.paths)
     await verifyInstalledContentPackClosure(installedState, release.packId, release.version, context.policy, context.appVersion)
     context.completed.set(key, installed)

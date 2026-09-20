@@ -89,7 +89,7 @@ test('the generator holds no per-provider chunk branch', () => {
 
 test('the manifest audit reads the shared planner instead of predicting again', () => {
   assert.doesNotMatch(audit, /chunkText/)
-  assert.match(audit, /getAudioStatus\(slug, code\)/)
+  assert.match(audit, /getAudioStatus\(slug, code, undefined, undefined, STRICT_IO\)/)
 })
 
 test('a caller that knows the selected model overrides remembered job history', () => {

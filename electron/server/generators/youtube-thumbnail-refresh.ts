@@ -83,11 +83,21 @@ export async function enumerateUploadRows(slug: string, platform: UploadPlatform
     try {
       const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, sidecarName)
       dir = paths.episode_dir
-    } catch { return }
+    } catch {
+      throw new Error(`${code}: could not resolve ${sidecarName}.`)
+    }
     const sidecarFile = path.join(dir, sidecarName)
-    if (!existsSync(sidecarFile)) return
+    let raw: string
+    try {
+      raw = await fsp.readFile(sidecarFile, 'utf-8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw new Error(`${code}: ${sidecarName} is unreadable or inaccessible.`)
+    }
     let sc: UploadSidecar
-    try { sc = JSON.parse(await fsp.readFile(sidecarFile, 'utf-8')) } catch { return }
+    try { sc = JSON.parse(raw) } catch {
+      throw new Error(`${code}: ${sidecarName} is malformed.`)
+    }
     if (!sc?.video_id) return
     rows.push({
       episode_code: code,
@@ -134,7 +144,13 @@ export async function previewThumbnailRefresh(
     if (meta?.thumbnailPath && existsSync(meta.thumbnailPath)) willFix++
     else noImage++
   }))
-  return { total_uploaded: all.length, will_fix: willFix, no_image: noImage, account_id: accountId, mode: opts.mode }
+  return {
+    total_uploaded: all.length,
+    will_fix: willFix,
+    no_image: noImage,
+    account_id: accountId,
+    mode: opts.mode,
+  }
 }
 
 /**

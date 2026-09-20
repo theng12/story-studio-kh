@@ -7,6 +7,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import request from 'supertest'
+import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
@@ -159,15 +160,23 @@ void test('image and music routes retain one paid provider request per operation
       '## Chapter 01: Fixture', '', 'Narration for Chapter_01.', '',
       '## Chapter 02: Fixture', '', 'Narration for Chapter_02.', '',
     ].join('\n'))
-    await fs.writeFile(path.join(paths.audio_dir, `${episodeId}_Chapter_01.mp3`), 'fixture-audio-one')
-    await fs.writeFile(path.join(paths.audio_dir, `${episodeId}_Chapter_02.mp3`), 'fixture-audio-two')
+    const chapterOne = `${episodeId}_Chapter_01.mp3`
+    const chapterTwo = `${episodeId}_Chapter_02.mp3`
+    const writeTone = (output: string, duration: number) => runFfmpeg([
+      '-y', '-f', 'lavfi', '-i', `sine=frequency=440:duration=${duration}`,
+      '-codec:a', 'libmp3lame', '-q:a', '9', output,
+    ])
+    await writeTone(path.join(paths.audio_dir, chapterOne), 1)
+    await writeTone(path.join(paths.audio_dir, chapterTwo), 1)
     await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({ gap_duration_s: 1, sections: [
-      { slug: 'Chapter_01', duration_s: 1 }, { slug: 'Chapter_02', duration_s: 1 },
+      { slug: 'Chapter_01', duration_s: 1, source_file: chapterOne },
+      { slug: 'Chapter_02', duration_s: 1, source_file: chapterTwo },
     ] }))
-    const mergedAudio = 'fixture-merged'
-    await fs.writeFile(path.join(paths.merged_audio_dir, `${episodeId}_merged_audio.mp3`), mergedAudio)
+    const mergedPath = path.join(paths.merged_audio_dir, `${episodeId}_merged_audio.mp3`)
+    await writeTone(mergedPath, 3)
+    const merged = await fs.stat(mergedPath)
     await fs.writeFile(path.join(paths.merged_audio_dir, `${episodeId}_merged_audio.completion.json`), JSON.stringify({
-      output_filename: `${episodeId}_merged_audio.mp3`, bytes: Buffer.byteLength(mergedAudio), duration_sec: 3,
+      output_filename: `${episodeId}_merged_audio.mp3`, bytes: merged.size, duration_sec: 3,
       opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
     }))
     await fs.writeFile(path.join(paths.subtitles_dir, `${episodeId}_Chapter_01.srt`), '1\n00:00:00,000 --> 00:00:01,000\nFixture one\n')
@@ -218,7 +227,26 @@ void test('image and music routes retain one paid provider request per operation
       // slot before the HTTP response hands this test the successor id.
       const continuityRetry = await request(app).post(`/api/projects/${project.slug}/jobs/${continuityFirst.body.job_id}/retry`)
       assert.equal(continuityRetry.status, 202, JSON.stringify(continuityRetry.body))
-      const continuityRecoveryJobId = continuityRetry.body.plan.steps.continuity_render.job_id
+      const recoveryPlan = continuityRetry.body.plan
+      const continuityStep = recoveryPlan?.steps?.continuity_render
+      const continuityRecoveryJobId = continuityStep?.job_id
+      const recoveryJob = typeof continuityRecoveryJobId === 'string' ? jq.getJob(continuityRecoveryJobId) : undefined
+      assert.ok(
+        typeof continuityRecoveryJobId === 'string'
+          && continuityRecoveryJobId.length > 0
+          && recoveryJob?.job_id === continuityRecoveryJobId
+          && recoveryJob.project_slug === project.slug
+          && recoveryJob.episode_id === episodeId,
+        `continuity Jobs Retry did not dispatch its recovery edge: ${JSON.stringify({
+          dispatch_status: recoveryPlan?.dispatch_status,
+          dispatch_job_id: recoveryPlan?.dispatch_job_id,
+          first_unresolved: recoveryPlan?.first_unresolved,
+          message: recoveryPlan?.message,
+          completed: recoveryPlan?.completed,
+          steps: recoveryPlan?.steps,
+          source_job: jq.getJob(continuityFirst.body.job_id),
+        })}`,
+      )
       assert.notEqual(continuityRecoveryJobId, continuityFirst.body.job_id,
         'episode recovery creates a successor queue record only after preserving the paid action identity')
       assert.equal(continuityRetry.body.plan.steps.continuity_render.params.generation_action.id, continuityAction,

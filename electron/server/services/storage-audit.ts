@@ -37,7 +37,11 @@ import {
 import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { registryCredentialFor } from '../lib/youtube-client.js'
 import { syncYouTubePublicationState } from './youtube-publication-status.js'
-import { isContentSha256Revision, resolveYouTubeSourceRevision } from './youtube-source-video.js'
+import {
+  isContentSha256Revision,
+  resolveYouTubeSourceRevision,
+  resolveYouTubeSourceRevisionFromHandle,
+} from './youtube-source-video.js'
 import { withFinalVideoPathLock } from './final-video-lock.js'
 import {
   getExternalFinalVideoRoot,
@@ -685,12 +689,242 @@ export interface MediaMigrationResult {
   files_moved: number
 }
 
+interface MigrationDirectoryIdentity {
+  path: string
+  dev: bigint
+  ino: bigint
+}
+
+interface MigrationFileIdentity {
+  dev: number
+  ino: number
+  nlink: number
+  size: number
+  ctimeMs: number
+  mtimeMs: number
+}
+
+function sameMigrationFileIdentity(left: MigrationFileIdentity, right: MigrationFileIdentity): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.nlink === right.nlink && left.size === right.size
+    && left.ctimeMs === right.ctimeMs && left.mtimeMs === right.mtimeMs
+}
+
+function sameMigrationDirectoryChain(
+  left: readonly MigrationDirectoryIdentity[],
+  right: readonly MigrationDirectoryIdentity[],
+): boolean {
+  return left.length === right.length && left.every((entry, index) => (
+    entry.path === right[index]?.path && entry.dev === right[index]?.dev && entry.ino === right[index]?.ino
+  ))
+}
+
+/** Canonicalize the trusted root, then reject links in every owned descendant. */
+async function snapshotMigrationDirectoryChain(
+  root: string,
+  target: string,
+  createMissing = false,
+  createdDirectories?: Set<string>,
+): Promise<MigrationDirectoryIdentity[]> {
+  const resolvedRoot = path.resolve(root)
+  const resolvedTarget = path.resolve(target)
+  const relative = path.relative(resolvedRoot, resolvedTarget)
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('migration directory is outside its configured storage root')
+  }
+  if (createMissing) {
+    const missing: string[] = []
+    let cursor = resolvedRoot
+    while (true) {
+      try {
+        await fs.lstat(cursor)
+        break
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        missing.push(cursor)
+        const parent = path.dirname(cursor)
+        if (parent === cursor) throw new Error('migration storage root has no existing ancestor')
+        cursor = parent
+      }
+    }
+    await fs.mkdir(resolvedRoot, { recursive: true })
+    for (const directory of missing) createdDirectories?.add(directory)
+  }
+
+  // macOS exposes platform aliases such as /var -> /private/var. The selected
+  // root is trusted and canonicalized once; links below it remain forbidden.
+  const canonicalRoot = await fs.realpath(resolvedRoot)
+  const identities: MigrationDirectoryIdentity[] = []
+  let cursor = canonicalRoot
+  for (const segment of ['.', ...relative.split(path.sep).filter(Boolean)]) {
+    if (segment !== '.') cursor = path.join(cursor, segment)
+    if (createMissing && segment !== '.') {
+      try {
+        await fs.mkdir(cursor)
+        createdDirectories?.add(cursor)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+    }
+    const stat = await fs.lstat(cursor, { bigint: true })
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error(`unsafe symbolic-link migration directory: ${cursor}`)
+    }
+    identities.push({ path: cursor, dev: stat.dev, ino: stat.ino })
+  }
+  return identities
+}
+
+/** Make the copied leaf name and every newly created ancestor entry durable. */
+async function fsyncMigrationDestinationDirectories(
+  destinationDir: string,
+  createdDirectories: ReadonlySet<string>,
+): Promise<void> {
+  if (process.platform === 'win32') return
+  const directories = new Set<string>([path.resolve(destinationDir)])
+  for (const created of createdDirectories) {
+    const resolved = path.resolve(created)
+    directories.add(resolved)
+    directories.add(path.dirname(resolved))
+  }
+  const ordered = [...directories].sort((left, right) => (
+    right.split(path.sep).length - left.split(path.sep).length || right.localeCompare(left)
+  ))
+  for (const directory of ordered) {
+    const handle = await fs.open(directory, 'r')
+    try {
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+  }
+}
+
+async function openRegularMigrationFile(file: string, label: string, flags = constants.O_RDONLY) {
+  const before = await fs.lstat(file)
+  if (before.isSymbolicLink() || !before.isFile() || before.nlink !== 1) {
+    throw new Error(`unsafe ${label}: symbolic links, hard links, and non-files are not migration candidates`)
+  }
+  const handle = await fs.open(file, flags | (constants.O_NOFOLLOW ?? 0))
+  try {
+    const opened = await handle.stat()
+    const after = await fs.lstat(file)
+    if (!opened.isFile() || opened.nlink !== 1
+      || !sameMigrationFileIdentity(before, opened)
+      || !sameMigrationFileIdentity(opened, after)) {
+      throw new Error(`unsafe ${label}: it changed while being opened`)
+    }
+    return { handle, identity: opened }
+  } catch (error) {
+    await handle.close().catch(() => {})
+    throw error
+  }
+}
+
+async function migrateVerifiedFile(input: {
+  from: string
+  to: string
+  sourceRoot: string
+  sourceDir: string
+  destinationRoot: string
+  destinationDir: string
+  createdDestinationDirectories: Set<string>
+  differentDestination: string
+  changedSource: string
+}): Promise<number> {
+  const sourceDirectories = await snapshotMigrationDirectoryChain(input.sourceRoot, input.sourceDir)
+  const destinationDirectories = await snapshotMigrationDirectoryChain(
+    input.destinationRoot,
+    input.destinationDir,
+    true,
+    input.createdDestinationDirectories,
+  )
+  const source = await openRegularMigrationFile(input.from, 'migration source')
+  let destination: Awaited<ReturnType<typeof openRegularMigrationFile>> | null = null
+  try {
+    const sourceRevision = await resolveYouTubeSourceRevisionFromHandle(source.handle)
+    try {
+      destination = await openRegularMigrationFile(input.to, 'migration destination', constants.O_RDWR)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      await fs.copyFile(input.from, input.to, constants.COPYFILE_EXCL)
+      destination = await openRegularMigrationFile(input.to, 'copied migration destination', constants.O_RDWR)
+    }
+    if (!destination) throw new Error('migration destination could not be opened safely')
+
+    if (await resolveYouTubeSourceRevisionFromHandle(destination.handle) !== sourceRevision) {
+      throw new Error(input.differentDestination)
+    }
+
+    // A matching page-cache read is not crash durability. Flush the exact
+    // no-follow destination handle, then revalidate both sides before deleting.
+    await destination.handle.sync()
+
+    const currentSourceRevision = await resolveYouTubeSourceRevisionFromHandle(source.handle)
+    const currentSourceIdentity = await source.handle.stat()
+    const currentSourcePathIdentity = await fs.lstat(input.from)
+    if (currentSourceRevision !== sourceRevision
+      || !sameMigrationFileIdentity(source.identity, currentSourceIdentity)
+      || !sameMigrationFileIdentity(currentSourceIdentity, currentSourcePathIdentity)) {
+      throw new Error(input.changedSource)
+    }
+
+    const currentDestinationRevision = await resolveYouTubeSourceRevisionFromHandle(destination.handle)
+    const currentDestinationIdentity = await destination.handle.stat()
+    const currentDestinationPathIdentity = await fs.lstat(input.to)
+    if (currentDestinationRevision !== sourceRevision
+      || !sameMigrationFileIdentity(destination.identity, currentDestinationIdentity)
+      || !sameMigrationFileIdentity(currentDestinationIdentity, currentDestinationPathIdentity)) {
+      throw new Error('the destination changed during migration; the source was kept')
+    }
+
+    const currentSourceDirectories = await snapshotMigrationDirectoryChain(input.sourceRoot, input.sourceDir)
+    const currentDestinationDirectories = await snapshotMigrationDirectoryChain(
+      input.destinationRoot,
+      input.destinationDir,
+    )
+    if (!sameMigrationDirectoryChain(sourceDirectories, currentSourceDirectories)
+      || !sameMigrationDirectoryChain(destinationDirectories, currentDestinationDirectories)) {
+      throw new Error('a migration directory changed during verification; the source was kept')
+    }
+
+    await fsyncMigrationDestinationDirectories(
+      input.destinationDir,
+      input.createdDestinationDirectories,
+    )
+    input.createdDestinationDirectories.clear()
+
+    // Hashing and directory walks are intentionally outside this final cheap
+    // check. Re-pin both open leaves to their current pathnames immediately
+    // before the path-based source removal.
+    const [finalSourceIdentity, finalSourcePathIdentity, finalDestinationIdentity, finalDestinationPathIdentity] = await Promise.all([
+      source.handle.stat(),
+      fs.lstat(input.from),
+      destination.handle.stat(),
+      fs.lstat(input.to),
+    ])
+    if (!sameMigrationFileIdentity(source.identity, finalSourceIdentity)
+      || !sameMigrationFileIdentity(finalSourceIdentity, finalSourcePathIdentity)) {
+      throw new Error(input.changedSource)
+    }
+    if (!sameMigrationFileIdentity(destination.identity, finalDestinationIdentity)
+      || !sameMigrationFileIdentity(finalDestinationIdentity, finalDestinationPathIdentity)) {
+      throw new Error('the destination changed during migration; the source was kept')
+    }
+
+    await fs.rm(input.from)
+    return source.identity.size
+  } finally {
+    await destination?.handle.close().catch(() => {})
+    await source.handle.close().catch(() => {})
+  }
+}
+
 /**
  * Move a project's existing HEAVY media subfolders (scene images, thumbnails,
  * audio, merged audio, final video) from the iCloud/project tree to the
  * configured `media_root` (e.g. an external SSD). iCloud→SSD is cross-volume,
- * so this is copy-verify-delete; it's resumable (a same-size file already at the
- * destination is treated as done) and reversible (clear media_root + run again
+ * so this is copy-verify-delete; it's resumable (byte-identical files already at
+ * the destination need no new copy) and reversible (clear media_root + run again
  * after swapping the source, or move the folders back by hand).
  *
  * Only `scene_plan.json`'s absolute `image_path` values need rewriting after the
@@ -770,20 +1004,38 @@ export async function migrateMediaToExternal(
       if (path.resolve(sourceDir) === path.resolve(destDir)) continue
       if (!path.resolve(sourceDir).startsWith(path.resolve(outputRoot))) continue
 
+      try {
+        await snapshotMigrationDirectoryChain(outputRoot, sourceDir)
+      } catch (e: any) {
+        result.errors.push({ episode_code: code, reason: `unsafe source folder ${sourceDir}: ${e?.message || e}` })
+        continue
+      }
       let files: string[]
       try { files = await fs.readdir(sourceDir) } catch { continue }
       let folderBytes = 0
       let folderFiles = 0
+      const createdDestinationDirectories = new Set<string>()
       if (!dryRun) {
-        try { await fs.mkdir(destDir, { recursive: true }) } catch (e: any) {
-          result.errors.push({ episode_code: code, reason: `mkdir ${destDir} failed: ${e?.message || e}` })
+        try {
+          await snapshotMigrationDirectoryChain(
+            mediaRootAbs,
+            destDir,
+            true,
+            createdDestinationDirectories,
+          )
+        } catch (e: any) {
+          result.errors.push({ episode_code: code, reason: `unsafe destination folder ${destDir}: ${e?.message || e}` })
           continue
         }
       }
       for (const name of files) {
         const from = path.join(sourceDir, name)
         let st
-        try { st = await fs.stat(from) } catch { continue }
+        try { st = await fs.lstat(from) } catch { continue }
+        if (st.isSymbolicLink()) {
+          result.errors.push({ episode_code: code, reason: `unsafe symbolic-link migration source: ${from}` })
+          continue
+        }
         if (!st.isFile()) continue   // heavy subfolders are flat; skip stray dirs
         folderBytes += st.size
         folderFiles++
@@ -794,44 +1046,30 @@ export async function migrateMediaToExternal(
           const stem = path.basename(name, path.extname(name))
           const isVersionedFinal = stem.startsWith(versionPrefix)
             && /^\d+$/.test(stem.slice(versionPrefix.length)) && VIDEO_EXTS.has(ext(name))
-          if (key === 'video' && (isFinalVideoName(code, name) || isVersionedFinal)) {
-            // Both paths are active final locations. Serialize with render,
-            // import and cleanup; a same-size destination is not proof that it
-            // contains this render. Keep both files if their bytes disagree.
-            const [first, second] = [from, to].map(file => path.resolve(file)).sort()
-            await withFinalVideoPathLock(first!, () => withFinalVideoPathLock(second!, async () => {
-              const sourceRevision = await resolveYouTubeSourceRevision(from)
-              const sourceSize = (await fs.stat(from)).size
-              let destinationRevision: string | null = null
-              try { destinationRevision = await resolveYouTubeSourceRevision(to) } catch (error: any) {
-                if (error?.code !== 'ENOENT') throw error
-              }
-              if (destinationRevision && destinationRevision !== sourceRevision) {
-                throw new Error('a different final already exists at the destination; both files were kept')
-              }
-              if (!destinationRevision) await fs.copyFile(from, to, constants.COPYFILE_EXCL)
-              if (await resolveYouTubeSourceRevision(to) !== sourceRevision) {
-                throw new Error('the copied final does not match the source; the source was kept')
-              }
-              await fs.rm(from)
-              result.bytes_moved += sourceSize
-              result.files_moved++
-            }))
-            continue
-          }
-          // Resumable: a same-size file already at the dest counts as copied.
-          let needCopy = true
-          try { if ((await fs.stat(to)).size === st.size) needCopy = false } catch { /* not there */ }
-          if (needCopy) {
-            await fs.copyFile(from, to)
-            if ((await fs.stat(to)).size !== st.size) {
-              result.errors.push({ episode_code: code, reason: `size mismatch copying ${name}` })
-              continue
-            }
-          }
-          await fs.rm(from, { force: true })
-          result.bytes_moved += st.size
-          result.files_moved++
+          const finalVideo = key === 'video' && (isFinalVideoName(code, name) || isVersionedFinal)
+          // Generic media and finals share one deletion-grade path: no linked
+          // leaves or descendant directories, exact bytes, and stable inode,
+          // timestamps and directory identities before the source is removed.
+          const [first, second] = [from, to].map(file => path.resolve(file)).sort()
+          await withFinalVideoPathLock(first!, () => withFinalVideoPathLock(second!, async () => {
+            const movedBytes = await migrateVerifiedFile({
+              from,
+              to,
+              sourceRoot: outputRoot,
+              sourceDir,
+              destinationRoot: mediaRootAbs,
+              destinationDir: destDir,
+              createdDestinationDirectories,
+              differentDestination: finalVideo
+                ? 'a different final already exists at the destination; both files were kept'
+                : `a different ${name} already exists at the destination; both files were kept`,
+              changedSource: finalVideo
+                ? 'the source final changed during migration; the current source was kept'
+                : `the source ${name} changed during migration; the current source was kept`,
+            })
+            result.bytes_moved += movedBytes
+            result.files_moved++
+          }))
         } catch (e: any) {
           result.errors.push({ episode_code: code, reason: `move ${name} failed: ${e?.message || e}` })
         }

@@ -24,27 +24,31 @@ describe('adaptive scene prompt batching', () => {
     assert.equal(resolveScenePromptPackSize(8_192, 12), 12)
   })
 
-  test('an unpublished allowance is refused, never replaced by an invented 8,192', () => {
-    // Break caught: this module substituted 8,192 whenever the catalogue
-    // published no usable allowance, and `describeScenePromptPackSize` then
-    // printed it as the model's own figure —
-    //   "8,192 output tokens × 0.75 ÷ 300 per scene = 20 max"
-    // for a product that had published nothing at all. Its sibling
-    // `productCeiling` (output-token-budget.ts) throws for the identical
-    // condition, so this module was the odd one out rather than the rule.
-    const expected = /does not substitute a ceiling of its own/
-    for (const missing of [undefined, null, 0, -1, 8_192.5, 'nonsense']) {
-      const label = JSON.stringify(missing)
-      assert.throws(() => maxSafeScenePromptPackSize(missing), expected, `maxSafe ${label}`)
-      assert.throws(() => automaticScenePromptPackSize(missing), expected, `automatic ${label}`)
-      assert.throws(() => resolveScenePromptPackSize(missing, 'auto'), expected, `packSize ${label}`)
-      assert.throws(() => resolveScenePromptTokenBudget(missing, 'auto'), expected, `tokenBudget ${label}`)
-      assert.throws(() => describeScenePromptPackSize(missing, 'auto'), expected, `describe ${label}`)
+  test('an unpublished allowance stays absent and batching uses the configured choice', () => {
+    // Owner decision #6: a product that publishes no output ceiling is usable.
+    // Scene Plan omits max_output_tokens and uses the channel's explicit batch
+    // setting instead of pretending the batch is model-safe by a number it made up.
+    for (const missing of [undefined, null, 0]) {
+      assert.equal(maxSafeScenePromptPackSize(missing), null)
+      assert.equal(automaticScenePromptPackSize(missing), SCENE_PROMPT_PACK_TUNING_DEFAULTS.batchSize)
+      assert.equal(resolveScenePromptPackSize(missing, 'auto'), SCENE_PROMPT_PACK_TUNING_DEFAULTS.batchSize)
+      assert.equal(resolveScenePromptTokenBudget(missing, 'auto'), null)
+      assert.match(describeScenePromptPackSize(missing, 'auto'), /publishes no output ceiling/i)
+      assert.equal(resolveScenePromptTokenBudget(missing, 4_096), 4_096)
+      assert.equal(resolveScenePromptPackSize(missing, 12), 12)
     }
-    // The refusal names what the catalogue actually published, so the operator
-    // can tell "absent" from "zero" without the page stating either as a limit.
-    assert.throws(() => maxSafeScenePromptPackSize(undefined), /got undefined/)
-    assert.throws(() => maxSafeScenePromptPackSize(0), /got 0/)
+  })
+
+  test('malformed published allowances still fail instead of becoming absent', () => {
+    const expected = /does not substitute a ceiling of its own/
+    for (const malformed of [-1, 8_192.5, 'nonsense']) {
+      const label = JSON.stringify(malformed)
+      assert.throws(() => maxSafeScenePromptPackSize(malformed), expected, `maxSafe ${label}`)
+      assert.throws(() => automaticScenePromptPackSize(malformed), expected, `automatic ${label}`)
+      assert.throws(() => resolveScenePromptPackSize(malformed, 'auto'), expected, `packSize ${label}`)
+      assert.throws(() => resolveScenePromptTokenBudget(malformed, 'auto'), expected, `tokenBudget ${label}`)
+      assert.throws(() => describeScenePromptPackSize(malformed, 'auto'), expected, `describe ${label}`)
+    }
   })
 
   test('a model-free run has its OWN budget and does not borrow a model allowance', () => {
@@ -55,11 +59,8 @@ describe('adaptive scene prompt batching', () => {
     // no-model case. The retired 8,192 fallback gave both the same value, which
     // is the defect (a value meaning two things), not the fix.
     assert.equal(SCENE_TIMELINE_ONLY_OUTPUT_BUDGET, 8_192)
-    assert.throws(
-      () => resolveScenePromptTokenBudget(undefined, 'auto'),
-      /does not substitute a ceiling of its own/,
-      'the resolver still refuses the absence it is actually about',
-    )
+    assert.equal(resolveScenePromptTokenBudget(undefined, 'auto'), null,
+      'a model-free run still has no published allowance; the timeline-only budget is local')
   })
 
   test('uses the model maximum automatically and never requests more than it publishes', () => {
@@ -135,7 +136,7 @@ describe('the 50-scene cap is gone and cannot come back', () => {
     assert.equal(maxSafeScenePromptPackSize(1_000_000), 2_500)
     // The clamp bound from ~20,000 tokens upward, which is why it was invisible
     // in the old suite: every case it tested sat under the threshold.
-    assert.ok(maxSafeScenePromptPackSize(32_768) > 50)
+    assert.ok(maxSafeScenePromptPackSize(32_768)! > 50)
   })
 
   test('a value above the old ceiling is honoured, not rewritten', () => {
@@ -161,13 +162,20 @@ describe('the 50-scene cap is gone and cannot come back', () => {
     assert.throws(() => parseScenePromptPackSetting(0), /Nothing was substituted/)
   })
 
-  test('an explicit choice larger than the model allows is reduced OUT LOUD', () => {
+  test('a selected allowance that reduces a batch is described without claiming its origin', () => {
     // The reduction itself is legitimate — exceeding it truncates the JSON —
-    // but it is described rather than performed in silence.
+    // but it is described rather than performed in silence. This helper sees
+    // only the resolved allowance, so its wording must remain true whether the
+    // number was published by the model or explicitly selected by the user.
     assert.equal(resolveScenePromptPackSize(8_192, 900), 20)
     const line = describeScenePromptPackSize(8_192, 900)
     assert.match(line, /900 was requested/)
-    assert.match(line, /can only return 20 complete/)
+    assert.match(line, /selected output allowance/i)
+    assert.match(line, /caps this batch at 20 complete/i)
+    assert.doesNotMatch(line, /this model can only/i)
+    const automatic = describeScenePromptPackSize(8_192, 'auto')
+    assert.match(automatic, /selected output allowance/i)
+    assert.match(automatic, /caps this batch at 20 complete/i)
     // No reduction, no complaint.
     assert.match(describeScenePromptPackSize(384_000, 250), /250 scenes per request \(requested/)
   })

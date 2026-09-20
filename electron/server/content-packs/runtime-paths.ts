@@ -9,6 +9,7 @@ import type { ContentPackManifest } from './types.js'
 export interface ContentPackRuntimePaths {
   root: string
   statePath: string
+  recoveryStatePath: string
   stagingRoot: string
   installedRoot: string
   quarantineRoot: string
@@ -88,6 +89,7 @@ export function getContentPackRuntimePaths(): ContentPackRuntimePaths {
   return {
     root,
     statePath: path.join(root, 'state.json'),
+    recoveryStatePath: path.join(root, 'state-recovery.json'),
     stagingRoot: path.join(root, '.staging'),
     installedRoot: path.join(root, 'installed'),
     quarantineRoot: path.join(root, 'quarantine'),

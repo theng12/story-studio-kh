@@ -2,6 +2,30 @@
 
 Prepared 2026-09-20. Start here before resuming the interrupted audit.
 
+## Current checkpoint — 2026-09-21
+
+Fresh setup on this computer is explicitly selected. No migration backup or
+old Library restoration is required; normal GenStudio/provider, Store, and
+YouTube authentication remains ordinary user setup. Source **v1.4.213** has
+completed independent scoped review, corrected full test lanes and production
+build. See [local release acceptance](2026-09-21-local-release.md) for the current
+integration/artifact state, exact counts and explicit remaining limitations.
+
+A5 and A6 have bounded accepted evidence in the current ledger, while their
+broader acceptance remains open. A8 deliberately preserves valid zero/no-op
+operations and uses only narrow caller fixes; it was never blanket-fixed. The
+89-row ledger contains many open/source-only cases and is not an 89-fixed-bug
+claim. No usable or released claim is made.
+
+The migration and backup instructions below are retained as dated historical
+contingency guidance, not as a requirement for the selected fresh setup.
+
+**Latest follow-up (2026-09-21):** the clone and isolated recovery worktree exist.
+The [16-task workflow](../superpowers/plans/2026-09-20-handoff-completion.md)
+and [current progress/remaining checks](../audit/2026-09-20-workflow-progress.md)
+record the implemented repair batch and fresh verification. The local-release
+acceptance document supersedes the older pending-state snapshots below.
+
 Evidence labels: **[MEASURED]** checked directly against source/command output;
 **[REPORTED]** a historical or worker claim that has not been independently
 established; **[ASSUMED]** an explicit working assumption. Proposed fixes and
@@ -63,8 +87,10 @@ actual exit statuses, dependency audit JSON, the inherited commit inventory,
 the cancellation review, and exact historical candidate source slices. The
 full old-computer logs and Git bundles remain local; this evidence directory
 and the GitHub branches are what a normal clone restores.
-Absolute `/build/...` paths inside captured command evidence are
-historical provenance, not runnable paths on the new computer. Use the relative
+Absolute `<owner-home>/...` paths inside captured command evidence are
+historical provenance with the owner's home path redacted, not runnable paths
+on the new computer. Recorded log hashes still identify the original private
+logs; displayed summary lines redact only that home prefix. Use the relative
 setup commands in this handoff; local preview app bundles were not committed.
 
 [MEASURED] On the old computer, the installed app is v1.4.176; the previously
@@ -108,12 +134,12 @@ compiled output, or an old worktree-built DMG as source.
 
 ## 4. Data and credentials do not travel in Git
 
-[MEASURED] The Git branch contains source, Content Pack authoring sources,
+[HISTORICAL CONTINGENCY] The Git branch contains source, Content Pack authoring sources,
 canonical Story skills, audit documents, and test fixtures. It does not contain
 the user's Library, generated media, installed Store state, OS credentials, or
 the global Codex plugin installation.
 
-Before retiring the old Mac:
+Historical migration checklist (not required for the selected fresh setup):
 
 1. Back up the Library actually selected in Story Studio, including channel
    folders, output, media, and shared assets. Verify the selected location; do
@@ -166,8 +192,15 @@ episode-isolation, preset, provider-display, local-assembly, paid-work recovery,
 and verified-completion rules. Never restore retired product features.
 
 Use the strong orchestrator for scope, decisions, verification, and synthesis.
-Delegate bounded reading, extraction, inventories, and mechanical drafting to
-`gpt-5.6-luna` when available. Each assignment must include GOAL, INPUT, numbered
+Owner ruling, 2026-09-20: the orchestrator owns planning, architecture,
+independent review, verification, and integration. Prefer Luna for
+straightforward tasks, Terra for involved cross-file work, and Sol at no more
+than high reasoning for data-integrity, security, and lifecycle work.
+Assignments include the base commit, owned files, deliverable, and proving
+checks. Parallel workers own disjoint write scopes; uncertain bugs require
+reproduction before repair. This supersedes earlier Luna-only and unrestricted
+model-selection guidance.
+Each assignment must include GOAL, INPUT, numbered
 STEPS, exact OUTPUT, DON'T, and IF INCOMPLETE. Require quotations and file:line
 evidence and check important claims independently. Read-only workers must not
 start test suites. Keep durable progress in this handoff/backlog rather than
@@ -204,4 +237,5 @@ versioned arm64 DMG from `main`, per `AGENTS.md`.
 > highest-priority confirmed issue, reproduce it, implement the smallest safe
 > fix, obtain independent review, and run appropriate local checks. Do not run
 > GitHub Actions or claim the inherited audit is complete. Delegate bounded
-> volume work to Luna; personally verify evidence and keep the handoff current.
+> work under the latest model policy in AGENTS.md; personally review and verify
+> evidence, coordinate integration, and keep the handoff current.

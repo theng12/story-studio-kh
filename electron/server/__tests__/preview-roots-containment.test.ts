@@ -62,6 +62,23 @@ describe('a preview may read the Library', () => {
     const inside = path.join(tmp.dir, 'projects', SLUG, 'project.json')
     assert.equal(await roots.isPreviewablePath(inside, SLUG), true)
   })
+
+  test('an unresolvable pool does not hide a later healthy pool', async () => {
+    const pools = await import('../services/broll-pool-manager.js')
+    const badPool = path.join(outsideDir, 'bad-pool')
+    const validPool = path.join(outsideDir, 'valid-pool')
+    await fs.mkdir(badPool)
+    await pools.createPool({ name: 'Bad Preview Pool', folder_path: badPool })
+    await fs.rm(badPool, { recursive: true })
+    await fs.symlink(path.join(outsideDir, 'not-mounted-pool'), badPool)
+
+    await fs.mkdir(validPool)
+    await pools.createPool({ name: 'Valid Preview Pool', folder_path: validPool })
+    const validFile = path.join(validPool, 'clip.mp4')
+    await fs.writeFile(validFile, 'healthy pool clip')
+
+    assert.equal(await roots.isPreviewablePath(validFile, SLUG), true)
+  })
 })
 
 describe('a preview may not read outside it', () => {
@@ -86,6 +103,13 @@ describe('a preview may not read outside it', () => {
     const link = path.join(tmp.dir, 'projects', SLUG, 'sneaky.mp3')
     await fs.symlink(path.join(outsideDir, 'private.mp3'), link)
     assert.equal(await roots.isPreviewablePath(link, SLUG), false)
+  })
+
+  test('a dangling symlink inside the Library pointing out is refused', async () => {
+    const link = path.join(tmp.dir, 'projects', SLUG, 'dangling')
+    await fs.symlink(path.join(outsideDir, 'not-mounted'), link)
+
+    assert.equal(await roots.isPreviewablePath(path.join(link, 'private.mp3'), SLUG), false)
   })
 
   test('an empty or non-string path is refused rather than throwing', async () => {

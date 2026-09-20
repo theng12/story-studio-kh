@@ -1594,7 +1594,7 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
    *
    * 0 means "not published" — same contract as `context_window_tokens`.
    * Story Studio never substitutes a figure of its own here; a product that
-   * publishes no output ceiling is refused at submission time instead.
+   * publishes no output ceiling is submitted without `max_output_tokens`.
    */
   max_output_tokens: number
   /** Published structured-item ceiling. Null means unmeasured, never unlimited. */
@@ -2125,7 +2125,8 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   /**
    * The SHAPE of this workflow's output. Resolved against the selected
    * product's published `max_output_tokens` at submission time. Absent means
-   * short-form, which is the historical 2,048-token default.
+   * short-form, which is the historical 2,048-token default; a product that
+   * publishes no ceiling is submitted without this field.
    */
   outputBudget?: OutputBudget
   requestIdentity?: string
@@ -3889,6 +3890,15 @@ const CATALOG_LABEL: Record<GenStudioCatalogKind, string> = {
   transcription: 'transcription model',
 }
 
+/** Trusted catalogue-shape diagnosis. Its message is safe to surface because
+ * the parser authors it without interpolating the malformed wire value. */
+class GenStudioCatalogFieldValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'GenStudioCatalogFieldValidationError'
+  }
+}
+
 /**
  * The catalogue could not be refreshed AND no copy remains inside the staleness
  * window. Typed so a submission path refuses loudly instead of spending against
@@ -3902,13 +3912,15 @@ export class GenStudioCatalogUnavailableError extends Error {
 
   constructor(kind: GenStudioCatalogKind, ageMs: number | null, cause?: unknown) {
     super(
-      `The GenStudio KH ${CATALOG_LABEL[kind]} catalogue could not be refreshed`
-      + `${ageMs == null
-        ? ' and Story Studio has no cached copy'
-        : ` and the cached copy is ${Math.round(ageMs / 60_000)} minute(s) old, beyond the `
-          + `${Math.round(CATALOG_STALE_MS / 60_000)}-minute staleness limit`}. `
-      + 'Story Studio refused to submit work against an unverified product; nothing was requested '
-      + 'and no credits were charged. Check your connection, then Retry.',
+      cause instanceof GenStudioCatalogFieldValidationError
+        ? cause.message
+        : `The GenStudio KH ${CATALOG_LABEL[kind]} catalogue could not be refreshed`
+          + `${ageMs == null
+            ? ' and Story Studio has no cached copy'
+            : ` and the cached copy is ${Math.round(ageMs / 60_000)} minute(s) old, beyond the `
+              + `${Math.round(CATALOG_STALE_MS / 60_000)}-minute staleness limit`}. `
+          + 'Story Studio refused to submit work against an unverified product; nothing was requested '
+          + 'and no credits were charged. Check your connection, then Retry.',
       cause === undefined ? undefined : { cause },
     )
     this.name = 'GenStudioCatalogUnavailableError'
@@ -4701,35 +4713,47 @@ export async function listModelCapabilities(apiKey: string): Promise<GenStudioMo
 }
 
 /**
- * Read a published token limit, preferring GenStudio's CURRENT field name and
- * accepting a deprecated alias only when the current one is absent.
- *
- * Story Studio never substitutes a number of its own here: a limit this app
- * invented would be a promise GenStudio has not made, and would go stale the
- * moment the catalogue changes. `0` means "not published", which every caller
- * must treat as "unknown", not as "zero budget".
- */
-/**
- * Normalize a published token limit onto Story Studio's `number` contract.
+ * Normalize the published CONTEXT-WINDOW limit onto Story Studio's `number`
+ * contract, preferring the current field and accepting its deprecated alias
+ * only when the current field is absent.
  *
  * THE WIRE FORM AND THE LOCAL SENTINEL ARE DIFFERENT, AND THAT IS DELIBERATE
- * (recorded 2026-09-18). gateway-kh publishes `context_window_tokens: null` and
- * `max_output_tokens: null` when a provider states no figure. Story Studio's
- * sentinel for "not published" is `0`. This function is the ONE place the two
- * meet: every non-integer — including `null` — becomes `0`, so `null` never
- * reaches the declared `number` fields and no caller ever does arithmetic on it
- * (`availableInputTokens` is `max(0, context − output)`).
+ * (recorded 2026-09-18). gateway-kh may publish
+ * `context_window_tokens: null` when a provider states no figure. Story
+ * Studio's context-window sentinel for "not published" is `0`; every
+ * non-integer becomes that sentinel, while the historical integer clamp is
+ * preserved. This function does NOT parse `max_output_tokens`, whose malformed
+ * values must be distinguished from a genuine null/omission before submission.
  *
- * Do not "fix" this into a nullable type. Callers downstream are fail-closed on
- * `0`: `productCeiling` throws rather than inventing a ceiling, and
- * `chunkingOutputBudget` returns `null` rather than a fabricated threshold. A
- * nullable field here would spread a second absence convention through all of
- * them for no gain.
+ * Do not "fix" the context-window field into a nullable type. Its callers use
+ * `0` as the established unknown sentinel, including arithmetic through
+ * `availableInputTokens`.
  */
 function readPublishedTokenLimit(preferred: unknown, deprecatedAlias: unknown): number {
   if (Number.isInteger(preferred)) return Math.max(1, preferred as number)
   if (Number.isInteger(deprecatedAlias)) return Math.max(1, deprecatedAlias as number)
   return 0
+}
+
+/**
+ * Preserve the three authoritative chat output-limit states at ingestion:
+ * omitted/null, a positive safe integer, or malformed. The first keeps the
+ * existing local `0` sentinel; the second is copied exactly; the third stops
+ * before any request can mistake bad catalogue data for an omission or `1`.
+ *
+ * The malformed value is deliberately not interpolated into the error: a wire
+ * object is arbitrary remote data and may contain private provider metadata.
+ */
+function readPublishedChatMaxOutputTokens(value: unknown, rawModelId: unknown): number {
+  if (value === null || value === undefined) return 0
+  if (Number.isSafeInteger(value) && (value as number) > 0) return value as number
+  const modelId = typeof rawModelId === 'string' && rawModelId.trim()
+    ? rawModelId.trim().replace(/[\r\n\t]/g, ' ').slice(0, 120)
+    : '(missing model id)'
+  throw new GenStudioCatalogFieldValidationError(
+    `GenStudio KH chat model ${JSON.stringify(modelId)} published malformed max_output_tokens; `
+    + 'expected null/omitted or a positive safe integer. No request or credit charge was made.',
+  )
 }
 
 /**
@@ -4782,14 +4806,14 @@ export async function listChatModelsSnapshot(
       value?.context_window_tokens,
       value?.context_limit_tokens,
     ),
-    // 0 means "not published" — the same contract `context_window_tokens`
-    // above already uses, and never a Story Studio guess. This used to
+    // 0 means genuinely null/omitted — never malformed and never a Story
+    // Studio guess. This used to
     // default to 2,048, which is the invented-fallback bug in its most
     // expensive form: every consumer downstream (the pre-network ceiling
     // check, the credit reservation, the chunking maths) would treat 2,048 as
     // a figure GenStudio had published for the product, and a chapter sized
     // against it comes back truncated after the customer has paid for it.
-    max_output_tokens: readPublishedTokenLimit(value?.max_output_tokens, undefined),
+    max_output_tokens: readPublishedChatMaxOutputTokens(value?.max_output_tokens, value?.id),
     max_structured_items_per_request: Number.isInteger(value?.max_structured_items_per_request)
       && value.max_structured_items_per_request > 0
       ? value.max_structured_items_per_request
@@ -7358,7 +7382,7 @@ async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Pr
       : [],
     default_aspect_ratio: typeof value?.default_aspect_ratio === 'string'
       ? value.default_aspect_ratio.trim()
-      : '16:9',
+      : '',
     default_resolution: publishedText(value?.default_resolution),
     // Carried through the transport for the resolution surface. Rows missing
     // any part of the pair are dropped rather than patched, so a half-published
