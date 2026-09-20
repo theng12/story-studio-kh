@@ -489,9 +489,10 @@
             </label>
             <!-- No maxlength attribute: this page must never carry a static
                  character limit (see modelTokenBudget.test.ts — characters per
-                 token differ by language). The Style Bible's 2,000-character
-                 cap is enforced on save and again on read in
-                 lib/style-bible.ts, matching routes/continuity.ts. -->
+                 token differ by language). The ceiling is derived from the
+                 SELECTED image model's published `max_prompt_characters` and is
+                 shown beside the box; a save that clips says so (owner
+                 decision #2, 2026-09-20). -->
             <textarea
               v-model="defaultStyleBible"
               class="textarea"
@@ -506,10 +507,18 @@
               >
                 {{ savingDefaultStyleBible ? 'Saving…' : 'Save channel default' }}
               </button>
+              <span
+                class="prompt-char-badge"
+                :class="`is-${defaultStyleBibleTone}`"
+                :title="defaultStyleBibleLength.overCap
+                  ? `${defaultStyleBibleLength.overage.toLocaleString()} characters past the ceiling in force. Saving trims the end and tells you it did.`
+                  : `${defaultStyleBibleLength.characters.toLocaleString()} characters written.`"
+              >{{ defaultStyleBibleLabel }}</span>
               <span v-if="characterSheetStyleBible" class="text-muted text-xs">
                 This episode has its own Style Bible, so it uses that instead.
               </span>
             </div>
+            <p class="scene-setting-help">{{ defaultStyleBibleCapNote }}</p>
             <p class="scene-setting-help">
               Set this once and every future episode inherits it. With no style at all, prompts carry no art
               direction and the image model falls back to rendering a photograph — which is how modern
@@ -1006,6 +1015,7 @@ import {
   type PromptCharCapSetting,
 } from '../../../utils/prompt-char-cap.js'
 import { readRememberedImageModelId } from '../../../utils/project-image-model.js'
+import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
 import { resolveMotionScope, type MotionScope } from '@shared/motion-scope'
@@ -1149,7 +1159,16 @@ watch(projectConfig, (c) => {
   savedDefaultStyleBible.value = next
 })
 async function saveDefaultStyleBible() {
-  const next = defaultStyleBible.value.trim().slice(0, 2000)
+  // Owner decision #2, 2026-09-20 — the ceiling is NOT a Story Studio number.
+  // It is what the SELECTED image model publishes for a prompt right now, and
+  // when it clips the save the customer is told (a limit that is enforced must
+  // also be shown; a silent trim is the §1 lie the audit found). A model that
+  // publishes nothing means no ceiling, so the text is saved in full rather
+  // than being cut to an invented figure.
+  const entered = defaultStyleBible.value.trim()
+  const cap = defaultStyleBibleCap.value
+  const clipped = !!cap && entered.length > cap
+  const next = clipped ? entered.slice(0, cap) : entered
   const previous = savedDefaultStyleBible.value
   savingDefaultStyleBible.value = true
   try {
@@ -1157,9 +1176,17 @@ async function saveDefaultStyleBible() {
     if (projectConfig.value) (projectConfig.value as any).default_style_bible = next
     savedDefaultStyleBible.value = next
     defaultStyleBible.value = next
-    success(next
-      ? 'Saved. Every episode without its own Style Bible now uses this style.'
-      : 'Channel default style cleared. Episodes without a Style Bible get no art direction.')
+    const modelName = intendedImageModel.value?.display_name || 'the selected image model'
+    if (clipped) {
+      success(
+        `Saved, trimmed to ${cap.toLocaleString()} characters — the limit ${modelName} publishes. `
+        + `${(entered.length - cap).toLocaleString()} characters at the end were dropped.`,
+      )
+    } else {
+      success(next
+        ? 'Saved. Every episode without its own Style Bible now uses this style.'
+        : 'Channel default style cleared. Episodes without a Style Bible get no art direction.')
+    }
   } catch (e: any) {
     savedDefaultStyleBible.value = previous
     showError(e?.data?.detail || e?.message || 'Could not save the channel default style')
@@ -1963,6 +1990,33 @@ const promptCharCapSummary = computed(() =>
 const promptCharCapExceedsModel = computed(() =>
   promptCharCapAboveModel(effectivePromptCharCap.value, intendedImageModelCap.value),
 )
+
+// ── The channel default Style Bible's ceiling (owner decision #2) ───────────
+//
+// The ceiling is what the SELECTED image model publishes for a prompt
+// (`max_prompt_characters`), read live — never a fixed 2,000 kept here. A model
+// that publishes nothing yields 0 = no ceiling, and the save then stores the
+// whole text rather than cutting it to an invented number. The figure is shown
+// beside the box and a clipping save says so: §1, a limit that is enforced must
+// also be shown. The Style Bible is art direction spliced into the prompt, so
+// the model's own published prompt budget is the only honest bound for it.
+const defaultStyleBibleCap = computed(() => intendedImageModelCap.value)
+const defaultStyleBibleLength = computed(() =>
+  promptLengthState(defaultStyleBible.value, defaultStyleBibleCap.value),
+)
+const defaultStyleBibleLabel = computed(() => promptLengthLabel(defaultStyleBibleLength.value))
+const defaultStyleBibleTone = computed(() => promptLengthTone(defaultStyleBibleLength.value))
+const defaultStyleBibleCapNote = computed(() => {
+  if (!form.value.intended_image_model) {
+    return 'No image model is chosen, so Story Studio applies no ceiling here and saves the whole text.'
+  }
+  const modelName = intendedImageModel.value?.display_name || 'The selected image model'
+  if (!defaultStyleBibleCap.value) {
+    return `${modelName} publishes no prompt-character limit, so Story Studio applies no ceiling here and saves the whole text.`
+  }
+  return `Ceiling: ${defaultStyleBibleCap.value.toLocaleString()} characters — what ${modelName} publishes for a prompt. A longer entry is trimmed on save, and Story Studio says so.`
+})
+
 function scenePromptLength(scene: { visual_prompt?: string }) {
   return promptLengthState(scene.visual_prompt, effectivePromptCharCap.value)
 }
@@ -2819,6 +2873,14 @@ const planPresets = usePresets<any>({
   configKey: 'scene_plan',
   presetType: 'scene-plan',
   autoApplyOnLoad: false,
+  // Owner decision #9, 2026-09-20. `custom_instructions` is written for ONE
+  // episode ("Episode-specific guidance is optional" is the field's own label),
+  // so a preset must not carry it onto another episode. The cast and the
+  // reusable look still travel. Spread the shared list — `excludeKeys` REPLACES
+  // the default rather than extending it, so restating the four identity
+  // strings here is exactly the duplication that drifts and re-opens the §4
+  // episode-identity leak.
+  excludeKeys: [...DEFAULT_EXCLUDE_KEYS, 'custom_instructions'],
   snapshot: () => ({
     model: form.value.model,
     use_research: form.value.use_research,

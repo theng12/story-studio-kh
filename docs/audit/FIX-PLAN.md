@@ -4,23 +4,27 @@ Working record for the fixes listed in `2026-09-19-defect-audit.md`. **This file
 is the durable memory** — the working context resets between rounds, so a group
 is not finished until its box is ticked here.
 
-## STATUS at v1.4.202 — read this first
+## STATUS at v1.4.207 — read this first
 
 **Where the work stands.** Groups 1–3 are effectively closed; Group 4 is barely
-started. Roughly **12 releases** shipped (v1.4.187 … v1.4.202), each with a test
+started. Roughly **15 releases** shipped (v1.4.187 … v1.4.207), each with a test
 proven red against the old behaviour and a green full gate.
 
+**THE OWNER'S TEN DECISIONS ARE ALL ANSWERED, and the first four are now
+implemented: #1 (v1.4.203), #3 (v1.4.206), #5 (v1.4.204), #10-scripts
+(v1.4.205), #9-scene-plan + #2 + #8 (v1.4.207). What remains: #6 (null-ceiling
+chat models), #7 (duplicate-upload click-through), and #9's channel-specific
+box.** See the open-items list below for the concrete next step on each.
+
 - **Group 1 — output integrity.** Completion-contract class CLOSED. One item
-  open: the cross-project duplicate-upload guard, blocked on **owner decision 7**.
-- **Group 2 — data integrity.** DONE. 8 fixed, 3 escalated as **decisions 9–10**.
-- **Group 3 — honesty.** DONE. 6 fixed, 1 blocked on **decision 1**
-  (opening-duration semantics), 1 investigated and closed as a deliberate
-  named choice (`thumbnail-prepare.ts:38` — see its entry; do NOT "fix" it).
+  open: the cross-project duplicate-upload guard, blocked on **owner decision 7**
+  (now answered — see item D).
+- **Group 2 — data integrity.** DONE apart from decision 9's channel box.
+- **Group 3 — honesty.** DONE apart from the deliberate `thumbnail-prepare.ts:38`
+  choice (do NOT "fix" it).
 - **Group 4 — long tail.** One fix landed (`health.ts` `/models`). The queue
   `cancelled` item is fully traced and is the best next target; the rest is
   unstarted.
-
-**10 owner decisions are outstanding** and listed at the end of this file.
 
 **Do not trust this audit's coordinates.** Verified across four rounds of
 checking: its line numbers and site lists were wrong or incomplete *every time*
@@ -612,91 +616,73 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       "episode-scoped cast ids persist" concern is resolved by the decision, not
       by code.
 
-      **`scene-plan.vue` (`custom_instructions`, decision 9) IS STILL OPEN, and
-      is now known to be harder than one line.** I applied exactly the same
-      `[...DEFAULT_EXCLUDE_KEYS, 'custom_instructions']` treatment plus
-      `import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'`, and it
-      **broke SIX tests** — four "mounted Scene Plan …" mounts and two preset
-      tests — all failing during component setup, while the same import in
-      `scripts.vue` is fine. Reverting scene-plan alone restored 1,839/1,839, so
-      that import is the cause.
+      **`scene-plan.vue` (`custom_instructions`, decision 9) — DONE, v1.4.207.**
+      The hypothesis in this file was right in mechanism and wrong in detail.
+      Re-measured by re-landing the change: the four mounted tests and the five
+      `scenePlanPresetTiming` tests failed with
+      **`ReferenceError: DEFAULT_EXCLUDE_KEYS is not defined`** — not "not
+      iterable". Both harnesses strip the page's imports and supply every one by
+      hand, so a name that is imported but not stubbed is simply not defined.
+      `scripts.vue` never broke because its test reads it as SOURCE only.
 
-      STRONGEST HYPOTHESIS, not yet confirmed: the mounted Scene Plan tests stub
-      `~/composables/usePresets`, so the named export is `undefined` and
-      `[...undefined, 'custom_instructions']` throws at setup ("not iterable").
-      `scripts.vue` is only ever read as SOURCE by its tests, never mounted, which
-      is exactly why it does not break.
+      Fix: each harness now imports the REAL `DEFAULT_EXCLUDE_KEYS` from
+      `../composables/usePresets.js` and injects it (`scenePlanLoading.test.ts`
+      interpolates it into its generated support source;
+      `scenePlanPresetTiming.test.ts` adds it to the `new Function` dependency
+      list). That is the maintenance these harnesses already require, and it
+      keeps ONE definition — the literal keys were NOT re-landed.
 
-      NEXT STEP: find how the mounted tests resolve `~/composables/usePresets`,
-      and either add `DEFAULT_EXCLUDE_KEYS` to their stub or move the constant to
-      a module the harness does not stub (e.g. `@shared/`). Do NOT re-land the
-      literal keys — that is the duplication this change exists to remove.
+      New tests: `presetExcludeKeys.test.ts` grew a `the scene plan preset`
+      describe (3 tests, file now 6). The page's own `excludeKeys` EXPRESSION is
+      evaluated out of the source and driven through the REAL composable with an
+      in-memory `$fetch`, so the assertions are consequences:
+        - saving a plan preset writes `character_ids` but NOT
+          `custom_instructions`, `episode_id` or `title`;
+        - applying a preset saved before the exclusion to a live episode leaves
+          that episode's guidance NEITHER replaced NOR blanked (the §5 read-side
+          trap).
+      **Proven red twice:** removing the `excludeKeys` line fails all 3; removing
+      ONLY `'custom_instructions'` (leaving `[...DEFAULT_EXCLUDE_KEYS]`) also
+      fails all 3. Frontend lane 1,842/1,842, 203/203 suites, 200/200 files.
 
-      The **channel-specific box** the owner asked for is new UI and is not built.
+      The **channel-specific box** the owner asked for is new UI and is still
+      not built.
 
-- [ ] **ROUND 33 — ESCALATED (owner decision 9). NOT a code call; §5 says so.**
-      `scene-plan.vue:1690` — "Custom instructions". Verified mechanism, not the
-      audit's description: none of these three pages passes `excludeKeys`, so all
-      three fall back to `DEFAULT_EXCLUDE_KEYS = ['episode_id','episodeId','episode','title']`
-      (`usePresets.ts:91`). Every other key is therefore captured on write and
-      restored on apply at any depth.
-      Why it is not mine to rule on: §5's first test would exclude it ("Episode-
-      specific guidance is optional" is the field's own label), but §5 also says
-      a deliberate choice the customer makes elsewhere is the owner's to decide.
-      For a SERIES, carrying editorial direction forward is plausibly the point.
-- [ ] **ROUND 33 — ESCALATED (owner decision 10).** `scripts.vue:870` —
-      `manual_guidance` + `character_ids`. The file's OWN comment at ~`:880` says
-      "character_ids / force are per-run", and they are not in the exclude list,
-      so the comment and the behaviour disagree. The `force` flag is a genuine
-      defect regardless and is the part I would fix on a ruling: it is a one-shot
-      "re-run" switch, so a preset that restores `force: true` would silently
-      overwrite existing work on the next apply. `character_ids` and
-      `manual_guidance` are the judgement: a series legitimately reuses its cast
-      and its tone notes.
-- [ ] `services/audio-reconciler.ts:157` — `|| audioJobs[0]` takes **another
-      episode's** TTS model to predict this episode's chunk split.
+- [x] **DONE, v1.4.207 (owner decision 9).** `scene-plan.vue:1690` — "Custom
+      instructions". Verified mechanism, not the audit's description: none of
+      these three pages passed `excludeKeys`, so all three fell back to
+      `DEFAULT_EXCLUDE_KEYS = ['episode_id','episodeId','episode','title']`
+      (`usePresets.ts:101`). Every other key was therefore captured on write and
+      restored on apply at any depth. The page now passes
+      `[...DEFAULT_EXCLUDE_KEYS, 'custom_instructions']`. The full account — the
+      two test harnesses that had to learn the symbol, and the three
+      consequence tests proven red — is in the Group 2 entry above.
+- [x] **DONE, v1.4.205 (owner decision 10).** `scripts.vue:870` —
+      `manual_guidance` + `character_ids`. The file's own comment said
+      "character_ids / force are per-run" while the behaviour disagreed. Per the
+      ruling: `force` and `manual_guidance` excluded, `character_ids` kept.
+      `DEFAULT_EXCLUDE_KEYS` was exported and the callers spread it, because
+      `excludeKeys` REPLACES the default list.
+- [x] **DONE, v1.4.207 (decision 8).** `services/audio-reconciler.ts` — the
+      `|| audioJobs[0]` cross-episode borrow is now the LEGACY FALLBACK, behind
+      the episode's own `audio_tts_model.json` record. See owner decision 8
+      below for the full design, the reasoning for the sidecar chosen, and the
+      known limit.
 
-      **ROUND 29 — CONFIRMED as a §4 leak, but NOT a clear-cut fix; both
-      available answers have a real cost, so this is an owner decision.**
-
-      The defect is real and I traced the damage: the borrowed model is turned
-      into `requestBudget` via `resolveTtsRequestBudget`, and `requestBudget`
-      decides how the section is split (`splitGenStudioApiRequests`) and
-      therefore **which `_partN.mp3` filenames this episode is expected to
-      have**. So the failure mode is a wrong number, not a crash: episode A
-      generates under a model with a 3,000-character boundary, the customer
-      switches to a model with a 6,000 boundary, episode B's own job has aged
-      out, B borrows A's model id, predicts `_part1/_part2` for a section that
-      the new model renders as one file — and B reports missing parts that were
-      never supposed to exist. Nothing announces it.
-
-      I did **not** simply delete `|| audioJobs[0]`, because the honest
-      replacement is a regression. There is **no per-episode record of the TTS
-      model** — I looked; `audio_chapters.json` does not carry one and the audio
-      generator persists no model field, so "resolve it from this episode's own
-      artifacts" is not available. The only two options are:
-
-      (a) **Borrow (today).** May be wrong after a model change, and is wrong
-          silently.
-      (b) **Blank it.** Falls into the `requestBudget === undefined` path at
-          `:182-193`, which expects the section as **one request**. That is
-          honest, but for an episode whose files genuinely are `_part1/_part2`
-          it predicts the wrong filenames and reports **false missing parts** —
-          trading a silent wrong number for a loud wrong answer.
-
-      Neither is derivable, which is exactly the condition AGENTS.md §4 gives
-      for escalating rather than ruling from the code. The design that would
-      actually settle it is to make the model derivable — record the TTS model
-      id (and the boundary it implied) in the episode's own audio sidecar at
-      generation time, then resolve from that, falling back to (b) only when the
-      sidecar predates the change. That is the recommendation, and it is a
-      schema addition plus a migration, so it wants the owner's go-ahead →
-      recorded below.
-- [ ] **ROUND 33 — ESCALATED, same ruling as decision 10.** `image-prompts.vue:1398`
-      — `thumbnail.character_ids` persists and is submitted for a new episode.
-      Same mechanism (default exclude list), same product question (does a cast
-      carry across a series?). Not fixed, because treating these three
-      differently would be worse than treating them together.
+      **ROUND 29 — the trace that produced the fix, kept for the record.**
+      The defect was real: the borrowed model became `requestBudget` via
+      `resolveTtsRequestBudget`, and `requestBudget` decides how the section is
+      split (`splitGenStudioApiRequests`) and therefore **which `_partN.mp3`
+      filenames this episode is expected to have**. The failure mode was a wrong
+      number, not a crash: episode A generates under a 3,000-character boundary,
+      the customer switches to a 6,000 boundary, B's job has aged out, B borrows
+      A's model, predicts `_part1/_part2` for a section the new model renders as
+      one file — and B reports missing parts that were never supposed to exist.
+      Nothing announced it.
+- [x] **NO CHANGE NEEDED, per owner decision 10.** `image-prompts.vue:1398` —
+      `thumbnail.character_ids`. The ruling KEEPS the cast in presets (it is
+      channel/series-level and identical across episodes), so the audit's
+      concern is resolved by the decision rather than by code.
 - [x] **DONE, v1.4.195.** `broll.vue:922` — the `form.episode_id` watcher cleared
       the in-flight upload path and the whisper flag but not `manualSelection`
       (an ordered list of `{filename, target_duration}` chosen for one episode)
@@ -1031,8 +1017,10 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       `subtitles.vue:56`, `AudioChapterSelector.vue:732`, `pipeline.vue:431`,
       `video-assembly.vue:3285`/`:3337`/`:201`/`:2034`, `scene-plan.vue:583`,
       `jobs.vue:1667`.
-- [ ] `now-safe` frontend: `scene-plan.vue:1151` (Style Bible silently truncated
-      — §1), `scene-plan.vue:39` (nonexistent prop), `settings.vue:2204`
+- [x] **`scene-plan.vue:1151` (Style Bible silently truncated — §1) DONE,
+      v1.4.207.** See owner decision 2 below for the shape, the backend read cap
+      it forced, and the pre-existing test that was reversed on purpose.
+- [ ] `now-safe` frontend — remaining: `scene-plan.vue:39` (nonexistent prop), `settings.vue:2204`
       (FFmpeg status never fetched), `settings.vue:4676` vs `:4766` (category
       blanked), `projectSettingsSave.ts:23` (**AI-disclosure compliance**),
       `scripts.vue:216`, `settings.vue:724` (Sync Folders missing),
@@ -1195,12 +1183,39 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
    to measure and the stated length is the only information there is.
    **This REVERSES two existing tests on purpose** — they now assert the throw
    and say so in place. Do not restore the old expectations.
-2. ~~**Style Bible cap**~~ **ANSWERED 2026-09-20: YES.** Show a counter and say
-   when a save was clipped, and derive the cap from the SELECTED model's
-   published prompt budget rather than a fixed 2,000 (rule 1). OPEN — not yet
-   implemented.
-3. ~~**`images.vue` "View all caps"**~~ **ANSWERED 2026-09-20: DELETE IT.** OPEN
-   — not yet implemented.
+2. ~~**Style Bible cap**~~ **ANSWERED 2026-09-20: YES. DONE, v1.4.207.**
+   `scene-plan.vue`'s channel-default box no longer does `.slice(0, 2000)`.
+   The ceiling is now `intendedImageModelCap` — the SELECTED image model's
+   published `max_prompt_characters`, read live — shown beside the box as a
+   `n / cap` counter (the same `promptLengthState`/`promptLengthLabel` the scene
+   prompts use), and a save that clips says so and by how much. A model that
+   publishes nothing yields NO ceiling, so the text is stored whole rather than
+   cut to an invented figure (rule 1).
+
+   **The backend read cap had to move with it, and that is the part the plan
+   under-estimated.** `lib/style-bible.ts` also sliced the project default to
+   `STYLE_BIBLE_MAX_CHARS` (2,000) on READ. Leaving that in place would have
+   silently cut a value the UI had just told the customer it accepted — worse
+   than the original defect, because now it would be a lie about a limit that
+   was shown. The project tier now returns the stored text; the EPISODE tier
+   keeps its 2,000 read guard, which still mirrors the write cap in
+   `routes/continuity.ts`. An over-long hand-edited config now fails LOUDLY at
+   render time (`providers/image/genstudio.ts` refuses an over-cap prompt and
+   names the model's limit) instead of being silently shortened.
+
+   **One pre-existing test's expectation was REVERSED on purpose** —
+   `style-bible-project-default.test.ts`'s "an over-long default is capped on
+   READ, not only on write" now asserts the value comes back whole, and a new
+   test pins the episode tier's guard at the boundary. The file says in place
+   why.
+
+   Tests: `frontend/__tests__/scenePlanStyleBibleCap.test.ts` (3, mounts the
+   real page; the REAL prompt-cap module is injected, not stubbed). **Proven
+   red:** with the original `.slice(0, 2000)` restored, all 3 fail — the other
+   two because "no published limit" was trimmed to 2,000. Backend
+   `--only style-bible` 23/23; frontend lane 1,842/1,842.
+3. ~~**`images.vue` "View all caps"**~~ **ANSWERED 2026-09-20: DELETE IT. DONE,
+   v1.4.206 (commit `eb1116d3`).**
 4. ~~**Is a whole-track-only subtitle state legitimate?**~~ **ANSWERED BY THE
    OWNER 2026-09-20: NO — ALWAYS NEEDS THE STITCH.** So the behaviour shipped in
    v1.4.191 is CORRECT and needs no change: an episode whose only transcript is
@@ -1250,30 +1265,71 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
    NOT made the post-upload bookkeeping conflict fail loudly — see 1.3 for why
    that would invite a second upload of a video that is already live.
 8. ~~**The reconciler's borrowed TTS model**~~ **ANSWERED 2026-09-20: YES,
-   RECORD IT.** Owner: "of course record the tts model so we know which one."
-   Add the TTS model id (and the boundary it implied) to the episode's own audio
-   sidecar at generation time and resolve from that, keeping the borrow only as a
-   legacy fallback for episodes that predate the change. OPEN. Today the audio
-   reconciler takes the project's most recent audio job's model when this
-   episode has no job of its own, which can predict the wrong `_partN` filenames
-   after a model change. The honest alternatives are "borrow" (silently wrong
-   after a model change) or "blank" (loudly wrong for genuinely multi-part
-   episodes), and neither is derivable because no per-episode record of the TTS
-   model exists. My recommendation is to add that record to the episode's own
-   audio sidecar and resolve from it — a schema addition plus migration. Your
-   call.
+   RECORD IT. DONE, v1.4.207.** The episode now owns its record.
+
+   **What was built.** `services/audio-tts-model-record.ts` writes and reads
+   `audio_tts_model.json` in the EPISODE directory, carrying
+   `model_id`, the model's published `maximum_input_characters`, the
+   `request_budget` the generator actually split at, and the safety margin.
+   `generators/audio.ts` writes it at the same point the generated bytes become
+   the deliberate active selection (inside the existing
+   `!isCancelled() && !req.no_overwrite && !qualityRepairActionId` guard, right
+   after `selectNormalAudioSources`), NOT before the first submission — a run
+   that never becomes active must not leave a record claiming it did, or the
+   record itself becomes the next silent wrong number.
+
+   `services/audio-reconciler.ts` now resolves in this order: (1) the caller's
+   live selection, resolved against the catalogue; (2) **this episode's own
+   record**, whose stored budget is used AS RECORDED because the files on disk
+   were split at exactly that number; (3) the legacy cross-episode borrow.
+   `episodeDirForNarration()` was extracted from `resolveAudioDir` and exported
+   so the writer and the reader agree on one rule instead of each re-deriving
+   where the episode root is.
+
+   **Which sidecar, and why not `audio_chapters.json`.** That file is written by
+   Audio ASSEMBLY, i.e. after a successful merge — and the reconciler exists for
+   the state where TTS is partial and no merge has happened. A record that only
+   appears after the merge cannot answer the question the reconciler asks. The
+   file also had to be written before/independently of the merge for the same
+   reason. `audio_quality.json` already records a per-chapter `tts.model_id`,
+   but it too is written only after the whole run and carries no boundary; it
+   stays the quality subsystem's record.
+
+   Tests: `electron/server/__tests__/audio-tts-model-record.test.ts` (4).
+   **Proven red:** with the record-reading block removed, the "recorded model
+   decides the split" test fails and the other three stay green — exactly the
+   intended case, and the control ("no record, no history → one request, never
+   an invented boundary") keeps passing. `--only audio-tts-model-record --only
+   audio-status-request-boundary --only audio-workflow-readiness --only
+   style-bible` is 39/39.
+
+   **Known limit, stated rather than glossed:** a quality-repair CANDIDATE run
+   does not write the record (the active audio did not change), and promotion
+   copies versioned filenames the reconciler's base/`_partN` prediction does not
+   match anyway — so candidate-promoted audio was outside this prediction
+   before and still is.
 
 9. ~~**Scene Plan "Custom instructions"**~~ **ANSWERED 2026-09-20: EXCLUDE —
-   episode-specific stays episode-specific.** Owner also asked for a **NEW
-   CHANNEL-SPECIFIC BOX**, so text meant to persist can be typed THERE and saved
-   in presets deliberately. OPEN — exclusion is small; the channel box is new UI.
+   episode-specific stays episode-specific. EXCLUSION DONE, v1.4.207** (see the
+   Group 2 entry above for the harness work it needed). The owner also asked for
+   a **NEW CHANNEL-SPECIFIC BOX**, so text meant to persist can be typed THERE
+   and saved in presets deliberately. **THE BOX IS STILL NOT BUILT — that is the
+   one remaining piece of this decision.** Next step: add a second, clearly
+   labelled channel-level guidance field on Scene Plan whose text is IN a preset
+   (unlike `custom_instructions`), decide with the owner whether it writes to
+   `config.json` like `default_style_bible` or rides only in presets, and make
+   the two boxes visually distinct so one is never mistaken for the other.
 10. ~~**`character_ids` and `manual_guidance`**~~ **ANSWERED 2026-09-20: KEEP
    `character_ids` (the cast), EXCLUDE `manual_guidance`** — a different answer
    from 9, as the owner said. The cast is channel/series-level and identical
    across episodes, so a preset restoring it is useful; written guidance becomes
    the channel-specific box from 9 instead.
    **`force` is excluded in every case** — a restored `force: true` silently
-   overwrites existing work; no reading of 9/10 makes that acceptable. OPEN.
+   overwrites existing work; no reading of 9/10 makes that acceptable.
+   **DONE, v1.4.205 (commit `31970717`)** for `scripts.vue`;
+   `image-prompts.vue` needs NO change (its cast field is KEPT by this answer);
+   `scene-plan.vue`'s half is the `custom_instructions` exclusion shipped in
+   v1.4.207. Nothing is open here.
 
 Everything else in this plan is unblocked and I will proceed unless told
 otherwise.

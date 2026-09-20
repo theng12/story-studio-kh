@@ -18,9 +18,10 @@ import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { normalizeForTts } from '../lib/tts-text.js'
-import { findNarrationFile, resolveAudioDir } from '../generators/audio.js'
+import { findNarrationFile, episodeDirForNarration, resolveAudioDir } from '../generators/audio.js'
 import type { ProjectFactsCache } from './utils.js'
 import { readManifest } from './task-manifest.js'
+import { readAudioTtsModelRecord } from './audio-tts-model-record.js'
 import {
   recoverTtsToFile as recoverGenStudioTtsToFile,
   splitGenStudioApiRequests,
@@ -75,6 +76,24 @@ export function narrationTextStats(text: string): { wordCount: number; character
   return {
     wordCount: normalized ? normalized.split(/\s+/u).length : 0,
     characterCount: normalized.length,
+  }
+}
+
+/**
+ * The request boundary a named model publishes right now, or `undefined` when
+ * the catalogue cannot answer. Never a substitute number: an unresolved
+ * boundary means the section is expected as ONE request, which is the honest
+ * answer when Story Studio does not know how long the model accepts.
+ */
+async function publishedRequestBudgetFor(modelId: string): Promise<number | undefined> {
+  try {
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) return undefined
+    const ttsModel = (await listGenStudioTtsModels(apiKey).catch(() => []))
+      .find(candidate => candidate.id === modelId)
+    return ttsModel ? resolveTtsRequestBudget(ttsModel).effective : undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -143,6 +162,33 @@ export async function getAudioStatus(
   // reading job history — a caller that knows the model must not lose it
   // because the job store happened to be unreadable.
   let model: string = selectedModelId?.trim() || ''
+  if (model) {
+    provider = 'genstudio'
+    requestBudget = await publishedRequestBudgetFor(model)
+  }
+  // Owner decision #8, 2026-09-20 — THIS episode's own record of the voice
+  // model its active audio was generated with. It outranks the job-history
+  // borrow below because it is a fact about this episode rather than an
+  // inference from another run: after a model change the borrow predicts the
+  // wrong `_partN` filenames and reports parts that were never meant to exist
+  // (AGENTS.md §4). The stored boundary is used as recorded, because the files
+  // on disk were split at exactly that number — a catalogue change since then
+  // must not re-interpret them. A record that names a model but carries no
+  // usable budget is re-resolved against the live catalogue, never guessed.
+  if (!model) {
+    const record = await readAudioTtsModelRecord(episodeDirForNarration(narrationPath))
+    if (record) {
+      model = record.model_id
+      provider = 'genstudio'
+      requestBudget = record.request_budget > 0
+        ? record.request_budget
+        : await publishedRequestBudgetFor(record.model_id)
+    }
+  }
+  // LEGACY FALLBACK — episodes generated before that record existed. Terminal
+  // job history is pruned, so an episode whose job has aged out borrows the
+  // project's most recent audio job: the same model in practice, and the only
+  // answer available when nothing recorded one.
   if (!model) {
     try {
       const { getJobs } = await import('./job-queue.js')
@@ -150,25 +196,14 @@ export async function getAudioStatus(
       const audioJobs = jobs
         .filter(j => j.type === 'audio')
         .sort((a, b) => String(b.finished_at || b.created_at || '').localeCompare(String(a.finished_at || a.created_at || '')))
-      // This episode's own job names the model it was generated with. Terminal
-      // job history is pruned, so an episode whose job has aged out falls back
-      // to the project's most recent audio job — the same model in practice,
-      // and a far better answer than a constant.
       const lastAudio = audioJobs.find(j => (j.episode_id || '').toUpperCase() === code) || audioJobs[0]
       const remembered = (lastAudio?.params as any)?.model
       if (typeof remembered === 'string') model = remembered.trim()
     } catch { /* no history — handled below */ }
-  }
-  if (model) {
-    provider = 'genstudio'
-    try {
-      const apiKey = await getApiKey('genstudio').catch(() => '')
-      if (apiKey) {
-        const ttsModel = (await listGenStudioTtsModels(apiKey).catch(() => []))
-          .find(candidate => candidate.id === model)
-        if (ttsModel) requestBudget = resolveTtsRequestBudget(ttsModel).effective
-      }
-    } catch { /* boundary unresolved — handled per section below */ }
+    if (model) {
+      provider = 'genstudio'
+      requestBudget = await publishedRequestBudgetFor(model)
+    }
   }
 
   const expected: ExpectedChunk[] = []

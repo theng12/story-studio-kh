@@ -51,11 +51,14 @@ import path from 'path'
 import * as pm from '../services/project-manager.js'
 
 /**
- * Matches the per-episode cap in routes/continuity.ts, so a channel default can
- * never be longer than the episode-level field it stands in for. Enforced on
- * READ as well as on write: config.json is a passthrough document that can be
- * edited by hand or by an older client, and the render path must never splice
- * an unbounded string onto 300+ prompts.
+ * The per-EPISODE Style Bible cap, mirroring the write cap in
+ * routes/continuity.ts. Kept as a read-side guard because `continuity.json` can
+ * be edited by hand: an episode bible the app itself wrote is already ≤ this.
+ *
+ * The PROJECT default no longer shares this number. Its bound is what the
+ * SELECTED image model publishes (`max_prompt_characters`), enforced and
+ * displayed in the Scene Plan UI where that model is known — see
+ * `readProjectStyleBible` below.
  */
 export const STYLE_BIBLE_MAX_CHARS = 2000
 
@@ -73,13 +76,25 @@ export interface ResolvedStyleBible {
  * Never throws: a project with no config, an unreadable config, or a non-string
  * value all mean "this project has no default", which is the pre-existing
  * behaviour for every project.
+ *
+ * v1.4.207 — NO fixed truncation here any more. This used to slice the stored
+ * text to STYLE_BIBLE_MAX_CHARS (2,000), matching the per-episode field. The
+ * owner ruled on 2026-09-20 that the channel default's ceiling must be what the
+ * SELECTED image model publishes for a prompt, not a Story Studio constant, and
+ * that ceiling is enforced and shown in the Scene Plan UI where the model is
+ * known (owner decision #2). Slicing here would silently cut a value the UI had
+ * just told the customer it accepted — the exact §1 defect the ruling exists to
+ * remove. config.json is still a passthrough document, but an over-long string
+ * is now refused LOUDLY at render time by the image provider
+ * (`providers/image/genstudio.ts` names the model's published limit), which is
+ * the honest failure; a silent trim is not.
  */
 export async function readProjectStyleBible(slug: string): Promise<string> {
   try {
     const config = await pm.getConfig(slug)
     const raw = (config as any)?.default_style_bible
     if (typeof raw !== 'string') return ''
-    return raw.trim().slice(0, STYLE_BIBLE_MAX_CHARS)
+    return raw.trim()
   } catch {
     return ''
   }

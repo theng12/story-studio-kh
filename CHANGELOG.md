@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.207 — 2026-09-20
+
+- Scene Plan's "Custom instructions" no longer travel inside a preset. That box is written for one episode, so a preset applied to a different episode could carry one episode's notes onto another without a word. The rest of the plan preset — the prompt model, output budget, creative direction and your visual timing — is unchanged.
+- The channel default style box now shows how long your style description is against the limit the image model you selected publishes, and it says so when a save had to trim the end. It used to cut the text at 2,000 characters and simply report "Saved", so a long style could come back shorter than you wrote it with nothing to explain why. A model that publishes no prompt limit now saves your text in full, instead of being cut to a number Story Studio made up.
+- Audio recovery now uses the voice model the episode was actually generated with. It used to reconstruct that from the most recent audio job in the project when the episode's own record had been cleared, so after you switched voice models one episode could be checked against another episode's model and report missing audio parts that were never supposed to exist. Episodes generated from now on record their voice model alongside the audio, and older episodes fall back to the previous behaviour.
+
 ## v1.4.206 — 2026-09-20
 
 - Removed the "View all caps" reference table from Images. It listed every model's prompt limit and credits-per-image as fixed numbers, so once a provider changed either one the table quietly reported the old figure as current — and the cap and price for the model you actually have selected are already shown beside the selector.
