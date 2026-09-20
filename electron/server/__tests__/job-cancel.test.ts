@@ -225,20 +225,36 @@ describe('enqueue() dedupe', () => {
 
   test('isCancelled() reflects the cancelled set', async () => {
     const proj = await pm.createProject({ name: 'IsCancelled' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    let entered = false
 
     jq.registerExecutor('video_assembly', async () => {
-      await new Promise(() => {}) // block forever
+      entered = true
+      await hold
     })
 
     const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'video_assembly', episode_id: 'ISC_1',
       title: 't', params: {},
     })
-    await new Promise((r) => setTimeout(r, 50))
-
-    assert.equal(jq.isCancelled(job.job_id), false)
-    await jq.requestJobCancellation(proj.slug, job.job_id)
-    assert.equal(jq.isCancelled(job.job_id), true)
+    try {
+      await waitForValue(
+        () => entered ? true : undefined,
+        { label: 'isCancelled executor entry', timeoutMs: 2_000 },
+      )
+      assert.equal(jq.isCancelled(job.job_id), false)
+      await jq.requestJobCancellation(proj.slug, job.job_id)
+      assert.equal(jq.isCancelled(job.job_id), true)
+    } finally {
+      release()
+      await waitForValue(
+        () => jq.getJob(job.job_id)?.local_execution_complete === true
+          ? jq.getJob(job.job_id)
+          : undefined,
+        { label: 'isCancelled executor to complete its local execution', timeoutMs: 2_000 },
+      )
+    }
   })
 })
 
@@ -1063,6 +1079,321 @@ describe('job route controls', () => {
       })
       release()
       await waitForTerminal(job.job_id)
+    }
+  })
+})
+
+describe('cancelled history cleanup waits for a live worker to return', () => {
+  const labels = {
+    remove: 'local stop + remove',
+    clear: 'local stop + clear',
+    retry: 'local stop + retry',
+    'abandon-remove': 'force abandon + remove',
+  } as const
+
+  for (const outcome of ['return', 'throw', 'paid-wait'] as const) {
+    for (const retirement of ['remove', 'clear', 'retry', 'abandon-remove'] as const) {
+      test(`keeps the cancellation flag through a ${outcome} worker for ${labels[retirement]}`, async () => {
+      const project = await pm.createProject({ name: `HeldCancellation-${outcome}-${retirement}` })
+      let release!: () => void
+      const hold = new Promise<void>(resolve => { release = resolve })
+      let originalEntered = false
+      let originalId = ''
+      let followOnWork = 0
+      let nonOriginalRuns = 0
+      let checkpointFlag: boolean | undefined
+      let flagWhileHeld: boolean | undefined
+      let replacement: ReturnType<typeof jq.retryTerminalJob> | undefined
+
+      jq.registerExecutor('video_assembly', async job => {
+        if (job.job_id !== originalId) {
+          nonOriginalRuns++
+          return
+        }
+        originalEntered = true
+        await hold
+        checkpointFlag = jq.isCancelled(job.job_id)
+        if (!checkpointFlag) followOnWork++
+        if (outcome === 'throw') throw new Error('late cancelled worker')
+        if (outcome === 'paid-wait') return { kind: 'paid-image-wait' }
+      })
+
+      await jq.setQueuePaused(true)
+      const original = jq.enqueuePreparedForTest({
+        project_slug: project.slug,
+        type: 'video_assembly',
+        episode_id: `HELD_${retirement}`,
+        title: retirement,
+        params: {},
+      })
+      originalId = original.job_id
+
+      try {
+        await jq.setQueuePaused(false)
+        await waitForValue(
+          () => originalEntered ? true : undefined,
+          { label: `the ${retirement} original executor to enter`, timeoutMs: 2_000 },
+        )
+        await jq.setQueuePaused(true)
+
+        if (retirement === 'abandon-remove') {
+          await jq.forceAbandonJob(project.slug, original.job_id)
+        } else {
+          await jq.requestJobCancellation(project.slug, original.job_id)
+        }
+
+        if (retirement === 'remove' || retirement === 'abandon-remove') {
+          assert.equal(jq.removeTerminalJob(project.slug, original.job_id), true)
+        } else if (retirement === 'clear') {
+          assert.equal(await jq.clearFinished(project.slug), 1)
+        } else {
+          replacement = jq.retryTerminalJob(project.slug, original.job_id)
+        }
+        flagWhileHeld = jq.isCancelled(original.job_id)
+
+        const marker = jq.enqueuePreparedForTest({
+          project_slug: project.slug,
+          type: 'video_assembly',
+          episode_id: `HELD_MARKER_${retirement}`,
+          title: 'marker',
+          params: {},
+        })
+
+        release()
+        await jq.setQueuePaused(false)
+        await waitForValue(
+          () => jq.getJob(marker.job_id)?.status === 'done' ? jq.getJob(marker.job_id) : undefined,
+          { label: `the ${retirement} marker to finish`, timeoutMs: 2_000 },
+        )
+
+        assert.equal(flagWhileHeld, true, 'retiring history must not clear a live worker\'s flag')
+        assert.equal(checkpointFlag, true, 'the worker must still observe cancellation at its checkpoint')
+        assert.equal(followOnWork, 0, 'cancelled work must not continue after its held executor resumes')
+        assert.equal(nonOriginalRuns, replacement ? 2 : 1,
+          'only the replacement and marker may run after the original worker leaves')
+        assert.equal(jq.getJob(original.job_id), null, 'the retired original row must not reappear')
+        assert.equal(jq.isCancelled(original.job_id), false, 'the retired original flag is cleared after worker exit')
+        if (replacement) {
+          assert.equal(jq.isCancelled(replacement.job_id), false, 'Retry replacement must be uncancelled')
+        }
+        await jq._waitForJobPersistenceForTesting()
+        const disk = JSON.parse(await fs.readFile(path.join(pm.getProjectDir(project.slug)!, 'jobs.json'), 'utf8'))
+        assert.equal(
+          disk.jobs.some((candidate: { job_id: string }) => candidate.job_id === original.job_id),
+          false,
+          'the retired original row must stay absent from jobs.json',
+        )
+      } finally {
+        release()
+        await jq.setQueuePaused(false)
+      }
+      })
+    }
+  }
+})
+
+test('rejects deterministic episode-recovery ID reuse until the retired worker exits', async () => {
+  const project = await pm.createProject({ name: 'RecoveryIdReuseWhileActive' })
+  const originalId = 'recovery-held-worker'
+  const originalOptions = {
+    project_slug: project.slug,
+    episode_id: 'RECOVERY_HELD',
+    type: 'video_assembly' as const,
+    params: { episode_recovery_id: 'recovery-held-plan' },
+  }
+  let release!: () => void
+  const hold = new Promise<void>(resolve => { release = resolve })
+  let originalEntered = false
+  let originalRuns = 0
+  let reusedUncancelled = false
+  let markerRuns = 0
+
+  jq.registerExecutor('video_assembly', async job => {
+    if (job.job_id === originalId) {
+      originalRuns++
+      if (originalRuns === 1) {
+        originalEntered = true
+        await hold
+        assert.equal(jq.isCancelled(job.job_id), true, 'the retired worker remains cancelled while held')
+        return
+      }
+      reusedUncancelled = !jq.isCancelled(job.job_id)
+      return
+    }
+    markerRuns++
+  })
+
+  await jq.setQueuePaused(true)
+  try {
+    const original = await jq.enqueueEpisodeRecoveryOnce(originalId, originalOptions)
+    await jq.setQueuePaused(false)
+    await waitForValue(
+      () => originalEntered ? true : undefined,
+      { label: 'the deterministic recovery worker to enter', timeoutMs: 2_000 },
+    )
+    await jq.setQueuePaused(true)
+
+    await jq.requestJobCancellation(project.slug, original.job_id)
+    assert.equal(jq.removeTerminalJob(project.slug, original.job_id), true)
+    assert.equal(jq.getJob(originalId), null)
+    assert.equal(jq.isCancelled(originalId), true)
+    await assert.rejects(
+      () => jq.enqueueEpisodeRecoveryOnce(originalId, originalOptions),
+      (error: any) => {
+        assert.equal(error.status, 409)
+        assert.match(error.message, /worker|stopping/i)
+        return true
+      },
+    )
+    assert.equal(jq.getJob(originalId), null)
+    assert.equal(jq.isCancelled(originalId), true)
+
+    const markerId = 'recovery-held-marker'
+    const marker = await jq.enqueueEpisodeRecoveryOnce(markerId, {
+      ...originalOptions,
+      episode_id: 'RECOVERY_HELD_MARKER',
+      params: { episode_recovery_id: 'recovery-held-marker-plan' },
+    })
+    release()
+    await jq.setQueuePaused(false)
+    await waitForValue(
+      () => jq.getJob(marker.job_id)?.status === 'done' ? jq.getJob(marker.job_id) : undefined,
+      { label: 'the different-ID recovery marker to finish', timeoutMs: 2_000 },
+    )
+    assert.equal(markerRuns, 1)
+
+    const reused = await jq.enqueueEpisodeRecoveryOnce(originalId, originalOptions)
+    await waitForValue(
+      () => jq.getJob(reused.job_id)?.status === 'done' ? jq.getJob(reused.job_id) : undefined,
+      { label: 'the reused recovery ID to finish', timeoutMs: 2_000 },
+    )
+    assert.equal(reused.job_id, originalId)
+    assert.equal(reusedUncancelled, true)
+    assert.equal(jq.isCancelled(originalId), false)
+  } finally {
+    release()
+    await jq.setQueuePaused(false)
+  }
+})
+
+test('Finish missing images cannot clear an active worker cancellation flag', async () => {
+  const project = await pm.createProject({ name: 'FinishMissingImagesActiveWorker' })
+  let release!: () => void
+  const hold = new Promise<void>(resolve => { release = resolve })
+  let entered = false
+  let releasedJobId: string | undefined
+  let stopObserving: (() => void) | undefined
+
+  jq.registerExecutor('continuity_render', async () => {
+    entered = true
+    await hold
+  })
+
+  await jq.setQueuePaused(true)
+  const job = jq.enqueuePreparedForTest({
+    project_slug: project.slug,
+    type: 'continuity_render',
+    episode_id: 'FINISH_MISSING_ACTIVE',
+    title: 'active finish missing images',
+    params: { model: 'mock-image' },
+  })
+
+  try {
+    await jq.setQueuePaused(false)
+    await waitForValue(
+      () => entered ? true : undefined,
+      { label: 'the active Finish missing images worker to enter', timeoutMs: 2_000 },
+    )
+    await jq.setQueuePaused(true)
+    await jq.forceAbandonJob(project.slug, job.job_id)
+    assert.equal(jq.isCancelled(job.job_id), true)
+
+    await assert.rejects(
+      () => jq.finishMissingImagesInPlace(project.slug, job.job_id),
+      (error: any) => {
+        assert.equal(error.status, 409)
+        assert.match(error.message, /worker|active|stopping/i)
+        return true
+      },
+    )
+    assert.equal(jq.getJob(job.job_id)?.status, 'cancelled')
+    assert.equal(jq.getJob(job.job_id)?.params.jobs_finish_missing_images, undefined)
+    assert.equal(jq.isCancelled(job.job_id), true)
+
+    stopObserving = jq._observeQueuePumpsForTesting((type, releasedJobIdForType) => {
+      if (type === 'continuity_render' && releasedJobIdForType === job.job_id) {
+        releasedJobId = releasedJobIdForType
+      }
+    })
+    release()
+    await waitForValue(
+      () => releasedJobId === job.job_id ? releasedJobId : undefined,
+      { label: 'the abandoned continuity worker to release its lane', timeoutMs: 2_000 },
+    )
+
+    const queued = await jq.finishMissingImagesInPlace(project.slug, job.job_id)
+    assert.equal(queued.reused, false)
+    assert.equal(queued.job.job_id, job.job_id)
+    assert.equal(queued.job.status, 'queued')
+    assert.equal(jq.isCancelled(job.job_id), false)
+
+    await jq.forceAbandonJob(project.slug, job.job_id)
+  } finally {
+    release()
+    stopObserving?.()
+    await jq.setQueuePaused(false)
+  }
+})
+
+/**
+ * The `cancelled` set used to grow for the life of the process: three paths
+ * added to it, and exactly one removed from it (the "Finish missing images"
+ * re-queue). A one-line "delete it when the status is cancelled" would be
+ * WRONG — the flag is what stops an in-flight executor and what stops the queue
+ * re-pumping the job — so rows with no active worker may retire immediately,
+ * while an active worker retains the flag until it returns.
+ */
+describe('the cancelled flag is forgotten exactly when its job is', () => {
+  test('a live cancelled row keeps its flag; removing, clearing, or retrying it forgets the flag', async () => {
+    const project = await pm.createProject({ name: 'CancelledFlagLifecycle' })
+    await jq.setQueuePaused(true)
+    try {
+      // (1) THE CONTROL. While the row exists the flag MUST stay.
+      const kept = jq.enqueuePreparedForTest({
+        project_slug: project.slug, type: 'script-only', episode_id: 'FLAG_KEPT', title: 'kept', params: {},
+      })
+      await jq.requestJobCancellation(project.slug, kept.job_id)
+      assert.equal(jq.getJob(kept.job_id)?.status, 'cancelled')
+      assert.equal(jq.isCancelled(kept.job_id), true,
+        'a cancelled row that still exists must keep its flag — it is what stops the executor and the re-queue')
+
+      // (2) DELETE retires the row, so the id can never be consulted again.
+      assert.equal(jq.removeTerminalJob(project.slug, kept.job_id), true)
+      assert.equal(jq.getJob(kept.job_id), null)
+      assert.equal(jq.isCancelled(kept.job_id), false, 'a removed row must not leave its id behind')
+
+      // (3) Clearing finished history retires every row it clears.
+      const cleared = jq.enqueuePreparedForTest({
+        project_slug: project.slug, type: 'script-only', episode_id: 'FLAG_CLEARED', title: 'cleared', params: {},
+      })
+      await jq.requestJobCancellation(project.slug, cleared.job_id)
+      assert.equal(jq.isCancelled(cleared.job_id), true)
+      assert.equal(await jq.clearFinished(project.slug), 1)
+      assert.equal(jq.isCancelled(cleared.job_id), false, 'cleared history must not leave its ids behind')
+
+      // (4) Retry replaces the row under a NEW id. The retired id is forgotten,
+      // and the replacement — which was never cancelled — runs.
+      const retried = jq.enqueuePreparedForTest({
+        project_slug: project.slug, type: 'script-only', episode_id: 'FLAG_RETRIED', title: 'retried', params: {},
+      })
+      await jq.requestJobCancellation(project.slug, retried.job_id)
+      assert.equal(jq.isCancelled(retried.job_id), true)
+      const replacement = jq.retryTerminalJob(project.slug, retried.job_id)
+      assert.notEqual(replacement.job_id, retried.job_id)
+      assert.equal(jq.isCancelled(retried.job_id), false, 'the retired id must not linger')
+      assert.equal(jq.isCancelled(replacement.job_id), false, 'the replacement was never cancelled, so Retry runs it')
+    } finally {
+      await jq.setQueuePaused(false)
     }
   })
 })

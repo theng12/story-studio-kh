@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.210 — 2026-09-20
+
+- Cancelled-job history now releases its cancellation record once both the row and its worker are gone. Deleting, clearing, or retrying a cancelled job while its worker is stopping keeps the stop signal active, and the old worker cannot restore the removed history row. Generated files and provider-evidence safeguards are preserved.
+
 ## v1.4.209 — 2026-09-20
 
 - Writing models that do not publish a maximum answer length now work. Four of the models GenStudio offers — the Free Models Router and three xAI Grok models — state no output limit, and Story Studio used to refuse them outright because it could not work out how long a reply they would accept. It now sends the request without a length limit and lets the provider decide, instead of inventing a number or turning the model away.

@@ -55,9 +55,10 @@ test('installs and checks complete canonical Story authoring skill packages', as
   assert.doesNotMatch(handoffContract, /production_gates:.*released Story support/i)
 
   const repositoryInstructions = await readFile(new URL('AGENTS.md', repositoryRoot), 'utf8')
-  assert.match(repositoryInstructions, /Content-only distribution/i)
-  assert.match(repositoryInstructions, /must not trigger an application version bump/i)
-  assert.match(repositoryInstructions, /DMG.*restart/i)
+  const contentOnlyInstructions = repositoryInstructions.match(/^- \*\*Content-only\*\*[^\n]*(?:\n {2}[^\n]*)*/m)?.[0]
+  assert.ok(contentOnlyInstructions, 'repository instructions must classify content-only releases')
+  assert.match(contentOnlyInstructions, /no application version bump, no changelog entry, no DMG, no\s+deploy, no restart/i)
+  assert.match(contentOnlyInstructions, /content-packs\/release-floor\.json/)
 
   const legacyRouter = await readFile(
     new URL('developer-migration/codex-skills/story-studio-channel-kit-authoring/SKILL.md', repositoryRoot),

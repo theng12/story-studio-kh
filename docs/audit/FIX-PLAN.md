@@ -4,16 +4,28 @@ Working record for the fixes listed in `2026-09-19-defect-audit.md`. **This file
 is the durable memory** — the working context resets between rounds, so a group
 is not finished until its box is ticked here.
 
-## STATUS at v1.4.209 — read this first
+## Recovery status — 2026-09-20
 
-**Where the work stands.** Groups 1–3 are effectively closed; Group 4 is barely
-started. **17 releases** shipped (v1.4.187 … v1.4.209), each with a test proven
-red against the old behaviour and a green full gate.
+[MEASURED] Takeover started at local `main` commit `08aa6ee0` (v1.4.209),
+with uncommitted v1.4.210 queue changes. GitHub `main` was `9d34df7d`, 70
+commits behind local `main`. The previous claim that v1.4.210 was shipped was
+premature. Its queued-only regression passed, but four new active-worker tests
+failed: deleting, clearing, or retrying cancelled history removed the stop flag
+before the worker returned; force-abandon exposed the same race.
 
-**ALL TEN OWNER DECISIONS ARE ANSWERED, and six are implemented:** #1
-(v1.4.203), #3 (v1.4.206), #5 (v1.4.204), #10 (v1.4.205 + v1.4.207), #9's
-exclusion (v1.4.207), #2 (v1.4.207), #8 (v1.4.207), #7 (v1.4.208), #6's
-submission path (v1.4.209).
+[MEASURED] Recovery work is on `codex/recover-interrupted-audit`. The original
+diff and complete local Git history are preserved in
+`logs/takeover-2026-09-20/recovered.patch` and `local-history.bundle`.
+The bundle passed `git bundle verify`. See
+[`2026-09-20-takeover.md`](2026-09-20-takeover.md) for current verification,
+release boundaries, and continuation instructions. Earlier completion claims
+below are historical records, not fresh verification or proof of publication.
+
+[MEASURED] The saved owner direction for decision 6 permits models with no
+published output ceiling: omit the token limit. The Scene Plan batching path
+still needs implementation. Decision 9 requests a separate reusable guidance
+box; its persistence location is not recorded as decided. These remain separate
+from the recovery/cancellation repair.
 
 **REMAINING, in this order:**
 
@@ -24,8 +36,10 @@ submission path (v1.4.209).
   `max_output_tokens`. So a Pipeline **`scene_plan_run`** with one of the four
   null-ceiling models still fails, even though the model now works everywhere
   else. The Scene Plan PAGE gates itself too: `hasPublishedPromptBudget`
-  (`scene-plan.vue:1810`) hides the "Next / All pending" buttons and disables the
-  batch controls whenever no ceiling is published, so a chosen model looks inert.
+  (`scene-plan.vue:1810`) hides "Next" and disables the batch controls when no
+  ceiling is published. [MEASURED] Takeover source inspection found that "All
+  pending" remains available after model selection and can reach the backend
+  rejection; the earlier claim that both buttons were hidden was incorrect.
   **This needs the owner, because it decides what the app SAYS:** with no
   published ceiling there is no derivable batch maximum, so the honest rule is
   "use this channel's configured batch size and send no token ceiling; GenStudio
@@ -39,18 +53,16 @@ submission path (v1.4.209).
   (unlike `custom_instructions`); decide with the owner whether it writes to
   `config.json` like `default_style_bible` or rides only in presets; make the
   two boxes visually distinct.
-- **G. Queue: the unpruned `cancelled` set** (`job-queue.ts:441`). Fully traced
-  in Group 4. Three `add` sites, one `delete` on a re-queue path only. **A
-  one-line "delete when status is cancelled" is WRONG** — the flag is what stops
-  an in-flight executor and prevents re-queueing. Prune at terminal eviction and
-  project unload.
 
 **Do not trust this audit's coordinates.** Verified across four rounds of
 checking: its line numbers and site lists were wrong or incomplete *every time*
 — a file that does not exist, a non-member listed, a member missed, a stale line
 number — and **six** findings turned out not to be defects at all. The defects
 it points at are real; the map is not. **Enumerate from the code before acting
-on any entry.**
+on any entry.** v1.4.210 added a seventh instance of the same lesson: the queue
+item's own recorded prescription ("prune on project unload/removal — `loadedProjects`
+is the right hook") named a hook that does not exist, because `loadedProjects`
+is add-only and the queue has no unload path.
 
 **Three habits that paid for themselves repeatedly here**, all worth keeping:
 write the test and watch it fail against the OLD code before believing the fix;
@@ -1115,30 +1127,27 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       `scene-review.vue:418`, `research.vue:36`, `jobs.vue` label maps,
       `ContentPurchaseDialog.vue:262`, `settings.vue:5310`, and the geometry
       clipping list.
-- [ ] **ROUND 39 — TRACED, NOT FIXED. Start here next session.** Queue:
-      `job-queue.ts:441` — the `cancelled` Set is unpruned, and the audit is right.
+- [x] **v1.4.210 recovery patch — reviewed and verified locally, not shipped.** Queue cancellation
+      flags must live as long as either the history row or its active worker.
+      The interrupted patch deleted flags whenever rows were retired, incorrectly
+      assuming a terminal status proved the executor had returned.
 
-      Traced exactly: `cancelled.add(job_id)` fires on all three cancellation
-      paths (`cancelQueuedBeforeSubmitUnlocked` :5589, `stopLocalJobUnlocked`
-      :5613, and :5786), but the file contains **one** `cancelled.delete(jobId)`
-      — at :5063, on the "Finish missing images" re-queue path only. So an
-      ordinary cancellation leaves its id in the Set for the life of the process.
-      It is read on ~15 paths (`:1228`, `:1264`, `:1275`, `:2537`, `:2613`,
-      `:3378`, `:3435`, `:3471`, `:3484`, `:3522`, `:3544`, `:3629`, `:4023`,
-      `:4242`, `:4548`), all of them cheap, so this is slow unbounded growth
-      rather than a hot-path cost — which is presumably why it went unnoticed.
+      [MEASURED] `stopLocalJobUnlocked` and `forceAbandonJobUnlocked` can mark a
+      live worker cancelled. The recovered tests first reproduced early flag
+      removal for Delete, Clear, Retry, and Abandon + Delete (4 failures out of
+      68 tests, runner exit 1). The repair tracks actual `runJob` lifetimes,
+      defers flag cleanup until its `finally` when necessary, and prevents late
+      worker completion from restoring retired history. Queued rows still shed
+      their flags immediately. Provider-evidence guards remain in place.
 
-      WHY I DID NOT FIX IT IN ONE LINE: the flag is what makes an in-flight
-      executor stop (`if (cancelled.has(job.job_id)) throw new Error('Cancelled by
-      user')`) and what stops the queue re-pumping the job. Deleting the id as
-      soon as `job.status === 'cancelled'` would clear the flag while the executor
-      is still unwinding, which is how a cancelled job gets resumed. The safe
-      shape is to prune once the job is terminal AND nothing is executing it —
-      i.e. at the same point terminal jobs are already evicted, and on project
-      unload/removal (`loadedProjects` / `projectRemovalInProgress` are the right
-      hooks) — and to prove it with a test that cancels a job, lets it settle, and
-      asserts the id is gone while `isJobCancelled()` is still correct for a job
-      that IS still running. That needs more care than a sweep can give it.
+      [MEASURED] The initial corrected run passed 68/68 (exit 0, two files
+      completed). Additional tests cover late rejection, paid-wait results,
+      and durable deletion. This focused run is not the release gate. Final
+      counts and full-gate status are in the takeover report: the final focused
+      run passed 82 tests; the full backend gate passed 5,442 tests across all
+      483 files. Frontend, release, corrected content-pack checks, build, and
+      isolated v1.4.210 launch also passed. Integration remains pending review
+      of the 70 inherited local commits; this is not a shipped release.
 
 - [ ] Queue: `:684` (5s timer
       forever), `:2911` (crash-interrupted paid work mislabelled), `:1659`

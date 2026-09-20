@@ -439,6 +439,8 @@ const providerFinalizing = new Set<string>()
 const cancellationReconciling = new Set<string>()
 const cancellationReconcileTimers = new Map<string, NodeJS.Timeout>()
 const cancelled = new Set<string>()
+// Terminal history can be removed while its worker is still unwinding.
+const activeRunJobIds = new Set<string>()
 const pauseRequested = new Set<string>()
 const queuePauseReleaseCheckpoints = new Set<string>()
 const pausedTransitionClaims = new Set<string>()
@@ -2596,6 +2598,7 @@ async function schedulePaidImageWait(job: Job): Promise<boolean> {
 }
 
 async function failPaidImageWaitResult(job: Job): Promise<void> {
+  if (!jobs.has(job.job_id)) return
   clearPaidImageWaitTimer(job.job_id)
   job.status = 'error'
   job.finished_at = new Date().toISOString()
@@ -3374,12 +3377,14 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
  */
 async function runJob(type: JobType, job: Job): Promise<void> {
   const q = queues[type]
+  activeRunJobIds.add(job.job_id)
   try {
     if (cancelled.has(job.job_id)) {
       job.status = 'cancelled'
       job.finished_at = new Date().toISOString()
       jobs.set(job.job_id, job)
       await persistJob(job)
+      if (!jobs.has(job.job_id)) return
       emitUpdate(job)
       return
     }
@@ -3400,6 +3405,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     job.started_at ||= new Date().toISOString()
     jobs.set(job.job_id, job)
     await persistJob(job)
+    if (!jobs.has(job.job_id)) return
     emitUpdate(job)
 
     try {
@@ -3442,6 +3448,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           const executorResult = await jobContext.run({ jobId: job.job_id }, () => (
             runWithJobContentPackProvenance(job.content_pack_provenance, () => q.executor!(job))
           ))
+          if (!jobs.has(job.job_id)) return
           if (executorResult?.kind === 'paid-image-wait') {
             job.status = 'running'
             job.finished_at = null
@@ -3452,6 +3459,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             // a generator has declared the durable paid-wait boundary.
             try {
               await paidImageWaitRuntime.persistWait(job)
+              if (!jobs.has(job.job_id)) return
               paidImageWaitRuntime.emitWait(job)
               if (!await schedulePaidImageWait(job)) await failPaidImageWaitResult(job)
             } catch {
@@ -3480,6 +3488,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           completed = true
           break
         } catch (error) {
+          if (!jobs.has(job.job_id)) return
           finalError = error
           if (cancelled.has(job.job_id)) throw error
           if (error instanceof JobPausedError || pauseRequested.has(job.job_id)) throw new JobPausedError()
@@ -3570,12 +3579,15 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       }
     }
 
+    // A cancellation/abandonment may retire history during an awaited audit.
+    if (!jobs.has(job.job_id)) return
     job.finished_at = isQueuedLlmLineupWait(job) || job.status === 'paused' || hasUnsettledProviderWork(job)
       || (job.status === 'running' && hasCancellationContext(job))
       ? null
       : new Date().toISOString()
     jobs.set(job.job_id, job)
     await persistJob(job)
+    if (!jobs.has(job.job_id)) return
     emitUpdate(job)
     // Resume may have been accepted while this worker was already crossing a
     // queue-origin safe point.  The global release scan cannot see a paused
@@ -3616,6 +3628,12 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     // history row nobody can ever dismiss.
     else if (needsHistoryEvidenceRefresh(job)) scheduleHistoryEvidenceRefresh(job.job_id)
   } finally {
+    activeRunJobIds.delete(job.job_id)
+    if (!jobs.has(job.job_id)) {
+      cancelled.delete(job.job_id)
+      clearPaidImageWaitTimer(job.job_id)
+      clearLlmLineupWaitTimer(job.job_id)
+    }
     queuePauseReleaseCheckpoints.delete(job.job_id)
     releaseSlot(type, job)
   }
@@ -4715,6 +4733,11 @@ function enqueuePrepared(
   }
 
   const jobId = opts.episode_recovery_job_id || randomUUID().slice(0, 8)
+  if (activeRunJobIds.has(jobId)) {
+    throw Object.assign(new Error('This recovery job\'s previous worker is still stopping. Try again once it finishes.'), {
+      status: 409, expose: true,
+    })
+  }
   const job: Job = {
     job_id: jobId,
     project_slug: opts.project_slug,
@@ -4975,6 +4998,11 @@ export async function finishMissingImagesInPlace(
       }
       if (authoritative.status !== 'error' && authoritative.status !== 'cancelled') {
         throw Object.assign(new Error('Only failed or cancelled Scene Review jobs can finish missing images.'), { status: 409, expose: true })
+      }
+      if (activeRunJobIds.has(jobId)) {
+        throw Object.assign(new Error('This image job\'s previous worker is still stopping. Try again once it finishes.'), {
+          status: 409, expose: true,
+        })
       }
       if (cancellationPending) {
         throw Object.assign(
@@ -5393,6 +5421,8 @@ export function retryTerminalJob(
     } : pendingKeys.length ? { genstudio_chat_recovery_keys: pendingKeys } : {}),
   }, original.content_pack_provenance)
 
+  // An old worker must still observe cancellation until its finally runs.
+  if (!activeRunJobIds.has(jobId)) cancelled.delete(jobId)
   jobs.delete(jobId)
   emitCleared(projectSlug, [jobId])
   void persistProjectMutation(projectSlug, { kind: 'delete', jobId }).catch((error) => {
@@ -5824,6 +5854,8 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   if (!job.force_abandoned && hasUnsettledProviderEvidence(job)) return false
   clearPaidImageWaitTimer(jobId)
   clearLlmLineupWaitTimer(jobId)
+  // A terminal status does not prove its worker has returned yet.
+  if (!activeRunJobIds.has(jobId)) cancelled.delete(jobId)
   jobs.delete(jobId)
   if (job.type === 'continuity_render') {
     void deactivateSceneRenderStatus(job.project_slug, job.episode_id, job.job_id).catch(() => {})
@@ -5873,6 +5905,7 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
     if (job.project_slug === projectSlug && matchesHistoryClearStatus(job, status) && (job.force_abandoned || !hasUnsettledProviderEvidence(job))) {
       clearPaidImageWaitTimer(id)
       clearLlmLineupWaitTimer(id)
+      if (!activeRunJobIds.has(id)) cancelled.delete(id)
       jobs.delete(id)
       clearedIds.push(id)
       if (job.type === 'continuity_render') clearedSceneRenderJobs.push(job)
