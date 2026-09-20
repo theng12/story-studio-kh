@@ -1657,20 +1657,29 @@ async function upload(episodeCode: string): Promise<void> {
   busy.value = 'upload'
   const action = confirmationAction
   delete rowResults[episodeCode]
+  const uploadBody = {
+    episode_code: episodeCode,
+    confirm: true,
+    expected_channel_id: expectedChannelId,
+    expected_package_revision: expectedPackageRevision,
+    expected_source_revision: expectedSourceRevision,
+    thumbnail_filename: expectedThumbnailFilename,
+    privacy_status: expectedPrivacyStatus,
+    ...(expectedPublishAt ? { publish_at: expectedPublishAt } : {}),
+  }
   try {
-    const res = await post<{ job_id: string; channel_id: string }>(
-      `/projects/${requestedSlug}/youtube/upload`,
-      {
-        episode_code: episodeCode,
-        confirm: true,
-        expected_channel_id: expectedChannelId,
-        expected_package_revision: expectedPackageRevision,
-        expected_source_revision: expectedSourceRevision,
-        thumbnail_filename: expectedThumbnailFilename,
-        privacy_status: expectedPrivacyStatus,
-        ...(expectedPublishAt ? { publish_at: expectedPublishAt } : {}),
-      },
-    )
+    let res: { job_id: string; channel_id: string }
+    try {
+      res = await post<{ job_id: string; channel_id: string }>(
+        `/projects/${requestedSlug}/youtube/upload`, uploadBody,
+      )
+    } catch (error: any) {
+      if (!(await confirmForeignEpisodeCode(error, episodeCode))) throw error
+      // Clicked through: resend the SAME reviewed body with the acknowledgement.
+      res = await post<{ job_id: string; channel_id: string }>(
+        `/projects/${requestedSlug}/youtube/upload`, { ...uploadBody, acknowledge_foreign_episode: true },
+      )
+    }
     if (!actionIsCurrent(action)) return
     rowResults[episodeCode] = {
       kind: 'ok',
@@ -1848,19 +1857,29 @@ async function queueReviewedUploads(): Promise<void> {
     }
     item.state = 'queueing'
     try {
-      const result = await post<{ job_id: string; channel_id: string }>(
-        `/projects/${requestedSlug}/youtube/upload`,
-        {
-          episode_code: item.episode_code,
-          confirm: true,
-          expected_channel_id: item.channel_id,
-          expected_package_revision: expectedPackageRevision,
-          expected_source_revision: expectedSourceRevision,
-          thumbnail_filename: preview.thumbnail.state === 'selected' ? preview.thumbnail.filename || null : null,
-          privacy_status: preview.status.privacyStatus,
-          ...(preview.status.publishAt ? { publish_at: preview.status.publishAt } : {}),
-        },
-      )
+      const uploadBody = {
+        episode_code: item.episode_code,
+        confirm: true,
+        expected_channel_id: item.channel_id,
+        expected_package_revision: expectedPackageRevision,
+        expected_source_revision: expectedSourceRevision,
+        thumbnail_filename: preview.thumbnail.state === 'selected' ? preview.thumbnail.filename || null : null,
+        privacy_status: preview.status.privacyStatus,
+        ...(preview.status.publishAt ? { publish_at: preview.status.publishAt } : {}),
+      }
+      let result: { job_id: string; channel_id: string }
+      try {
+        result = await post<{ job_id: string; channel_id: string }>(
+          `/projects/${requestedSlug}/youtube/upload`, uploadBody,
+        )
+      } catch (error: any) {
+        if (!(await confirmForeignEpisodeCode(error, item.episode_code))) throw error
+        // Clicked through: resend the SAME reviewed body with the
+        // acknowledgement. Nothing else about the request changes.
+        result = await post<{ job_id: string; channel_id: string }>(
+          `/projects/${requestedSlug}/youtube/upload`, { ...uploadBody, acknowledge_foreign_episode: true },
+        )
+      }
       if (!actionIsCurrent(action)) return
       item.state = 'queued'
       item.job_id = result.job_id
@@ -1889,6 +1908,24 @@ async function queueReviewedUploads(): Promise<void> {
     // bring the remaining Reviewed rows back with Show.
     await load()
   }
+}
+
+/**
+ * Owner decision #7 (2026-09-20) — another project has already uploaded this
+ * episode code to this channel.
+ *
+ * The server answers that with a confirmable warning rather than a refusal,
+ * because two series may legitimately share one channel and both have an
+ * "Episode 1". Returns true only when the customer chooses to upload anyway; any
+ * other failure is re-thrown so the real reason still reaches the row.
+ */
+async function confirmForeignEpisodeCode(error: any, episodeCode: string): Promise<boolean> {
+  if (error?.data?.code !== 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE') return false
+  return ask({
+    title: `${episodeCode} is already on this channel`,
+    message: String(error.data.detail || 'Another project has already uploaded this episode code here.'),
+    confirmLabel: 'Upload anyway',
+  })
 }
 
 async function scheduleExisting(): Promise<void> {

@@ -4869,3 +4869,56 @@ test('re-lay saves an empty result rather than inventing dates when nothing is m
   assert.equal(saved.status, 200, JSON.stringify(saved.body))
   assert.deepEqual(saved.body.assignments, [])
 })
+
+// ── owner decision #7: duplicate episode code across projects ─────────────
+//
+// `video-claims.json` is the only cross-project record, and a channel can move
+// from one project to another (assignments are exclusive at any moment, so this
+// is the reachable route to the collision). The owner asked for a warning the
+// customer can click through — never a 409 refusal, because two series may
+// legitimately share one channel and both have an "Episode 1".
+
+async function writeForeignClaim(episodeCode: string): Promise<void> {
+  const claimsPath = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'youtube', 'video-claims.json')
+  await fs.mkdir(path.dirname(claimsPath), { recursive: true })
+  await fs.writeFile(claimsPath, JSON.stringify({
+    schema_version: 2,
+    claims: [{
+      channel_id: CHANNEL, video_id: 'foreign-video', project_slug: 'another-series',
+      operation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', episode_code: episodeCode,
+    }],
+  }))
+}
+
+test('another project\'s episode code on this channel warns confirmably, and the click-through releases it', async () => {
+  const slug = await project(true)
+  await writeForeignClaim('EP0001')
+  const body = { episode_code: 'EP0001', confirm: true, expected_channel_id: CHANNEL }
+
+  const warned = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(warned.status, 409, JSON.stringify(warned.body))
+  assert.equal(warned.body.code, 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE')
+  assert.equal(warned.body.confirmable, true,
+    'the owner asked for a warning that can be clicked through — a plain refusal is the defect, not the fix')
+  assert.equal(warned.body.foreign_project_slug, 'another-series')
+  assert.match(String(warned.body.detail), /another-series/)
+
+  // Clicked through: the SAME request now passes this gate and stops at the next
+  // one (this fixture has metadata but no rendered video). Asserting the NEXT
+  // refusal — not merely "not this one" — proves the acknowledgement released
+  // the warning rather than the warning having been skipped.
+  const passed = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ ...body, acknowledge_foreign_episode: true })
+  assert.equal(passed.status, 409, JSON.stringify(passed.body))
+  assert.equal(passed.body.code, 'YOUTUBE_NO_RENDERED_VIDEO')
+})
+
+test('a different episode code on the same channel is not warned about', async () => {
+  const slug = await project(true)
+  await writeForeignClaim('EP0001')
+  const res = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ episode_code: 'EP0002', confirm: true, expected_channel_id: CHANNEL })
+  assert.equal(res.status, 409, JSON.stringify(res.body))
+  assert.equal(res.body.code, 'YOUTUBE_NO_RENDERED_VIDEO',
+    'another series using a different episode number is exactly the legitimate case')
+})

@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.208 — 2026-09-20
+
+- Uploading an episode whose number is already on this YouTube channel now warns you first and lets you continue. If a channel has moved between projects, or two series share one, a second "Episode 1" is sometimes exactly what you meant — so the app tells you which project already used that number on that channel and uploads anyway when you confirm. It never blocks the upload.
+
 ## v1.4.207 — 2026-09-20
 
 - Scene Plan's "Custom instructions" no longer travel inside a preset. That box is written for one episode, so a preset applied to a different episode could carry one episode's notes onto another without a word. The rest of the plan preset — the prompt model, output budget, creative direction and your visual timing — is unchanged.

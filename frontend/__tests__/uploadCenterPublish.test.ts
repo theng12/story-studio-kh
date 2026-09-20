@@ -454,6 +454,83 @@ describe('Upload Center Publish', () => {
     mounted.destroy()
   })
 
+  // ── owner decision #7: another project already used this episode code ──
+  //
+  // The route answers with a confirmable warning rather than a refusal, so a
+  // second series sharing one channel is never blocked. The page has to ASK,
+  // and then resend the SAME reviewed request with the acknowledgement — a page
+  // that silently swallowed the warning, or that re-sent without the flag,
+  // would leave the customer stuck on a message they could not act on.
+  const FOREIGN_CLAIM = Object.assign(new Error('409 Conflict'), {
+    data: {
+      code: 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE',
+      detail: 'EP0001 has already been uploaded to this channel by the project "another-series". Confirm to upload anyway.',
+      confirmable: true,
+    },
+  })
+
+  test('a warn-only duplicate episode code is offered as a click-through, and accepting resends with the acknowledgement', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+      // First confirm is the ordinary "Upload EP0001 to YouTube?"; the second is
+      // the duplicate warning. Default confirmAnswer is true, so both pass.
+      postOverride: async (path, body) => {
+        if (!path.endsWith('/youtube/upload')) return undefined
+        if (body?.acknowledge_foreign_episode === true) return { job_id: 'job-77', channel_id: 'UC-x' }
+        throw FOREIGN_CLAIM
+      },
+    })
+    const upload = await previewThen(mounted)
+    assert.ok(upload, 'the row is still uploadable — a duplicate is a warning, not a block')
+    try {
+      upload.click()
+      for (let i = 0; i < 12; i++) await nextTick()
+
+      assert.equal(mounted.confirms.length, 2, 'the customer is told before the second upload happens')
+      assert.match(mounted.confirms[1].title, /EP0001 is already on this channel/)
+      assert.match(mounted.confirms[1].message, /another-series/)
+      assert.match(mounted.confirms[1].confirmLabel, /Upload anyway/)
+
+      const uploads = mounted.calls.filter(call => call.path.endsWith('/youtube/upload'))
+      assert.equal(uploads.length, 2, 'the warning is answered by resending, not by giving up')
+      assert.deepEqual(uploads[0]!.body.acknowledge_foreign_episode, undefined,
+        'the first attempt must NOT pre-acknowledge — that would skip the warning entirely')
+      assert.equal(uploads[1]!.body.acknowledge_foreign_episode, true)
+      assert.equal(uploads[1]!.body.expected_source_revision, uploads[0]!.body.expected_source_revision,
+        'the resent request is the SAME reviewed upload, only acknowledged')
+      assert.match(mounted.text(), /Uploading EP0001 to UC-x/)
+    } finally {
+      // The page polls; a failed assertion must not leave the harness alive and
+      // turn a red test into a hang (which reports nothing at all).
+      mounted.destroy()
+    }
+  })
+
+  test('declining the duplicate warning does not upload and shows the reason', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+      confirmOverride: async (options: any) => !/already on this channel/.test(options.title || ''),
+      postOverride: async (path, body) => {
+        if (!path.endsWith('/youtube/upload')) return undefined
+        if (body?.acknowledge_foreign_episode === true) return { job_id: 'job-77', channel_id: 'UC-x' }
+        throw FOREIGN_CLAIM
+      },
+    })
+    const upload = await previewThen(mounted)
+    try {
+      upload.click()
+      for (let i = 0; i < 12; i++) await nextTick()
+
+      assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 1,
+        'declining must not send an acknowledged retry')
+      assert.match(mounted.text(), /already been uploaded to this channel by the project/)
+    } finally {
+      mounted.destroy()
+    }
+  })
+
   test('a future planned date is the default and stays inside exact preview and upload confirmation', async () => {
     const publishAt = '2099-09-10T09:00:00.000Z'
     const mounted = await mount({

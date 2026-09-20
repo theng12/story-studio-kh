@@ -4,27 +4,56 @@ Working record for the fixes listed in `2026-09-19-defect-audit.md`. **This file
 is the durable memory** — the working context resets between rounds, so a group
 is not finished until its box is ticked here.
 
-## STATUS at v1.4.207 — read this first
+## STATUS at v1.4.208 — read this first
 
 **Where the work stands.** Groups 1–3 are effectively closed; Group 4 is barely
-started. Roughly **15 releases** shipped (v1.4.187 … v1.4.207), each with a test
-proven red against the old behaviour and a green full gate.
+started. **16 releases** shipped (v1.4.187 … v1.4.208), each with a test proven
+red against the old behaviour and a green full gate (frontend lane 1,847 tests /
+201 files, backend gate 5,424 tests / 483 files at v1.4.208).
 
-**THE OWNER'S TEN DECISIONS ARE ALL ANSWERED, and the first four are now
-implemented: #1 (v1.4.203), #3 (v1.4.206), #5 (v1.4.204), #10-scripts
-(v1.4.205), #9-scene-plan + #2 + #8 (v1.4.207). What remains: #6 (null-ceiling
-chat models), #7 (duplicate-upload click-through), and #9's channel-specific
-box.** See the open-items list below for the concrete next step on each.
+**ALL TEN OWNER DECISIONS ARE ANSWERED, and five are implemented:** #1
+(v1.4.203), #3 (v1.4.206), #5 (v1.4.204), #10 (v1.4.205 + v1.4.207), #9's
+exclusion (v1.4.207), #2 (v1.4.207), #8 (v1.4.207), #7 (v1.4.208).
+**THREE ITEMS REMAIN, in this order:**
 
-- **Group 1 — output integrity.** Completion-contract class CLOSED. One item
-  open: the cross-project duplicate-upload guard, blocked on **owner decision 7**
-  (now answered — see item D).
-- **Group 2 — data integrity.** DONE apart from decision 9's channel box.
-- **Group 3 — honesty.** DONE apart from the deliberate `thumbnail-prepare.ts:38`
-  choice (do NOT "fix" it).
-- **Group 4 — long tail.** One fix landed (`health.ts` `/models`). The queue
-  `cancelled` item is fully traced and is the best next target; the rest is
-  unstarted.
+- **E. Decision 6 — make the four null-ceiling chat models usable.** The largest
+  item. `productCeiling` (`services/output-token-budget.ts:104`) throws today.
+  The tier resolver **and** the credit-quote path must both learn an
+  "unpublished" case, and neither may invent a number. The four, verified
+  against the live gateway 2026-09-20: **Free Models Router** (OpenRouter, 200k
+  ctx) · **grok-4.3** (xAI, 1M) · **grok-4.6** (xAI, 500k) ·
+  **grok-build-0.1** (xAI, 256k). Concretely: `resolveOutputTokenBudget` must be
+  able to answer "no ceiling" (a `number | null`), `prepareChatSubmission`
+  (`lib/genstudio-client.ts:6277`) must stop throwing at `:6312` and must OMIT
+  `max_output_tokens` from the wire body, the request preview and the
+  idempotency digest, and `ai-client.ts:606`'s capability assertion must accept
+  the unpublished case. Both `max_output_tokens` and `max_completion_tokens`
+  bodies are built in this file (`:6938`, `:7025`, `:7150`).
+- **F. Decision 9's channel-specific box** — new UI. Add a second, clearly
+  labelled channel-level guidance field on Scene Plan whose text IS in a preset
+  (unlike `custom_instructions`); decide with the owner whether it writes to
+  `config.json` like `default_style_bible` or rides only in presets; make the
+  two boxes visually distinct.
+- **G. Queue: the unpruned `cancelled` set** (`job-queue.ts:441`). Fully traced
+  in Group 4. Three `add` sites, one `delete` on a re-queue path only. **A
+  one-line "delete when status is cancelled" is WRONG** — the flag is what stops
+  an in-flight executor and prevents re-queueing. Prune at terminal eviction and
+  project unload.
+
+**Do not trust this audit's coordinates.** Verified across four rounds of
+checking: its line numbers and site lists were wrong or incomplete *every time*
+— a file that does not exist, a non-member listed, a member missed, a stale line
+number — and **six** findings turned out not to be defects at all. The defects
+it points at are real; the map is not. **Enumerate from the code before acting
+on any entry.**
+
+**Two habits that paid for themselves repeatedly here**, both worth keeping:
+write the test and watch it fail against the OLD code before believing the fix,
+and assert consequences rather than strings. A third joined them in v1.4.207/208:
+**a hand-written test stub is a claim about the real module** — two harnesses
+stubbed `promptLengthState` with an object the real function never returns, and
+one of them broke the moment production code read a field the stub omitted.
+Where a harness can import the real module, it should.
 
 **Do not trust this audit's coordinates.** Verified across four rounds of
 checking: its line numbers and site lists were wrong or incomplete *every time*
@@ -584,6 +613,58 @@ these are the specific lies a user can hit today.
 
       Until it is answered, **the safe change is not to change this**, and the
       existing warning must stay a warning.
+
+      **ROUND 41 — DONE, v1.4.208. The owner answered (decision 7): warn, with a
+      click-through.** What shipped:
+
+      - **`video-claims.json` is schema v2.** Each claim carries `episode_code`,
+        written from the OPERATION record (never a caller value).
+        `validateVideoClaims` still reads v1: an old claim migrates in memory to
+        `episode_code: ''` — "the episode that made this claim is unknown" — and
+        the next real write persists v2. The migrated claim keeps `''`; stored
+        claims are never rewritten to invent an episode they never recorded.
+      - **`findForeignEpisodeClaim({ project_slug, channel_id, episode_code })`
+        (`services/youtube-operation-store.ts`)** answers the cross-project
+        question. It ignores this project's own claims (already answered
+        elsewhere) and ignores v1's unknown-episode claims, so `null` means "no
+        other project recorded uploading this episode code here" rather than a
+        confident "no".
+      - **Admission warns instead of refusing.** Checked second, after the
+        same-project `remoteVideoFor` 409 and still before any local-file test.
+        It answers `409 YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE` with
+        `confirmable: true` and the offending project's slug; resending the SAME
+        reviewed body with `acknowledge_foreign_episode: true` proceeds.
+      - **The page asks and resends.** `upload/publish.vue` gained
+        `confirmForeignEpisodeCode()`, used by BOTH the single upload and the
+        bulk queue: the ordinary failure path is unchanged, this one code opens a
+        confirm dialog ("Upload anyway") and, on accept, resends the identical
+        reviewed body plus the acknowledgement. Declining shows the reason and
+        sends nothing.
+
+      **REACHABILITY, checked rather than assumed:** a channel is exclusive to
+      one project at a time (`YOUTUBE_CHANNEL_ALREADY_ASSIGNED`), so two projects
+      cannot hold one channel simultaneously. The reachable route to the
+      collision is a channel moving between projects — `assignment_history`
+      exists precisely for that — and the claim store is cross-project, so the
+      previous owner's claim is still there. That is the case this catches.
+
+      Tests: 3 in `youtube-operation-store.test.ts` (v2 records the episode;
+      foreign found / own not / other-code not / other-channel not; v1 reads as
+      unknown and upgrades on write) and 2 in `youtube-upload-center-route.test.ts`
+      (the warning is confirmable and the acknowledgement releases it to the NEXT
+      gate; a different episode code is not warned about). Frontend: 2 in
+      `uploadCenterPublish.test.ts` (the dialog is asked and the request is
+      resent with the flag; declining sends one request and shows the reason).
+      **Proven red:** skipping the admission block fails the route warning test
+      while its control passes; recording `episode_code: ''` fails two store
+      tests; removing the page's resend fails the click-through test while the
+      decline control passes.
+
+      **A test-hygiene lesson worth keeping:** the first red run HUNG instead of
+      failing. A failed assertion skipped `mounted.destroy()`, the page's polling
+      kept the process alive, and the runner reported nothing at all. Both new
+      frontend tests now tear down in `finally`. A hanging red test is worse than
+      a failing one — it looks like an infrastructure problem.
 
 ---
 
@@ -1249,21 +1330,41 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
    500k) · **grok-build-0.1** (xAI, 256k). All `available`, unlocked. The other 44
    null rows are image/video/audio models where no token ceiling applies.
 
+   **THE CONCRETE PLAN (traced 2026-09-20 at v1.4.208, not yet applied):**
+   - `services/output-token-budget.ts` — `productCeiling` (`:104`) must become a
+     NULLABLE answer (`productCeilingOrNull`), and `resolveOutputTokenBudget`
+     must return `number | null`, where `null` means "the product publishes no
+     ceiling; send nothing". Every tier derives from the ceiling
+     (`tierTokens`, the `workload` fallback), so there is no honest number to
+     return — which is exactly why the type has to carry the absence (§6).
+   - `lib/genstudio-client.ts` — `PreparedChatSubmission.maxOutputTokens`
+     becomes `number | null`; the `:6312` refusal goes; the wire bodies at
+     `:6938` (`max_output_tokens`), `:7025` (`max_completion_tokens`) and the
+     preview `tokenLimits` at `:6906`/`:7003`/`:7150` must OMIT the field when
+     it is null; the idempotency digest at `:6831` must hash the absence
+     distinctly (not as `undefined` collapsing into a published value).
+   - `lib/ai-client.ts:606` — `assertPipelineModelRequestCapabilities` must not
+     compare against `candidate.max_output_tokens` when it is unpublished, and
+     must not print `.toLocaleString()` on it (`:608`).
+   - `lib/chunked-narration.ts` — reads `max_output_tokens` for its chunking
+     threshold; an unpublished ceiling must not become 0 (it already documents
+     `0` as the parser's "not published" marker — check `chunkingOutputBudget`
+     and `chunkThresholdWords` before changing anything).
+   - Tests: `output-token-budget.test.ts` pins the throw today — that
+     expectation is the one to reverse, deliberately and in place.
+
 7. ~~**Cross-project duplicate upload**~~ **ANSWERED 2026-09-20: WARN, WITH A
-   CLICK-THROUGH.** Owner: "should be a warning that can be clicked through." So
-   admission asks whether another project claimed this episode code on this
-   channel and, if so, shows a confirmable warning rather than a 409 — the
-   mistake is caught without ever blocking a legitimate second series on one
-   channel. Still needs `episode_code` on `video-claims.json` (schema v2 +
-   migration) to be answerable. **Do NOT make `completeYouTubeOperation` fail
-   loudly** — see 1.3. OPEN. Should an upload be
-   refused when *another project* has already used this episode code on the same
-   YouTube channel? Saying yes is the plan's finding, and needs an `episode_code`
-   field added to `video-claims.json` (schema v2 + migration). Saying yes also
-   blocks two different series that legitimately share one channel and both have
-   an "Episode 1". I have deliberately NOT changed this, and I have deliberately
-   NOT made the post-upload bookkeeping conflict fail loudly — see 1.3 for why
-   that would invite a second upload of a video that is already live.
+   CLICK-THROUGH. DONE, v1.4.208.** Owner: "should be a warning that can be
+   clicked through." Admission now asks whether another project claimed this
+   episode code on this channel (via `video-claims.json` schema v2, which adds
+   the episode code and migrates v1 claims as "episode unknown"), and answers a
+   confirmable 409 rather than refusing; the page confirms and resends with
+   `acknowledge_foreign_episode: true`. The mistake is caught without ever
+   blocking a legitimate second series on one channel.
+   **`completeYouTubeOperation` was deliberately NOT made to fail loudly** — see
+   1.3 above for why that would invite a second upload of a video already live.
+   Full account, including the reachability check and the tests proven red, is
+   in 1.3.
 8. ~~**The reconciler's borrowed TTS model**~~ **ANSWERED 2026-09-20: YES,
    RECORD IT. DONE, v1.4.207.** The episode now owns its record.
 

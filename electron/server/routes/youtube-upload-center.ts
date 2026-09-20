@@ -37,6 +37,7 @@ import {
 } from '../services/youtube-connection-store.js'
 import {
   assertYouTubeOperationAuthorized,
+  findForeignEpisodeClaim,
   listYouTubeOperations,
   readYouTubeOperation,
   type YouTubeOperationRecordV1,
@@ -2231,6 +2232,34 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       return
     }
 
+    // SECOND, and still before any local-file question: has ANOTHER project
+    // already uploaded this episode code to this channel? — owner decision #7
+    // (2026-09-20).
+    //
+    // This is a WARNING the caller may click through, never a refusal. Two
+    // different series may legitimately share one channel and both have an
+    // "Episode 1", so a hard 409 here would block real work to catch a typo.
+    // The answer comes from `video-claims.json` — the one cross-project store —
+    // which now carries the episode code that made each claim (schema v2; v1
+    // claims read as "episode unknown" and can never match).
+    if (req.body?.acknowledge_foreign_episode !== true) {
+      const foreign = await findForeignEpisodeClaim({
+        project_slug: slug,
+        channel_id: channelId,
+        episode_code: episodeCode,
+      })
+      if (foreign) {
+        res.status(409).json({
+          code: 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE',
+          detail: `${episodeCode} has already been uploaded to this channel by the project `
+            + `"${foreign.project_slug}". Uploading this project's ${episodeCode} as well will put a second `
+            + `video with the same episode number on the same channel. Confirm to upload anyway.`,
+          foreign_project_slug: foreign.project_slug,
+          confirmable: true,
+        })
+        return
+      }
+    }
 
     // There must be something to upload. Without this the job starts, spends
     // its guard checks, and dies at the file read — after the owner has been

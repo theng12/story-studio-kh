@@ -45,16 +45,28 @@ interface YouTubeOperationIndexV1 {
   operation_ids: string[]
 }
 
-interface YouTubeVideoClaimV1 {
+/**
+ * One (channel, video) identity, claimed by the project/operation that put it
+ * there. The claim store is the ONLY cross-project record in the tree, so it is
+ * the only place a second project can ask "has this episode code already been
+ * used on this channel?".
+ *
+ * v2 added `episode_code`. v1 claims carry `''` after migration, which means
+ * "the episode that made this claim is UNKNOWN" — never "no episode", so a
+ * later cross-project question cannot mistake an old claim for a match.
+ */
+interface YouTubeVideoClaimV2 {
   channel_id: string
   video_id: string
   project_slug: string
   operation_id: string
+  /** `''` = written before v2; the episode that claimed this video is unknown. */
+  episode_code: string
 }
 
-interface YouTubeVideoClaimsV1 {
-  schema_version: 1
-  claims: YouTubeVideoClaimV1[]
+interface YouTubeVideoClaimsV2 {
+  schema_version: 2
+  claims: YouTubeVideoClaimV2[]
 }
 
 const CREATE_KEYS = new Set([
@@ -77,7 +89,8 @@ const LIFECYCLE_ORDER: Record<string, number> = {
   ready: 4,
 }
 const TERMINAL_LIFECYCLES = new Set(['failed', 'rejected'])
-const CLAIM_KEYS = ['channel_id', 'video_id', 'project_slug', 'operation_id'] as const
+const CLAIM_V2_KEYS = ['channel_id', 'video_id', 'project_slug', 'operation_id', 'episode_code'] as const
+const CLAIM_V1_KEYS = ['channel_id', 'video_id', 'project_slug', 'operation_id'] as const
 // Failure and rejection evidence is immutable, always: once YouTube has said
 // why it refused a video, nothing may quietly rewrite that.
 const PROTECTED_PROCESSING_KEYS = ['failure_reason', 'rejection_reason'] as const
@@ -190,6 +203,17 @@ function claimText(value: unknown, name: string): string {
   return value
 }
 
+/**
+ * An optional claim field that may legitimately be `''` — the v1 migration
+ * marker for "episode unknown". Everything else faces the same character rules
+ * as `claimText`, so a hand-edited file cannot smuggle control characters into
+ * a user-facing warning.
+ */
+function claimOptionalText(value: unknown): string {
+  if (value === '') return ''
+  return claimText(value, 'episode_code')
+}
+
 function claimKey(channelId: string, videoId: string): string {
   return `${channelId}\u0000${videoId}`
 }
@@ -198,19 +222,30 @@ function claimOwnerKey(projectSlug: string, operationId: string): string {
   return `${projectSlug}\u0000${operationId}`
 }
 
-function validateVideoClaims(raw: unknown): YouTubeVideoClaimsV1 {
-  if (!isRecord(raw) || raw.schema_version !== 1 || !Array.isArray(raw.claims)) {
+/**
+ * Validate a claims file, honouring BOTH schema versions.
+ *
+ * v1 has no `episode_code`. It is migrated IN MEMORY to `episode_code: ''`
+ * ("unknown"), and the next successful write persists v2 — there is no separate
+ * migration pass, and no stored claim is ever rewritten to invent an episode it
+ * never recorded (AGENTS.md §5: leave what is on disk alone).
+ */
+function validateVideoClaims(raw: unknown): YouTubeVideoClaimsV2 {
+  if (!isRecord(raw) || !Array.isArray(raw.claims)) {
     throw corrupt('the video claim schema is invalid')
   }
+  const version = raw.schema_version
+  if (version !== 1 && version !== 2) throw corrupt('the video claim schema is invalid')
   const keys = Object.keys(raw)
   if (keys.length !== 2 || keys.some(key => !['schema_version', 'claims'].includes(key))) {
     throw corrupt('the video claim file contains unexpected fields')
   }
+  const expectedKeys: readonly string[] = version === 2 ? CLAIM_V2_KEYS : CLAIM_V1_KEYS
   const tupleKeys = new Set<string>()
   const ownerKeys = new Set<string>()
   const claims = raw.claims.map((value) => {
-    if (!isRecord(value) || Object.keys(value).length !== CLAIM_KEYS.length
-      || Object.keys(value).some(key => !CLAIM_KEYS.includes(key as typeof CLAIM_KEYS[number]))) {
+    if (!isRecord(value) || Object.keys(value).length !== expectedKeys.length
+      || Object.keys(value).some(key => !expectedKeys.includes(key))) {
       throw corrupt('the video claim contains unexpected fields')
     }
     const claim = {
@@ -218,6 +253,9 @@ function validateVideoClaims(raw: unknown): YouTubeVideoClaimsV1 {
       video_id: claimText(value.video_id, 'video_id'),
       project_slug: claimText(value.project_slug, 'project_slug'),
       operation_id: claimText(value.operation_id, 'operation_id'),
+      // v1 predates the field. `''` is "unknown", so a cross-project question
+      // can never treat an old claim as a match for a named episode.
+      episode_code: version === 2 ? claimOptionalText(value.episode_code) : '',
     }
     assertStoreOperationId(claim.operation_id)
     const tuple = claimKey(claim.channel_id, claim.video_id)
@@ -228,16 +266,16 @@ function validateVideoClaims(raw: unknown): YouTubeVideoClaimsV1 {
     ownerKeys.add(owner)
     return claim
   })
-  return { schema_version: 1, claims }
+  return { schema_version: 2, claims }
 }
 
-async function readVideoClaimsUnlocked(): Promise<YouTubeVideoClaimsV1> {
+async function readVideoClaimsUnlocked(): Promise<YouTubeVideoClaimsV2> {
   const raw = await readJsonStrict(videoClaimsPath())
-  if (raw === null) return { schema_version: 1, claims: [] }
+  if (raw === null) return { schema_version: 2, claims: [] }
   return validateVideoClaims(raw)
 }
 
-async function writeVideoClaimsUnlocked(claims: YouTubeVideoClaimsV1): Promise<void> {
+async function writeVideoClaimsUnlocked(claims: YouTubeVideoClaimsV2): Promise<void> {
   await writeJsonAtomic(videoClaimsPath(), validateVideoClaims(claims), { mode: 0o600 })
 }
 
@@ -258,9 +296,9 @@ function assertNoDuplicateVideoIdentities(records: YouTubeOperationRecordV1[]): 
 }
 
 function claimVideoIdentity(
-  claims: YouTubeVideoClaimsV1,
+  claims: YouTubeVideoClaimsV2,
   record: YouTubeOperationRecordV1,
-): { claims: YouTubeVideoClaimsV1; changed: boolean } {
+): { claims: YouTubeVideoClaimsV2; changed: boolean } {
   if (record.video_id === undefined) return { claims, changed: false }
   const existing = claims.claims.find(claim => claimKey(claim.channel_id, claim.video_id) === claimKey(record.channel_id, record.video_id!))
   if (existing) {
@@ -279,16 +317,53 @@ function claimVideoIdentity(
   }
   return {
     claims: {
-      schema_version: 1,
+      schema_version: 2,
       claims: [...claims.claims, {
         channel_id: record.channel_id,
         video_id: record.video_id,
         project_slug: record.project_slug,
         operation_id: record.operation_id,
+        // Owner decision #7 — the episode code is what makes a cross-project
+        // "already used here" question answerable at all. It is written from the
+        // OPERATION record, never from a caller-supplied value.
+        episode_code: typeof record.episode_code === 'string' ? record.episode_code : '',
       }],
     },
     changed: true,
   }
+}
+
+/**
+ * Has ANOTHER project already claimed this channel + episode code? — owner
+ * decision #7, 2026-09-20.
+ *
+ * The answer deliberately ignores this project's own claims (that question is
+ * already asked and answered from the operation records) and ignores v1 claims
+ * whose episode is unknown. `null` therefore means "no other project recorded
+ * uploading this episode code here", which is the honest answer rather than a
+ * confident "no".
+ *
+ * It is a WARNING input, never a refusal: two series may legitimately share one
+ * channel and both have an "Episode 1". The caller shows the answer and lets the
+ * customer click through it.
+ */
+export async function findForeignEpisodeClaim(input: {
+  project_slug: string
+  channel_id: string
+  episode_code: string
+}): Promise<{ project_slug: string; operation_id: string; video_id: string } | null> {
+  const code = input.episode_code.trim().toLowerCase()
+  if (!code || !input.channel_id) return null
+  return withVideoClaimsLock(async () => {
+    const claims = await readVideoClaimsUnlocked()
+    const match = claims.claims.find(claim =>
+      claim.channel_id === input.channel_id
+      && claim.episode_code.toLowerCase() === code
+      && claim.project_slug !== input.project_slug)
+    return match
+      ? { project_slug: match.project_slug, operation_id: match.operation_id, video_id: match.video_id }
+      : null
+  })
 }
 
 async function readRecordUnlocked(project: ProjectResolution, operationId: string): Promise<YouTubeOperationRecordV1 | null> {
