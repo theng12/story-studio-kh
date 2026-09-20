@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.195 — 2026-09-20
+
+- Two more screens no longer carry one episode's work into another. B-Roll kept the manual clip pick — a list of clips with per-clip durations chosen for one episode — so opening a new episode showed the previous episode's footage still queued and ready to assemble. Scene Review kept an open image lightbox and the ticked batch of scenes; the lightbox rebuilt its image address from the *new* episode with the *old* scene id, so it either failed to load or showed a different episode's picture, and a batch action would have named scenes that did not belong to the episode on screen.
+
 ## v1.4.194 — 2026-09-20
 
 - Motion Review and the YouTube Finalizer now clear the episode they were showing before they load the next one. Both replaced their contents only when a new load *succeeded*, so switching episodes left the previous episode's scenes and readiness on screen while the new one loaded — and left them there for good if that load failed, with an error message as the only hint. In Motion Review the scene thumbnails were stale as well, still pointing at the previous episode's cached images. Both now blank the old episode's state the moment the episode changes.

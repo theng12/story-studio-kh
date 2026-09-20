@@ -603,8 +603,26 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       recorded below.
 - [ ] `image-prompts.vue:1398` — episode-scoped cast ids persist in a
       project-only blob and are submitted for the new episode.
-- [ ] `broll.vue:922` — selection / narration target not cleared.
-- [ ] `scene-review.vue:1035` — lightbox + checked batch survive.
+- [x] **DONE, v1.4.195.** `broll.vue:922` — the `form.episode_id` watcher cleared
+      the in-flight upload path and the whisper flag but not `manualSelection`
+      (an ordered list of `{filename, target_duration}` chosen for one episode)
+      nor `narrationTargetSec` (that episode's measured narration length). A new
+      episode opened with the previous episode's clips queued and would have
+      assembled them. Now cleared, with the pool filter too.
+- [x] **DONE, v1.4.195.** `scene-review.vue:1035` — the `[slug, episodeId]`
+      watcher reset the render limit and the in-flight ids but left `previewScene`
+      (a whole `ReviewScene` from the episode being left) and `selectedIds` (a Set
+      of its scene ids). The lightbox URL is rebuilt from the CURRENT episodeId
+      with the OLD scene id, so it either 404s or shows another episode's image,
+      and a batch action would name scenes outside the open episode. Both now
+      cleared in the watcher.
+
+      Tests: `frontend/__tests__/episodeScopedStateReset.test.ts` (2, new file),
+      one per page, following the lane's static-analysis convention.
+      **Proven red:** reverting both watcher additions fails exactly these two
+      and leaves the other 1,832 green. Frontend lane 1,834/1,834, 199/199 files.
+      Stated limit: static analysis proves the reset is wired, not that the DOM
+      clears — that needs a screenshot (AGENTS.md §3).
 - [ ] `images.vue:1411` — integrity status + Browse grid not blanked.
 - [ ] `research.vue:1207` — stale research durable on a failed read, and PUT to
       the new episode.

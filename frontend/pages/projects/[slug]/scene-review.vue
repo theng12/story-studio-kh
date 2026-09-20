@@ -1813,6 +1813,14 @@ watch([slug, episodeId], () => {
   regeneratingId.value = null
   animatingId.value = null
   isContinuity.value = false
+  // v1.4.195 — two pieces of scene-scoped state used to survive the switch.
+  // The lightbox held a whole ReviewScene from the episode being left, and its
+  // URL is rebuilt from the CURRENT episodeId with the OLD scene id, so it
+  // either 404s or shows another episode's image. The checked batch is a Set of
+  // the same stale ids, so a batch action submitted after the switch would name
+  // scenes that do not belong to the open episode (AGENTS.md §4).
+  previewScene.value = null
+  selectedIds.value = new Set()
   void loadReview()
   void loadContinuityFlag()
 }, { immediate: true, flush: 'sync' })
