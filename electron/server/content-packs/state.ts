@@ -1,9 +1,12 @@
 import { execFile as execFileCallback } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
+import { constants as fsConstants } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+
+import { z } from 'zod'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
@@ -12,11 +15,42 @@ import { getContentPackRuntimePaths, installedVersionPath, type ContentPackRunti
 import { logLine } from '../services/logger.js'
 
 const STATE_MODE = 0o600
+const RECOVERY_STATE_MAX_BYTES = 16 * 1024
 const LOCK_WAIT_MS = 10_000
 const STALE_LOCK_MS = 60_000
 const execFile = promisify(execFileCallback)
 
 export { emptyContentPackState } from './runtime-types.js'
+
+const ContentPackRecoveryStateSchema = z.object({
+  schema_version: z.literal(1),
+  incident: z.object({
+    incident_id: z.string().uuid(),
+    kind: z.literal('invalid_state_reset'),
+    detected_at: z.string().datetime(),
+    quarantine_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    acknowledged_at: z.string().datetime().nullable(),
+  }).strict(),
+}).strict()
+
+type ContentPackRecoveryState = z.infer<typeof ContentPackRecoveryStateSchema>
+
+export interface ContentPackRecoveryIncident {
+  incidentId: string
+  kind: 'invalid_state_reset'
+  detectedAt: string
+}
+
+export class ContentPackRecoveryStateError extends Error {
+  constructor() {
+    super('Content Pack recovery state is invalid')
+    this.name = 'ContentPackRecoveryStateError'
+  }
+}
+
+interface ContentPackRecoveryTestHooks {
+  beforeRecoveryStateWrite?: () => Promise<void> | void
+}
 
 /**
  * State locks live below userData, so prove that root and the state parent are
@@ -33,6 +67,9 @@ export async function prepareContentPackRuntimeRoot(paths: ContentPackRuntimePat
   }
   const stateParent = path.dirname(paths.statePath)
   if (path.resolve(stateParent) !== path.resolve(paths.root)) throw new Error('Content Pack state path must live directly below its runtime root')
+  if (path.resolve(path.dirname(paths.recoveryStatePath)) !== path.resolve(paths.root)) {
+    throw new Error('Content Pack recovery state path must live directly below its runtime root')
+  }
   const parent = await fs.lstat(stateParent)
   if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error(`Content Pack state parent is unsafe: ${stateParent}`)
 }
@@ -68,11 +105,139 @@ async function readStateFile(paths: ContentPackRuntimePaths): Promise<StateRead>
 }
 
 function invalidStatePath(paths: ContentPackRuntimePaths, bytes: Uint8Array): string {
-  const hash = createHash('sha256').update(bytes).digest('hex')
-  return path.join(paths.quarantineRoot, `state-invalid-${hash}.json`)
+  return path.join(paths.quarantineRoot, `state-invalid-${invalidStateHash(bytes)}.json`)
 }
 
-async function resetInvalidState(paths: ContentPackRuntimePaths, bytes: Uint8Array): Promise<ContentPackRuntimeState> {
+function invalidStateHash(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+function assertRecoveryStatePath(paths: ContentPackRuntimePaths): void {
+  if (path.resolve(path.dirname(paths.recoveryStatePath)) !== path.resolve(paths.root)) {
+    throw new ContentPackRecoveryStateError()
+  }
+}
+
+async function existingSafeRuntimeRoot(paths: ContentPackRuntimePaths): Promise<boolean> {
+  assertRecoveryStatePath(paths)
+  if (path.resolve(path.dirname(paths.statePath)) !== path.resolve(paths.root)) {
+    throw new ContentPackRecoveryStateError()
+  }
+  try {
+    const root = await fs.lstat(paths.root)
+    if (!root.isDirectory() || root.isSymbolicLink()) throw new ContentPackRecoveryStateError()
+    return true
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    if (error instanceof ContentPackRecoveryStateError) throw error
+    throw new ContentPackRecoveryStateError()
+  }
+}
+
+async function readRecoveryState(paths: ContentPackRuntimePaths): Promise<ContentPackRecoveryState | null> {
+  assertRecoveryStatePath(paths)
+  let before
+  try {
+    before = await fs.lstat(paths.recoveryStatePath, { bigint: true })
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw new ContentPackRecoveryStateError()
+  }
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n
+    || before.size > BigInt(RECOVERY_STATE_MAX_BYTES)) {
+    throw new ContentPackRecoveryStateError()
+  }
+  let handle
+  try {
+    handle = await fs.open(paths.recoveryStatePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0))
+    const opened = await handle.stat({ bigint: true })
+    const after = await fs.lstat(paths.recoveryStatePath, { bigint: true })
+    if (!opened.isFile() || opened.nlink !== 1n || opened.size > BigInt(RECOVERY_STATE_MAX_BYTES)
+      || !after.isFile() || after.isSymbolicLink() || after.nlink !== 1n
+      || after.size > BigInt(RECOVERY_STATE_MAX_BYTES)
+      || opened.dev !== before.dev || opened.ino !== before.ino
+      || opened.dev !== after.dev || opened.ino !== after.ino) {
+      throw new ContentPackRecoveryStateError()
+    }
+    const bytes = await handle.readFile()
+    if (bytes.byteLength > RECOVERY_STATE_MAX_BYTES) throw new ContentPackRecoveryStateError()
+    return ContentPackRecoveryStateSchema.parse(JSON.parse(new TextDecoder().decode(bytes)))
+  } catch (error: unknown) {
+    if (error instanceof ContentPackRecoveryStateError) throw error
+    throw new ContentPackRecoveryStateError()
+  } finally {
+    await handle?.close().catch(() => {})
+  }
+}
+
+async function writeRecoveryState(paths: ContentPackRuntimePaths, state: ContentPackRecoveryState): Promise<void> {
+  assertRecoveryStatePath(paths)
+  assertWriteIsolatedInTests(paths.recoveryStatePath, 'content-pack-state')
+  await writeJsonAtomic(paths.recoveryStatePath, ContentPackRecoveryStateSchema.parse(state), { mode: STATE_MODE })
+}
+
+function sameFileIdentity(
+  left: { dev: bigint; ino: bigint },
+  right: { dev: bigint; ino: bigint },
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino
+}
+
+async function verifyExistingQuarantineEvidence(target: string, expected: Uint8Array): Promise<void> {
+  let handle
+  try {
+    handle = await fs.open(target, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0))
+    const opened = await handle.stat({ bigint: true })
+    if (!opened.isFile() || opened.nlink !== 1n || opened.size !== BigInt(expected.byteLength)) {
+      throw new Error('Content Pack quarantine evidence is unsafe')
+    }
+    const actual = await handle.readFile()
+    const current = await fs.lstat(target, { bigint: true })
+    if (!current.isFile() || current.isSymbolicLink() || current.nlink !== 1n
+      || current.size !== BigInt(expected.byteLength) || !sameFileIdentity(opened, current)
+      || !actual.equals(Buffer.from(expected))) {
+      throw new Error('Content Pack quarantine evidence does not match the invalid state')
+    }
+    await handle.sync()
+  } finally {
+    await handle?.close().catch(() => {})
+  }
+}
+
+async function persistQuarantineEvidence(target: string, bytes: Uint8Array): Promise<void> {
+  const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0)
+  let handle
+  try {
+    handle = await fs.open(target, flags, STATE_MODE)
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    await verifyExistingQuarantineEvidence(target, bytes)
+    await fsyncParent(path.dirname(target))
+    return
+  }
+  try {
+    const opened = await handle.stat({ bigint: true })
+    if (!opened.isFile() || opened.nlink !== 1n) throw new Error('Content Pack quarantine evidence is unsafe')
+    await handle.writeFile(bytes)
+    await handle.sync()
+    const synced = await handle.stat({ bigint: true })
+    const current = await fs.lstat(target, { bigint: true })
+    if (!synced.isFile() || synced.nlink !== 1n || synced.size !== BigInt(bytes.byteLength)
+      || !current.isFile() || current.isSymbolicLink() || current.nlink !== 1n
+      || current.size !== BigInt(bytes.byteLength) || !sameFileIdentity(synced, current)) {
+      throw new Error('Content Pack quarantine evidence is unsafe')
+    }
+  } finally {
+    await handle.close().catch(() => {})
+  }
+  await fsyncParent(path.dirname(target))
+}
+
+async function resetInvalidState(
+  paths: ContentPackRuntimePaths,
+  bytes: Uint8Array,
+  testHooks?: ContentPackRecoveryTestHooks,
+): Promise<ContentPackRuntimeState> {
   await prepareContentPackRuntimeRoot(paths)
   if (path.resolve(path.dirname(paths.quarantineRoot)) !== path.resolve(paths.root)) {
     throw new Error('Content Pack quarantine must live directly below its runtime root')
@@ -88,20 +253,36 @@ async function resetInvalidState(paths: ContentPackRuntimePaths, bytes: Uint8Arr
     throw new Error('Content Pack quarantine directory is unsafe')
   }
   const quarantined = invalidStatePath(paths, bytes)
-  await fs.writeFile(quarantined, bytes, { flag: 'wx', mode: STATE_MODE }).catch(error => {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-  })
+  await persistQuarantineEvidence(quarantined, bytes)
+  const hash = invalidStateHash(bytes)
+  const recovery = await readRecoveryState(paths)
+  if (recovery?.incident.quarantine_sha256 !== hash || recovery.incident.acknowledged_at !== null) {
+    await testHooks?.beforeRecoveryStateWrite?.()
+    await writeRecoveryState(paths, {
+      schema_version: 1,
+      incident: {
+        incident_id: randomUUID(),
+        kind: 'invalid_state_reset',
+        detected_at: new Date().toISOString(),
+        quarantine_sha256: hash,
+        acknowledged_at: null,
+      },
+    })
+  }
   const empty = emptyContentPackState()
   await writeJsonAtomic(paths.statePath, empty, { mode: STATE_MODE })
   return empty
 }
 
-async function readOrResetState(paths: ContentPackRuntimePaths): Promise<ContentPackRuntimeState> {
+async function readOrResetState(
+  paths: ContentPackRuntimePaths,
+  testHooks?: ContentPackRecoveryTestHooks,
+): Promise<ContentPackRuntimeState> {
   const result = await readStateFile(paths)
   if (result.kind === 'valid') return result.state
   if (result.kind === 'missing') return emptyContentPackState()
   if (result.kind === 'io-error') throw result.error
-  return resetInvalidState(paths, result.bytes)
+  return resetInvalidState(paths, result.bytes, testHooks)
 }
 
 /** Read state without creating userData directories unless recovery is required. */
@@ -111,6 +292,61 @@ export async function readContentPackState(paths: ContentPackRuntimePaths = getC
   if (initial.kind === 'missing') return emptyContentPackState()
   if (initial.kind === 'io-error') throw initial.error
   return withContentPackStateLock(paths, async () => readOrResetState(paths))
+}
+
+function projectRecoveryIncident(state: ContentPackRecoveryState | null): ContentPackRecoveryIncident | null {
+  if (!state || state.incident.acknowledged_at !== null) return null
+  return {
+    incidentId: state.incident.incident_id,
+    kind: state.incident.kind,
+    detectedAt: state.incident.detected_at,
+  }
+}
+
+/** Resolve pending local recovery evidence, recovering an invalid state under the same lock first. */
+async function resolveContentPackRecoveryIncident(
+  paths: ContentPackRuntimePaths,
+  testHooks?: ContentPackRecoveryTestHooks,
+): Promise<ContentPackRecoveryIncident | null> {
+  if (!await existingSafeRuntimeRoot(paths)) return null
+  return withContentPackStateLock(paths, async () => {
+    await readOrResetState(paths, testHooks)
+    return projectRecoveryIncident(await readRecoveryState(paths))
+  })
+}
+
+export function readContentPackRecoveryIncident(
+  paths: ContentPackRuntimePaths = getContentPackRuntimePaths(),
+): Promise<ContentPackRecoveryIncident | null> {
+  return resolveContentPackRecoveryIncident(paths)
+}
+
+/** Test-only seam for proving a marker persistence failure cannot replace an invalid index. */
+export function __testReadContentPackRecoveryIncident(
+  paths: ContentPackRuntimePaths,
+  beforeRecoveryStateWrite: () => Promise<void> | void,
+): Promise<ContentPackRecoveryIncident | null> {
+  return resolveContentPackRecoveryIncident(paths, { beforeRecoveryStateWrite })
+}
+
+/** Mark only the current incident acknowledged; retained state and quarantine bytes are untouched. */
+export async function acknowledgeContentPackRecoveryIncident(
+  incidentId: string,
+  paths: ContentPackRuntimePaths = getContentPackRuntimePaths(),
+): Promise<boolean> {
+  if (!await existingSafeRuntimeRoot(paths)) return false
+  return withContentPackStateLock(paths, async () => {
+    await readOrResetState(paths)
+    const recovery = await readRecoveryState(paths)
+    if (!recovery || recovery.incident.incident_id !== incidentId) return false
+    if (recovery.incident.acknowledged_at === null) {
+      await writeRecoveryState(paths, {
+        ...recovery,
+        incident: { ...recovery.incident, acknowledged_at: new Date().toISOString() },
+      })
+    }
+    return true
+  })
 }
 
 /**

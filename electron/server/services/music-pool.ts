@@ -280,6 +280,11 @@ export async function addTrack(slug: string, sourcePath: string): Promise<{ file
 export async function removeTrack(slug: string, filename: string): Promise<{ removed: boolean }> {
   const dir = await getPoolDir(slug)
   if (!dir) return { removed: false }
+  // A track is addressed by a bare filename, and this is an `unlink`. Without
+  // this check `DELETE .../music-pool/tracks/..%2F..%2FDocuments%2Fsong.mp3`
+  // joined straight out of the pool folder and unlinked that file. The sibling
+  // `music-library.ts` already guards exactly here; this is the same rule.
+  if (path.basename(filename) !== filename) return { removed: false }
   const full = path.join(dir, filename)
   if (!existsSync(full)) return { removed: false }
   await fs.unlink(full)

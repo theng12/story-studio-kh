@@ -7,8 +7,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { projectsRoot } from './project-manager.js'
-import { resolveEpisodePaths, formatEpisodeCode } from './utils.js'
+import { resolveEpisodePaths, formatEpisodeCode, projectDirFor, projectMetaOnce, type ProjectFactsCache } from './utils.js'
 import * as pm from './project-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 
@@ -65,13 +64,12 @@ interface IdeasStore {
 
 // ── Persistence ─────────────────────────────────────────────────────────────
 
-function ideasPath(slug: string): string {
+function ideasPath(slug: string, cache?: ProjectFactsCache): string {
   // Use getProjectDir so linked-project locations (e.g. an iCloud-synced
   // folder registered via "Add existing project folder…") resolve to the
   // right ideas.json. Falling back to the default location keeps fresh
   // project creation working before the dir exists on disk.
-  const dir = pm.getProjectDir(slug) || path.join(projectsRoot(), slug)
-  return path.join(dir, 'ideas.json')
+  return path.join(projectDirFor(slug, cache), 'ideas.json')
 }
 
 /**
@@ -79,8 +77,8 @@ function ideasPath(slug: string): string {
  * perform auto-heal or persist anything. Callers that need a consistent view
  * for a read-modify-write must go through `mutateStore`.
  */
-async function readStoreFromDisk(slug: string): Promise<IdeasStore> {
-  const p = ideasPath(slug)
+async function readStoreFromDisk(slug: string, cache?: ProjectFactsCache): Promise<IdeasStore> {
+  const p = ideasPath(slug, cache)
   if (existsSync(p)) {
     try {
       const data = JSON.parse(await fs.readFile(p, 'utf-8'))
@@ -99,8 +97,14 @@ async function readStoreFromDisk(slug: string): Promise<IdeasStore> {
  * highest used episode number. Mutates `store` in place and returns whether
  * anything changed. Persistence is the caller's responsibility.
  */
-async function applyAutoHeal(slug: string, store: IdeasStore): Promise<boolean> {
-  const meta = await pm.getProject(slug)
+async function applyAutoHeal(slug: string, store: IdeasStore, cache?: ProjectFactsCache): Promise<boolean> {
+  // `projectMetaOnce` is the same `project.json` `getProject` reads, reached
+  // through the request-scoped cache. Only `episode_prefix` is used here, and
+  // it cannot change while one response is being built — so a 302-episode list
+  // should not read and parse project.json 1,340 times to learn it.
+  const meta = cache
+    ? await projectMetaOnce(slug, cache).catch(() => null)
+    : await pm.getProject(slug)
   if (!meta) return false
   const acceptedNums = store.ideas
     .filter(i => i.status === 'accepted' && i.episode_code)
@@ -147,9 +151,9 @@ async function applyAutoHeal(slug: string, store: IdeasStore): Promise<boolean> 
  * heal back to disk — only `mutateStore` writes. Safe for pure readers like
  * `getIdeas` / `getNextEpisodeNumber`.
  */
-async function loadStore(slug: string): Promise<IdeasStore> {
-  const store = await readStoreFromDisk(slug)
-  await applyAutoHeal(slug, store)
+async function loadStore(slug: string, cache?: ProjectFactsCache): Promise<IdeasStore> {
+  const store = await readStoreFromDisk(slug, cache)
+  await applyAutoHeal(slug, store, cache)
   return store
 }
 
@@ -180,8 +184,8 @@ async function mutateStore<T>(
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
-export async function getIdeas(slug: string, filter?: IdeaStatus): Promise<StoredIdea[]> {
-  const store = await loadStore(slug)
+export async function getIdeas(slug: string, filter?: IdeaStatus, cache?: ProjectFactsCache): Promise<StoredIdea[]> {
+  const store = await loadStore(slug, cache)
   if (filter) return store.ideas.filter(i => i.status === filter)
   return store.ideas
 }
@@ -801,6 +805,30 @@ export async function resetIdea(slug: string, ideaId: string): Promise<{ deleted
 export async function deleteEpisodeFolder(slug: string, episodeCode: string): Promise<{ deleted_folder: string | null }> {
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
+
+  // ── What this is allowed to delete ──────────────────────────────────────
+  //
+  // `episodeCode` arrives straight from the route param, and the matcher below
+  // had an `entry.name === episodeCode` branch — so ANY directory name matched.
+  // `DELETE /api/projects/<slug>/episodes/Season%20001` resolved to the season
+  // folder and recursively removed every episode in it (5–10 GB each).
+  //
+  // The code is deliberately NOT required to have an accepted idea: the Jobs
+  // page uses this for folders that never had one, which is the documented
+  // reason this function is separate from the idea lifecycle.
+  //
+  // `episodeNumber` is deliberately NOT used here: it is an UNANCHORED
+  // `${prefix}(\d+)` search, so `"EP0001 - A Real Episode"` matches it and would
+  // sail through — and the matcher below has an `entry.name === episodeCode`
+  // branch, so that string names a real episode folder and would be recursively
+  // deleted. The code must be EXACTLY the prefix plus digits, nothing else.
+  const prefix = String((meta as any).episode_prefix || 'EP').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (!new RegExp(`^${prefix}\\d+$`, 'i').test(episodeCode.trim())) {
+    throw new Error(
+      `Refusing to delete: '${episodeCode}' is not an episode code for this project. ` +
+      `Only a whole episode ("${String((meta as any).episode_prefix || 'EP')}0001") can be deleted this way.`,
+    )
+  }
 
   // Find the episode folder by searching
   const outputRoot = await pm.getProjectOutputRoot(slug)

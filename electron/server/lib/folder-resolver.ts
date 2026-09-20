@@ -22,6 +22,7 @@
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
+import { episodeDirNameMatchesCode } from '../services/asset-status.js'
 
 /** Strip the user-applied "✅ " done-marker prefix from a folder name. */
 function cleanName(name: string): string {
@@ -62,17 +63,30 @@ export async function resolveSubfolder(parentDir: string, baseName: string, crea
  * Non-creating subfolder lookup (the generators/video.ts semantics):
  * match exact or "✅ "-prefixed; if neither is listed but the exact path
  * exists (race / odd fs), return it; else null. Use when "missing" is a
- * meaningful state the caller handles (e.g. asset scans).
+ * meaningful state the caller handles (e.g. asset scans). Strict I/O keeps
+ * ENOENT as no match while propagating every other lookup failure.
  */
-export async function findSubfolder(parentDir: string, baseName: string): Promise<string | null> {
+export async function findSubfolder(
+  parentDir: string,
+  baseName: string,
+  options: { strictIo?: boolean } = {},
+): Promise<string | null> {
   try {
     const entries = await fs.readdir(parentDir)
     for (const entry of entries) {
       if (cleanName(entry) === baseName) return path.join(parentDir, entry)
     }
-  } catch { /* fall through */ }
+  } catch (error) {
+    if (options.strictIo && (error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
+  }
   const exactPath = path.join(parentDir, baseName)
-  if (existsSync(exactPath)) return exactPath
+  if (!options.strictIo) return existsSync(exactPath) ? exactPath : null
+  try {
+    await fs.stat(exactPath)
+    return exactPath
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
+  }
   return null
 }
 
@@ -129,7 +143,7 @@ export async function findEpisodeDir(
       }
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
-        if (cleanName(entry.name).toUpperCase().startsWith(codeUpper)) {
+        if (episodeDirNameMatchesCode(entry.name, codeUpper)) {
           return path.join(dir, entry.name)
         }
       }

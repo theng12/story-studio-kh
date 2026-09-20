@@ -15,6 +15,7 @@ import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 
 let cleanup: () => Promise<void>
 let app: import('express').Express
@@ -25,6 +26,22 @@ let resolveEpisodePathsByCode: typeof import('../services/utils.js').resolveEpis
 let generateSubtitlesTranscribe: typeof import('../generators/subtitles.js').generateSubtitlesTranscribe
 let runContinuityRenderJob: typeof import('../generators/continuity-render.js').runContinuityRenderJob
 let service: Awaited<ReturnType<typeof startMockGenStudioService>>
+
+async function writeValidMergedAudio(mergedDir: string, code: string, durationSec: number): Promise<void> {
+  const filename = `${code}_merged_audio.mp3`
+  const target = path.join(mergedDir, filename)
+  await runFfmpeg([
+    '-y', '-f', 'lavfi', '-i', `anullsrc=channel_layout=mono:sample_rate=8000,atrim=duration=${durationSec}`,
+    '-codec:a', 'libmp3lame', '-q:a', '9', target,
+  ])
+  const stat = await fs.stat(target)
+  await fs.writeFile(path.join(mergedDir, `${code}_merged_audio.completion.json`), JSON.stringify({
+    output_filename: filename,
+    bytes: stat.size,
+    duration_sec: durationSec,
+    opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
+  }))
+}
 
 before(async () => {
   const isolated = await useTempDataDir()
@@ -86,14 +103,10 @@ async function seedEpisode() {
   await fs.writeFile(path.join(paths.audio_dir, `${episodeId}_Chapter_01.mp3`), 'fixture-audio-one')
   await fs.writeFile(path.join(paths.audio_dir, `${episodeId}_Chapter_02.mp3`), 'fixture-audio-two')
   await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({ gap_duration_s: 1, sections: [
-    { slug: 'Chapter_01', duration_s: 1 }, { slug: 'Chapter_02', duration_s: 1 },
+    { slug: 'Chapter_01', duration_s: 1, source_file: `${episodeId}_Chapter_01.mp3` },
+    { slug: 'Chapter_02', duration_s: 1, source_file: `${episodeId}_Chapter_02.mp3` },
   ] }))
-  const mergedAudio = 'fixture-merged'
-  await fs.writeFile(path.join(paths.merged_audio_dir, `${episodeId}_merged_audio.mp3`), mergedAudio)
-  await fs.writeFile(path.join(paths.merged_audio_dir, `${episodeId}_merged_audio.completion.json`), JSON.stringify({
-    output_filename: `${episodeId}_merged_audio.mp3`, bytes: Buffer.byteLength(mergedAudio), duration_sec: 3,
-    opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
-  }))
+  await writeValidMergedAudio(paths.merged_audio_dir, episodeId, 3)
   return { project, episodeId, paths }
 }
 

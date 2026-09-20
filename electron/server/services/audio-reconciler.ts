@@ -18,9 +18,12 @@ import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { normalizeForTts } from '../lib/tts-text.js'
-import { findNarrationFile, resolveAudioDir } from '../generators/audio.js'
+import { findNarrationFile, episodeDirForNarration, resolveAudioDir } from '../generators/audio.js'
 import type { ProjectFactsCache } from './utils.js'
 import { readManifest } from './task-manifest.js'
+import { readAudioTtsModelRecord } from './audio-tts-model-record.js'
+import { readAudioQualityProvenance } from './audio-quality-store.js'
+import { hashSubtitleAudioSources } from './subtitle-completion.js'
 import {
   recoverTtsToFile as recoverGenStudioTtsToFile,
   splitGenStudioApiRequests,
@@ -69,6 +72,10 @@ export interface ReconcileResult {
   logs: string[]
 }
 
+function isMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+}
+
 /** Counts the normalized text that will actually be submitted to TTS. */
 export function narrationTextStats(text: string): { wordCount: number; characterCount: number } {
   const normalized = text.trim()
@@ -76,6 +83,125 @@ export function narrationTextStats(text: string): { wordCount: number; character
     wordCount: normalized ? normalized.split(/\s+/u).length : 0,
     characterCount: normalized.length,
   }
+}
+
+/**
+ * The request boundary a named model publishes right now, or `undefined` when
+ * the catalogue cannot answer. Never a substitute number: an unresolved
+ * boundary means the section is expected as ONE request, which is the honest
+ * answer when Story Studio does not know how long the model accepts.
+ */
+async function publishedRequestBudgetFor(modelId: string): Promise<number | undefined> {
+  try {
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) return undefined
+    const ttsModel = (await listGenStudioTtsModels(apiKey).catch(() => []))
+      .find(candidate => candidate.id === modelId)
+    return ttsModel ? resolveTtsRequestBudget(ttsModel).effective : undefined
+  } catch {
+    return undefined
+  }
+}
+
+type NarrationSections = Awaited<ReturnType<typeof parseNarrationDocx>>
+
+function selectedFiles(row: { source_file?: unknown; source_files?: unknown }): string[] | null {
+  const raw = Array.isArray(row.source_files) && row.source_files.length
+    ? row.source_files
+    : row.source_file !== undefined ? [row.source_file] : []
+  if (!raw.length || !raw.every(file => (
+    typeof file === 'string' && !!file.trim() && path.basename(file) === file
+  ))) return null
+  const files = raw.map(file => (file as string).trim())
+  return new Set(files).size === files.length ? files : null
+}
+
+function sourceCountMatchesPlan(files: string[], sectionText: string, requestBudget: number | undefined): boolean {
+  if (files.length === 1) return true
+  const chunks = requestBudget ? splitGenStudioApiRequests(sectionText, requestBudget) : [sectionText]
+  return files.length === chunks.length
+}
+
+/**
+ * Resolve exact active filenames without letting an old unsuffixed import mask
+ * a newly activated multipart generation. Audio Assembly's explicit selector
+ * wins. Before Assembly exists, generation provenance is accepted only as a
+ * complete, model-bound active-source map; it verifies available audio bytes,
+ * not current-script freshness.
+ */
+async function activeAudioSources(
+  episodeDir: string,
+  audioDir: string,
+  sections: NarrationSections,
+  model: string,
+  requestBudget: number | undefined,
+  strictIo: boolean,
+): Promise<Map<string, string[]> | null> {
+  const selectorPath = path.join(episodeDir, 'audio_chapters.json')
+  let selector: { sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }> } | null = null
+  try {
+    selector = JSON.parse(await fs.readFile(selectorPath, 'utf8'))
+  } catch (error) {
+    if (!isMissing(error) && strictIo) {
+      throw new Error(`The active audio selection cannot be read: ${(error as Error)?.message || String(error)}`)
+    }
+  }
+
+  if (selector) {
+    const rows = Array.isArray(selector.sections) ? selector.sections : []
+    const mapped = new Map<string, string[]>()
+    let valid = rows.length > 0
+    for (const row of rows) {
+      const slug = typeof row.slug === 'string' ? row.slug.trim() : ''
+      const files = selectedFiles(row)
+      const key = slug.toLowerCase()
+      if (!slug || !files || mapped.has(key)) { valid = false; break }
+      mapped.set(key, files)
+    }
+    for (const section of sections) {
+      const files = mapped.get(section.slug.toLowerCase())
+      const sectionText = normalizeForTts(section.text).text
+      if (!files || !sourceCountMatchesPlan(files, sectionText, requestBudget)) { valid = false; break }
+    }
+    if (valid) return mapped
+    if (strictIo) throw new Error('The active audio selection is malformed or incomplete; re-run Audio Assembly.')
+  }
+
+  if (!model) return null
+  const provenance = await readAudioQualityProvenance(episodeDir)
+  const chapters = new Map(Object.entries(provenance.chapters)
+    .map(([slug, chapter]) => [slug.toLowerCase(), chapter] as const))
+  const mapped = new Map<string, string[]>()
+  for (const section of sections) {
+    const chapter = chapters.get(section.slug.toLowerCase())
+    const sectionText = normalizeForTts(section.text).text
+    if (!chapter
+      || chapter.tts?.model_id !== model
+      || !sourceCountMatchesPlan(chapter.source_files, sectionText, requestBudget)) return null
+    const sourcePaths = chapter.source_files.map(file => path.join(audioDir, file))
+    let missing = false
+    for (const sourcePath of sourcePaths) {
+      try {
+        const stat = await fs.stat(sourcePath)
+        if (!stat.isFile() || stat.size <= 0) missing = true
+      } catch (error) {
+        if (isMissing(error)) missing = true
+        else if (strictIo) throw error
+        else return null
+      }
+    }
+    // A committed map remains authoritative when one of its exact files goes
+    // missing: return the names so the status reports that loss rather than
+    // falling back to a stale base file. Present bytes must still match the
+    // activation hash, and strict callers surface unreadable bytes.
+    if (!missing) {
+      const hash = await hashSubtitleAudioSources(sourcePaths)
+      if (!hash && strictIo) throw new Error(`Active audio for ${section.slug} cannot be read for verification.`)
+      if (!hash || hash !== chapter.source_audio_hash) return null
+    }
+    mapped.set(section.slug.toLowerCase(), [...chapter.source_files])
+  }
+  return mapped.size === sections.length ? mapped : null
 }
 
 /**
@@ -105,11 +231,13 @@ export async function getAudioStatus(
    * through to `findNarrationFile` so a list response resolves the episodes
    * tree once instead of once per episode. Omitted, every lookup happens
    * exactly as before.
-   */
+  */
   cache?: ProjectFactsCache,
+  /** Preserve unexpected artifact lookup/stat failures for measurement callers. */
+  options: { strictIo?: boolean } = {},
 ): Promise<AudioStatus> {
-  const narrationPath = await findNarrationFile(slug, episodeId, cache)
-  const audioDir = await resolveAudioDir(slug, narrationPath, episodeId)
+  const narrationPath = await findNarrationFile(slug, episodeId, cache, options)
+  const audioDir = await resolveAudioDir(slug, narrationPath, episodeId, cache, options)
   const sections = await parseNarrationDocx(narrationPath)
   const code = episodeId.toUpperCase()
 
@@ -143,6 +271,33 @@ export async function getAudioStatus(
   // reading job history — a caller that knows the model must not lose it
   // because the job store happened to be unreadable.
   let model: string = selectedModelId?.trim() || ''
+  if (model) {
+    provider = 'genstudio'
+    requestBudget = await publishedRequestBudgetFor(model)
+  }
+  // Owner decision #8, 2026-09-20 — THIS episode's own record of the voice
+  // model its active audio was generated with. It outranks the job-history
+  // borrow below because it is a fact about this episode rather than an
+  // inference from another run: after a model change the borrow predicts the
+  // wrong `_partN` filenames and reports parts that were never meant to exist
+  // (AGENTS.md §4). The stored boundary is used as recorded, because the files
+  // on disk were split at exactly that number — a catalogue change since then
+  // must not re-interpret them. A record that names a model but carries no
+  // usable budget is re-resolved against the live catalogue, never guessed.
+  if (!model) {
+    const record = await readAudioTtsModelRecord(episodeDirForNarration(narrationPath))
+    if (record) {
+      model = record.model_id
+      provider = 'genstudio'
+      requestBudget = record.request_budget > 0
+        ? record.request_budget
+        : await publishedRequestBudgetFor(record.model_id)
+    }
+  }
+  // LEGACY FALLBACK — episodes generated before that record existed. Terminal
+  // job history is pruned, so an episode whose job has aged out borrows the
+  // project's most recent audio job: the same model in practice, and the only
+  // answer available when nothing recorded one.
   if (!model) {
     try {
       const { getJobs } = await import('./job-queue.js')
@@ -150,26 +305,29 @@ export async function getAudioStatus(
       const audioJobs = jobs
         .filter(j => j.type === 'audio')
         .sort((a, b) => String(b.finished_at || b.created_at || '').localeCompare(String(a.finished_at || a.created_at || '')))
-      // This episode's own job names the model it was generated with. Terminal
-      // job history is pruned, so an episode whose job has aged out falls back
-      // to the project's most recent audio job — the same model in practice,
-      // and a far better answer than a constant.
       const lastAudio = audioJobs.find(j => (j.episode_id || '').toUpperCase() === code) || audioJobs[0]
       const remembered = (lastAudio?.params as any)?.model
       if (typeof remembered === 'string') model = remembered.trim()
     } catch { /* no history — handled below */ }
+    if (model) {
+      provider = 'genstudio'
+      requestBudget = await publishedRequestBudgetFor(model)
+    }
   }
-  if (model) {
-    provider = 'genstudio'
-    try {
-      const apiKey = await getApiKey('genstudio').catch(() => '')
-      if (apiKey) {
-        const ttsModel = (await listGenStudioTtsModels(apiKey).catch(() => []))
-          .find(candidate => candidate.id === model)
-        if (ttsModel) requestBudget = resolveTtsRequestBudget(ttsModel).effective
-      }
-    } catch { /* boundary unresolved — handled per section below */ }
-  }
+
+  // A request-scoped selected model asks what this run must produce, so it
+  // deliberately bypasses the currently active map. All other callers ask
+  // what is active now and receive exact selector/provenance filenames.
+  const activeSources = selectedModelId?.trim()
+    ? null
+    : await activeAudioSources(
+      episodeDirForNarration(narrationPath),
+      audioDir,
+      sections,
+      model,
+      requestBudget,
+      options.strictIo === true,
+    )
 
   const expected: ExpectedChunk[] = []
   for (const section of sections) {
@@ -191,6 +349,24 @@ export async function getAudioStatus(
       ? splitGenStudioApiRequests(sectionText, requestBudget)
       : [sectionText]
 
+    const selected = activeSources?.get(section.slug.toLowerCase())
+    if (selected) {
+      const texts = selected.length === 1 ? [sectionText] : chunks
+      for (const [index, filename] of selected.entries()) {
+        expected.push({
+          filename,
+          fullPath: path.join(audioDir, filename),
+          text: texts[index]!,
+          sectionLabel: section.label,
+          sectionWordCount: sectionStats.wordCount,
+          sectionCharacterCount: sectionStats.characterCount,
+          chunkIndex: index,
+          totalChunks: selected.length,
+        })
+      }
+      continue
+    }
+
     // v1.0.310 — imported / hand-placed whole-chapter override. If the
     // generator WOULD split this section into _part1/_part2… but a single
     // `{code}_{slug}.mp3` is already on disk, treat that one file as the whole
@@ -202,9 +378,11 @@ export async function getAudioStatus(
     if (chunks.length > 1) {
       let basePresent = false
       try {
-        const actual = await findFileCaseInsensitive(audioDir, base)
+        const actual = await findFileCaseInsensitive(audioDir, base, options)
         if (actual) basePresent = (await fs.stat(actual)).size > 0
-      } catch { /* unreadable → fall through to the chunk expectation */ }
+      } catch (error) {
+        if (options.strictIo && !isMissing(error)) throw error
+      }
       if (basePresent) {
         expected.push({
           filename: base,
@@ -244,11 +422,13 @@ export async function getAudioStatus(
   const present: string[] = []
   for (const ec of expected) {
     try {
-      const actual = await findFileCaseInsensitive(audioDir, ec.filename)
+      const actual = await findFileCaseInsensitive(audioDir, ec.filename, options)
       if (!actual) continue
       const st = await fs.stat(actual)
       if (st.size > 0) present.push(ec.filename)
-    } catch { /* treat unreadable as missing */ }
+    } catch (error) {
+      if (options.strictIo && !isMissing(error)) throw error
+    }
   }
 
   const missing = expected.filter(e => !present.includes(e.filename)).map(e => e.filename)

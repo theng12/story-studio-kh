@@ -20,6 +20,7 @@ import {
   recoverTtsToFile as recoverTtsGenStudio,
   listTtsModels as listGenStudioTtsModels,
   listVoices as listGenStudioVoices,
+  resolveGenStudioTtsSpeed,
   refreshGenStudioAdmission,
 } from '../lib/genstudio-client.js'
 import { isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
@@ -52,6 +53,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { correctChapterCues } from '../lib/srt-correction.js'
 import { AudioQualityVerificationCreditCeilingError, verifyAudioQualityCandidateRawTranscript } from '../services/audio-quality-transcription.js'
 import { promoteAudioQualityCandidate, readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
+import { readAudioTtsModelRecord, writeAudioTtsModelRecord, type AudioTtsModelRecord } from '../services/audio-tts-model-record.js'
 import type {
   GenerateAudioRequest, Job, AudioModelConfig, JobItemAttempt,
 } from '../models/types.js'
@@ -89,26 +91,61 @@ async function selectNormalAudioSources(
   episodeDir: string,
   audioDir: string,
   sources: Record<string, string[]>,
-): Promise<void> {
+  beforeCommit: () => Promise<void>,
+): Promise<number | null> {
   const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
-  await withLock(sidecarPath, async () => {
+  return withLock(sidecarPath, async () => {
     let sidecar: { sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }>; [key: string]: unknown }
     try { sidecar = JSON.parse(await fs.readFile(sidecarPath, 'utf8')) }
-    catch { return }
-    if (!Array.isArray(sidecar.sections)) return
+    catch (error: any) {
+      // Before Audio Assembly creates this optional selector, complete base
+      // files are implicitly active. Malformed or unreadable selectors are
+      // different: they may carry an active candidate mapping we must not
+      // overwrite or silently ignore.
+      if (error?.code === 'ENOENT') {
+        await beforeCommit()
+        return null
+      }
+      throw new Error(`the active audio selection cannot be read (${error?.message || String(error)})`)
+    }
+    if (!Array.isArray(sidecar.sections)) throw new Error('the active audio selection has no valid sections')
+    const planned: Array<{ row: { source_file?: unknown; source_files?: unknown }; files: string[] }> = []
     for (const [slug, files] of Object.entries(sources)) {
-      if (!files.length || !(await Promise.all(files.map(async file => {
-        const stat = await fs.stat(path.join(audioDir, file)).catch(() => null)
-        return !!stat?.isFile() && stat.size > 0
-      }))).every(Boolean)) continue
+      if (!files.length || files.some(file => !file.trim() || path.basename(file) !== file)) {
+        throw new Error(`the replacement source list is invalid for ${slug}`)
+      }
+      const available = await Promise.all(files.map(async file => {
+        try {
+          const stat = await fs.stat(path.join(audioDir, file))
+          return stat.isFile() && stat.size > 0
+        } catch (error: any) {
+          if (error?.code === 'ENOENT') return false
+          throw error
+        }
+      }))
+      if (!available.every(Boolean)) throw new Error(`replacement audio is missing or empty for ${slug}`)
       const row = sidecar.sections.find(section => typeof section.slug === 'string'
         && section.slug.toLowerCase() === slug.toLowerCase())
-      if (!row) continue
+      if (!row) throw new Error(`the active audio selection has no row for ${slug}`)
+      planned.push({ row, files })
+    }
+    await beforeCommit()
+    for (const { row, files } of planned) {
       row.source_files = [...files]
       row.source_file = files[0]!
     }
     await writeJsonAtomic(sidecarPath, sidecar)
+    return planned.length
   })
+}
+
+function audioActivationError(reason: string): Error {
+  return new Error(
+    `Audio replacement could not be activated because ${reason}. `
+    + 'The paid audio files were kept and the previous selection and model remain active. '
+    + 'Retry can reuse completed provider work; if a selected section was skipped without replacement evidence, '
+    + 'use Replace/Regenerate to complete it or restore and reselect the intended source.',
+  )
 }
 
 /**
@@ -186,6 +223,7 @@ export async function findNarrationFile(
    * resolves. That is detected (the folder is not there) rather than assumed.
    */
   cache: ProjectFactsCache = createProjectFactsCache(slug),
+  options: { strictIo?: boolean } = {},
 ): Promise<string> {
   const code = episodeId.toUpperCase()
   // Prefer the Markdown narration; fall back to a legacy .docx.
@@ -210,7 +248,9 @@ export async function findNarrationFile(
           if (found) return found
         }
       }
-    } catch { /* skip */ }
+    } catch (error) {
+      if (options.strictIo && (error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
+    }
     return null
   }
 
@@ -224,14 +264,20 @@ export async function findNarrationFile(
       const candidate = path.join(paths.script_dir, name)
       try {
         if ((await fs.stat(candidate)).isFile()) return candidate
-      } catch { /* not there — try the next name */ }
+      } catch (error) {
+        if (options.strictIo && (error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
+      }
     }
 
     // Not in the canonical spot. If the episode's folder is where the
     // template says, the file is inside it or it does not exist — so search
     // just that folder rather than the whole project.
     let episodeDirPresent = false
-    try { episodeDirPresent = (await fs.stat(paths.episode_dir)).isDirectory() } catch { /* renamed or absent */ }
+    try {
+      episodeDirPresent = (await fs.stat(paths.episode_dir)).isDirectory()
+    } catch (error) {
+      if (options.strictIo && (error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
+    }
     if (episodeDirPresent) {
       const inEpisode = await findRecursive(paths.episode_dir)
       if (inEpisode) return inEpisode
@@ -244,7 +290,9 @@ export async function findNarrationFile(
         const legacy = path.join(outputRoot, `${code} - Script`, name)
         try {
           if ((await fs.stat(legacy)).isFile()) return legacy
-        } catch { /* not there — preserve the genuine-missing result */ }
+        } catch (error) {
+          if (options.strictIo && (error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
+        }
       }
       throw new NarrationMissingError(episodeId, filename)
     }
@@ -253,6 +301,7 @@ export async function findNarrationFile(
     // for.
   } catch (e) {
     if (e instanceof NarrationMissingError) throw e
+    if (options.strictIo && (e as NodeJS.ErrnoException)?.code !== 'ENOENT') throw e
     /* anything else: fall through to the full search */
   }
 
@@ -261,29 +310,47 @@ export async function findNarrationFile(
   throw new NarrationMissingError(episodeId, filename)
 }
 
-export async function resolveAudioDir(projectSlug: string, narrationPath: string, episodeId: string): Promise<string> {
-  const code = episodeId.toUpperCase()
+/**
+ * The episode ROOT that owns a narration file.
+ *
+ * Narration usually sits at the episode root, but the script folder is also a
+ * legal home for it — in which case the episode root is one level up. Exported
+ * so `resolveAudioDir` and the TTS-model record agree on one rule instead of
+ * each re-deriving it (the sidecar must land exactly where the reconciler looks
+ * for it).
+ */
+export function episodeDirForNarration(narrationPath: string): string {
   const parent = path.dirname(narrationPath)
   const parentName = path.basename(parent).replace(/^✅\s*/, '').toLowerCase()
-
   const isScriptFolder = parentName.includes('script') && !parentName.includes('prompt')
-  const episodeDir = isScriptFolder ? path.dirname(parent) : parent
+  return isScriptFolder ? path.dirname(parent) : parent
+}
+
+export async function resolveAudioDir(
+  projectSlug: string,
+  narrationPath: string,
+  episodeId: string,
+  cache?: ProjectFactsCache,
+  options: { strictIo?: boolean } = {},
+): Promise<string> {
+  const code = episodeId.toUpperCase()
+  const episodeDir = episodeDirForNarration(narrationPath)
 
   // Use centralized config helper for subfolder name
   const { resolveSubfolderNames } = await import('../services/utils.js')
-  const names = await resolveSubfolderNames(projectSlug, code)
+  const names = await resolveSubfolderNames(projectSlug, code, cache)
   const audioName = names.audio // e.g. "TN0024 - 07 Audio Assets"
 
   // Level B (opt-in): audio is heavy media — route to the external media root
   // when the project configured one; otherwise resolve under the iCloud
   // episodeDir exactly as before.
   const { mediaEpisodeBaseForCode } = await import('../services/media-root.js')
-  const base = (await mediaEpisodeBaseForCode(projectSlug, code)) ?? episodeDir
+  const base = (await mediaEpisodeBaseForCode(projectSlug, code, cache)) ?? episodeDir
 
   // v1.0.338 — shared lookup (handles the ✅ done-marker prefix); falls
   // back to the config-based path, which the writer creates on demand.
   const { findSubfolder } = await import('../lib/folder-resolver.js')
-  return (await findSubfolder(base, audioName)) ?? path.join(base, audioName)
+  return (await findSubfolder(base, audioName, options)) ?? path.join(base, audioName)
 }
 
 /**
@@ -519,6 +586,15 @@ export async function generateAudio(job: Job): Promise<void> {
   // The product every request in this run buys. Read once here, beside the
   // boundary, because both have to survive the handover into `processTask`.
   const genStudioModelId = ttsModel.id
+  const genStudioSupportsSpeed = ttsModel.supports_speed
+  const genStudioMinimumSpeed = ttsModel.minimum_speed
+  const genStudioMaximumSpeed = ttsModel.maximum_speed
+  const genStudioSpeed = resolveGenStudioTtsSpeed(
+    req.speed ?? 1,
+    genStudioSupportsSpeed,
+    genStudioMinimumSpeed,
+    genStudioMaximumSpeed,
+  )
   const genStudioProviderLabel = ttsModel.provider_name || 'this voice provider'
   const admission = await refreshGenStudioAdmission(apiKey)
   const requestBudget = resolveTtsRequestBudget(ttsModel)
@@ -546,6 +622,20 @@ export async function generateAudio(job: Job): Promise<void> {
 
   const narrationPath = await findNarrationFile(project_slug, episode_id)
   job.output_lines.push(`Found narration: ${path.basename(narrationPath)}`)
+
+  const episodeDir = episodeDirForNarration(narrationPath)
+  const priorActiveModelRecord = await readAudioTtsModelRecord(episodeDir)
+  const selectedModelRecord: AudioTtsModelRecord = {
+    schema_version: 1,
+    episode_code: episode_id.toUpperCase(),
+    model_id: genStudioModelId,
+    ...(ttsModel.display_name ? { model_display_name: ttsModel.display_name } : {}),
+    ...(ttsModel.provider_name ? { provider_name: ttsModel.provider_name } : {}),
+    published_maximum_input_characters: genStudioMaxCharacters,
+    request_budget: requestBudget.effective,
+    safety_margin: requestBudget.safety_margin,
+    recorded_at: new Date().toISOString(),
+  }
 
   const activeAudioDir = await resolveAudioDir(project_slug, narrationPath, episode_id)
   const qualityPaths = qualityRepairActionId
@@ -785,6 +875,20 @@ export async function generateAudio(job: Job): Promise<void> {
     )
   }
 
+  // A record-less episode needs its exact split boundary before the first POST
+  // so interrupted provider work remains reconstructable after queue history
+  // ages out. An existing record is different: it describes still-active
+  // audio and cannot move merely because a replacement was attempted. The
+  // task manifest + genstudio_recovery checkpoint below persist that in-flight
+  // request; the active record moves only with active-source promotion.
+  if (!isCancelled() && !req.no_overwrite && !qualityRepairActionId && !priorActiveModelRecord) {
+    await writeAudioTtsModelRecord(episodeDir, selectedModelRecord)
+    job.output_lines.push(
+      `Recorded voice model for recovery (audio_tts_model.json): ${genStudioModelId}`
+      + ` · splitting at ${requestBudget.effective.toLocaleString()} characters`,
+    )
+  }
+
   // ── Live per-item progress ────────────────────────────────────────────────
   // A run this long has to be able to say what it is doing. `job.progress`
   // drives the bar; `job.item_progress` names the section in flight and, when
@@ -854,7 +958,10 @@ export async function generateAudio(job: Job): Promise<void> {
         // validated against the live catalogue and printed above has to reach
         // the wire — not just the log line.
         modelId: genStudioModelId,
-        speed: req.speed ?? 1,
+        speed: genStudioSpeed,
+        supportsSpeed: genStudioSupportsSpeed,
+        minimumSpeed: genStudioMinimumSpeed,
+        maximumSpeed: genStudioMaximumSpeed,
         controls: requestControls,
         // The PUBLISHED boundary, deliberately — this is the contract check
         // against what GenStudio will accept, not Story Studio's planning
@@ -905,7 +1012,10 @@ export async function generateAudio(job: Job): Promise<void> {
         // has to travel on it. Carried on the recovery object too — harmless
         // there, and it keeps one literal serving both paths.
         modelId: genStudioModelId,
-        speed: req.speed ?? 1,
+        speed: genStudioSpeed,
+        supportsSpeed: genStudioSupportsSpeed,
+        minimumSpeed: genStudioMinimumSpeed,
+        maximumSpeed: genStudioMaximumSpeed,
         controls: requestControls,
         // The submit path rebuilds the request body from THIS object, so the
         // published boundary has to travel on it too. Without it the rebuild
@@ -987,7 +1097,7 @@ export async function generateAudio(job: Job): Promise<void> {
       requestIdentity,
       text: task.chunkText,
       voiceId: effectiveVoice || '',
-      speed: req.speed ?? 1,
+      speed: genStudioSpeed,
       maxInputCharacters: genStudioMaxCharacters,
       // Spread conditionally for the same reason the idempotency digest does
       // it: a model publishing no controls hashes exactly as before, so an
@@ -1043,7 +1153,9 @@ export async function generateAudio(job: Job): Promise<void> {
     const actionOwnedRecovery = !!qualityRepairActionId
       && reusableEntry?.idempotency_key === buildGenStudioSubmission({
         text: task.chunkText, voiceId: effectiveVoice, modelId: genStudioModelId,
-        speed: req.speed ?? 1, controls: requestControls, maxInputCharacters: genStudioMaxCharacters,
+        speed: genStudioSpeed, supportsSpeed: genStudioSupportsSpeed,
+        minimumSpeed: genStudioMinimumSpeed, maximumSpeed: genStudioMaximumSpeed,
+        controls: requestControls, maxInputCharacters: genStudioMaxCharacters,
         requestIdentity: `${requestIdentity}:regenerate:${generationActionId || job.job_id}`,
       }).idempotencyKey
     let recoveryEntry = terminalFailure || (explicitRegeneration && !actionOwnedRecovery) ? null : reusableEntry
@@ -1243,7 +1355,7 @@ export async function generateAudio(job: Job): Promise<void> {
   }
   if (!isCancelled() && !qualityRepairActionId) {
     const { getAudioStatus } = await import('../services/audio-reconciler.js')
-    const status = await getAudioStatus(project_slug, episode_id)
+    const status = await getAudioStatus(project_slug, episode_id, genStudioModelId)
     const selectedLabels = new Set(sections.map(section => section.label))
     const expected = status.expected.filter(chunk => selectedLabels.has(chunk.sectionLabel))
     const missingSet = new Set(status.missing)
@@ -1260,27 +1372,58 @@ export async function generateAudio(job: Job): Promise<void> {
   // check. Versioned candidates deliberately do not replace this record: they
   // are not active audio until the quality promotion transaction says so.
   if (!isCancelled() && !req.no_overwrite && !qualityRepairActionId) {
-    try {
-      const paths = await resolveEpisodePathsByCodeWithSidecar(project_slug, episode_id, 'audio_chapters.json')
-      const manifest = await readManifest(audioDir)
-      const updates: Array<{ slug: string; sourceFiles: string[]; sourceAudioHash: string; taskIds: Record<string, string>; idempotencyKeys: Record<string, string>; scriptHash: string }> = []
-      for (const [index, section] of sections.entries()) {
-        const parts = genStudioRequestPlan[index]!.parts
-        const sourceFiles = parts.map((_, part) => parts.length > 1
-          ? `${episode_id.toUpperCase()}_${section.slug}_part${part + 1}.mp3`
-          : `${episode_id.toUpperCase()}_${section.slug}.mp3`)
-        const sourceAudioHash = await hashSubtitleAudioSources(sourceFiles.map(file => path.join(audioDir, file)))
-        if (!sourceAudioHash) continue
-        const taskIds: Record<string, string> = {}
-        const idempotencyKeys: Record<string, string> = {}
-        for (const file of sourceFiles) {
-          const task = manifest.tasks[file]
-          if (task?.task_id) taskIds[file] = task.task_id
-          if (task?.idempotency_key) idempotencyKeys[file] = task.idempotency_key
-        }
-        updates.push({ slug: section.slug, sourceFiles, sourceAudioHash, taskIds, idempotencyKeys, scriptHash: hashInput(section.text) })
+    const manifest = await readManifest(audioDir)
+    const updates: Array<{ slug: string; sourceFiles: string[]; sourceAudioHash: string; taskIds: Record<string, string>; idempotencyKeys: Record<string, string>; scriptHash: string }> = []
+    for (const [index, section] of sections.entries()) {
+      const parts = genStudioRequestPlan[index]!.parts
+      const sourceFiles = parts.map((_, part) => parts.length > 1
+        ? `${episode_id.toUpperCase()}_${section.slug}_part${part + 1}.mp3`
+        : `${episode_id.toUpperCase()}_${section.slug}.mp3`)
+      const sourceAudioHash = await hashSubtitleAudioSources(sourceFiles.map(file => path.join(audioDir, file)))
+      if (!sourceAudioHash) continue
+      const taskIds: Record<string, string> = {}
+      const idempotencyKeys: Record<string, string> = {}
+      for (const file of sourceFiles) {
+        const task = manifest.tasks[file]
+        if (task?.task_id) taskIds[file] = task.task_id
+        if (task?.idempotency_key) idempotencyKeys[file] = task.idempotency_key
       }
-      await updateAudioQualityProvenance(paths.episode_dir, existing => {
+      updates.push({ slug: section.slug, sourceFiles, sourceAudioHash, taskIds, idempotencyKeys, scriptHash: hashInput(section.text) })
+    }
+    const recoveryAssets = job.params?.genstudio_recovery?.version === 1
+      && job.params.genstudio_recovery.route === 'genstudio'
+      ? job.params.genstudio_recovery.assets
+      : {}
+    const belongsToCompletedReplacement = (file: string): boolean => {
+      if (writtenChunkPaths.has(path.join(audioDir, file))) return true
+      const task = manifest.tasks[file]
+      const recovery = recoveryAssets?.[file]
+      return task?.provider === 'genstudio'
+        && task.operation === 'tts'
+        && task.last_state === 'succeeded'
+        && !!task.task_id
+        && !!task.idempotency_key
+        && recovery?.operation === 'tts'
+        && recovery.state === 'succeeded'
+        && recovery.job_id === task.task_id
+        && recovery.idempotency_key === task.idempotency_key
+    }
+    const replacementSources = Object.fromEntries(updates
+      .filter(update => update.sourceFiles.every(belongsToCompletedReplacement))
+      .map(update => [update.slug, update.sourceFiles]))
+    const replacementCount = Object.keys(replacementSources).length
+    if (replacementCount === 0 && writtenChunkPaths.size === 0) {
+      // An ordinary non-force run over already-present audio is a no-op, not a
+      // replacement. This includes genuine legacy/imported whole-chapter
+      // files: do not demand task evidence for bytes this run never attempted
+      // to activate, and do not rewrite their selection or committed model.
+      job.output_lines.push('Existing audio was already present; active source selection was left unchanged.')
+    } else {
+      if (updates.length !== sections.length || replacementCount !== sections.length) {
+        throw audioActivationError('not every requested section has complete durable replacement evidence')
+      }
+
+      const commitProvenance = () => updateAudioQualityProvenance(episodeDir, existing => {
         for (const update of updates) {
           existing.chapters[update.slug] = {
             normalized_script_hash: update.scriptHash,
@@ -1298,23 +1441,23 @@ export async function generateAudio(job: Job): Promise<void> {
           }
         }
       })
-      // The generated base files are now the deliberate active selection.
-      // This only moves the sidecar after every requested write succeeded;
-      // a failed replacement leaves the prior valid candidate mapping intact.
-      await selectNormalAudioSources(
-        paths.episode_dir,
-        audioDir,
-        Object.fromEntries(updates
-          // A partial ordinary recovery must not replace a selected candidate
-          // with a mix of old base and newly written bytes.  A deliberate
-          // overwrite writes every section part and is therefore eligible.
-          .filter(update => update.sourceFiles.every(file => writtenChunkPaths.has(path.join(audioDir, file))))
-          .map(update => [update.slug, update.sourceFiles])),
-      )
-    } catch {
-      // Audio bytes are already safely written. A later status call classifies
-      // missing provenance as Review needed instead of pretending it is fresh.
-      job.output_lines.push('Audio provenance could not be recorded; quality review will remain unavailable until a successful active generation.')
+
+      let selectedSources: number | null
+      try {
+        selectedSources = await selectNormalAudioSources(
+          episodeDir,
+          audioDir,
+          replacementSources,
+          commitProvenance,
+        )
+      } catch (error: any) {
+        throw audioActivationError(error?.message || String(error))
+      }
+      if (selectedSources !== null && selectedSources !== sections.length) {
+        throw audioActivationError('the active selection did not accept every requested section')
+      }
+      await writeAudioTtsModelRecord(episodeDir, selectedModelRecord)
+      job.output_lines.push(`Activated voice model boundary: ${genStudioModelId}`)
     }
   }
   if (!isCancelled() && qualityRepairActionId && qualityPaths) {

@@ -142,6 +142,7 @@ describe('Content Store proof route contract', () => {
     ;(globalThis as any).__contentStorePageStore = {
       account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
       catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
+      recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
       refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
       confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
     }
@@ -167,6 +168,7 @@ describe('Content Store proof route contract', () => {
       account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
       catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), lastVerifiedAt: ref(null), loading: ref(false),
       error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio could not be reached.' }),
+      recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
       refresh: async () => { throw new Error('offline') }, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
       confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
     }
@@ -236,6 +238,7 @@ describe('Content Store proof route contract', () => {
     ;(globalThis as any).__contentStorePageStore = {
       account: ref({ contentAccountId: 'content_a', availableCredits: 500, contentSpendableCredits: 500, owned: [] }), products: ref([product]), installed: ref([]), shelves: ref([{ id: 'featured', productIds: ['formula'] }]), attempts,
       catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
+      recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
       refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { attempts.value = [attempt]; return attempt },
       confirmPurchase: async () => { attempts.value = [{ ...attempt, status: 'completed' }]; return attempts.value[0] }, installRelease: async () => ({ activated: false }),
     }
@@ -334,6 +337,7 @@ describe('Content Store proof route contract', () => {
       account: ref({ contentAccountId: 'content_a', availableCredits: 500, contentSpendableCredits: 500, owned: [] }),
       products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
       catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-17T10:00:00Z'), loading: ref(false), error: ref(null),
+      recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
       refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
       confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
       ...overrides,

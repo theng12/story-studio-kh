@@ -11,12 +11,16 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 
 import {
   isIntroductionMarker,
   isScriptChaptersDocx,
   deriveScriptFolderState,
   stripDecorativePrefix,
+  fileHasContent,
 } from '../services/asset-status.js'
 
 describe('isIntroductionMarker', () => {
@@ -134,5 +138,64 @@ describe('stripDecorativePrefix', () => {
 
   test('leaves plain folder names untouched', () => {
     assert.equal(stripDecorativePrefix('EP0001 - Title'), 'EP0001 - Title')
+  })
+})
+
+describe('fileHasContent', () => {
+  // The predicate behind every completion check in asset-status.ts. It used to
+  // be `existsSync(p) && (await stat(p)).size > 0` — two syscalls for one
+  // question, and the single hottest function on a cold `/episodes` (69,860
+  // `existsSync` + 53,840 `stat` on the owner's 302-episode project). The
+  // `existsSync` is gone; these pin the answers so the removal cannot quietly
+  // change what "done" means.
+  test('absent → false, and does not throw', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ss-hascontent-'))
+    try {
+      assert.equal(await fileHasContent(path.join(dir, 'not-here.json')), false)
+      // A path whose PARENT is absent must also answer false rather than throw.
+      assert.equal(await fileHasContent(path.join(dir, 'no', 'such', 'file.json')), false)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('zero bytes → false', async () => {
+    // The case that separates "the file is there" from "the step is done".
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ss-hascontent-'))
+    try {
+      const empty = path.join(dir, 'empty.json')
+      await fs.writeFile(empty, '')
+      assert.equal(await fileHasContent(empty), false)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('content → true, including a whitespace-only file', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ss-hascontent-'))
+    try {
+      const small = path.join(dir, 'one.json')
+      const spaces = path.join(dir, 'spaces.json')
+      await fs.writeFile(small, '{}')
+      await fs.writeFile(spaces, '   \n')
+      assert.equal(await fileHasContent(small), true)
+      assert.equal(await fileHasContent(spaces), true)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a directory keeps answering true, as it did before the existsSync was dropped', async () => {
+    // stat() succeeds on a directory with a real size, and existsSync() said
+    // true too — so this is unchanged, and worth stating because it is the one
+    // case where "drop the pre-check" could plausibly have differed.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ss-hascontent-'))
+    try {
+      const sub = path.join(dir, 'a-folder')
+      await fs.mkdir(sub)
+      assert.equal(await fileHasContent(sub), true)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
   })
 })

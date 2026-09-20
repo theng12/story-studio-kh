@@ -21,6 +21,8 @@ import {
   listMigrationNotices,
 } from '../services/library-migration.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import path from 'path'
+import os from 'os'
 
 export const router = Router()
 
@@ -179,6 +181,30 @@ router.post('/library/archive/preview', async (req, res) => {
   void (async () => {
     try {
       const { previewArchiveSweep } = await import('../services/archive-sweep.js')
+      // The sweep WALKS AND HASHES every file under `source_root`, which arrives
+      // from the request body. `{"source_root":"/"}` therefore read and hashed
+      // the whole disk — unbounded CPU and I/O, and a filename/size oracle over
+      // anything readable.
+      //
+      // The root is deliberately NOT confined to the Library: sweeping a folder
+      // the OWNER CHOSE is the feature, and it may legitimately be an external
+      // drive or a temp folder (`archive-preview-route.test.ts` scans one).
+      // Confining it broke that contract and the gate said so in one run. What
+      // is refused is a root that means "everything": the filesystem root, the
+      // home directory itself, and any path too shallow to be a folder someone
+      // picked on purpose.
+      const requestedRoot = typeof req.body?.source_root === 'string' ? req.body.source_root.trim() : ''
+      if (requestedRoot) {
+        const resolved = path.resolve(requestedRoot)
+        const segments = resolved.split(path.sep).filter(Boolean)
+        const tooBroad = resolved === path.parse(resolved).root
+          || resolved === path.resolve(os.homedir())
+          || segments.length < 2
+        if (tooBroad) {
+          sweep.error = 'Choose the folder that holds the videos — a whole disk or your home folder is too broad to scan.'
+          return
+        }
+      }
       sweep.result = await previewArchiveSweep({
         sourceRoot: req.body?.source_root,
         shouldStop: () => sweep.stop,

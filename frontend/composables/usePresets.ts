@@ -88,7 +88,17 @@ export interface UsePresetsOptions<T> {
 // when a batch reused that preset, every batched episode inherited the
 // stale title — the script generator then wrote content into folders
 // named "{code} - {stale-title}", creating duplicate-per-episode directories.
-const DEFAULT_EXCLUDE_KEYS = ['episode_id', 'episodeId', 'episode', 'title']
+/**
+ * Keys never captured by a preset, at any depth: the per-episode identifiers.
+ *
+ * v1.4.205 — EXPORTED. `excludeKeys` REPLACES this list rather than adding to
+ * it (`opts.excludeKeys ?? DEFAULT_EXCLUDE_KEYS`), which is a trap: a page that
+ * passes its own list silently starts snapshotting `episode_id` again and the
+ * preset carries one episode's identity onto another. Until now the only
+ * workaround was for each caller to re-type these four strings, which drifts.
+ * Callers must spread this: `[...DEFAULT_EXCLUDE_KEYS, 'their_key']`.
+ */
+export const DEFAULT_EXCLUDE_KEYS = ['episode_id', 'episodeId', 'episode', 'title']
 
 /**
  * Recursively clone `value`, omitting any object key in `keys` at any

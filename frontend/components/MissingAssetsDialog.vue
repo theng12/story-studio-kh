@@ -1,17 +1,20 @@
 <template>
-  <Modal :visible="visible" size="lg" @close="emit('close')">
+  <Modal :visible="visible" size="lg" labelledby="mad-title" @close="emit('close')">
     <div class="dialog-head">
       <h2 id="mad-title" class="dialog-title">
         <span aria-hidden="true">&#9888;</span>
-        Missing assets
+        {{ hasUnmeasurable ? 'Asset audit' : 'Missing assets' }}
       </h2>
       <p class="dialog-sub text-muted">
         {{ summary }}
       </p>
-      <p class="dialog-sub text-muted" style="margin-top: 6px;">
+      <p v-if="hasRepairableMissing" class="dialog-sub text-muted" style="margin-top: 6px;">
         Nothing has been regenerated. This is a read-only report — fix by
         opening the matching <strong>Repair</strong> button on each page,
         or <NuxtLink :to="repairLink" @click="emit('close')">Repair</NuxtLink> on the Production Board.
+      </p>
+      <p v-else-if="hasUnmeasurable" class="dialog-sub text-muted" style="margin-top: 6px;">
+        Re-scanning checks storage access again; it does not regenerate assets.
       </p>
     </div>
 
@@ -19,11 +22,21 @@
       <LoadingSpinner size="sm" /> Scanning…
     </div>
 
-    <div v-else-if="!report.total_missing" class="dialog-empty">
+    <div v-else-if="auditIsComplete" class="dialog-empty">
       <span aria-hidden="true">&#9989;</span> All assets match the project manifest.
     </div>
 
     <div v-else class="dialog-body">
+      <section v-if="hasUnmeasurable" class="uncertainty" aria-labelledby="audit-uncertainty-title">
+        <h3 id="audit-uncertainty-title">Some audit checks could not be completed</h3>
+        <p>Check that project storage is connected and readable, then retry the audit.</p>
+        <ul class="uncertainty-list">
+          <li v-for="item in unmeasurableStages" :key="`${item.episode_code}-${item.stage.stage}`">
+            <strong>{{ item.episode_code }} · {{ stageLabel(item.stage.stage) }}</strong>
+            <span>{{ item.stage.error || 'This stage could not be measured. Check storage access, then retry the audit.' }}</span>
+          </li>
+        </ul>
+      </section>
       <div
         v-for="ep in episodesWithGaps"
         :key="ep.episode_code"
@@ -72,7 +85,9 @@
 
     <div class="dialog-actions">
       <button class="btn btn-secondary" @click="emit('close')">Close</button>
+      <button v-if="hasUnmeasurable" class="btn btn-secondary" :disabled="busy" @click="emit('rescan')">Re-scan audit</button>
       <NuxtLink
+        v-if="hasRepairableMissing"
         class="btn btn-primary"
         :to="repairLink"
         :title="gapCodes.length
@@ -99,17 +114,28 @@ import type { AuditStage, ProjectAudit, EpisodeAudit, StageAudit } from '~/types
 
 const props = defineProps<{
   visible: boolean
+  busy?: boolean
   slug: string
   report: ProjectAudit | null
 }>()
 
-const emit = defineEmits<{ (e: 'close'): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'rescan'): void }>()
 
 const episodesWithGaps = computed<EpisodeAudit[]>(() =>
   (props.report?.episodes || []).filter(ep =>
-    ep.stages.some(s => s.started && s.missing.length > 0),
+    ep.stages.some(s => s.outcome === 'measured' && s.missing.length > 0),
   ),
 )
+
+const unmeasurableStages = computed(() => (props.report?.episodes || []).flatMap(ep =>
+  ep.stages.filter(stage => stage.outcome === 'unmeasurable').map(stage => ({
+    episode_code: ep.episode_code,
+    stage,
+  })),
+))
+const hasUnmeasurable = computed(() => unmeasurableStages.value.length > 0)
+const hasRepairableMissing = computed(() => episodesWithGaps.value.length > 0)
+const auditIsComplete = computed(() => !!props.report && !props.report.total_missing && !hasUnmeasurable.value)
 
 // v1.4.43 — this dialog has always listed the exact episodes with gaps and
 // then sent the user to a scan of the whole project anyway. Hand the codes
@@ -121,12 +147,15 @@ const repairLink = computed(() =>
   `/projects/${props.slug}/board?repair=1${gapCodes.value.map(c => `&episode=${encodeURIComponent(c)}`).join('')}`)
 
 function startedStagesWithMissing(ep: EpisodeAudit): StageAudit[] {
-  return ep.stages.filter(s => s.started && s.missing.length > 0)
+  return ep.stages.filter(s => s.outcome === 'measured' && s.missing.length > 0)
 }
 
 const summary = computed(() => {
   if (!props.report) return ''
   const { total_missing, episodes_with_missing } = props.report
+  if (hasUnmeasurable.value && total_missing === 0) return 'Some audit checks could not be completed.'
+  if (hasUnmeasurable.value) return `${total_missing} asset${total_missing === 1 ? '' : 's'} missing across `
+    + `${episodes_with_missing} episode${episodes_with_missing === 1 ? '' : 's'}; some checks could not be completed.`
   if (total_missing === 0) return 'Everything on disk matches what the project manifest expects.'
   return `${total_missing} asset${total_missing === 1 ? '' : 's'} missing across `
     + `${episodes_with_missing} episode${episodes_with_missing === 1 ? '' : 's'}.`
@@ -176,6 +205,18 @@ function jumpTo(code: string, stage: AuditStage): string {
   display: flex; flex-direction: column; gap: 16px;
   padding: 4px 0;
 }
+
+.uncertainty {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+}
+.uncertainty h3 { margin: 0; font-size: 14px; }
+.uncertainty p { margin: 6px 0 0; color: var(--text-secondary); font-size: 13px; }
+.uncertainty-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.uncertainty-list li { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.uncertainty-list span { color: var(--text-secondary); }
 
 .ep-block {
   border: 1px solid var(--border);

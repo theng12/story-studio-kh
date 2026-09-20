@@ -48,6 +48,7 @@ import { auditSceneClipCompletion, auditSceneImageCompletion } from '../services
 import { auditScenePromptCompletion } from '../services/scene-prompt-checkpoint.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
+import { inspectBrollAssemblyOutput } from '../services/video-visual-source.js'
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -125,6 +126,23 @@ export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repa
   return audit.missing_ids.length === 0 ? 'complete' : 'repair-required'
 }
 
+/** Re-use the producer's concrete final/narration proof during recovery. */
+export async function auditBrollAssemblyOutput(job: any): Promise<'complete' | 'repair-required'> {
+  try {
+    const inspection = await inspectBrollAssemblyOutput({
+      project_slug: job.project_slug,
+      episode_id: job.episode_id,
+      title: job.title || '',
+      output_dir: typeof job.output_dir === 'string' ? job.output_dir : undefined,
+    })
+    if (inspection.complete) return 'complete'
+    job.output_lines?.push(`${inspection.reason} ${inspection.retry_hint}`.trim())
+  } catch (error: any) {
+    job.output_lines?.push(`B-Roll completion proof could not be read (${error?.message || error}). Retry B-Roll Assembly.`)
+  }
+  return 'repair-required'
+}
+
 /** Register only producer-specific completion proofs; no generic file guess. */
 function registerCancellationAuditors(): void {
   registerJobCancellationAuditor('audio', async job => {
@@ -191,6 +209,9 @@ function registerCancellationAuditors(): void {
     registerJobCancellationAuditor(type, auditSceneClips)
   }
   registerJobCancellationAuditor('scene_plan_run', auditScenePlanOutput)
+  // Group 1.1b — `broll_assemble` had no auditor at all, so a truncated video
+  // (the generator encodes `-shortest`) reported Done over a cut-off render.
+  registerJobCancellationAuditor('broll_assemble', auditBrollAssemblyOutput)
   registerJobCancellationAuditor('video', async job => {
     const status = await getVideoStatus(job.project_slug, job.episode_id)
     return status.total > 0 && status.present === status.total ? 'complete' : 'repair-required'

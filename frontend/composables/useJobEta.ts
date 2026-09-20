@@ -441,8 +441,9 @@ export function describeJobExceptions(
   if (!job) return []
   const counts = summariseJobItems(job.item_progress)
   const waiting = (job.item_progress?.active || []).find(item => item.state === 'waiting_retry')
+  const canContinueAutomatically = job.status !== 'paused'
   const lines: JobExceptionLine[] = []
-  if (waiting) {
+  if (waiting && canContinueAutomatically) {
     const seconds = secondsUntil(waiting.retry_at, nowMs)
     lines.push({ key: 'waiting-retry', text: seconds && seconds > 0
       ? `Retrying automatically in ${seconds}s — no action needed.`
@@ -464,7 +465,7 @@ export function describeJobExceptions(
       text: `${prefix}${counts.failed.toLocaleString()} ${plural} ${counts.failed === 1 ? 'needs' : 'need'} another try.`
         + (contentRefused ? ' Review the prompt before trying again.' : ''),
     })
-  } else if (counts.remaining > 0 && (counts.queued > 0
+  } else if (canContinueAutomatically && counts.remaining > 0 && (counts.queued > 0
       || (job.genstudio_jobs || []).some(remote => remoteState(remote) === 'waiting_account_capacity'))) {
     lines.push({ key: 'waiting-capacity', text: 'Waiting for capacity — Story Studio will continue automatically.' })
   } else if (counts.remaining > 0 && !counts.inFlight && !(job.genstudio_jobs || []).length) {

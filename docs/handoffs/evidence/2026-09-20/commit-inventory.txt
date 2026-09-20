@@ -1,0 +1,73 @@
+Inventory basis: `git rev-list --reverse 9d34df7d58c571e17e90566bdc7936748fa018d2..HEAD` (70 commits); files-count from `git diff-tree --no-commit-id --name-only -r <hash>`.
+Classification: `docs-only` iff every changed path is under docs/, logs/, _handoffs/, is CHANGELOG.md, or ends in .md/.mdx; otherwise `runtime`. This is a path/extension heuristic only and makes no claim about behavioral correctness.
+hash subject files-count classification
+c253983250dec1289fbb30b56c927178648c8d7f Preserve published language tiers in capability catalogue 6 runtime
+a1f62d5d9a63b3ec691b6601660535ad3c1a8d60 Fix Pipeline writing lineup stage scope 6 runtime
+30d6001e3f07cad741eaa522f1bbbe9511be1718 Continue refunded image retries and recover automatic stall pauses 15 runtime
+c947d14af60dd4cc045c0662e12c57e7bf5bd395 Let missed local upload plans move to future cadence slots 11 runtime
+51cd69ed13a5a2d0ca3353cfd3192690d4bb57d7 Add selected subtitle regeneration and live TTS speed bounds 20 runtime
+4dc449ab8b88605a3306689646f64a8279cb35c3 Let planned video dates be re-laid in bulk 9 runtime
+8437c744470eec47b842bb033a39dacc1aa2c99d Wire Story Studio to the gateway-kh endpoint 15 runtime
+42a1fdaa4934d9df34a3fd7b06b521ee2175c64f Refuse an invented output allowance instead of substituting 8192 8 runtime
+cab196489df2e40aa48986faf6910d7b7275a93d Read the catalogue envelope the new endpoint publishes 7 runtime
+cf19641c3d379c8e8d0595549d7c86668f4b42b9 Publish a music row that leaves capability fields unstated 6 runtime
+4f7809790230f76472aced131880397704fac195 docs: the music row is no longer dropped 1 docs-only
+af8fbcac727b0e1ebd38050eb8e6acadc0fdfaef Reuse content pack verification instead of re-hashing every pack per request 5 runtime
+128f2363b7c8ead7d51d446117bf8b1841d242cf AGENTS.md: split the rules from the evidence behind them 2 docs-only
+49b3cbcf112d9575fd809c49af4111483f4aeff3 perf(episodes): read the project's facts once per request, not once per episode 17 runtime
+c3fc834c90975cb84ec4ab0236550297a6ec42d4 docs(handoff): the legacy-id gap was a stale deploy, verified from this side 4 docs-only
+14de0917d75b20aa1afbb2f91f79ef9e69c4fca0 chore: remove the retired multi-endpoint pool 7 runtime
+b66edc0d0e72544a0ece164f8f3076dd64fc62c4 security: close the path-traversal and code-execution holes found by audit 14 runtime
+b2694436de5bfa3208537c36746f5bb19575f619 security: escape the deletion regex, and require a bare basename on reference images 3 runtime
+220ac9ea06a3e9df5a8a73d32522ae483d37f93a fix: the id guard broke a legitimate id shape — validate the security property, not a charset 2 runtime
+bbaf767069d8506cb4537624333c1fd143fce9e0 fix(ui): the stop-work menu was unreachable, plus three more from the frontend audit 6 runtime
+00004036b9a03c2cd64ea1006f407cb1f0d91b1d fix(ui): the Video Assembly picker dialogs were never styled, so they never appeared 4 runtime
+ab767a47a4b31d64d654a45cbbe9401db5453d97 security: imported-audio chapter slug could write outside the project 4 runtime
+e6f171417c91093292a348cf386079fa4814709e security: the archive scan could be aimed at the whole filesystem 4 runtime
+7300c2308e316820122c04bb973ef4688764b5f7 fix(ui): a forced run stopped being forced, and a delete wiped other files' warnings 5 runtime
+b4a136925b208fbce0d7a11f1d2a65350d3968bb fix: refuse an absurdly broad archive root, not every root outside the Library 4 runtime
+7d14413c90a6acaf1d72314ad2d395356a3b9bfb docs(audit): persist the full defect audit before the findings are lost 1 docs-only
+e5ba4176706617051ae90311b9dee945e311bda3 fix(ui): title alternatives leaked across episodes; six more shared styles were dead 5 runtime
+68ef99ae53f4dbb9700a77cd4e98787b92c3394f security: previews may read the Library and configured media folders, nothing else 8 runtime
+f7dbab3ab8313955132dca0d70c01d2187238b52 docs(audit): the fix plan, as durable memory 1 docs-only
+a8d15229e2e0769531f09cc3b24871f5e60363bf fix(queue): a job may not report done when an independent audit finds output missing 5 runtime
+91c2d9e1e45220a4f78512eec474d42ac8af2cb2 docs(audit): tick 1.1a, and record the fail-closed correction it produced 1 docs-only
+e7bd7cd2056d2af692cfa31107afb1ae2b1ef167 Revert "fix(queue): a job may not report done when an independent audit finds output missing" 6 runtime
+9edc6e265de654057bd3dc529b5c7fa244029871 docs(audit): 1.1a — record the exact scoping fix, found by reading the callers 1 docs-only
+5749434455161ef13ba6ac03f5a79094b77608d1 fix: an unstated citation capability is no longer reported as a refusal 8 runtime
+50414d2ecc23dc03d3d87a90a8148f52cefd9972 docs(audit): record the gateway handoff verification and its one open item 1 docs-only
+ebaf4e97acf1dd85869b8ff0570fd1cfb42bdb52 fix(queue): a locally-completed job may not report done when its auditor finds output missing 6 runtime
+4d62533cb1234c11f48ff7a1e2f6580fe32421d5 docs(audit): 1.1a gate-verified; record the 1.1b auditor contract and the broll_assemble design 1 docs-only
+90f2ee577b1d8be9b2e770f65375c7096619277c fix(broll): a truncated B-Roll render is no longer reported as finished 6 runtime
+3c7ffb94c3baffb9c641eea6fbc426aef1a85f2b docs(audit): 1.1b shrinks — 4 of the 7 named generators DO declare completion 1 docs-only
+02491f8908efbf39c76e72c7fb9048defb6efdbc docs(audit): subtitles_transcribe is not silent either; its real gap is the merged-transcript skip 1 docs-only
+65033c2e45827786ef25970be4d1e8e189ce9319 fix(subtitles): an existing transcript is kept only while its audio is current 6 runtime
+fdc948f7df8aebf11d371077cc72e0c71fef06f7 docs(audit): 1.1b's silent set is exhausted — no remaining missing-output generator among the named types 1 docs-only
+e90631da44be32162516807f56a07984c6ffd446 docs(audit): per-file pass over the eleven declarations — two tautologies, one of them not in the audit 1 docs-only
+69a2bf2843c227bfbbfa4c147cca74879282623a fix(youtube): a thumbnail update is done only when the record says so 6 runtime
+9044c174c3de53ed3824557a1e46403178f046d docs(audit): design for the subtitle stitch half — route the skip path through ensureStitchedSubtitle 1 docs-only
+c46497924dd1a289580bd5d42c3fa3dec02e3fc3 refactor: extract the subtitle stitch into a helper (no behaviour change) 2 runtime
+71455fe4068495efba2ed15bd6bb497faccef456 fix: a subtitle Retry can now perform the stitch it asks for (v1.4.191) 6 runtime
+04bc1dccbd76de1d52c11380bd24d7fbae93261a docs(audit): settle the prefix-matcher question with library evidence 1 docs-only
+e5d44208092e517325f0c1b38ad09f08a22eca3 fix: an episode code claims its own folder and no other (v1.4.192) 11 runtime
+c8c7d92ca57bb35ddea4e5aef3a57c3d6eec5554 fix: unreadable narration is not "unchanged" audio (v1.4.193) 6 runtime
+2e4f9a4f054baa50ce72c0ac0d9228f32c5c0a14 fix: clear the episode Motion Review and the Finalizer were showing (v1.4.194) 8 runtime
+f52100270a0a3dd9e6ac514b12a3e2a72a83a9ef fix: two more screens stop carrying one episode's work into another (v1.4.195) 7 runtime
+1969446ec5f3aadd8ddb782cfd41d756d1f7a2e5 fix: Images and Research stop showing one episode's results for another (v1.4.196) 8 runtime
+e5ad89aa85f7cf2fdd71e1412dc5f70425a87186 fix: ffprobe's "N/A" is not a duration (v1.4.197) 6 runtime
+026f65a4888e2e6f79da1d352aae0af061f47dbf fix: Sound Design stops blaming a cue for a missing Scene Plan (v1.4.198) 6 runtime
+94790ee469eb77762e57cf42e5ab44049d0da28c fix: the Music Library stops reporting a total it cannot stand behind (v1.4.199) 7 runtime
+e2d1aabcbea6fbe13c589a3a247f56fd6de5eb70 fix: an unreadable project folder is unknown, not zero bytes (v1.4.200) 6 runtime
+5683941081b41f2d542e592dc8aa4664ad7ec39a fix: a versioned final video is still a final video (v1.4.201) 9 runtime
+84051ee702723865283c0c7aaebf99524a9599af fix: a missing API key is not an empty model catalogue (v1.4.202) 6 runtime
+07db82d18559e5eadf5ff0842225822b40f4af44 docs(audit): trace the unpruned cancelled set precisely 1 docs-only
+9ce61e1e1dbfc3731493a748d352211b78c73fea docs(audit): add a status header a fresh session can start from 1 docs-only
+c536e97316d75b7f77ea9964bf0a467093da6fef docs(audit): trace the content-pack state reset accurately 1 docs-only
+13d0eb349b44ab38cd7e703350445894c80b1926 fix: an unmeasurable opening clip fails loudly instead of reserving 5s (v1.4.203) 6 runtime
+51efc9b1db67489a306557349cfb792e7369c506 chore: delete the orphaned ttl-cache module and its test (v1.4.204) 6 runtime
+8f3cbe5a3f66c439f2af422733ac4a0541533a40 docs(audit): record the owner's answers to all remaining decisions 1 docs-only
+319707179272b0cc823ba56f4d4929acbe657f4b fix: a Script preset no longer carries force or the episode's guidance (v1.4.205) 8 runtime
+eb1116d37a37694cbe49fd652a9c0a2b0b49054a fix: remove the "View all caps" table from Images (v1.4.206) 5 runtime
+e4cab6cbd325639a5d6a6d535f46dcae2e99f4cc fix: Scene Plan preset guidance, the Style Bible ceiling, and the TTS model record (v1.4.207) 15 runtime
+8ece74bd40d32f5aa59f3d81b633e678b52ba92a fix: warn, with a click-through, when another project used this episode code on the channel (v1.4.208) 10 runtime
+08aa6ee02735788cfc036c8a9ae7d3d17f6eab0f fix: models that publish no output ceiling are usable, with the field omitted (v1.4.209) 10 runtime

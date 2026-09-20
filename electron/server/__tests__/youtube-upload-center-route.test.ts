@@ -3443,6 +3443,213 @@ test('Upload Center plan assigns only missing rows and refuses a stale preview w
   assert.equal(fake.calls.length, 0)
 })
 
+test('Upload Center plan replaces overdue local claims while leaving future claims in place', async () => {
+  const slug = await registryOnlyProject()
+  const overdue = await acceptedEpisode(slug)
+  const missing = await acceptedEpisode(slug)
+  const future = await acceptedEpisode(slug)
+  const later = await acceptedEpisode(slug)
+  const legacy = await acceptedEpisode(slug)
+  const accountId = `registry:${CHANNEL}`
+  const plan = await uploadPlans.upsertPlan(slug, {
+    name: 'Resume overdue', platform: 'youtube', account_id: accountId,
+    schedule: {
+      weekdays: [0, 1, 2, 3, 4, 5, 6], time_local: '12:00', timezone: 'UTC',
+      start_date: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10),
+    },
+    defaults: { privacy_status: 'private' },
+  })
+  await uploadPlans.setActivePlanId(slug, 'youtube', accountId, plan.id)
+  const overdueClaim = new Date(Date.now() - 2 * 86_400_000).toISOString()
+  const futureClaim = new Date(Date.now() + 7 * 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, {
+    [overdue.episodeCode]: overdueClaim,
+    [future.episodeCode]: futureClaim,
+  })
+
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [overdue.episodeCode, missing.episodeCode, future.episodeCode],
+  })
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.deepEqual(preview.body.skipped_existing, [future.episodeCode])
+  assert.deepEqual(new Set(preview.body.assignments.map((entry: any) => entry.episode_code)),
+    new Set([overdue.episodeCode, missing.episodeCode]))
+  assert.ok(preview.body.assignments.every((entry: any) => Date.parse(entry.publishAt) > Date.now()))
+  assert.equal(preview.body.latest_existing_claim, futureClaim)
+
+  // The old local claim changes after review while remaining overdue. The
+  // assignment timestamp fence must reject the old preview even if its slot
+  // would otherwise be identical.
+  const changedPastClaim = new Date(Date.now() - 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, {
+    [overdue.episodeCode]: changedPastClaim,
+    [future.episodeCode]: futureClaim,
+  })
+  const changedPast = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [overdue.episodeCode, missing.episodeCode, future.episodeCode],
+    confirm: true, expected_assignments: preview.body.assignments,
+  })
+  assert.equal(changedPast.status, 409)
+  assert.equal(changedPast.body.code, 'YOUTUBE_PLAN_PREVIEW_STALE')
+  assert.equal(changedPast.body.assignments.find((entry: any) => entry.episode_code === overdue.episodeCode).previous_publish_at, changedPastClaim)
+  assert.equal((await uploadPlans.readItemSchedule(slug))[overdue.episodeCode], changedPastClaim)
+  assert.equal(fake.calls.length, 0)
+
+  // A new claim after review changes the allocator's next slot. Apply must
+  // reject the old assignment map and leave the overdue claim untouched.
+  const laterClaim = new Date(Date.now() + 10 * 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, {
+    [overdue.episodeCode]: changedPastClaim,
+    [future.episodeCode]: futureClaim,
+    [later.episodeCode]: laterClaim,
+  })
+  const stale = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [overdue.episodeCode, missing.episodeCode, future.episodeCode],
+    confirm: true, expected_assignments: preview.body.assignments,
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(stale.body.code, 'YOUTUBE_PLAN_PREVIEW_STALE')
+  assert.equal((await uploadPlans.readItemSchedule(slug))[overdue.episodeCode], changedPastClaim)
+  assert.equal(fake.calls.length, 0)
+
+  const saved = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL,
+    episode_codes: [overdue.episodeCode, missing.episodeCode, future.episodeCode],
+    confirm: true, expected_assignments: stale.body.assignments,
+  })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  const schedule = await uploadPlans.readItemSchedule(slug)
+  assert.equal(schedule[overdue.episodeCode], saved.body.assignments.find((entry: any) => entry.episode_code === overdue.episodeCode).publishAt)
+  assert.equal(schedule[missing.episodeCode], saved.body.assignments.find((entry: any) => entry.episode_code === missing.episodeCode).publishAt)
+  assert.equal(schedule[future.episodeCode], futureClaim)
+  assert.equal(schedule[later.episodeCode], laterClaim)
+  await pm.updateConfig(slug, { [uploadPlans.LEGACY_SCHEDULE_FIELD]: { [legacy.episodeCode]: overdueClaim } } as any)
+  const legacyPreview = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL, episode_codes: [legacy.episodeCode],
+  })
+  const legacySaved = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+    plan_id: plan.id, expected_channel_id: CHANNEL, episode_codes: [legacy.episodeCode],
+    confirm: true, expected_assignments: legacyPreview.body.assignments,
+  })
+  assert.equal(legacySaved.status, 200, JSON.stringify(legacySaved.body))
+  assert.ok(Date.parse((await uploadPlans.readItemSchedule(slug))[legacy.episodeCode]) > Date.now())
+  assert.equal(fake.calls.length, 0, 'local plan claims never change YouTube remotely')
+})
+
+test('Upload Center plan protects queued and remotely known targets, including missing claims', async () => {
+  const slug = await registryOnlyProject()
+  const movable = await acceptedEpisode(slug)
+  const queued = await acceptedEpisode(slug)
+  const remoteMissing = await acceptedEpisode(slug)
+  const remoteOverdue = await acceptedEpisode(slug)
+  const remoteMissingOperationId = await acceptedOperation(slug, remoteMissing.episodeCode, 'video-plan-private-missing')
+  const remoteMissingOperation = await operations.readYouTubeOperation(slug, remoteMissingOperationId)
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: remoteMissingOperationId, expected_revision: remoteMissingOperation!.revision,
+    mutate(record) {
+      record.remote_snapshot = {
+        fetched_at: new Date().toISOString(), title: remoteMissing.title, description: '', tags: [],
+        privacy_status: 'private', scheduled_for: null,
+      }
+    },
+  })
+  const remoteOverdueOperationId = await acceptedOperation(slug, remoteOverdue.episodeCode, 'video-plan-overdue')
+  const remoteOverdueOperation = await operations.readYouTubeOperation(slug, remoteOverdueOperationId)
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: remoteOverdueOperationId, expected_revision: remoteOverdueOperation!.revision,
+    mutate(record) {
+      record.remote_snapshot = {
+        fetched_at: new Date().toISOString(), title: remoteOverdue.title, description: '', tags: [],
+        privacy_status: 'private', scheduled_for: null,
+      }
+    },
+  })
+  const accountId = `registry:${CHANNEL}`
+  const plan = await uploadPlans.upsertPlan(slug, {
+    name: 'Protect active uploads', platform: 'youtube', account_id: accountId,
+    schedule: {
+      weekdays: [0, 1, 2, 3, 4, 5, 6], time_local: '12:00', timezone: 'UTC',
+      start_date: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10),
+    },
+    defaults: { privacy_status: 'private' },
+  })
+  await uploadPlans.setActivePlanId(slug, 'youtube', accountId, plan.id)
+  const movableClaim = new Date(Date.now() - 2 * 86_400_000).toISOString()
+  const remoteOverdueClaim = new Date(Date.now() - 3 * 86_400_000).toISOString()
+  await uploadPlans.writeItemSchedule(slug, {
+    [movable.episodeCode]: movableClaim,
+    [remoteOverdue.episodeCode]: remoteOverdueClaim,
+  })
+  const queuedJob = jobQueue.enqueuePreparedForTest({
+    project_slug: slug, type: 'youtube_upload', episode_id: queued.episodeCode,
+    title: queued.title, params: { expected_channel_id: CHANNEL },
+    episode_recovery_job_id: `upload-center-plan-${Date.now()}`,
+  })
+
+  try {
+    const fake = new FakeYouTube()
+    __setYouTubeTransportForTests(fake.transport())
+    const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
+      plan_id: plan.id, expected_channel_id: CHANNEL,
+      episode_codes: [movable.episodeCode, queued.episodeCode, remoteMissing.episodeCode, remoteOverdue.episodeCode],
+    })
+    assert.equal(preview.status, 200, JSON.stringify(preview.body))
+    assert.deepEqual(preview.body.assignments.map((entry: any) => entry.episode_code), [movable.episodeCode, remoteMissing.episodeCode])
+    assert.deepEqual(preview.body.skipped_existing, [remoteOverdue.episodeCode])
+    assert.equal((await uploadPlans.readItemSchedule(slug))[movable.episodeCode], movableClaim)
+    assert.equal(fake.calls.length, 0, 'protection checks are local-only')
+
+    const remoteCurrent = await operations.readYouTubeOperation(slug, remoteOverdueOperationId)
+    await operations.updateYouTubeOperation({
+      project_slug: slug, operation_id: remoteOverdueOperationId, expected_revision: remoteCurrent!.revision,
+      mutate(record) { record.remote_snapshot!.privacy_status = 'unlisted' },
+    })
+    const unlistedPreview = await request(app).post(`/api/projects/${slug}/youtube/plan/preview`).send({
+      plan_id: plan.id, expected_channel_id: CHANNEL, episode_codes: [remoteOverdue.episodeCode],
+    })
+    assert.equal(unlistedPreview.status, 200)
+    assert.deepEqual(unlistedPreview.body.assignments, [], 'an unlisted receipt cannot hide an old sidecar date and make it movable')
+    assert.equal((await sidecars.readSidecarStrict(slug, remoteOverdue.episodeCode, 'youtube'))?.scheduled_for, remoteOverdueClaim)
+    // Restore the private receipt for the active-upload freshness check below.
+    const unlisted = await operations.readYouTubeOperation(slug, remoteOverdueOperationId)
+    await operations.updateYouTubeOperation({
+      project_slug: slug, operation_id: remoteOverdueOperationId, expected_revision: unlisted!.revision,
+      mutate(record) { record.remote_snapshot!.privacy_status = 'private' },
+    })
+
+    const remoteMissingJob = jobQueue.enqueuePreparedForTest({
+      project_slug: slug, type: 'youtube_upload', episode_id: remoteMissing.episodeCode,
+      title: remoteMissing.title, params: { expected_channel_id: CHANNEL },
+      episode_recovery_job_id: `upload-center-plan-active-${Date.now()}`,
+    })
+    try {
+      const stale = await request(app).post(`/api/projects/${slug}/youtube/plan/apply`).send({
+        plan_id: plan.id, expected_channel_id: CHANNEL,
+        episode_codes: [movable.episodeCode, queued.episodeCode, remoteMissing.episodeCode, remoteOverdue.episodeCode],
+        confirm: true, expected_assignments: preview.body.assignments,
+      })
+      assert.equal(stale.status, 409)
+      assert.equal(stale.body.code, 'YOUTUBE_PLAN_PREVIEW_STALE')
+      const unchanged = await uploadPlans.readItemSchedule(slug)
+      assert.equal(unchanged[movable.episodeCode], movableClaim)
+      assert.equal(unchanged[remoteOverdue.episodeCode], remoteOverdueClaim)
+      assert.equal(unchanged[remoteMissing.episodeCode], undefined)
+      assert.equal(fake.calls.length, 0)
+    } finally {
+      await jobQueue.requestJobCancellation(slug, remoteMissingJob.job_id)
+      jobQueue.removeTerminalJob(slug, remoteMissingJob.job_id)
+    }
+  } finally {
+    await jobQueue.requestJobCancellation(slug, queuedJob.job_id)
+    jobQueue.removeTerminalJob(slug, queuedJob.job_id)
+  }
+})
+
 test('publishable maps cached remote lifecycle and visibility without promoting private uploads', async () => {
   // Break caught: treating every accepted upload as published erases the
   // private/unlisted, processing, scheduled, failed, and rejected states the
@@ -4445,4 +4652,273 @@ test('deleted-video association refusal preserves an upload that is still proces
   assert.equal(res.status, 409)
   assert.match(res.body.detail, /not finished/)
   assert.equal((await publishing.readYouTubeProjectPublishingState(slug)).removed_videos, undefined)
+})
+
+// ---------------------------------------------------------------------------
+// Re-laying planned dates
+//
+// `previewUploadCenterPlan` deliberately refuses to move an episode that holds a
+// FUTURE local claim (it reports the code in `skipped_existing`), and the publish
+// page's `canPlanEpisode` refuses the same rows. That is correct for "plan what
+// is unscheduled" and left the opposite intent unreachable: an episode given a
+// date it should not have kept — because a failed render let the episode behind
+// it take the slot — could not be re-dated from ANY surface. These tests pin the
+// action that closes that gap, and the two boundaries it must not cross.
+// ---------------------------------------------------------------------------
+
+/** An active all-days UTC plan, so a re-lay from a known date is deterministic. */
+async function relayoutPlan(slug: string): Promise<{ id: string, accountId: string }> {
+  const accountId = `registry:${CHANNEL}`
+  const plan = await uploadPlans.upsertPlan(slug, {
+    name: 'Re-lay', platform: 'youtube', account_id: accountId,
+    schedule: { weekdays: [0, 1, 2, 3, 4, 5, 6], time_local: '12:00', timezone: 'UTC' },
+    defaults: { privacy_status: 'private' },
+  })
+  await uploadPlans.setActivePlanId(slug, 'youtube', accountId, plan.id)
+  return { id: plan.id, accountId }
+}
+
+test('re-lay re-dates already-planned episodes from a chosen start date, locally only', async () => {
+  // Break caught: routing this through the existing plan flow returns
+  // `skipped_existing` for both episodes and assigns nothing, so the customer
+  // sees a successful-looking action that changed no dates at all.
+  const slug = await registryOnlyProject()
+  const first = await acceptedEpisode(slug)
+  const second = await acceptedEpisode(slug)
+  const { id: planId } = await relayoutPlan(slug)
+
+  // Both already hold FUTURE claims — precisely what the plan flow treats as
+  // untouchable, and the state the customer could not correct.
+  const staleFirst = '2027-05-03T12:00:00.000Z'
+  const staleSecond = '2027-05-04T12:00:00.000Z'
+  await uploadPlans.writeItemSchedule(slug, {
+    [first.episodeCode]: staleFirst,
+    [second.episodeCode]: staleSecond,
+  })
+
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const body = {
+    plan_id: planId, expected_channel_id: CHANNEL,
+    // Deliberately reversed: click order must never decide who gets the first slot.
+    episode_codes: [second.episodeCode, first.episodeCode],
+    start_date: '2027-06-01',
+  }
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/preview`).send(body)
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.deepEqual(preview.body.ordered_episode_codes, [first.episodeCode, second.episodeCode])
+  assert.deepEqual(preview.body.assignments, [
+    { episode_code: first.episodeCode, publishAt: '2027-06-01T12:00:00.000Z', previous_publish_at: staleFirst },
+    { episode_code: second.episodeCode, publishAt: '2027-06-02T12:00:00.000Z', previous_publish_at: staleSecond },
+  ], 'each row must carry what it is changing FROM, or the customer cannot tell what moved')
+  assert.deepEqual(preview.body.skipped, [])
+  assert.deepEqual(preview.body.occupied_days, [], 'the episodes being moved do not occupy their own slots')
+
+  const saved = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/apply`)
+    .send({ ...body, confirm: true, expected_assignments: preview.body.assignments })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  const schedule = await uploadPlans.readItemSchedule(slug)
+  assert.equal(schedule[first.episodeCode], '2027-06-01T12:00:00.000Z')
+  assert.equal(schedule[second.episodeCode], '2027-06-02T12:00:00.000Z')
+  assert.equal(fake.calls.length, 0, 're-dating planned episodes is local-only and costs no YouTube quota')
+})
+
+test('re-lay steps over a day another episode already holds and names that day', async () => {
+  // Break caught: assigning the cadence blindly double-books the held day, and
+  // the customer only discovers it when two videos publish at once.
+  const slug = await registryOnlyProject()
+  const moved = await acceptedEpisode(slug)
+  const alsoMoved = await acceptedEpisode(slug)
+  const holder = await acceptedEpisode(slug)
+  const { id: planId } = await relayoutPlan(slug)
+
+  const heldDay = '2027-06-02T12:00:00.000Z'
+  await uploadPlans.writeItemSchedule(slug, { [holder.episodeCode]: heldDay })
+
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/preview`).send({
+    plan_id: planId, expected_channel_id: CHANNEL,
+    episode_codes: [moved.episodeCode, alsoMoved.episodeCode],
+    start_date: '2027-06-01',
+  })
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.deepEqual(preview.body.occupied_days, ['2027-06-02'],
+    'the preview must name the day it stepped over, not just work around it silently')
+  assert.deepEqual(preview.body.assignments.map((a: any) => a.publishAt), [
+    '2027-06-01T12:00:00.000Z',
+    '2027-06-03T12:00:00.000Z',
+  ], 'the blocked day is skipped, never handed to two episodes')
+
+  const saved = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/apply`)
+    .send({
+      plan_id: planId, expected_channel_id: CHANNEL,
+      episode_codes: [moved.episodeCode, alsoMoved.episodeCode],
+      start_date: '2027-06-01',
+      confirm: true, expected_assignments: preview.body.assignments,
+    })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  const schedule = await uploadPlans.readItemSchedule(slug)
+  assert.equal(schedule[holder.episodeCode], heldDay, 'an unselected episode keeps the slot it holds')
+  assert.equal(schedule[moved.episodeCode], '2027-06-01T12:00:00.000Z')
+  assert.equal(schedule[alsoMoved.episodeCode], '2027-06-03T12:00:00.000Z')
+})
+
+test('re-lay reports an episode already on YouTube instead of re-dating it', async () => {
+  // Break caught: writing a new local date over a video that already exists on
+  // the channel makes the row and YouTube disagree, and the local date is the
+  // one that loses — the customer would be told a publish time that is not real.
+  const slug = await registryOnlyProject()
+  const localOnly = await acceptedEpisode(slug)
+  const onYouTube = await acceptedEpisode(slug)
+  await acceptedOperation(slug, onYouTube.episodeCode, 'existing-video')
+  const { id: planId } = await relayoutPlan(slug)
+
+  const realDate = '2027-05-03T12:00:00.000Z'
+  await uploadPlans.writeItemSchedule(slug, { [onYouTube.episodeCode]: realDate })
+
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/preview`).send({
+    plan_id: planId, expected_channel_id: CHANNEL,
+    episode_codes: [localOnly.episodeCode, onYouTube.episodeCode],
+    start_date: '2027-06-01',
+  })
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.deepEqual(preview.body.assignments.map((a: any) => a.episode_code), [localOnly.episodeCode])
+  assert.deepEqual(preview.body.skipped.map((s: any) => s.episode_code), [onYouTube.episodeCode])
+  assert.match(preview.body.skipped[0].reason, /already exists on YouTube/)
+
+  const saved = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/apply`)
+    .send({
+      plan_id: planId, expected_channel_id: CHANNEL,
+      episode_codes: [localOnly.episodeCode, onYouTube.episodeCode],
+      start_date: '2027-06-01',
+      confirm: true, expected_assignments: preview.body.assignments,
+    })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  const schedule = await uploadPlans.readItemSchedule(slug)
+  assert.equal(schedule[onYouTube.episodeCode], realDate, 'the YouTube video keeps the date its own schedule owns')
+  assert.equal(schedule[localOnly.episodeCode], '2027-06-01T12:00:00.000Z')
+  assert.equal(fake.calls.length, 0, 'a skipped remote video is never written to YouTube by this action')
+})
+
+test('re-lay refuses a preview whose dates changed after review', async () => {
+  // Break caught: applying stale assignments silently moves an episode onto a
+  // day a different episode claimed between preview and save.
+  const slug = await registryOnlyProject()
+  const first = await acceptedEpisode(slug)
+  const second = await acceptedEpisode(slug)
+  const newcomer = await acceptedEpisode(slug)
+  const { id: planId } = await relayoutPlan(slug)
+
+  await uploadPlans.writeItemSchedule(slug, {
+    [first.episodeCode]: '2027-05-03T12:00:00.000Z',
+    [second.episodeCode]: '2027-05-04T12:00:00.000Z',
+  })
+  const request1 = {
+    plan_id: planId, expected_channel_id: CHANNEL,
+    episode_codes: [first.episodeCode, second.episodeCode],
+    start_date: '2027-06-01',
+  }
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/preview`).send(request1)
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.equal(preview.body.assignments[0].publishAt, '2027-06-01T12:00:00.000Z')
+
+  // Someone else takes the slot the preview handed to `first`.
+  await uploadPlans.writeItemSchedule(slug, {
+    [first.episodeCode]: '2027-05-03T12:00:00.000Z',
+    [second.episodeCode]: '2027-05-04T12:00:00.000Z',
+    [newcomer.episodeCode]: '2027-06-01T12:00:00.000Z',
+  })
+  const fake = new FakeYouTube()
+  __setYouTubeTransportForTests(fake.transport())
+  const stale = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/apply`)
+    .send({ ...request1, confirm: true, expected_assignments: preview.body.assignments })
+  assert.equal(stale.status, 409)
+  assert.equal(stale.body.code, 'YOUTUBE_PLAN_PREVIEW_STALE')
+  assert.deepEqual(stale.body.occupied_days, ['2027-06-01'], 'the refreshed preview shows the newly held day')
+
+  const schedule = await uploadPlans.readItemSchedule(slug)
+  assert.equal(schedule[first.episodeCode], '2027-05-03T12:00:00.000Z', 'a refused save changes nothing')
+  assert.equal(fake.calls.length, 0)
+})
+
+test('re-lay saves an empty result rather than inventing dates when nothing is movable', async () => {
+  // Break caught: falling through to the shortfall check with zero movable
+  // episodes would throw "cannot fit 0 videos", turning a no-op into an error.
+  const slug = await registryOnlyProject()
+  const onYouTube = await acceptedEpisode(slug)
+  await acceptedOperation(slug, onYouTube.episodeCode, 'existing-video')
+  const { id: planId } = await relayoutPlan(slug)
+
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/preview`).send({
+    plan_id: planId, expected_channel_id: CHANNEL,
+    episode_codes: [onYouTube.episodeCode],
+    start_date: '2027-06-01',
+  })
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.deepEqual(preview.body.assignments, [])
+  assert.equal(preview.body.skipped.length, 1)
+
+  const saved = await request(app).post(`/api/projects/${slug}/youtube/plan/relayout/apply`)
+    .send({
+      plan_id: planId, expected_channel_id: CHANNEL,
+      episode_codes: [onYouTube.episodeCode],
+      start_date: '2027-06-01',
+      confirm: true, expected_assignments: [],
+    })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  assert.deepEqual(saved.body.assignments, [])
+})
+
+// ── owner decision #7: duplicate episode code across projects ─────────────
+//
+// `video-claims.json` is the only cross-project record, and a channel can move
+// from one project to another (assignments are exclusive at any moment, so this
+// is the reachable route to the collision). The owner asked for a warning the
+// customer can click through — never a 409 refusal, because two series may
+// legitimately share one channel and both have an "Episode 1".
+
+async function writeForeignClaim(episodeCode: string): Promise<void> {
+  const claimsPath = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'youtube', 'video-claims.json')
+  await fs.mkdir(path.dirname(claimsPath), { recursive: true })
+  await fs.writeFile(claimsPath, JSON.stringify({
+    schema_version: 2,
+    claims: [{
+      channel_id: CHANNEL, video_id: 'foreign-video', project_slug: 'another-series',
+      operation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', episode_code: episodeCode,
+    }],
+  }))
+}
+
+test('another project\'s episode code on this channel warns confirmably, and the click-through releases it', async () => {
+  const slug = await project(true)
+  await writeForeignClaim('EP0001')
+  const body = { episode_code: 'EP0001', confirm: true, expected_channel_id: CHANNEL }
+
+  const warned = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(warned.status, 409, JSON.stringify(warned.body))
+  assert.equal(warned.body.code, 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE')
+  assert.equal(warned.body.confirmable, true,
+    'the owner asked for a warning that can be clicked through — a plain refusal is the defect, not the fix')
+  assert.equal(warned.body.foreign_project_slug, 'another-series')
+  assert.match(String(warned.body.detail), /another-series/)
+
+  // Clicked through: the SAME request now passes this gate and stops at the next
+  // one (this fixture has metadata but no rendered video). Asserting the NEXT
+  // refusal — not merely "not this one" — proves the acknowledgement released
+  // the warning rather than the warning having been skipped.
+  const passed = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ ...body, acknowledge_foreign_episode: true })
+  assert.equal(passed.status, 409, JSON.stringify(passed.body))
+  assert.equal(passed.body.code, 'YOUTUBE_NO_RENDERED_VIDEO')
+})
+
+test('a different episode code on the same channel is not warned about', async () => {
+  const slug = await project(true)
+  await writeForeignClaim('EP0001')
+  const res = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ episode_code: 'EP0002', confirm: true, expected_channel_id: CHANNEL })
+  assert.equal(res.status, 409, JSON.stringify(res.body))
+  assert.equal(res.body.code, 'YOUTUBE_NO_RENDERED_VIDEO',
+    'another series using a different episode number is exactly the legitimate case')
 })

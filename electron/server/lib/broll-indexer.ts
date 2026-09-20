@@ -43,6 +43,42 @@ const AUDIO_EXTENSIONS = /\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i
 
 // ── ffprobe (one shot per clip, only on content change) ────────────────
 
+/**
+ * ffprobe reports an unmeasurable field as the STRING `'N/A'`, not as absent.
+ *
+ * `'N/A'` is truthy, so `stream.duration || format.duration` stops there and
+ * never reaches the fallback that actually has the value — and `Number('N/A')`
+ * is `NaN`, which the callers then flatten to `0`. Both spell "I could not
+ * measure this" as "the measurement is zero" (AGENTS.md §6).
+ *
+ * Returns `null` for anything that is not a real, finite number — absent,
+ * `'N/A'`, empty, `NaN`, `Infinity` — so `??` reaches the next source and the
+ * caller can tell "unknown" from "zero".
+ */
+export function parseFfprobeNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * The clip's duration in seconds, from the stream when it can be measured and
+ * the container format otherwise.
+ *
+ * MEASURED case this exists for: `stream.duration` is `'N/A'` while
+ * `format.duration` is real — the normal shape for some codecs. The old
+ * expression compared the raw values with `||`, so the truthy `'N/A'` won, the
+ * format was never consulted, and the clip was indexed as **0 seconds long**.
+ */
+export function probeDurationSeconds(stream: unknown, format: unknown): number {
+  const fromStream = parseFfprobeNumber((stream as Record<string, unknown> | null)?.duration)
+  const fromFormat = parseFfprobeNumber((format as Record<string, unknown> | null)?.duration)
+  return fromStream ?? fromFormat ?? 0
+}
+
 interface ProbeResult {
   duration: number
   width: number
@@ -75,11 +111,10 @@ async function ffprobeClip(filePath: string): Promise<ProbeResult> {
         const fpsStr = String(stream.r_frame_rate || '0/1')
         const [num, den] = fpsStr.split('/').map((s: string) => parseFloat(s))
         const fps = den && num ? num / den : 0
-        const duration = parseFloat(stream.duration || fmt.duration || '0')
         resolve({
-          duration: Number.isFinite(duration) ? duration : 0,
-          width: Number(stream.width) || 0,
-          height: Number(stream.height) || 0,
+          duration: probeDurationSeconds(stream, fmt),
+          width: parseFfprobeNumber(stream.width) ?? 0,
+          height: parseFfprobeNumber(stream.height) ?? 0,
           fps: Number.isFinite(fps) ? Math.round(fps * 100) / 100 : 0,
         })
       } catch (e: any) {

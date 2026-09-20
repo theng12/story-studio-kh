@@ -1,0 +1,159 @@
+{
+  "runtime_commit": "fca27c955225134ae78c2ac51744c858b10772eb",
+  "date": "2026-09-20",
+  "commands": {
+    "complete-status.json": [
+      {
+        "command": [
+          "node",
+          "scripts/testing/run-backend-tests.mjs",
+          "--only",
+          "job-cancel",
+          "--only",
+          "jobs-finish-missing-images"
+        ],
+        "log": "logs/takeover-2026-09-20/focused-complete.log",
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "npm",
+          "run",
+          "verify"
+        ],
+        "log": "logs/takeover-2026-09-20/verify-complete.log",
+        "exit_code": 1
+      }
+    ],
+    "remaining-verification-status.json": [
+      {
+        "command": [
+          "npm",
+          "run",
+          "test:content-packs"
+        ],
+        "log": "logs/takeover-2026-09-20/content-packs-corrected.log",
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "npm",
+          "run",
+          "build"
+        ],
+        "log": "logs/takeover-2026-09-20/build-final.log",
+        "exit_code": 0
+      }
+    ],
+    "preview-checks.json": [
+      {
+        "command": [
+          "npm",
+          "run",
+          "verify:deps",
+          "--",
+          "--app",
+          "<owner-home>/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app"
+        ],
+        "log": "logs/takeover-2026-09-20/preview-deps.log",
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "npm",
+          "run",
+          "verify:launch",
+          "--",
+          "--app",
+          "<owner-home>/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app"
+        ],
+        "log": "logs/takeover-2026-09-20/preview-launch.log",
+        "exit_code": 0
+      }
+    ]
+  },
+  "logs": {
+    "verify-complete.log": {
+      "sha256": "627ebb4583459b198aa24a02a356d7ace05ab95c98a474a3b7d092cc241d5ddb",
+      "summary_lines": [
+        "\u2716 1907 problems (0 errors, 1907 warnings)",
+        "\u2139 tests 5442",
+        "\u2139 pass 5442",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "[test-harness] suite coverage: 483/483 file(s) completed, 5442 test(s) + 690 suite(s) = 6132 marks",
+        "[test-harness] configured projects root byte-identical: true",
+        "\u2139 tests 1847",
+        "\u2139 pass 1847",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "[test-harness] frontend suite coverage: 201/201 file(s) completed, 1847 test(s) + 203 suite(s) = 2050 marks",
+        "\u2139 tests 36",
+        "\u2139 pass 36",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "[test-harness] release suite coverage: 4/4 file(s) completed, 36 test(s) + 4 suite(s) = 40 marks",
+        "\u2139 tests 368",
+        "\u2139 pass 365",
+        "\u2139 fail 1",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 2",
+        "[test-harness] content-packs suite coverage: 38/38 file(s) completed, 368 test(s) + 0 suite(s) = 368 marks"
+      ]
+    },
+    "content-packs-corrected.log": {
+      "sha256": "22c27fcf3932e6022cfc20afb715754f0d91671c6f2f8f83e253645f619b608b",
+      "summary_lines": [
+        "\u2139 tests 368",
+        "\u2139 pass 366",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 2",
+        "[test-harness] content-packs suite coverage: 38/38 file(s) completed, 368 test(s) + 0 suite(s) = 368 marks"
+      ]
+    },
+    "build-final.log": {
+      "sha256": "60fee93bceaf3bd2a3f3b82f27e5530217ded3b181b128f587e00dc4212e673c",
+      "summary_lines": [
+        "Production security check passed.",
+        "Desktop release check passed (source contract).",
+        "Production security check passed (including built output).",
+        "Desktop release check passed (source contract, built startup)."
+      ]
+    },
+    "focused-complete.log": {
+      "sha256": "1fe7d0c69ed58421f0abdfb586c9ba3dc98922a8df39219fb0b67cc29ad30cc3",
+      "summary_lines": [
+        "\u2139 tests 82",
+        "\u2139 pass 82",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "[test-harness] suite coverage: 3/3 file(s) completed, 82 test(s) + 7 suite(s) = 89 marks",
+        "[test-harness] configured projects root byte-identical: true"
+      ]
+    },
+    "preview-package.log": {
+      "sha256": "b8c5dff0c8aa13364e133fb263e52da42fd81e01dc5260e7ec0d1aff7e691cc9",
+      "summary_lines": [
+        "LOCAL PREVIEW ONLY: <owner-home>/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app"
+      ]
+    },
+    "preview-deps.log": {
+      "sha256": "4c1d06799608c306fe6a60a406d46cd870394b6ffca24157af3addaf70fa5be8",
+      "summary_lines": [
+        "Packaged runtime dependencies verified: <owner-home>/Developer/story-studio-kh/logs/takeover-2026-09-20/candidate/mac-arm64/Story Studio KH.app/Contents/Resources/app.asar"
+      ]
+    },
+    "preview-launch.log": {
+      "sha256": "7721acf769947cc601d6db52b48b5cca97a8d2044a9ee48248cfaa3ce2ce12fd",
+      "summary_lines": [
+        "  GET /api/health -> {\"status\":\"ok\",\"version\":\"0.1.0\",\"boot_complete\":true}",
+        "  the packaged app booted and served in 4309ms, then quit cleanly"
+      ]
+    }
+  }
+}

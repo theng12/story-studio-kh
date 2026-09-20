@@ -884,6 +884,10 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
    */
   modelId?: string | null
   speed: number
+  /** Live selected model publication. An absent/incomplete range means neutral speed 1. */
+  supportsSpeed?: boolean | null
+  minimumSpeed?: number | null
+  maximumSpeed?: number | null
   /**
    * `TTSModelResponse.maximum_input_characters` for the model that will serve
    * this request. Story Studio never assumes a boundary: the caller resolves it
@@ -939,6 +943,24 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
 export interface GenStudioTtsSubmitRequest extends GenStudioTtsRequest {
   maxInputCharacters: number
   modelId: string
+}
+
+/** Resolve speed against the selected model's live publication. */
+export function resolveGenStudioTtsSpeed(
+  requested: unknown,
+  supportsSpeed?: boolean | null,
+  minimumSpeed?: number | null,
+  maximumSpeed?: number | null,
+): number {
+  const speed = requested == null ? 1 : Number(requested)
+  if (!Number.isFinite(speed)) throw new Error('GenStudio KH speed must be a finite number.')
+  if (supportsSpeed !== true) return 1
+  if (typeof minimumSpeed !== 'number' || !Number.isFinite(minimumSpeed) || minimumSpeed <= 0
+    || typeof maximumSpeed !== 'number' || !Number.isFinite(maximumSpeed) || maximumSpeed < minimumSpeed) return 1
+  if (speed < minimumSpeed || speed > maximumSpeed) {
+    throw new Error(`GenStudio KH speed must be between ${minimumSpeed} and ${maximumSpeed}.`)
+  }
+  return speed
 }
 
 export type GenStudioCostTier = 'economy' | 'balanced' | 'premium'
@@ -1021,7 +1043,23 @@ function parseGenStudioProductAliases(value: unknown): GenStudioProductAliases {
 export interface GenStudioTranscriptionModel extends GenStudioCatalogLock {
   id: string
   display_name: string
+  /**
+   * The legacy single provider field. Kept because gateway-kh publishes it
+   * alongside `provider_name` on transcription rows so older readers keep
+   * working; `provider_name` is the field the shared contract moved to.
+   */
   provider: string
+  /**
+   * The serving provider, as GenStudio publishes it.
+   *
+   * This arrived on transcription and video rows and was DISCARDED here until
+   * 2026-09-18: the field was neither declared nor read, so a published fact was
+   * thrown away at the parse boundary and every row rendered a blank provider.
+   * `AGENTS.md`'s Provider Transparency section requires a published provider be
+   * shown, so the fix is to carry it, never to derive one. Empty means not
+   * published — never the gateway's own name, and never guessed from the id.
+   */
+  provider_name?: string
   /**
    * `TranscriptionModelResponse.language` — one string, usually the sentinel
    * `"multilingual"`. EMPTY when GenStudio published nothing, which is a
@@ -1349,6 +1387,9 @@ export interface GenStudioTtsModel extends GenStudioCatalogLock {
   minimum_credits: number
   maximum_input_characters: number
   supports_speed: boolean
+  /** Published numeric speed bounds. Absent means GenStudio did not publish a usable range. */
+  minimum_speed: number | null
+  maximum_speed: number | null
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
@@ -1392,14 +1433,24 @@ export interface GenStudioMusicModel extends GenStudioCatalogLock {
   sale_credits: number | null
   sale_ends_at: string | null
   sale_disclaimer: string | null
-  supports_instrumental: boolean
-  supports_vocals: boolean
-  requires_lyrics: boolean
+  /**
+   * Capability facts. `null` means GENSTUDIO PUBLISHED NOTHING — it is not
+   * `false`, and it is never a local guess at what the model can do.
+   *
+   * These were declared non-nullable and treated as required, so a row that
+   * omitted them was DROPPED — which is how `kie-ai-images::V6` (Suno V6), the
+   * only published music model, disappeared from the picker entirely while the
+   * endpoint was serving it. Absence is a legitimate publication, distinct from
+   * a malformed value; only the latter should cost the row.
+   */
+  supports_instrumental: boolean | null
+  supports_vocals: boolean | null
+  requires_lyrics: boolean | null
   max_prompt_characters: number
   max_prompt_without_lyrics_characters: number | null
-  min_prompt_characters: number
+  min_prompt_characters: number | null
   max_lyrics_characters: number
-  min_lyrics_characters: number
+  min_lyrics_characters: number | null
   max_title_characters: number
   outputs_per_request: number | null
 }
@@ -1491,6 +1542,7 @@ export interface GenStudioModelCapability {
   pricing_unit?: string
   limits: Record<string, unknown>
   controls: Record<string, unknown>
+  cost_tier?: GenStudioCostTier | GenStudioLlmCostTier
 }
 
 /**
@@ -1542,7 +1594,7 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
    *
    * 0 means "not published" — same contract as `context_window_tokens`.
    * Story Studio never substitutes a figure of its own here; a product that
-   * publishes no output ceiling is refused at submission time instead.
+   * publishes no output ceiling is submitted without `max_output_tokens`.
    */
   max_output_tokens: number
   /** Published structured-item ceiling. Null means unmeasured, never unlimited. */
@@ -1659,8 +1711,18 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
   // infer any of this from a provider or model name.
   /** The product can run provider-side web searches. */
   supports_web_search: boolean
-  /** The product returns citations for what it searched. */
-  returns_citations: boolean
+  /** The product returns citations for what it searched.
+   *
+   *  `null` means the provider did not state it — which is the case for every
+   *  row today. It is deliberately NOT flattened to `false`: "this provider
+   *  does not cite" and "this provider did not say" are different facts
+   *  (AGENTS.md §6), and the gateway now publishes the distinction.
+   *
+   *  The one consumer that gates a FEATURE keeps testing `=== true`, and that
+   *  is correct — a capability must not be enabled on an unstated value. What
+   *  changes is that a reader can now tell the two apart instead of being told
+   *  a provider said "no" when it said nothing. */
+  returns_citations: boolean | null
   /** Shape of those citations. Only 'structured' is machine-readable; any
    *  other value (including a prose format) is unusable as evidence. */
   citation_format: string | null
@@ -1723,6 +1785,17 @@ export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioProd
   id: string
   display_name: string
   description?: string
+  /**
+   * The serving provider, as GenStudio publishes it.
+   *
+   * Video rows published NO provider field at all until gateway-kh fixed it
+   * (2026-09-18), and this transport had no declaration to receive it either —
+   * so the row would have read as a blank provider the moment the gateway
+   * started sending one, without anything failing. `AGENTS.md`'s Provider
+   * Transparency section requires a published provider be shown. Empty means
+   * not published; never derived from the model id.
+   */
+  provider_name?: string
   available: boolean
   cost_tier?: GenStudioCostTier
   /**
@@ -2052,7 +2125,8 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   /**
    * The SHAPE of this workflow's output. Resolved against the selected
    * product's published `max_output_tokens` at submission time. Absent means
-   * short-form, which is the historical 2,048-token default.
+   * short-form, which is the historical 2,048-token default; a product that
+   * publishes no ceiling is submitted without this field.
    */
   outputBudget?: OutputBudget
   requestIdentity?: string
@@ -2926,9 +3000,12 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
   if (characterCount > maxCharacters) {
     throw new Error(`GenStudio KH accepts at most ${Math.floor(maxCharacters).toLocaleString()} characters per request for this voice model.`)
   }
-  if (!Number.isFinite(request.speed) || request.speed < 0.5 || request.speed > 2) {
-    throw new Error('GenStudio KH speed must be between 0.5 and 2.0.')
-  }
+  const speed = resolveGenStudioTtsSpeed(
+    request.speed,
+    request.supportsSpeed,
+    request.minimumSpeed,
+    request.maximumSpeed,
+  )
   // GenStudio hashes `controls` into ITS idempotency identity
   // (`_tts_idempotency_identity`), so two runs at different control settings
   // are different work over there. Story Studio's key must move with them or
@@ -2949,7 +3026,7 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
     model_id: modelId,
     voice_id: voiceId,
     text: request.text,
-    speed: request.speed,
+    speed,
     ...(controls ? { controls } : {}),
   }
   const digest = createHash('sha256').update(JSON.stringify({
@@ -3813,6 +3890,15 @@ const CATALOG_LABEL: Record<GenStudioCatalogKind, string> = {
   transcription: 'transcription model',
 }
 
+/** Trusted catalogue-shape diagnosis. Its message is safe to surface because
+ * the parser authors it without interpolating the malformed wire value. */
+class GenStudioCatalogFieldValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'GenStudioCatalogFieldValidationError'
+  }
+}
+
 /**
  * The catalogue could not be refreshed AND no copy remains inside the staleness
  * window. Typed so a submission path refuses loudly instead of spending against
@@ -3826,13 +3912,15 @@ export class GenStudioCatalogUnavailableError extends Error {
 
   constructor(kind: GenStudioCatalogKind, ageMs: number | null, cause?: unknown) {
     super(
-      `The GenStudio KH ${CATALOG_LABEL[kind]} catalogue could not be refreshed`
-      + `${ageMs == null
-        ? ' and Story Studio has no cached copy'
-        : ` and the cached copy is ${Math.round(ageMs / 60_000)} minute(s) old, beyond the `
-          + `${Math.round(CATALOG_STALE_MS / 60_000)}-minute staleness limit`}. `
-      + 'Story Studio refused to submit work against an unverified product; nothing was requested '
-      + 'and no credits were charged. Check your connection, then Retry.',
+      cause instanceof GenStudioCatalogFieldValidationError
+        ? cause.message
+        : `The GenStudio KH ${CATALOG_LABEL[kind]} catalogue could not be refreshed`
+          + `${ageMs == null
+            ? ' and Story Studio has no cached copy'
+            : ` and the cached copy is ${Math.round(ageMs / 60_000)} minute(s) old, beyond the `
+              + `${Math.round(CATALOG_STALE_MS / 60_000)}-minute staleness limit`}. `
+          + 'Story Studio refused to submit work against an unverified product; nothing was requested '
+          + 'and no credits were charged. Check your connection, then Retry.',
       cause === undefined ? undefined : { cause },
     )
     this.name = 'GenStudioCatalogUnavailableError'
@@ -3963,6 +4051,39 @@ async function fetchRetryingJson(
     }
   }
   throw new Error(unreachable, { cause: lastError })
+}
+
+/**
+ * Unwrap a published catalogue payload, accepting EITHER shape.
+ *
+ * WHY THIS EXISTS (2026-09-18). Every catalogue route used to answer with a bare
+ * JSON array, and that is the contract this client was built and tested against
+ * — provable from the last-good cache, which stores arrays, so only an array
+ * could ever have populated it. gateway-kh answers with an envelope instead:
+ *
+ *   { "models": [ ... ], "freshness": { ... } }        (and `voices` for /v1/voices)
+ *
+ * Because each reader guarded with `if (!Array.isArray(payload)) throw`, EVERY
+ * live catalogue refresh began failing the moment the endpoint moved — and the
+ * failure is quiet, because the last-good cache keeps the app looking alive on
+ * data that is hours old until it ages past the staleness limit and the pickers
+ * empty. That is the worst shape a bug can have: working, then empty.
+ *
+ * Accepting both costs nothing and cannot invent a row: it reads the same
+ * published rows from under the key the endpoint chose. `freshness` is
+ * deliberately IGNORED — Story Studio tracks its own catalogue freshness
+ * elsewhere and must not acquire a second, conflicting authority for it.
+ *
+ * Returns `null` when neither shape holds an array, so callers keep their
+ * existing loud refusal rather than silently reading zero models.
+ */
+function readCatalogRows(payload: unknown, key: 'models' | 'voices' = 'models'): unknown[] | null {
+  if (Array.isArray(payload)) return payload
+  if (payload && typeof payload === 'object') {
+    const rows = (payload as Record<string, unknown>)[key]
+    if (Array.isArray(rows)) return rows
+  }
+  return null
 }
 
 function catalogSnapshot<T>(
@@ -4158,8 +4279,10 @@ export async function listVoicesSnapshot(
   const suffix = query.size ? `?${query.toString()}` : ''
   return cachedCatalogSnapshot('voices', catalogCacheKey('voices', `${baseUrl}${suffix}`, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/voices${suffix}`, apiKey)
-  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid voice catalog')
-  return payload.map((value: any) => ({
+  // gateway-kh answers `{ voices, models }`; the old endpoint answered an array.
+  const rows = readCatalogRows(payload, 'voices')
+  if (!rows) throw new Error('GenStudio KH returned an invalid voice catalog')
+  return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     language: optionalText(value?.language),
@@ -4208,8 +4331,9 @@ export async function listTtsModelsSnapshot(
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('tts-models', catalogCacheKey('tts-models', baseUrl, apiKey), async () => {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/tts/models`, apiKey)
-    if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid voice model catalog')
-    return payload.flatMap((value: any): GenStudioTtsModel[] => {
+    const rows = readCatalogRows(payload)
+    if (!rows) throw new Error('GenStudio KH returned an invalid voice model catalog')
+    return rows.flatMap((value: any): GenStudioTtsModel[] => {
       const id = typeof value?.id === 'string' ? value.id.trim() : ''
       const displayName = typeof value?.display_name === 'string' ? value.display_name.trim() : ''
       const rate = optionalCount(value?.credits_per_1000_characters)
@@ -4226,6 +4350,8 @@ export async function listTtsModelsSnapshot(
         minimum_credits: minimum,
         maximum_input_characters: maxCharacters,
         supports_speed: value?.supports_speed === true,
+        minimum_speed: optionalCount(value?.minimum_speed) ?? null,
+        maximum_speed: optionalCount(value?.maximum_speed) ?? null,
         supports_voice_cloning: value?.supports_voice_cloning === true,
         preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
         generation_enabled: value?.generation_enabled === true,
@@ -4269,28 +4395,38 @@ export async function listMusicModelsSnapshot(
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('music', catalogCacheKey('music', baseUrl, apiKey), async () => {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/music/models`, apiKey)
-    if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid music model catalog')
-    return payload.flatMap((value: any): GenStudioMusicModel[] => {
+    const rows = readCatalogRows(payload)
+    if (!rows) throw new Error('GenStudio KH returned an invalid music model catalog')
+    return rows.flatMap((value: any): GenStudioMusicModel[] => {
       const id = typeof value?.id === 'string' ? value.id.trim() : ''
       const displayName = typeof value?.display_name === 'string' ? value.display_name.trim() : ''
       const hasDescription = typeof value?.description === 'string'
       const description = hasDescription ? value.description.trim() : ''
-      const isNullableInteger = (field: unknown): field is number | null => field === null || Number.isInteger(field)
-      const isNullableText = (field: unknown): field is string | null => field === null || typeof field === 'string'
+      // ABSENT AND MALFORMED ARE DIFFERENT QUESTIONS, and collapsing them is what
+      // emptied the music picker. `null`/omitted means "GenStudio published
+      // nothing" — legal, and read as null below. A field PRESENT with the wrong
+      // type is malformed, and still costs the row.
+      const isAbsent = (field: unknown): boolean => field === null || field === undefined
+      const isNullableInteger = (field: unknown): boolean => isAbsent(field) || Number.isInteger(field)
+      const isNullableText = (field: unknown): boolean => isAbsent(field) || typeof field === 'string'
+      const isNullableFlag = (field: unknown): boolean => isAbsent(field) || typeof field === 'boolean'
       if (
         !id || !displayName || !hasDescription || typeof value?.coming_soon !== 'boolean'
         || !Number.isInteger(value?.credits_per_request) || !Number.isInteger(value?.minimum_credits)
         || typeof value?.price_version !== 'string'
         || !isNullableInteger(value?.standard_credits) || !isNullableInteger(value?.sale_credits)
         || !isNullableText(value?.sale_ends_at) || !isNullableText(value?.sale_disclaimer)
-        || typeof value?.supports_instrumental !== 'boolean' || typeof value?.supports_vocals !== 'boolean'
-        || typeof value?.requires_lyrics !== 'boolean'
+        || !isNullableFlag(value?.supports_instrumental) || !isNullableFlag(value?.supports_vocals)
+        || !isNullableFlag(value?.requires_lyrics)
         || !Number.isInteger(value?.max_prompt_characters)
         || !isNullableInteger(value?.max_prompt_without_lyrics_characters)
-        || !Number.isInteger(value?.min_prompt_characters) || !Number.isInteger(value?.max_lyrics_characters)
-        || !Number.isInteger(value?.min_lyrics_characters) || !Number.isInteger(value?.max_title_characters)
+        || !isNullableInteger(value?.min_prompt_characters) || !Number.isInteger(value?.max_lyrics_characters)
+        || !isNullableInteger(value?.min_lyrics_characters) || !Number.isInteger(value?.max_title_characters)
         || !isNullableInteger(value?.outputs_per_request)
       ) return []
+      // An absent figure becomes null — NEVER false or 0. `supports_vocals: false`
+      // would be a capability claim the catalogue never made.
+      const publishedOrNull = <T>(field: T | null | undefined): T | null => field ?? null
       return [{
         id,
         display_name: displayName,
@@ -4302,20 +4438,20 @@ export async function listMusicModelsSnapshot(
         minimum_credits: value.minimum_credits,
         price_version: value.price_version.trim(),
         ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
-        standard_credits: value.standard_credits,
-        sale_credits: value.sale_credits,
-        sale_ends_at: value.sale_ends_at,
-        sale_disclaimer: value.sale_disclaimer,
-        supports_instrumental: value.supports_instrumental,
-        supports_vocals: value.supports_vocals,
-        requires_lyrics: value.requires_lyrics,
+        standard_credits: publishedOrNull(value.standard_credits),
+        sale_credits: publishedOrNull(value.sale_credits),
+        sale_ends_at: publishedOrNull(value.sale_ends_at),
+        sale_disclaimer: publishedOrNull(value.sale_disclaimer),
+        supports_instrumental: publishedOrNull(value.supports_instrumental),
+        supports_vocals: publishedOrNull(value.supports_vocals),
+        requires_lyrics: publishedOrNull(value.requires_lyrics),
         max_prompt_characters: value.max_prompt_characters,
-        max_prompt_without_lyrics_characters: value.max_prompt_without_lyrics_characters,
-        min_prompt_characters: value.min_prompt_characters,
+        max_prompt_without_lyrics_characters: publishedOrNull(value.max_prompt_without_lyrics_characters),
+        min_prompt_characters: publishedOrNull(value.min_prompt_characters),
         max_lyrics_characters: value.max_lyrics_characters,
-        min_lyrics_characters: value.min_lyrics_characters,
+        min_lyrics_characters: publishedOrNull(value.min_lyrics_characters),
         max_title_characters: value.max_title_characters,
-        outputs_per_request: value.outputs_per_request,
+        outputs_per_request: publishedOrNull(value.outputs_per_request),
       }]
     })
   }, { ...options, baseUrl, apiKey })
@@ -4436,6 +4572,9 @@ export async function requestGenStudioTtsQuote(
     voiceId: string
     text: string
     speed?: number
+    supportsSpeed?: boolean | null
+    minimumSpeed?: number | null
+    maximumSpeed?: number | null
     /**
      * Already resolved against the SELECTED model's published `controls[]`
      * (lib/tts-controls.ts). Sent verbatim so the quote prices the same
@@ -4460,7 +4599,12 @@ export async function requestGenStudioTtsQuote(
   if (!request.text.trim()) throw new Error('There is no text to quote.')
   const baseUrl = await getGenStudioUrl()
   const body: Record<string, unknown> = { model_id: modelId, voice_id: voiceId, text: request.text }
-  if (Number.isFinite(request.speed)) body.speed = request.speed
+  body.speed = resolveGenStudioTtsSpeed(
+    request.speed ?? 1,
+    request.supportsSpeed,
+    request.minimumSpeed,
+    request.maximumSpeed,
+  )
   // Omitted entirely when the model publishes no controls, so a request for
   // such a model is byte-identical to the one sent before controls existed.
   if (hasTtsControlValues(request.controls)) body.controls = orderedTtsControlValues(request.controls!)
@@ -4538,11 +4682,12 @@ export async function listModelCapabilitiesSnapshot(
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('capabilities', catalogCacheKey('capabilities', baseUrl, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/models`, apiKey)
-  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid capability catalog')
+  const rows = readCatalogRows(payload)
+  if (!rows) throw new Error('GenStudio KH returned an invalid capability catalog')
   const modalities = new Set(['audio', 'image', 'text', 'video'])
   const operations = new Set(['voice.tts', 'audio.transcription', 'image.generation', 'chat.response', 'video.generation'])
   const availability = new Set(['available', 'unavailable', 'unknown'])
-  return payload.map((value: any) => ({
+  return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     revision: typeof value?.revision === 'string' ? value.revision.trim() : '',
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
@@ -4550,6 +4695,9 @@ export async function listModelCapabilitiesSnapshot(
     modality: value?.modality,
     operation: value?.operation,
     availability: availability.has(value?.availability) ? value.availability : 'unknown',
+    cost_tier: value?.operation === 'chat.response'
+      ? parseGenStudioLlmCostTier(value?.cost_tier)
+      : parseGenStudioCostTier(value?.cost_tier),
     qualification_only: value?.qualification_only !== false,
     pricing_unit: typeof value?.pricing_unit === 'string' ? value.pricing_unit.trim() : undefined,
     limits: value?.limits && typeof value.limits === 'object' ? value.limits : {},
@@ -4565,18 +4713,47 @@ export async function listModelCapabilities(apiKey: string): Promise<GenStudioMo
 }
 
 /**
- * Read a published token limit, preferring GenStudio's CURRENT field name and
- * accepting a deprecated alias only when the current one is absent.
+ * Normalize the published CONTEXT-WINDOW limit onto Story Studio's `number`
+ * contract, preferring the current field and accepting its deprecated alias
+ * only when the current field is absent.
  *
- * Story Studio never substitutes a number of its own here: a limit this app
- * invented would be a promise GenStudio has not made, and would go stale the
- * moment the catalogue changes. `0` means "not published", which every caller
- * must treat as "unknown", not as "zero budget".
+ * THE WIRE FORM AND THE LOCAL SENTINEL ARE DIFFERENT, AND THAT IS DELIBERATE
+ * (recorded 2026-09-18). gateway-kh may publish
+ * `context_window_tokens: null` when a provider states no figure. Story
+ * Studio's context-window sentinel for "not published" is `0`; every
+ * non-integer becomes that sentinel, while the historical integer clamp is
+ * preserved. This function does NOT parse `max_output_tokens`, whose malformed
+ * values must be distinguished from a genuine null/omission before submission.
+ *
+ * Do not "fix" the context-window field into a nullable type. Its callers use
+ * `0` as the established unknown sentinel, including arithmetic through
+ * `availableInputTokens`.
  */
 function readPublishedTokenLimit(preferred: unknown, deprecatedAlias: unknown): number {
   if (Number.isInteger(preferred)) return Math.max(1, preferred as number)
   if (Number.isInteger(deprecatedAlias)) return Math.max(1, deprecatedAlias as number)
   return 0
+}
+
+/**
+ * Preserve the three authoritative chat output-limit states at ingestion:
+ * omitted/null, a positive safe integer, or malformed. The first keeps the
+ * existing local `0` sentinel; the second is copied exactly; the third stops
+ * before any request can mistake bad catalogue data for an omission or `1`.
+ *
+ * The malformed value is deliberately not interpolated into the error: a wire
+ * object is arbitrary remote data and may contain private provider metadata.
+ */
+function readPublishedChatMaxOutputTokens(value: unknown, rawModelId: unknown): number {
+  if (value === null || value === undefined) return 0
+  if (Number.isSafeInteger(value) && (value as number) > 0) return value as number
+  const modelId = typeof rawModelId === 'string' && rawModelId.trim()
+    ? rawModelId.trim().replace(/[\r\n\t]/g, ' ').slice(0, 120)
+    : '(missing model id)'
+  throw new GenStudioCatalogFieldValidationError(
+    `GenStudio KH chat model ${JSON.stringify(modelId)} published malformed max_output_tokens; `
+    + 'expected null/omitted or a positive safe integer. No request or credit charge was made.',
+  )
 }
 
 /**
@@ -4609,8 +4786,9 @@ export async function listChatModelsSnapshot(
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('chat', catalogCacheKey('chat', baseUrl, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/chat/models`, apiKey)
-  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid chat model catalog')
-  return payload.map((value: any) => ({
+  const rows = readCatalogRows(payload)
+  if (!rows) throw new Error('GenStudio KH returned an invalid chat model catalog')
+  return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
@@ -4628,14 +4806,14 @@ export async function listChatModelsSnapshot(
       value?.context_window_tokens,
       value?.context_limit_tokens,
     ),
-    // 0 means "not published" — the same contract `context_window_tokens`
-    // above already uses, and never a Story Studio guess. This used to
+    // 0 means genuinely null/omitted — never malformed and never a Story
+    // Studio guess. This used to
     // default to 2,048, which is the invented-fallback bug in its most
     // expensive form: every consumer downstream (the pre-network ceiling
     // check, the credit reservation, the chunking maths) would treat 2,048 as
     // a figure GenStudio had published for the product, and a chapter sized
     // against it comes back truncated after the customer has paid for it.
-    max_output_tokens: readPublishedTokenLimit(value?.max_output_tokens, undefined),
+    max_output_tokens: readPublishedChatMaxOutputTokens(value?.max_output_tokens, value?.id),
     max_structured_items_per_request: Number.isInteger(value?.max_structured_items_per_request)
       && value.max_structured_items_per_request > 0
       ? value.max_structured_items_per_request
@@ -4720,7 +4898,13 @@ export async function listChatModelsSnapshot(
     // never heard of web search must read as "not web-capable", never as
     // "capable and unrestricted".
     supports_web_search: value?.supports_web_search === true,
-    returns_citations: value?.returns_citations === true,
+    // NOT `=== true`. `null` is a real answer here — the provider did not say —
+    // and the gateway now publishes it that way for every row. Flattening it to
+    // `false` would report a provider as having refused citations when it was
+    // never asked. Consumers that gate a capability still require `=== true`,
+    // so the outcome is unchanged; what changes is that the two facts stop
+    // sharing a value.
+    returns_citations: typeof value?.returns_citations === 'boolean' ? value.returns_citations : null,
     citation_format: typeof value?.citation_format === 'string' && value.citation_format.trim()
       ? value.citation_format.trim()
       : null,
@@ -4753,12 +4937,18 @@ export async function listVideoModelsSnapshot(
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('video', catalogCacheKey('video', baseUrl, apiKey), async () => {
   const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/videos/models`, apiKey)
-  if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid video model catalog')
-  return payload.map((value: any) => ({
+  const rows = readCatalogRows(payload)
+  if (!rows) throw new Error('GenStudio KH returned an invalid video model catalog')
+  return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
+    // Published by gateway-kh for every model kind since 2026-09-18. Read here
+    // so the fact survives the transport instead of being discarded.
+    provider_name: typeof value?.provider_name === 'string' && value.provider_name.trim()
+      ? value.provider_name.trim()
+      : undefined,
     available: value?.available === true,
     ...parseGenStudioCatalogLock(value),
     ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
@@ -6066,7 +6256,17 @@ export interface GenStudioChatResult {
 interface PreparedChatSubmission {
   modelId: string
   product: GenStudioChatModel
-  maxOutputTokens: number
+  /**
+   * The output ceiling this request carries, or `null` when the product
+   * publishes none (owner decision #6, 2026-09-20).
+   *
+   * `null` is NOT zero and NOT a default: the field is OMITTED from the wire
+   * body, the request preview and the replacement identity, and the provider
+   * decides. Four shipped products publish `max_output_tokens: null`, and the
+   * owner's ruling is that they are usable with no stated limit rather than
+   * refused.
+   */
+  maxOutputTokens: number | null
   outputContract: TextOutputContract
   responseFormat: Record<string, unknown>
   /** system (+ wrapper instruction) then user — but ONLY when the product
@@ -6136,27 +6336,38 @@ async function prepareChatSubmission(
   // published ceiling remains the real and only limit — the durable migration
   // does not shrink any allowance shipped in v1.0.765/766.
   //
-  // A product that publishes NO output ceiling cannot be sized at all, so the
-  // request is refused here rather than sized against a number Story Studio
-  // made up. Same reasoning as `splitGenStudioApiRequests`, which refuses to
-  // pick a TTS request boundary GenStudio did not publish: guessing an output
-  // budget too low truncates a chapter mid-sentence, and truncated output has
-  // already cost the customer by the time anyone notices. Pre-network — no
-  // request is made and no credit is charged.
-  if (!Number.isInteger(product.max_output_tokens) || product.max_output_tokens < 1) {
-    throw new Error(
-      `GenStudio KH published no max_output_tokens for ${product.display_name}. `
-      + 'Story Studio cannot size this request without it and will not invent a ceiling. '
-      + 'Refresh the model catalogue or choose another published product. '
-      + 'No request or credit charge was made.',
-    )
-  }
+  // A product that publishes NO output ceiling is USABLE, and the request
+  // carries no ceiling at all — owner decision #6, 2026-09-20: "make them
+  // usable by omitting max_output_tokens. no output limit is fine."
+  //
+  // This used to refuse here ("Story Studio cannot size this request without it
+  // and will not invent a ceiling"). Refusing was the honest response to an
+  // invented number but the wrong response to a provider that genuinely states
+  // no limit: four shipped products publish `max_output_tokens: null`, and
+  // their own provider is the authority on what they will return. Omitting the
+  // field claims nothing about the product, so nothing is invented.
+  //
+  // A NUMBER is still validated: it must be a positive integer and, when the
+  // product publishes a ceiling, must not exceed it. `/v1/chat/responses`
+  // publishes NO maximum of its own for `max_output_tokens` (the old 32,768
+  // route cap is gone), so the product's published ceiling remains the real and
+  // only limit — the durable migration does not shrink any allowance shipped in
+  // v1.0.765/766.
+  const publishedCeiling = Number.isInteger(product.max_output_tokens) && product.max_output_tokens >= 1
+    ? product.max_output_tokens
+    : null
   const maxOutputTokens = request.maxOutputTokens
     ?? resolveOutputTokenBudget(request.outputBudget, product.max_output_tokens)
-  if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > product.max_output_tokens) {
-    throw new Error(
-      `This workflow requested ${maxOutputTokens.toLocaleString()} output tokens, but ${product.display_name} publishes a ${product.max_output_tokens.toLocaleString()}-token limit. No request or credit charge was made.`,
-    )
+  if (maxOutputTokens !== null) {
+    const malformed = !Number.isInteger(maxOutputTokens) || maxOutputTokens < 1
+    const overPublished = !malformed && publishedCeiling !== null && maxOutputTokens > publishedCeiling
+    if (malformed || overPublished) {
+      throw new Error(
+        overPublished
+          ? `This workflow requested ${maxOutputTokens.toLocaleString()} output tokens, but ${product.display_name} publishes a ${publishedCeiling!.toLocaleString()}-token limit. No request or credit charge was made.`
+          : `The output-token budget for ${product.display_name} is not a usable number (${JSON.stringify(maxOutputTokens)}). No request or credit charge was made.`,
+      )
+    }
   }
   const outputContract = request.outputContract
     ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT)
@@ -6737,7 +6948,9 @@ async function callChatViaResponsesOnce(
     path: '/v1/chat/responses',
     modelId: prepared.modelId,
     responseFormat: prepared.responseFormat,
-    tokenLimits: { max_output_tokens: prepared.maxOutputTokens },
+    // Omitted entirely when the product publishes no ceiling, so the retained
+    // preview describes the request that was actually sent (owner decision #6).
+    ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_output_tokens: prepared.maxOutputTokens } }),
     idempotencyKey: prepared.idempotencyKey,
     messages: prepared.messages,
     fields: chatPreviewFields(request, prepared),
@@ -6769,7 +6982,9 @@ async function callChatViaResponsesOnce(
           response_format: prepared.responseFormat,
           // Only the sampling fields this product publishes. Never `top_p`.
           ...prepared.samplingFields,
-          max_output_tokens: prepared.maxOutputTokens,
+          // Omitted when the product publishes no ceiling — no number is
+          // attributed to it and the provider decides (owner decision #6).
+          ...(prepared.maxOutputTokens === null ? {} : { max_output_tokens: prepared.maxOutputTokens }),
           ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}),
           // Present only for a deliberate web-search request. `web_search` is
           // available on this route too, so web research is durable as well.
@@ -6834,7 +7049,7 @@ async function callChatViaCompletions(
     path: '/v1/chat/completions',
     modelId: prepared.modelId,
     responseFormat: prepared.responseFormat,
-    tokenLimits: { max_completion_tokens: prepared.maxOutputTokens },
+    ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_completion_tokens: prepared.maxOutputTokens } }),
     idempotencyKey: prepared.idempotencyKey,
     messages: prepared.messages,
     fields: [['stream', false], ...chatPreviewFields(request, prepared)],
@@ -6856,7 +7071,8 @@ async function callChatViaCompletions(
         stream: false,
         // Only the sampling fields this product publishes. Never `top_p`.
         ...prepared.samplingFields,
-        max_completion_tokens: prepared.maxOutputTokens,
+        // Omitted when the product publishes no ceiling (owner decision #6).
+        ...(prepared.maxOutputTokens === null ? {} : { max_completion_tokens: prepared.maxOutputTokens }),
         ...(request.webSearch ? { web_search: request.webSearch } : {}),
       }),
     },
@@ -6981,7 +7197,9 @@ async function callChatWithGenStudioAdmitted(
       path: '/v1/chat/responses',
       modelId: prepared.modelId,
       responseFormat: prepared.responseFormat,
-      tokenLimits: { max_output_tokens: prepared.maxOutputTokens },
+      // Omitted entirely when the product publishes no ceiling, so the retained
+    // preview describes the request that was actually sent (owner decision #6).
+    ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_output_tokens: prepared.maxOutputTokens } }),
       idempotencyKey: prepared.idempotencyKey,
       messages: prepared.messages,
       fields: chatPreviewFields(request, prepared),
@@ -7054,15 +7272,20 @@ export async function listTranscriptionModelsSnapshot(
   const key = catalogCacheKey('transcription', baseUrl, apiKey)
   return cachedCatalogSnapshot('transcription', key, async () => {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/transcription/models`, apiKey)
-    if (!Array.isArray(payload)) {
+    const rows = readCatalogRows(payload)
+    if (!rows) {
       throw new Error('GenStudio KH returned an invalid transcription model catalog')
     }
-    return payload.map((value: any) => ({
+    return rows.map((value: any) => ({
       id: typeof value?.id === 'string' ? value.id.trim() : '',
       display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
       // Provider transparency means pass through what GenStudio publishes.
       // An absent provider is unknown, never the gateway name.
       provider: typeof value?.provider === 'string' ? value.provider.trim() : '',
+      // The shared contract's field, published alongside `provider` on these
+      // rows. Declared and read since 2026-09-18 — before that it arrived and
+      // was dropped here, which rendered every transcription row providerless.
+      provider_name: publishedText(value?.provider_name),
       // NOT defaulted to 'multilingual': an absent field is missing data, and
       // collapsing it into a sentinel makes a gap look like a published fact.
       language: typeof value?.language === 'string' ? value.language.trim() : '',
@@ -7125,8 +7348,9 @@ function publishedCredits(value: unknown): number | undefined {
 /** Parse one direct image-catalogue response for both ordinary and force-live reads. */
 async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Promise<GenStudioImageModel[]> {
     const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/image/models`, apiKey)
-    if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid image model catalog')
-    return payload.map((value: any) => ({
+    const rows = readCatalogRows(payload)
+    if (!rows) throw new Error('GenStudio KH returned an invalid image model catalog')
+    return rows.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
     ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
@@ -7158,7 +7382,7 @@ async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Pr
       : [],
     default_aspect_ratio: typeof value?.default_aspect_ratio === 'string'
       ? value.default_aspect_ratio.trim()
-      : '16:9',
+      : '',
     default_resolution: publishedText(value?.default_resolution),
     // Carried through the transport for the resolution surface. Rows missing
     // any part of the pair are dropped rather than patched, so a half-published
@@ -8344,7 +8568,13 @@ function replaceFailedTts(apiKey: string, outPath: string, request: GenStudioTts
   return replaceConfirmedGeneration('audio', apiKey, originalKey, itemKey, error, request,
     (key, _cap, hooks) => generateTtsToFileAdmitted(apiKey, outPath, { ...submitRequest, ...hooks, idempotencyKey: key }),
     async () => {
-      const quote = await requestGenStudioTtsQuote(apiKey, { modelId: request.modelId!, voiceId: request.voiceId!, text: request.text, speed: request.speed, controls: request.controls })
+      const quote = await requestGenStudioTtsQuote(apiKey, {
+        modelId: request.modelId!, voiceId: request.voiceId!, text: request.text, speed: request.speed,
+        supportsSpeed: request.supportsSpeed,
+        minimumSpeed: request.minimumSpeed,
+        maximumSpeed: request.maximumSpeed,
+        controls: request.controls,
+      })
       return quote.maximum_credits ?? null
     })
 }

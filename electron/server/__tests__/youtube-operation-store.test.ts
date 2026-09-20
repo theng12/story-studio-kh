@@ -61,6 +61,11 @@ async function accept(slug: string, operationId: string, videoId = 'video-1', re
   })
 }
 
+/** The one cross-project store, under this test's temp data root. */
+function claimsPath(): string {
+  return path.join(process.env.STORY_STUDIO_DATA_DIR!, 'youtube', 'video-claims.json')
+}
+
 describe('YouTube operation store', () => {
   test('records the manual operation before provider work and checkpoints one immutable accepted identity', async () => {
     const created = await project('Operation Project')
@@ -165,6 +170,87 @@ describe('YouTube operation store', () => {
     await assert.rejects(() => accept(healthy.slug, third.operation_id, 'video-3'),
       (error: unknown) => (error as { code?: string }).code === 'YOUTUBE_OPERATION_RECORD_CORRUPT')
     assert.deepEqual(await fs.readFile(claimsPath), claimsBytes)
+  })
+
+  // ── owner decision #7: the episode code on the cross-project claim ───────
+  //
+  // `video-claims.json` is the only cross-project store. It carried no episode
+  // code, so "has another project already used this episode code on this
+  // channel?" was unanswerable. Schema v2 adds it; v1 claims migrate to "unknown"
+  // and can never match, because a claim whose episode nobody recorded must not
+  // be reported as if it named one.
+
+  test('a claim records the episode code it was made for', async () => {
+    const created = await project('Episode Claim Project')
+    const opened = await store.createYouTubeOperation(input(created.slug, 'EP0007'))
+    await accept(created.slug, opened.operation_id, 'video-ep')
+    const raw = JSON.parse(await fs.readFile(claimsPath(), 'utf8'))
+    assert.equal(raw.schema_version, 2, 'the file must carry the schema that makes the episode answerable')
+    assert.equal(raw.claims.length, 1)
+    assert.equal(raw.claims[0].episode_code, 'EP0007')
+    assert.equal(raw.claims[0].video_id, 'video-ep')
+  })
+
+  test('another project\'s use of this episode code on this channel is found; the project\'s own is not', async () => {
+    await fs.mkdir(path.dirname(claimsPath()), { recursive: true })
+    await fs.writeFile(claimsPath(), JSON.stringify({
+      schema_version: 2,
+      claims: [{
+        channel_id: 'channel-1', video_id: 'foreign-video', project_slug: 'other-project',
+        operation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', episode_code: 'EP0001',
+      }],
+    }))
+
+    assert.deepEqual(
+      await store.findForeignEpisodeClaim({ project_slug: 'my-project', channel_id: 'channel-1', episode_code: 'EP0001' }),
+      { project_slug: 'other-project', operation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', video_id: 'foreign-video' },
+    )
+    assert.equal(
+      await store.findForeignEpisodeClaim({ project_slug: 'other-project', channel_id: 'channel-1', episode_code: 'EP0001' }),
+      null,
+      'a project\'s own claim is the already-published question, answered elsewhere — not this one',
+    )
+    assert.equal(
+      await store.findForeignEpisodeClaim({ project_slug: 'my-project', channel_id: 'channel-1', episode_code: 'EP0002' }),
+      null,
+    )
+    assert.equal(
+      await store.findForeignEpisodeClaim({ project_slug: 'my-project', channel_id: 'channel-2', episode_code: 'EP0001' }),
+      null,
+    )
+  })
+
+  test('a v1 claim reads as episode-unknown, and the file upgrades to v2 on the next real write', async () => {
+    await fs.mkdir(path.dirname(claimsPath()), { recursive: true })
+    await fs.writeFile(claimsPath(), JSON.stringify({
+      schema_version: 1,
+      claims: [{
+        channel_id: 'channel-1', video_id: 'legacy-video', project_slug: 'other-project',
+        operation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }],
+    }))
+
+    assert.equal(
+      await store.findForeignEpisodeClaim({ project_slug: 'my-project', channel_id: 'channel-1', episode_code: 'EP0001' }),
+      null,
+      'an unknown episode is not a match — reporting one would invent a fact the file never held',
+    )
+
+    const created = await project('Claim Upgrade Project')
+    const opened = await store.createYouTubeOperation(input(created.slug, 'EP0002'))
+    await accept(created.slug, opened.operation_id, 'new-video')
+
+    const raw = JSON.parse(await fs.readFile(claimsPath(), 'utf8'))
+    assert.equal(raw.schema_version, 2)
+    assert.equal(
+      raw.claims.find((claim: any) => claim.video_id === 'legacy-video').episode_code,
+      '',
+      'the migrated claim keeps its unknown episode; stored claims are never rewritten to invent one',
+    )
+    assert.equal(
+      raw.claims.find((claim: any) => claim.video_id === 'new-video').episode_code,
+      'EP0002',
+    )
   })
 
   test('a channel reassignment refuses operation mutation', async () => {

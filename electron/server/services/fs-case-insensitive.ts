@@ -20,7 +20,7 @@
  */
 
 import { existsSync } from 'fs'
-import { readdir } from 'fs/promises'
+import { readdir, stat } from 'fs/promises'
 import path from 'path'
 
 /**
@@ -31,18 +31,30 @@ import path from 'path'
  * Tries an exact-case `existsSync` first so the common path pays only
  * one syscall; falls back to a directory scan only on miss. Errors
  * reading the directory (missing, permission) are treated as "not
- * found" since every caller already handles that as the miss branch.
+ * found" since every caller already handles that as the miss branch. An
+ * audit can opt into strict I/O so only ENOENT remains a miss.
  */
 export async function findFileCaseInsensitive(
   dir: string,
   expectedName: string,
+  options: { strictIo?: boolean } = {},
 ): Promise<string | null> {
   const exact = path.join(dir, expectedName)
-  if (existsSync(exact)) return exact
+  if (options.strictIo) {
+    try {
+      await stat(exact)
+      return exact
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
+    }
+  } else if (existsSync(exact)) {
+    return exact
+  }
   let entries: string[]
   try {
     entries = await readdir(dir)
-  } catch {
+  } catch (error) {
+    if (options.strictIo && (error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
     return null
   }
   const target = expectedName.toLowerCase()

@@ -46,9 +46,17 @@
               v-if="episodes.length" class="btn btn-ghost btn-sm" type="button"
               :disabled="busy !== '' || !planCandidates.length || !!planBlocked"
               :title="planBlocked || (!planCandidates.length ? 'No visible video needs a planned date.' : '')"
-              @click="planUnscheduledVideos"
+              @click="planUnscheduledVideos()"
             >
-              {{ busy === 'plan-batch' ? 'Planning…' : `Plan unscheduled videos (${planCandidates.length})` }}
+              {{ busy === 'plan-batch' ? 'Planning…' : `${planCandidates.some(hasMissedPlan) ? 'Plan missing or missed dates' : 'Plan unscheduled videos'} (${planCandidates.length})` }}
+            </button>
+            <button
+              v-if="episodes.length" class="btn btn-ghost btn-sm" type="button"
+              :disabled="busy !== '' || !selectedUploadEpisodes.length || !!planBlocked"
+              :title="planBlocked || (!selectedUploadEpisodes.length ? 'Select videos to re-date.' : 'Re-lay the planned dates of the selected videos from a start date using the active plan\'s cadence.')"
+              @click="openRelayout($event)"
+            >
+              Edit planned dates ({{ selectedUploadEpisodes.length }})
             </button>
             <button class="btn btn-ghost btn-sm" type="button" :disabled="refreshingList" @click="refreshList">
               {{ refreshingList ? 'Refreshing…' : 'Refresh list' }}
@@ -74,6 +82,7 @@
           <NuxtLink :to="`/projects/${slug}/settings#youtube`" class="btn btn-ghost btn-sm">Assign channel</NuxtLink>
         </div>
         <p v-if="planResult" :class="['result', planResult.kind]" role="status">{{ planResult.message }}</p>
+        <p v-if="relayoutResult" :class="['result', relayoutResult.kind]" role="status">{{ relayoutResult.message }}</p>
 
         <div v-if="episodes.length" class="episode-tools">
           <input
@@ -155,7 +164,12 @@
               <span class="fact-label">Publication</span>
               <span :class="['state-text', stateTone(publicationState(ep))]">{{ publicationLabel(ep) }}</span>
               <span v-if="publicationDate(ep)" class="fact-note">{{ publicationDate(ep) }}</span>
-              <span v-if="plannedDate(ep)" class="fact-note">Plan: {{ plannedDate(ep) }}</span>
+              <span v-if="plannedDate(ep)" :class="['fact-note', { 'tone-danger': hasMissedPlan(ep) }]">{{ hasMissedPlan(ep) ? 'Missed plan' : 'Plan' }}: {{ plannedDate(ep) }}</span>
+              <button
+                v-if="hasMissedPlan(ep) && canPlanEpisode(ep)" class="inline-action" type="button"
+                :disabled="busy !== '' || !!planBlocked" :title="planBlocked || ''"
+                @click="planUnscheduledVideos([ep.episode_code])"
+              >Move missed date forward</button>
               <span v-if="publicationReason(ep)" class="fact-note">{{ publicationReason(ep) }}</span>
               <span v-if="lastCheckedLabel(ep)" class="fact-note">{{ lastCheckedLabel(ep) }}</span>
             </div>
@@ -444,6 +458,83 @@
         </section>
       </Modal>
 
+      <Modal :visible="relayoutOpen" size="lg" labelledby="relayout-title" dialog-class="modal-flush" @close="closeRelayout">
+        <section class="relayout-review">
+          <header class="review-head">
+            <div>
+              <h2 id="relayout-title" ref="relayoutHeading" tabindex="-1">Edit planned dates</h2>
+              <p>{{ selectedUploadEpisodes.length }} selected · re-laid from a start date on the active plan's cadence</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" @click="closeRelayout">Close</button>
+          </header>
+
+          <div class="review-body">
+            <p class="hint">
+              This changes Story Studio's <strong>planned</strong> dates only. YouTube is not edited here,
+              so a video that already exists on the channel keeps its real publish time and is listed below as skipped.
+            </p>
+
+            <div class="field-row relayout-start">
+              <label for="relayout-start-date">Start from</label>
+              <input
+                id="relayout-start-date" v-model="relayoutStartDate" type="date"
+                :disabled="busy !== ''"
+              />
+              <button
+                class="btn btn-ghost btn-sm" type="button"
+                :disabled="busy !== '' || !relayoutStartDate"
+                @click="previewRelayout()"
+              >
+                {{ busy === 'relayout-preview' ? 'Checking…' : 'Preview dates' }}
+              </button>
+            </div>
+
+            <p v-if="relayoutError" class="row-result err" role="alert">{{ relayoutError }}</p>
+
+            <template v-if="relayoutPreview">
+              <p v-if="!relayoutPreview.assignments.length" class="hint" role="status">
+                Nothing selected can be re-dated. Every selected video is either already on YouTube or has an upload in progress.
+              </p>
+              <table v-else class="relayout-table">
+                <caption class="relayout-caption">
+                  Proposed dates on {{ relayoutPlanName || 'the active plan' }}
+                  <span v-if="relayoutPreview.timezone"> · times shown in {{ relayoutPreview.timezone }}</span>
+                </caption>
+                <thead>
+                  <tr><th scope="col">Episode</th><th scope="col">Planned now</th><th scope="col">Proposed</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="assignment in relayoutPreview.assignments" :key="assignment.episode_code">
+                    <td><strong>{{ assignment.episode_code }}</strong></td>
+                    <td>{{ assignment.previous_publish_at ? formatZonedWhen(assignment.previous_publish_at, relayoutPreview.timezone) : 'Not planned' }}</td>
+                    <td><strong>{{ formatZonedWhen(assignment.publishAt, relayoutPreview.timezone) }}</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p v-if="relayoutPreview.occupied_days.length" class="hint">
+                {{ relayoutPreview.occupied_days.length }} day{{ relayoutPreview.occupied_days.length === 1 ? '' : 's' }}
+                already held by other episodes {{ relayoutPreview.occupied_days.length === 1 ? 'was' : 'were' }} stepped over,
+                so no two videos share a date. The list above already accounts for that.
+              </p>
+
+              <div v-if="relayoutPreview.skipped.length" class="relayout-skipped">
+                <h3>Left unchanged ({{ relayoutPreview.skipped.length }})</h3>
+                <ul>
+                  <li v-for="skip in relayoutPreview.skipped" :key="skip.episode_code">{{ skip.reason }}</li>
+                </ul>
+              </div>
+
+              <div v-if="relayoutPreview.assignments.length" class="field-row upload-row">
+                <button class="btn btn-primary" type="button" :disabled="busy !== ''" @click="applyRelayout()">
+                  {{ busy === 'relayout-apply' ? 'Saving…' : `Save ${relayoutPreview.assignments.length} planned date${relayoutPreview.assignments.length === 1 ? '' : 's'}` }}
+                </button>
+              </div>
+            </template>
+          </div>
+        </section>
+      </Modal>
+
       <Modal :visible="bulkReviewOpen" size="lg" labelledby="bulk-upload-review-title" dialog-class="modal-flush" @close="closeBulkReview">
         <section class="bulk-upload-review">
           <header class="review-head">
@@ -555,7 +646,7 @@ interface Operation {
 type RenderState = 'ready' | 'missing' | 'unknown'
 type UploadState = 'none' | 'queued' | 'running' | 'failed' | 'succeeded' | 'unknown'
 type PublicationState = 'unpublished' | 'uploaded' | 'processing' | 'published' | 'scheduled' | 'failed' | 'rejected' | 'unknown'
-type StatusFilter = 'all' | 'ready' | 'missing' | 'in_progress' | 'planned' | 'uploaded' | 'scheduled' | 'published' | 'attention'
+type StatusFilter = 'all' | 'ready' | 'missing' | 'in_progress' | 'planned' | 'missed' | 'uploaded' | 'scheduled' | 'published' | 'attention'
 type SortMode = 'episode_newest' | 'episode_oldest' | 'schedule_soonest' | 'status'
 type ReviewIntent = 'upload' | 'schedule'
 type TimingMode = 'planned' | 'custom' | 'private'
@@ -692,6 +783,7 @@ const statusOptions = computed(() => ([
   { key: 'missing' as const, label: 'Missing video', count: countStatus('missing') },
   { key: 'in_progress' as const, label: 'In progress', count: countStatus('in_progress') },
   { key: 'planned' as const, label: 'Planned', count: countStatus('planned') },
+  { key: 'missed' as const, label: 'Missed plans', count: countStatus('missed') },
   { key: 'uploaded' as const, label: 'Uploaded', count: countStatus('uploaded') },
   { key: 'scheduled' as const, label: 'Scheduled', count: countStatus('scheduled') },
   { key: 'published' as const, label: 'Published', count: countStatus('published') },
@@ -830,10 +922,23 @@ function formatZonedWhen(value: string | undefined, timezone?: string): string {
 }
 const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'your device timezone'
 
+// Refresh date-dependent controls while this page stays open, without network polling.
+const planClock = ref(Date.now())
+let planClockTimer: ReturnType<typeof setInterval> | undefined
+const refreshPlanClock = () => { planClock.value = Date.now() }
+onMounted(() => {
+  planClockTimer = setInterval(refreshPlanClock, 60_000)
+  window.addEventListener('focus', refreshPlanClock)
+})
+onUnmounted(() => {
+  clearInterval(planClockTimer)
+  window.removeEventListener('focus', refreshPlanClock)
+})
+
 function isFutureIso(value: string | undefined): value is string {
   if (!value) return false
   const at = new Date(value).getTime()
-  return Number.isFinite(at) && at > Date.now()
+  return Number.isFinite(at) && at > Math.max(planClock.value, Date.now())
 }
 const selectedEpisode = computed(() => episodes.value.find(ep => ep.episode_code === previewedEpisode.value) || null)
 const plannedPublishAt = computed(() => isFutureIso(selectedEpisode.value?.plan?.scheduled_at)
@@ -855,6 +960,13 @@ function plannedDate(ep: PublishableEpisode): string {
   if (!ep.plan?.scheduled_at) return ''
   return formatZonedWhen(ep.plan.scheduled_at, ep.plan.timezone)
 }
+function hasMissedPlan(ep: PublishableEpisode): boolean {
+  const at = Date.parse(ep.plan?.scheduled_at || '')
+  return Number.isFinite(at) && at <= Math.max(planClock.value, Date.now())
+    && !ep.has_remote_video && !associatedVideoId(ep)
+    && ['none', 'failed'].includes(uploadState(ep))
+    && ['unpublished', 'failed', 'rejected'].includes(publicationState(ep))
+}
 function lastCheckedLabel(ep: PublishableEpisode): string {
   const checkedAt = ep.publication?.last_checked_at || ep.operation?.processing?.checked_at
   if (checkedAt) return `YouTube checked ${formatWhen(checkedAt)}; cleanup verifies again.`
@@ -871,6 +983,7 @@ function matchesStatus(ep: PublishableEpisode, key: StatusFilter): boolean {
   if (key === 'missing') return renderState(ep) === 'missing'
   if (key === 'in_progress') return ['queued', 'running'].includes(uploadState(ep))
     || publicationState(ep) === 'processing'
+  if (key === 'missed') return hasMissedPlan(ep)
   if (key === 'planned') return !!ep.plan?.scheduled_at && publicationState(ep) !== 'scheduled'
   if (key === 'uploaded') return publicationState(ep) === 'uploaded'
   if (key === 'scheduled') return publicationState(ep) === 'scheduled'
@@ -984,7 +1097,7 @@ interface UploadPlan {
   account_id: string
   schedule?: { timezone?: string }
 }
-interface PlanAssignment { episode_code: string; publishAt: string }
+interface PlanAssignment { episode_code: string; publishAt: string; previous_publish_at?: string }
 
 async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promise<{ assignments: PlanAssignment[]; timezone: string } | null> {
   const channelId = assignedChannel.value?.channel_id
@@ -1006,11 +1119,15 @@ async function assignPlanDates(episodeCodes: string[], busyLabel: string): Promi
     }
     const zone = plan.schedule?.timezone || deviceTimezone
     const proposedDates = previewResult.assignments
-      .map(item => `${item.episode_code}: ${formatZonedWhen(item.publishAt, zone)} (${item.publishAt})`)
+      .map(item => {
+        const previous = item.previous_publish_at
+        const from = previous ? `Previous: ${formatZonedWhen(previous, zone)} (${previous})\n` : ''
+        return `${item.episode_code}\n${from}New: ${formatZonedWhen(item.publishAt, zone)} (${item.publishAt})`
+      })
       .join('\n')
     const confirmed = await ask({
-      title: previewResult.assignments.length === 1 ? `Use the next ${plan.name} date?` : `Plan ${previewResult.assignments.length} unscheduled videos?`,
-      message: `The plan currently proposes:\n${proposedDates}\n\nStory Studio will check current claims again before saving. These are local planned dates; each YouTube upload or existing private video still needs its own confirmation.`,
+      title: previewResult.assignments.length === 1 ? `Use the next ${plan.name} date?` : `Review planned dates for ${previewResult.assignments.length} videos?`,
+      message: `The plan currently proposes:\n${proposedDates}\n\nExisting future bookings stay in place; new dates follow them in the channel’s cadence. Story Studio will check current claims again before saving. These are local planned dates; each YouTube upload or existing private video still needs its own confirmation.`,
       confirmLabel: previewResult.assignments.length === 1 ? 'Use planned date' : 'Save planned dates',
     })
     if (!actionIsCurrent(action)) return null
@@ -1053,16 +1170,17 @@ async function useNextPlanSlot(): Promise<void> {
   }
 }
 
-const planCandidates = computed(() => visibleEpisodes.value.filter(ep => {
+function canPlanEpisode(ep: PublishableEpisode): boolean {
   if (isFutureIso(ep.plan?.scheduled_at) || renderState(ep) !== 'ready') return false
-  if (canScheduleExisting(ep)) return true
+  if (canScheduleExisting(ep)) return !ep.plan?.scheduled_at
   const hasRemote = !!(ep.has_remote_video || ep.remote_video_id || ep.operation?.video_id)
   return !hasRemote && !ep.blocked_reason && ['none', 'failed'].includes(uploadState(ep))
     && ['unpublished', 'failed', 'rejected'].includes(publicationState(ep))
-}))
+}
+const planCandidates = computed(() => visibleEpisodes.value.filter(canPlanEpisode))
 
-async function planUnscheduledVideos(): Promise<void> {
-  const codes = [...planCandidates.value]
+async function planUnscheduledVideos(episodeCodes?: string[]): Promise<void> {
+  const codes = Array.isArray(episodeCodes) ? episodeCodes : [...planCandidates.value]
     .sort((a, b) => episodeNumber(a) - episodeNumber(b))
     .map(ep => ep.episode_code)
   if (!codes.length || busy.value) return
@@ -1079,6 +1197,181 @@ async function planUnscheduledVideos(): Promise<void> {
     planResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not plan those videos.' }
   }
 }
+
+// ── Edit planned dates (re-lay) ───────────────────────────────────────────
+//
+// The gap this closes: `canPlanEpisode` returns false the moment an episode
+// holds a FUTURE planned date, and the plan route reports the same episodes as
+// `skipped_existing`. That rule is right for "plan what is unscheduled" and left
+// the opposite intent unreachable — an episode handed a date it should not have
+// kept, because a failed render let the episode behind it take the slot, could
+// not be re-dated from ANY surface. Bulk is the point: at 70+ planned episodes
+// a one-row-at-a-time fix is not a fix.
+//
+// Local planned dates only. Nothing here writes to YouTube, so a video that
+// already exists on the channel is reported as skipped rather than re-dated
+// behind YouTube's back — a local date that disagrees with a live `publishAt`
+// would make the row lie about when the video actually goes live.
+
+interface RelayoutSkip { episode_code: string; reason: string }
+
+interface RelayoutPreview {
+  plan_id: string
+  channel_id: string
+  start_date: string
+  timezone: string
+  ordered_episode_codes: string[]
+  assignments: PlanAssignment[]
+  skipped: RelayoutSkip[]
+  occupied_days: string[]
+}
+
+const relayoutOpen = ref(false)
+const relayoutHeading = ref<HTMLElement | null>(null)
+const relayoutOpener = ref<HTMLElement | null>(null)
+const relayoutStartDate = ref('')
+const relayoutPreview = ref<RelayoutPreview | null>(null)
+const relayoutRequest = ref<{ plan_id: string; expected_channel_id: string; episode_codes: string[]; start_date: string } | null>(null)
+const relayoutPlanName = ref('')
+const relayoutError = ref('')
+const relayoutResult = ref<{ kind: 'ok' | 'warn' | 'err'; message: string } | null>(null)
+
+/** The `YYYY-MM-DD` an instant falls on in `tz` — a `<input type="date">` value. */
+function zonedDateInput(iso: string, tz: string): string {
+  const at = new Date(iso)
+  if (!Number.isFinite(at.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(at)
+  const year = parts.find(part => part.type === 'year')?.value
+  const month = parts.find(part => part.type === 'month')?.value
+  const day = parts.find(part => part.type === 'day')?.value
+  return year && month && day ? `${year}-${month}-${day}` : ''
+}
+
+async function openRelayout(event?: Event): Promise<void> {
+  relayoutError.value = ''
+  relayoutResult.value = null
+  relayoutPreview.value = null
+  relayoutRequest.value = null
+  relayoutOpener.value = (event?.currentTarget as HTMLElement) || null
+  const selected = selectedUploadEpisodes.value
+  if (!selected.length) return
+  // Default to the earliest date the selection already holds, so the common case
+  // — "put this scramble back onto the cadence" — needs no retyping. The date is
+  // read in the PLAN's timezone, not the device's, because that is the calendar
+  // the slots are laid out on.
+  const zone = selected.find(ep => ep.plan?.timezone)?.plan?.timezone || deviceTimezone
+  const planned = selected
+    .map(ep => ep.plan?.scheduled_at)
+    .filter((value): value is string => isFutureIso(value))
+    .sort()
+  relayoutStartDate.value = zonedDateInput(
+    planned[0] ?? new Date(Date.now() + 86_400_000).toISOString(),
+    zone,
+  )
+  relayoutOpen.value = true
+  await nextTick()
+  relayoutHeading.value?.focus()
+}
+
+function closeRelayout(): void {
+  invalidateRelayoutPreview()
+  relayoutOpen.value = false
+  const opener = relayoutOpener.value
+  relayoutOpener.value = null
+  if (opener) nextTick(() => opener.focus())
+}
+
+function invalidateRelayoutPreview(): void {
+  // A relayout preview belongs to one date. Its response cannot restore an
+  // old proposal after that date changes or the dialog closes.
+  actionRevision++
+  if (busy.value === 'relayout-preview') busy.value = ''
+  relayoutPreview.value = null
+  relayoutRequest.value = null
+  relayoutError.value = ''
+}
+
+watch(relayoutStartDate, () => {
+  if (relayoutOpen.value && (relayoutPreview.value || relayoutRequest.value || busy.value === 'relayout-preview')) {
+    invalidateRelayoutPreview()
+  }
+})
+
+async function previewRelayout(): Promise<void> {
+  // Production order, not selection order: the checkbox set preserves click
+  // order and the list default is newest-first, neither of which may decide
+  // which episode receives the earliest date. The route re-sorts too, so this
+  // only keeps the request itself stable and readable.
+  const codes = [...selectedUploadEpisodes.value]
+    .sort((a, b) => episodeNumber(a) - episodeNumber(b))
+    .map(ep => ep.episode_code)
+  const channelId = assignedChannel.value?.channel_id
+  if (!codes.length || !channelId || busy.value || !relayoutStartDate.value) return
+  const action = beginAction('relayout-preview')
+  relayoutError.value = ''
+  relayoutPreview.value = null
+  relayoutResult.value = null
+  try {
+    const listed = await get<{ plans: UploadPlan[]; active: Record<string, string> }>(`/projects/${action.slug}/upload/plans`)
+    if (!actionIsCurrent(action)) return
+    const planId = listed.active?.[`youtube:registry:${channelId}`]
+    const plan = listed.plans.find(candidate => candidate.id === planId)
+    if (!plan) throw new Error('This channel does not have an active upload plan. Create or activate one in Upload Center → Upload plans.')
+    const preview = await post<RelayoutPreview>(`/projects/${action.slug}/youtube/plan/relayout/preview`, {
+      plan_id: plan.id,
+      expected_channel_id: channelId,
+      episode_codes: codes,
+      start_date: relayoutStartDate.value,
+    })
+    if (!actionIsCurrent(action)) return
+    relayoutPlanName.value = plan.name
+    relayoutPreview.value = preview
+    // Kept so Apply sends the exact request this preview answered. A preview that
+    // cannot be replayed is a preview of a different operation.
+    relayoutRequest.value = {
+      plan_id: plan.id, expected_channel_id: channelId,
+      episode_codes: codes, start_date: relayoutStartDate.value,
+    }
+  } catch (error: any) {
+    relayoutError.value = error?.data?.detail || error?.message || 'Could not preview those dates.'
+  } finally {
+    if (actionIsCurrent(action)) busy.value = ''
+  }
+}
+
+async function applyRelayout(): Promise<void> {
+  const preview = relayoutPreview.value
+  const request = relayoutRequest.value
+  if (!preview || !request || busy.value || !preview.assignments.length) return
+  const action = beginAction('relayout-apply')
+  relayoutError.value = ''
+  try {
+    const applied = await post<RelayoutPreview>(`/projects/${action.slug}/youtube/plan/relayout/apply`, {
+      ...request, confirm: true, expected_assignments: preview.assignments,
+    })
+    if (!actionIsCurrent(action)) return
+    const saved = applied.assignments.length
+    const held = applied.skipped.length
+    relayoutResult.value = {
+      kind: held ? 'warn' : 'ok',
+      message: `Saved ${saved} planned date${saved === 1 ? '' : 's'}`
+        + (held ? `, and left ${held} unchanged.` : '.')
+        + ' YouTube was not changed — each video still needs its own schedule confirmation.',
+    }
+    relayoutOpen.value = false
+    relayoutPreview.value = null
+    relayoutRequest.value = null
+    selectedUploadCodes.value = []
+    await load()
+  } catch (error: any) {
+    relayoutError.value = error?.data?.detail || error?.message || 'Could not save those dates.'
+  } finally {
+    if (actionIsCurrent(action)) busy.value = ''
+  }
+}
+
 function thumbnailGeneratorLink(episodeCode: string): string {
   return `/projects/${slug.value}/images?tab=thumbnails&episode_id=${encodeURIComponent(episodeCode)}`
 }
@@ -1378,20 +1671,29 @@ async function upload(episodeCode: string): Promise<void> {
   busy.value = 'upload'
   const action = confirmationAction
   delete rowResults[episodeCode]
+  const uploadBody = {
+    episode_code: episodeCode,
+    confirm: true,
+    expected_channel_id: expectedChannelId,
+    expected_package_revision: expectedPackageRevision,
+    expected_source_revision: expectedSourceRevision,
+    thumbnail_filename: expectedThumbnailFilename,
+    privacy_status: expectedPrivacyStatus,
+    ...(expectedPublishAt ? { publish_at: expectedPublishAt } : {}),
+  }
   try {
-    const res = await post<{ job_id: string; channel_id: string }>(
-      `/projects/${requestedSlug}/youtube/upload`,
-      {
-        episode_code: episodeCode,
-        confirm: true,
-        expected_channel_id: expectedChannelId,
-        expected_package_revision: expectedPackageRevision,
-        expected_source_revision: expectedSourceRevision,
-        thumbnail_filename: expectedThumbnailFilename,
-        privacy_status: expectedPrivacyStatus,
-        ...(expectedPublishAt ? { publish_at: expectedPublishAt } : {}),
-      },
-    )
+    let res: { job_id: string; channel_id: string }
+    try {
+      res = await post<{ job_id: string; channel_id: string }>(
+        `/projects/${requestedSlug}/youtube/upload`, uploadBody,
+      )
+    } catch (error: any) {
+      if (!(await confirmForeignEpisodeCode(error, episodeCode))) throw error
+      // Clicked through: resend the SAME reviewed body with the acknowledgement.
+      res = await post<{ job_id: string; channel_id: string }>(
+        `/projects/${requestedSlug}/youtube/upload`, { ...uploadBody, acknowledge_foreign_episode: true },
+      )
+    }
     if (!actionIsCurrent(action)) return
     rowResults[episodeCode] = {
       kind: 'ok',
@@ -1569,19 +1871,29 @@ async function queueReviewedUploads(): Promise<void> {
     }
     item.state = 'queueing'
     try {
-      const result = await post<{ job_id: string; channel_id: string }>(
-        `/projects/${requestedSlug}/youtube/upload`,
-        {
-          episode_code: item.episode_code,
-          confirm: true,
-          expected_channel_id: item.channel_id,
-          expected_package_revision: expectedPackageRevision,
-          expected_source_revision: expectedSourceRevision,
-          thumbnail_filename: preview.thumbnail.state === 'selected' ? preview.thumbnail.filename || null : null,
-          privacy_status: preview.status.privacyStatus,
-          ...(preview.status.publishAt ? { publish_at: preview.status.publishAt } : {}),
-        },
-      )
+      const uploadBody = {
+        episode_code: item.episode_code,
+        confirm: true,
+        expected_channel_id: item.channel_id,
+        expected_package_revision: expectedPackageRevision,
+        expected_source_revision: expectedSourceRevision,
+        thumbnail_filename: preview.thumbnail.state === 'selected' ? preview.thumbnail.filename || null : null,
+        privacy_status: preview.status.privacyStatus,
+        ...(preview.status.publishAt ? { publish_at: preview.status.publishAt } : {}),
+      }
+      let result: { job_id: string; channel_id: string }
+      try {
+        result = await post<{ job_id: string; channel_id: string }>(
+          `/projects/${requestedSlug}/youtube/upload`, uploadBody,
+        )
+      } catch (error: any) {
+        if (!(await confirmForeignEpisodeCode(error, item.episode_code))) throw error
+        // Clicked through: resend the SAME reviewed body with the
+        // acknowledgement. Nothing else about the request changes.
+        result = await post<{ job_id: string; channel_id: string }>(
+          `/projects/${requestedSlug}/youtube/upload`, { ...uploadBody, acknowledge_foreign_episode: true },
+        )
+      }
       if (!actionIsCurrent(action)) return
       item.state = 'queued'
       item.job_id = result.job_id
@@ -1610,6 +1922,24 @@ async function queueReviewedUploads(): Promise<void> {
     // bring the remaining Reviewed rows back with Show.
     await load()
   }
+}
+
+/**
+ * Owner decision #7 (2026-09-20) — another project has already uploaded this
+ * episode code to this channel.
+ *
+ * The server answers that with a confirmable warning rather than a refusal,
+ * because two series may legitimately share one channel and both have an
+ * "Episode 1". Returns true only when the customer chooses to upload anyway; any
+ * other failure is re-thrown so the real reason still reaches the row.
+ */
+async function confirmForeignEpisodeCode(error: any, episodeCode: string): Promise<boolean> {
+  if (error?.data?.code !== 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE') return false
+  return ask({
+    title: `${episodeCode} is already on this channel`,
+    message: String(error.data.detail || 'Another project has already uploaded this episode code here.'),
+    confirmLabel: 'Upload anyway',
+  })
 }
 
 async function scheduleExisting(): Promise<void> {
@@ -1776,6 +2106,15 @@ watch(slug, () => {
   filter.value = typeof route.query.episode_id === 'string' ? route.query.episode_id : ''
   statusFilter.value = 'all'
   planResult.value = null
+  // The re-lay dialog names one project's episodes and one project's plan, and
+  // its previewed dates were computed against that project. Carrying any of it
+  // across a project switch would offer to save dates the new project never
+  // previewed.
+  relayoutResult.value = null
+  relayoutOpen.value = false
+  relayoutPreview.value = null
+  relayoutRequest.value = null
+  relayoutError.value = ''
   selectedUploadCodes.value = []
   bulkReviewOpen.value = false
   bulkReviews.value = []
@@ -1868,13 +2207,14 @@ watch(slug, () => {
 .tone-info { color: var(--text-secondary); }
 .tone-danger { color: var(--danger); }
 .tone-muted { color: var(--text-muted); }
+.fact-note.tone-danger { color: var(--danger); }
 .fact-note { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; overflow-wrap: anywhere; }
 .upload-progress { margin-top: 3px; min-width: 120px; }
 .op-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .forget-upload { flex-basis: 100%; margin-left: auto; color: var(--text-muted); }
 .row-result { grid-column: 1 / -1; margin: 0; padding-top: 7px; border-top: 1px solid var(--border); line-height: 1.5; }
 
-.upload-review, .bulk-upload-review, .video-review { display: grid; gap: 14px; min-width: 0; }
+.upload-review, .bulk-upload-review, .video-review, .relayout-review { display: grid; gap: 14px; min-width: 0; }
 /*
   The review dialogs paint their own bands (the Modal is passed `modal-flush`):
   the header with Close is pinned to the top of the dialog's own scroll box and
@@ -1882,9 +2222,9 @@ watch(slug, () => {
   scrolls between them. Sticky positioning needs the dialog's scroll box to be
   the nearest scrolling ancestor, which is exactly what Modal provides.
 */
-.upload-review, .bulk-upload-review { --uc-dialog-pad: 24px; gap: 0; }
+.upload-review, .bulk-upload-review, .relayout-review { --uc-dialog-pad: 24px; gap: 0; }
 .review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.upload-review .review-head, .bulk-upload-review .review-head {
+.upload-review .review-head, .bulk-upload-review .review-head, .relayout-review .review-head {
   position: sticky; top: 0; z-index: 2;
   padding: var(--uc-dialog-pad) var(--uc-dialog-pad) 12px;
   background: var(--bg-secondary); border-bottom: 1px solid var(--border);
@@ -1906,6 +2246,27 @@ watch(slug, () => {
 .review-head h2 { margin: 0; font-size: 18px; }
 .review-head h2:focus { outline: none; }
 .review-head p { margin: 4px 0 0; color: var(--text-muted); font-size: var(--font-xs); }
+/* Re-lay dialog: a before/after table is the whole point, so the two date
+   columns must stay visually distinct from the episode codes beside them. */
+.relayout-start { align-items: center; }
+.relayout-start label { font-size: var(--font-xs); color: var(--text-muted); }
+.relayout-table { width: 100%; border-collapse: collapse; font-size: var(--font-xs); }
+.relayout-table caption { margin-bottom: 6px; color: var(--text-muted); text-align: left; }
+.relayout-table th {
+  padding: 6px 8px; border-bottom: 1px solid var(--border);
+  color: var(--text-muted); font-weight: 600; text-align: left;
+}
+.relayout-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.relayout-table td:last-child { white-space: nowrap; }
+.relayout-skipped {
+  display: grid; gap: 6px; padding: 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary);
+}
+.relayout-skipped h3 { margin: 0; font-size: 14px; }
+.relayout-skipped ul {
+  display: grid; gap: 4px; margin: 0; padding-left: 18px;
+  color: var(--text-muted); font-size: var(--font-xs);
+}
 .video-review video { width: 100%; max-height: min(65vh, 560px); border-radius: var(--radius-sm); background: #000; }
 .changes, .warnings { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: var(--font-xs); }
 .warnings { color: var(--warning, #d97706); }
@@ -2015,8 +2376,8 @@ watch(slug, () => {
   .status-chip { flex: 1 1 auto; }
 }
 @media (max-width: 620px) {
-  .upload-review .review-head, .bulk-upload-review .review-head, .video-review .review-head { align-items: stretch; flex-direction: column; }
-  .upload-review, .bulk-upload-review { --uc-dialog-pad: 18px; }
+  .upload-review .review-head, .bulk-upload-review .review-head, .video-review .review-head, .relayout-review .review-head { align-items: stretch; flex-direction: column; }
+  .upload-review, .bulk-upload-review, .relayout-review { --uc-dialog-pad: 18px; }
   .bulk-background { grid-template-columns: 1fr; }
   .upload-review .payload > div { grid-template-columns: 1fr; }
   .timing-options { grid-template-columns: 1fr; }

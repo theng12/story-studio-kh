@@ -20,7 +20,7 @@ function policyCode(): string {
 function loadPolicies() {
   let onProjectChange: (() => void) | undefined
   const source = `
-    type StepId = 'research' | 'script-only' | 'introduction-only' | 'image_prompts' | 'metadata' | 'scene_plan' | 'contextual_cues' | 'audio'
+    type StepId = 'research' | 'broll' | 'script-only' | 'introduction-only' | 'image_prompts' | 'thumb_images' | 'metadata' | 'scene_plan' | 'contextual_cues' | 'scene_review' | 'motion_review' | 'character_sheet' | 'video_assembly' | 'audio' | 'audio_merge' | 'subtitles'
     const slug = {}
     const ref = (value: any) => ({ value })
     const savedLlmLineup = ref({ enabled: false, models: [], prefer_savings: true })
@@ -32,7 +32,7 @@ function loadPolicies() {
       addModelPolicyCandidate, removeModelPolicyCandidate, moveModelPolicyCandidate,
       setModelPolicyModelMeta, modelPolicyLimits, modelPolicyError, modelPoliciesForRun, setChecked: (ids: StepId[]) => {
         checkedStepsOrdered.value = ids.map(id => ({ id }))
-      },
+      }, setLineup: (lineup: typeof savedLlmLineup.value) => { savedLlmLineup.value = lineup },
     }
   `
   const js = ts.transpileModule(source, {
@@ -56,6 +56,7 @@ function loadPolicies() {
     modelPolicyError: (id: string) => string
     modelPoliciesForRun: () => Record<string, { mode: string; models: string[] }>
     setChecked: (ids: string[]) => void
+    setLineup: (lineup: { enabled: boolean; models: string[]; prefer_savings: boolean }) => void
   }
   return { ...page, projectChanged: () => onProjectChange?.() }
 }
@@ -71,6 +72,32 @@ test('Pipeline submits only valid explicit policies for selected stages and neve
   })
   assert.match(pipeline, /model_policies: modelPoliciesForRun\(\)/)
   assert.doesNotMatch(policyCode(), /settings\/config/)
+})
+
+test('Pipeline omits the shared lineup for a Scene Review-only run', () => {
+  const page = loadPolicies()
+  page.setChecked(['scene_review'])
+  page.setLineup({ enabled: true, models: ['genstudio:writer-a'], prefer_savings: true })
+
+  assert.deepEqual(page.modelPoliciesForRun(), {})
+})
+
+test('Pipeline applies the shared lineup only to eligible writing stages', () => {
+  const page = loadPolicies()
+  page.setChecked(['script-only', 'image_prompts', 'broll', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'scene_review', 'motion_review', 'character_sheet', 'video_assembly'])
+  page.setLineup({ enabled: true, models: ['genstudio:writer-a'], prefer_savings: true })
+  page.setModelPolicyEnabled('script-only', true)
+  page.setModelPolicyModel('script-only', 0, 'genstudio:explicit-writer')
+
+  assert.deepEqual(page.modelPoliciesForRun(), {
+    'script-only': { mode: 'single', models: ['genstudio:explicit-writer'] },
+    image_prompts: {
+      mode: 'single',
+      models: ['genstudio:writer-a'],
+      wait_for_availability: true,
+      prefer_savings: true,
+    },
+  })
 })
 
 test('Pipeline can reorder or remove explicit backups and blocks incomplete or duplicate selections', () => {

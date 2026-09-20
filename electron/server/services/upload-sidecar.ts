@@ -423,6 +423,9 @@ function makePlanningStubSidecar(platform: UploadPlatform, scheduled_for: string
  *   - sidecar absent, iso truthy        → write a planning stub
  *   - sidecar absent, iso null          → no-op (already clear)
  *
+ * When `expectedScheduledFor` is supplied, the write is conditional on the
+ * value still matching while this sidecar's file lock is held.
+ *
  * Idempotent — repeat calls with the same input produce the same final
  * state without churning the file.
  */
@@ -432,12 +435,23 @@ export async function setScheduledFor(
   fallback_title: string,
   platform: UploadPlatform,
   scheduled_for: string | null,
+  expectedScheduledFor?: string | null,
 ): Promise<void> {
   const paths = await resolveEpisodePaths(slug, episode_code, fallback_title || '')
   await fsp.mkdir(paths.episode_dir, { recursive: true })
   const p = sidecarPath(paths.episode_dir, platform)
   await withLock(p, async () => {
     const existing = await readSidecarAtPathStrict(p)
+    const currentScheduledFor = existing?.scheduled_for ?? null
+    if (expectedScheduledFor !== undefined && currentScheduledFor !== expectedScheduledFor) {
+      const detail = `The planned YouTube date for ${episode_code} changed after preview. Preview the plan again before saving.`
+      throw Object.assign(new Error(detail), {
+        statusCode: 409,
+        code: 'YOUTUBE_PLAN_PREVIEW_STALE',
+        detail,
+        expose: true,
+      })
+    }
     if (!existing) {
       if (!scheduled_for) return
       await writeJsonAtomic(p, makePlanningStubSidecar(platform, scheduled_for))

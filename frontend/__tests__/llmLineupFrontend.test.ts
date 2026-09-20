@@ -188,7 +188,7 @@ test('Pipeline applies a saved lineup to eligible stages while preserving explic
   assert.match(pipeline, /<LlmLineupEditor :key="slug" :project-slug="slug"/)
   assert.match(pipeline, /wait_for_availability: true/)
   assert.match(pipeline, /prefer_savings: savedLlmLineup\.value\.prefer_savings/)
-  assert.match(pipeline, /else if \(savedLlmLineup\.value\.enabled && savedLlmLineup\.value\.models\.length\)/)
+  assert.match(pipeline, /else if \(policy && savedLlmLineup\.value\.enabled && savedLlmLineup\.value\.models\.length\)/)
   assert.match(pipeline, /savedLlmLineup\.value\.models\.length >= 2 \? 'backup' : 'single'/)
   assert.match(pipeline, /watch\(slug, \(\) => \{[\s\S]*savedLlmLineup\.value = \{ enabled: false, models: \[\], prefer_savings: true \}/)
 })

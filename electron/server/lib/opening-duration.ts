@@ -76,7 +76,8 @@ function clipsOf(head: OpeningHead): OpeningHeadClip[] {
  * `probe` is the caller's duration reader (`getAudioDuration` in both real
  * call sites — ffprobe works on video containers too). A clip that already
  * carries `duration_sec` is never probed; a clip with neither a usable probe
- * result nor a `fallback_sec` contributes 0.
+ * result nor a `fallback_sec` contributes 0. An opening clip that EXISTS but
+ * cannot be probed is an error, never a silent zero or a reserved default.
  */
 export async function measureOpeningSec(
   head: OpeningHead,
@@ -100,8 +101,26 @@ export async function measureClipSec(
   if (clip.path) {
     const probed = await probe(clip.path).catch(() => undefined)
     if (probed && probed > 0) return probed
+    // v1.4.203 — DECIDED BY THE OWNER, 2026-09-20: fail loudly.
+    //
+    // This used to fall through to `clip.fallback_sec || 0`, and both real
+    // callers pass `fallback_sec: 5` — so an opening clip that could not be
+    // measured silently reserved five seconds. The captions were then offset by
+    // a number nobody had measured, and a wrong offset shifts EVERY caption in
+    // the episode: too little and they run ahead of the voice, too much and they
+    // lag it. `fallback_sec` also made 0 mean two things at once — "nothing
+    // precedes the scenes" and "the probe returned nothing" (AGENTS.md §6).
+    //
+    // The clip is on disk and still could not be read, so the app does not know
+    // the offset and says so, rather than inventing one. `fallback_sec` is still
+    // honoured for a clip that has NO path, where there is no file to measure
+    // and the stated length is the only information that exists.
+    throw new Error(
+      `The opening ${clip.label || 'clip'} (${clip.path}) could not be measured, so the captions `
+      + 'cannot be timed against it. Re-run Audio Assembly so the merge records its opening, then retry.',
+    )
   }
-  return clip.fallback_sec || 0
+  return clip.fallback_sec ?? 0
 }
 
 /**

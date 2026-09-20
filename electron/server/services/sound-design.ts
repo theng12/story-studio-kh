@@ -66,8 +66,22 @@ export async function writeSoundDesignTimeline(scenePlanPath: string, timeline: 
 
 export interface SoundDesignIssue { cue_id?: string; detail: string }
 
-function planDuration(plan: ScenePlan): number {
-  return Math.max(0, ...plan.scenes.map(scene => Number(scene.end_sec) || 0))
+/**
+ * The episode's measured length, or `null` when the Scene Plan cannot supply one.
+ *
+ * v1.4.198 — this used to be `Math.max(0, ...plan.scenes.map(scene => Number(scene.end_sec) || 0))`,
+ * which returns 0 for a plan with no scenes and for one whose timings were never
+ * measured. That 0 was then used as an authority: every cue satisfies
+ * `start_sec >= 0`, so a perfectly good timeline was rejected with "Cue start is
+ * outside the episode timeline" — a message that names the cue as the problem
+ * when the plan is. AGENTS.md §6: "no duration could be determined" and "the
+ * duration is zero" must not be the same value.
+ */
+function planDuration(plan: ScenePlan): number | null {
+  const ends = (plan.scenes || [])
+    .map(scene => Number(scene.end_sec))
+    .filter(end => Number.isFinite(end) && end > 0)
+  return ends.length ? Math.max(...ends) : null
 }
 
 export function validateSoundDesignTimeline(
@@ -87,6 +101,11 @@ export function validateSoundDesignTimeline(
     issues.push({ detail: 'Sound Design is based on an older Scene Plan. Re-open it, check the timeline, and save it again.' })
   }
   const duration = planDuration(plan)
+  if (duration === null) {
+    // Say which thing is missing. Silently skipping the length checks would let
+    // an out-of-range cue through; blaming the cue would be a lie.
+    issues.push({ detail: 'Scene Plan has no measured scene timings, so Sound Design cues cannot be checked against the episode length. Re-run Scene Plan.' })
+  }
   const seen = new Set<string>()
   const approvedBeds: SoundDesignCue[] = []
   const approvedSpots: SoundDesignCue[] = []
@@ -94,14 +113,14 @@ export function validateSoundDesignTimeline(
     if (seen.has(cue.id)) issues.push({ cue_id: cue.id, detail: 'Duplicate cue ID.' })
     seen.add(cue.id)
     if (!cue.label.trim() || cue.label.length > 120) issues.push({ cue_id: cue.id, detail: 'Cue label is empty or too long.' })
-    if (!Number.isFinite(cue.start_sec) || cue.start_sec < 0 || cue.start_sec >= duration) {
+    if (!Number.isFinite(cue.start_sec) || cue.start_sec < 0 || (duration !== null && cue.start_sec >= duration)) {
       issues.push({ cue_id: cue.id, detail: 'Cue start is outside the episode timeline.' })
     }
     if (!Number.isFinite(cue.gain_db) || cue.gain_db < -45 || cue.gain_db > -3) {
       issues.push({ cue_id: cue.id, detail: 'Cue gain must remain between -45 dB and -3 dB.' })
     }
     if (cue.kind === 'bed') {
-      if (!Number.isFinite(cue.end_sec) || (cue.end_sec || 0) <= cue.start_sec || (cue.end_sec || 0) > duration) {
+      if (!Number.isFinite(cue.end_sec) || (cue.end_sec || 0) <= cue.start_sec || (duration !== null && (cue.end_sec || 0) > duration)) {
         issues.push({ cue_id: cue.id, detail: 'Ambient bed timing is invalid.' })
       }
     }

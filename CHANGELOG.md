@@ -4,6 +4,248 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.213 — 2026-09-21
+
+- Audio replacements become active only after every selected section is ready. Refused or incomplete replacements keep the prior model selection; Resume preserves the completed provider task identity, and multipart replacements stay selected even before Audio Assembly creates its selector.
+- Moving media to external storage now verifies exact file identity and durable destination writes before removing the source. Unsafe links, changed files and failed durability checks retain the source for a safe retry.
+- Image ratios follow the selected model's live catalogue, including refreshed options and published defaults. Unsupported choices cannot slip through a delayed generation confirmation. Scene Plan shows its busy action label while building the timeline.
+- B-Roll completion now checks the actual final video's visual and narration streams against the recorded narration source before promotion. Missing, short or stale output fails with a retry path; ambiguous raw narration requires Audio Assembly instead of guessing a track.
+- Scene Plan keeps an explicit output allowance visible when the selected model publishes no ceiling. Saved-key retries preserve the original omitted allowance and batch size without submitting replacement paid work. Malformed catalogue output ceilings are rejected before submission.
+- Subtitle fingerprint checks refuse dangling paths that could escape approved media roots. An unavailable B-Roll pool no longer prevents previews from another healthy pool.
+- Content Pack index recovery keeps its quarantined evidence and records a durable local notice. Acknowledging the notice does not activate packs or delete retained files.
+- Health and server diagnostics report the actual application version. Updated affected image, document, request-parser and build dependencies within their existing supported ranges.
+- Transcription uses Audio Assembly's current, decodable output and rejects stale or superseded inputs before submission. A changed whole-track source is transcribed again; valid paid results remain reusable on retry.
+- Missing explicit scene or thumbnail requests now fail clearly instead of reporting an empty success. A deliberately all-Still motion plan remains a valid no-op. Cached outlines retain their supported extra-chapter headroom.
+- Upload scheduling preserves timezone-local days across clock changes and compensates earlier local writes when a later episode fails. If YouTube accepted a schedule but its local receipt could not be saved, the error says so and instructs a same-time retry.
+- Upload metadata reads the newest usable saved version. Reinstalling an owned, damaged Content Pack retains its corrupt evidence and signed ownership record; exact-version details no longer show a different active version.
+- An unreadable asset audit now reports what could not be checked, preserves healthy measurements, and offers Re-scan instead of claiming the episode is intact.
+- Motion Review takes aspect ratios from the selected live model and clears incompatible choices on model changes. Clip generation preserves the exact published choice and refuses an omitted or unsupported ratio. Image prompt badges follow live catalogue limits, and absent image defaults are no longer invented.
+- Ordinary Scene Plan continuation preserves approved prompts and retries only missing work when timing, rhythm and source evidence still match. Incompatible or unreadable saved plans stop with repair guidance; explicit rebuilds remain deliberate.
+- Upload relayout previews expire when their start date changes. Publishing's Use app default choice now clears an earlier override correctly. Research safely loads older records with missing arrays, and Script Generator shows its published format context again.
+
+## v1.4.212 — 2026-09-20
+
+- Scene Plan now accepts GenStudio models that publish no output-token ceiling. It leaves `max_output_tokens` out of those requests, keeps the configured batch size available, and explains the choice instead of refusing the model or inventing a limit.
+
+## v1.4.211 — 2026-09-20
+
+- Subtitle freshness checks now refuse files outside the Library or a configured media folder before reading their size or timestamp. Missing files inside an approved location still return a truthful invalidation result, including on macOS where filesystem paths have a canonical `/private` prefix.
+
+## v1.4.210 — 2026-09-20
+
+- Cancelled-job history now releases its cancellation record once both the row and its worker are gone. Deleting, clearing, or retrying a cancelled job while its worker is stopping keeps the stop signal active, and the old worker cannot restore the removed history row. Generated files and provider-evidence safeguards are preserved.
+
+## v1.4.209 — 2026-09-20
+
+- Writing models that do not publish a maximum answer length now work. Four of the models GenStudio offers — the Free Models Router and three xAI Grok models — state no output limit, and Story Studio used to refuse them outright because it could not work out how long a reply they would accept. It now sends the request without a length limit and lets the provider decide, instead of inventing a number or turning the model away.
+
+## v1.4.208 — 2026-09-20
+
+- Uploading an episode whose number is already on this YouTube channel now warns you first and lets you continue. If a channel has moved between projects, or two series share one, a second "Episode 1" is sometimes exactly what you meant — so the app tells you which project already used that number on that channel and uploads anyway when you confirm. It never blocks the upload.
+
+## v1.4.207 — 2026-09-20
+
+- Scene Plan's "Custom instructions" no longer travel inside a preset. That box is written for one episode, so a preset applied to a different episode could carry one episode's notes onto another without a word. The rest of the plan preset — the prompt model, output budget, creative direction and your visual timing — is unchanged.
+- The channel default style box now shows how long your style description is against the limit the image model you selected publishes, and it says so when a save had to trim the end. It used to cut the text at 2,000 characters and simply report "Saved", so a long style could come back shorter than you wrote it with nothing to explain why. A model that publishes no prompt limit now saves your text in full, instead of being cut to a number Story Studio made up.
+- Audio recovery now uses the voice model the episode was actually generated with. It used to reconstruct that from the most recent audio job in the project when the episode's own record had been cleared, so after you switched voice models one episode could be checked against another episode's model and report missing audio parts that were never supposed to exist. Episodes generated from now on record their voice model alongside the audio, and older episodes fall back to the previous behaviour.
+
+## v1.4.206 — 2026-09-20
+
+- Removed the "View all caps" reference table from Images. It listed every model's prompt limit and credits-per-image as fixed numbers, so once a provider changed either one the table quietly reported the old figure as current — and the cap and price for the model you actually have selected are already shown beside the selector.
+
+## v1.4.205 — 2026-09-20
+
+- Saving a Script preset no longer stores the per-run "re-run even if it exists" switch. Restoring it would have silently overwritten existing work on the next apply. It also no longer stores that episode's written guidance — text meant to carry across a channel belongs in the channel-specific box instead. Your cast selection is still saved, since the cast is the same for every episode of a series and restoring it is the point of the preset.
+
+## v1.4.204 — 2026-09-20
+
+- Removed an unused caching module left over from an earlier design. It had no callers anywhere in the app — only its own test — so nothing changes for you; the code is simply smaller.
+
+## v1.4.203 — 2026-09-20
+
+- An opening clip the app cannot measure now stops the render and says so, instead of quietly reserving five seconds for it. The reserved number was never measured, and because the plan and the render disagree about it, every caption in the episode could sit too early or too late — the whole episode, from one unreadable file. Re-run Audio Assembly so the merge records its opening, then retry.
+
+## v1.4.202 — 2026-09-20
+
+- A missing GenStudio API key no longer looks like an empty model catalogue. The app asked GenStudio for the model list without a key and reported back "no models" — so the pickers showed a confident empty state instead of telling you the key was missing. That request now answers with the same clear "Add a GenStudio API key in Settings → This Mac" message the rest of the app already uses.
+
+## v1.4.201 — 2026-09-20
+
+- Versioned final videos are no longer invisible. Story Studio saves a second render as `_final_video_v2` and so on when the first name is already taken — a perfectly normal file — but three separate checks only recognised the unversioned name. Those videos counted as zero bytes in Settings, a versioned-only episode could look like it had no finished video at all, and storage cleanup could not reclaim the space. All three checks now recognise both names.
+
+## v1.4.200 — 2026-09-20
+
+- Deleted projects no longer claim to be zero bytes when the app cannot read them. The size shown for a project waiting to be forgotten was measured best-effort, and a folder it could not read came out as 0 bytes rather than "unknown" — so a project of any size could be listed as empty. It now reports the size as unknown in that case, and if any part of the folder cannot be read the whole figure is treated as unknown rather than quietly under-counted.
+
+## v1.4.199 — 2026-09-20
+
+- The Music Library no longer reports a total it cannot stand behind. It adds up the playable length of your enabled tracks, and a track whose length it could not measure simply added nothing — so the figure was quietly too low while being shown as the whole answer. When any enabled track has no measured length the header now reads "at least" and says how many tracks are unaccounted for, so the number is understood as a floor rather than a total.
+
+## v1.4.198 — 2026-09-20
+
+- Sound Design no longer blames your cues for a missing Scene Plan. It worked out the episode's length from the Scene Plan's scene timings, and when there were none it treated the episode as zero seconds long — so every cue failed the "start is outside the episode timeline" check and the message pointed at the cue. It now says plainly that the Scene Plan has no measured timings, and only checks cues against the length when there is a length to check against.
+
+## v1.4.197 — 2026-09-20
+
+- B-Roll clips that ffprobe can measure are no longer indexed as zero seconds long. ffprobe reports a field it cannot read as the text "N/A" rather than leaving it blank, and the app treated that text as a real value — so it never looked at the container's own duration, which usually does have the number. The clip's length came out as 0, which reads downstream as "no usable footage". Clip length, width and height are now taken only from values that are genuinely numbers.
+
+## v1.4.196 — 2026-09-20
+
+- Two more screens stopped showing one episode's results while another was open. On Images, the integrity card (how many pictures are missing) and the Browse grid were cleared only when you switched to *no* episode, so moving from one episode to the next left the previous episode's numbers and file list on screen — and there for good if the new read failed. On Research, a failed read left the previous episode's finished research on screen as though it belonged to the new episode, and saving would have written it into that episode. Both now clear the moment the episode changes.
+
+## v1.4.195 — 2026-09-20
+
+- Two more screens no longer carry one episode's work into another. B-Roll kept the manual clip pick — a list of clips with per-clip durations chosen for one episode — so opening a new episode showed the previous episode's footage still queued and ready to assemble. Scene Review kept an open image lightbox and the ticked batch of scenes; the lightbox rebuilt its image address from the *new* episode with the *old* scene id, so it either failed to load or showed a different episode's picture, and a batch action would have named scenes that did not belong to the episode on screen.
+
+## v1.4.194 — 2026-09-20
+
+- Motion Review and the YouTube Finalizer now clear the episode they were showing before they load the next one. Both replaced their contents only when a new load *succeeded*, so switching episodes left the previous episode's scenes and readiness on screen while the new one loaded — and left them there for good if that load failed, with an error message as the only hint. In Motion Review the scene thumbnails were stale as well, still pointing at the previous episode's cached images. Both now blank the old episode's state the moment the episode changes.
+
+## v1.4.193 — 2026-09-20
+
+- Subtitles are no longer kept on the strength of narration the app cannot find. Deciding whether an existing transcript was still current compared the audio to the transcript, but when a narration file was missing or unreadable that came out as "unchanged" rather than "unknown" — so an episode whose audio had been deleted kept its old captions and reported the transcript up to date. Not being able to read the audio is now treated as the audio having changed.
+
+## v1.4.192 — 2026-09-20
+
+- Story Studio is now strict about which episode folder belongs to which episode. Five separate searches matched a folder by asking only whether its name *started with* the episode code, so `EP0001` would have accepted a folder named for `EP00012` — silently, and whichever it hit first. Every project currently uses the same code width, so this could not actually go wrong yet, but that safety came from your data rather than from the code. The rule is now an exact match on the code, or the code followed by " - ", which every one of the 4,971 episode folders in your library already uses. The same strict rule now also guards the media-cleanup check that decides which files may be deleted.
+
+## v1.4.191 — 2026-09-20
+
+- Retrying subtitles can now actually perform the repair it asks for. When a subtitle run left the stitched timeline missing, the app told you to "retry the local subtitle stitch before Scene Plan" — and the retry took a shortcut that returned *before* the stitch, so pressing it changed nothing and the same message came back. A retry now stitches, confirms the timeline was written, and only then reports the job finished. It still reuses the transcript already on disk, so repairing the local file costs nothing.
+
+## v1.4.190 — 2026-09-19
+
+- Updating a video's thumbnail is no longer reported as done just because the upload call returned. The check asserted a fixed "1 of 1" without looking at anything, so an update the provider accepted but Story Studio failed to record could still read as finished. It now reads the stored record back and only counts the update as done when that record says it succeeded.
+
+## v1.4.189 — 2026-09-19
+
+- Retrying a transcription no longer keeps a transcript whose audio has changed. The existing transcript was kept whenever it had at least one cue, without checking whether the audio underneath it was still the audio it was made from — so re-running Audio and then Retry left the old captions in place and reported the job finished. It now checks the audio first, and says which chapters changed when it regenerates.
+
+## v1.4.188 — 2026-09-19
+
+- A B-Roll render that cuts off before the narration ends is no longer reported as finished. When the clip pool is too small to cover the episode, the video simply stops at the last clip while the narration keeps going — and the step used to report Done, with the finished-video indicator green. The app now checks the pick against the narration length before signing the render off, and says so instead. This is the first of the job types that had no independent check at all.
+
+## v1.4.187 — 2026-09-19
+
+- A generation step can no longer be marked finished on the strength of nothing. The app asked each generator "are you complete?", and unless it answered "no" the job was marked done — so a generator that checked nothing at all passed by default, and the Production Board could go green over missing output. For the job types that already have an independent checker, the app now re-reads the produced files itself before marking a job finished. Steps whose work was done by the AI service were already checked once, at settlement; this closes the gap for the ones it never reached.
+
+## v1.4.186 — 2026-09-19
+
+- "We don't know" no longer gets reported as "no". The service now publishes a blank where a provider never stated something, and one field — whether a model returns citations for what it searched — was being read as an explicit "does not cite" for every model. No behaviour changes today, because nothing enables a feature on an unstated value; the point is that the app can now tell the two apart instead of putting words in a provider's mouth.
+- The Audio page no longer assumes a model always publishes a language list. Every voice model publishes one today, but the service has just started blanking fields it cannot vouch for, and a blank would have crashed the page rather than showing "no languages stated".
+
+## v1.4.185 — 2026-09-19
+
+- File previews can no longer read anything on your Mac. Four preview routes and the thumbnail reference analyser took a file path from the request and checked only the file type — so any file with a matching extension could be streamed back, and the analyser would send it to the AI provider. Previews now read from your Library and any media folder you have configured, and nothing else. If you had been previewing a file from somewhere unrelated, such as your Desktop, that will now be refused.
+
+## v1.4.184 — 2026-09-19
+
+- Title alternatives no longer carry from one episode to the next. Opening an episode that had none kept the previous episode's generated titles and saved them as its own, so the metadata for the wrong episode could be written. They are now cleared when you switch episodes.
+- Six more shared styles that were defined inside a single component now work everywhere: small inputs, icon-only buttons, link-style buttons, checkbox labels, section labels and card action rows. Between them they are used in 69 files; like the ghost buttons fixed in v1.4.178, they were rendering as if the class were absent.
+
+## v1.4.183 — 2026-09-19
+
+- Corrected the archive-scan limit above. The first attempt refused any folder outside your Library, which also refused an external drive you had deliberately pointed it at — it would have broken a working feature to close a hole. It now refuses only a root that means "everything": the whole disk, your home folder, or a path too shallow to be a specific folder.
+
+## v1.4.182 — 2026-09-19
+
+- "Force re-run" is no longer still ticked on your next batch. It is a per-run choice, but it was never cleared — not when the dialog closed, not when the run finished, and not when you switched channels — so one forced run left every later Run Batch opening with Force already on and the button reading "Start batch (force)". Pressing Start then regenerated every selected stage and repeated the charges.
+- Deleting one subtitle file no longer wipes the quality warnings from the others. The delete response carries less about each file than the status listing does, and the page was replacing its list with it — so every remaining transcript lost its "garbled text" tag and quality panel until a reload, which is a false all-clear on the one signal that flags a bad transcript. It reloads the full listing now.
+
+## v1.4.181 — 2026-09-19
+
+- The Library archive scan can no longer be pointed at your whole disk. It reads and hashes every file it is given, and the folder it was asked to scan came from the request unchecked — so asking it to scan `/`, or your home folder, walked and hashed everything on the Mac. Scanning a folder you chose still works, including one on an external drive; what is refused is a root that means "everything".
+
+## v1.4.180 — 2026-09-19
+
+- Imported audio can no longer be written outside the project. The chapter name that becomes the saved filename was taken from the request without checking it, so a name containing a path (`../../../../tmp/x`) wrote the file wherever it pointed. A chapter name is a name; it may not contain a path separator.
+
+## v1.4.179 — 2026-09-19
+
+- "Add Overlay" and "Pick media" open a dialog again. Both were written as dialogs but the classes they used — `modal-overlay` and `modal-content` — were never defined anywhere in the app, so instead of a dialog the contents appeared as a plain list inside the narrow controls column, with no backdrop, no positioning and no close button. They now use the same dialog styling as the rest of the app.
+
+## v1.4.178 — 2026-09-19
+
+- The buttons that stop running work are reachable again. Jobs shows each job in a card, and the card clipped its own "More actions" menu, so with more than one secondary control (Cancel, Stop local work, Pause new submissions, Clear history) the trailing ones were cut off with no scrollbar and could not be clicked at all.
+- A sentence that explains why a render is blocked no longer prints `[object Object]`. It read each group of scenes as if it were a number, so instead of "3 missing image(s)" it printed the raw objects — and this is the only sentence telling you which scenes to fix. It now counts them and names the scene numbers.
+- The quiet "ghost" button style now works everywhere. It was defined inside one dialog's private styles, so the other 52 buttons using it across the app rendered with no border and no hover feedback.
+- The "More actions" menu is bounded and scrolls, so a job with many controls cannot run off the bottom of the window.
+
+## v1.4.177 — 2026-09-19
+
+- Closed five ways a single request could have destroyed your library, found by an audit of every one of the app's 53 route files. The worst was one HTTP request that deleted the entire Library — every project, and all 107 GB of media. It is fixed, and so are the four others of the same shape: one that deleted a whole project, one that deleted a whole season of episodes, one that deleted any `.json` file on the machine, and one that deleted any file from the music pool by naming a path instead of a track.
+- "Reveal in Finder" could be turned into running a program. It forwarded whatever path it was given to the system handler that LAUNCHES a file, so pointing it at an application or a script ran it. It now reveals the file in Finder, which is what the button says it does.
+- A file folder name could be made to point outside the project. Episode codes, episode titles and the per-project subfolder names were all pasted into a folder path with nothing checking where the result landed — and several of the things that used those paths then delete what they find there. All three are now checked where the path is built, so a name that would escape is refused instead of followed.
+- Deleting an episode folder by name could be aimed at the folder that CONTAINS episodes. Naming a season deleted every episode inside it. It now only accepts a whole episode code.
+- Also fixed: a Pipeline repair run silently dropped every remaining step for an episode while still reporting the batch as started, so a run that should have rendered a video did nothing and said nothing.
+- 15 new tests cover these, each one asserting that a file outside the folder is still there afterwards rather than only that the bad input was refused — a test that checks the error message passes even when the damage happened first, which is how the original defects stayed invisible.
+
+## v1.4.176 — 2026-09-19
+
+- The old multi-Mac endpoint pool is gone. It let Story Studio name and switch off individual local Image Studio, Voice Studio and Chat Studio machines, and hand work to whichever was least busy. Nothing had used it for some time — every one of its functions had no caller left, and the only thing still touching it was a line at startup that filled a registry nothing read. Removing it changes no behaviour: Story Studio talks to exactly one service, and the models from your other machines arrive through it.
+- Your settings file is untouched. The list of machines you had switched off is still there, along with the names you gave them; nothing reads or writes them any more. Story Studio does not rewrite your settings to tidy up its own dead code.
+- Corrected a comment that pointed at the wrong port. It claimed the live service had moved to 8010 while nothing has listened there for some time — the service is on 8000. Only the note changed; the address Story Studio uses was already right.
+
+## v1.4.175 — 2026-09-18
+
+- Episode lists load roughly 40% faster. On the 302-episode project, opening an episode list was doing about 211,000 separate file checks and taking 10–11 seconds; it now does about 125,000 and takes 6 seconds. The work was not the work — the same handful of project-level files were being re-read once per episode, so a list of 302 rows read the project's own YouTube records 10,180 times, its publishing state 604 times and its main project file 4,428 times to answer a question whose answer is identical for every row. Each of those is now read once per request, and any change on disk is still picked up by the very next request.
+- Two smaller repeated checks were folded into the same pass: asking whether a file exists and then asking its size (now one check), and re-reading the app's own settings for every episode. Neither changes what a list reports — only how often it asks.
+- Nothing about the numbers a list shows has changed. Episode titles, folder paths, done/pending marks and the search for a renamed episode folder all resolve exactly as before; the difference is that the request no longer goes back to disk to re-learn what it already knows.
+
+## v1.4.174 — 2026-09-18
+
+- Library pages open much faster. Every listing was re-reading and re-checking all 115 installed content packs from disk on each request, measured at roughly 10–13 seconds per page even while the app sat idle. An unchanged pack is now checked once and reused, and any change to a pack's files still invalidates it immediately.
+
+## v1.4.173 — 2026-09-18
+
+- The music picker lists the published music model again. It was being discarded because the service does not state several of its capability fields, and an unstated field was being treated as a broken row. An unstated field now reads as "not reported" rather than being guessed at, and only a genuinely malformed value discards a row.
+
+## v1.4.172 — 2026-09-18
+
+- The model catalogues load live again. Every picker — language, image, video, voice, music, transcription — had been quietly falling back to a cached copy hours out of date, because the current endpoint answers with a wrapped list rather than the plain list Story Studio reads. Both forms are now accepted, so the pickers show what the service actually publishes; a payload that is neither form is still refused loudly.
+- Models the previous endpoint offered but the current one does not have are gone from the pickers, as they should be.
+
+## v1.4.171 — 2026-09-18
+
+- Scene Plan no longer stands in an invented 8,192-token output allowance when the selected model publishes none. That number could reach the panel as though it were the model's own limit; the request is now refused with the reason instead.
+- A timeline-only Scene Plan run, which has no model by design, keeps working and uses Story Studio's own local budget. "The model published nothing" and "this run has no model" are now told apart rather than sharing one value.
+
+## v1.4.170 — 2026-09-18
+
+- Transcription and video models now show the provider GenStudio publishes for them. The field was arriving and being discarded, so those rows could not say who serves them; an unpublished provider still shows as unknown rather than being guessed.
+- The Audio page states plainly when a model publishes no per-request character ceiling, instead of failing to display the quote. An unpublished limit is now reported as missing rather than filled in with a figure the model never published.
+- A GenStudio key refused for insufficient credits no longer stays refused indefinitely. The refusal now expires and is retried, so an endpoint that reports a constant balance cannot leave a key permanently unusable.
+
+## v1.4.169 — 2026-09-15
+
+- Publish can now re-date videos that already have a planned date. Select the episodes, choose a starting date, and their dates are laid out again on the active plan's cadence — the case the existing Plan button skips by design, because it only ever fills missing and missed dates.
+- Every proposed date is shown beside the date it replaces before anything is saved, and the exact previewed dates are re-checked at save time. Days another episode already holds are stepped over rather than double-booked, and the dialog names them.
+- Editing planned dates changes Story Studio only. YouTube is not touched, so a video that already exists on the channel is listed as left unchanged instead of being re-dated behind YouTube's back.
+
+## v1.4.168 — 2026-09-15
+
+- Select several subtitle chapters and generate or regenerate only those sections in one queued action. Select needs attention finds missing, outdated, or flagged sections; selections clear when changing episodes.
+- Scoped subtitle jobs verify the requested chapters without marking unfinished chapters or the full timeline complete.
+- Audio speed controls, quotes, and generation follow the selected model’s published speed range, including Qwen. Remembered and preset speeds are clamped to the live bounds.
+
+## v1.4.167 — 2026-09-15
+
+- Upload Center can move missed local publishing dates to future slots in the active channel plan. Missed dates have a filter and a direct action, with old and proposed dates shown before saving.
+- Replanning keeps existing future bookings, protects uploads already in progress and known YouTube videos, and checks the reviewed slots again before saving. Moving a local date does not upload or reschedule a video on YouTube.
+
+## v1.4.166 — 2026-09-15
+
+- With automatic image replacement enabled, eligible fully refunded image failures keep retrying with a delay until complete, paused, cancelled, or disabled. Each retry verifies the previous task and preserves finished images; charged replacements retain their existing limits.
+- Scene Review jobs held automatically after a stall rejoin the queue once their accepted work has safely settled. Explicit pauses remain paused, and paused cards no longer promise automatic continuation.
+
+## v1.4.165
+
+- Fixed Pipeline batches with a shared LLM lineup incorrectly applying writing-model policies to Scene Review and other non-writing stages. Image, audio, subtitle, motion, and assembly stages keep their own settings; eligible writing stages still use the lineup or their explicit overrides.
+
+## v1.4.164 — 2026-09-14
+
+- Catalogue diagnostics preserve GenStudio's Promotional and Value language categories alongside Economy and Premium. Published Promotional models keep their category even when their customer credit price is positive; other media keep their own category rules.
+
 ## v1.4.163 — 2026-09-14
 
 - Pipeline has a reusable LLM lineup for new queued writing jobs. Choose models once, prefer selected free and discounted choices, then continue to selected paid models. Existing content presets and explicit per-stage model choices remain in control of their settings.

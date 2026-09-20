@@ -36,6 +36,9 @@ export interface GenStudioTtsModel {
   minimum_credits: number
   maximum_input_characters: number
   supports_speed: boolean
+  /** Exact numeric bounds GenStudio publishes for this model's speed control. */
+  minimum_speed: number | null
+  maximum_speed: number | null
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
@@ -191,7 +194,18 @@ export interface GenStudioNarrationQuote {
   provider_name: string
   credits_per_1000_characters: number
   minimum_credits: number
-  maximum_input_characters: number
+  /**
+   * The model's published per-request character ceiling, or `null` when
+   * GenStudio published none.
+   *
+   * This was declared `number` and read with an unconditional
+   * `.toLocaleString()`, so a published `null` would have crashed the narration
+   * page rather than degraded it — which is why gateway-kh deliberately kept
+   * publishing an invented `40,000` rather than `null`. The renderer handles
+   * absence now, so the gateway can stop inventing one. `null` never means
+   * zero, and nothing is calculated locally to replace it.
+   */
+  maximum_input_characters: number | null
   /**
    * Story Studio's own, not GenStudio's: the boundary these parts were actually
    * planned at, and the fraction of the published one held back to get there.

@@ -26,7 +26,11 @@ import {
   type ContentPackRuntimePaths,
 } from '../content-packs/runtime-paths.js'
 import { ContentPackVersionRefSchema } from '../content-packs/runtime-types.js'
-import { readContentPackState } from '../content-packs/state.js'
+import {
+  acknowledgeContentPackRecoveryIncident,
+  readContentPackRecoveryIncident,
+  readContentPackState,
+} from '../content-packs/state.js'
 import { verifyInstalledContentPackClosure } from '../content-packs/installer.js'
 import type { VerifiedContentPack } from '../content-packs/archive.js'
 import * as projectManager from '../services/project-manager.js'
@@ -37,6 +41,7 @@ const RASTER_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const PackIdSchema = ContentPackVersionRefSchema.shape.pack_id
 const VersionSchema = ContentPackVersionRefSchema.shape.version
 const AssetIdSchema = ContentPackVersionRefSchema.shape.archive_sha256
+const RecoveryIncidentIdSchema = z.string().uuid()
 const ProjectSlugSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,127}$/)
 const ProjectBundleApplicationSchema = z.object({
   root: ContentPackVersionRefSchema,
@@ -207,6 +212,47 @@ router.get('/content-packs', async (req, res) => {
     res.json(await managementCatalog(routeOptions(req)))
   } catch {
     res.status(500).json({ detail: 'Failed to read the local Content Pack catalog.' })
+  }
+})
+
+router.get('/content-packs/recovery', async (req, res) => {
+  try {
+    res.json({ recovery: await readContentPackRecoveryIncident(runtimePaths(routeOptions(req))) })
+  } catch {
+    res.status(500).json({
+      code: 'CONTENT_PACK_RECOVERY_STATE_INVALID',
+      detail: 'Your Content Pack recovery notice could not be read.',
+    })
+  }
+})
+
+router.delete('/content-packs/recovery/:incidentId', async (req, res) => {
+  const parsed = RecoveryIncidentIdSchema.safeParse(firstParam(req.params.incidentId))
+  if (!parsed.success) {
+    res.status(400).json({
+      code: 'CONTENT_PACK_RECOVERY_REQUEST_INVALID',
+      detail: 'Invalid Content Pack recovery incident.',
+    })
+    return
+  }
+  try {
+    const acknowledged = await acknowledgeContentPackRecoveryIncident(
+      parsed.data,
+      runtimePaths(routeOptions(req)),
+    )
+    if (!acknowledged) {
+      res.status(409).json({
+        code: 'CONTENT_PACK_RECOVERY_INCIDENT_CHANGED',
+        detail: 'The Content Pack recovery notice changed. Refresh and try again.',
+      })
+      return
+    }
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({
+      code: 'CONTENT_PACK_RECOVERY_STATE_INVALID',
+      detail: 'Your Content Pack recovery notice could not be updated.',
+    })
   }
 })
 

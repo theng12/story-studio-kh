@@ -1221,7 +1221,7 @@ function modelPoliciesForRun(): Partial<Record<EligibleModelPolicyStep, RunModel
         mode: policy.mode,
         models: [...policy.models],
       }
-    } else if (savedLlmLineup.value.enabled && savedLlmLineup.value.models.length) {
+    } else if (policy && savedLlmLineup.value.enabled && savedLlmLineup.value.models.length) {
       result[step.id as EligibleModelPolicyStep] = {
         mode: savedLlmLineup.value.models.length >= 2 ? 'backup' : 'single',
         models: [...savedLlmLineup.value.models],
@@ -2369,6 +2369,20 @@ function closeConfirm(force = false): void {
   repairMode.value = false
   repairActionId.value = ''
   runActionId.value = ''
+  // "Force re-run" is a PER-RUN choice, but it was never cleared — not when the
+  // dialog closed, not when the run finished, and not when the project changed.
+  // So one forced run left every later Run Batch in the session, including on a
+  // DIFFERENT channel, opening with Force already ticked and the CTA reading
+  // "Start batch (force)": pressing Start regenerated every selected stage and
+  // repeated the provider charges. The page already resets model policies on a
+  // project change for exactly this reason ("a project change must never carry
+  // one channel's explicit products into another channel's request").
+  forceRerun.value = false
+  // NOTE: `preflightSummary` is deliberately NOT cleared here. It reads like
+  // stale state, but the frontend suite asserts it survives a successful
+  // submission — it is the receipt that says what was queued and links to Jobs,
+  // not a leftover from the dialog. Clearing it broke five tests in
+  // `pipelineRunReceipt.test.ts`, which is the contract speaking.
 }
 
 // Nuxt reuses this page between projects. A preflight belongs to its original

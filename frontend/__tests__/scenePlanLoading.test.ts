@@ -6,6 +6,12 @@ import { createApp, defineComponent, h, nextTick, reactive, ref, type Component 
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 
+// The page spreads `DEFAULT_EXCLUDE_KEYS` into its preset `excludeKeys`. This
+// harness strips the page's imports and supplies each one by hand, so the real
+// exported constant is injected by NAME from the module the page imports —
+// never re-typed here, or the two lists drift (AGENTS.md §5).
+import { DEFAULT_EXCLUDE_KEYS } from '../composables/usePresets.js'
+
 const pagePath = fileURLToPath(new URL('../pages/projects/[slug]/scene-plan.vue', import.meta.url))
 const source = readFileSync(pagePath, 'utf8')
 
@@ -41,8 +47,16 @@ async function loadScenePlan(): Promise<Component> {
   })
   assert.equal(template.errors.length, 0)
   const vueUrl = await import.meta.resolve('vue')
+  // The prompt-length module is the REAL one. Stubbing it cost more than it
+  // saved: a hand-written `promptLengthState` that returned only `{overCap}`
+  // made the page's own counter badge crash on the fields the real function
+  // always provides (`characters`), and the failure looked like a page defect.
+  // Injecting the real module keeps the harness faithful and still lets the
+  // catalogue itself be stubbed (no models are supplied).
+  const capUrl = await import.meta.resolve('../utils/prompt-char-cap.js')
   const support = `
     import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, onUnmounted, ref, unref, watch } from ${JSON.stringify(vueUrl)}
+    import { normalizePromptCharCapSetting, promptCharCapAboveModel, promptCharCapOptions, promptLengthLabel, promptLengthState, promptLengthTone, publishedPromptCharCap, resolvePromptCharCap } from ${JSON.stringify(capUrl)}
     const availableInputTokens = () => 0
     const batchTimeoutWarning = () => ''
     const clampOutputAllowance = (_value, maximum) => maximum
@@ -51,14 +65,6 @@ async function loadScenePlan(): Promise<Component> {
     const isModelTokenLimitError = () => false
     const publishedMaxOutputTokens = () => 0
     const outputAllowanceOptions = () => []
-    const normalizePromptCharCapSetting = value => value || 'auto'
-    const promptCharCapAboveModel = () => false
-    const promptCharCapOptions = () => []
-    const promptLengthLabel = () => ''
-    const promptLengthState = () => ({ overCap: false })
-    const promptLengthTone = () => ''
-    const publishedPromptCharCap = () => 0
-    const resolvePromptCharCap = () => 0
     const readRememberedImageModelId = () => ''
     const pacingBandAt = () => ({ max_sec: Infinity })
     const resolveMotionScope = () => ({ scene_ids: [] })
@@ -73,6 +79,7 @@ async function loadScenePlan(): Promise<Component> {
     const useProject = () => ({ config: ref({}) })
     const useRememberedForm = () => undefined
     const usePresets = () => ({ load: async () => undefined, presets: ref([]), activeId: ref('') })
+    const DEFAULT_EXCLUDE_KEYS = ${JSON.stringify(DEFAULT_EXCLUDE_KEYS)}
     const useGenStudioImageModels = () => ({ models: ref([]), refresh: async () => undefined })
     const useJobs = () => ({ isJobActiveFor: () => false })
     const useVisualStyleCatalog = () => ({ styles: ref([]), loading: ref(false), error: ref(null), refresh: async () => undefined })

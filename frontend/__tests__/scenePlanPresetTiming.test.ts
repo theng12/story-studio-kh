@@ -4,6 +4,12 @@ import test from 'node:test'
 import { transformSync } from 'esbuild'
 import ts from 'typescript'
 
+// The page spreads `DEFAULT_EXCLUDE_KEYS` into its preset `excludeKeys`. This
+// harness evaluates the extracted declarations with an explicit dependency
+// list, so the real exported constant is injected by NAME from the module the
+// page imports — never re-typed here, or the two lists drift (AGENTS.md §5).
+import { DEFAULT_EXCLUDE_KEYS } from '../composables/usePresets.js'
+
 const source = readFileSync(new URL('../pages/projects/[slug]/scene-plan.vue', import.meta.url), 'utf8')
 const script = source.split('<script setup lang="ts">')[1]!.split('</script>')[0]!
 const ast = ts.createSourceFile('scene-plan.ts', script, ts.ScriptTarget.Latest, true)
@@ -31,6 +37,7 @@ function harness() {
     setPromptPackSetting: () => {}, setPromptCharCapSetting: () => {},
     clampOutputAllowance: (value: unknown) => value, normalizePromptTokenSetting: (value: unknown) => value,
     publishedMaxOutput: { value: 10000 },
+    DEFAULT_EXCLUDE_KEYS,
   }
   const result = new Function(...Object.keys(dependencies), `${code}; return { planPresets, visualTimingMotion, visualPresetNotice, applyPromptPreset, applyVisualSettings, loadContinuity }`)(...Object.values(dependencies))
   return { ...result, form, episodeId, episodeVisualSource, api, continuityPacing, episodeMotionScope }

@@ -490,8 +490,37 @@ export async function getEffectiveNiche(slug: string): Promise<Niche | null> {
 
 // ── Mutation helpers (used by the /niches routes) ──────────────────────────
 
+/**
+ * A user-niche id must be a safe filename segment.
+ *
+ * `loadNiche` tested a pattern, but only on its MISS branch — so an id that
+ * named an existing file skipped the check entirely. `nicheFilePath` then fed
+ * the raw route param into `path.join(userNichesDir(), `${id}.json`)`, and
+ * `DELETE /api/niches/..%2F<project>%2Fconfig` unlinked
+ * `<projectsRoot>/<project>/config.json`. Validating where the path is built
+ * covers the route, the delete and any future caller.
+ *
+ * The rule is the SECURITY property, deliberately not the loader's own regex.
+ * That regex (`^[a-z0-9][a-z0-9._-]{0,127}$`) had never actually been applied
+ * to every real id, because legacy Content Pack user forks are named
+ * `user:<uuid>` — a colon, which it rejects. Reusing it here broke editing a
+ * forked Formula. What actually matters is: no path separator, no NUL, and not
+ * a dot-path. A colon is a perfectly ordinary filename character on macOS.
+ */
+function assertSafeNicheId(id: unknown): string {
+  const value = String(id ?? '')
+  if (
+    !value || value.length > 200 || value !== value.trim()
+    || /[/\\\u0000]/.test(value)
+    || value.startsWith('.')
+  ) {
+    throw new Error(`Invalid niche id '${value}'`)
+  }
+  return value
+}
+
 export function nicheFilePath(id: string): string {
-  return path.join(userNichesDir(), `${id}.json`)
+  return path.join(userNichesDir(), `${assertSafeNicheId(id)}.json`)
 }
 
 export async function ensureNichesDir(): Promise<void> {

@@ -22,6 +22,7 @@
 import { Router } from 'express'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
+import path from 'path'
 import * as cl from '../services/character-library.js'
 
 export const router = Router()
@@ -87,18 +88,29 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 router.get('/character-library/:id/reference-image/:filename', async (req, res) => {
   try {
-    const character = await cl.getLibraryCharacter(req.params.id)
-    if (!character || !character.references?.images?.includes(req.params.filename)) {
+    const filename = req.params.filename
+    // The membership check below is NOT sufficient on its own: it tests the
+    // request against `character.references.images`, and `updateLibraryCharacter`
+    // merges a caller-supplied `references` object verbatim — so the allow-list
+    // could be made to contain the payload. `PUT .../p {"references":{"images":
+    // ["../../../../etc/hosts"]}}` followed by this GET read any file on disk.
+    // A reference image is always a bare filename, so requiring one closes it
+    // whatever the stored list says, and an escaped separator fails this too.
+    if (path.basename(filename) !== filename) {
       return res.status(404).json({ detail: 'Reference image not found' })
     }
-    const file = `${cl.libraryCharacterDir(req.params.id)}/${req.params.filename}`
+    const character = await cl.getLibraryCharacter(req.params.id)
+    if (!character || !character.references?.images?.includes(filename)) {
+      return res.status(404).json({ detail: 'Reference image not found' })
+    }
+    const file = `${cl.libraryCharacterDir(req.params.id)}/${filename}`
     if (!existsSync(file)) return res.status(404).json({ detail: 'Reference image file missing on disk' })
     // Express sendFile can turn an otherwise readable external-library file
     // into a generic 404 in packaged builds. Reading the verified file here
     // keeps the response deterministic and preserves the actual image bytes.
     const image = await readFile(file)
     res.set('Cache-Control', 'private, max-age=3600')
-    res.type(req.params.filename).send(image)
+    res.type(filename).send(image)
   } catch (e: any) {
     if (e?.code === 'ENOENT') return res.status(404).json({ detail: 'Reference image file missing on disk' })
     res.status(500).json({ detail: e.message })

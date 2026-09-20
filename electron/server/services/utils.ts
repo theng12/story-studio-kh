@@ -14,8 +14,14 @@ import { projectsRoot, getProjectDir } from './project-manager.js'
  * matters during fresh project creation, when the directory is about
  * to be created on disk.
  */
-function projectDirFor(slug: string): string {
-  return getProjectDir(slug) || path.join(projectsRoot(), slug)
+export function projectDirFor(slug: string, cache?: ProjectFactsCache): string {
+  const scoped = usableFor(cache, slug)
+  if (!scoped) return getProjectDir(slug) || path.join(projectsRoot(), slug)
+  // `getProjectDir` is an `existsSync` against `<library>/<slug>`. Nothing
+  // creates or removes a project directory while one response is being built,
+  // and a status list asks for it ~38 times per episode.
+  scoped.dir ??= getProjectDir(slug) || path.join(projectsRoot(), slug)
+  return scoped.dir
 }
 
 // ── Episode path resolver ───────────────────────────────────────────────────
@@ -112,10 +118,18 @@ export interface ProjectFactsCache {
    * answer a question whose answer is the same for every episode in the request.
    *
    * Walking it once per request turns each of those searches into an in-memory
-   * scan. Ordered, NOT a Map: the match rule is a PREFIX test
-   * (`name.startsWith(CODE)`) returning the FIRST hit in traversal order, so a
-   * Map keyed on the exact code would silently pick a different folder
-   * whenever two share a prefix (`EP0001` vs `EP00012`).
+   * scan. Ordered, NOT a Map, because the match still resolves by being the
+   * FIRST hit in traversal order — `episodeDirNameMatchesCode` decides *whether*
+   * a folder belongs to the code, and the walk order decides *which* folder wins
+   * when the same project holds more than one. A Map keyed on the exact code
+   * would silently pick a different folder than the original search did.
+   *
+   * v1.4.192 — this used to describe the rule as a bare prefix test and cite
+   * `EP0001` vs `EP00012` as the reason a Map would be wrong. That example is
+   * now unreachable: the rule is `exact code` or `code + " - "`, so a longer
+   * code no longer matches (see `episodeDirNameMatchesCode`, and the 4,971-folder
+   * measurement recorded there). The ordering argument above never depended on
+   * the loose rule and still holds.
    */
   episodeDirs?: { root: string; index: Promise<Array<{ upper: string; path: string }>> }
   /**
@@ -124,6 +138,49 @@ export interface ProjectFactsCache {
    * CPU); the Upload Center listing asked for it once per episode, 302 times.
    */
   externalFinalVideoRoot?: Promise<string>
+  /**
+   * The project's own directory, resolved once per request.
+   *
+   * MEASURED 2026-09-18, cold `/episodes` on the 302-episode project: 11,357
+   * `existsSync` calls against `<library>/capi` — `getProjectDir` reached
+   * through `projectDirFor`, `ideasPath` and `applyAutoHeal`. It is a pure
+   * `existsSync` on a path that cannot move while one response is being built.
+   */
+  dir?: string
+  /**
+   * `<projectDir>/episodes`, resolved once per request. Same measurement, 907
+   * `existsSync` calls: `getProjectOutputRoot` is asked once per episode and
+   * only ever answers `resolveOutputRoot(projectDir)`.
+   */
+  outputRoot?: Promise<string | null>
+  /**
+   * The project's YouTube publishing state (`youtube/project-state.json`),
+   * parsed once per request. 604 reads in the measurement above — twice per
+   * episode, once from `readYouTubeRetentionStores` and once from the
+   * publication-status reader.
+   *
+   * Typed loosely on purpose: the owning module is
+   * `youtube-project-publishing-store.ts`, and importing its concrete type
+   * here would pull the whole YouTube store into every path resolver.
+   */
+  publishingState?: Promise<unknown>
+  /**
+   * Every YouTube operation record for the project, read once per request.
+   *
+   * The single largest redundancy in a cold `/episodes`: the store holds 34
+   * records on the owner's Mac, and `listYouTubeOperations` re-read, re-parsed
+   * and re-validated all 34 for EVERY episode — 10,180 `readFile` calls to
+   * answer a question whose answer is identical for all 302 rows.
+   */
+  youtubeOperations?: Promise<unknown>
+  /**
+   * The `{ records, state }` pair `readYouTubeRetentionStores` builds, resolved
+   * once per request. Both halves are individually memoized above; this saves
+   * the three `existsSync` probes (project dir, `youtube/operations`,
+   * `youtube/project-state.json`) that wrapped them, which the status sweep
+   * paid once per episode.
+   */
+  youtubeRetentionStores?: Promise<unknown>
 }
 
 export function createProjectFactsCache(slug?: string): ProjectFactsCache {
@@ -136,16 +193,54 @@ function usableFor(cache: ProjectFactsCache | undefined, slug: string): ProjectF
   return cache.slug === slug ? cache : undefined
 }
 
+/**
+ * The request-scoped facts cache, but only when it belongs to `slug`.
+ *
+ * Exported so the modules that own a memoized value (`youtube-operation-store`,
+ * `youtube-project-publishing-store`) apply the same two guarantees this file
+ * does: a cache accidentally reused for a different project is ignored rather
+ * than wrong, and `undefined` means "read disk exactly as before".
+ */
+export function projectFactsFor(cache: ProjectFactsCache | undefined, slug: string): ProjectFactsCache | undefined {
+  return usableFor(cache, slug)
+}
+
 /** The parsed `project.json`, read at most once per cache. */
 export async function projectMetaOnce(slug: string, cache?: ProjectFactsCache): Promise<any> {
   return projectMeta(slug, cache)
+}
+
+/**
+ * `<projectDir>/episodes`, resolved at most once per cache.
+ *
+ * Byte-for-byte `getProjectOutputRoot` without a cache; the only thing this
+ * adds is not asking the same question 302 times. It returns `null` for the
+ * same reason `getProjectOutputRoot` does — an absent project directory — so
+ * callers keep their existing 404 / empty-status handling unchanged.
+ */
+export async function projectOutputRootOnce(slug: string, cache?: ProjectFactsCache): Promise<string | null> {
+  const scoped = usableFor(cache, slug)
+  const read = async (): Promise<string | null> => {
+    const pm = await import('./project-manager.js')
+    return pm.getProjectOutputRoot(slug)
+  }
+  if (!scoped) return read()
+  scoped.outputRoot ??= read()
+  try {
+    return await scoped.outputRoot
+  } catch (error) {
+    // A failed read must not be remembered as the answer for the rest of the
+    // request: drop it so the next caller genuinely retries.
+    scoped.outputRoot = undefined
+    throw error
+  }
 }
 
 async function projectMeta(slug: string, cache?: ProjectFactsCache): Promise<any> {
   const scoped = usableFor(cache, slug)
   const read = async (): Promise<Record<string, unknown>> => {
     const { readFile } = await import('fs/promises')
-    return JSON.parse(await readFile(path.join(projectDirFor(slug), 'project.json'), 'utf-8'))
+    return JSON.parse(await readFile(path.join(projectDirFor(slug, cache), 'project.json'), 'utf-8'))
   }
   if (!scoped) return read()
   scoped.meta ??= read()
@@ -186,7 +281,10 @@ async function projectIdeas(slug: string, cache?: ProjectFactsCache): Promise<an
   const scoped = usableFor(cache, slug)
   const read = async (): Promise<Array<Record<string, unknown>>> => {
     const im = await import('./idea-manager.js')
-    return await im.getIdeas(slug) as unknown as Array<Record<string, unknown>>
+    // The cache reaches idea-manager too: without it, this one call re-read
+    // and re-parsed ideas.json (227 KB on a 302-episode project) AND
+    // project.json through `applyAutoHeal`, once per episode.
+    return await im.getIdeas(slug, undefined, cache) as unknown as Array<Record<string, unknown>>
   }
   if (!scoped) return read()
   scoped.ideas ??= read()
@@ -204,7 +302,7 @@ export async function resolveEpisodePaths(
   title: string,
   cache?: ProjectFactsCache,
 ): Promise<EpisodePaths> {
-  const projectDir = projectDirFor(slug)
+  const projectDir = projectDirFor(slug, cache)
   const meta = await projectMeta(slug, cache)
 
   const prefix = meta.episode_prefix || 'EP'
@@ -230,6 +328,42 @@ export async function resolveEpisodePaths(
     .replace('{title}', title)
 
   const episodeDir = path.join(outputRoot, episodeRel)
+
+  // ── CONTAINMENT ─────────────────────────────────────────────────────────
+  //
+  // `{code}` and `{title}` are substituted RAW into the folder template, and
+  // both arrive straight from HTTP — a `:code` path segment (Express decodes
+  // `%2F` and `%2e%2e` into `req.params`), a `?title=` query, or an idea title
+  // in a request body. `path.join` normalises `..` away, so a title of
+  // `../../../../tmp/pwn` resolved to a directory outside the Library and every
+  // caller then wrote, renamed or RECURSIVELY DELETED there. The routes that
+  // reach this function include several `fs.rm(dir, { recursive: true })`
+  // calls, so the blast radius was the owner's whole machine.
+  //
+  // This is asserted here, at the one resolver ~40 callers share, rather than at
+  // each route: a per-route guard is the arrangement that let this class exist
+  // in the first place. A folder name cannot contain a path separator on any
+  // platform this app ships for, so refusing one rejects nothing legitimate.
+  const assertSafeSegment = (value: string, field: string): void => {
+    const raw = String(value ?? '')
+    if (/[/\\\u0000]/.test(raw) || raw === '..' || raw === '.') {
+      throw new Error(
+        `Refusing an episode ${field} that would resolve outside the episodes folder. ` +
+        `A folder name cannot contain a path separator.`,
+      )
+    }
+  }
+  assertSafeSegment(code, 'code')
+  assertSafeSegment(title, 'title')
+
+  const containedRoot = path.resolve(outputRoot)
+  const containedDir = path.resolve(episodeDir)
+  if (containedDir !== containedRoot && !containedDir.startsWith(containedRoot + path.sep)) {
+    throw new Error(
+      `Refusing to resolve an episode folder outside the episodes root. ` +
+      `Check the project's folder template in project.json.`,
+    )
+  }
 
   // Level B (opt-in): when `media_root` is set, HEAVY subfolders live under a
   // separate root (typically an external SSD, off iCloud) mirroring the same
@@ -266,6 +400,37 @@ export async function resolveEpisodePaths(
   const mergedAudioDir = path.join(mediaBase, mergedAudioName)
   const videoDir = path.join(mediaBase, videoName)
   const videoAssetsDir = path.join(mediaBase, videoAssetsName)
+
+  // Subfolder names come from `project.json` (`subfolder_names`), are written by
+  // `PUT /settings/subfolder-config`, and are joined here with no check. That
+  // route only asserted each value CONTAINS `{code}`, so
+  // `{"subfolder_names":{"video":"../../../../tmp/escape/{code}"}}` was
+  // persisted and every later resolution for that project — including the
+  // generators' mkdir and several recursive removes — pointed outside the
+  // Library. Containing the episode dir alone does not catch this: these escape
+  // from INSIDE it. Anything that is not a plain child of its own root is
+  // refused rather than silently relocated.
+  const assertChildDir = (dir: string, root: string, field: string): void => {
+    const resolvedRoot = path.resolve(root)
+    const resolvedDir = path.resolve(dir)
+    if (resolvedDir !== resolvedRoot && !resolvedDir.startsWith(resolvedRoot + path.sep)) {
+      throw new Error(
+        `Refusing a ${field} folder name that resolves outside the episode folder. ` +
+        `Check this project's subfolder names in project settings.`,
+      )
+    }
+  }
+  assertChildDir(scriptDir, episodeDir, 'script')
+  assertChildDir(scenePromptsDir, episodeDir, 'scene prompts')
+  assertChildDir(thumbPromptsDir, episodeDir, 'thumbnail prompts')
+  assertChildDir(metadataDir, episodeDir, 'metadata')
+  assertChildDir(subtitlesDir, episodeDir, 'subtitles')
+  assertChildDir(bgDir, mediaBase, 'scene images')
+  assertChildDir(thumbDir, mediaBase, 'thumbnails')
+  assertChildDir(audioDir, mediaBase, 'audio')
+  assertChildDir(mergedAudioDir, mediaBase, 'merged audio')
+  assertChildDir(videoDir, mediaBase, 'video')
+  assertChildDir(videoAssetsDir, mediaBase, 'video assets')
 
   return {
     output_root: outputRoot,

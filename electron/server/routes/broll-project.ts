@@ -20,6 +20,7 @@ import { selectBroll } from '../lib/broll-selector.js'
 import { saveSelectionSidecar, getSelectionSidecar } from '../services/broll-selection-sidecar.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
+import { resolveAuthoritativeBrollNarration } from '../services/video-visual-source.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { imagePoolPromptsOutputContract } from '../lib/story-output-contracts.js'
 import type { JobType, BrollUsageEntry } from '../models/types.js'
@@ -36,44 +37,14 @@ async function resolveTitle(slug: string, episodeCode: string): Promise<string> 
 }
 
 /**
- * Read the narration audio's duration. Prefers the merged narration
- * (audio-merge output) if present; falls back to the raw audio dir's
- * first .mp3. Returns 0 when nothing is on disk — caller surfaces an
- * actionable error in that case.
+ * Read the one authoritative narration duration shared with the producer.
+ * Returns 0 when nothing is on disk; ambiguity and stale merges fail loudly.
  */
 async function readNarrationDurationSec(slug: string, episodeCode: string, title: string): Promise<number> {
   const paths = await resolveEpisodePaths(slug, episodeCode, title)
-  const candidates: string[] = []
-  // Merged audio dir first (post audio-merge step).
-  if (existsSync(paths.merged_audio_dir)) {
-    const fsp = await import('fs/promises')
-    const files = await fsp.readdir(paths.merged_audio_dir).catch(() => [])
-    for (const f of files) {
-      if (/\.(mp3|wav|m4a)$/i.test(f) && !f.startsWith('.tmp_')) {
-        candidates.push(`${paths.merged_audio_dir}/${f}`)
-      }
-    }
-  }
-  // Raw audio dir fallback (single-chapter narration formats land here).
-  if (!candidates.length && existsSync(paths.audio_dir)) {
-    const fsp = await import('fs/promises')
-    const files = await fsp.readdir(paths.audio_dir).catch(() => [])
-    for (const f of files) {
-      if (/\.mp3$/i.test(f) && !f.startsWith('.tmp_')) {
-        candidates.push(`${paths.audio_dir}/${f}`)
-      }
-    }
-  }
-  if (!candidates.length) return 0
-  // Take the longest — that's the merged narration if present, or the
-  // single full-narration file. Avoids accidentally picking a short
-  // intro fragment when both exist.
-  let longest = 0
-  for (const p of candidates) {
-    const d = await getAudioDuration(p)
-    if (d && d > longest) longest = d
-  }
-  return longest
+  const narrationPath = await resolveAuthoritativeBrollNarration(paths, episodeCode)
+  if (!narrationPath) return 0
+  return await getAudioDuration(narrationPath) || 0
 }
 
 // ── POST /broll/pick ───────────────────────────────────────────────────

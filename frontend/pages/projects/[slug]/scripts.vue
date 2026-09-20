@@ -213,7 +213,7 @@
            effective format JSON; range chips light up amber when the
            user's current input falls outside the recommended envelope —
            purely informational, not a block. -->
-      <div v-if="false && formatContext" class="format-context-card">
+      <div v-if="formatContext" class="format-context-card">
         <div class="format-context-header">
           <span class="format-context-icon" aria-hidden="true">ⓘ</span>
           <span class="format-context-name">{{ formatContext.name }}</span>
@@ -629,6 +629,7 @@
 </template>
 
 <script setup lang="ts">
+import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import {
   canSubmitScriptOutline,
   effectiveFormatPathForEpisode,
@@ -1249,6 +1250,18 @@ const scriptPresets = usePresets<any>({
   // Snapshot captures every chapter-writing field on this page so reloading
   // the preset restores the visible form 1:1. `intro` / `introBeats` on an
   // older saved preset are simply ignored — see the note above.
+  // OWNER DECISIONS, 2026-09-20 (#10):
+  //   `force`           — a per-run switch. A preset restoring `force: true`
+  //                       would silently OVERWRITE existing work on the next
+  //                       apply, which no reading of the decision permits.
+  //   `manual_guidance` — the episode's written direction. Excluded; text meant
+  //                       to persist goes in the channel-specific box instead.
+  //   `character_ids`   — deliberately KEPT. The cast is channel/series-level
+  //                       and the same across episodes, so restoring it is the
+  //                       point of the preset.
+  // The spread is load-bearing: `excludeKeys` REPLACES the default list, so
+  // omitting it would start snapshotting `episode_id` again.
+  excludeKeys: [...DEFAULT_EXCLUDE_KEYS, 'force', 'manual_guidance'],
   snapshot: () => ({
     form: { ...form },
     customStyleText: customStyleText.value,

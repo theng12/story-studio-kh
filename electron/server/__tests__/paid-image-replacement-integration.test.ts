@@ -171,9 +171,11 @@ test('current machine Off revokes every supported committed image submit permiss
   }
 })
 
-test('automatic missing-only run replaces one fully refunded IMAGE_FAILED image while preserving completed scenes', async () => {
+test('automatic missing-only run continues through repeated fully refunded failures while preserving completed scenes', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
+  const previousRetryDelay = process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS
+  process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS = '1'
   try {
     const settings = await import('../services/app-settings.js')
     const secrets = await import('../services/app-secrets-store.js')
@@ -211,17 +213,21 @@ test('automatic missing-only run replaces one fully refunded IMAGE_FAILED image 
     }
     await writeAuthoritativeFixture(automaticJob)
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED' })
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED' })
     service.queueScenario('image', { states: ['accepted', 'succeeded'] })
     assert.equal(await runContinuityRenderJob(automaticJob), undefined)
-    assert.equal(service.providerSubmissionCount('image'), 2, 'the fully refunded generic failure receives exactly one automatic replacement')
+    assert.equal(service.providerSubmissionCount('image'), 3, 'two fully refunded failures are followed by a successful replacement')
+    assert.equal(new Set(service.submissions.filter(s => s.operation === 'image').map(s => s.idempotencyKey)).size, 3, 'each confirmed failure receives a distinct replacement identity')
     assert.equal(automaticJob.paid_image_replacement_attempts, undefined)
     await sharp(path.join(outDir, 'scene-001.png')).stats()
     assert.deepEqual(await fs.readFile(completedPath), completedBytes, 'completed output is byte-identical')
     const completedEntry = (await readManifest(outDir)).tasks['scene-001.png']!
     assert.equal(completedEntry.last_state, 'succeeded')
     assert.match(completedEntry.request_scope || '', /:retry:/, 'the retry scope persists before the replacement POST')
-    assert.match(automaticJob.output_lines.join('\n'), /attempt 2 of 2/)
+    assert.match(automaticJob.output_lines.join('\n'), /attempt 3/)
   } finally {
+    if (previousRetryDelay === undefined) delete process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS
+    else process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS = previousRetryDelay
     await service.close()
     await temp.cleanup()
   }
@@ -346,6 +352,124 @@ test('manual Finish replaces one known terminal IMAGE_FAILED image immediately w
   }
 })
 
+test('manual Finish continues after two confirmed refunds only while the live policy is On', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const previousRetryDelay = process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS
+  process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS = '1'
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest } = await import('../services/task-manifest.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const { project, episodeId, paths } = await createContinuityFixture('Manual Finish refunded retry')
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: 'manual-finish-refunded-retry', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Finish missing images', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K', scene_ids: ['scene-001'], missing_only: true,
+        manual_image_finish: { action_id: '10101010-1010-4010-8010-101010101010', replace_uncertain: false },
+      },
+    }
+    await writeAuthoritativeFixture(job)
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED' })
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED' })
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+
+    assert.equal(await runContinuityRenderJob(job), undefined)
+    assert.equal(service.providerSubmissionCount('image'), 3, 'the manual POST is followed only by policy-approved refunded retries')
+    assert.equal(new Set(service.submissions.filter(s => s.operation === 'image').map(s => s.idempotencyKey)).size, 3)
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    assert.match((await readManifest(outDir)).tasks['scene-001.png']!.request_scope || '', /:retry:/)
+  } finally {
+    if (previousRetryDelay === undefined) delete process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS
+    else process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS = previousRetryDelay
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('manual Finish keeps one attempt when the live recovery policy is Off', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreImageProvider: (() => void) | undefined
+  try {
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { registry } = await import('../providers/registry.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+    const realProvider = registry.getImageProvider('genstudio-image')!
+    let generationCalls = 0
+    registry.registerImage({
+      ...realProvider,
+      generateImage: async request => {
+        generationCalls++
+        if (generationCalls === 2) {
+          await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
+        }
+        return realProvider.generateImage(request)
+      },
+    })
+    restoreImageProvider = () => registry.registerImage(realProvider)
+
+    const { project, episodeId } = await createContinuityFixture('Manual Finish policy Off')
+    const now = new Date().toISOString()
+    const job: any = {
+      job_id: 'manual-finish-policy-off', project_slug: project.slug, type: 'continuity_render', episode_id: episodeId,
+      title: 'Finish missing images', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
+      params: {
+        episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K', scene_ids: ['scene-001'], missing_only: true,
+        manual_image_finish: { action_id: '20202020-2020-4020-8020-202020202020', replace_uncertain: false },
+      },
+    }
+    await writeAuthoritativeFixture(job)
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED' })
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
+    assert.equal(service.providerSubmissionCount('image'), 1, 'Off stops after Finish\'s explicit request')
+    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+    await writeAuthoritativeFixture(job)
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
+    assert.equal(service.providerSubmissionCount('image'), 1,
+      'a restart promotes the terminal Finish request to automatic recovery and rechecks Off before its POST')
+    // A crash can leave the local manifest accepted even though the remote
+    // request has since failed. Discovering that failure must not restore the
+    // already-used manual authority either.
+    const { readManifest, recordTaskStrict } = await import('../services/task-manifest.js')
+    const outDir = job.output_dir!
+    const saved = (await readManifest(outDir)).tasks['scene-001.png']!
+    await recordTaskStrict(outDir, 'scene-001.png', { ...saved, last_state: 'accepted' })
+    await writeAuthoritativeFixture(job)
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
+    assert.equal(service.providerSubmissionCount('image'), 1, 'a newly observed terminal failure still obeys Off')
+
+  } finally {
+    restoreImageProvider?.()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
 test('automatic missing-only run replaces a released exhausted-failover image and preserves completed scenes', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
@@ -395,33 +519,14 @@ test('automatic missing-only run replaces a released exhausted-failover image an
     assert.deepEqual(await fs.readFile(completedPath), completedBytes, 'the completed scene remains byte-identical')
     const completedEntry = (await readManifest(outDir)).tasks['scene-001.png']!
     assert.equal(completedEntry.last_state, 'succeeded')
-    assert.match(job.output_lines.join('\n'), /attempt 2 of 2/)
+    assert.match(job.output_lines.join('\n'), /attempt 2\)/)
     const successfulSubmissions = service.submissions.filter(submission => submission.operation === 'image')
     assert.equal(new Set(successfulSubmissions.map(submission => submission.idempotencyKey)).size, 2, 'the replacement has a fresh stable identity')
 
     assert.equal(await runContinuityRenderJob(job), undefined)
     assert.equal(service.providerSubmissionCount('image'), 2, 're-entry after completion submits nothing')
 
-    const bounded = await createContinuityFixture('Bounded generic failure retry')
-    const boundedNow = new Date().toISOString()
-    const boundedJob: any = {
-      job_id: 'bounded-generic-failure', project_slug: bounded.project.slug, type: 'continuity_render', episode_id: bounded.episodeId,
-      title: 'Bounded generic failure', status: 'running', created_at: boundedNow, started_at: boundedNow, finished_at: null,
-      local_execution_complete: false, error: null, output_lines: [],
-      paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: boundedNow },
-      params: { episode_id: bounded.episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K', missing_only: true },
-    }
-    await writeAuthoritativeFixture(boundedJob)
-    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED', reservedCredits: 9 })
-    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED', reservedCredits: 9 })
-    await assert.rejects(runContinuityRenderJob(boundedJob), /incomplete/i)
-    assert.equal(service.providerSubmissionCount('image'), 4, 'two generic failures receive at most one automatic replacement')
-    const boundedOutDir = await resolveSceneImagesDir(bounded.project.slug, bounded.episodeId, bounded.paths.episode_dir)
-    await assert.rejects(fs.stat(path.join(boundedOutDir, 'scene-001.png')), { code: 'ENOENT' })
-    const restartedJob: any = { ...boundedJob, job_id: 'bounded-generic-failure-restart', output_lines: [] }
-    await writeAuthoritativeFixture(restartedJob)
-    await assert.rejects(runContinuityRenderJob(restartedJob), /incomplete/i)
-    assert.equal(service.providerSubmissionCount('image'), 4, 'the persisted retry scope prevents a third automatic submission after restart')
+
   } finally {
     await service.close()
     await temp.cleanup()

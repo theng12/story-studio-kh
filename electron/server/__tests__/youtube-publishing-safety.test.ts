@@ -281,6 +281,46 @@ describe('YouTube publishing checkpoints', () => {
     }), [])
   })
 
+  it('refuses to replace an existing schedule that changed after preview', async () => {
+    const slug = await seedProject()
+    const reviewed = '2026-09-20T12:00:00.000Z'
+    const concurrent = '2026-09-21T12:00:00.000Z'
+    const proposed = '2026-09-22T12:00:00.000Z'
+    await seedPlaylistEpisode(slug, completeSidecar({ scheduled_for: concurrent }))
+
+    await assert.rejects(
+      sidecars.setScheduledFor(slug, 'EP0001', 'Episode', 'youtube', proposed, reviewed),
+      (error: any) => {
+        assert.equal(error.statusCode, 409)
+        assert.equal(error.code, 'YOUTUBE_PLAN_PREVIEW_STALE')
+        assert.match(error.detail, /planned YouTube date.*changed after preview/i)
+        return true
+      },
+    )
+
+    const saved = await sidecars.readSidecarRaw(slug, 'EP0001', 'Episode', 'youtube')
+    assert.equal(saved?.scheduled_for, concurrent)
+  })
+
+  it('refuses to overwrite a schedule created after a missing preview', async () => {
+    const slug = await seedProject()
+    const concurrent = '2026-09-21T12:00:00.000Z'
+    const proposed = '2026-09-22T12:00:00.000Z'
+    await sidecars.setScheduledFor(slug, 'EP0001', 'Episode', 'youtube', concurrent)
+
+    await assert.rejects(
+      sidecars.setScheduledFor(slug, 'EP0001', 'Episode', 'youtube', proposed, null),
+      (error: any) => {
+        assert.equal(error.statusCode, 409)
+        assert.equal(error.code, 'YOUTUBE_PLAN_PREVIEW_STALE')
+        return true
+      },
+    )
+
+    const saved = await sidecars.readSidecarRaw(slug, 'EP0001', 'Episode', 'youtube')
+    assert.equal(saved?.scheduled_for, concurrent)
+  })
+
   it('refuses to checkpoint a playlist against a changed remote video', async () => {
     const slug = await seedProject()
     await sidecars.writeSidecar(slug, 'EP0001', 'Episode', completeSidecar({ video_id: 'new-video' }))

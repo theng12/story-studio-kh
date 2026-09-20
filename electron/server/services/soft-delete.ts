@@ -161,7 +161,9 @@ export async function listSoftDeletedProjects(): Promise<SoftDeletedProjectInfo[
         const meta = JSON.parse(raw)
         if (typeof meta?.name === 'string' && meta.name) name = meta.name
       } catch { /* missing/corrupt project.json — keep slug as name */ }
-      estimated_bytes = await tallyDirSize(candidatePath).catch(() => -1)
+      // `-1` means "unknown" and is now reachable: `null` from the tally is the
+      // only honest answer when a child could not be read.
+      estimated_bytes = (await tallyDirSize(candidatePath)) ?? -1
     }
     out.push({
       slug,
@@ -202,20 +204,31 @@ export async function hardDeleteSoftDeletedProject(slug: string): Promise<void> 
 }
 
 /**
- * Recursive size of a directory in bytes. Best-effort — silently
- * ignores per-file errors so a single unreadable child doesn't blow
- * up the whole tally.
+ * Recursive size of a directory in bytes, or `null` when it cannot be measured.
+ *
+ * v1.4.200 — this used to return 0 for BOTH "the directory is empty" and "I
+ * could not read it", and to skip unreadable children silently. Its only caller
+ * guarded with `.catch(() => -1)`, which could never fire because this function
+ * never rejects, so the `-1` "unknown size" sentinel was **unreachable** and a
+ * folder nobody could measure was reported as **0 bytes** — the exact
+ * conflation that sentinel was written to avoid (AGENTS.md §6).
+ *
+ * `null` now propagates: any unreadable child makes the whole total unknown,
+ * because a partial sum presented as a total is the same lie in a smaller font.
+ * The caller turns `null` into the documented `-1`.
  */
-async function tallyDirSize(dir: string): Promise<number> {
+async function tallyDirSize(dir: string): Promise<number | null> {
   let total = 0
   let entries: import('fs').Dirent[] = []
-  try { entries = await fs.readdir(dir, { withFileTypes: true }) } catch { return 0 }
+  try { entries = await fs.readdir(dir, { withFileTypes: true }) } catch { return null }
   for (const ent of entries) {
     const full = path.join(dir, ent.name)
     if (ent.isDirectory()) {
-      total += await tallyDirSize(full)
+      const child = await tallyDirSize(full)
+      if (child === null) return null
+      total += child
     } else if (ent.isFile()) {
-      try { total += (await fs.stat(full)).size } catch { /* skip */ }
+      try { total += (await fs.stat(full)).size } catch { return null }
     }
   }
   return total

@@ -604,8 +604,26 @@ export function assertPipelineModelRequestCapabilities(candidate: GenStudioChatM
     throw new GenStudioChatCapabilityUnavailableError(candidate.id, 'it publishes no structured-output support for this request')
   }
   const requestedTokens = ctx.maxTokens ?? resolveOutputTokenBudget(ctx.outputBudget, candidate.max_output_tokens)
-  if (!Number.isInteger(requestedTokens) || requestedTokens < 1 || requestedTokens > candidate.max_output_tokens) {
-    throw new GenStudioChatCapabilityUnavailableError(candidate.id, `this request needs ${requestedTokens.toLocaleString()} output tokens, above its published ${candidate.max_output_tokens.toLocaleString()} limit`)
+  // A product that publishes NO ceiling is usable, and this request carries no
+  // ceiling: `null` is the answer, not a smaller number Story Studio chose
+  // (owner decision #6, 2026-09-20). Only a NUMBER is validated — it must be a
+  // positive integer and must not exceed a ceiling the product actually
+  // published. The old check compared against `candidate.max_output_tokens`
+  // unconditionally, so `0` (the parser's "not published") made every request
+  // look oversized and refused the product outright.
+  const publishedCeiling = Number.isInteger(candidate.max_output_tokens) && candidate.max_output_tokens >= 1
+    ? candidate.max_output_tokens
+    : null
+  const malformed = requestedTokens !== null && (!Number.isInteger(requestedTokens) || requestedTokens < 1)
+  const overPublished = !malformed && requestedTokens !== null && publishedCeiling !== null
+    && requestedTokens > publishedCeiling
+  if (malformed || overPublished) {
+    throw new GenStudioChatCapabilityUnavailableError(
+      candidate.id,
+      publishedCeiling === null
+        ? `this request needs ${JSON.stringify(requestedTokens)} output tokens, which is not a usable number`
+        : `this request needs ${(requestedTokens as number).toLocaleString()} output tokens, above its published ${publishedCeiling.toLocaleString()} limit`,
+    )
   }
   if (ctx.images?.length && (!candidate.supports_vision || ctx.images.length > candidate.max_input_images)) {
     throw new GenStudioChatCapabilityUnavailableError(candidate.id, 'it does not publish support for these image inputs')

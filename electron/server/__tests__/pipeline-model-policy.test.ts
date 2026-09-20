@@ -163,6 +163,42 @@ test('Pipeline capability guard advances only for the exact structured request r
   }))
 })
 
+test('a candidate publishing no output ceiling is usable, and a published one keeps its teeth', () => {
+  // Owner decision #6, 2026-09-20. This guard used to compare EVERY request
+  // against `candidate.max_output_tokens`, so the catalogue parser's `0` ("not
+  // published") made every request look oversized and the four shipped
+  // `max_output_tokens: null` products were refused before anything was
+  // submitted. They are usable now, because the request carries no ceiling.
+  const unpublished = {
+    id: 'unpublished-ceiling', available: true, max_output_tokens: 0,
+    structured_output_mode: 'json_object', supports_structured_output: true,
+    supports_vision: false, max_input_images: 0,
+  } as GenStudioChatModel
+
+  assert.doesNotThrow(() => assertPipelineModelRequestCapabilities(unpublished, {
+    outputContract: { mode: 'json_object' }, outputBudget: 'long',
+  }))
+  assert.doesNotThrow(() => assertPipelineModelRequestCapabilities(unpublished, {
+    outputContract: { mode: 'prose' },
+  }))
+  // A named allowance is the CALLER's own ceiling, not a claim about the
+  // product, so it is still submitted.
+  assert.doesNotThrow(() => assertPipelineModelRequestCapabilities(unpublished, { maxTokens: 4_096 }))
+  // But a malformed named allowance is still refused — "the product published
+  // nothing" and "this number is unusable" must not collapse together.
+  assert.throws(
+    () => assertPipelineModelRequestCapabilities(unpublished, { maxTokens: 1.5 }),
+    GenStudioChatCapabilityUnavailableError,
+  )
+
+  const published = { ...unpublished, max_output_tokens: 8_192 } as GenStudioChatModel
+  assert.doesNotThrow(() => assertPipelineModelRequestCapabilities(published, { outputBudget: 'maximum' }))
+  assert.throws(
+    () => assertPipelineModelRequestCapabilities(published, { maxTokens: 8_193 }),
+    GenStudioChatCapabilityUnavailableError,
+  )
+})
+
 test('Pipeline backup advances once after a proven pre-submit refusal and stays bounded', async () => {
   const seen: string[] = []
   const store = checkpointStore()
@@ -261,8 +297,25 @@ test('Scene Plan accepts only a complete persisted request shape for saved-key r
     visual_max_tokens: 16_384, active_output_budget: 16_384, prompt_pack_size: 4,
   }
   assert.deepEqual(readScenePolicyRequestPlan(saved), saved)
+  assert.deepEqual(readScenePolicyRequestPlan({
+    ...saved, max_output_tokens: null, visual_max_tokens: null, active_output_budget: null,
+  }), {
+    ...saved, max_output_tokens: null, visual_max_tokens: null, active_output_budget: null,
+  })
+  assert.deepEqual(readScenePolicyRequestPlan({
+    ...saved, max_output_tokens: 0, visual_max_tokens: null, active_output_budget: null,
+  }), {
+    ...saved, max_output_tokens: null, visual_max_tokens: null, active_output_budget: null,
+  })
   assert.equal(readScenePolicyRequestPlan({ ...saved, prompt_pack_size: 0 }), null)
   assert.equal(readScenePolicyRequestPlan({ ...saved, model_id: '' }), null)
+  for (const value of ['4096', 1.5, -1]) {
+    assert.equal(readScenePolicyRequestPlan({ ...saved, max_output_tokens: value }), null)
+    assert.equal(readScenePolicyRequestPlan({ ...saved, visual_max_tokens: value }), null)
+    assert.equal(readScenePolicyRequestPlan({ ...saved, active_output_budget: value }), null)
+  }
+  assert.equal(readScenePolicyRequestPlan({ ...saved, visual_max_tokens: 0 }), null)
+  assert.equal(readScenePolicyRequestPlan({ ...saved, active_output_budget: 0 }), null)
 })
 
 test('Pipeline backup resumes at the ordered next candidate after a durable uncharged primary failure', async () => {

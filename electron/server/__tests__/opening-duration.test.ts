@@ -58,20 +58,34 @@ describe('opening duration', () => {
     assert.equal(await measureOpeningSec(head, probe), 7)
   })
 
-  test('an unprobeable clip contributes its fallback, or nothing at all', async () => {
-    // The renderer has always fallen back to 5s for an intro whose duration it
-    // could not read; the plan has no such fallback, because reserving time for
-    // a file it could not measure is how a plan and a render disagree.
+  /**
+   * OWNER DECISION, 2026-09-20: FAIL LOUDLY. This reverses what these two tests
+   * used to assert, deliberately — do not restore the old expectations.
+   *
+   * The old behaviour was that the renderer reserved `fallback_sec || 5` while
+   * the plan reserved `0` for the very same unreadable clip. That is how a plan
+   * and a render came to disagree about the caption offset, and a wrong offset
+   * shifts EVERY caption in the episode — ahead of the voice if it is too
+   * short, behind it if it is too long. Both now refuse to guess.
+   */
+  test('an opening clip that exists but cannot be measured is an error, not a guess', async () => {
     const rendererStyle: OpeningHead = { ...emptyOpeningHead(), intro: { path: '/broken.mp4', fallback_sec: 5 } }
-    assert.equal(await measureOpeningSec(rendererStyle, probe), 5)
+    await assert.rejects(() => measureOpeningSec(rendererStyle, probe), /could not be measured/)
     const planStyle: OpeningHead = { ...emptyOpeningHead(), intro: { path: '/broken.mp4' } }
-    assert.equal(await measureOpeningSec(planStyle, probe), 0)
+    await assert.rejects(() => measureOpeningSec(planStyle, probe), /could not be measured/)
   })
 
-  test('a probe that throws is not fatal', async () => {
+  test('a probe that throws fails loudly rather than reserving the fallback', async () => {
     const angry = async () => { throw new Error('ffprobe exploded') }
     const head: OpeningHead = { ...emptyOpeningHead(), intro: { path: '/intro.mp4', fallback_sec: 4 } }
-    assert.equal(await measureOpeningSec(head, angry), 4)
+    await assert.rejects(() => measureOpeningSec(head, angry), /could not be measured/)
+  })
+
+  test('a clip with no path still uses its stated length', async () => {
+    // Nothing was probed because there is no file at all, so the stated length
+    // is the only information that exists and is used honestly.
+    const head: OpeningHead = { ...emptyOpeningHead(), intro: { fallback_sec: 4 } }
+    assert.equal(await measureOpeningSec(head, probe), 4)
   })
 
   test('the total is rounded to the millisecond so plan and render compare equal', async () => {

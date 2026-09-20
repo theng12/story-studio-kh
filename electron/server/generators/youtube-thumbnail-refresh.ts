@@ -83,11 +83,21 @@ export async function enumerateUploadRows(slug: string, platform: UploadPlatform
     try {
       const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, sidecarName)
       dir = paths.episode_dir
-    } catch { return }
+    } catch {
+      throw new Error(`${code}: could not resolve ${sidecarName}.`)
+    }
     const sidecarFile = path.join(dir, sidecarName)
-    if (!existsSync(sidecarFile)) return
+    let raw: string
+    try {
+      raw = await fsp.readFile(sidecarFile, 'utf-8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw new Error(`${code}: ${sidecarName} is unreadable or inaccessible.`)
+    }
     let sc: UploadSidecar
-    try { sc = JSON.parse(await fsp.readFile(sidecarFile, 'utf-8')) } catch { return }
+    try { sc = JSON.parse(raw) } catch {
+      throw new Error(`${code}: ${sidecarName} is malformed.`)
+    }
     if (!sc?.video_id) return
     rows.push({
       episode_code: code,
@@ -134,7 +144,36 @@ export async function previewThumbnailRefresh(
     if (meta?.thumbnailPath && existsSync(meta.thumbnailPath)) willFix++
     else noImage++
   }))
-  return { total_uploaded: all.length, will_fix: willFix, no_image: noImage, account_id: accountId, mode: opts.mode }
+  return {
+    total_uploaded: all.length,
+    will_fix: willFix,
+    no_image: noImage,
+    account_id: accountId,
+    mode: opts.mode,
+  }
+}
+
+/**
+ * Did this episode's thumbnail update actually get recorded durably?
+ *
+ * Extracted so the completion decision is testable without driving the
+ * generator, which uploads to YouTube. It replaces an
+ * `{ expected: 1, completed: 1 }` tautology at the call site: the declaration
+ * now comes from reading the operation record back rather than from having
+ * reached a line of code.
+ *
+ * Returns false for a missing record, an unreadable store, or a record with no
+ * `succeeded` `thumbnail_update` action — so an upload the provider took but
+ * Story Studio failed to record cannot be reported complete.
+ */
+export async function thumbnailUpdateWasRecorded(slug: string, operationId: string): Promise<boolean> {
+  try {
+    const operation = await readYouTubeOperation(slug, operationId)
+    return operation?.actions.some(action =>
+      action.action === 'thumbnail_update' && action.state === 'succeeded') === true
+  } catch {
+    return false
+  }
 }
 
 export async function generateThumbnailRefresh(job: Job): Promise<void> {
@@ -232,7 +271,24 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
       }).catch(() => {})
       throw error
     }
-    requireJobCompletion(job, { label: 'YouTube thumbnail update', expected: 1, completed: 1 })
+    // READ THE EVIDENCE BACK, rather than asserting a constant.
+    //
+    // This was `{ expected: 1, completed: 1 }` — a tautology that certifies on
+    // the strength of reaching the line. The two facts that actually make this
+    // job complete ARE established by here (the provider accepted, and the
+    // durable `thumbnail_update` action was recorded as `succeeded` — a failed
+    // record write throws above), but a constant does not SAY so, and a later
+    // edit that moves this call out of that guarantee would silently start
+    // certifying an unrecorded upload. AGENTS.md §8: "a generator returning
+    // without throwing is not evidence".
+    const confirmed = await thumbnailUpdateWasRecorded(slug, record.operation_id)
+    requireJobCompletion(job, {
+      label: 'YouTube thumbnail update',
+      expected: 1,
+      completed: confirmed ? 1 : 0,
+      missing: confirmed ? [] : ['a recorded succeeded thumbnail update'],
+      retry_hint: 'Retry re-reads the recorded result before uploading the thumbnail again.',
+    })
     job.output_lines.push(`Updated ${record.episode_code}'s thumbnail on YouTube ✓`)
     job.progress = 100
     return

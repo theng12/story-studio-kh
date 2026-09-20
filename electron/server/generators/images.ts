@@ -149,7 +149,11 @@ export function imageRetryPlan(e: unknown, attemptNum: number): ImageRetryPlan |
 // folder, readdir lists ".docx" before ".md" (alphabetical), so the stale Word
 // file won and only 12 scenes generated. Now we collect ALL matches and return
 // the one with the best (lowest) rank in `candidates`, so the .md always wins.
-async function findFileRecursive(dir: string, candidates: string[]): Promise<string | null> {
+async function findFileRecursive(
+  dir: string,
+  candidates: string[],
+  options: { strictIo?: boolean } = {},
+): Promise<string | null> {
   const ref: { path: string; rank: number } = { path: '', rank: Infinity }
   const walk = async (d: string): Promise<void> => {
     try {
@@ -163,13 +167,29 @@ async function findFileRecursive(dir: string, candidates: string[]): Promise<str
           await walk(fullPath)
         }
       }
-    } catch { /* skip inaccessible dirs */ }
+    } catch (error) {
+      if (options.strictIo && (error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
+    }
   }
   await walk(dir)
   return ref.rank === Infinity ? null : ref.path
 }
 
-export async function findScenePromptsFile(slug: string, episodeId: string): Promise<string> {
+export class ImagePromptsMissingError extends Error {
+  readonly code = 'IMAGE_PROMPTS_MISSING' as const
+
+  constructor(readonly kind: 'scene' | 'thumbnail', readonly episodeId: string) {
+    const code = episodeId.toUpperCase()
+    super(`Could not find ${kind} prompts for ${code}. Generate the prompts first.`)
+    this.name = 'ImagePromptsMissingError'
+  }
+}
+
+export async function findScenePromptsFile(
+  slug: string,
+  episodeId: string,
+  options: { strictIo?: boolean } = {},
+): Promise<string> {
   const code = episodeId.toUpperCase()
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) throw new Error('Project directory not found')
@@ -181,12 +201,16 @@ export async function findScenePromptsFile(slug: string, episodeId: string): Pro
     `${code}_Image_Prompts.md`,
     `${code}_Image_Prompts.docx`,
   ]
-  const found = await findFileRecursive(outputRoot, candidates)
+  const found = await findFileRecursive(outputRoot, candidates, options)
   if (found) return found
-  throw new Error(`Could not find scene prompts for ${code}. Generate the prompts first.`)
+  throw new ImagePromptsMissingError('scene', code)
 }
 
-export async function findThumbPromptsFile(slug: string, episodeId: string): Promise<string> {
+export async function findThumbPromptsFile(
+  slug: string,
+  episodeId: string,
+  options: { strictIo?: boolean } = {},
+): Promise<string> {
   const code = episodeId.toUpperCase()
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) throw new Error('Project directory not found')
@@ -198,9 +222,9 @@ export async function findThumbPromptsFile(slug: string, episodeId: string): Pro
     `${code}_Image_Prompts.md`,
     `${code}_Image_Prompts.docx`,
   ]
-  const found = await findFileRecursive(outputRoot, candidates)
+  const found = await findFileRecursive(outputRoot, candidates, options)
   if (found) return found
-  throw new Error(`Could not find thumbnail prompts for ${code}. Generate the prompts first.`)
+  throw new ImagePromptsMissingError('thumbnail', code)
 }
 
 export async function resolveImageDirs(projectSlug: string, promptsPath: string, episodeId: string): Promise<{ bgDir: string; thumbDir: string; episodeDir: string }> {
@@ -370,6 +394,12 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   job.output_lines.push(`Parsed: ${scenes.length} scenes, ${thumbnails.length} thumbnails`)
   if (mode === 'scenes' && scenes.length === 0) throw new Error('The scene prompt file contains no usable scene prompts.')
   if (mode === 'thumbs' && thumbnails.length === 0) throw new Error('The thumbnail prompt file contains no usable thumbnail prompts.')
+  if (mode === 'scenes' && req.scene_number != null && !scenes.some(scene => scene.number === req.scene_number)) {
+    throw new Error(`Scene prompt ${req.scene_number} was not found. Refresh the scene list and choose an available prompt.`)
+  }
+  if (mode === 'thumbs' && req.thumb_number != null && !thumbnails.some(thumb => thumb.number === req.thumb_number)) {
+    throw new Error(`Thumbnail prompt ${req.thumb_number} was not found. Refresh the thumbnail list and choose an available prompt.`)
+  }
 
   // Phase 8 — load this episode's character cast once for reference-image
   // wiring. Auto-detect: scan each scene's prompt text for character names
@@ -1141,7 +1171,6 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
         : null
 
       let attempt: DurableImageAttempt | null = null
-      let releasedZeroSettlementRetryUsed = false
       let zeroSettlementRetryPending = false
       for (let attemptNum = 1; ; attemptNum++) {
         let acceptedTaskId = ''
@@ -1428,16 +1457,15 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             }
           }
           // Fleet-busy and route refusals follow `imageRetryPlan`; a fully
-          // refunded, policy-approved terminal image failure gets one retry.
+          // refunded, policy-approved terminal failure keeps retrying with backoff.
           const plan = imageRetryPlan(e, attemptNum)
-            || (releasedZeroSettlementRetry && !releasedZeroSettlementRetryUsed
-              ? { waitMs: 0, reason: 'The image failed before any credits settled', maxAttempts: attemptNum + 1 }
+            || (releasedZeroSettlementRetry
+              ? { waitMs: imageRouteRetryDelayMs(attemptNum - 1), reason: 'The failed image was fully refunded', maxAttempts: attemptNum + 1 }
               : null)
           const fleetBusy = isFleetBusyFailure(e, 'image')
           const stoppableRetry = fleetBusy || releasedZeroSettlementRetry
           if (plan && attempt && !jq.isCancelled(job.job_id)
             && !(stoppableRetry && jq.isPauseRequested(job.job_id))) {
-            if (releasedZeroSettlementRetry) releasedZeroSettlementRetryUsed = true
             const { waitMs, reason, maxAttempts } = plan
             activeItems.set(key, {
               label,
@@ -1451,7 +1479,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             publishProgress()
             job.output_lines.push(
               `  Thumbnail ${thumb.number}: ${reason.toLowerCase()} — nothing was charged.`
-              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1} of ${maxAttempts}).`,
+              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1}${releasedZeroSettlementRetry ? '' : ` of ${maxAttempts}`}).`,
             )
             attempt = deriveRouteRetryAttempt(attempt, e.jobId || acceptedTaskId, finalPrompt)
             // v1.4.35 — the fleet-busy wait now ends on Pause too. Both

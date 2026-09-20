@@ -32,7 +32,11 @@
  *      keeps hitting.
  *
  *   4. Hostile config values can never reach a prompt. config.json is a
- *      passthrough document that hand edits and older clients write to.
+ *      passthrough document that hand edits and older clients write to. The
+ *      episode tier keeps a fixed read cap; the PROJECT tier's bound is the
+ *      selected image model's published prompt budget (owner decision #2), so
+ *      an over-long hand-edited value is refused loudly at render time rather
+ *      than silently trimmed here.
  *
  * IMPORTANT — module-load ordering: STORY_STUDIO_DATA_DIR must be set (via
  * useTempDataDir) before project-manager import, so PROJECTS_ROOT points at
@@ -108,6 +112,22 @@ describe('style-bible — project default', () => {
       await fs.writeFile(path.join(dir, 'continuity.json'), '{ not json', 'utf-8')
       assert.equal(await sb.readEpisodeStyleBible(dir), '')
     })
+
+    test('the episode tier still guards at the write cap that routes/continuity.ts enforces', async () => {
+      // The project tier's ceiling moved to the selected image model (owner
+      // decision #2), but the per-episode field is written by
+      // routes/continuity.ts with a fixed cap, so its read guard stays and must
+      // keep matching it. Asserting the boundary — not merely "long input is
+      // shorter" — is what stops the two from drifting apart unnoticed.
+      const dir = await episodeDirWith('ep-too-long', 'x'.repeat(sb.STYLE_BIBLE_MAX_CHARS + 500))
+      const read = await sb.readEpisodeStyleBible(dir)
+      assert.equal(read.length, sb.STYLE_BIBLE_MAX_CHARS)
+      assert.equal(sb.STYLE_BIBLE_MAX_CHARS, 2000,
+        'must still match the per-episode cap in routes/continuity.ts')
+      // A value at the cap is untouched: the guard is a ceiling, not a trimmer.
+      const exact = await episodeDirWith('ep-exact', 'y'.repeat(sb.STYLE_BIBLE_MAX_CHARS))
+      assert.equal((await sb.readEpisodeStyleBible(exact)).length, sb.STYLE_BIBLE_MAX_CHARS)
+    })
   })
 
   // ── project tier ────────────────────────────────────────────────────────
@@ -134,11 +154,23 @@ describe('style-bible — project default', () => {
         'an object must not become "[object Object]" inside 333 prompts')
     })
 
-    test('an over-long default is capped on READ, not only on write', async () => {
+    test('a long default comes back whole — the ceiling lives where the model is known', async () => {
+      // v1.4.207 — THIS TEST'S EXPECTATION WAS REVERSED ON PURPOSE, and the
+      // reversal is the fix rather than a relaxation. It used to pin a fixed
+      // 2,000-character READ trim, justified as "must match the per-episode cap
+      // in routes/continuity.ts". Owner decision #2 (2026-09-20) moved the
+      // channel default's ceiling onto the SELECTED image model's published
+      // `max_prompt_characters`, enforced and SHOWN beside the box in the Scene
+      // Plan UI. A fixed read trim below that ceiling would silently cut a value
+      // the UI had just told the customer it accepted — the §1 defect the
+      // ruling exists to remove. An over-long hand-edited value now fails loudly
+      // at render time (the image provider refuses an over-cap prompt and names
+      // the model's limit) instead of being silently shortened here.
       const proj = await pm.createProject({ name: 'StyleTooLong' })
-      await pm.updateConfig(proj.slug, { default_style_bible: 'x'.repeat(sb.STYLE_BIBLE_MAX_CHARS + 500) } as any)
-      assert.equal((await sb.readProjectStyleBible(proj.slug)).length, sb.STYLE_BIBLE_MAX_CHARS)
-      assert.equal(sb.STYLE_BIBLE_MAX_CHARS, 2000, 'must match the per-episode cap in routes/continuity.ts')
+      const long = 'x'.repeat(sb.STYLE_BIBLE_MAX_CHARS + 500)
+      await pm.updateConfig(proj.slug, { default_style_bible: long } as any)
+      assert.equal(await sb.readProjectStyleBible(proj.slug), long,
+        'a stored channel default must come back whole, not silently trimmed')
     })
   })
 

@@ -325,7 +325,7 @@ test('a Follow narration batch dispatches each saved duration, persists hold rec
       finished_at: null, error: null, output_lines: [],
       params: {
         episode_id: episodeId, model: 'mock-video-v1', operation: 'image-to-video',
-        resolution: '720p', duration_mode: 'follow_narration',
+        aspect_ratio: '16:9', resolution: '720p', duration_mode: 'follow_narration',
         scene_durations: {
           'scene-one': { duration_seconds: 1, narration_duration_seconds: 0.7 },
           'scene-two': { duration_seconds: 2, narration_duration_seconds: 1.4 },

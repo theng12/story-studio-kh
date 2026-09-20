@@ -37,6 +37,7 @@ import {
 } from '../services/youtube-connection-store.js'
 import {
   assertYouTubeOperationAuthorized,
+  findForeignEpisodeClaim,
   listYouTubeOperations,
   readYouTubeOperation,
   type YouTubeOperationRecordV1,
@@ -74,8 +75,9 @@ import { createProjectFactsCache, resolveEpisodePaths } from '../services/utils.
 import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
 import {
-  computeSlots, getActivePlanId, getPlan, latestFutureProjectClaimMs, listPlans,
-  orderEpisodeCodes, readItemSchedule,
+  applyScheduleAssignmentsWithRollback, computeSlots, getActivePlanId, getPlan,
+  latestFutureProjectClaimMs, listPlans, localDayKeyInTz, orderEpisodeCodes,
+  readItemSchedule, UploadScheduleBatchWriteError,
 } from '../services/upload-plans.js'
 import { readSidecarStrict, setScheduledFor } from '../services/upload-sidecar.js'
 import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES } from '../services/youtube-remote-video.js'
@@ -108,6 +110,17 @@ function fail(res: import('express').Response, error: unknown, fallback: string)
     ? tagged.statusCode
     : typeof tagged?.status === 'number' ? tagged.status : 500
   res.status(status).json(humanizeBackendError(error, fallback))
+}
+
+function failScheduleBatch(res: import('express').Response, error: unknown): boolean {
+  if (!(error instanceof UploadScheduleBatchWriteError)) return false
+  res.status(error.statusCode).json({
+    code: error.code,
+    detail: error.message,
+    committed_episode_codes: error.committed_episode_codes,
+    uncertain_episode_codes: error.uncertain_episode_codes,
+  })
+  return true
 }
 
 function thumbnailPreviewUrl(slug: string, filePath: string, cacheKey: string): string {
@@ -2231,6 +2244,34 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       return
     }
 
+    // SECOND, and still before any local-file question: has ANOTHER project
+    // already uploaded this episode code to this channel? — owner decision #7
+    // (2026-09-20).
+    //
+    // This is a WARNING the caller may click through, never a refusal. Two
+    // different series may legitimately share one channel and both have an
+    // "Episode 1", so a hard 409 here would block real work to catch a typo.
+    // The answer comes from `video-claims.json` — the one cross-project store —
+    // which now carries the episode code that made each claim (schema v2; v1
+    // claims read as "episode unknown" and can never match).
+    if (req.body?.acknowledge_foreign_episode !== true) {
+      const foreign = await findForeignEpisodeClaim({
+        project_slug: slug,
+        channel_id: channelId,
+        episode_code: episodeCode,
+      })
+      if (foreign) {
+        res.status(409).json({
+          code: 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE',
+          detail: `${episodeCode} has already been uploaded to this channel by the project `
+            + `"${foreign.project_slug}". Uploading this project's ${episodeCode} as well will put a second `
+            + `video with the same episode number on the same channel. Confirm to upload anyway.`,
+          foreign_project_slug: foreign.project_slug,
+          confirmable: true,
+        })
+        return
+      }
+    }
 
     // There must be something to upload. Without this the job starts, spends
     // its guard checks, and dies at the file read — after the owner has been
@@ -2350,7 +2391,7 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
   }
 })
 
-type UploadCenterPlanAssignment = { episode_code: string, publishAt: string }
+type UploadCenterPlanAssignment = { episode_code: string, publishAt: string, previous_publish_at?: string }
 
 type UploadCenterPlanPreview = {
   plan_id: string
@@ -2360,6 +2401,7 @@ type UploadCenterPlanPreview = {
   skipped_existing: string[]
   latest_existing_claim: string | null
   schedule: Record<string, string>
+  sidecar_schedule: Record<string, string | null>
 }
 
 function scheduleRouteError(statusCode: number, detail: string): Error & { statusCode: number } {
@@ -2393,46 +2435,104 @@ async function previewUploadCenterPlan(
   }
   const requested = orderEpisodeCodes(Array.isArray(episodeCodes) ? episodeCodes : [])
   if (!requested.length) throw scheduleRouteError(400, 'Choose one or more episodes to plan.')
-  const accepted = new Set((await im.getIdeas(slug, 'accepted'))
+  const acceptedIdeas = await im.getIdeas(slug, 'accepted')
+  const accepted = new Set(acceptedIdeas
     .map(idea => idea.episode_code)
     .filter((code): code is string => !!code))
   const unknown = requested.find(code => !accepted.has(code))
   if (unknown) throw scheduleRouteError(404, `${unknown} is not an accepted episode.`)
 
-  // Keep every existing claim exactly as it is. Only missing selected entries
-  // receive new slots, and the selected existing entries still constrain the
-  // next slot so a preview cannot collide with the queue it displays.
-  const schedule = await readItemSchedule(slug)
-  const skipped_existing = requested.filter(code => !!schedule[code])
-  const missing = requested.filter(code => !schedule[code])
-  const latestMs = missing.length
-    ? await latestFutureProjectClaimMs(slug, 'youtube', new Set(missing))
+  // A local plan claim is movable only while it is still local planning data.
+  // Queue state and any canonical/legacy YouTube evidence belong to the
+  // upload/publication flows and must never be reassigned by this local save.
+  const [schedule, jobs, operations, publishingState] = await Promise.all([
+    readItemSchedule(slug),
+    getJobs(slug),
+    listYouTubeOperations(slug),
+    readYouTubeProjectPublishingState(slug),
+  ])
+  const activeUploadCodes = new Set(jobs
+    .filter(job => job.type === 'youtube_upload'
+      && ['queued', 'running', 'paused'].includes(job.status))
+    .map(job => job.episode_id))
+  const remoteByCode = new Map<string, Awaited<ReturnType<typeof remoteVideoFor>>>()
+  const missingRemoteCandidates = new Set<string>()
+  const now = Date.now()
+  const facts = createProjectFactsCache(slug)
+  const sidecar_schedule: Record<string, string | null> = {}
+  for (const code of requested) {
+    if (activeUploadCodes.has(code)) continue
+    const scheduledAt = schedule[code]
+    if (scheduledAt && Number.isFinite(Date.parse(scheduledAt)) && Date.parse(scheduledAt) > now) continue
+    sidecar_schedule[code] = (await readSidecarStrict(slug, code, 'youtube', facts))?.scheduled_for ?? null
+    const idea = acceptedIdeas.find(candidate => candidate.episode_code === code)
+    const remote = await remoteVideoFor(
+      slug, code, idea?.title || '', channelId, operations, publishingState, facts,
+    )
+    if (!remote) continue
+    remoteByCode.set(code, remote)
+    const operation = operations.find(record => record.episode_code === code
+      && onCurrentChannel(channelId, record.channel_id)
+      && !isYouTubeVideoRemoved(publishingState, code, record.channel_id, record.video_id)
+      && (record.video_id?.trim() === remote.video_id
+        || (remote.source === 'operation_record'
+          && !remote.video_id && OPEN_LIFECYCLES.includes(record.lifecycle))))
+    const publication = publicationProjection(
+      code, operation, remote, publishingState, channelId,
+    )
+    if (publication.state === 'uploaded'
+      && !publication.scheduled_at
+      && publication.visibility !== 'public'
+      && publication.visibility !== 'unlisted') {
+      missingRemoteCandidates.add(code)
+    }
+  }
+  const overdue = requested.filter(code => {
+    const value = schedule[code]
+    return !!value && Number.isFinite(Date.parse(value)) && Date.parse(value) <= now
+      && !activeUploadCodes.has(code)
+      && !remoteByCode.has(code)
+  })
+  const overdueCodes = new Set(overdue)
+  const missing = requested.filter(code => !schedule[code]
+    && !activeUploadCodes.has(code)
+    && (!remoteByCode.has(code) || missingRemoteCandidates.has(code)))
+  const candidateCodes = new Set([...overdue, ...missing])
+  const candidates = requested.filter(code => candidateCodes.has(code))
+  const skipped_existing = requested.filter(code => !!schedule[code] && !candidateCodes.has(code))
+  const latestMs = candidates.length
+    ? await latestFutureProjectClaimMs(slug, 'youtube', candidateCodes)
     : 0
-  const slots = missing.length
-    ? computeSlots(plan.schedule, missing.length, {
+  const slots = candidates.length
+    ? computeSlots(plan.schedule, candidates.length, {
+        notBefore: new Date(now),
         ...(latestMs ? { minStartDate: new Date(latestMs) } : {}),
       })
     : []
-  if (slots.length < missing.length) {
-    throw scheduleRouteError(400, `Plan "${plan.name}" cannot generate ${missing.length} future slot(s).`)
+  if (slots.length < candidates.length) {
+    throw scheduleRouteError(400, `Plan "${plan.name}" cannot generate ${candidates.length} future slot(s).`)
   }
-  const now = Date.now()
   const past = slots.find(slot => Date.parse(slot) <= now)
   if (past) throw scheduleRouteError(400, `Plan "${plan.name}" produced a past publish time (${past}).`)
   return {
     plan_id: plan.id,
     channel_id: channelId,
     ordered_episode_codes: requested,
-    assignments: missing.map((episode_code, index) => ({ episode_code, publishAt: slots[index]! })),
+    assignments: candidates.map((episode_code, index) => ({
+      episode_code,
+      publishAt: slots[index]!,
+      ...(overdueCodes.has(episode_code) ? { previous_publish_at: schedule[episode_code]! } : {}),
+    })),
     skipped_existing,
     latest_existing_claim: latestMs ? new Date(latestMs).toISOString() : null,
     schedule,
+    sidecar_schedule,
   }
 }
 
 function publicPlanPreview(preview: UploadCenterPlanPreview) {
-  const { schedule: _schedule, ...result } = preview
-  return result
+  const { plan_id, channel_id, ordered_episode_codes, assignments, skipped_existing, latest_existing_claim } = preview
+  return { plan_id, channel_id, ordered_episode_codes, assignments, skipped_existing, latest_existing_claim }
 }
 
 function sameAssignments(actual: UploadCenterPlanAssignment[], expected: unknown): boolean {
@@ -2442,10 +2542,11 @@ function sameAssignments(actual: UploadCenterPlanAssignment[], expected: unknown
     return !!candidate && typeof candidate === 'object'
       && (candidate as Record<string, unknown>).episode_code === assignment.episode_code
       && (candidate as Record<string, unknown>).publishAt === assignment.publishAt
+      && (candidate as Record<string, unknown>).previous_publish_at === assignment.previous_publish_at
   })
 }
 
-/** Read-only exact plan assignment for Upload Center's selected missing rows. */
+/** Read-only exact plan assignment for Upload Center's selected local rows. */
 router.post('/projects/:slug/youtube/plan/preview', async (req, res) => {
   try {
     const preview = await previewUploadCenterPlan(
@@ -2461,7 +2562,7 @@ router.post('/projects/:slug/youtube/plan/preview', async (req, res) => {
 })
 
 /**
- * Persist only the exact, previously previewed missing claims. This intentionally
+ * Persist only the exact, previously previewed local claims. This intentionally
  * makes no YouTube request: existing remote videos are scheduled individually
  * after their live private status and ETag have been checked.
  */
@@ -2492,9 +2593,20 @@ router.post('/projects/:slug/youtube/plan/apply', async (req, res) => {
       const titles = new Map((await im.getIdeas(req.params.slug, 'accepted'))
         .filter(idea => !!idea.episode_code)
         .map(idea => [idea.episode_code!, idea.title || '']))
+      const jobs = await getJobs(req.params.slug)
       for (const assignment of preview.assignments) {
-        await setScheduledFor(req.params.slug, assignment.episode_code, titles.get(assignment.episode_code) || '', 'youtube', assignment.publishAt)
+        const active = jobs.some(job => job.type === 'youtube_upload'
+          && job.episode_id === assignment.episode_code
+          && ['queued', 'running', 'paused'].includes(job.status))
+        if (active) throw scheduleRouteError(409, `${assignment.episode_code} now has an upload in progress. Refresh and review its plan again.`)
       }
+      await applyScheduleAssignmentsWithRollback(
+        preview.assignments,
+        preview.sidecar_schedule,
+        (episodeCode, scheduledFor, expected) => setScheduledFor(
+          req.params.slug, episodeCode, titles.get(episodeCode) || '', 'youtube', scheduledFor, expected,
+        ),
+      )
       return { stale: false as const, preview }
     })
     if (result.stale) {
@@ -2507,7 +2619,266 @@ router.post('/projects/:slug/youtube/plan/apply', async (req, res) => {
     }
     res.json(publicPlanPreview(result.preview))
   } catch (error) {
+    if (failScheduleBatch(res, error)) return
     fail(res, error, 'Failed to save this YouTube plan.')
+  }
+})
+
+// ── Re-lay planned dates ──────────────────────────────────────────────────
+//
+// The gap this closes: `previewUploadCenterPlan` treats a FUTURE local claim as
+// untouchable (`if (scheduledAt > now) continue`, reported as `skipped_existing`)
+// and `canPlanEpisode` in the publish page refuses the same episodes, so a video
+// that was handed a date it should not have kept could never be re-dated from
+// any surface. That rule is right for "plan what is unscheduled" and useless for
+// "fix the dates I already have", which is a different customer intent.
+//
+// Two properties are deliberate, not incidental:
+//
+//   YOUTUBE IS NEVER TOUCHED. Only local planned dates move. An episode that
+//   already exists on the channel is reported in `skipped` rather than
+//   re-dated, because a local date disagreeing with a live `publishAt` is worse
+//   than no local date at all — that video's own schedule owns its time, and
+//   pretending otherwise would make the row lie.
+//
+//   OTHER EPISODES KEEP THEIR SLOTS. Days already claimed by an episode outside
+//   the selection are handed to `computeSlots` as blocked, so the re-lay flows
+//   around them rather than double-booking, and the preview names the days it
+//   stepped over. The customer's chosen start date is a floor, never a
+//   permission to collide.
+
+type UploadCenterRelayoutSkip = { episode_code: string, reason: string }
+
+type UploadCenterRelayoutPreview = {
+  plan_id: string
+  channel_id: string
+  start_date: string
+  timezone: string
+  ordered_episode_codes: string[]
+  assignments: UploadCenterPlanAssignment[]
+  skipped: UploadCenterRelayoutSkip[]
+  occupied_days: string[]
+  schedule: Record<string, string>
+  sidecar_schedule: Record<string, string | null>
+}
+
+/** `YYYY-MM-DD` that round-trips, so `2026-02-31` is refused rather than rolled over. */
+function isValidStartDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(`${value}T00:00:00.000Z`)
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
+async function relayoutUploadCenterPlan(
+  slug: string,
+  expectedChannelId: string,
+  planId: string,
+  episodeCodes: unknown,
+  startDate: string,
+): Promise<UploadCenterRelayoutPreview> {
+  if (!expectedChannelId) {
+    throw new YouTubeFoundationError(
+      400, 'YOUTUBE_CHANNEL_NOT_ASSIGNED', 'Review the YouTube channel before editing planned publication times.',
+    )
+  }
+  if (!planId) throw scheduleRouteError(400, 'Choose an active YouTube upload plan.')
+  if (!isValidStartDate(startDate)) throw scheduleRouteError(400, 'Choose a valid starting date (YYYY-MM-DD).')
+
+  const { accountId, channelId } = await accountForCurrentChannel(slug)
+  if (expectedChannelId !== channelId) {
+    throw new YouTubeFoundationError(
+      409, 'YOUTUBE_ASSIGNMENT_CHANGED', 'The assigned YouTube channel changed. Reload the Upload Center and preview again.',
+    )
+  }
+  const [plan, activePlanId] = await Promise.all([
+    getPlan(slug, planId),
+    getActivePlanId(slug, 'youtube', accountId),
+  ])
+  if (!plan || plan.platform !== 'youtube' || plan.account_id !== accountId || activePlanId !== plan.id) {
+    throw scheduleRouteError(409, 'The selected plan is no longer active for this YouTube channel. Reload the Upload Center and choose the active plan.')
+  }
+
+  const requested = orderEpisodeCodes(Array.isArray(episodeCodes) ? episodeCodes : [])
+  if (!requested.length) throw scheduleRouteError(400, 'Choose one or more episodes to re-date.')
+  const acceptedIdeas = await im.getIdeas(slug, 'accepted')
+  const accepted = new Set(acceptedIdeas
+    .map(idea => idea.episode_code)
+    .filter((code): code is string => !!code))
+  const unknown = requested.find(code => !accepted.has(code))
+  if (unknown) throw scheduleRouteError(404, `${unknown} is not an accepted episode.`)
+
+  const [schedule, jobs, operations, publishingState] = await Promise.all([
+    readItemSchedule(slug),
+    getJobs(slug),
+    listYouTubeOperations(slug),
+    readYouTubeProjectPublishingState(slug),
+  ])
+  const activeUploadCodes = new Set(jobs
+    .filter(job => job.type === 'youtube_upload'
+      && ['queued', 'running', 'paused'].includes(job.status))
+    .map(job => job.episode_id))
+  const facts = createProjectFactsCache(slug)
+
+  const skipped: UploadCenterRelayoutSkip[] = []
+  const sidecar_schedule: Record<string, string | null> = {}
+  const movable: string[] = []
+  for (const code of requested) {
+    if (activeUploadCodes.has(code)) {
+      skipped.push({
+        episode_code: code,
+        reason: `${code} has an upload in progress, so its date is left alone until that finishes.`,
+      })
+      continue
+    }
+    const idea = acceptedIdeas.find(candidate => candidate.episode_code === code)
+    const remote = await remoteVideoFor(slug, code, idea?.title || '', channelId, operations, publishingState, facts)
+    if (remote) {
+      skipped.push({
+        episode_code: code,
+        reason: `${code} already exists on YouTube. This action changes planned dates only, so that video's real publish time is unchanged — edit it from the video's own schedule.`,
+      })
+      continue
+    }
+    sidecar_schedule[code] = (await readSidecarStrict(slug, code, 'youtube', facts))?.scheduled_for ?? null
+    movable.push(code)
+  }
+
+  const tz = plan.schedule.timezone
+  const now = Date.now()
+  const movableSet = new Set(movable)
+  // Only episodes being MOVED keep quiet: an episode that already holds a slot
+  // reserves it, whichever side of `now` the booking was made. Past claims are
+  // free again (they belong to history, not to the calendar ahead).
+  const occupied = new Set<string>()
+  for (const [code, value] of Object.entries(schedule)) {
+    if (movableSet.has(code)) continue
+    const at = Date.parse(value)
+    if (!Number.isFinite(at) || at <= now) continue
+    occupied.add(localDayKeyInTz(new Date(at), tz))
+  }
+
+  const slots = movable.length
+    ? computeSlots(
+      { ...plan.schedule, start_date: startDate },
+      movable.length,
+      { notBefore: new Date(now), blockedDays: occupied },
+    )
+    : []
+  if (slots.length < movable.length) {
+    const held = occupied.size ? ` ${occupied.size} day(s) are already held by other episodes.` : ''
+    throw scheduleRouteError(
+      400,
+      `Plan "${plan.name}" cannot fit ${movable.length} video(s) from ${startDate}.${held} Choose a later start date.`,
+    )
+  }
+
+  return {
+    plan_id: plan.id,
+    channel_id: channelId,
+    start_date: startDate,
+    timezone: tz,
+    ordered_episode_codes: requested,
+    assignments: movable.map((episode_code, index) => {
+      // Previous is reported for a FUTURE claim too — unlike the plan flow,
+      // where only overdue dates are worth showing. Re-dating is precisely the
+      // case where the customer must see what each date is changing FROM.
+      const previous = schedule[episode_code]
+      return {
+        episode_code,
+        publishAt: slots[index]!,
+        ...(previous ? { previous_publish_at: previous } : {}),
+      }
+    }),
+    skipped,
+    occupied_days: Array.from(occupied).sort(),
+    schedule,
+    sidecar_schedule,
+  }
+}
+
+function publicRelayoutPreview(preview: UploadCenterRelayoutPreview) {
+  const { plan_id, channel_id, start_date, timezone, ordered_episode_codes, assignments, skipped, occupied_days } = preview
+  return { plan_id, channel_id, start_date, timezone, ordered_episode_codes, assignments, skipped, occupied_days }
+}
+
+/** Read-only re-lay proposal for the selected local episodes. */
+router.post('/projects/:slug/youtube/plan/relayout/preview', async (req, res) => {
+  try {
+    const preview = await relayoutUploadCenterPlan(
+      req.params.slug,
+      typeof req.body?.expected_channel_id === 'string' ? req.body.expected_channel_id.trim() : '',
+      typeof req.body?.plan_id === 'string' ? req.body.plan_id.trim() : '',
+      req.body?.episode_codes,
+      typeof req.body?.start_date === 'string' ? req.body.start_date.trim() : '',
+    )
+    res.json(publicRelayoutPreview(preview))
+  } catch (error) {
+    fail(res, error, 'Failed to preview those planned dates.')
+  }
+})
+
+/**
+ * Persist only the exact re-lay that was previewed. Local planned dates only:
+ * this makes no YouTube request by design, so a video that already exists on the
+ * channel is reported in `skipped` instead of being re-dated behind YouTube.
+ */
+router.post('/projects/:slug/youtube/plan/relayout/apply', async (req, res) => {
+  try {
+    if (req.body?.confirm !== true) {
+      res.status(400).json({
+        code: 'YOUTUBE_CONFIRMATION_REQUIRED',
+        detail: 'Confirm the exact planned dates before saving them.',
+      })
+      return
+    }
+    const slug = req.params.slug
+    const projectDir = getProjectDir(slug)
+    if (!projectDir) throw scheduleRouteError(404, 'That project no longer exists.')
+    const result = await withLock(path.join(projectDir, 'youtube', 'upload-center-plan.lock'), async () => {
+      // Recompute under the lock so the fence compares against today's facts,
+      // not the ones the preview saw. A claim writes only its own sidecar
+      // field, so no complete-map replacement can erase a concurrent writer.
+      const preview = await relayoutUploadCenterPlan(
+        slug,
+        typeof req.body?.expected_channel_id === 'string' ? req.body.expected_channel_id.trim() : '',
+        typeof req.body?.plan_id === 'string' ? req.body.plan_id.trim() : '',
+        req.body?.episode_codes,
+        typeof req.body?.start_date === 'string' ? req.body.start_date.trim() : '',
+      )
+      if (!sameAssignments(preview.assignments, req.body?.expected_assignments)) {
+        return { stale: true as const, preview }
+      }
+      const titles = new Map((await im.getIdeas(slug, 'accepted'))
+        .filter(idea => !!idea.episode_code)
+        .map(idea => [idea.episode_code!, idea.title || '']))
+      const jobs = await getJobs(slug)
+      for (const assignment of preview.assignments) {
+        const active = jobs.some(job => job.type === 'youtube_upload'
+          && job.episode_id === assignment.episode_code
+          && ['queued', 'running', 'paused'].includes(job.status))
+        if (active) throw scheduleRouteError(409, `${assignment.episode_code} now has an upload in progress. Refresh and preview its dates again.`)
+      }
+      await applyScheduleAssignmentsWithRollback(
+        preview.assignments,
+        preview.sidecar_schedule,
+        (episodeCode, scheduledFor, expected) => setScheduledFor(
+          slug, episodeCode, titles.get(episodeCode) || '', 'youtube', scheduledFor, expected,
+        ),
+      )
+      return { stale: false as const, preview }
+    })
+    if (result.stale) {
+      res.status(409).json({
+        code: 'YOUTUBE_PLAN_PREVIEW_STALE',
+        detail: 'The planned dates changed since the preview. Preview those episodes again before saving.',
+        ...publicRelayoutPreview(result.preview),
+      })
+      return
+    }
+    res.json(publicRelayoutPreview(result.preview))
+  } catch (error) {
+    if (failScheduleBatch(res, error)) return
+    fail(res, error, 'Failed to save those planned dates.')
   }
 })
 
@@ -2612,55 +2983,67 @@ router.post('/projects/:slug/youtube/episodes/:episode_code/schedule', async (re
       ? records.find(record => record.episode_code === episodeCode
         && record.video_id === remote.video_id && record.channel_id === channelId)
       : undefined
-    if (operation) {
-      await updatePinnedYouTubeOperation({
-        project_slug: slug,
-        operation_id: operation.operation_id,
-        expected_revision: operation.revision,
-        expected_channel_id: channelId,
-        mutate(record) {
-          if (record.remote_snapshot) record.previous_remote_snapshot = record.remote_snapshot
-          record.remote_snapshot = {
-            fetched_at: new Date().toISOString(),
-            title: typeof updated.snippet?.title === 'string' ? updated.snippet.title : record.remote_snapshot?.title || '',
-            description: typeof updated.snippet?.description === 'string' ? updated.snippet.description : record.remote_snapshot?.description || '',
-            tags: Array.isArray(updated.snippet?.tags) ? updated.snippet.tags.filter((tag: unknown) => typeof tag === 'string') : record.remote_snapshot?.tags || [],
-            privacy_status: 'private',
-            scheduled_for: publishAt,
-          }
-        },
-      })
-    } else {
-      // A historical sidecar or Reconcile link has no operation record to hold
-      // provider facts. Reuse the durable reconcile identity store, then write
-      // only the fields YouTube just returned. This is a verified receipt, not
-      // a local-plan claim or a synthetic upload operation.
-      await linkYouTubeEpisodeVideo({
-        project_slug: slug,
-        episode_code: episodeCode,
-        channel_id: channelId,
-        video_id: remote.video_id,
-        source: 'reconcile',
-        decided_at: new Date().toISOString(),
-      })
-      await recordYouTubeEpisodePublication({
-        project_slug: slug,
-        episode_code: episodeCode,
-        channel_id: channelId,
-        video_id: remote.video_id,
-        verified_at: new Date().toISOString(),
-        privacy_status: 'private',
-        scheduled_for: publishAt,
-      })
-      await setScheduledFor(slug, episodeCode, idea.title || '', 'youtube', publishAt)
-    }
-    res.json({
+    const recorded = await (async () => {
+      if (operation) {
+        await updatePinnedYouTubeOperation({
+          project_slug: slug,
+          operation_id: operation.operation_id,
+          expected_revision: operation.revision,
+          expected_channel_id: channelId,
+          mutate(record) {
+            if (record.remote_snapshot) record.previous_remote_snapshot = record.remote_snapshot
+            record.remote_snapshot = {
+              fetched_at: new Date().toISOString(),
+              title: typeof updated.snippet?.title === 'string' ? updated.snippet.title : record.remote_snapshot?.title || '',
+              description: typeof updated.snippet?.description === 'string' ? updated.snippet.description : record.remote_snapshot?.description || '',
+              tags: Array.isArray(updated.snippet?.tags) ? updated.snippet.tags.filter((tag: unknown) => typeof tag === 'string') : record.remote_snapshot?.tags || [],
+              privacy_status: 'private',
+              scheduled_for: publishAt,
+            }
+          },
+        })
+      } else {
+        // A historical sidecar or Reconcile link has no operation record to hold
+        // provider facts. Reuse the durable reconcile identity store, then write
+        // only the fields YouTube just returned. This is a verified receipt, not
+        // a local-plan claim or a synthetic upload operation.
+        await linkYouTubeEpisodeVideo({
+          project_slug: slug,
+          episode_code: episodeCode,
+          channel_id: channelId,
+          video_id: remote.video_id,
+          source: 'reconcile',
+          decided_at: new Date().toISOString(),
+        })
+        await recordYouTubeEpisodePublication({
+          project_slug: slug,
+          episode_code: episodeCode,
+          channel_id: channelId,
+          video_id: remote.video_id,
+          verified_at: new Date().toISOString(),
+          privacy_status: 'private',
+          scheduled_for: publishAt,
+        })
+        await setScheduledFor(slug, episodeCode, idea.title || '', 'youtube', publishAt)
+      }
+      return true
+    })().catch(() => false)
+    const response = {
       ...(operation ? { operation_id: operation.operation_id } : {}),
       episode_code: episodeCode,
       video_id: remote.video_id,
       privacy_status: 'private',
       scheduled_at: publishAt,
-    })
+    }
+    if (!recorded) {
+      res.status(503).json({
+        code: 'YOUTUBE_SCHEDULE_RECEIPT_UNRECORDED',
+        detail: `YouTube accepted the schedule for ${episodeCode}, but Story Studio could not save its local receipt. Retry this same date and time to reconcile it; do not choose a different time until the retry succeeds.`,
+        ...response,
+      })
+      return
+    }
+    res.json(response)
   } catch (error) {
     fail(res, error, 'Failed to schedule that YouTube video.')
   }

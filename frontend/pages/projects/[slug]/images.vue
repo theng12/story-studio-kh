@@ -74,8 +74,9 @@
                for the active model so users know how long their image
                prompts can be before the provider rejects/silently truncates.
                Cap values come from electron/server/models/defaults.ts and
-               are approximate — clickable "View all caps" link below opens
-               the full reference table. -->
+               are approximate. v1.4.206 — the "View all caps" reference table
+               is gone (owner decision 3): it printed copied caps and credit
+               prices as though they were current, which rule 1 forbids. -->
           <span class="cap-row">
             <template v-if="activeModelCap">
               <span class="cap-pill" :title="`Approximate provider limit for ${activeModelLabel}. Prompts over this may be rejected or silently truncated.`">
@@ -87,7 +88,6 @@
                 Prompt cap: <strong>unknown</strong>
               </span>
             </template>
-            <button type="button" class="cap-link" @click="showCapsTable = true">View all caps →</button>
           </span>
         </div>
 
@@ -541,45 +541,6 @@
          (Nano Banana at ~5000). All numbers approximate — recorded from
          each provider's published docs at last audit, see
          electron/server/models/defaults.ts:prompt_char_cap. -->
-    <div v-if="showCapsTable" class="modal-overlay" @click.self="showCapsTable = false">
-      <div class="caps-modal">
-        <div class="caps-modal-head">
-          <h3>Image model prompt-character caps</h3>
-          <button type="button" class="caps-modal-close" @click="showCapsTable = false" title="Close">×</button>
-        </div>
-        <p class="text-muted text-sm caps-modal-intro">
-          Approximate per-prompt character limits documented by each provider. A prompt longer than
-          the cap is typically rejected outright or silently truncated — wasting credits either way.
-          Keep prompts under the cap of whichever model you choose. Numbers refresh as
-          providers update their docs.
-        </p>
-        <div class="caps-table-wrap">
-          <table class="caps-table">
-            <thead>
-              <tr>
-                <th>Model</th>
-                <th class="caps-th-right">Prompt cap</th>
-                <th class="caps-th-right">Credits / image</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in allModelCaps" :key="row.id"
-                  :class="{ 'caps-row-active': row.id === activeForm.model }">
-                <td>{{ row.label }}</td>
-                <td class="caps-td-right">
-                  <template v-if="row.cap">~{{ row.cap.toLocaleString() }}</template>
-                  <span v-else class="text-muted">—</span>
-                </td>
-                <td class="caps-td-right">
-                  <template v-if="row.credits != null">{{ row.credits }}</template>
-                  <span v-else class="text-muted">—</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
 
   </div>
 </template>
@@ -654,7 +615,7 @@ const defaultSubForm = (): ImagesSubForm => ({
   // The live GenStudio image catalog selects a usable model on mount. This
   // must stay empty so retired image-provider ids cannot leak into renders.
   model: '',
-  aspect_ratio: '16:9',
+  aspect_ratio: '',
   // Unified Generation Mode (M6) — replaces the standalone `force` checkbox.
   // Translated to `force` at submit time; the backend's image generator
   // (generators/images.ts) only knows about that boolean today, so this
@@ -723,16 +684,14 @@ const modelTiers = computed<{ id: string; label: string; credits: number }[]>(()
   return Array.isArray(m?.tiers) ? m.tiers : []
 })
 
-// Per-tab prompt-character cap + friendly label. Threaded into each
-// ImageGeneratorPanel so the per-row char badge can colour-code against
-// the provider's documented limit (advisory — see types.ts:prompt_char_cap).
-// Each tab can be configured with a different model, so we resolve caps
-// from form.thumbnail.model and form.scene.model independently.
+// Per-tab prompt-character cap + friendly label. Both come from the selected
+// live GenStudio row, so the advisory badge agrees with preview admission.
+// Each tab can select a different model.
 function modelInfoFor(modelId: string) {
-  const m = config.value?.image_models?.[modelId] as any
+  const m = genStudioImageModels.value.find(model => model.id === modelId)
   return {
-    cap: (m && typeof m.prompt_char_cap === 'number') ? (m.prompt_char_cap as number) : null,
-    label: (m?.label as string) || modelId || '',
+    cap: typeof m?.max_prompt_characters === 'number' ? m.max_prompt_characters : null,
+    label: m?.display_name || modelId || '',
   }
 }
 const thumbnailModelInfo = computed(() => modelInfoFor(form.thumbnail.model))
@@ -740,34 +699,6 @@ const sceneModelInfo = computed(() => modelInfoFor(form.scene.model))
 const activeModelCap = computed(() => (form.mode === 'thumbs' ? thumbnailModelInfo : sceneModelInfo).value.cap)
 const activeModelLabel = computed(() => (form.mode === 'thumbs' ? thumbnailModelInfo : sceneModelInfo).value.label)
 
-// All-models caps table — sorted by cap ascending so the strictest
-// providers (e.g. Seedream at ~500) surface first. Built once per
-// config change; the modal mounts on demand via showCapsTable.
-const showCapsTable = ref(false)
-const allModelCaps = computed(() => {
-  const models = config.value?.image_models || {}
-  return Object.entries(models).map(([id, raw]) => {
-    const m = raw as any
-    return {
-      id,
-      label: (m?.label as string) || id,
-      // No provider column. `ImageModelResponse` publishes none — GenStudio
-      // publishes provider identity for voice, TTS models and transcription
-      // only — so this table had nothing true to put there. It printed the
-      // gateway's name for every row, and the only other candidate,
-      // `ImageModelConfig.provider`, is Story Studio's own transport key
-      // ('kie', 'genstudio-image'), not a vendor. A column that can only hold
-      // an invented or a misleading value is removed rather than blanked.
-      cap: typeof m?.prompt_char_cap === 'number' ? m.prompt_char_cap : null,
-      credits: typeof m?.credits_per_image === 'number' ? m.credits_per_image : null,
-    }
-  }).sort((a, b) => {
-    if (a.cap == null && b.cap == null) return a.label.localeCompare(b.label)
-    if (a.cap == null) return 1
-    if (b.cap == null) return -1
-    return a.cap - b.cap
-  })
-})
 const modelTierLabel = computed(() => {
   // Naming the picker by axis: "Resolution" if tier ids look like 1k/2k/4k,
   // "Quality" for turbo/balanced/quality, generic "Tier" otherwise. Keeps
@@ -798,26 +729,30 @@ watch(() => [activeForm.value.model, genStudioImageModels.value.length], () => {
     const def = tiers.find((t: any) => t.id === m.default_tier) ?? tiers[0]
     activeForm.value.tier = def?.id || ''
   }
-  // v1.0.478 — if the new model advertises a size menu and the current aspect
-  // ratio isn't one it offers, snap to its default AR so the select isn't blank
-  // and modelDims resolves cleanly.
-  const ars = modelArs(activeForm.value.model)
-  if (ars && ars.length && !ars.includes(activeForm.value.aspect_ratio)) {
-    const info = isCatalog.value.get(activeForm.value.model)
-    activeForm.value.aspect_ratio = (info?.default_aspect_ratio && ars.includes(info.default_aspect_ratio))
-      ? info.default_aspect_ratio
-      : ars[0]!
-  }
-  const genStudio = activeGenStudioModel.value
-  if (genStudio) {
-    const supported = genStudio.aspect_ratios || []
-    if (supported.length && !supported.includes(activeForm.value.aspect_ratio)) {
-      activeForm.value.aspect_ratio = supported.includes(genStudio.default_aspect_ratio)
-        ? genStudio.default_aspect_ratio
-        : supported[0]!
-    }
-  }
 }, { immediate: true })
+
+function normalizeImageAspectRatio(target: ImagesSubForm): boolean {
+  const ratios = modelArs(target.model) || []
+  if (!ratios.includes(target.aspect_ratio)) {
+    const model = genStudioImageModels.value.find(row => row.id === target.model)
+    const defaultRatio = model
+      ? model.default_aspect_ratio
+      : isCatalog.value.get(target.model)?.default_aspect_ratio
+    target.aspect_ratio = defaultRatio && ratios.includes(defaultRatio) ? defaultRatio : ratios[0] || ''
+  }
+  return !!target.aspect_ratio && ratios.includes(target.aspect_ratio)
+}
+
+// Both saved forms follow their actual catalogue lists, including same-count
+// refreshes and preset edits. Preserve any choice the model still publishes.
+for (const kind of ['thumbnail', 'scene'] as const) {
+  watch(() => {
+    const target = form[kind]
+    const model = genStudioImageModels.value.find(row => row.id === target.model)
+    return [target.model, target.aspect_ratio, modelArs(target.model),
+      model?.default_aspect_ratio, isCatalog.value.get(target.model)?.default_aspect_ratio]
+  }, () => normalizeImageAspectRatio(form[kind]), { immediate: true })
+}
 
 // ── Presets ─────────────────────────────────────────────────────────────
 // v1.0.88+: presets are SPLIT per kind (thumbnail_generator vs
@@ -873,12 +808,8 @@ const imgPresets = computed(() => thumbnailGeneratorPresets)
 
 /**
  * Format-aware seeding of aspect_ratio BEFORE preset loaders run. The
- * page default is hardcoded '16:9' (sleep-story); the format schema
- * already exposes `imagePrompts.recommendedAspect` for image-prompts.vue,
- * so we read the same field here. Listicle / explainer channels currently
- * also recommend 16:9 (chroma-key compositing assumes landscape) but
- * vertical / Shorts-format custom formats can declare 9:16 and the page
- * will pick it up.
+ * format schema exposes `imagePrompts.recommendedAspect`. The live catalogue
+ * watcher retains that preference only while the selected model publishes it.
  *
  * Saved presets still override these — preset.load() runs after seeding.
  */
@@ -894,7 +825,7 @@ async function applyImageFormatDefaultsIfNoPreset() {
       form.scene.aspect_ratio = ip.recommendedAspect
     }
   } catch {
-    // Format endpoint unavailable — keep the legacy '16:9' default.
+    // Format endpoint unavailable — use the selected model's published options.
   }
 }
 
@@ -1105,29 +1036,8 @@ const imageUnitCost = computed(() => describeImageUnitCost(
   { referenceGuided: thumbnailReferenceActive.value },
 ))
 
-const aspectRatios = computed(() => {
-  if (activeGenStudioModel.value?.aspect_ratios?.length) {
-    return activeGenStudioModel.value.aspect_ratios.map(v => ({ value: v, label: AR_LABELS[v] || v }))
-  }
-  // v1.0.478 — when the selected model advertises a `sizes` menu, its ARs win.
-  const fromModel = modelArs(activeForm.value.model)
-  if (fromModel) return fromModel.map(v => ({ value: v, label: AR_LABELS[v] || v }))
-  if (form.mode === 'thumbs') {
-    return [
-      { value: '16:9', label: 'YouTube Thumbnail' },
-      { value: '1:1',  label: 'Square' },
-      { value: '4:3',  label: 'Classic' },
-    ]
-  }
-  return [
-    { value: '16:9',  label: 'Landscape' },
-    { value: '1:1',   label: 'Square' },
-    { value: '9:16',  label: 'Portrait' },
-    { value: '4:3',   label: 'Standard' },
-    { value: '3:4',   label: 'Tall' },
-    { value: '21:9',  label: 'Ultrawide' },
-  ]
-})
+const aspectRatios = computed(() => (modelArs(activeForm.value.model) || [])
+  .map(value => ({ value, label: AR_LABELS[value] || value })))
 
 // ── Render dimensions ─────────────────────────────────────────────────────
 // Compatibility aspect presets for catalog entries that expose an aspect ratio
@@ -1176,7 +1086,7 @@ function modelSizes(modelId: string | undefined): IsSize[] | null {
 /** Distinct aspect ratios the model supports (menu order), or null when no menu. */
 function modelArs(modelId: string | undefined): string[] | null {
   const genStudio = genStudioImageModels.value.find(model => model.id === modelId)
-  if (genStudio?.aspect_ratios?.length) return [...genStudio.aspect_ratios]
+  if (genStudio) return [...(genStudio.aspect_ratios || [])]
   const sizes = modelSizes(modelId)
   if (!sizes) return null
   const out: string[] = []
@@ -1353,12 +1263,23 @@ interface RepairPoolStatus {
   with_manifest: number; without_manifest: number
   missing_items: RepairMissingItem[]
 }
-const imageStatus = reactive<ImageStatusState>({
-  loading: false, error: '', hasAny: false,
-  scenes: null, thumbnails: null,
-  hasMissing: false, totalMissing: 0,
-  missingScenesList: '', missingThumbsList: '',
-})
+/**
+ * v1.4.196 — one definition of "nothing loaded yet".
+ *
+ * The reset in the episode-change watcher has to blank EVERY episode-scoped
+ * field. Writing the literal twice is how a field gets forgotten, which is the
+ * same drift that produced several defects in this audit, so the reset reuses
+ * this factory rather than repeating it.
+ */
+function emptyImageStatus(): ImageStatusState {
+  return {
+    loading: false, error: '', hasAny: false,
+    scenes: null, thumbnails: null,
+    hasMissing: false, totalMissing: 0,
+    missingScenesList: '', missingThumbsList: '',
+  }
+}
+const imageStatus = reactive<ImageStatusState>(emptyImageStatus())
 let imageStatusLoadSequence = 0
 
 // v1.0.306 — the integrity card is scoped to the ACTIVE generator pool. The
@@ -1675,18 +1596,26 @@ watch([slug, () => form.episode_id], ([, v]) => {
   lastRepairJobId.value = ''
   repairStatus.scene = null
   repairStatus.thumb = null
+  // v1.4.196 — blank on the CHANGE, not only when the episode becomes empty.
+  // `refreshImageStatus` and `loadEditScan` replace their results only on a
+  // SUCCESSFUL read, so switching from one episode to another left the previous
+  // episode's integrity figures and Browse grid on screen for the whole load —
+  // and permanently if the read failed (AGENTS.md §4). The old code cleared
+  // these ONLY in the else branch, i.e. when there was no episode at all.
+  Object.assign(imageStatus, emptyImageStatus())
+  editScenes.value = []
+  editThumbs.value = []
+  outlineChapterCount.value = null
   if (v) {
     refreshImageStatus()
     void loadEditScan()
     void loadOutlineChapterCount()
-  } else {
-    editScenes.value = []
-    editThumbs.value = []
-    outlineChapterCount.value = null
   }
 }, { immediate: true })
 
 function generationParams(forceOverride?: boolean) {
+  // A submit can occur before Vue flushes a catalogue/preset watcher.
+  if (!normalizeImageAspectRatio(activeForm.value)) return null
   // Missing-only is the safe default. Regeneration is the one explicit
   // overwrite action exposed by the thumbnail and scene boards.
   const force = forceOverride ?? activeForm.value.generation_mode === 'regenerate'
@@ -1726,7 +1655,18 @@ function generationParams(forceOverride?: boolean) {
 
 async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image generation queued!') {
   const params = generationParams(forceOverride)
+  if (!params) {
+    showError('This model has no published aspect ratios. Refresh the catalogue or choose another model before generating.')
+    return
+  }
   if (!await confirmGeneration(slug.value, getConfirmationType(), params)) return
+  // Never replace a confirmed choice with a new model/ratio behind the dialog.
+  if (activeForm.value.model !== params.model || form.mode !== params.mode
+    || activeForm.value.aspect_ratio !== params.aspect_ratio
+    || !modelArs(params.model)?.includes(params.aspect_ratio)) {
+    showError('The image model or aspect ratio changed during confirmation. Review the current selection and generate again to confirm it.')
+    return
+  }
   const operationId = params.force ? freshImagesAction.begin(params) : null
   if (operationId) params.operation_id = operationId
 
@@ -2103,60 +2043,4 @@ async function submit() {
   border-color: var(--border);
 }
 .cap-pill strong { font-weight: 600; }
-.cap-link {
-  font-size: var(--font-xs);
-  background: none; border: none;
-  color: var(--accent, #6c8fff);
-  cursor: pointer; padding: 0;
-  text-decoration: underline;
-}
-.cap-link:hover { color: var(--text-primary); }
-
-.caps-modal {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md, 8px);
-  border: 1px solid var(--border);
-  padding: 18px 22px;
-  max-width: 720px;
-  width: 90vw;
-  max-height: 85vh;
-  display: flex; flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-}
-.caps-modal-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 6px;
-}
-.caps-modal-head h3 { margin: 0; font-size: 16px; color: var(--text-primary); }
-.caps-modal-close {
-  background: none; border: none; font-size: 22px;
-  color: var(--text-muted); cursor: pointer; padding: 0 6px; line-height: 1;
-}
-.caps-modal-close:hover { color: var(--text-primary); }
-.caps-modal-intro { margin: 4px 0 12px; line-height: 1.5; }
-.caps-table-wrap { overflow: auto; flex: 1 1 auto; }
-.caps-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.caps-table th, .caps-table td {
-  padding: 6px 10px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-.caps-table th {
-  position: sticky; top: 0;
-  background: var(--bg-secondary);
-  font-size: var(--font-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-.caps-th-right, .caps-td-right { text-align: right !important; font-variant-numeric: tabular-nums; }
-.caps-row-active {
-  background: rgba(108, 143, 255, 0.08);
-}
-.caps-row-active td:first-child::before { content: '▸ '; color: var(--accent, #6c8fff); }
 </style>

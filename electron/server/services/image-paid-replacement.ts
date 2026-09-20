@@ -337,6 +337,11 @@ const ZERO_SETTLEMENT_IMAGE_FAILURE_CODES = new Set([...FLEET_FAILURE_CODES, 'SI
 const commitLocks = new Map<string, Promise<void>>()
 const EXPLICIT_BLOCKED_FAILURE = /(?:UNCERTAIN|REFUS|VALIDATION|AUTH|CREDIT|BILLING)/i
 
+/** Infrastructure failures that may re-enter the ordinary image executor after a full refund. */
+export function isRetryableZeroSettlementImageFailureCode(value: unknown): boolean {
+  return typeof value === 'string' && ZERO_SETTLEMENT_IMAGE_FAILURE_CODES.has(value)
+}
+
 function isFiniteCredit(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
@@ -510,7 +515,7 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   if (EXPLICIT_BLOCKED_FAILURE.test(String(control.failure_code || ''))) return blocked('the original task has an explicit refusal or uncertain submission result', 'original_failure_not_eligible')
   if (control.state !== 'failed') return { action: 'recover-original' }
   const failureCode = String(control.failure_code || '')
-  if (!ZERO_SETTLEMENT_IMAGE_FAILURE_CODES.has(failureCode)) return blocked('the original failure is not an allow-listed transient infrastructure result', 'original_failure_not_eligible')
+  if (!isRetryableZeroSettlementImageFailureCode(failureCode)) return blocked('the original failure is not an allow-listed transient infrastructure result', 'original_failure_not_eligible')
   if (!isFiniteCredit(control.reserved_credits) || !isFiniteCredit(control.settled_credits) || !isFiniteCredit(control.released_credits)
     || control.reserved_credits !== control.settled_credits + control.released_credits) {
     return blocked('the original settlement is incomplete or imbalanced')
@@ -522,9 +527,6 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
     if (control.released_credits !== control.reserved_credits) return blocked('the zero settlement was not fully released')
     const setting = await dependencies.getSetting().catch(() => null)
     if (!setting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
-    if (String(entry.request_scope || '').includes(':retry:')) {
-      return blocked('the original image request has already used its one automatic retry', 'original_failure_not_eligible')
-    }
     let zeroReason: string | null = null
     try {
       const authorized = await withCommitLock(input.job.job_id, async () => {

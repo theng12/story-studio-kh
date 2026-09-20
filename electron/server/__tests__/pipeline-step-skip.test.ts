@@ -115,6 +115,7 @@ let tempDir: string
 let cleanup: () => Promise<void>
 let app: any
 let pm: typeof import('../services/project-manager.js')
+let wasQueuePaused = false
 
 before(async () => {
   const t = await useTempDataDir()
@@ -132,9 +133,29 @@ before(async () => {
   isStepAlreadyDone = pipelineMod.isStepAlreadyDone
   applyPipelineRepairParams = pipelineMod.applyPipelineRepairParams
   pipelineRepairFingerprint = pipelineMod.pipelineRepairFingerprint
+  const jq = await import('../services/job-queue.js')
+  wasQueuePaused = jq.isQueuePaused()
+  await jq.setQueuePaused(true)
 })
 
-after(async () => { await cleanup() })
+after(async () => {
+  const jq = await import('../services/job-queue.js')
+  await jq.setQueuePaused(true)
+  for (const project of await pm.listProjects()) {
+    for (const job of await jq.getJobs(project.slug)) {
+      if (!['done', 'error', 'cancelled'].includes(job.status)) {
+        await jq.requestJobCancellation(project.slug, job.job_id)
+      }
+      jq.removeTerminalJob(project.slug, job.job_id)
+    }
+  }
+  assert.equal(await jq.drainJobPersistenceForShutdown(2_000), true,
+    'Pipeline fixture jobs and persistence must drain before removing STORY_STUDIO_DATA_DIR')
+  if (!wasQueuePaused) await jq.setQueuePaused(false)
+  assert.equal(await jq.drainJobPersistenceForShutdown(2_000), true,
+    'restoring the queue must not leave a late Pipeline fixture worker')
+  await cleanup()
+})
 
 async function seedProjectWithAcceptedIdea(
   withFinalizerPrerequisites = true,
@@ -269,7 +290,7 @@ describe('run-batch — step skip behaviour', () => {
       assert.equal(changed.status, 409)
       assert.match(changed.body.detail, /different episodes, stages, or resolved settings/)
     } finally {
-      await jq.setQueuePaused(false)
+      await jq.setQueuePaused(true)
     }
   })
 

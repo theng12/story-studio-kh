@@ -1,4 +1,6 @@
+import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import { randomUUID } from 'node:crypto'
+import { episodeDirNameMatchesCode } from './asset-status.js'
 import { constants as fsConstants, existsSync, lstatSync, realpathSync, unlinkSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -304,7 +306,7 @@ async function assertScopesIdle(slug: string, codes: string[], categories: Media
 }
 
 function isFinalName(code: string, name: string): boolean {
-  return name.toUpperCase().startsWith(`${code.toUpperCase()}_FINAL_VIDEO.`) && VIDEO_EXT.test(name)
+  return isFinalVideoFilename(code, name) && VIDEO_EXT.test(name)
 }
 
 async function rootsFor(slug: string, code: string, title: string, categories: MediaCleanupCategory[]): Promise<RootSpec[]> {
@@ -366,7 +368,11 @@ async function discoverRoot(
     return { files, excluded }
   }
   const ownerSegments = relativeFromAnchor.split(path.sep).filter(Boolean)
-  if (!ownerSegments.some(segment => segment.toUpperCase().startsWith(episodeCode.toUpperCase()))) {
+  // v1.4.192 — this gate decides whether a media root may be DELETED, so a
+  // bare prefix here is worse than the read-side copies: episode EP0001 would
+  // accept an `EP00012 - ...` ancestor as its own and enumerate another
+  // episode's media for removal. Same strict rule as `episodeDirNameMatchesCode`.
+  if (!ownerSegments.some(segment => episodeDirNameMatchesCode(segment, episodeCode))) {
     excluded.push({ path: spec.root, category: spec.category, reason: 'This media root cannot be proven to belong only to this episode.' })
     return { files, excluded }
   }

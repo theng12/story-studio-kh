@@ -133,10 +133,18 @@
               />
             </div>
             <p v-if="sections.length" class="text-muted text-xs mt-2">
-              Generate or regenerate subtitles for one chapter at a time. Each action starts a new GenStudio request for only that chapter; its current quote may be charged.
+              Select the chapters to generate or regenerate. Only selected chapters get fresh transcription requests; their current quote may be charged.
             </p>
+            <p v-if="subtitleSelectionUnavailable" class="validation-msg">Selected chapters could not be verified. Refresh status or <button type="button" class="btn btn-xs btn-secondary" @click="selectedSubtitleSections = []">Clear unavailable selection</button>.</p>
+            <div v-if="sections.length" class="sub-selection-actions" role="group" aria-label="Subtitle chapter selection">
+              <strong aria-live="polite">{{ selectedSubtitleIds.length }} selected</strong>
+              <button type="button" class="btn btn-xs btn-secondary" :disabled="transcribing || transcribeJobActive || !subtitleAttentionIds.length" @click="selectSubtitleAttention">Select needs attention ({{ subtitleAttentionIds.length }})</button>
+              <button type="button" class="btn btn-xs btn-secondary" :disabled="transcribing || transcribeJobActive || !selectedSubtitleSections.length" @click="selectedSubtitleSections = []">Clear selection</button>
+              <button type="button" class="btn btn-sm btn-primary" :disabled="!canTranscribe || !selectedSubtitleIds.length" :title="transcribeDisabledReason" @click="transcribe">{{ subtitleActionLabel(null, `Generate / regenerate selected (${selectedSubtitleIds.length})`) }}</button>
+            </div>
             <ul v-if="sections.length" class="sub-chapter-list mt-2">
               <li v-for="s in sections" :id="`sub-section-${s.slug}`" :key="s.slug" class="sub-chapter-row" tabindex="-1">
+                <input v-model="selectedSubtitleSections" type="checkbox" :value="s.slug" :aria-label="`Select ${s.label} subtitles`" :disabled="transcribing || transcribeJobActive">
                 <span class="sub-chapter-mark" :class="{ ok: chapterHasCurrentSrt(s.slug), stale: chapterIsStale(s.slug) }" aria-hidden="true">
                   {{ chapterHasCurrentSrt(s.slug) ? '✓' : chapterIsStale(s.slug) ? '!' : '○' }}
                 </span>
@@ -233,7 +241,7 @@
 
         <div class="mt-2">
           <button class="btn btn-sm btn-primary" :disabled="!canTranscribe" @click="transcribe">
-            {{ transcribeJobActive ? 'Queued — check the Jobs panel' : subtitleActionLabel(null, coverage.done && !force ? 'Transcribe missing or outdated chapters' : 'Transcribe chapters') }}
+            {{ transcribeJobActive ? 'Queued — check the Jobs panel' : subtitleActionLabel(null, selectedSubtitleIds.length ? transcribeLabel : coverage.done && !force ? 'Transcribe missing or outdated chapters' : 'Transcribe chapters') }}
           </button>
           <span v-if="transcribeJobActive" class="text-muted text-xs ml-1">Running… progress shows in Jobs / the bell.</span>
           <p v-if="subtitleRetryPending" class="text-muted text-xs mt-1" role="status">
@@ -489,16 +497,31 @@ const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, post, del } = useApi()
 const freshSubtitleAction = useFreshGenerationAction()
-const subtitleRetryPending = freshSubtitleAction.hasPending
 const { success, error: showError, info: showInfo } = useToast()
 const { jobs } = useJobs()
 const { project, episodesRoot } = useProject()
 
 const initialEpisodeId = typeof route.query.episode_id === 'string' ? route.query.episode_id : ''
 const episodeId = ref(initialEpisodeId)
+const subtitleEpisodeTarget = computed(() => JSON.stringify([slug.value, episodeId.value]))
+const subtitleRetryPending = computed(() => [...freshSubtitleAction.pending.value.keys()]
+  .some(target => target.startsWith(`${subtitleEpisodeTarget.value}:`)))
 const pendingSectionDeepLink = ref(typeof route.query.section === 'string' ? route.query.section : '')
 const status = ref<SubtitleStatus | null>(null)
 const sections = ref<SectionRow[]>([])
+const selectedSubtitleSections = ref<string[]>([])
+// Use current episode order, excluding stale selections and duplicate clicks.
+const selectedSubtitleIds = computed(() => sections.value
+  .filter(section => selectedSubtitleSections.value.includes(section.slug)).map(section => section.slug))
+const subtitleSelectionUnavailable = computed(() => selectedSubtitleSections.value.some(id =>
+  !sections.value.some(section => section.slug === id)))
+const subtitleAttentionIds = computed(() => sections.value.filter(section =>
+  !chapterHasCurrentSrt(section.slug) || chapterIsGarbled(section.slug)
+  || (status.value?.timeline_integrity?.blocking_cue_gaps || []).some(gap => gap.section_slugs?.includes(section.slug)),
+).map(section => section.slug))
+function selectSubtitleAttention(): void {
+  selectedSubtitleSections.value = [...subtitleAttentionIds.value]
+}
 const audioReview = ref<{ section: string; startSeconds: number } | null>(null)
 const audioReviewPanel = ref<HTMLElement | null>(null)
 const loading = ref(false)
@@ -716,11 +739,12 @@ const transcribeJobActive = computed(() =>
   ),
 )
 
-const transcribeLabel = computed(() => 'Transcribe')
+const transcribeLabel = computed(() => selectedSubtitleIds.value.length ? `Generate / regenerate selected (${selectedSubtitleIds.value.length})` : 'Transcribe')
 
 const canTranscribe = computed(() => {
   if (!episodeId.value || !status.value?.has_chapter_audio || !status.value?.audio_assembly_ready) return false
   if (status.value?.freshness_unavailable) return false
+  if (subtitleSelectionUnavailable.value) return false
   if (transcribing.value || transcribeJobActive.value) return false
   return genstudioModelReady.value && isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)
 })
@@ -729,6 +753,7 @@ const transcribeDisabledReason = computed(() => {
   if (!status.value?.has_chapter_audio) return 'No chapter audio — generate audio first'
   if (!status.value?.audio_assembly_ready) return 'Run Audio Assembly before transcription'
   if (status.value?.freshness_unavailable) return 'Subtitle source freshness is unavailable. Refresh status before transcribing.'
+  if (subtitleSelectionUnavailable.value) return 'Selected chapters could not be verified. Refresh status or clear the selection.'
   if (genstudioModelsLoading.value) return 'Loading transcription models'
   if (genstudioModelsError.value) return genstudioModelsError.value
   if (!genstudioModel.value) return 'No transcription model is available'
@@ -789,6 +814,7 @@ watch([slug, episodeId], () => {
   importPath.value = ''
   status.value = null
   sections.value = []
+  selectedSubtitleSections.value = []
   transcribing.value = false
   closePreview()   // don't show the previous episode's cues under a new episode
   void loadStatus()
@@ -870,21 +896,26 @@ async function stitchSubtitles(): Promise<void> {
 }
 
 function subtitleRequestPayload(sectionSlug?: string): Record<string, any> {
+  const selected = sectionSlug ? [sectionSlug] : selectedSubtitleIds.value
   return {
     per_chapter: true,
     engine: 'genstudio',
     model: genstudioModel.value,
     ...transcriptionLanguageRequestFields(language.value, genstudioSelectedModel.value),
-    force: sectionSlug ? true : force.value,
-    ...(sectionSlug ? { sections: [sectionSlug] } : {}),
+    force: selected.length ? true : force.value,
+    ...(selected.length ? { sections: selected } : {}),
   }
+}
+
+function subtitleActionTarget(sectionSlug?: string): string {
+  return `${subtitleEpisodeTarget.value}:${JSON.stringify(sectionSlug ? [sectionSlug] : selectedSubtitleIds.value.length ? selectedSubtitleIds.value : 'bulk')}`
 }
 
 function subtitleActionLabel(sectionSlug: string | null, label: string): string {
   // Disabled buttons still render while the catalogue is loading or unavailable.
   if (!isTranscriptionLanguageUsable(language.value, genstudioSelectedModel.value)) return label
   const payload = subtitleRequestPayload(sectionSlug || undefined)
-  return payload.force && freshSubtitleAction.isRetry(payload, sectionSlug ? `section:${sectionSlug}` : 'bulk') ? 'Retry submission' : label
+  return payload.force && freshSubtitleAction.isRetry(payload, subtitleActionTarget(sectionSlug || undefined)) ? 'Retry submission' : label
 }
 
 async function transcribe(): Promise<void> {
@@ -892,13 +923,16 @@ async function transcribe(): Promise<void> {
   const episode = episodeSequence
   transcribing.value = true
   const payload = subtitleRequestPayload()
-  const operationId = payload.force ? freshSubtitleAction.begin(payload, 'bulk') : null
+  const operationId = payload.force ? freshSubtitleAction.begin(payload, subtitleActionTarget()) : null
   if (operationId) payload.operation_id = operationId
   try {
     await post(`/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`, payload)
     if (operationId) freshSubtitleAction.complete(operationId)
     if (episode !== episodeSequence) return
-    showInfo('Per-chapter transcription queued — progress shows in Jobs / the bell.')
+    selectedSubtitleSections.value = []
+    showInfo(payload.sections?.length
+      ? `Transcription queued for ${payload.sections.length} selected chapters — progress shows in Jobs / the bell.`
+      : 'Per-chapter transcription queued — progress shows in Jobs / the bell.')
   } catch (e: any) {
     if (episode !== episodeSequence) return
     showError(e?.data?.detail || e?.message || (operationId
@@ -922,7 +956,7 @@ async function retranscribeChapter(sectionSlug: string): Promise<void> {
   const episode = episodeSequence
   transcribing.value = true
   const payload = subtitleRequestPayload(sectionSlug)
-  const operationId = freshSubtitleAction.begin(payload, `section:${sectionSlug}`)
+  const operationId = freshSubtitleAction.begin(payload, subtitleActionTarget(sectionSlug))
   payload.operation_id = operationId
   try {
     await post(`/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`, payload)
@@ -986,7 +1020,17 @@ async function deleteSrt(filename: string): Promise<void> {
   try {
     const r = await del<{ existing_srts: ExistingSrt[] }>(`/projects/${slug.value}/video-editor/subtitles/${episodeId.value}/${encodeURIComponent(filename)}`)
     if (episode !== episodeSequence) return
-    if (status.value) status.value.existing_srts = r.existing_srts || []
+    // Reload the full status rather than adopting the DELETE response. That
+    // response carries a NARROWER row than the status endpoint — only
+    // `{ path, filename, mtime }`, without `word_timings` or `quality` — so
+    // swapping it in stripped the "garbled text" tag, the quality panel, the
+    // chapter-level garbled marker and the word-timings explainer from every
+    // REMAINING file. That is a false "all clean" on the one signal that flags a
+    // hallucinated transcript, and it lasted until a full reload. `r` is unused
+    // now on purpose: the list it returns is not the list this page renders.
+    void r
+    await loadStatus()
+    if (episode !== episodeSequence) return
     if (previewFilename.value === filename) closePreview()
     success(`Deleted ${filename}`)
   } catch (e: any) {
@@ -1081,6 +1125,8 @@ onMounted(async () => {
 .sub-gap-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .sub-gap-list strong { display: inline; }
 .sub-gap-list { margin: 8px 0 0; padding-left: 18px; font-size: var(--font-xs); }
+.sub-selection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; position: sticky; top: 0; z-index: 2; padding: 12px 8px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
+.sub-chapter-row { flex-wrap: wrap; }
 .sub-chapter-list, .sub-file-list { list-style: none; margin: 0; padding: 0; }
 .sub-chapter-row, .sub-file-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .sub-chapter-row:last-child, .sub-file-row:last-child { border-bottom: none; }

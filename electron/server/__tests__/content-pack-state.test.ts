@@ -15,9 +15,12 @@ import {
   resolveVerifiedPackFile,
 } from '../content-packs/runtime-paths.js'
 import {
+  acknowledgeContentPackRecoveryIncident,
   emptyContentPackState,
   __testAcquireContentPackStateLock,
+  __testReadContentPackRecoveryIncident,
   mutateContentPackState,
+  readContentPackRecoveryIncident,
   readContentPackState,
 } from '../content-packs/state.js'
 import type { ContentPackManifest } from '../content-packs/types.js'
@@ -100,11 +103,13 @@ describe('Content Pack runtime state', () => {
     const { temp, paths } = await isolatedPaths()
     assert.equal(paths.root, path.join(temp.dir, 'content-packs'))
     assert.equal(paths.statePath, path.join(temp.dir, 'content-packs', 'state.json'))
+    assert.equal(paths.recoveryStatePath, path.join(temp.dir, 'content-packs', 'state-recovery.json'))
     assert.equal(paths.stagingRoot, path.join(temp.dir, 'content-packs', '.staging'))
     assert.equal(paths.installedRoot, path.join(temp.dir, 'content-packs', 'installed'))
     assert.equal(paths.quarantineRoot, path.join(temp.dir, 'content-packs', 'quarantine'))
 
     assert.deepEqual(await readContentPackState(paths), emptyContentPackState())
+    assert.equal(await readContentPackRecoveryIncident(paths), null)
     await assert.rejects(fs.stat(paths.root), { code: 'ENOENT' })
   })
 
@@ -129,6 +134,109 @@ describe('Content Pack runtime state', () => {
     const quarantined = path.join(paths.quarantineRoot, `state-invalid-${hash}.json`)
     assert.equal(await fs.readFile(quarantined, 'utf8'), invalid)
     assert.deepEqual(JSON.parse(await fs.readFile(paths.statePath, 'utf8')), emptyContentPackState())
+    const incident = await readContentPackRecoveryIncident(paths)
+    assert.equal(incident?.kind, 'invalid_state_reset')
+    assert.match(incident?.incidentId ?? '', /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+    assert.equal(typeof incident?.detectedAt, 'string')
+    const marker = JSON.parse(await fs.readFile(paths.recoveryStatePath, 'utf8'))
+    assert.equal(marker.incident.quarantine_sha256, hash)
+    assert.equal(marker.incident.acknowledged_at, null)
+  })
+
+  test('preserves a malformed recovery marker and invalid index instead of failing open', async () => {
+    const { paths } = await isolatedPaths()
+    await fs.mkdir(paths.root, { recursive: true })
+    const invalidState = '{"schema_version":1,"packs":{},"surprise":true}\n'
+    const invalidMarker = '{"schema_version":1,"incident":"damaged"}\n'
+    await fs.writeFile(paths.statePath, invalidState, { mode: 0o600 })
+    await fs.writeFile(paths.recoveryStatePath, invalidMarker, { mode: 0o600 })
+
+    await assert.rejects(readContentPackRecoveryIncident(paths), /recovery state is invalid/i)
+    assert.equal(await fs.readFile(paths.statePath, 'utf8'), invalidState)
+    assert.equal(await fs.readFile(paths.recoveryStatePath, 'utf8'), invalidMarker)
+    const hash = createHash('sha256').update(invalidState).digest('hex')
+    assert.equal(
+      await fs.readFile(path.join(paths.quarantineRoot, `state-invalid-${hash}.json`), 'utf8'),
+      invalidState,
+    )
+  })
+
+  test('leaves the invalid index untouched when recovery marker persistence fails', async () => {
+    const { paths } = await isolatedPaths()
+    await fs.mkdir(paths.root, { recursive: true })
+    const invalid = '{"schema_version":1,"packs":{},"surprise":true}\n'
+    await fs.writeFile(paths.statePath, invalid, { mode: 0o600 })
+
+    await assert.rejects(
+      __testReadContentPackRecoveryIncident(paths, () => { throw new Error('simulated marker write failure') }),
+      /simulated marker write failure/,
+    )
+    assert.equal(await fs.readFile(paths.statePath, 'utf8'), invalid)
+    await assert.rejects(fs.stat(paths.recoveryStatePath), { code: 'ENOENT' })
+    const hash = createHash('sha256').update(invalid).digest('hex')
+    assert.equal(await fs.readFile(path.join(paths.quarantineRoot, `state-invalid-${hash}.json`), 'utf8'), invalid)
+  })
+
+  test('refuses symlinked, hard-linked, and oversized recovery markers without mutation', async () => {
+    const { temp, paths } = await isolatedPaths()
+    await fs.mkdir(paths.root, { recursive: true })
+    await fs.writeFile(paths.statePath, JSON.stringify(emptyContentPackState()), { mode: 0o600 })
+    const outside = path.join(temp.dir, 'outside-recovery.json')
+    const valid = JSON.stringify({
+      schema_version: 1,
+      incident: {
+        incident_id: '11111111-1111-4111-8111-111111111111',
+        kind: 'invalid_state_reset',
+        detected_at: '2026-09-20T00:00:00.000Z',
+        quarantine_sha256: 'a'.repeat(64),
+        acknowledged_at: null,
+      },
+    })
+    await fs.writeFile(outside, valid, { mode: 0o600 })
+
+    await fs.symlink(outside, paths.recoveryStatePath)
+    await assert.rejects(readContentPackRecoveryIncident(paths), /recovery state is invalid/i)
+    assert.equal(await fs.readFile(outside, 'utf8'), valid)
+    await fs.unlink(paths.recoveryStatePath)
+
+    await fs.link(outside, paths.recoveryStatePath)
+    await assert.rejects(readContentPackRecoveryIncident(paths), /recovery state is invalid/i)
+    assert.equal(await fs.readFile(outside, 'utf8'), valid)
+    await fs.unlink(paths.recoveryStatePath)
+
+    const oversized = Buffer.alloc(16 * 1024 + 1, 0x20)
+    await fs.writeFile(paths.recoveryStatePath, oversized, { mode: 0o600 })
+    await assert.rejects(readContentPackRecoveryIncident(paths), /recovery state is invalid/i)
+    assert.deepEqual(await fs.readFile(paths.recoveryStatePath), oversized)
+  })
+
+  test('acknowledges only the current opaque recovery incident and retains quarantine evidence', async () => {
+    const { paths } = await isolatedPaths()
+    await fs.mkdir(paths.root, { recursive: true })
+    const invalid = '{"schema_version":1,"packs":{},"surprise":true}\n'
+    await fs.writeFile(paths.statePath, invalid, { mode: 0o600 })
+    const incident = await readContentPackRecoveryIncident(paths)
+    assert.ok(incident)
+    const before = await fs.readFile(paths.recoveryStatePath, 'utf8')
+
+    await fs.writeFile(paths.statePath, invalid, { mode: 0o600 })
+    assert.equal((await readContentPackRecoveryIncident(paths))?.incidentId, incident.incidentId)
+
+    assert.equal(
+      await acknowledgeContentPackRecoveryIncident('11111111-1111-4111-8111-111111111111', paths),
+      false,
+    )
+    assert.equal(await fs.readFile(paths.recoveryStatePath, 'utf8'), before)
+    assert.equal(await acknowledgeContentPackRecoveryIncident(incident.incidentId, paths), true)
+    assert.equal(await acknowledgeContentPackRecoveryIncident(incident.incidentId, paths), true)
+    assert.equal(await readContentPackRecoveryIncident(paths), null)
+    await fs.writeFile(paths.statePath, invalid, { mode: 0o600 })
+    const nextIncident = await readContentPackRecoveryIncident(paths)
+    assert.ok(nextIncident)
+    assert.notEqual(nextIncident.incidentId, incident.incidentId)
+    assert.equal(await acknowledgeContentPackRecoveryIncident(incident.incidentId, paths), false)
+    const hash = createHash('sha256').update(invalid).digest('hex')
+    assert.equal(await fs.readFile(path.join(paths.quarantineRoot, `state-invalid-${hash}.json`), 'utf8'), invalid)
   })
 
   test('refuses to quarantine malformed state through a symlinked quarantine directory', async () => {

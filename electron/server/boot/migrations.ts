@@ -108,13 +108,6 @@ export function runBootMigrations(): void {
   })().catch(error => console.error('[boot] image fanout load failed:', error?.message || error)))
 
   tasks.push((async () => {
-    const { getAllDisabledEndpoints } = await import('../services/app-settings.js')
-    const { setDisabledEndpoints } = await import('../lib/endpoint-pool.js')
-    const all = await getAllDisabledEndpoints()
-    for (const [providerId, urls] of Object.entries(all)) setDisabledEndpoints(providerId, urls)
-  })().catch(error => console.error('[boot] disabled-endpoints load failed:', error?.message || error)))
-
-  tasks.push((async () => {
     // `app.ts` starts this migration before registering executors. Resolve and
     // validate every durable Video Assembly owner before the first directory is
     // inspected, so recovery and the 24-hour sweep cannot race over one path.

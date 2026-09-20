@@ -13,6 +13,7 @@
  * constraint, so we just regenerate.
  */
 
+import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
@@ -22,6 +23,7 @@ import {
   resolveEpisodePathsByCodeWithSidecar,
   resolveSubfolderNames,
   projectConfigOnce,
+  projectOutputRootOnce,
   type ProjectFactsCache,
   resolveScenePlanPath,
 } from './utils.js'
@@ -56,7 +58,14 @@ import { inspectScenePlanCoverage } from './scene-planner.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
 import { DEFAULT_SOUND_DESIGN_SETTINGS, normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
-import { readVideoVisualSource, videoAssemblySourceStampPath, type VideoAssemblySourceStamp } from './video-visual-source.js'
+import {
+  inspectBrollAssemblyOutput,
+  readVideoVisualSource,
+  videoVisualSourceRequiresBrollProof,
+  videoAssemblySourceStampMatches,
+  videoAssemblySourceStampPath,
+  type VideoAssemblySourceStamp,
+} from './video-visual-source.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -105,23 +114,6 @@ async function safeReaddirRich(dir: string): Promise<SafeReaddirResult> {
   }
 }
 
-function sourceStampMatches(
-  stamp: VideoAssemblySourceStamp,
-  source: Awaited<ReturnType<typeof readVideoVisualSource>>,
-): boolean {
-  if (stamp.schema_version !== 1 || stamp.source !== source.source) return false
-  if (source.source !== 'image_pool') return true
-  const current = source.image_pool
-  const saved = stamp.image_pool
-  if (!current || !saved || saved.pool_id !== current.pool_id
-    || Math.abs(saved.seconds_per_image - current.seconds_per_image) > 0.001
-    || saved.selected_images.length !== current.selected_images.length) return false
-  return saved.selected_images.every((row, index) => {
-    const currentRow = current.selected_images[index]
-    return !!currentRow && row.filename === currentRow.filename && row.sha256 === currentRow.sha256
-  })
-}
-
 /**
  * Users (and cloud-sync tools) sometimes prefix folders with ✅, ✔️, or other
  * decorative marks to signal completion. Strip them before matching the
@@ -129,6 +121,33 @@ function sourceStampMatches(
  */
 export function stripDecorativePrefix(name: string): string {
   return name.replace(/^[\s\p{Emoji}\p{Symbol}✅✔️]+/u, '').trim()
+}
+
+/**
+ * Does this directory name belong to episode `code`?
+ *
+ * Four separate searches used a bare `name.toUpperCase().startsWith(CODE)` to
+ * answer this. That cannot collide while every episode code in a project is the
+ * same width — and `episode_digits` is project-wide — but it is one setting
+ * change away from `EP0001` claiming `EP00012`'s folder, silently, first-hit-
+ * wins, in traversal order.
+ *
+ * MEASURED 2026-09-20 against the live library before tightening it: of 4,971
+ * distinct episode folders, **4,971** are exactly `{CODE} - {Title}` — the count
+ * matching `^EP\d{4} - ` is all of them, and the count with any other character
+ * after the code is zero. So exact equality or `{code} + " - "` matches every
+ * real folder, and the strict rule costs nothing today while removing the
+ * dependency on codes staying fixed-width.
+ *
+ * Decorative prefixes are stripped first and the already-stripped input is
+ * accepted too, because `buildEpisodeDirOrder` stores names pre-cleaned.
+ * Stripping is idempotent, so callers need not care which form they hold.
+ */
+export function episodeDirNameMatchesCode(dirName: string, code: string): boolean {
+  const clean = stripDecorativePrefix(dirName).toUpperCase()
+  const wanted = code.toUpperCase()
+  if (!wanted) return false
+  return clean === wanted || clean.startsWith(`${wanted} - `)
 }
 
 // ── Script / Introduction detection (asset-readiness contract) ────────────
@@ -281,9 +300,28 @@ export async function computeScriptFolderIntroduction(
     : await backfillLegacyIntroMarker(dir, code, files)
 }
 
-async function fileHasContent(p: string): Promise<boolean> {
+/**
+ * "Is this artifact present AND usable?" — one syscall, and the single
+ * definition of the question every completion check in this module asks.
+ *
+ * Exported so its contract is pinned directly rather than only through an
+ * end-to-end status computation: an absent path is false, a zero-byte file is
+ * false, a non-empty file is true — including a directory, which stated as a
+ * real size before the redundant `existsSync` in front of it was removed and
+ * still does.
+ */
+export async function fileHasContent(p: string): Promise<boolean> {
   try {
-    if (!existsSync(p)) return false
+    // `fs.stat` already answers "does this exist?", so the `existsSync` that
+    // used to guard it was a second syscall for an answer we were about to ask
+    // for anyway. The two agree on every case that reaches here: a directory
+    // stats to a real size (as it did before), and a broken symlink or a
+    // permission failure throws and returned false before.
+    //
+    // MEASURED 2026-09-18, cold `/episodes` on the 302-episode project: this is
+    // the single hottest function on the route — it accounted for 69,860
+    // `existsSync` calls plus 53,840 `stat` calls of ~181,000 total filesystem
+    // operations. Dropping the redundant probe removes ~54,000 of them.
     const st = await fs.stat(p)
     return st.size > 0
   } catch { return false }
@@ -343,7 +381,7 @@ async function findEpisodeDir(
     }
     try {
       for (const entry of await cache.episodeDirs.index) {
-        if (entry.upper.startsWith(CODE)) return entry.path
+        if (episodeDirNameMatchesCode(entry.upper, CODE)) return entry.path
       }
       return null
     } catch {
@@ -359,8 +397,7 @@ async function findEpisodeDir(
       const entries = await fs.readdir(dir, { withFileTypes: true })
       for (const e of entries) {
         if (!e.isDirectory()) continue
-        const clean = stripDecorativePrefix(e.name).toUpperCase()
-        if (clean.startsWith(CODE)) return path.join(dir, e.name)
+        if (episodeDirNameMatchesCode(e.name, CODE)) return path.join(dir, e.name)
       }
       for (const e of entries) {
         if (!e.isDirectory()) continue
@@ -566,6 +603,7 @@ export interface AudioMergeStatus {
   present: boolean            // is there at least one merged file with content?
   file?: string               // filename of newest merged output (v1 or v{N})
   dir?: string
+  path?: string
 }
 
 /** A changed active chapter invalidates the assembled track even at the same duration. */
@@ -574,10 +612,24 @@ async function mergedAudioSourcesAreCurrent(
   audioDir: string,
   mergedPath: string,
 ): Promise<boolean> {
+  let raw: string
   try {
-    const sidecar = JSON.parse(await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf8')) as {
-      sections?: Array<{ source_file?: unknown; source_files?: unknown }>
-    }
+    raw = await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf8')
+  } catch (error) {
+    // Merges created before source sidecars existed remain compatible. An
+    // existing sidecar that cannot be read is unknown, never proof of freshness.
+    return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+  }
+
+  let sidecar: { sections?: Array<{ source_file?: unknown; source_files?: unknown }> }
+  try {
+    sidecar = JSON.parse(raw)
+  } catch {
+    return false
+  }
+  if (!Array.isArray(sidecar.sections)) return false
+
+  try {
     const names = (sidecar.sections || []).flatMap(section => {
       const listed = Array.isArray(section.source_files)
         ? section.source_files.filter((file): file is string => typeof file === 'string' && path.basename(file) === file)
@@ -587,16 +639,51 @@ async function mergedAudioSourcesAreCurrent(
         ? [section.source_file]
         : []
     })
-    if (!names.length) return true
+    if (!names.length) return false
     const [merged, sources] = await Promise.all([
       fs.stat(mergedPath),
       Promise.all(names.map(name => fs.stat(path.join(audioDir, name)).catch(() => null))),
     ])
     return sources.every(source => source && source.mtimeMs <= merged.mtimeMs)
   } catch {
-    // Existing/legacy sidecars remain readable; absence is not stale evidence.
-    return true
+    return false
   }
+}
+
+/** Resolve the one canonical, completion-verified, current merge at known episode paths. */
+export async function inspectAudioMergeAtPaths(
+  paths: Pick<EpisodePaths, 'episode_dir' | 'audio_dir' | 'merged_audio_dir'>,
+  episodeId: string,
+): Promise<AudioMergeStatus> {
+  const code = episodeId.toUpperCase()
+  const files = await safeReaddir(paths.merged_audio_dir)
+  const re = new RegExp(`^${code}_merged_audio(?:_v(\\d+))?\\.mp3$`)
+  let best: { version: number; file: string } | null = null
+  for (const file of files) {
+    const match = file.match(re)
+    if (!match || !await fileHasContent(path.join(paths.merged_audio_dir, file))) continue
+    const version = match[1] ? parseInt(match[1], 10) : 1
+    if (!best || version > best.version) best = { version, file }
+  }
+
+  if (!best) return { present: false, dir: paths.merged_audio_dir }
+  const mergedPath = path.join(paths.merged_audio_dir, best.file)
+  const completionPath = path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`)
+  if (existsSync(completionPath)) {
+    try {
+      const completion = JSON.parse(await fs.readFile(completionPath, 'utf-8'))
+      const stat = await fs.stat(mergedPath)
+      const verified = completion?.output_filename === best.file
+        && Number(completion?.bytes) === stat.size
+        && stat.size > 0
+        && Number(completion?.duration_sec) > 0
+      if (!verified) return { present: false, file: best.file, dir: paths.merged_audio_dir }
+    } catch { return { present: false, file: best.file, dir: paths.merged_audio_dir } }
+  }
+  if (!await mergedAudioSourcesAreCurrent(paths.episode_dir, paths.audio_dir, mergedPath)) {
+    return { present: false, file: best.file, dir: paths.merged_audio_dir }
+  }
+  return { present: true, file: best.file, dir: paths.merged_audio_dir, path: mergedPath }
 }
 
 /**
@@ -612,7 +699,7 @@ export async function getAudioMergeStatus(
   cache?: ProjectFactsCache,
 ): Promise<AudioMergeStatus> {
   const code = episodeId.toUpperCase()
-  const outputRoot = await pm.getProjectOutputRoot(slug)
+  const outputRoot = await projectOutputRootOnce(slug, cache)
   if (!outputRoot) return { present: false }
 
   const epDir = await findEpisodeDir(outputRoot, code, cache)
@@ -642,36 +729,12 @@ export async function getAudioMergeStatus(
   }
   if (!mergedDir) return { present: false }
 
-  const files = await safeReaddir(mergedDir)
-  const re = new RegExp(`^${code}_merged_audio(?:_v(\\d+))?\\.mp3$`)
-  let best: { version: number; file: string } | null = null
-  for (const f of files) {
-    const m = f.match(re)
-    if (!m) continue
-    if (!await fileHasContent(path.join(mergedDir, f))) continue
-    const v = m[1] ? parseInt(m[1], 10) : 1
-    if (!best || v > best.version) best = { version: v, file: f }
-  }
-
-  if (!best) return { present: false, dir: mergedDir }
-  const completionPath = path.join(mergedDir, `${code}_merged_audio.completion.json`)
-  if (existsSync(completionPath)) {
-    try {
-      const completion = JSON.parse(await fs.readFile(completionPath, 'utf-8'))
-      const finalPath = path.join(mergedDir, best.file)
-      const stat = await fs.stat(finalPath)
-      const verified = completion?.output_filename === best.file
-        && Number(completion?.bytes) === stat.size
-        && stat.size > 0
-        && Number(completion?.duration_sec) > 0
-      if (!verified) return { present: false, file: best.file, dir: mergedDir }
-    } catch { return { present: false, file: best.file, dir: mergedDir } }
-  }
-  const audioDir = await resolveEpisodeSubfolderDir(slug, code, 'audio', epDir, subfolders.audio, false)
-  if (!await mergedAudioSourcesAreCurrent(epDir, audioDir, path.join(mergedDir, best.file))) {
-    return { present: false, file: best.file, dir: mergedDir }
-  }
-  return { present: true, file: best.file, dir: mergedDir }
+  const audioDir = await resolveEpisodeSubfolderDir(slug, code, 'audio', epDir, subfolders.audio, false, cache)
+  return inspectAudioMergeAtPaths({
+    episode_dir: epDir,
+    audio_dir: audioDir,
+    merged_audio_dir: mergedDir,
+  }, code)
 }
 
 // ── Project-wide audit ────────────────────────────────────────────────────
@@ -996,7 +1059,7 @@ function _isVideoFile(name: string): boolean {
 async function findCanonicalFinal(dir: string, code: string): Promise<string | null> {
   const files = await safeReaddir(dir)
   for (const file of files) {
-    if (_isVideoFile(file) && file.startsWith(`${code}_final_video.`)
+    if (_isVideoFile(file) && isFinalVideoFilename(code, file)
       && await fileHasContent(path.join(dir, file))) return file
   }
   return null
@@ -1021,7 +1084,7 @@ export async function hasFinalVideoFast(
     // pipeline page but be missing from the upload queue.
     try {
       const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
-      const externalDir = await resolveExternalFinalVideoDir(slug, code, title || '')
+      const externalDir = await resolveExternalFinalVideoDir(slug, code, title || '', cache)
       if (externalDir) {
         if (await findCanonicalFinal(externalDir, code)) return true
       }
@@ -1049,9 +1112,10 @@ export async function getFinalVideoBytes(
   slug: string,
   code: string,
   title: string,
+  cache?: ProjectFactsCache,
 ): Promise<number | undefined> {
   try {
-    const paths = await resolveEpisodePaths(slug, code, title || '')
+    const paths = await resolveEpisodePaths(slug, code, title || '', cache)
     const localMatch = await findCanonicalFinal(paths.video_dir, code)
     if (localMatch) {
       const st = await fs.stat(path.join(paths.video_dir, localMatch)).catch(() => null)
@@ -1059,7 +1123,7 @@ export async function getFinalVideoBytes(
     }
     try {
       const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
-      const externalDir = await resolveExternalFinalVideoDir(slug, code, title || '')
+      const externalDir = await resolveExternalFinalVideoDir(slug, code, title || '', cache)
       if (externalDir) {
         const extMatch = await findCanonicalFinal(externalDir, code)
         if (extMatch) {
@@ -1083,8 +1147,9 @@ export async function computeEpisodeStatus(
   // than once per episode. Omitted, every read happens exactly as before.
   cache?: ProjectFactsCache,
 ): Promise<EpisodeStatus> {
-  const { getProjectOutputRoot } = await import('./project-manager.js')
-  const outputRoot = await getProjectOutputRoot(slug)
+  // One cached read of `<projectDir>/episodes` for the whole response: this
+  // is asked once per episode and only ever answers `resolveOutputRoot(dir)`.
+  const outputRoot = await projectOutputRootOnce(slug, cache)
   if (!outputRoot) return emptyStatus()
 
   // v1.4.76 — read config.json through the request-scoped facts cache. It is
@@ -1255,7 +1320,7 @@ export async function computeEpisodeStatus(
         const selection = JSON.parse(await fs.readFile(path.join(byCode.episode_dir, 'broll-selection.json'), 'utf-8'))
         status.broll_picked = Array.isArray(selection?.selection) && selection.selection.length > 0
       } catch { status.broll_picked = false }
-      const planPath = await resolveScenePlanPath(slug, code, byCode.episode_dir)
+      const planPath = await resolveScenePlanPath(slug, code, byCode.episode_dir, cache)
       const hasPlanFile = await fileHasContent(planPath)
       if (hasPlanFile) {
         const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
@@ -1302,7 +1367,7 @@ export async function computeEpisodeStatus(
         // "pending" even though every image was present. The `image_path` check
         // is kept as a fallback so this is a strict superset of the old rule
         // (nothing that was complete before becomes pending).
-        const namedDir = await resolveSceneImagesDir(slug, code.toUpperCase(), byCode.episode_dir)
+        const namedDir = await resolveSceneImagesDir(slug, code.toUpperCase(), byCode.episode_dir, cache)
         const legacyDir = path.join(byCode.episode_dir, SCENE_IMAGES_SUBFOLDER)
         const imageReady = await Promise.all(scenes.map(async (s: any) => {
           if (typeof s?.id === 'string') {
@@ -1321,7 +1386,7 @@ export async function computeEpisodeStatus(
           imageReady,
           status.scene_plan,
         ).complete
-        const clipsDir = await resolveVideoAssetsDir(slug, code.toUpperCase(), byCode.episode_dir)
+        const clipsDir = await resolveVideoAssetsDir(slug, code.toUpperCase(), byCode.episode_dir, cache)
         const scopedMotion = await resolveEpisodeMotionSceneIds(slug, code, scenes, byCode.episode_dir)
         const motionReady = await Promise.all(scenes.filter((s: any) => scopedMotion.scene_ids.includes(s.id)).map(async (s: any) => {
           if (s?.motion_choice === 'still') return true
@@ -1477,7 +1542,7 @@ export async function computeEpisodeStatus(
     if (!hasFinalInVideoDir && !hasUsableRemote) {
       try {
         const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
-        const externalDir = await resolveExternalFinalVideoDir(slug, code, title)
+        const externalDir = await resolveExternalFinalVideoDir(slug, code, title, cache)
         if (externalDir) {
           const extFinal = await findCanonicalFinal(externalDir, code)
           if (extFinal) {
@@ -1496,19 +1561,30 @@ export async function computeEpisodeStatus(
     let sourceStampValid = true
     if (finalVideoAbsPath && (hasFinalInVideoDir || hasFinalAtExternalRoot)) {
       try {
-        const source = await readVideoVisualSource(slug, CODE)
+        const source = await readVideoVisualSource(slug, CODE, cache)
+        const requiresBrollProof = videoVisualSourceRequiresBrollProof(source)
         const stampPath = videoAssemblySourceStampPath(finalVideoAbsPath, CODE)
         const stampRaw = await fs.readFile(stampPath, 'utf8').catch(() => null)
         if (stampRaw) {
           const stamp = JSON.parse(stampRaw) as VideoAssemblySourceStamp
-          const finalStat = await fs.stat(finalVideoAbsPath)
-          sourceStampValid = sourceStampMatches(stamp, source)
-            && (!stamp.final_video
-              || (stamp.final_video.size === finalStat.size
-                && stamp.final_video.mtime_ms === Math.round(finalStat.mtimeMs)))
-        } else if (source.source === 'image_pool') {
+          if (stamp.broll_assembly || requiresBrollProof) {
+            sourceStampValid = (await inspectBrollAssemblyOutput({
+              project_slug: slug,
+              episode_id: CODE,
+              title,
+              final_video_path: finalVideoAbsPath,
+            })).complete
+          } else {
+            const finalStat = await fs.stat(finalVideoAbsPath)
+            sourceStampValid = videoAssemblySourceStampMatches(stamp, source, CODE)
+              && (!stamp.final_video
+                || (stamp.final_video.size === finalStat.size
+                  && stamp.final_video.mtime_ms === Math.round(finalStat.mtimeMs)))
+          }
+        } else if (source.source === 'image_pool' || requiresBrollProof) {
           // Explicit Image Pool renders are required to carry a stamp. This
-          // fails closed for an old final whose selected stills are unknown.
+          // also fails closed for a B-Roll pick whose rendered narration is
+          // unknown, while unstamped legacy Scene Plan finals remain valid.
           sourceStampValid = false
         }
       } catch {

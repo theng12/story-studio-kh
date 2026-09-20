@@ -9,12 +9,14 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, repairPlanCoverage, removeNonRenderableScenes } from '../services/scene-planner.js'
+import { isDeepStrictEqual } from 'node:util'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
-import { stampFromCues } from '../lib/scene-plan-timeline.js'
+import { compareTimeline, stampFromCues } from '../lib/scene-plan-timeline.js'
 import { checkpointJobState, hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveScenePlanPath, resolveSubfolderNames } from '../services/utils.js'
+import { findSubfolder } from '../lib/folder-resolver.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { getConfig } from '../services/project-manager.js'
@@ -41,6 +43,7 @@ import {
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob, pipelinePolicyInputFingerprint } from '../lib/pipeline-model-policy.js'
 import {
+  SCENE_TIMELINE_ONLY_OUTPUT_BUDGET,
   describeScenePromptPackSize,
   parseScenePromptPackSetting,
   parseScenePromptPackTuning,
@@ -76,7 +79,7 @@ import {
   normalizeCreativeDirection,
 } from '../services/scene-creative-direction.js'
 import { normalizeMotionScope, type MotionScope } from '../contracts/motion-scope.js'
-import { DEFAULT_SCENE_PACING, parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
+import { DEFAULT_SCENE_PACING, parseSavedScenePlanPacing, parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
 import { readEpisodeMotionScope } from '../services/episode-motion-scope.js'
 import { motionPromptSceneIds } from '../services/scene-motion-prompt-scope.js'
 import type { Job, SceneCreativeDirection, SceneCreativeStrategy, ScenePlan } from '../models/types.js'
@@ -209,6 +212,8 @@ interface ScenePlanRunParams {
   avoid_legible_text?: boolean
   /** New staged workflow. Timeline is deterministic; prompts are separate. */
   stage?: 'timeline' | 'visual' | 'motion'
+  /** Pipeline Force is an explicit whole-plan rebuild, even when stage is omitted. */
+  force?: boolean
   // v1.3.1 — `opening_mode` / `opening_reserved_sec` are gone. How long the
   // branded opening runs is a measurable property of the project's own clips,
   // not a setting a request (or a preset behind it) may assert. See
@@ -273,7 +278,7 @@ export function scenePromptRequestIsUnresolved(job: Pick<Job, 'genstudio_jobs' |
 interface ScenePromptPack {
   pack_id: string
   scene_ids: string[]
-  params: { temperature: number; max_tokens: number }
+  params: { temperature: number; max_tokens?: number }
 }
 
 interface ScenePromptPayload {
@@ -292,9 +297,9 @@ interface ScenePromptPayload {
 interface ScenePolicyRequestPlan {
   model_id: string
   context_window_tokens: number
-  max_output_tokens: number
-  visual_max_tokens: number
-  active_output_budget: number
+  max_output_tokens: number | null
+  visual_max_tokens: number | null
+  active_output_budget: number | null
   prompt_pack_size: number
 }
 
@@ -303,10 +308,30 @@ export function readScenePolicyRequestPlan(value: unknown): ScenePolicyRequestPl
   const plan = value as Record<string, unknown>
   if (typeof plan.model_id !== 'string' || !plan.model_id) return null
   if (typeof plan.context_window_tokens !== 'number' || !Number.isSafeInteger(plan.context_window_tokens) || plan.context_window_tokens < 0) return null
-  for (const key of ['max_output_tokens', 'visual_max_tokens', 'active_output_budget', 'prompt_pack_size']) {
-    if (typeof plan[key] !== 'number' || !Number.isSafeInteger(plan[key]) || plan[key] < 1) return null
+  const positiveOrUnpublished = (key: string): number | null | undefined => {
+    const raw = plan[key]
+    if (raw === null) return null
+    return typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 1 ? raw : undefined
   }
-  return plan as unknown as ScenePolicyRequestPlan
+  // Pre-Task2b checkpoints copied the catalogue's unpublished sentinel. Keep
+  // compatibility narrowly on that field; zero is invalid for saved budgets.
+  const maxOutputTokens = plan.max_output_tokens === 0
+    ? null
+    : positiveOrUnpublished('max_output_tokens')
+  const visualMaxTokens = positiveOrUnpublished('visual_max_tokens')
+  const activeOutputBudget = positiveOrUnpublished('active_output_budget')
+  const promptPackSize = typeof plan.prompt_pack_size === 'number'
+    && Number.isSafeInteger(plan.prompt_pack_size) && plan.prompt_pack_size >= 1
+    ? plan.prompt_pack_size : undefined
+  if (maxOutputTokens === undefined || visualMaxTokens === undefined || activeOutputBudget === undefined || promptPackSize === undefined) return null
+  return {
+    model_id: plan.model_id,
+    context_window_tokens: plan.context_window_tokens,
+    max_output_tokens: maxOutputTokens,
+    visual_max_tokens: visualMaxTokens,
+    active_output_budget: activeOutputBudget,
+    prompt_pack_size: promptPackSize,
+  }
 }
 
 export type ScenePromptCompletionIssueKind = 'provider-omitted' | 'duplicate-prompt' | 'checkpoint-failed' | 'not-durable'
@@ -466,9 +491,9 @@ export function assertModelCanHoldAJsonContract(model: GenStudioChatModel): void
   )
 }
 
-function assertScenePromptPackCapability(model: GenStudioChatModel, maxTokens: number, itemCount: number): void {
+function assertScenePromptPackCapability(model: GenStudioChatModel, maxTokens: number | undefined, itemCount: number): void {
   assertModelCanHoldAJsonContract(model)
-  if (!Number.isInteger(model.max_output_tokens) || model.max_output_tokens < maxTokens) {
+  if (maxTokens !== undefined && Number.isInteger(model.max_output_tokens) && model.max_output_tokens >= 1 && model.max_output_tokens < maxTokens) {
     throw new GenStudioChatCapabilityUnavailableError(
       model.id,
       `this ${itemCount}-scene pack requires ${maxTokens.toLocaleString()} output tokens, above its published ${model.max_output_tokens.toLocaleString()} limit`,
@@ -640,6 +665,25 @@ export function diagnoseScenePromptCompletionIssues(input: {
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
 
+function scenePlanContinuationError(error: unknown): Error {
+  return new Error(
+    `Cannot safely continue Scene Plan: ${error instanceof Error ? error.message : String(error)}. `
+    + 'The existing plan was kept. Resolve the input issue, then explicitly Rebuild timeline in Scene Plan (or use Pipeline Force) before retrying.',
+  )
+}
+
+/** Unknown filesystem state is not permission to replace reviewed work. */
+async function scenePlanFileExists(filePath: string): Promise<boolean> {
+  try {
+    const entry = await fs.stat(filePath)
+    if (!entry.isFile()) throw new Error(`the saved plan is not a regular file: ${filePath}`)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
 export async function runScenePlanJob(job: Job): Promise<void> {
   const params = job.params as ScenePlanRunParams
   const { episode_id } = params
@@ -680,7 +724,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       : undefined
   const requestedStage = packedRepairStage || params.stage
   // Only an explicitly requested timeline-only run is model-free. A Pipeline
-  // run omits `stage`, which means timeline + all required visual prompts.
+  // run omits `stage`, which means a compatible timeline + required visual
+  // prompts. A partial saved plan is continued after compatibility checks.
   const needsModel = requestedStage !== 'timeline' || !!(
     params.regenerate_prompt_scene_id || params.regenerate_empty_prompts
     || params.regenerate_motion_prompt_scene_id || params.regenerate_empty_motion_prompts
@@ -705,13 +750,24 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (promptModel) model = `genstudio-chat:${promptModel.id}`
 
   const promptTokenSetting = parseScenePromptTokenSetting(params.prompt_max_tokens)
-  const visualMaxTokens = savedRequestPlan?.visual_max_tokens
-    ?? resolveScenePromptTokenBudget(promptModel?.max_output_tokens, promptTokenSetting)
+  // A timeline-only run is deliberately model-free, so the model-derived
+  // resolver must not be asked for a product allowance it does not have: it
+  // would either invent one (the retired 8,192 fallback) or refuse a run that is
+  // perfectly valid. `SCENE_TIMELINE_ONLY_OUTPUT_BUDGET` is Story Studio's own
+  // local budget and is never displayed as a model's figure — the line that
+  // prints the token arithmetic is guarded by `!timelineOnly`.
+  const visualMaxTokens = savedRequestPlan
+    ? savedRequestPlan.visual_max_tokens
+    : (promptModel
+      ? resolveScenePromptTokenBudget(promptModel.max_output_tokens, promptTokenSetting)
+      : SCENE_TIMELINE_ONLY_OUTPUT_BUDGET)
   // Motion records are intentionally short; keeping their batches within 4K
   // prevents a large visual-model allowance from creating truncated motion JSON.
-  const activePromptOutputBudget = savedRequestPlan?.active_output_budget ?? (requestedStage === 'motion'
-    ? Math.min(4_096, visualMaxTokens)
-    : visualMaxTokens)
+  const activePromptOutputBudget = savedRequestPlan
+    ? savedRequestPlan.active_output_budget
+    : requestedStage === 'motion'
+      ? visualMaxTokens === null ? null : Math.min(4_096, visualMaxTokens)
+      : visualMaxTokens
   const promptPackSetting = parseScenePromptPackSetting(params.prompt_pack_size)
   let promptPackTuning = parseScenePromptPackTuning(undefined)
   try { promptPackTuning = parseScenePromptPackTuning(await getConfig(job.project_slug)) } catch { /* defaults apply */ }
@@ -721,7 +777,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     params.pipeline_scene_request_plan = {
       model_id: promptModel.id,
       context_window_tokens: promptModel.context_window_tokens,
-      max_output_tokens: promptModel.max_output_tokens,
+      max_output_tokens: typeof promptModel.max_output_tokens === 'number'
+        && Number.isSafeInteger(promptModel.max_output_tokens) && promptModel.max_output_tokens >= 1
+        ? promptModel.max_output_tokens : null,
       visual_max_tokens: visualMaxTokens,
       active_output_budget: activePromptOutputBudget,
       prompt_pack_size: promptPackSize,
@@ -846,22 +904,50 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // v1.0.467 — scene_plan.json lives in the "03 Scene Prompts" folder now
   // (with a legacy episode-root fallback for older episodes). One resolved
   // path drives every read + in-place rewrite below, so they all stay in sync.
-  const outPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)
+  const isSingleSceneRepair = !!(
+    params.regenerate_prompt_scene_id
+    || params.regenerate_motion_prompt_scene_id
+    || params.replan_scene_id
+  )
+  const ordinaryContinuation = requestedStage == null && !isSingleSceneRepair && params.force !== true
+  let outPath: string
+  let continueExistingPlan = false
+  const continuationCandidates: string[] = []
+  if (ordinaryContinuation) {
+    try {
+      // The shared reader tolerates I/O failures for legacy lookup. A writer
+      // must distinguish absent from inaccessible at BOTH possible locations.
+      const names = await resolveSubfolderNames(job.project_slug, episode_id)
+      const directory = await findSubfolder(paths.episode_dir, names.scene_prompts, { strictIo: true })
+        || paths.scene_prompts_dir
+      outPath = path.join(directory, SCENE_PLAN_FILENAME)
+      continuationCandidates.push(outPath, path.join(paths.episode_dir, SCENE_PLAN_FILENAME))
+      for (const candidate of continuationCandidates) {
+        if (await withLock(candidate, () => scenePlanFileExists(candidate))) {
+          outPath = candidate
+          continueExistingPlan = true
+          break
+        }
+      }
+    } catch (error) {
+      throw scenePlanContinuationError(error)
+    }
+  } else {
+    outPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)
+  }
 
   // ── Staged continuity workflow ──────────────────────────────────────────
   // Timeline creation is deterministic and free. Visual and optional motion
   // prompts are durable adaptive Hub packs keyed by stable scene IDs, with direct generation as
   // a connection-only fallback. This branch is intentionally before all legacy
   // re-plan modes so those remain available for repairing old plans.
-  const isSingleSceneRepair = !!(
-    params.regenerate_prompt_scene_id
-    || params.regenerate_motion_prompt_scene_id
-    || params.replan_scene_id
-  )
   await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
   if (requestedStage || !isSingleSceneRepair) {
     const pipelineAutoVisual = requestedStage == null && !isSingleSceneRepair
-    let stage: 'timeline' | 'visual' | 'motion' = requestedStage || 'timeline'
+    // Ordinary Pipeline continuation owns the missing prompts, not permission
+    // to replace reviewed scene state. Only an absent plan or explicit rebuild
+    // creates a timing shell. Validate reuse under the same lock as its read.
+    let stage: 'timeline' | 'visual' | 'motion' = requestedStage || (continueExistingPlan ? 'visual' : 'timeline')
     if (stage === 'timeline') {
       const srtText = await fs.readFile(stitchedSrt, 'utf-8')
       const allCues = parseSrt(srtText)
@@ -988,7 +1074,20 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // A deliberate whole-file REPLACEMENT, not a read-modify-write — but still
       // locked, so a concurrent read-modify-write cannot interleave and write the
       // old timeline back over the new one.
-      await withLock(outPath, () => writeJsonAtomic(outPath, plan))
+      await withLock(outPath, async () => {
+        if (ordinaryContinuation) {
+          try {
+            for (const candidate of continuationCandidates) {
+              if (await scenePlanFileExists(candidate)) {
+                throw new Error('a saved plan appeared while planning; Retry to continue it without replacing reviewed work')
+              }
+            }
+          } catch (error) {
+            throw scenePlanContinuationError(error)
+          }
+        }
+        await writeJsonAtomic(outPath, plan)
+      })
       job.output_dir = paths.episode_dir
       job.output_lines.push(
         `Timeline ready: ${scenes.length} cue-aligned scene(s), starting at ${openingReserved.toFixed(1)}s. No LLM was used.`,
@@ -1009,7 +1108,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       job.output_lines.push('Continuing automatically with required visual prompts; motion prompts remain optional.')
     }
 
-    if (!existsSync(outPath)) throw new Error('Create the scene timeline first.')
+    if (!ordinaryContinuation && !existsSync(outPath)) throw new Error('Create the scene timeline first.')
     const isMotion = stage === 'motion'
     // ── Read + the whole-plan rewrites that follow it are ONE locked unit ──
     //
@@ -1021,11 +1120,66 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // reader sees half a file, while the loss here is a complete, valid document
     // that is simply missing someone else's field.
     //
-    // The body is synchronous apart from the writes themselves, so the lock is
-    // held briefly and cannot re-enter itself. Every prompt written after this
-    // point already goes through the locked `checkpointScenePrompt`.
+    // Continuation checks and opening probes precede any mutation inside this
+    // lock. Every prompt written afterwards uses `checkpointScenePrompt`.
     const { plan, creativeDirection } = await withLock(outPath, async () => {
-      const plan = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+      let plan: ScenePlan
+      try {
+        plan = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+        if (continueExistingPlan) {
+          const cues = parseSrt(await fs.readFile(stitchedSrt, 'utf-8'))
+          const integrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episode_id, {
+            max_cue_gap_sec: allowedSubtitleCueGapSec(), cue_source_path: stitchedSrt,
+          })
+          if (!integrity.complete || !cues.length) throw new Error('the current subtitle timeline cannot be verified')
+          const stored = plan?.source_timeline
+          // compareTimeline intentionally treats an absent legacy stamp as
+          // advisory unknown. Automatic continuation requires positive proof;
+          // never attach today's stamp to a plan whose origin is unknown.
+          if (!stored || typeof stored.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(stored.sha256)
+            || !Number.isInteger(stored.total_cues) || stored.total_cues < 1
+            || !Number.isFinite(stored.first_cue_start_sec) || !Number.isFinite(stored.last_cue_end_sec)) {
+            throw new Error('the saved plan has no verifiable subtitle timeline stamp')
+          }
+          const current = stampFromCues(cues)
+          const drift = compareTimeline(stored, current)
+          if (drift.stale) throw new Error(drift.reason)
+          if (plan.pacing === undefined) throw new Error('the saved plan has no pacing snapshot')
+          const savedPacing = parseSavedScenePlanPacing(plan.pacing)
+          if (savedPacing.min_sec !== planPacing.min_sec || savedPacing.max_sec !== planPacing.max_sec
+            || !isDeepStrictEqual(
+              savedPacing.mode === 'variable' ? savedPacing.periods : undefined,
+              planPacing.mode === 'variable' ? planPacing.periods : undefined,
+            )) {
+            throw new Error('the saved plan pacing differs from this episode’s selected rhythm')
+          }
+          const opening = await resolveProjectOpening(job.project_slug)
+          if (opening.unresolved.length) throw new Error(`opening assets are unavailable: ${opening.unresolved.join(', ')}`)
+          const openingSec = await measureOpeningSec(opening.head, getAudioDuration)
+          if (plan.opening_source !== 'measured' || !Number.isFinite(plan.opening_reserved_sec)
+            || Math.round(plan.opening_reserved_sec! * 1000) !== Math.round(openingSec * 1000)
+            || plan.opening_mode !== (openingSec > 0 ? 'branded-opening' : 'from-start')) {
+            throw new Error('the saved plan opening does not match the current measured opening')
+          }
+          if (!Array.isArray(plan.scenes) || !plan.scenes.length || plan.scenes.some(scene =>
+            !scene || typeof scene.id !== 'string' || !scene.id.trim()
+            || typeof scene.visual_prompt !== 'string' || typeof scene.transcript_segment !== 'string'
+            || !Number.isFinite(scene.start_sec) || scene.start_sec < 0
+            || !Number.isFinite(scene.end_sec) || scene.end_sec <= scene.start_sec,
+          ) || new Set(plan.scenes.map(scene => scene.id)).size !== plan.scenes.length) {
+            throw new Error('the saved plan has missing or invalid scene IDs or timing rows')
+          }
+          const coverage = inspectScenePlanCoverage(plan)
+          if (!coverage.authoritative || !coverage.complete
+            || plan.total_duration_sec < current.last_cue_end_sec - 0.001) {
+            throw new Error('the saved plan does not cover the verified subtitle timeline')
+          }
+          job.output_lines.push('Continuing the existing scene timeline: reviewed scenes and saved prompts are kept; only missing or invalid visual prompts will be requested.')
+        }
+      } catch (error) {
+        if (!continueExistingPlan) throw error
+        throw scenePlanContinuationError(error)
+      }
       const timelineCleanup = removeNonRenderableScenes(plan.scenes)
       if (timelineCleanup.removed_ids.length) {
         plan.scenes = timelineCleanup.scenes
@@ -1165,7 +1319,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       researchContext = truncateChars((await fs.readFile(researchPath, 'utf-8').catch(() => '')).trim(), 6000)
     }
 
-    if (!isMotion) job.output_lines.push(`Visual pack output budget: ${visualMaxTokens.toLocaleString()} tokens`)
+    if (!isMotion) {
+      job.output_lines.push(visualMaxTokens === null
+        ? 'Visual pack output budget: none published; max_output_tokens omitted.'
+        : `Visual pack output budget: ${visualMaxTokens.toLocaleString()} tokens`)
+    }
     let packedMotionLevel = 2
     if (isMotion) {
       packedMotionLevel = resolveMotionLevel(episodeMotionLevel, undefined)
@@ -1266,9 +1424,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
         params: {
           temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),
-          max_tokens: isMotion
-            ? activePromptOutputBudget
-            : explicitPaidRepair ? Math.min(visualMaxTokens, 2_048) : visualMaxTokens,
+          ...(isMotion
+            ? (activePromptOutputBudget === null ? {} : { max_tokens: activePromptOutputBudget })
+            : explicitPaidRepair && visualMaxTokens !== null
+              ? { max_tokens: Math.min(visualMaxTokens, 2_048) }
+              : visualMaxTokens === null ? {} : { max_tokens: visualMaxTokens }),
         },
       })
     }
@@ -1309,7 +1469,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       sceneIds: string[]
       saved: Set<string>
       requestLabel: string
-      maxTokens: number
+      maxTokens?: number
       recoveryIssues?: readonly ScenePromptCompletionIssue[]
       recoveryNote?: string
       checkpointSceneIds?: readonly string[]
@@ -1457,7 +1617,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       groups: string[][]
       saved: Set<string>
       requestLabel: string
-      maxTokens: number
+      maxTokens?: number
       recoveryIssues?: readonly ScenePromptCompletionIssue[]
       recoveryNote?: string
       appendGroupLabel?: boolean
@@ -1526,7 +1686,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           checkpointSceneIds: checkpointIds,
           saved: new Set(recovery.scene_ids.filter(id => !checkpointIds.includes(id))),
           requestLabel: `${pack.pack_id}:recover-${index + 1}`,
-          maxTokens: Number(pack.params.max_tokens) || visualMaxTokens,
+          maxTokens: pack.params.max_tokens ?? visualMaxTokens ?? undefined,
           recoverByIdempotencyKey: recovery.idempotency_key,
         })
         if (recovered.checkpointErrors.length) {
@@ -1552,7 +1712,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         groups: explicitPaidRepair ? packScenePromptItems(missing, 1) : [missing],
         saved,
         requestLabel: pack.pack_id,
-        maxTokens: Number(pack.params.max_tokens) || visualMaxTokens,
+        maxTokens: pack.params.max_tokens ?? visualMaxTokens ?? undefined,
         appendGroupLabel: explicitPaidRepair,
       })
       let receipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
@@ -1613,6 +1773,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             : `↻ GenStudio prompt repair ${attempt}/${MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS}: requesting ${outstanding.length} missing or invalid scene prompt(s) only`
               + `${repairGroups.length > 1 ? `, one scene per request (${repairGroups.length} requests — small packs fail far more often than single scenes)` : ''}.`,
         )
+        const repairBudget = isMotion ? activePromptOutputBudget : visualMaxTokens
+        const repairMaxTokens = repairBudget === null ? undefined : Math.min(
+          repairBudget,
+          Math.max(2_048, Math.max(...repairGroups.map(group => group.length)) * 768),
+        )
         const repair = await requestPromptGroups({
           groups: repairGroups,
           saved,
@@ -1641,10 +1806,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             // Tightening it to the sizer's number would REDUCE headroom on the
             // recovery path to save nothing measurable, so it stays. The outer
             // `Math.min` still clamps it to what the model publishes.
-          maxTokens: Math.min(
-            isMotion ? activePromptOutputBudget : visualMaxTokens,
-            Math.max(2_048, Math.max(...repairGroups.map(group => group.length)) * 768),
-          ),
+          maxTokens: repairMaxTokens,
           recoveryIssues: issues,
             // No findings to quote. Every outstanding scene ID gets an issue
             // whenever a response was seen, so an empty `groupIssues` on a
@@ -1923,7 +2085,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // run is model-free (`promptModel` null); the planner then falls back
       // to the smaller, safer window rather than guess.
       context_window_tokens: promptModel?.context_window_tokens,
-      max_output_tokens: promptModel?.max_output_tokens,
+      max_output_tokens: promptModel?.max_output_tokens ?? undefined,
       detail_level: params.detail_level,
       style_prompt: replanStyle,
       custom_instructions: params.custom_instructions,
@@ -2027,7 +2189,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // TARGET_SCENES_PER_WINDOW in scene-planner.ts). Ignored by
     // planScenesTwoPass; absent when this run is model-free.
     context_window_tokens: promptModel?.context_window_tokens,
-    max_output_tokens: promptModel?.max_output_tokens,
+    max_output_tokens: promptModel?.max_output_tokens ?? undefined,
     target_scene_count: params.target_scene_count,
     detail_level: params.detail_level,
     style_prompt: effectiveStyle,

@@ -220,3 +220,92 @@ describe('computeSlots — edge cases', () => {
     assert.equal(slots.length, 0)
   })
 })
+
+
+describe('computeSlots — future instant cutoff', () => {
+  const schedule = {
+    weekdays: [1, 2, 3, 4, 5, 6, 0], time_local: '21:00',
+    timezone: 'Asia/Phnom_Penh', start_date: '2026-08-01',
+  }
+  test('retains a later-today slot even when the plan ends today', () => {
+    assert.deepEqual(computeSlots({ ...schedule, end_date: '2026-09-15' }, 1, {
+      notBefore: new Date('2026-09-15T03:00:00.000Z'),
+    }), ['2026-09-15T14:00:00.000Z'])
+  })
+  test('skips elapsed slots, including an exact cutoff, without returning past dates', () => {
+    assert.deepEqual(computeSlots(schedule, 2, {
+      notBefore: new Date('2026-09-15T14:00:00.000Z'),
+    }), ['2026-09-16T14:00:00.000Z', '2026-09-17T14:00:00.000Z'])
+  })
+  test('a booked calendar day remains reserved despite a later slot on that day', () => {
+    assert.deepEqual(computeSlots(schedule, 1, {
+      notBefore: new Date('2026-09-15T03:00:00.000Z'),
+      minStartDate: new Date('2026-09-16T01:00:00.000Z'),
+    }), ['2026-09-17T14:00:00.000Z'])
+  })
+})
+
+/**
+ * Blocked days exist for the re-lay action: a customer picks a new starting date
+ * for some episodes, and the slots every other episode already holds must be
+ * stepped over rather than double-booked.
+ *
+ * The property under test is that a blocked day is SKIPPED — not substituted,
+ * not counted. The cadence and the chosen start date both survive, and the
+ * caller still receives exactly as many distinct days as it asked for.
+ */
+describe('computeSlots — blocked days (re-lay around existing bookings)', () => {
+  const daily = {
+    weekdays: [0, 1, 2, 3, 4, 5, 6], time_local: '12:00',
+    timezone: 'UTC', start_date: '2027-06-01',
+  }
+
+  test('steps over an occupied day and keeps walking, without losing a slot', () => {
+    // Break caught: treating a blocked day as "borrow the next day instead"
+    // would yield only two usable dates for three episodes and drop one.
+    assert.deepEqual(computeSlots(daily, 3, { blockedDays: ['2027-06-02'] }), [
+      '2027-06-01T12:00:00.000Z',
+      '2027-06-03T12:00:00.000Z',
+      '2027-06-04T12:00:00.000Z',
+    ])
+  })
+
+  test('accepts a Set as well as an array, so callers need no conversion', () => {
+    assert.deepEqual(
+      computeSlots(daily, 2, { blockedDays: new Set(['2027-06-01']) }),
+      ['2027-06-02T12:00:00.000Z', '2027-06-03T12:00:00.000Z'],
+    )
+  })
+
+  test('an unrelated blocked day changes nothing, so the option is inert unused', () => {
+    assert.deepEqual(
+      computeSlots(daily, 2, { blockedDays: ['2027-07-01'] }),
+      computeSlots(daily, 2),
+    )
+  })
+
+  test('a terminal end_date still bounds the stream, so a shortfall stays visible', () => {
+    // Break caught: refilling a blocked day from beyond end_date would schedule
+    // a video past the plan's own horizon instead of reporting the shortfall.
+    assert.deepEqual(computeSlots(
+      { ...daily, weekdays: [1], end_date: '2027-06-14' },
+      3,
+      { blockedDays: ['2027-06-07'] },
+    ), ['2027-06-14T12:00:00.000Z'])
+  })
+
+  test('blocking is matched on the LOCAL day, not the UTC one', () => {
+    // Asia/Phnom_Penh is UTC+7, so a 01:00 local slot is the PREVIOUS day in
+    // UTC. Blocking '2026-09-15' must therefore skip the 15th's local slot and
+    // return the 16th; keying occupancy by UTC would instead match the 16th's
+    // slot and wrongly re-book the 15th the customer said was taken.
+    const phnomPenh = {
+      weekdays: [0, 1, 2, 3, 4, 5, 6], time_local: '01:00',
+      timezone: 'Asia/Phnom_Penh', start_date: '2026-09-15',
+    }
+    assert.deepEqual(
+      computeSlots(phnomPenh, 1, { blockedDays: ['2026-09-15'] }),
+      ['2026-09-15T18:00:00.000Z'],
+    )
+  })
+})

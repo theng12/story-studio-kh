@@ -103,6 +103,13 @@
             </span>
           </label>
           <label class="model-field resolution-field">
+            <span>Aspect ratio</span>
+            <select v-model="selectedAspectRatio" class="select" :disabled="!availableAspectRatios.length" aria-label="Published aspect ratio">
+              <option value="" disabled>{{ availableAspectRatios.length ? 'Choose a published aspect ratio' : 'No published aspect ratio' }}</option>
+              <option v-for="ratio in availableAspectRatios" :key="ratio" :value="ratio">{{ ratio }}</option>
+            </select>
+          </label>
+          <label class="model-field resolution-field">
             <span>Resolution</span>
             <select
               class="select"
@@ -369,6 +376,7 @@ const savingId = ref<string | null>(null)
 const animatingId = ref<string | null>(null)
 const uploadingId = ref<string | null>(null)
 const videoModel = ref('')
+const selectedAspectRatio = ref('')
 const selectedResolution = ref('')
 const durationMode = ref<DurationMode>('manual')
 const manualDurationSeconds = ref<number | null>(null)
@@ -381,7 +389,7 @@ const motionPresets = usePresets({
   presetType: 'motion-review',
   snapshot: () => ({
     model: videoModel.value,
-    aspect_ratio: '16:9',
+    aspect_ratio: selectedAspectRatio.value || undefined,
     operation: STORY_STUDIO_VIDEO_OPERATION,
     duration_seconds: manualDurationSeconds.value ?? undefined,
     resolution: selectedResolution.value || undefined,
@@ -389,6 +397,8 @@ const motionPresets = usePresets({
   }),
   apply: (data: any) => {
     if (typeof data?.model === 'string') videoModel.value = data.model
+    if (typeof data?.aspect_ratio === 'string') selectedAspectRatio.value = data.aspect_ratio.trim()
+    normalizeSelectedAspectRatio()
     selectedResolution.value = typeof data?.resolution === 'string' ? data.resolution.trim() : ''
     manualDurationSeconds.value = Number.isFinite(Number(data?.duration_seconds)) ? Number(data.duration_seconds) : null
     manualDurationDraft.value = manualDurationSeconds.value === null ? '' : String(manualDurationSeconds.value)
@@ -498,6 +508,9 @@ const selectedVideoModel = computed(() => {
 const selectedVideoVariants = computed<VideoVariant[]>(() => (
   variantsForVideoOperation(selectedVideoModel.value?.variants, STORY_STUDIO_VIDEO_OPERATION)
 ))
+const availableAspectRatios = computed(() => [...new Set(
+  (selectedVideoModel.value?.aspect_ratios || []).filter(ratio => typeof ratio === 'string' && ratio.trim()),
+)])
 const availableResolutions = computed(() => [...new Set(selectedVideoVariants.value.map(variant => variant.resolution))])
 const selectedResolutionVariants = computed(() => selectedVideoVariants.value
   .filter(variant => variant.resolution === selectedResolution.value)
@@ -523,6 +536,7 @@ function snappedVariant(requested: number): VideoVariant | null {
 }
 
 function syncPublishedSelection(variants: readonly VideoVariant[]): void {
+  normalizeSelectedAspectRatio()
   if (!variants.length) {
     selectedResolution.value = ''
     setManualDuration(null)
@@ -538,9 +552,14 @@ function syncPublishedSelection(variants: readonly VideoVariant[]): void {
   setManualDuration(next?.duration_seconds ?? null)
 }
 
+function normalizeSelectedAspectRatio(): void {
+  if (!availableAspectRatios.value.includes(selectedAspectRatio.value)) selectedAspectRatio.value = ''
+}
+
 watch(selectedVideoVariants, (variants) => {
   syncPublishedSelection(variants)
 }, { immediate: true })
+watch(availableAspectRatios, normalizeSelectedAspectRatio, { immediate: true })
 watch(i2vModels, (models) => {
   if (!models.length) return
   const raw = videoModel.value.startsWith('genstudio-video:') ? videoModel.value.slice('genstudio-video:'.length) : videoModel.value
@@ -664,6 +683,7 @@ const scenePlanMotionLink = computed(() => `/projects/${slug.value}/scene-plan?e
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))
 const selectionReady = computed(() => !!selectedResolution.value
+  && availableAspectRatios.value.includes(selectedAspectRatio.value)
   && !!selectedResolutionVariants.value.length
   && (durationMode.value === 'follow_narration' || !!selectedManualVariant.value)
   && !i2vModels.value.find(model => model.id === videoModel.value)?.disabled)
@@ -674,6 +694,7 @@ const generateStatus = computed(() => {
   if (usesImagePool.value) return 'Motion Review is not used for Image Pool episodes'
   if (!i2vModels.value.length) return 'GenStudio has no image-to-video models available'
   if (!videoModel.value) return 'Pick an image-to-video model'
+  if (!availableAspectRatios.value.includes(selectedAspectRatio.value)) return 'Choose a published aspect ratio'
   if (!selectedResolutionVariants.value.length) return 'Choose a published resolution'
   if (!canGenerate.value) return 'No approved missing clips are waiting for motion'
   return `${batchPlans.value.length} approved missing ${batchPlans.value.length === 1 ? 'clip is' : 'clips are'} ready`
@@ -696,14 +717,7 @@ async function loadReview() {
   const ep = episodeId.value
   const requestSequence = ++reviewLoadSequence
   if (!ep) {
-    scenes.value = []
-    stats.value = null
-    animateMinSeconds.value = 0
-    motionScope.value = { mode: 'off' }
-    motionSceneIds.value = []
-    motionCrossingSceneIds.value = []
-    motionScopeError.value = ''
-    visualSource.value = 'scene_plan'
+    resetEpisodeScopedMotionState()
     return
   }
   loading.value = true
@@ -740,7 +754,7 @@ function generationPayload(): Record<string, string | number> | null {
   if (!videoModel.value || !selectionReady.value) return null
   return {
     model: videoModel.value,
-    aspect_ratio: '16:9',
+    aspect_ratio: selectedAspectRatio.value,
     operation: STORY_STUDIO_VIDEO_OPERATION,
     duration_mode: durationMode.value,
     resolution: selectedResolution.value,
@@ -883,8 +897,36 @@ onBeforeUnmount(() => {
   sceneLoadObserver?.disconnect()
   sceneLoadObserver = null
 })
+/**
+ * v1.4.194 — episode-scoped state must not survive an episode change.
+ *
+ * `loadReview` only ever REPLACED these on a successful load, so switching
+ * episodes left the previous episode's scenes, stats, motion scope and checked
+ * ids on screen for the whole of the new load — and permanently if the new load
+ * failed, with an error banner as the only sign anything was wrong. The image
+ * URLs were stale too: `cacheBuster` was bumped only on success, so every
+ * `.../image/${scene.id}?t=...` kept resolving to the PREVIOUS episode's cached
+ * thumbnails at the previous episode's ids.
+ *
+ * AGENTS.md §4: an episode change REPLACES the field, or blanks it. This blanks
+ * it, and announces nothing because there is nothing yet to announce — the load
+ * that follows either fills it or reports its own failure.
+ */
+function resetEpisodeScopedMotionState() {
+  scenes.value = []
+  stats.value = null
+  animateMinSeconds.value = 0
+  motionScope.value = { mode: 'off' }
+  motionSceneIds.value = []
+  motionCrossingSceneIds.value = []
+  motionScopeError.value = ''
+  visualSource.value = 'scene_plan'
+  cacheBuster.value = Date.now()
+}
+
 watch(episodeId, () => {
   renderedSceneLimit.value = SCENE_RENDER_BATCH
+  resetEpisodeScopedMotionState()
   void loadReview()
 }, { immediate: true })
 </script>

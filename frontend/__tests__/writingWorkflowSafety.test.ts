@@ -45,7 +45,14 @@ test('late writing loads use a request sequence as well as target equality', () 
 test('research and finalizer scope late replies and writes to the captured project and episode', () => {
   assert.match(research, /const projectSlug = slug\.value[\s\S]*?\/projects\/\$\{projectSlug\}\/research\/\$\{ep\}/)
   assert.match(research, /slug\.value !== projectSlug \|\| episodeId\.value !== ep/)
-  assert.match(research, /watch\(\[slug, episodeId\], \(\) => \{\s*researchScopeEpoch\+\+\s*void loadExisting\(\)\s*\}, \{ immediate: true \}\)/)
+  // Shape-tolerant on purpose: this asserts the INTENT (the episode-change
+  // watcher bumps the scope epoch and reloads), not the exact statements
+  // between them. v1.4.196 added blanking there, which is exactly the kind of
+  // unrelated change an exact-whitespace match should not fail on.
+  assert.match(
+    research,
+    /watch\(\[slug, episodeId\], \(\) => \{[\s\S]*?researchScopeEpoch\+\+[\s\S]*?void loadExisting\(\)[\s\S]*?\}, \{ immediate: true \}\)/,
+  )
   assert.match(research, /target\?\.projectSlug === slug\.value && target\?\.episodeId === episodeId\.value/)
 
   assert.match(metadata, /const projectSlug = slug\.value[\s\S]*?\/projects\/\$\{projectSlug\}\/episodes\/\$\{code\}\/metadata/)

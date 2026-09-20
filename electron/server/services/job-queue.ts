@@ -35,6 +35,7 @@ import {
 } from '../lib/provider-task-state.js'
 import { reconciledGenStudioQueueState } from '../contracts/provider-task-state.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
+import { isRetryableZeroSettlementImageFailureCode } from './image-paid-replacement.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
 import {
@@ -438,6 +439,8 @@ const providerFinalizing = new Set<string>()
 const cancellationReconciling = new Set<string>()
 const cancellationReconcileTimers = new Map<string, NodeJS.Timeout>()
 const cancelled = new Set<string>()
+// Terminal history can be removed while its worker is still unwinding.
+const activeRunJobIds = new Set<string>()
 const pauseRequested = new Set<string>()
 const queuePauseReleaseCheckpoints = new Set<string>()
 const pausedTransitionClaims = new Set<string>()
@@ -975,6 +978,13 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         job.result = { ...(job.result || {}), provider_settled: 'succeeded', repair_required: true }
         job.output_lines.push(job.error)
       } else {
+        // Mark that THIS path has already re-read the output (it audited just
+        // above), so the shared `completeSuccessfulJob` does not audit a second
+        // time. `simultaneous final provider updates run the auditor and
+        // terminal transition once` pins that contract — an unguarded audit
+        // inside `completeSuccessfulJob` broke it, which is why this marker
+        // exists instead of a second call.
+        job.result = { ...(job.result || {}), provider_settled: 'succeeded', output_audited: 'provider-settlement' }
         await completeSuccessfulJob(job)
         job.error = null
         job.output_lines.push('Provider work settled and required output was verified.')
@@ -2588,6 +2598,7 @@ async function schedulePaidImageWait(job: Job): Promise<boolean> {
 }
 
 async function failPaidImageWaitResult(job: Job): Promise<void> {
+  if (!jobs.has(job.job_id)) return
   clearPaidImageWaitTimer(job.job_id)
   job.status = 'error'
   job.finished_at = new Date().toISOString()
@@ -3247,6 +3258,58 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
   }
 }
 
+/**
+ * Group 1.1a. `assertJobDidNotDeclareIncomplete` fires only when the executor
+ * itself set `result.complete === false`, so an executor that audits nothing
+ * passed untouched and a job could report `done` over missing output.
+ *
+ * For job types that already have a per-type auditor, re-read the artifacts and
+ * fail the job when the auditor says `repair-required`.
+ *
+ * THREE DELIBERATE LIMITS:
+ *
+ *  1. Skipped when `result.output_audited` is set. The PROVIDER-SETTLEMENT path
+ *     audits (`:955`) and then calls this same shared function, so without the
+ *     marker every settled job would be audited twice — which is exactly what
+ *     the first attempt did, and `simultaneous final provider updates run the
+ *     auditor and terminal transition once` caught it.
+ *  2. Skipped when the executor declared a verdict (`result.complete` is not
+ *     undefined). A declared `true` means it audited its own output; a declared
+ *     `false` already threw above.
+ *  3. Applies ONLY to types with a registered auditor. The 13 artifact-producing
+ *     types that still have none keep today's behaviour — authoring those
+ *     auditors is group 1.1b in docs/audit/FIX-PLAN.md.
+ *
+ * An auditor FAULT is fail-closed, because `registerJobCancellationAuditor`
+ * wraps every auditor with `catch { return 'repair-required' }` ("provider
+ * success does not make malformed or unreadable local output complete"). The
+ * message therefore says "missing or could not verify" rather than claiming the
+ * output is missing.
+ */
+export async function assertAuditedCompletionOnSuccess(job: Job): Promise<void> {
+  // A job with recorded provider work is OWNED by the provider-settlement path,
+  // which audits once the executor has checkpointed (:955). The executor returns
+  // BEFORE that — `provider success during a live executor waits for local
+  // output before auditing` pins exactly that ordering — so without this the
+  // local pass would audit first and settlement would audit again: two audits,
+  // which is what the gate caught.
+  //
+  // This is a fact about the job (does it have provider work recorded?), not an
+  // inference about which code path ran — the distinction that matters, because
+  // two earlier attempts failed on inferred predicates.
+  if ((job.genstudio_jobs || []).length > 0) return
+  if (job.result?.output_audited) return
+  if (job.result?.complete !== undefined) return
+  const auditor = getJobCancellationAuditor(job.type)
+  if (!auditor) return
+  const verdict = await auditor(job)
+  if (verdict === 'complete') return
+  throw new Error(
+    `${job.type} reported success, but re-reading its output found required items missing or could not verify it. ` +
+    `Nothing already produced was discarded — Retry repairs only the gaps.`,
+  )
+}
+
 /** One success path for ordinary completions and reconciled provider outputs. */
 async function completeSuccessfulJob(job: Job): Promise<void> {
   if (job.status !== 'running') return
@@ -3314,12 +3377,14 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
  */
 async function runJob(type: JobType, job: Job): Promise<void> {
   const q = queues[type]
+  activeRunJobIds.add(job.job_id)
   try {
     if (cancelled.has(job.job_id)) {
       job.status = 'cancelled'
       job.finished_at = new Date().toISOString()
       jobs.set(job.job_id, job)
       await persistJob(job)
+      if (!jobs.has(job.job_id)) return
       emitUpdate(job)
       return
     }
@@ -3340,6 +3405,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     job.started_at ||= new Date().toISOString()
     jobs.set(job.job_id, job)
     await persistJob(job)
+    if (!jobs.has(job.job_id)) return
     emitUpdate(job)
 
     try {
@@ -3382,6 +3448,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           const executorResult = await jobContext.run({ jobId: job.job_id }, () => (
             runWithJobContentPackProvenance(job.content_pack_provenance, () => q.executor!(job))
           ))
+          if (!jobs.has(job.job_id)) return
           if (executorResult?.kind === 'paid-image-wait') {
             job.status = 'running'
             job.finished_at = null
@@ -3392,6 +3459,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             // a generator has declared the durable paid-wait boundary.
             try {
               await paidImageWaitRuntime.persistWait(job)
+              if (!jobs.has(job.job_id)) return
               paidImageWaitRuntime.emitWait(job)
               if (!await schedulePaidImageWait(job)) await failPaidImageWaitResult(job)
             } catch {
@@ -3401,6 +3469,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           }
           job.local_execution_complete = true
           assertJobDidNotDeclareIncomplete(job)
+          await assertAuditedCompletionOnSuccess(job)
           const completedBeforeAutomaticHold = job.type === 'continuity_render'
             && job.pause_origin === 'stall'
             && pauseRequested.has(job.job_id)
@@ -3419,6 +3488,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           completed = true
           break
         } catch (error) {
+          if (!jobs.has(job.job_id)) return
           finalError = error
           if (cancelled.has(job.job_id)) throw error
           if (error instanceof JobPausedError || pauseRequested.has(job.job_id)) throw new JobPausedError()
@@ -3509,12 +3579,15 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       }
     }
 
+    // A cancellation/abandonment may retire history during an awaited audit.
+    if (!jobs.has(job.job_id)) return
     job.finished_at = isQueuedLlmLineupWait(job) || job.status === 'paused' || hasUnsettledProviderWork(job)
       || (job.status === 'running' && hasCancellationContext(job))
       ? null
       : new Date().toISOString()
     jobs.set(job.job_id, job)
     await persistJob(job)
+    if (!jobs.has(job.job_id)) return
     emitUpdate(job)
     // Resume may have been accepted while this worker was already crossing a
     // queue-origin safe point.  The global release scan cannot see a paused
@@ -3533,6 +3606,12 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       })
       for (const lane of transitioned.lanes) pump(lane)
     }
+    // A cooperative stall pause is safe to reconsider only after its final
+    // checkpoint is durable. The same recovery runs on project load, but an
+    // uninterrupted app used to leave this settled record paused forever.
+    if (job.status === 'paused' && job.pause_origin === 'stall') {
+      await recoverSafelySettledStallJobs([job])
+    }
     if (isQueuedLlmLineupWait(job)) {
       scheduleLlmLineupWait(job)
     }
@@ -3540,12 +3619,21 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       clearPaidImageWaitTimer(job.job_id)
       clearLlmLineupWaitTimer(job.job_id)
     }
-    if (job.status === 'running' && hasUnsettledProviderWork(job)) scheduleCancellationReconciliation(job.job_id)
+    if (
+      (job.status === 'running' && hasUnsettledProviderWork(job))
+      || (job.status === 'paused' && job.pause_origin === 'stall' && requiresCancellationReconciliation(job))
+    ) scheduleCancellationReconciliation(job.job_id)
     // v1.2.6 — a job can finish while one recorded provider task was still
     // mid-flight. Ask GenStudio now rather than freezing that snapshot into a
     // history row nobody can ever dismiss.
     else if (needsHistoryEvidenceRefresh(job)) scheduleHistoryEvidenceRefresh(job.job_id)
   } finally {
+    activeRunJobIds.delete(job.job_id)
+    if (!jobs.has(job.job_id)) {
+      cancelled.delete(job.job_id)
+      clearPaidImageWaitTimer(job.job_id)
+      clearLlmLineupWaitTimer(job.job_id)
+    }
     queuePauseReleaseCheckpoints.delete(job.job_id)
     releaseSlot(type, job)
   }
@@ -3932,7 +4020,7 @@ function isSafelyRetryableStallImageFailure(
     || entry.id.startsWith('pending:')
     || entry.state !== 'failed'
     || entry.cancelled === true
-    || !FLEET_BUSY_FAILURE_CODES.has(String(entry.failure_code || ''))
+    || !isRetryableZeroSettlementImageFailureCode(entry.failure_code)
   ) return false
   const reserved = entry.reserved_credits
   const settled = entry.settled_credits
@@ -3962,9 +4050,13 @@ function hasSafeTerminalStallEvidence(job: Job): boolean {
     if (
       entry.operation !== 'image.generation'
       || !entry.id
-      || entry.id.startsWith('pending:')
       || entry.cancelled === true
     ) return false
+    if (isNeverCreatedProviderTask(entry)) {
+      return Boolean(entry.request?.idempotency_key)
+        && entry.reserved_credits === 0 && entry.settled_credits === 0 && entry.released_credits === 0
+    }
+    if (entry.id.startsWith('pending:')) return false
     if (entry.state === 'succeeded') return true
     return isSafelyRetryableStallImageFailure(entry)
   })
@@ -4026,16 +4118,29 @@ async function hasDurableContinuityStallManifestOwnership(
     if (decodable && !requireOwnedExistingOutputs) continue
     if (
       manifestEntry?.operation !== 'image'
-      || !manifestEntry.task_id
       || !manifestEntry.idempotency_key
       || checkpointEntry?.operation !== 'image'
-      || checkpointEntry.job_id !== manifestEntry.task_id
       || checkpointEntry.idempotency_key !== manifestEntry.idempotency_key
       || (checkpointEntry.output_path !== undefined && (
         typeof checkpointEntry.output_path !== 'string'
         || path.resolve(checkpointEntry.output_path) !== path.resolve(outputPath)
       ))
     ) return false
+    // A stall can happen after reserving the local request key but before
+    // receiving its provider id. Reconciliation resolves that exact key; the
+    // executor will rejoin it or replay a proven-absent prepared request.
+    const prepared = !manifestEntry.task_id && manifestEntry.last_state === 'prepared'
+      && !checkpointEntry.job_id && checkpointEntry.state === 'prepared'
+      && Boolean(manifestEntry.input_hash) && checkpointEntry.input_hash === manifestEntry.input_hash
+    if (prepared && !requireOwnedExistingOutputs) {
+      const evidence = (job.genstudio_jobs || []).filter(entry => (
+        entry.operation === 'image.generation'
+        && entry.request?.idempotency_key === manifestEntry.idempotency_key
+      ))
+      if (evidence.length !== 1) return false
+      continue
+    }
+    if (!manifestEntry.task_id || checkpointEntry.job_id !== manifestEntry.task_id) return false
     const matchingEvidence = (job.genstudio_jobs || []).filter(entry => (
       entry.operation === 'image.generation' && entry.id === manifestEntry.task_id
     ))
@@ -4628,6 +4733,11 @@ function enqueuePrepared(
   }
 
   const jobId = opts.episode_recovery_job_id || randomUUID().slice(0, 8)
+  if (activeRunJobIds.has(jobId)) {
+    throw Object.assign(new Error('This recovery job\'s previous worker is still stopping. Try again once it finishes.'), {
+      status: 409, expose: true,
+    })
+  }
   const job: Job = {
     job_id: jobId,
     project_slug: opts.project_slug,
@@ -4888,6 +4998,11 @@ export async function finishMissingImagesInPlace(
       }
       if (authoritative.status !== 'error' && authoritative.status !== 'cancelled') {
         throw Object.assign(new Error('Only failed or cancelled Scene Review jobs can finish missing images.'), { status: 409, expose: true })
+      }
+      if (activeRunJobIds.has(jobId)) {
+        throw Object.assign(new Error('This image job\'s previous worker is still stopping. Try again once it finishes.'), {
+          status: 409, expose: true,
+        })
       }
       if (cancellationPending) {
         throw Object.assign(
@@ -5306,6 +5421,8 @@ export function retryTerminalJob(
     } : pendingKeys.length ? { genstudio_chat_recovery_keys: pendingKeys } : {}),
   }, original.content_pack_provenance)
 
+  // An old worker must still observe cancellation until its finally runs.
+  if (!activeRunJobIds.has(jobId)) cancelled.delete(jobId)
   jobs.delete(jobId)
   emitCleared(projectSlug, [jobId])
   void persistProjectMutation(projectSlug, { kind: 'delete', jobId }).catch((error) => {
@@ -5737,6 +5854,8 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   if (!job.force_abandoned && hasUnsettledProviderEvidence(job)) return false
   clearPaidImageWaitTimer(jobId)
   clearLlmLineupWaitTimer(jobId)
+  // A terminal status does not prove its worker has returned yet.
+  if (!activeRunJobIds.has(jobId)) cancelled.delete(jobId)
   jobs.delete(jobId)
   if (job.type === 'continuity_render') {
     void deactivateSceneRenderStatus(job.project_slug, job.episode_id, job.job_id).catch(() => {})
@@ -5786,6 +5905,7 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
     if (job.project_slug === projectSlug && matchesHistoryClearStatus(job, status) && (job.force_abandoned || !hasUnsettledProviderEvidence(job))) {
       clearPaidImageWaitTimer(id)
       clearLlmLineupWaitTimer(id)
+      if (!activeRunJobIds.has(id)) cancelled.delete(id)
       jobs.delete(id)
       clearedIds.push(id)
       if (job.type === 'continuity_render') clearedSceneRenderJobs.push(job)

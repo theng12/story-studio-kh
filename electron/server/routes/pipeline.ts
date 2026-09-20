@@ -1233,7 +1233,7 @@ export function resolveStepParams(
     return {
       episode_id: episodeId,
       model: data.model,
-      aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
+      aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : undefined,
       operation: data.operation,
       duration_seconds: data.duration_seconds,
       resolution: data.resolution,
@@ -2165,8 +2165,19 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           ? null
           : await missingSceneIds(slug, episodeId)
         if (sceneIds?.length === 0) {
-          skipped.push({ episode_id: episodeId, reason: 'Scene images are present; review and approve them in Scene Review.' })
-          break
+          // `continue`, not `break`. This reason is about the scene_review step
+          // alone — the images are already there, so there is nothing for it to
+          // render. Breaking out of the STEP loop instead dropped every later
+          // selected step for this episode (video_assembly, upload, …) without
+          // enqueueing it and without saying so: the batch still answered 201
+          // carrying only this one skip reason. Every sibling exit in this loop
+          // is a `continue` (the preset failure above, introduction-only below,
+          // metadata below); this was the only `break`.
+          skipped.push({
+            episode_id: episodeId,
+            reason: 'Scene images are present; review and approve them in Scene Review. The remaining selected steps for this episode are unaffected.',
+          })
+          continue
         }
         params.missing_only = true
         if (sceneIds) params.scene_ids = sceneIds

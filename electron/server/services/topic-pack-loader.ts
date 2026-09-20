@@ -165,8 +165,26 @@ export async function listTopicPacks(registryOptions: ContentPackRegistryOptions
   return (await listTopicPackCatalogEntries(registryOptions)).map(entry => entry.value)
 }
 
+/**
+ * A user Topic Pack id must be a safe filename segment. See `nicheFilePath` for
+ * the incident and for why the rule is the security property rather than the
+ * loader's own regex: legacy user forks are named `user:<uuid>`, which that
+ * regex rejects, and it had never actually been applied to them.
+ */
+function assertSafeTopicPackId(id: unknown): string {
+  const value = String(id ?? '')
+  if (
+    !value || value.length > 200 || value !== value.trim()
+    || /[/\\\u0000]/.test(value)
+    || value.startsWith('.')
+  ) {
+    throw new Error(`Invalid topic pack id '${value}'`)
+  }
+  return value
+}
+
 export function topicPackFilePath(id: string): string {
-  return path.join(userDir(), `${id}.json`)
+  return path.join(userDir(), `${assertSafeTopicPackId(id)}.json`)
 }
 
 export async function ensureTopicPacksDir(): Promise<void> {

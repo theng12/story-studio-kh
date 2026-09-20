@@ -12,6 +12,7 @@ import {
   buildGenStudioTranscriptionIdempotencyKey,
   buildGenStudioImageIdempotencyKey,
   buildGenStudioSubmission,
+  resolveGenStudioTtsSpeed,
   callChatWithGenStudio,
   catalogHasVoice,
   describeGenStudioDetail,
@@ -79,6 +80,8 @@ test('TTS models carry only a positive published provider submit concurrency hin
         minimum_credits: 0,
         maximum_input_characters: 12_000,
         supports_speed: true,
+        minimum_speed: 0.5,
+        maximum_speed: 2,
         supports_voice_cloning: false,
         preview_policy: '',
         generation_enabled: true,
@@ -137,6 +140,9 @@ test('a request exactly at the published boundary stays one GenStudio request', 
     voiceId: 'voice_live',
     modelId: 'model_live',
     speed: 0.9,
+    supportsSpeed: true,
+    minimumSpeed: 0.5,
+    maximumSpeed: 2,
     maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
   })
   assert.equal(submission.body.text.length, PUBLISHED_MAX_CHARACTERS)
@@ -296,7 +302,10 @@ test('text longer than the retired 375-character cap remains one GenStudio reque
 })
 
 test('GenStudio JSON carries speed and retries reuse the same idempotency key', () => {
-  const request = { text: 'A calm long-form sample.', voiceId: 'voice_live', modelId: 'model_live', speed: 0.9, maxInputCharacters: PUBLISHED_MAX_CHARACTERS }
+  const request = {
+    text: 'A calm long-form sample.', voiceId: 'voice_live', modelId: 'model_live', speed: 0.9,
+    supportsSpeed: true, minimumSpeed: 0.5, maximumSpeed: 2, maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
+  }
   const first = buildGenStudioSubmission(request)
   const retry = buildGenStudioSubmission(request)
   assert.deepEqual(first.body, {
@@ -310,6 +319,29 @@ test('GenStudio JSON carries speed and retries reuse the same idempotency key', 
     first.idempotencyKey,
     buildGenStudioSubmission({ ...request, speed: 1 }).idempotencyKey,
   )
+})
+
+test('TTS speed validation uses the selected live range and neutralizes an unpublished range', () => {
+  assert.equal(resolveGenStudioTtsSpeed(undefined, false, null, null), 1)
+  assert.equal(resolveGenStudioTtsSpeed(undefined, true, 0.5, 2), 1)
+  const bounded = buildGenStudioSubmission({
+    text: 'A calm long-form sample.', voiceId: 'voice_live', modelId: 'model_live', speed: 0.25,
+    supportsSpeed: true, minimumSpeed: 0.25, maximumSpeed: 1.5, maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
+  })
+  assert.equal(bounded.body.speed, 0.25)
+  assert.throws(
+    () => resolveGenStudioTtsSpeed(0.6, true, 0.75, 1.25),
+    /between 0\.75 and 1\.25/,
+  )
+  assert.throws(
+    () => resolveGenStudioTtsSpeed(Number.NaN, true, 0.5, 2),
+    /finite number/,
+  )
+  const unpublished = buildGenStudioSubmission({
+    text: 'A calm long-form sample.', voiceId: 'voice_live', modelId: 'model_live', speed: 0.4,
+    supportsSpeed: true, minimumSpeed: null, maximumSpeed: null, maxInputCharacters: PUBLISHED_MAX_CHARACTERS,
+  })
+  assert.equal(unpublished.body.speed, 1)
 })
 
 test('GenStudio chat retries keep one logical request identity', () => {
@@ -449,8 +481,12 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
           {
             id: 'voice-v1', revision: 'voice-r1', display_name: 'Voice V1', modality: 'audio',
             operation: 'voice.tts', availability: 'available', qualification_only: false,
-            pricing_unit: 'characters', limits: { max_characters: 15_000 }, controls: { speed: true },
+            pricing_unit: 'characters', cost_tier: 'value', limits: { max_characters: 15_000 }, controls: { speed: true },
           },
+          { id: 'chat-promo', revision: 'r1', display_name: 'Promo', modality: 'text',
+            operation: 'chat.response', availability: 'available', cost_tier: 'promotional' },
+          { id: 'chat-value', revision: 'r1', display_name: 'Value', modality: 'text',
+            operation: 'chat.response', availability: 'available', cost_tier: 'value' },
           { id: 'invalid', display_name: 'Invalid', modality: 'other', operation: 'unknown' },
         ])
       }
@@ -471,6 +507,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
         return Response.json([{
           id: 'video-v1', display_name: 'Video V1', available: false,
           cost_tier: 'premium',
+          provider_name: 'Published video creator',
           locked: false,
           lock_reason: 'must-not-survive-when-unlocked',
           modes: ['image-to-video'], aspect_ratios: ['16:9'],
@@ -487,7 +524,10 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
       listChatModels('scoped-key'),
       listVideoModels('scoped-key'),
     ])
-    assert.equal(capabilities.length, 1)
+    assert.equal(capabilities.length, 3)
+    assert.equal(capabilities[0]?.cost_tier, undefined, 'language-only Value must not leak into audio categories')
+    assert.equal(capabilities[1]?.cost_tier, 'promotional')
+    assert.equal(capabilities[2]?.cost_tier, 'value')
     assert.equal(capabilities[0]?.operation, 'voice.tts')
     assert.equal(chat[0]?.max_output_tokens, 65_536)
     assert.equal(chat[0]?.available, true)
@@ -500,10 +540,174 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(chat[0]?.price_version, 'chat-price-v1')
     assert.deepEqual(video[0]?.modes, ['image-to-video'])
     assert.equal(video[0]?.cost_tier, 'premium')
+    // Published on video rows by gateway-kh since 2026-09-18. It arrived and was
+    // DISCARDED before that — the field was neither declared nor read, so a
+    // published fact was lost at the parse boundary and the row rendered blank.
+    assert.equal(video[0]?.provider_name, 'Published video creator')
+    assert.equal(video[1]?.provider_name, undefined, 'an unpublished provider stays unset, never the gateway name')
     assert.equal(video[0]?.locked, false)
     assert.equal(Object.hasOwn(video[0] ?? {}, 'lock_reason'), false)
     assert.equal(video[0]?.variants[0]?.price_version, 'video-v1')
     assert.equal(video[1]?.cost_tier, undefined)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('transcription rows carry the published provider_name beside the legacy provider field', async () => {
+  // Break caught: gateway-kh publishes `provider_name` on transcription rows and
+  // keeps `provider` for older readers. This transport read ONLY `provider`, so
+  // the shared contract's field arrived and was discarded — every transcription
+  // row would have rendered without its provider, and nothing would have failed.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/v1\/transcription\/models$/)
+      return Response.json([
+        {
+          id: 'whisper-a', display_name: 'Whisper A', available: true, qualification_only: false,
+          provider: 'Legacy field', provider_name: 'Published transcription creator',
+          language: 'multilingual', supported_languages: [], supports_language_auto_detect: true,
+          credits_per_second: 0.1, minimum_credits: 1, price_version: 'flat',
+        },
+        {
+          id: 'whisper-b', display_name: 'Whisper B', available: true, qualification_only: false,
+          provider: 'Only legacy', language: 'multilingual', supported_languages: [],
+          supports_language_auto_detect: true, credits_per_second: 0.1, minimum_credits: 1, price_version: 'flat',
+        },
+      ])
+    }
+    const models = await listTranscriptionModels('scoped-key')
+    assert.equal(models[0]?.provider_name, 'Published transcription creator')
+    assert.equal(models[0]?.provider, 'Legacy field', 'the legacy field is kept so older readers still work')
+    assert.equal(models[1]?.provider_name, undefined, 'an unpublished provider_name stays unset, never the gateway name')
+    assert.equal(models[1]?.provider, 'Only legacy')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('a catalogue is read whether it arrives as a bare array or a { models } envelope', async () => {
+  // Break caught: gateway-kh answers `{ models: [...], freshness: {...} }` (and
+  // `{ voices, models }` for /v1/voices), while the contract this client shipped
+  // against is a bare array. Every reader guarded with `!Array.isArray(payload)`,
+  // so EVERY live catalogue refresh began failing the moment the endpoint moved —
+  // and quietly, because the last-good cache kept the pickers populated on hours-old
+  // data until it aged out. Accepting both shapes is the fix; neither invents a row.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) {
+        // The envelope shape, exactly as gateway-kh publishes it.
+        return Response.json({
+          models: [{ id: 'chat-env', display_name: 'Enveloped', available: true, qualification_only: false }],
+          freshness: { stale: false, ageMs: 12 },
+        })
+      }
+      if (url.endsWith('/v1/videos/models')) {
+        // The bare-array shape the old endpoint served — still accepted.
+        return Response.json([{ id: 'video-bare', display_name: 'Bare', available: true, modes: [], aspect_ratios: [], variants: [] }])
+      }
+      if (url.includes('/v1/voices')) {
+        return Response.json({ voices: [{ id: 'voice-env', display_name: 'Enveloped Voice' }], models: [] })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }
+    const chat = await listChatModels('scoped-key')
+    assert.equal(chat.length, 1, 'the envelope is unwrapped, not treated as malformed')
+    assert.equal(chat[0]?.id, 'chat-env')
+
+    const video = await listVideoModels('scoped-key')
+    assert.equal(video.length, 1, 'the original bare-array shape keeps working')
+    assert.equal(video[0]?.id, 'video-bare')
+
+    const voices = await listVoices('scoped-key')
+    assert.equal(voices.length, 1)
+    assert.equal(voices[0]?.id, 'voice-env')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('a payload with NEITHER shape is still refused loudly, not read as zero models', async () => {
+  // The other half of the fix: tolerance must not become silence. An envelope
+  // without a usable list, or a scalar, must keep the loud refusal — otherwise a
+  // broken catalogue would present as an intentionally empty one.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    for (const bad of [{ models: 'nonsense' }, { unrelated: [] }, 'text', 42, null]) {
+      globalThis.fetch = async () => Response.json(bad)
+      await assert.rejects(
+        () => listChatModels('scoped-key'),
+        // The catalogue layer wraps the inner "invalid … catalog" refusal, so the
+        // customer-facing surface is the unverified-product message. What matters
+        // is that it THROWS rather than resolving with zero models.
+        /could not be refreshed/,
+        `expected ${JSON.stringify(bad)} to be refused`,
+      )
+    }
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('a music row that omits capability fields is published with nulls, not dropped', async () => {
+  // Break caught: `kie-ai-images::V6` (Suno V6) — the ONLY published music model —
+  // vanished from the picker because this reader treated ten ABSENT fields as
+  // malformed and dropped the row. Absence is a legitimate publication and reads
+  // as null; `supports_vocals: false` would be a capability the catalogue never
+  // stated, which is why null is the only honest answer.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/v1\/music\/models$/)
+      // Exactly the fields the live gateway publishes — nothing more.
+      return Response.json({
+        models: [{
+          id: 'kie-ai-images::V6', display_name: 'Suno V6',
+          description: 'Image, video and music aggregator.', coming_soon: false,
+          credits_per_request: 0, minimum_credits: 0, price_version: 'flat',
+          supports_instrumental: true,
+          max_prompt_characters: 2000, max_lyrics_characters: 4000, max_title_characters: 200,
+        }],
+        freshness: { stale: false, ageMs: 4 },
+      })
+    }
+    const models = await listMusicModels('scoped-key')
+    assert.equal(models.length, 1, 'the row survives its absent fields')
+    assert.equal(models[0]?.id, 'kie-ai-images::V6')
+    assert.equal(models[0]?.supports_vocals, null, 'absent is null, never false')
+    assert.equal(models[0]?.requires_lyrics, null)
+    assert.equal(models[0]?.min_prompt_characters, null)
+    assert.equal(models[0]?.outputs_per_request, null)
+    assert.equal(models[0]?.supports_instrumental, true, 'a published flag is still read')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('a music row with a WRONG-typed field is still dropped', async () => {
+  // The other half of the distinction: absence is legal, malformed is not.
+  // `supports_vocals: 'yes'` must cost the row rather than be coerced.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async () => Response.json({
+      models: [{
+        id: 'bad::1', display_name: 'Bad', description: 'd', coming_soon: false,
+        credits_per_request: 0, minimum_credits: 0, price_version: 'flat',
+        supports_vocals: 'yes',
+        max_prompt_characters: 2000, max_lyrics_characters: 4000, max_title_characters: 200,
+      }],
+      freshness: { stale: false },
+    })
+    const models = await listMusicModels('scoped-key')
+    assert.deepEqual(models, [], 'a malformed row is not published')
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -6,15 +6,17 @@ import { createApp, defineComponent, h, nextTick, ref, type Component, type Ref 
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 import { filterCatalogProducts, orderShelfProducts } from '../content-store/catalog-presentation.js'
+import { _clearContentStoreSessionCacheForTests, useContentStore } from '../composables/useContentStore.js'
 import type { ContentStoreProduct, ContentStoreShelf, ContentStoreUiError } from '../composables/useContentStore.js'
 
-type SfcName = 'ContentProductCard.vue' | 'ContentProductDetail.vue' | 'ContentStoreShelf.vue' | 'ContentInstalledLibraryView.vue' | '[productId].vue'
+type SfcName = 'ContentProductCard.vue' | 'ContentProductDetail.vue' | 'ContentStoreShelf.vue' | 'ContentInstalledLibraryView.vue' | '[productId].vue' | 'content-store.vue'
 const sourceByName: Record<SfcName, string> = {
   'ContentProductCard.vue': '../components/content-store/ContentProductCard.vue',
   'ContentProductDetail.vue': '../components/content-store/ContentProductDetail.vue',
   'ContentStoreShelf.vue': '../components/content-store/ContentStoreShelf.vue',
   'ContentInstalledLibraryView.vue': '../components/content-store/ContentInstalledLibraryView.vue',
   '[productId].vue': '../pages/content-store/[productId].vue',
+  'content-store.vue': '../pages/content-store.vue',
 }
 
 async function loadComponent(name: SfcName): Promise<Component> {
@@ -30,8 +32,25 @@ async function loadComponent(name: SfcName): Promise<Component> {
     compilerOptions: { bindingMetadata: script.bindings },
   })
   const vueUrl = await import.meta.resolve('vue')
+  const pageSupport = name === 'content-store.vue' ? `
+    const ContentStoreFilters = { render: () => null }
+    const ContentStoreShelf = { render: () => null }
+    const ContentLibraryView = { render: () => null }
+    const ContentInstalledLibraryView = { render: () => null }
+    const ContentBatchPurchaseDialog = { render: () => null }
+    const NuxtPage = { render: () => null }
+    const useAppSettingsModal = () => ({ open: () => undefined })
+    const useContentInstallQueue = () => ({ statusOf: () => 'idle', enqueue: () => undefined, enqueueAll: () => undefined, clearFinished: () => undefined, running: ref(false), finished: ref(false), batchDone: ref(0), batchTotal: ref(0), batchFailed: ref(0), activeTitle: ref(''), batchInstalled: ref(0), failures: ref([]) })
+    const useBatchPurchase = () => ({ busy: ref(false), phase: ref('idle'), progress: ref({ done: 0, total: 0 }), items: ref([]), open: ref(false), start: () => undefined, confirmAll: async () => [], dismiss: () => undefined, close: () => undefined, show: () => undefined, retryFailed: () => undefined })
+    const batchSkipReason = () => null
+    const sumPublished = (items, price) => items.every(item => typeof price(item) === 'number') ? items.reduce((total, item) => total + price(item), 0) : null
+    const filterCatalogProducts = (items) => items
+    const installedPackCount = (items) => items.length
+    const orderShelfProducts = (items) => items
+    const contentStoreErrorPresentation = (error) => ({ title: error.detail, detail: error.detail, recovery: '', settingsAction: false })
+  ` : ''
   const support = `
-    import { h } from ${JSON.stringify(vueUrl)}
+    import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, ref } from ${JSON.stringify(vueUrl)}
     const ContentProductCover = { props: ['product'], render: () => null }
     const ContentProductCard = { props: ['product'], render() { return h('article', { class: 'component-card' }, this.product.title) } }
     const ContentProductDetail = { props: ['product'], render() { return h('article', { class: 'detail-stub' }, this.product.title) } }
@@ -40,12 +59,16 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const useContentStore = () => globalThis.__contentStoreTestStore
     const useAppTitle = () => undefined
     const navigateTo = (...args) => globalThis.__contentStoreNavigations.push(args)
+    ${pageSupport}
   `
-  const code = `${support}\n${script.content
-    .replace(/import ContentProductCover from '.+?'\n/, '')
-    .replace(/import ContentProductCard from '.+?'\n/, '')
-    .replace(/import ContentProductDetail from '.+?'\n/, '')
-    .replace(/import ContentPurchaseDialog from '.+?'\n/, '')
+  const strippedScript = name === 'content-store.vue'
+    ? script.content.replace(/^import .*?\n/gm, '')
+    : script.content
+      .replace(/import ContentProductCover from '.+?'\n/, '')
+      .replace(/import ContentProductCard from '.+?'\n/, '')
+      .replace(/import ContentProductDetail from '.+?'\n/, '')
+      .replace(/import ContentPurchaseDialog from '.+?'\n/, '')
+  const code = `${support}\n${strippedScript
     .replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })
   const componentUrl = `data:text/javascript;base64,${Buffer.from(
@@ -58,6 +81,7 @@ const NuxtLinkStub = defineComponent({
   props: { to: { type: String, required: true } },
   setup(props, { slots }) { return () => h('a', { href: props.to }, slots.default?.()) },
 })
+const NuxtPageStub = defineComponent({ setup: () => () => null })
 const LoadingSpinnerStub = defineComponent({ setup: () => () => h('span', 'loading') })
 
 async function mount(component: Component, props: Record<string, unknown> = {}) {
@@ -65,6 +89,7 @@ async function mount(component: Component, props: Record<string, unknown> = {}) 
   const host = document.body.appendChild(document.createElement('div'))
   const app = createApp(component, props)
   app.component('NuxtLink', NuxtLinkStub)
+  app.component('NuxtPage', NuxtPageStub)
   app.component('LoadingSpinner', LoadingSpinnerStub)
   app.mount(host)
   await nextTick()
@@ -88,17 +113,120 @@ function testStore(overrides: Partial<{
   loading: Ref<boolean>
   error: Ref<ContentStoreUiError | null>
   refresh: () => Promise<void>
+  recovery: Ref<{ incidentId: string; kind: 'invalid_state_reset'; detectedAt: string } | null>
+  recoveryError: Ref<{ action: 'check' | 'dismiss'; detail: string } | null>
+  refreshRecovery: () => Promise<void>
+  dismissRecovery: (incidentId: string) => Promise<void>
+  restoreOwnership: () => Promise<void>
 }> = {}) {
   return {
     account: ref(null), products: overrides.products || ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
-    catalogFreshness: ref('fresh'), lastVerifiedAt: ref(null), cachedProof: ref(null),
+    catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref(null), cachedProof: ref(null),
     loading: overrides.loading || ref(false), error: overrides.error || ref(null),
     refresh: overrides.refresh || (async () => {}), requestQuote: async () => { throw new Error('not used') },
     installRelease: async () => { throw new Error('not used') }, confirmPurchase: async () => { throw new Error('not used') },
+    recovery: overrides.recovery || ref(null), recoveryError: overrides.recoveryError || ref(null), refreshRecovery: overrides.refreshRecovery || (async () => {}),
+    dismissRecovery: overrides.dismissRecovery || (async () => {}), restoreOwnership: overrides.restoreOwnership || (async () => {}),
   }
 }
 
 describe('Content Store rendered catalog and proof regressions', () => {
+  test('keeps local recovery failures visible, ignores an old GET after dismissal, and surfaces a new incident', async () => {
+    const originalFetch = (globalThis as any).$fetch
+    const requests: Array<{ path: string; method?: string }> = []
+    let current = { incidentId: 'incident-one', kind: 'invalid_state_reset' as const, detectedAt: '2026-09-20T01:00:00Z' }
+    let failRecoveryRead = false
+    let resolveOldRead!: (response: { recovery: typeof current }) => void
+    let delayNextRead = false
+    ;(globalThis as any).$fetch = async (path: string, options: { method?: string } = {}) => {
+      requests.push({ path, method: options.method })
+      if (path === '/api/content-packs/recovery') {
+        if (failRecoveryRead) throw Object.assign(new Error('recovery marker cannot be read'), { status: 500 })
+        if (delayNextRead) {
+          delayNextRead = false
+          return await new Promise<{ recovery: typeof current }>(resolve => { resolveOldRead = resolve })
+        }
+        return { recovery: current }
+      }
+      if (path === '/api/content-packs/recovery/incident-one') throw Object.assign(new Error('stale incident'), { status: 409 })
+      if (path === '/api/content-packs/recovery/incident-two') return { ok: true }
+      throw new Error(`Unexpected request: ${path}`)
+    }
+    try {
+      _clearContentStoreSessionCacheForTests()
+      const store = useContentStore()
+      await store.refreshRecovery()
+      assert.equal(store.recovery.value?.incidentId, 'incident-one')
+      await assert.rejects(store.dismissRecovery('incident-one'))
+      assert.equal(store.recovery.value?.incidentId, 'incident-one')
+      assert.equal(store.recoveryError.value?.action, 'dismiss')
+
+      current = { incidentId: 'incident-two', kind: 'invalid_state_reset', detectedAt: '2026-09-20T02:00:00Z' }
+      await store.refreshRecovery()
+      assert.equal(store.recovery.value?.incidentId, 'incident-two')
+      assert.equal(store.recoveryError.value, null)
+      delayNextRead = true
+      const oldRead = store.refreshRecovery()
+      await store.dismissRecovery('incident-two')
+      resolveOldRead({ recovery: current })
+      await oldRead
+      assert.equal(store.recovery.value, null)
+      failRecoveryRead = true
+      await store.refreshRecovery()
+      assert.equal(store.recoveryError.value?.action, 'check')
+      assert.equal(store.recovery.value, null)
+      failRecoveryRead = false
+      current = { incidentId: 'incident-three', kind: 'invalid_state_reset', detectedAt: '2026-09-20T03:00:00Z' }
+      await store.refreshRecovery()
+      assert.equal(store.recovery.value?.incidentId, 'incident-three')
+      assert.equal(store.recoveryError.value, null)
+      assert.deepEqual(requests.filter(request => request.method === 'DELETE').map(request => request.path), [
+        '/api/content-packs/recovery/incident-one',
+        '/api/content-packs/recovery/incident-two',
+      ])
+    } finally {
+      ;(globalThis as any).$fetch = originalFetch
+      _clearContentStoreSessionCacheForTests()
+    }
+  })
+
+  test('renders local recovery errors independently of an unavailable Store overview and retains the incident through restore or failed dismissal', async () => {
+    const Store = await loadComponent('content-store.vue')
+    const recovery = ref({ incidentId: 'incident-one', kind: 'invalid_state_reset' as const, detectedAt: '2026-09-20T01:00:00Z' })
+    const recoveryError = ref<{ action: 'check' | 'dismiss'; detail: string } | null>(null)
+    let recoveryReads = 0
+    let restores = 0
+    ;(globalThis as any).__contentStoreTestRoute = { params: {} }
+    ;(globalThis as any).__contentStoreNavigations = []
+    ;(globalThis as any).__contentStoreTestStore = testStore({
+      recovery,
+      refresh: async () => { throw new Error('no key or offline') },
+      refreshRecovery: async () => { recoveryReads += 1; recoveryError.value = { action: 'check', detail: 'Your Content Pack recovery notice could not be read.' } },
+      restoreOwnership: async () => { restores += 1 },
+      dismissRecovery: async () => { recoveryError.value = { action: 'dismiss', detail: 'This recovery notice changed before it could be dismissed.' }; throw Object.assign(new Error('stale incident'), { status: 409 }) },
+      recoveryError,
+    })
+    const rendered = await mount(Store)
+    await Promise.resolve(); await nextTick()
+    const notice = rendered.host.querySelector('.store-notice.warning')
+    assert.match(notice?.textContent || '', /Restore purchases and reinstall purchased packs, or re-import your local packs\./)
+    assert.match(notice?.textContent || '', /The unreadable index was reset; pack folders were retained\. Reinstall or re-import any packs still missing\./)
+    assert.match(rendered.host.textContent || '', /Your Content Pack recovery notice could not be read\./)
+    assert.equal(recoveryReads, 1)
+    ;([...rendered.host.querySelectorAll('button')].find(button => button.textContent === 'Refresh store') as HTMLButtonElement).click()
+    await Promise.resolve(); await nextTick()
+    assert.equal(recoveryReads, 2)
+    ;([...rendered.host.querySelectorAll('button')].find(button => button.textContent === 'Restore purchases') as HTMLButtonElement).click()
+    await Promise.resolve(); await nextTick()
+    assert.equal(restores, 1)
+    assert.equal(recovery.value?.incidentId, 'incident-one')
+    ;([...rendered.host.querySelectorAll('button')].find(button => button.textContent === 'Dismiss notice') as HTMLButtonElement).click()
+    await Promise.resolve(); await nextTick()
+    assert.equal(recovery.value?.incidentId, 'incident-one')
+    assert.match(rendered.host.textContent || '', /This recovery notice changed before it could be dismissed\./)
+    rendered.unmount()
+  })
+
   test('renders local signed installed packs independently from account ownership', async () => {
     const Installed = await loadComponent('ContentInstalledLibraryView.vue')
     const rendered = await mount(Installed, { installed: [{

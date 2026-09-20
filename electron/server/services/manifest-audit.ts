@@ -32,21 +32,20 @@
  *   single generate button.
  */
 
-import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
-import { findNarrationFile, resolveAudioDir } from '../generators/audio.js'
+import { findNarrationFile, NarrationMissingError, resolveAudioDir } from '../generators/audio.js'
 import {
-  findScenePromptsFile, findThumbPromptsFile, resolveImageDirs,
+  findScenePromptsFile, findThumbPromptsFile, ImagePromptsMissingError, resolveImageDirs,
 } from '../generators/images.js'
 import { resolveSubfolderNames } from './utils.js'
 import { resolveEpisodeSubfolderDir } from './media-root.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
-import { readManifest as readTaskManifest } from './task-manifest.js'
+import { readManifestStrict, type Manifest as TaskManifest } from './task-manifest.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
-import { stripDecorativePrefix } from './asset-status.js'
+import { episodeDirNameMatchesCode, stripDecorativePrefix } from './asset-status.js'
 
 export type AuditStage =
   | 'audio'
@@ -55,14 +54,19 @@ export type AuditStage =
   | 'video'
   | 'merged_audio'
 
+export type AuditOutcome = 'measured' | 'not_started' | 'unmeasurable'
+
 export interface StageAudit {
   stage: AuditStage
+  outcome: AuditOutcome
   /**
    * False when the stage has never been started for this episode (no
    * task-manifest entries AND no expected file on disk). Callers should
    * render these as neutral/pending rather than red.
    */
   started: boolean
+  /** Safe, actionable detail for a stage whose files could not be measured. */
+  error?: string
   /** Absolute directory that was scanned; undefined when not resolvable. */
   dir?: string
   expected: number
@@ -93,24 +97,56 @@ export interface ProjectAudit {
   episodes_with_missing: number
 }
 
+const STRICT_IO = { strictIo: true } as const
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 async function fileNonEmpty(p: string): Promise<boolean> {
   try {
-    if (!existsSync(p)) return false
     const st = await fs.stat(p)
     return st.size > 0
-  } catch {
-    return false
+  } catch (error) {
+    if (isMissing(error)) return false
+    throw error
   }
 }
 
 async function listDir(p: string): Promise<string[]> {
-  try { return await fs.readdir(p) } catch { return [] }
+  try { return await fs.readdir(p) } catch (error) {
+    if (isMissing(error)) return []
+    throw error
+  }
+}
+
+function isMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+}
+
+async function readTaskManifest(assetDir: string): Promise<TaskManifest> {
+  try {
+    return await readManifestStrict(assetDir)
+  } catch (error) {
+    if (isMissing(error)) return { schema_version: 1, tasks: {} }
+    throw error
+  }
 }
 
 function notStarted(stage: AuditStage, dir?: string): StageAudit {
-  return { stage, started: false, dir, expected: 0, present: 0, missing: [], extra: [] }
+  return { stage, outcome: 'not_started', started: false, dir, expected: 0, present: 0, missing: [], extra: [] }
+}
+
+function unmeasurable(stage: AuditStage): StageAudit {
+  const label = stage.replace('_', ' ')
+  return {
+    stage,
+    outcome: 'unmeasurable',
+    started: false,
+    error: `Could not measure ${label} assets. Check that project storage is connected and readable, then retry the audit.`,
+    expected: 0,
+    present: 0,
+    missing: [],
+    extra: [],
+  }
 }
 
 async function findEpisodeDir(root: string, code: string): Promise<string | null> {
@@ -120,11 +156,13 @@ async function findEpisodeDir(root: string, code: string): Promise<string | null
     let entries: import('fs').Dirent[] = []
     try {
       entries = await fs.readdir(d, { withFileTypes: true }) as any
-    } catch { return null }
+    } catch (error) {
+      if (isMissing(error)) return null
+      throw error
+    }
     for (const e of entries) {
       if (!e.isDirectory()) continue
-      const clean = stripDecorativePrefix(e.name).toUpperCase()
-      if (clean.startsWith(CODE)) return path.join(d, e.name)
+      if (episodeDirNameMatchesCode(e.name, CODE)) return path.join(d, e.name)
     }
     for (const e of entries) {
       if (!e.isDirectory()) continue
@@ -140,12 +178,13 @@ async function findEpisodeDir(root: string, code: string): Promise<string | null
 
 async function auditAudio(slug: string, code: string): Promise<StageAudit> {
   let narration: string
-  try { narration = await findNarrationFile(slug, code) }
-  catch { return notStarted('audio') }
+  try { narration = await findNarrationFile(slug, code, undefined, STRICT_IO) }
+  catch (error) {
+    if (error instanceof NarrationMissingError || isMissing(error)) return notStarted('audio')
+    throw error
+  }
 
-  let audioDir: string
-  try { audioDir = await resolveAudioDir(slug, narration, code) }
-  catch { return notStarted('audio') }
+  const audioDir = await resolveAudioDir(slug, narration, code, undefined, STRICT_IO)
 
   // Ask the reconciler what SHOULD exist rather than predicting it again here.
   // This used to re-derive the filenames itself, calling the character chunker
@@ -158,13 +197,11 @@ async function auditAudio(slug: string, code: string): Promise<StageAudit> {
   let expected: string[]
   let present: string[]
   let missing: string[]
-  try {
-    const { getAudioStatus } = await import('./audio-reconciler.js')
-    const status = await getAudioStatus(slug, code)
-    expected = status.expected.map(e => e.filename)
-    present = status.present
-    missing = status.missing
-  } catch { return notStarted('audio', audioDir) }
+  const { getAudioStatus } = await import('./audio-reconciler.js')
+  const status = await getAudioStatus(slug, code, undefined, undefined, STRICT_IO)
+  expected = status.expected.map(e => e.filename)
+  present = status.present
+  missing = status.missing
   if (!expected.length) return notStarted('audio', audioDir)
 
   const taskManifest = await readTaskManifest(audioDir)
@@ -180,7 +217,7 @@ async function auditAudio(slug: string, code: string): Promise<StageAudit> {
   )
 
   return {
-    stage: 'audio', started: true, dir: audioDir,
+    stage: 'audio', outcome: 'measured', started: true, dir: audioDir,
     expected: expected.length, present: present.length,
     missing, extra,
   }
@@ -192,15 +229,19 @@ async function auditImages(
   let promptsPath: string
   try {
     promptsPath = kind === 'scenes'
-      ? await findScenePromptsFile(slug, code)
-      : await findThumbPromptsFile(slug, code)
-  } catch { return notStarted(kind) }
+      ? await findScenePromptsFile(slug, code, STRICT_IO)
+      : await findThumbPromptsFile(slug, code, STRICT_IO)
+  } catch (error) {
+    if (error instanceof ImagePromptsMissingError) return notStarted(kind)
+    if (isMissing(error)) return notStarted(kind)
+    throw error
+  }
 
   const { bgDir, thumbDir } = await resolveImageDirs(slug, promptsPath, code)
   const dir = kind === 'scenes' ? bgDir : thumbDir
 
-  const parsed = await parseImagePromptsDocx(promptsPath).catch(() => null)
-  const list = parsed ? (kind === 'scenes' ? parsed.scenes : parsed.thumbnails) : []
+  const parsed = await parseImagePromptsDocx(promptsPath)
+  const list = kind === 'scenes' ? parsed.scenes : parsed.thumbnails
   if (!list.length) return notStarted(kind, dir)
 
   const CODE = code.toUpperCase()
@@ -245,7 +286,7 @@ async function auditImages(
   })
 
   return {
-    stage: kind, started: true, dir,
+    stage: kind, outcome: 'measured', started: true, dir,
     expected: list.length, present: presentStems.size,
     missing, extra,
   }
@@ -276,7 +317,7 @@ async function auditVideo(slug: string, code: string): Promise<StageAudit> {
   )
 
   return {
-    stage: 'video', started: true, dir: videoDir,
+    stage: 'video', outcome: 'measured', started: true, dir: videoDir,
     expected: expected.length, present: present.length,
     missing, extra,
   }
@@ -331,14 +372,14 @@ async function auditMergedAudio(slug: string, code: string): Promise<StageAudit>
 
   if (!latestMerged) {
     return {
-      stage, started: true, dir: mergedDir,
+      stage, outcome: 'measured', started: true, dir: mergedDir,
       expected: 1, present: 0,
       missing: [`${CODE}_merged_audio.mp3`],
       extra: [],
     }
   }
   return {
-    stage, started: true, dir: mergedDir,
+    stage, outcome: 'measured', started: true, dir: mergedDir,
     expected: 1, present: 1, missing: [], extra: [],
   }
 }
@@ -363,11 +404,11 @@ export async function auditAssets(slug: string): Promise<ProjectAudit> {
     const idea = queue[i]
     const code = idea.episode_code!
     const [audio, scenes, thumbnails, video, merged] = await Promise.all([
-      auditAudio(slug, code).catch(() => notStarted('audio')),
-      auditImages(slug, code, 'scenes').catch(() => notStarted('scenes')),
-      auditImages(slug, code, 'thumbnails').catch(() => notStarted('thumbnails')),
-      auditVideo(slug, code).catch(() => notStarted('video')),
-      auditMergedAudio(slug, code).catch(() => notStarted('merged_audio')),
+      auditAudio(slug, code).catch(() => unmeasurable('audio')),
+      auditImages(slug, code, 'scenes').catch(() => unmeasurable('scenes')),
+      auditImages(slug, code, 'thumbnails').catch(() => unmeasurable('thumbnails')),
+      auditVideo(slug, code).catch(() => unmeasurable('video')),
+      auditMergedAudio(slug, code).catch(() => unmeasurable('merged_audio')),
     ])
     episodes[i] = {
       episode_code: code,

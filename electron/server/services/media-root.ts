@@ -19,6 +19,7 @@
 import { existsSync } from 'fs'
 import path from 'path'
 import { resolveAssetPath } from './path-resolver.js'
+import type { ProjectFactsCache } from './utils.js'
 
 /**
  * Episode subfolder KEYS (matching SubfolderNames keys) whose contents are
@@ -100,11 +101,34 @@ export function resolveMediaBase(
  * sites with bespoke iCloud-dir logic re-route ONLY when media is active,
  * preserving their default-path behavior untouched.
  */
-export async function mediaEpisodeBaseForCode(slug: string, code: string): Promise<string | null> {
-  const { resolveEpisodePathsByCode } = await import('./utils.js')
-  const paths = await resolveEpisodePathsByCode(slug, code)
+export async function mediaEpisodeBaseForCode(
+  slug: string,
+  code: string,
+  cache?: ProjectFactsCache,
+): Promise<string | null> {
+  const { episodeNumber, projectMetaOnce, resolveEpisodePathsByCode } = await import('./utils.js')
+  // No `media_root` ⇒ every heavy subfolder sits under the episode dir, so the
+  // caller's own iCloud dir is already correct. Answering that costs ONE cached
+  // read of project.json; resolving the full path set instead also reads
+  // ideas.json (to recover the episode title) and resolves ~15 subfolders, just
+  // to compare two paths that are guaranteed equal. On the owner's 302-episode
+  // project this ran once per episode — 2,360 `readFile` calls of project.json
+  // and 1,340 of ideas.json for a comparison that always said "not split".
+  const meta = await projectMetaOnce(slug, cache)
+  if (!meta?.media_root || !String(meta.media_root).trim()) {
+    // The fast path must not be quieter than the slow one. `resolveEpisodePaths`
+    // refused an episode code its prefix does not match, and callers relied on
+    // that — a WRITE reaches here through `resolveEpisodeSubfolderDir`, which
+    // creates the folder it is handed. Asking the same question here throws the
+    // identical error rather than letting a malformed code name a new folder.
+    episodeNumber(code, meta?.episode_prefix || 'EP')
+    return null
+  }
+
+  const paths = await resolveEpisodePathsByCode(slug, code, cache)
   const mediaBase = path.dirname(paths.bg_dir)
-  // No media_root (or unresolvable here) ⇒ bg_dir sits under episode_dir.
+  // media_root set but unresolvable on this machine ⇒ bg_dir sits under
+  // episode_dir (see resolveEpisodePaths), so there is no split to route.
   return path.resolve(mediaBase) === path.resolve(paths.episode_dir) ? null : mediaBase
 }
 
@@ -137,10 +161,10 @@ export async function assertMediaRootReady(slug: string): Promise<void> {
 }
 
 async function baseEpisodeDirForKey(
-  slug: string, code: string, key: string, iCloudEpisodeDir: string,
+  slug: string, code: string, key: string, iCloudEpisodeDir: string, cache?: ProjectFactsCache,
 ): Promise<string> {
   if (!isHeavySubfolder(key)) return iCloudEpisodeDir
-  return (await mediaEpisodeBaseForCode(slug, code)) ?? iCloudEpisodeDir
+  return (await mediaEpisodeBaseForCode(slug, code, cache)) ?? iCloudEpisodeDir
 }
 
 /**
@@ -151,8 +175,9 @@ async function baseEpisodeDirForKey(
 export async function resolveEpisodeSubfolderDir(
   slug: string, code: string, key: string,
   iCloudEpisodeDir: string, subfolderName: string, createIfMissing = true,
+  cache?: ProjectFactsCache,
 ): Promise<string> {
-  const base = await baseEpisodeDirForKey(slug, code, key, iCloudEpisodeDir)
+  const base = await baseEpisodeDirForKey(slug, code, key, iCloudEpisodeDir, cache)
   const { resolveSubfolder } = await import('../lib/folder-resolver.js')
   return resolveSubfolder(base, subfolderName, createIfMissing)
 }
@@ -165,8 +190,9 @@ export async function resolveEpisodeSubfolderDir(
 export async function findEpisodeSubfolderDir(
   slug: string, code: string, key: string,
   iCloudEpisodeDir: string, subfolderName: string,
+  cache?: ProjectFactsCache,
 ): Promise<string | null> {
-  const base = await baseEpisodeDirForKey(slug, code, key, iCloudEpisodeDir)
+  const base = await baseEpisodeDirForKey(slug, code, key, iCloudEpisodeDir, cache)
   const { findSubfolder } = await import('../lib/folder-resolver.js')
   return findSubfolder(base, subfolderName)
 }

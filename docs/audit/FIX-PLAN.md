@@ -1,0 +1,1481 @@
+# Fix plan
+
+Working record for the fixes listed in `2026-09-19-defect-audit.md`. **This file
+is the durable memory** — the working context resets between rounds, so a group
+is not finished until its box is ticked here.
+
+## Recovery status — 2026-09-20
+
+[MEASURED] Takeover started at local `main` commit `08aa6ee0` (v1.4.209),
+with uncommitted v1.4.210 queue changes. GitHub `main` was `9d34df7d`, 70
+commits behind local `main`. The previous claim that v1.4.210 was shipped was
+premature. Its queued-only regression passed, but four new active-worker tests
+failed: deleting, clearing, or retrying cancelled history removed the stop flag
+before the worker returned; force-abandon exposed the same race.
+
+[MEASURED] Recovery work is on `codex/recover-interrupted-audit`. The original
+diff and complete local Git history are preserved in
+`logs/takeover-2026-09-20/recovered.patch` and `local-history.bundle`.
+The bundle passed `git bundle verify`. See
+[`2026-09-20-takeover.md`](2026-09-20-takeover.md) for current verification,
+release boundaries, and continuation instructions. Earlier completion claims
+below are historical records, not fresh verification or proof of publication.
+
+[MEASURED] The saved owner direction for decision 6 permits models with no
+published output ceiling: omit the token limit. The Scene Plan batching path
+still needs implementation. Decision 9 requests a separate reusable guidance
+box; its persistence location is not recorded as decided. These remain separate
+from the recovery/cancellation repair.
+
+**REMAINING, in this order:**
+
+- **E-2. Decision 6's OTHER site, found while finishing E — and it is reachable.**
+  `services/scene-prompt-batching.ts:168` (`normalizeMaxOutputTokens`) throws for
+  exactly the same condition v1.4.209 removed from `productCeiling`, and
+  `generators/scene-plan.ts:717` feeds it the selected prompt model's
+  `max_output_tokens`. So a Pipeline **`scene_plan_run`** with one of the four
+  null-ceiling models still fails, even though the model now works everywhere
+  else. The Scene Plan PAGE gates itself too: `hasPublishedPromptBudget`
+  (`scene-plan.vue:1810`) hides "Next" and disables the batch controls when no
+  ceiling is published. [MEASURED] Takeover source inspection found that "All
+  pending" remains available after model selection and can reach the backend
+  rejection; the earlier claim that both buttons were hidden was incorrect.
+  **This needs the owner, because it decides what the app SAYS:** with no
+  published ceiling there is no derivable batch maximum, so the honest rule is
+  "use this channel's configured batch size and send no token ceiling; GenStudio
+  validates". The module already has that shape for model-free runs
+  (`SCENE_TIMELINE_ONLY_OUTPUT_BUDGET`), but it removed an 8,192 substitute once
+  and calls it "the third instance of the same mistake", so the wording and the
+  fallback both want a ruling rather than a guess. Recommendation: adopt the
+  configured batch size, say so on the card, and omit `prompt_max_tokens`.
+- **F. Decision 9's channel-specific box** — new UI. Add a second, clearly
+  labelled channel-level guidance field on Scene Plan whose text IS in a preset
+  (unlike `custom_instructions`); decide with the owner whether it writes to
+  `config.json` like `default_style_bible` or rides only in presets; make the
+  two boxes visually distinct.
+
+**Do not trust this audit's coordinates.** Verified across four rounds of
+checking: its line numbers and site lists were wrong or incomplete *every time*
+— a file that does not exist, a non-member listed, a member missed, a stale line
+number — and **six** findings turned out not to be defects at all. The defects
+it points at are real; the map is not. **Enumerate from the code before acting
+on any entry.** v1.4.210 added a seventh instance of the same lesson: the queue
+item's own recorded prescription ("prune on project unload/removal — `loadedProjects`
+is the right hook") named a hook that does not exist, because `loadedProjects`
+is add-only and the queue has no unload path.
+
+**Three habits that paid for themselves repeatedly here**, all worth keeping:
+write the test and watch it fail against the OLD code before believing the fix;
+assert consequences rather than strings; and remember that **a hand-written test
+stub is a claim about the real module** — two harnesses stubbed
+`promptLengthState` with an object the real function never returns, and one broke
+the moment production code read a field the stub omitted. Where a harness can
+import the real module, it should. A fourth, from v1.4.209: **a failed assertion
+that skips teardown turns a red test into a hang**, which reports nothing at all
+— tear down in `finally`.
+
+**Do not trust this audit's coordinates.** Verified across four rounds of
+checking: its line numbers and site lists were wrong or incomplete *every time*
+— a file that does not exist, a non-member listed, a member missed, a stale line
+number — and **six** findings turned out not to be defects at all (code already
+correct, or a deliberate named choice). The defects it points at are real; the
+map is not. **Enumerate from the code before acting on any entry.**
+
+**Two habits that paid for themselves repeatedly here**, both worth keeping:
+write the test and watch it fail against the OLD code before believing the fix
+(the gate caught three of my own wrong fixes this way), and assert consequences
+rather than strings — several pre-existing tests broke on unrelated edits
+because they pinned exact statements or whitespace.
+
+## The loop, per item
+
+1. **Trace it first.** Read the code and confirm the failure is real. Four audit
+   claims were already false when checked; do not fix a claim.
+2. **Write the test that fails.** It must fail for the *right* reason — assert a
+   consequence (a file still exists, a status is still false), not an error
+   string. A rejection assertion passes even when the damage already happened.
+3. **Fix it.**
+4. **Re-run the test.** Green, and the control case still passes.
+5. **Affected suites**, then the **full backend gate** (frontend lane for
+   frontend-only work). Never quote a filtered run as green.
+6. **Tick the box here**, with the commit.
+
+## Rules that have already earned their place
+
+- Validate the **security property**, never a charset copied from elsewhere. A
+  regex that was only ever applied on one branch has unknown coverage.
+- `git checkout HEAD -- <file>` restores HEAD, which may *be* the change you are
+  reverting. Check the file's content afterwards, not the exit code.
+- "Dead state" is a claim about the whole system. Grep for readers before
+  clearing a field.
+- Prefer the chokepoint (the one path builder ~40 callers share) over per-route
+  guards. Per-route is the arrangement that let the traversal class exist.
+
+---
+
+# Group 1 — output integrity
+
+*The app must not report success over missing output, and must not publish the
+same episode twice.*
+
+## 1.1 The completion contract (the big one)
+
+`services/job-completion.ts` — the ordinary success path is a **self-declaration**:
+`assertJobDidNotDeclareIncomplete` returns immediately unless the executor itself
+set `result.complete === false`. Every guarantee depends on each generator
+choosing to prove, and these never do: `generateAudioMerge`,
+`generateVideoAssembly`, `generateSubtitlesTranscribe`, `generateYoutubeUpload`,
+`generateYoutubePlaylistUpdate`, `generateThumbnailRefresh`, `broll_assemble`.
+
+The infrastructure already exists: `registerJobCancellationAuditor`
+(`boot/executors.ts:129-198`) computes `complete | repair-required` from disk for
+10 job types, and is wired only on the provider-settlement path.
+
+- [ ] Read `job-cancellation-auditors.ts` and `job-completion.ts` fully; write
+      down what the success path does today and which types have an auditor.
+      **DONE — and the result changes this group's shape. See below.**
+
+### What the enumeration actually found (round 13)
+
+`requireJobCompletion(job, audit)` is the correct mechanism: it sets
+`result.complete` and throws with an item-naming message. The queue's success
+path (`completeSuccessfulJob`, `job-queue.ts:3252`, with
+`assertJobDidNotDeclareIncomplete` at `:3404`) only calls
+`assertJobDidNotDeclareIncomplete`, which returns immediately unless
+`job.result?.complete === false`. So an executor that audits nothing passes.
+
+**Auditors exist for only 11 of the 40 job types:** `audio`,
+`subtitles_transcribe`, `thumb_images`, `scene_image_generate`,
+`continuity_render`, `composition_generate`, `image_pool_generate`,
+`scene_clip_generate`, `scene_clips_batch`, `scene_plan_run`, `video`.
+
+**Six of the seven types the audit named have NO auditor**, so "run the existing
+per-type auditor on the success path" cannot close them — it would close the 11
+above and leave the named ones exactly as they are:
+
+| Type | Auditor? | Produces |
+|---|---|---|
+| `broll_assemble` | ✗ | the assembled video |
+| `audio_merge` | ✗ | merged audio |
+| `youtube_upload` | ✗ | the upload itself |
+| `youtube_playlist_update` | ✗ | playlist membership |
+| `youtube_thumbnail_refresh` | ✗ | the pinned thumbnail |
+| `music_generate` | ✗ | tracks |
+| `music_video` | ✗ | a video |
+| `broll_normalize` | ✗ | normalised clips |
+| `images_repair` | ✗ | repaired images |
+| `image_prompts` | ✗ | prompt docs |
+| `metadata` | ✗ | metadata package |
+| `contextual_cues` | ✗ | cue timeline |
+| `expression_markup` | ✗ | markup |
+
+Text/chat types (`idea_campaign`, `script-only`, `chapter-only`,
+`outline_only`, `expand_chapters`, `introduction-only`, `research_run`) audit
+themselves through their own `requireJobCompletion` and legitimately declare
+nothing in some modes — they must keep today's behaviour.
+
+**So this group is two steps, and the first is still the right first:**
+
+- [x] **(1a) DONE — commit pending, v1.4.187.** `assertAuditedCompletionOnSuccess`
+      in `job-queue.ts`, called from the local completion inside the shared
+      `completeSuccessfulJob`, skipping jobs the settlement path owns.
+      The predicate that finally worked, found by the SECOND test rather than by
+      reasoning: **skip when the job has recorded provider work**
+      (`genstudio_jobs.length > 0`). The executor returns BEFORE settlement
+      audits — `provider success during a live executor waits for local output
+      before auditing` pins that ordering — so without the skip the local pass
+      audited first and settlement audited again: two audits, which the gate
+      caught as `2 !== 1`.
+      That is a fact about the JOB, not an inference about which path ran. Two
+      earlier attempts failed on inferred predicates; this one is checkable.
+      Tests: the new local-completion failure case, plus the three existing
+      once-only/settlement tests still green.
+
+- [ ] **(1a-original-note, superseded)** Run the existing auditor on the
+      ordinary success path for the 11 types that have one. Apply only when the executor declared nothing
+      (`result.complete === undefined`) — a declared `true` means the executor
+      already audited, and a declared `false` already throws. Behaviour changes
+      only for a job whose executor audited nothing AND whose auditor finds a
+      problem.
+
+      **ATTEMPTED AND REVERTED (round 13).** Commit `a8d15229` added
+      `assertAuditedCompletionOnSuccess` and the full gate failed immediately,
+      in `remote cancellation checkpoints`:
+
+        ✖ simultaneous final provider updates run the auditor and terminal
+          transition once
+        ✖ provider success during a live executor waits for local output before
+          auditing or releasing the lock
+
+      **Why it was wrong.** The PROVIDER-SETTLEMENT path already audits
+      (`job-queue.ts:955`), and is stricter than I assumed: for a type with no
+      auditor it refuses to finish at all — *"Provider work settled, but no
+      output auditor is registered. Keeping this job running until output can be
+      verified."* My addition ran the auditor a SECOND time on the same job, and
+      those tests pin "the auditor and terminal transition run ONCE".
+
+      **The correct target.** The hole is not "the success path audits nothing"
+      — it is narrower: **the path where no provider settlement audit ran**, i.e.
+      local-only completions and types the settlement path never reaches. The
+      fix must be scoped to that path, not applied blanket at
+      `completeSuccessfulJob`. Do not re-derive this from the audit report; the
+      report's recommendation ("run the existing auditor on the success path")
+      was based on the premise that it was wired to only one path, and the
+      stronger truth is that the settlement path is already the audit.
+
+      **Next attempt, in order:** (i) find what marks a job as already audited by
+      the settlement path; (ii) scope the new check to jobs that lack that mark;
+      (iii) write the test as "the auditor runs ONCE when both paths could fire",
+      which is the test that was missing from the first attempt and is the whole
+      reason the gate caught it.
+
+      **SOLVED (round 14) — here is the exact shape, do not re-derive it.**
+
+      `completeSuccessfulJob` (`job-queue.ts:3252`) is **shared**, and that is the
+      whole reason the first attempt failed. Its callers:
+
+        :979   the PROVIDER-SETTLEMENT path, AFTER it has already audited (:955)
+        :3467  the ordinary/local completion path
+
+      My check went at :3404, inside that shared function, so every settled job
+      was audited twice. Two other completion sites exist and were not involved:
+      `enqueueOrRun` (:4564, the direct executor runner used by routes and
+      tests) and the settlement path itself.
+
+      **The scoping fix is a marker, not an inference.** The settlement path's
+      SUCCESS branch (:985) sets nothing on the job before calling
+      `completeSuccessfulJob` — only its repair branch sets `provider_settled`.
+      So:
+
+        1. In the success branch, before `await completeSuccessfulJob(job)` at
+           :985, record that the output was audited:
+           `job.result = { ...(job.result || {}), provider_settled: 'succeeded', output_audited: 'provider-settlement' }`
+        2. In the new check, skip when `job.result?.output_audited` is set.
+           Everything else keeps the limits already written above (only when
+           `result.complete === undefined`; only for types with an auditor).
+
+      Do NOT scope it by "has provider evidence" — that is an inference about
+      which path ran, and this state machine has now punished two of those.
+
+      **Write these two tests FIRST**, because the first attempt had neither and
+      the gate is what found it:
+        - a job that settled with provider work and passed the settlement audit
+          runs the auditor EXACTLY ONCE (spy on the auditor, assert one call)
+        - a locally-completed job whose executor declared nothing and whose
+          auditor says `repair-required` does NOT end `done`
+- [~] **(1b) IN PROGRESS — `broll_assemble` DONE (v1.4.188).** Auditor
+      `auditBrollAssemblyOutput` in `boot/executors.ts`, registered beside the
+      other 11. Decided from the SELECTION SIDECAR alone — `-shortest`
+      guarantees a short selection becomes a short video, so measuring coverage
+      is sufficient and avoids re-deriving the output path (which may sit under
+      an external root) and ffprobing it. Threshold reuses `COVERAGE_FAIL_SEC`
+      (2s) so a frame-level trim cannot fail a good render, and a **legacy
+      sidecar with no `target_duration` returns `complete`** — failing it would
+      invent a requirement that never existed.
+      Tests: `broll-assembly-audit.test.ts`, 6 cases. `--only broll --only
+      job-cancel` is 73 pass / 0 fail.
+      NOTE: registering an auditor also changes the SETTLEMENT path, which
+      previously held any type with no auditor ("keeping this job running until
+      output can be verified"). `broll_assemble` is now audited there instead of
+      held — checked, and nothing broke.
+      **1.1b IS MUCH SMALLER THAN THE AUDIT CLAIMED — verified, not assumed.**
+
+      The audit said "seven executors never call `requireJobCompletion`" and
+      named `generateAudioMerge`, `generateVideoAssembly`,
+      `generateSubtitlesTranscribe`, `generateYoutubeUpload`,
+      `generateYoutubePlaylistUpdate`, `generateThumbnailRefresh` and
+      `broll_assemble`. Counting the calls in each file contradicts most of that:
+
+      | file | `requireJobCompletion` |
+      |---|---|
+      | `broll-assemble.ts` | **0** — the real one, now FIXED |
+      | `broll-normalize.ts` | **0** |
+      | `subtitles.ts` | **0** |
+      | `audio-merge.ts` | 2 |
+      | `youtube-upload.ts` | 3 |
+      | `youtube-playlist-update.ts` | 3 |
+      | `youtube-thumbnail-refresh.ts` | 3 |
+      | `music-generate.ts` | 2 |
+      | `music-video.ts` | 2 |
+      | `image-prompts.ts` | 2 |
+      | `metadata.ts` | 2 |
+      | `contextual-cues.ts` | 2 |
+      | `video.ts` | 2 |
+      | `images.ts` | 5 |
+
+      So FOUR of the seven the audit named DO declare completion. The audit said
+      its method was "grep over electron/server/generators/*.ts", which should
+      have found them — the claim looks simply wrong, and it is the second
+      enumeration in this group to change the plan's shape.
+
+      **A count is a SCREEN, not proof.** It shows a file declares completion
+      somewhere; whether the declaration covers the whole success path (rather
+      than one branch) needs per-file reading before any of them is called clean.
+      That is the next step, not this table.
+
+      **`subtitles_transcribe` is NOT silent either — third correction.**
+      `generators/subtitles.ts` throws in 30+ places and computes completion from
+      Audio Assembly's authoritative section manifest via
+      `inspectSubtitleCompletion(..., { require_per_section: true })`, tracking
+      `scopeComplete` / `episodeComplete`, failed slugs and stale sections. It
+      explicitly documents "never trust 'the worker returned'". It needs no auditor.
+
+      Its REAL gap is narrow and CONFIRMED — the merged-transcript skip at
+      `subtitles.ts:294`:
+
+        if (!effectiveForce && await fileExistsWithContent(outPath)) {
+          const existing = normalizeSrtOrVtt(await fs.readFile(outPath, 'utf-8'))
+          if (existing.cues > 0) { … result = { …, complete: true }; return }
+        }
+
+      Three problems, in order of harm:
+        1. **No staleness check.** The per-chapter path at `:540` consults
+           `staleSections`; this one does not. Re-run Audio, then Retry
+           transcription, and the existing SRT is blessed as current.
+        2. **`cues > 0` is not coverage.** One cue over a 40-minute episode passes.
+        3. **It short-circuits BEFORE the stitch**, so a run that failed at
+           `:113` ("Subtitle stitch did not complete … Retry the local subtitle
+           stitch before Scene Plan") is "repaired" by Retry taking this skip path
+           — the Retry cannot repair the failure its own error named.
+      **FIXED (v1.4.189) for problems 1 and 2.** The decision is extracted as
+      `existingTranscriptIsCurrent()` in `subtitles.ts` — testable without driving
+      the generator — and now consults `inspectSubtitleSourceFreshness`, the same
+      authority the per-chapter path uses. `cues > 0` remains as the floor.
+      4 tests in `subtitle-transcript-skip.test.ts`, driving the freshness
+      authority's legacy mtime branch: audio older than the transcript → skip;
+      audio NEWER → regenerate and name the changed sections; no cues → no skip;
+      unreadable → no skip. `--only subtitle` is 352 pass / 0 fail.
+      The key case WOULD have failed before: the old predicate had no staleness
+      input at all, so it returned skip for that exact fixture.
+
+      **Problem 3, the stitch — DESIGN WORKED OUT (round 25), not yet applied.**
+
+      The shape, verified by reading the flow:
+
+        :110  requireWrittenSubtitleStitch(outcome)  throws
+              "Subtitle stitch did not complete: … Retry the local subtitle stitch
+               before Scene Plan."
+        :294  the skip path returns EARLY — before the stitch
+        :884  ensureStitchedSubtitle({ episodeDir, subtitlesDir, mergedAudioDir,
+                                     audioDir, episodeCode })
+              returns status 'stitched' | 'fresh' | … — **'fresh' already means
+              "the existing stitch is current"**, so that function owns the
+              freshness decision.
+        :895  if the status is neither, requireWrittenSubtitleStitch throws
+
+      So a job that fails the stitch is told to "Retry the local subtitle stitch",
+      and Retry then takes the :294 skip path and returns before ever reaching
+      :884. **Retry cannot perform the repair its own error names.**
+
+      THE FIX: route the skip path through `ensureStitchedSubtitle` too, then
+      `requireWrittenSubtitleStitch`. It is the same call the full path makes,
+      it returns 'fresh' when nothing needs doing, and it makes a Retry actually
+      stitch. Do NOT simply refuse to skip when the stitch is absent — falling
+      through would RE-TRANSCRIBE, which costs money to repair a local file.
+
+      STATUS (round 27) — **DONE, v1.4.191.**
+
+      The wiring is applied: the skip path resolves its own episode paths and
+      awaits `stitchAndVerifyTranscript` before returning.
+
+      The fixture that was blocking this turned out to be cheap, because the
+      skip path makes **no provider calls** — it needs disk state only. The
+      existing `createScopedSubtitleFixture` in `subtitles-retranscribe.test.ts`
+      already satisfies `requireAudioAssemblyReady` (chapter audio + a
+      `duration_s > 0` timeline manifest + merged audio), so the new tests reuse
+      it with `per_chapter: false`, which is the one lever no prior test pulled.
+
+      Two tests, appended to `subtitles-retranscribe.test.ts`:
+      (1) a current whole-track transcript with per-chapter SRTs present and no
+      stitched file → `${code}_stitched.srt` exists after the run, `skipped` is
+      still true, and `providerSubmissionCount('transcription') === 0`;
+      (2) a second run does not rebuild a current stitch (mtime unchanged).
+
+      Making the transcript count as current needed the audio byte identity, so
+      the fixture writes `.subtitle-recovery.json` with a real
+      `hashSubtitleAudioSources` result per chapter. That is deliberate — a
+      fixture that skips because freshness was never consulted would not test
+      the branch it claims to.
+
+      PROVEN, not assumed: both tests **failed before the wiring with `ENOENT`
+      on the stitched file** — the defect reproduced exactly — and pass after.
+      `--only subtitle` is 354/354 (31 suites).
+
+      **One case this deliberately does NOT decide.** `ensureStitchedSubtitle`
+      returns `'not-applicable'` when no per-chapter transcript matches any audio
+      section, and `requireWrittenSubtitleStitch` treats that as a failure. So an
+      episode carrying ONLY a whole-track transcript now fails loudly where it
+      previously reported `skipped, complete: true`. That is the honest answer if
+      the stitched timeline is genuinely required, and a regression if a
+      whole-track transcript is a legitimate finished state. `inspectSubtitleSourceFreshness`
+      comments that "an intentional whole-track has no per-section source to
+      stale", which suggests the latter — so this is an OWNER DECISION, recorded
+      below rather than guessed at.
+
+      **`broll_normalize` ALSO shrinks — it already fails loudly.** `normalizeBroll`
+      throws for a missing pool/filename, an offline pool ("plug in the SSD"),
+      a missing source clip, and — the one that matters — a missing or EMPTY
+      output: `if (!stat.isFile() || stat.size <= 0) throw new Error('Normalized
+      clip is empty')`. So it proves non-emptiness; it does not need an auditor to
+      stop reporting done over a MISSING file.
+
+      Its only real gap is narrower than the audit implied: a non-empty but
+      UNPLAYABLE encode would pass, and it declares nothing structurally. The repo
+      already has `assertPlayableSceneClip` (used by the scene-clip auditors) if
+      that is judged worth adding. NOT a group-1 correctness hole.
+
+      **CONCLUSION FOR 1.1b: there is no remaining "reports done over missing
+      output" generator among the types the audit named.** All three it called
+      silent either proved their output already (`broll_normalize`), proved it
+      through a manifest (`subtitles`), or are now fixed (`broll_assemble`). The
+      audit's central claim for this group was overstated; the enumeration found
+      the real gap, which was one skip path in `subtitles.ts`.
+
+      WHAT REMAINS IN 1.1b is therefore only the per-file judgement pass over the
+      eleven types that DO declare completion — is each declaration covering its
+      whole success path, or only one branch? That is the check that could still
+      find a real hole, and it is reading work, not auditor writing.
+
+      **PER-FILE PASS DONE (round 23) — result below.**
+
+      Every `requireJobCompletion` in the eleven, by the shape of its numbers:
+
+      | file | declaration | verdict |
+      |---|---|---|
+      | `audio-merge.ts:1134` | `finalBytes > 0 && finalDuration > 0` | real |
+      | `music-generate.ts:308` | `planned.length - failures.length` | real |
+      | `metadata.ts:658` | `expected - missing.length` | real, but self-referential (below) |
+      | `image-prompts.ts:680` | `count - missing.length` | real |
+      | `youtube-upload.ts:499` | `expected: 1, completed: 0` | **false alarm** — inside `if (identityErrors.length)`, always throws with `invalid` |
+      | `youtube-upload.ts:570` | `sidecarErrors.length ? 0 : 1` | real |
+      | `youtube-playlist-update.ts:91` | `expected: 0, completed: 0` | deliberate opt-out (0/0 passes by design) |
+      | `youtube-playlist-update.ts:193` | `checkpointErrors.length ? 0 : 1` | real |
+      | `youtube-thumbnail-refresh.ts:235` | **`expected: 1, completed: 1`** | **TAUTOLOGY — NOT in the audit** |
+      | `youtube-thumbnail-refresh.ts:335` | `targets.length` / `durable.size` | real |
+      | `music-video.ts:150` | `stat?.isFile() && stat.size > 0` | real |
+      | `video.ts:187` | `valid ? 1 : 0` | real |
+      | `images.ts:1677` | `expectedItems.length - missing.length` | real |
+      | `contextual-cues.ts:578` | **`expected: 1, completed: 1`** | **TAUTOLOGY — the audit flagged this one** |
+
+      - [ ] **FIX `contextual-cues.ts:578`.** `{ expected: 1, completed: 1 }` asserts
+            nothing. The surrounding code validates with
+            `validateContextualCueTimeline` and writes the timeline, so the artifact
+            exists — but the declaration must come from READING IT BACK, per §8
+            ("a generator returning without throwing is not evidence"). The audit's
+            case: `parseCandidates` returning `[]` for every batch saves a 0-cue
+            timeline that is then certified as a verified proposal. Decide whether
+            0 cues is a legitimate outcome for this product before choosing between
+            `completed: written.length ? 1 : 0` (fails an empty proposal) and
+            recording the count while passing. **That is a product question, not a
+            mechanical one** — ask rather than guess.
+      - [x] **FIXED `youtube-thumbnail-refresh.ts:235` (v1.4.190).** The tautology
+            is replaced by `thumbnailUpdateWasRecorded()`, which READS THE
+            OPERATION RECORD BACK and requires a `thumbnail_update` action in state
+            `succeeded`. Extracted so it is testable without uploading to YouTube.
+            4 tests in `thumbnail-update-recorded.test.ts`: succeeded action →
+            recorded; no action → NOT; a `failed` action → NOT; unknown operation →
+            NOT and does not throw. `--only youtube --only thumbnail` is 610 pass /
+            0 fail.
+            My first version of the test failed 3 of 4 for a SETUP reason, not a
+            predicate one: each test created a new project and re-assigned the same
+            channel, which 409s ("already assigned to another project"). The project
+            is now created once and each test gets a fresh operation.
+      - [ ] `metadata.ts:658` — `completed: expected - missing.length` where the
+            audit notes the expected counts come from the same in-memory arrays
+            being checked (self-referential). Lower priority: the numbers are
+            computed, just not independently sourced.
+      **Not yet located:** `images_repair`, `expression_markup` — neither is a
+      `generators/*.ts` file, so they are handled elsewhere; find them before
+      concluding anything.
+
+      `hasUsableMergedAudio` (`services/audio-workflow-readiness.ts:50`) is a
+      SEPARATE finding and still open: it accepts ANY audio file with size > 0 in
+      the merge folder, rather than the expected
+      `_merged_audio(_v\d+)?.mp3` that `lib/intro-lead-in.ts:161` already matches.
+      It is what gates paid transcription, so a superseded take reads as ready.
+      That belongs to group 1, not to 1.1b.
+
+- [ ] **(1b-original-note)** Write auditors for the 13 artifact-producing types above, starting
+      with the four that cost or lose the most: `broll_assemble` (truncated
+      video), `audio_merge` (transcription on a stale mix), `youtube_upload`
+      (claims success over a failed upload), `music_generate` (unmeasurable
+      tracks counted complete).
+
+      **1.1a IS DONE AND GATE-VERIFIED (v1.4.187, commit `ebaf4e97`).** Full gate
+      5383/5383, 476/476 files, 0 fail. Read the design notes below before
+      starting 1.1b — an auditor written to the wrong contract will fail the
+      once-only tests.
+
+      **THE AUDITOR CONTRACT** (from `auditScenePlanOutput`, the cleanest
+      example, `boot/executors.ts`):
+
+        export async function auditX(job: any): Promise<'complete' | 'repair-required'> {
+          const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+          … read the authoritative artifacts off disk, name what is missing …
+        }
+
+      Registered with `registerJobCancellationAuditor(type, auditX)` in
+      `boot/executors.ts`, inside the same block as the existing 11. It takes
+      `job: any` and must RE-DERIVE everything from disk — it may not trust
+      anything on the job except `project_slug`, `episode_id`, `title` and
+      `params`. It returns a verdict; it throws only on programmer error
+      (`registerJobCancellationAuditor` converts a throw into
+      `repair-required`).
+
+      **Do NOT add a completion call to the generator.** 1.1a already runs the
+      auditor on the local completion path for any type that has one. Registering
+      the auditor is the whole fix — that is the point of having centralised it.
+
+      **`broll_assemble` — the design, worked out and ready to write:**
+        - the selection sidecar (`services/broll-selection-sidecar.ts`
+          `getSelectionSidecar(project_slug, episode_id, title)`) carries
+          `target_duration: number` — the narration length the selection must
+          cover — and `selection[]`, each with its own `target_duration`.
+        - the assembled file is the one the generator writes at
+          `broll-assemble.ts:165` (`outPath`) and renames into at `:467`.
+        - VERDICT: `repair-required` when the summed selection is materially short
+          of `target_duration` (the generator encodes `-shortest`, so the video
+          ends at the last clip while narration continues — the failure is a
+          video that cuts off mid-sentence), or when the assembled file is
+          missing/zero-length/undecodable.
+        - ALSO fix the generator's own reporting: `broll-assemble.ts:409-471` has
+          no `requireJobCompletion` at all, so even with the auditor the job's own
+          declaration is silent. Prefer the auditor alone if the generator's
+          params make a positive declaration awkward — 1.1a covers it either way.
+        - Tests, written FIRST: a short selection must be `repair-required`; a
+          complete one `complete`; a legacy sidecar with no `target_duration`
+          must not be failed for missing data it never carried.
+- [ ] Decide the shape: run the per-type auditor on the ordinary success path
+      and require a positive `result.completion` declaration with `expected > 0`
+      for artifact-producing types. **Enumerate every registered job type and
+      say for each whether it produces artifacts** — this must not fail a type
+      that legitimately declares nothing (e.g. a pure provider-poll type).
+- [ ] Implement, with a test per shape: an executor that declares nothing is
+      failed; one that declares complete passes; one whose artifacts are missing
+      fails and NAMES them; a legitimately declaration-free type still passes.
+- [ ] Full gate.
+
+## 1.2 The named instances of 1.1
+
+Fix these individually **only** where 1.1 does not cover them — 1.1 is the class,
+these are the specific lies a user can hit today.
+
+- [ ] `generators/broll-assemble.ts:409` — no audit at all, encodes `-shortest`,
+      so a coverage-short selection truncates narration mid-sentence while the
+      board shows green.
+- [ ] `services/audio-workflow-readiness.ts:50` — any audio file with size > 0 is
+      "merged audio ready", unblocking paid transcription on a superseded take.
+- [ ] `services/scene-timeline-integrity.ts:148` — called without
+      `max_cue_gap_sec` it returns before the sha256 / cue-count check, so a
+      truncated `_stitched.srt` beside an intact `.json` passes.
+- [ ] `services/subtitle-completion.ts:295` — one whole-track SRT claims full
+      coverage without parsing a cue. Same at `episode-recovery.ts:150` (one cue
+      certifies the episode) and `generators/subtitles.ts:294`.
+- [ ] `services/manifest-audit.ts:362` — swallowed stage errors become
+      `{expected: 0, missing: []}`, so "could not measure" reads as "nothing
+      expected".
+- [ ] `generators/video.ts:5061` + `broll-assemble.ts:246` — requested
+      word-mode captions silently degrade; `declareJobDegraded` never called.
+- [ ] `generators/audio.ts:756` + `:1267` — a stale mp3 is skipped and audited by
+      presence, so edited narration ships the old audio.
+- [ ] `generators/episode.ts:1521` — `outline_only` marks the over-delivering
+      outline the v1.4.36 ruling embraces as invalid; paid work binned, Retry
+      replays the same failure forever.
+- [ ] `generators/scene-plan.ts:871-1016` + `routes/pipeline.ts:1183` — a
+      Pipeline `scene_plan_run` has no `stage`, defaults to `timeline`, and
+      **whole-file replaces** `scene_plan.json`, wiping paid prompts and
+      re-requesting all of them.
+- [ ] `generators/metadata.ts:595` vs `lib/upload-metadata.ts:115` — v2 written,
+      v1 read by the upload, so the old metadata publishes.
+- [ ] `generators/music-generate.ts:246` — an unmeasurable track is counted
+      complete.
+- [ ] `services/job-completion.ts:68` — `audit.expected >= 0` makes `0/0`
+      complete (vacuous truth) for future callers.
+
+## 1.3 Duplicate upload across projects
+
+- [ ] **ROUND 29 — TRACED. The plan's own prescription is WRONG; do not apply
+      it.** Two separate questions were bundled here, and they have different
+      answers.
+
+      **What is true.** `video-claims.json` is the only cross-project store
+      (`services/youtube-operation-store.ts:177`, global under userDataDir),
+      keyed `(channel_id, video_id)` with an owner of
+      `(project_slug, operation_id)` — **it carries no episode code**. Everything
+      admission asks (`routes/youtube-upload-center.ts:2218`) goes through
+      `remoteVideoFor`, whose every branch reads *this* project's operation
+      records and *this* project's publishing state. So project B cannot see
+      project A's upload of the same episode code. That part of the finding is
+      correct.
+
+      **"Let `completeYouTubeOperation` conflict fail the job loudly" is
+      wrong, and would be a regression.** That call sits in
+      `generators/youtube-upload.ts:506-520`, *after* YouTube has accepted the
+      bytes and returned a permanent video id. The existing comment says exactly
+      why the failure is downgraded to a warning: the video is already uploaded,
+      so failing the job invites a retry that **uploads it a second time** —
+      spending quota to duplicate a video that is already live. AGENTS.md §8
+      demands the opposite: preserve valid partial output and make Retry repair
+      *without repeating completed work*. The warning is the correct behaviour,
+      and a loud failure here would be a worse defect than the one it claims to
+      fix.
+
+      **The real fix needs a decision, because it changes what users may do.**
+      Admission cannot ask "has any project already uploaded this channel +
+      episode code?" while the claim has no episode code. Adding one (schema v2
+      plus a v1 migration that reads old claims as "episode unknown") makes the
+      question answerable — but the answer then **refuses to upload an episode
+      code that another project has already used on that channel**. Two
+      different series legitimately sharing one channel, each with its own
+      "Episode 1", would be blocked. That is a product decision, not a code
+      decision → recorded below as an owner decision.
+
+      Until it is answered, **the safe change is not to change this**, and the
+      existing warning must stay a warning.
+
+      **ROUND 41 — DONE, v1.4.208. The owner answered (decision 7): warn, with a
+      click-through.** What shipped:
+
+      - **`video-claims.json` is schema v2.** Each claim carries `episode_code`,
+        written from the OPERATION record (never a caller value).
+        `validateVideoClaims` still reads v1: an old claim migrates in memory to
+        `episode_code: ''` — "the episode that made this claim is unknown" — and
+        the next real write persists v2. The migrated claim keeps `''`; stored
+        claims are never rewritten to invent an episode they never recorded.
+      - **`findForeignEpisodeClaim({ project_slug, channel_id, episode_code })`
+        (`services/youtube-operation-store.ts`)** answers the cross-project
+        question. It ignores this project's own claims (already answered
+        elsewhere) and ignores v1's unknown-episode claims, so `null` means "no
+        other project recorded uploading this episode code here" rather than a
+        confident "no".
+      - **Admission warns instead of refusing.** Checked second, after the
+        same-project `remoteVideoFor` 409 and still before any local-file test.
+        It answers `409 YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE` with
+        `confirmable: true` and the offending project's slug; resending the SAME
+        reviewed body with `acknowledge_foreign_episode: true` proceeds.
+      - **The page asks and resends.** `upload/publish.vue` gained
+        `confirmForeignEpisodeCode()`, used by BOTH the single upload and the
+        bulk queue: the ordinary failure path is unchanged, this one code opens a
+        confirm dialog ("Upload anyway") and, on accept, resends the identical
+        reviewed body plus the acknowledgement. Declining shows the reason and
+        sends nothing.
+
+      **REACHABILITY, checked rather than assumed:** a channel is exclusive to
+      one project at a time (`YOUTUBE_CHANNEL_ALREADY_ASSIGNED`), so two projects
+      cannot hold one channel simultaneously. The reachable route to the
+      collision is a channel moving between projects — `assignment_history`
+      exists precisely for that — and the claim store is cross-project, so the
+      previous owner's claim is still there. That is the case this catches.
+
+      Tests: 3 in `youtube-operation-store.test.ts` (v2 records the episode;
+      foreign found / own not / other-code not / other-channel not; v1 reads as
+      unknown and upgrades on write) and 2 in `youtube-upload-center-route.test.ts`
+      (the warning is confirmable and the acknowledgement releases it to the NEXT
+      gate; a different episode code is not warned about). Frontend: 2 in
+      `uploadCenterPublish.test.ts` (the dialog is asked and the request is
+      resent with the flag; declining sends one request and shows the reason).
+      **Proven red:** skipping the admission block fails the route warning test
+      while its control passes; recording `episode_code: ''` fails two store
+      tests; removing the page's resend fails the click-through test while the
+      decline control passes.
+
+      **A test-hygiene lesson worth keeping:** the first red run HUNG instead of
+      failing. A failed assertion skipped `mounted.destroy()`, the page's polling
+      kept the process alive, and the runner reported nothing at all. Both new
+      frontend tests now tear down in `finally`. A hanging red test is worse than
+      a failing one — it looks like an infrastructure problem.
+
+---
+
+# Group 2 — data integrity: episode state leaking
+
+AGENTS.md §4, the repo's most expensive class. Each is "a value belonging to
+episode A reaching episode B". Two were fixed (`metadata.vue` titles,
+`pipeline.vue` force-re-run).
+
+- [x] **PARTIALLY DONE, v1.4.205 — the `scripts.vue` half of decision 10.**
+      Excluded `force` (a restored `force: true` silently overwrites work) and
+      `manual_guidance`; KEPT `character_ids`, per the owner's answer. Two things
+      to know before finishing the other two pages:
+
+      1. **`excludeKeys` REPLACES the default list** (`usePresets.ts:147`,
+         `opts.excludeKeys ?? DEFAULT_EXCLUDE_KEYS`). Passing only
+         `['force','manual_guidance']` would have silently started snapshotting
+         `episode_id` again — the §4 leak, reintroduced by the fix for it.
+         `DEFAULT_EXCLUDE_KEYS` is now EXPORTED and callers spread it.
+      2. `useContinuityConfig` had been re-typing those four identity strings
+         with a comment apologising for the duplication. It now spreads the
+         exported list, so the two cannot drift.
+
+      Tests: `frontend/__tests__/presetExcludeKeys.test.ts` (3). Proven red:
+      removing the `excludeKeys` line fails the script-preset test.
+      Frontend lane 1,839/1,839, 200/200 files.
+
+      **`image-prompts.vue` NEEDS NO CHANGE.** The owner's #10 answer KEEPS
+      `character_ids`, and that is the same cast field — so the audit's
+      "episode-scoped cast ids persist" concern is resolved by the decision, not
+      by code.
+
+      **`scene-plan.vue` (`custom_instructions`, decision 9) — DONE, v1.4.207.**
+      The hypothesis in this file was right in mechanism and wrong in detail.
+      Re-measured by re-landing the change: the four mounted tests and the five
+      `scenePlanPresetTiming` tests failed with
+      **`ReferenceError: DEFAULT_EXCLUDE_KEYS is not defined`** — not "not
+      iterable". Both harnesses strip the page's imports and supply every one by
+      hand, so a name that is imported but not stubbed is simply not defined.
+      `scripts.vue` never broke because its test reads it as SOURCE only.
+
+      Fix: each harness now imports the REAL `DEFAULT_EXCLUDE_KEYS` from
+      `../composables/usePresets.js` and injects it (`scenePlanLoading.test.ts`
+      interpolates it into its generated support source;
+      `scenePlanPresetTiming.test.ts` adds it to the `new Function` dependency
+      list). That is the maintenance these harnesses already require, and it
+      keeps ONE definition — the literal keys were NOT re-landed.
+
+      New tests: `presetExcludeKeys.test.ts` grew a `the scene plan preset`
+      describe (3 tests, file now 6). The page's own `excludeKeys` EXPRESSION is
+      evaluated out of the source and driven through the REAL composable with an
+      in-memory `$fetch`, so the assertions are consequences:
+        - saving a plan preset writes `character_ids` but NOT
+          `custom_instructions`, `episode_id` or `title`;
+        - applying a preset saved before the exclusion to a live episode leaves
+          that episode's guidance NEITHER replaced NOR blanked (the §5 read-side
+          trap).
+      **Proven red twice:** removing the `excludeKeys` line fails all 3; removing
+      ONLY `'custom_instructions'` (leaving `[...DEFAULT_EXCLUDE_KEYS]`) also
+      fails all 3. Frontend lane 1,842/1,842, 203/203 suites, 200/200 files.
+
+      The **channel-specific box** the owner asked for is new UI and is still
+      not built.
+
+- [x] **DONE, v1.4.207 (owner decision 9).** `scene-plan.vue:1690` — "Custom
+      instructions". Verified mechanism, not the audit's description: none of
+      these three pages passed `excludeKeys`, so all three fell back to
+      `DEFAULT_EXCLUDE_KEYS = ['episode_id','episodeId','episode','title']`
+      (`usePresets.ts:101`). Every other key was therefore captured on write and
+      restored on apply at any depth. The page now passes
+      `[...DEFAULT_EXCLUDE_KEYS, 'custom_instructions']`. The full account — the
+      two test harnesses that had to learn the symbol, and the three
+      consequence tests proven red — is in the Group 2 entry above.
+- [x] **DONE, v1.4.205 (owner decision 10).** `scripts.vue:870` —
+      `manual_guidance` + `character_ids`. The file's own comment said
+      "character_ids / force are per-run" while the behaviour disagreed. Per the
+      ruling: `force` and `manual_guidance` excluded, `character_ids` kept.
+      `DEFAULT_EXCLUDE_KEYS` was exported and the callers spread it, because
+      `excludeKeys` REPLACES the default list.
+- [x] **DONE, v1.4.207 (decision 8).** `services/audio-reconciler.ts` — the
+      `|| audioJobs[0]` cross-episode borrow is now the LEGACY FALLBACK, behind
+      the episode's own `audio_tts_model.json` record. See owner decision 8
+      below for the full design, the reasoning for the sidecar chosen, and the
+      known limit.
+
+      **ROUND 29 — the trace that produced the fix, kept for the record.**
+      The defect was real: the borrowed model became `requestBudget` via
+      `resolveTtsRequestBudget`, and `requestBudget` decides how the section is
+      split (`splitGenStudioApiRequests`) and therefore **which `_partN.mp3`
+      filenames this episode is expected to have**. The failure mode was a wrong
+      number, not a crash: episode A generates under a 3,000-character boundary,
+      the customer switches to a 6,000 boundary, B's job has aged out, B borrows
+      A's model, predicts `_part1/_part2` for a section the new model renders as
+      one file — and B reports missing parts that were never supposed to exist.
+      Nothing announced it.
+- [x] **NO CHANGE NEEDED, per owner decision 10.** `image-prompts.vue:1398` —
+      `thumbnail.character_ids`. The ruling KEEPS the cast in presets (it is
+      channel/series-level and identical across episodes), so the audit's
+      concern is resolved by the decision rather than by code.
+- [x] **DONE, v1.4.195.** `broll.vue:922` — the `form.episode_id` watcher cleared
+      the in-flight upload path and the whisper flag but not `manualSelection`
+      (an ordered list of `{filename, target_duration}` chosen for one episode)
+      nor `narrationTargetSec` (that episode's measured narration length). A new
+      episode opened with the previous episode's clips queued and would have
+      assembled them. Now cleared, with the pool filter too.
+- [x] **DONE, v1.4.195.** `scene-review.vue:1035` — the `[slug, episodeId]`
+      watcher reset the render limit and the in-flight ids but left `previewScene`
+      (a whole `ReviewScene` from the episode being left) and `selectedIds` (a Set
+      of its scene ids). The lightbox URL is rebuilt from the CURRENT episodeId
+      with the OLD scene id, so it either 404s or shows another episode's image,
+      and a batch action would name scenes outside the open episode. Both now
+      cleared in the watcher.
+
+      Tests: `frontend/__tests__/episodeScopedStateReset.test.ts` (2, new file),
+      one per page, following the lane's static-analysis convention.
+      **Proven red:** reverting both watcher additions fails exactly these two
+      and leaves the other 1,832 green. Frontend lane 1,834/1,834, 199/199 files.
+      Stated limit: static analysis proves the reset is wired, not that the DOM
+      clears — that needs a screenshot (AGENTS.md §3).
+- [x] **DONE, v1.4.196.** `images.vue:1411` — the audit's line pointed at
+      `refreshImageStatus`, but the page has TWO episode-change watchers and the
+      defect was in the second one. It cleared `imageStatus`, `editScenes`,
+      `editThumbs` and `outlineChapterCount` **only in the else branch** — that
+      is, only when the episode became empty — so switching A → B kept A's
+      integrity figures and Browse grid on screen for the whole load and
+      permanently if the read failed. Now blanked before the `if (v)` guard. The
+      reset reuses a new `emptyImageStatus()` factory rather than repeating the
+      nine-field literal, so it cannot drift from the declaration — the exact
+      two-lists-drifting failure this audit keeps producing.
+- [x] **DONE, v1.4.196.** `research.vue:1207` — `loadExisting` replaced
+      `result`/`serverResult` only on a successful read, and its catch is
+      deliberately empty on the reasoning that "the empty-state card renders".
+      That is true only while `result` is null, so after a failed read the
+      PREVIOUS episode's research rendered as the new episode's — and saving
+      would have PUT it there. The `[slug, episodeId]` watcher now blanks both,
+      which is what makes that empty-state comment true.
+
+      Tests: two more in `episodeScopedStateReset.test.ts` (now 4).
+      **Proven red:** reverting both changes fails exactly these two and leaves
+      the other 1,834 green. Frontend lane 1,836/1,836, 199/199 files.
+
+      **One pre-existing test had to be repaired, and it is worth recording
+      why.** `writingWorkflowSafety.test.ts:48` pinned the research watcher's
+      EXACT statements and whitespace —
+      `/watch\(\[slug, episodeId\], \(\) => \{\s*researchScopeEpoch\+\+\s*void loadExisting\(\)\s*\}/`.
+      Any unrelated addition inside that watcher fails it, which is a false
+      alarm rather than a caught defect. Relaxed to assert the INTENT (the
+      watcher bumps the scope epoch and reloads) while still requiring both
+      statements to be inside it. Same judgement as the `existingTranscriptIsCurrent`
+      assertion relaxed in round 26.
+- [x] **2 of 3 DONE, v1.4.194.** `character-sheet.vue:534` was already correct
+      (its watcher blanks `masterExists`/`compositionExists` and bumps the
+      version counters). The other two were real:
+
+      - `motion-review.vue:886` — `loadReview` replaced `scenes`, `stats`,
+        `motionScope`, `motionSceneIds`, `motionCrossingSceneIds` only on
+        success, so an episode change showed the previous episode's scenes for
+        the whole load and permanently after a failure. It also bumped
+        `cacheBuster` only on success, so every `.../image/${scene.id}?t=` URL
+        kept resolving to the PREVIOUS episode's cached thumbnails at the
+        previous episode's ids — the audit did not mention that part. Fixed with
+        `resetEpisodeScopedMotionState()`, called from the `episodeId` watcher;
+        `loadReview`'s empty-episode branch now calls it too instead of
+        duplicating it.
+      - `metadata.vue:279` — `finalizationStatus` was replaced only on success,
+        and `finalizerGateReason` answers from it, so the YouTube Finalizer
+        reported the previous episode's readiness between the change and the new
+        load, and indefinitely after a failed one. Now blanked in the
+        `[slug, episodeId]` watcher, with `finalizationLoadSequence++` so a
+        response already in flight for the closed episode is discarded (the
+        loader already guards on that sequence, so this is the missing half).
+
+      Tests: one each in `motionReview.test.ts` and
+      `youtubeFinalizerWorkflow.test.ts`, following the lane's convention of
+      static analysis over the `.vue` source. **Proven red:** reverting each
+      watcher fails its own test with the expected assertion and leaves the rest
+      green. Frontend lane 1,832/1,832, 198/198 files.
+- [x] **DONE, v1.4.192.** The ownership-by-prefix matcher. There were **FIVE**
+      sites, not four — the plan's list was wrong twice: `folder-resolver.ts`
+      does exist (at `electron/server/lib/folder-resolver.ts:132`, missed by a
+      first grep because it reads `codeUpper`, not `code`), and
+      `asset-status.ts:660` was listed as a sixth but is an exact-equality match
+      and not in this class.
+
+      All five now call one exported predicate,
+      `episodeDirNameMatchesCode(dirName, code)` in `services/asset-status.ts`
+      (exact code, or `code + " - "`, after `stripDecorativePrefix`):
+      `asset-status.ts` index `:393` and search `:409`,
+      `manifest-audit.ts:126`, `audio-merge.ts:127`, `folder-resolver.ts:133`.
+
+      **A SIXTH, worse site was found while sweeping:**
+      `services/episode-media-cleanup.ts:369` — and it was the only one on a
+      destructive path. That gate decides whether a media root may be
+      ENUMERATED FOR DELETION; a bare prefix there meant `EP0001`'s cleanup
+      could accept an `EP00012 - ...` ancestor. It is now on the same predicate.
+      **Caveat, stated plainly:** I could not build a test that reaches the
+      collision, and my first attempt proved the premise wrong in a useful way —
+      the guard's owner segment is the *app-generated* episode folder, so it
+      always carries the real code and the mismatch is unreachable by
+      construction. **This change is therefore defensive hardening, not a fix
+      for a reachable data-loss bug**, and I have not claimed otherwise. It can
+      only make the guard stricter, so it cannot cause a deletion.
+
+      Tests: `electron/server/__tests__/episode-dir-prefix-ownership.test.ts`
+      (6). Three cover the rule; three drive the two `asset-status` sites
+      end-to-end — the uncached `search` and the cached in-memory tree index —
+      with a fixture whose ONLY folder is `EP00012 - Impostor`. **Proven red:**
+      against the old bare-prefix rule exactly the 3 collision tests fail, at
+      both sites, while the "a real folder is still found" tests keep passing.
+      The other three sites share the same predicate, so they are covered by
+      construction rather than by their own fixtures — recorded as a known
+      limit, not glossed.
+
+      The misleading comment at `services/utils.ts:118-130` was rewritten in the
+      same change: it described the rule as a prefix test and cited the
+      `EP0001`/`EP00012` example as the reason the index must stay ordered. The
+      ordered-not-Map argument still holds (first hit in traversal order decides
+      *which* folder wins when a project holds duplicates), so that part was kept.
+
+      **ROUND 27 — SETTLED BY MEASUREMENT.** Reading 1 was right, but only
+      incidentally, and the strict rule is safe to apply mechanically.
+
+      Enumerated every episode folder in the live library
+      (`find <projects> -maxdepth 5 -type d -name 'EP*'`, 4,971 distinct names):
+
+      - **4,971 of 4,971 contain ` - `** — the count of names *without* it is
+        exactly 0. So `code` or `` `${code} - ` `` matches every real folder;
+        reading 2's worry (a hand-renamed folder with no separator) is not
+        present in the data.
+      - **All 4,971 code prefixes are 6 characters** (`EP` + 4 digits) — one
+        distinct length, `uniq -c` = 4971/6.
+      - Duplicate code prefixes (EP0001 in several projects) are expected and
+        irrelevant: matching is always scoped to one project, and within a
+        project `episode_digits` is uniform, so a 6-char code can never be a
+        strict prefix of another 6-char code. **The `EP0001`/`EP00012` collision
+        the utils.ts comment warns about cannot occur once all codes are the
+        same width — it is currently prevented by the data, not by the code.**
+
+      That is the argument for changing it: the prefix test is safe today only
+      because every project happens to use fixed-width codes. It is one
+      `episode_digits` change away from matching the wrong episode, and the
+      strict rule costs nothing now.
+
+      **When applying:** fix ALL copies in one change (a partial fix is worse
+      than none — it looks done), accept exact `code` as well as
+      `` `${code} - ` ``, and **rewrite the `utils.ts:118-127` comment in the same
+      commit**, because it currently instructs a future reader to preserve the
+      exact behaviour being removed. Then re-run the same `find` as the
+      regression check: every distinct folder name must satisfy the new
+      predicate. `storage-audit.ts:114` stays as it is — `isPerSceneClipName`
+      matches `{code}_Scene01` file names and needs the bare prefix.
+
+# Group 3 — honesty: numbers that lie
+
+- [ ] `lib/opening-duration.ts:104` — `fallback_sec || 0` makes 0 mean both
+      "nothing precedes the scenes" and "the probe returned nothing"; plan and
+      render disagree by construction. **Editorial — the fix shifts timelines,
+      so it needs the owner's yes.**
+- [x] **DONE, v1.4.201.** `storage-audit.ts:105` + `episode-media-cleanup.ts:307`
+      + `asset-status.ts:1045` — `_final_video_v2.mp4` invisible. **The finding
+      was right, including the count of three** — one of the few times the
+      audit's coordinates held up. The third site is at `:1045`
+      (`hasFinalVideoFast`), not `:1019`; `:1019` is a doc comment.
+
+      The shape is real and normal: `upload-queue.ts:391-392` writes
+      `{code}_final_video_v{N}{ext}` whenever the canonical name is taken. All
+      three matchers required `_final_video` to be followed IMMEDIATELY by the
+      extension dot, so every versioned final was invisible — Settings counted
+      0 B, `hasFinalVideoFast` reported no video for an episode that has one, and
+      media cleanup would not reclaim the space. Nothing announced it: the file
+      was simply not seen, which is why it survived three separate checks each
+      looking reasonable on its own.
+
+      Unified into `lib/final-video-name.ts` (`isFinalVideoFilename`), a
+      dependency-free module so all three can import it without a cycle. This
+      follows `episodeDirNameMatchesCode`: one predicate, not three copies.
+
+      Tests: `final-video-name.test.ts` (4). **Proven red:** under the old
+      canonical-only rule the two versioned-name tests fail and the two
+      near-miss tests stay green — so the fix broadens exactly the intended
+      case and nothing else.
+
+      My own test caught a hazard before it shipped: with an empty `code` the
+      predicate matched ANY `_final_video.*` on disk. Now refused explicitly,
+      because the deletion gate is a caller and must not depend on every call
+      site remembering to pass a real code.
+- [x] **DONE, v1.4.199.** `music-library.ts:132` — unmeasured tracks understated
+      "usable minutes". `available_seconds` summed `t.duration_sec || 0` over
+      enabled tracks, so an enabled track whose length could not be probed added
+      nothing while still counting as available: the figure was silently LOW and
+      `music.vue:35` rendered it as `{{ formatMinutes(available_seconds) }} usable`
+      — the whole answer, not a floor.
+
+      Fixed on both halves, because an honesty fix that never reaches the screen
+      is not one: `LibraryState` gained `unmeasured_enabled_tracks`, and the
+      header now reads "at least N usable (M without a measured length)" when it
+      is non-zero. `available_seconds` keeps its meaning as a measured floor.
+
+      Tests: 2 in `music-library.test.ts` (now 13). **Proven red:** removing the
+      accounting fails exactly those two and leaves the other 11 green.
+      `--only music-library` 13/13; frontend lane 1,836/1,836, 199/199 files.
+
+- [x] **DONE, v1.4.200.** `soft-delete.ts:157` — the `-1` "unknown size" sentinel
+      was unreachable, exactly as the audit said. `tallyDirSize` returned `0` for
+      both "the folder is empty" and "I could not read it", and skipped
+      unreadable children silently; the caller guarded with
+      `.catch(() => -1)`, which could never fire because the tally never
+      rejects. A folder nobody could measure was therefore reported as **0
+      bytes**.
+
+      `tallyDirSize` now returns `number | null`, and `null` propagates: one
+      unreadable child makes the whole total unknown, because a partial sum
+      presented as a total is the same lie in a smaller font. The call site
+      turns `null` into the documented `-1`, which is now genuinely reachable.
+
+      Tests: 2 in `soft-delete.test.ts` (now 13). **Proven red:** both fail
+      against the old tally and pass against the new one.
+
+      Two things worth recording from writing them. My FIRST attempt at the
+      propagation test replaced a directory with a file and expected the total
+      to become unknown — wrong: a file is perfectly measurable, so it just
+      contributed its own bytes (`108 !== -1`). The real case is a directory
+      that cannot be LISTED. And my second attempt passed VACUOUSLY: it guarded
+      the assertion with `if (result !== before)`, which is exactly the
+      condition the old code satisfied, so the test could not fail. It now
+      establishes the premise explicitly (`readdir` on the sealed child must
+      throw) and returns early only when it genuinely cannot be tested. **A test
+      that cannot fail is worse than no test**, because it reports coverage it
+      does not have.
+
+- [x] **ROUND 36 — the earlier note, kept for the record.** `soft-delete.ts:157` — the `-1`
+      "unknown size" sentinel is unreachable, and the audit is right. The line is
+      `estimated_bytes = await tallyDirSize(candidatePath).catch(() => -1)`, but
+      `tallyDirSize` never rejects — its own contract (see `storage-audit.ts`) is
+      "returns 0 on a missing dir or any read failure, never throws". So the
+      `.catch` is dead code and a folder whose size could not be read is reported
+      as **0 bytes** rather than as unknown, which is the §6 conflation the `-1`
+      sentinel was written to avoid. Closing it means giving the tally a way to
+      say "unmeasurable" (a nullable count) rather than teaching the caller to
+      guess, and `tallyDirSize` is shared with `storage-audit.ts`, so the change
+      spans both callers. Recorded rather than rushed.
+- [x] **DONE, v1.4.193.** `subtitle-completion.ts:189` — a failed `stat` became
+      mtime 0 = "not stale". **The finding was right and understated: there were
+      TWO routes, not one.** The reported one was the legacy mtime branch
+      (`stat?.mtimeMs || 0`, where a missing file yields 0, which is never newer
+      than the SRT). The second is the byte-identity branch directly above it:
+      `if (currentHash && savedHash !== currentHash)` — `hashSubtitleAudioSources`
+      returns `null` for "I could not read the audio", and `null && …` is falsy,
+      so an unreadable source was folded into "the bytes are unchanged".
+      **Both made a deleted narration file read as a CURRENT transcript.**
+
+      Fixed both: an unmeasurable hash is stale, and a failed `stat` on any
+      source file is stale. Tests in `subtitle-transcript-skip.test.ts` (now 6),
+      one per branch. **Proven red:** with the old expressions restored, both
+      fail; the other four keep passing. `--only subtitle` 356/356.
+- [x] **DONE, v1.4.198.** `sound-design.ts:70` — `Math.max(0, ...[])` manufactured a
+      0 timeline. The audit's description was accurate for once, and the damage
+      was worse than "a 0 timeline": `planDuration` answered `0` for a Scene Plan
+      with no scenes, and that 0 was then used as an AUTHORITY. Every cue
+      satisfies `start_sec >= 0`, so a perfectly good timeline was rejected with
+      **"Cue start is outside the episode timeline"** — a message that names the
+      cue as the problem when the plan is.
+
+      `planDuration` now returns `number | null`; `null` means "no scene end was
+      measurable" (empty plan, or every `end_sec` 0/non-finite). The length
+      checks are skipped when it is null, and a distinct issue says the Scene Plan
+      has no measured timings. Deliberately NOT "skip the checks silently" (that
+      would let an out-of-range cue through) and NOT "blame the cue".
+
+      Tests: 3 in `sound-design.test.ts` (now 9). **Proven red:** against the old
+      `planDuration`, exactly the two "no measured length" tests fail and the
+      third — "a real length still rejects a cue past the end" — stays green,
+      which is what proves the fix did not simply stop checking.
+      `--only sound-design` 9/9.
+
+- [ ] **ROUND 34 — TRACED, NOT FIXED; needs a contract decision.** The audit's
+      line for `lib/thumbnail-prepare.ts:38` (`meta.width || 0`) is right about
+      the expression but wrong about the consequence, so I did not change it.
+      `width = meta.width || 0` makes `tooWide` false for an unmeasurable width,
+      and `tooBig` (bytes over the cap) is computed independently — so a large
+      image with an unknown width is ALREADY taken off the passthrough path. The
+      real remaining gap is narrower: it is re-encoded but `resizeWidth` is
+      `tooWide ? CAP : null`, so it is **never resized** even though we know it
+      is too big and do not know how wide it is. Forcing `resizeWidth: CAP` would
+      be worse — an unknown width also covers a genuinely small image, and that
+      would UPSCALE it. Closing this honestly means letting the pure decision say
+      "width unknown" so the caller measures after decoding, i.e. a contract
+      change on `planThumbnailEncode` and its caller, and the existing test at
+      `thumbnail-prepare.test.ts:40` encodes a deliberate choice
+      (`{bytes: 1000, width: undefined}` → passthrough) that I must not silently
+      reverse. Recorded rather than rushed.
+- [ ] `soft-delete.ts:157` — the `-1` "unknown size" sentinel is unreachable;
+      an unreadable folder reports 0 B.
+- [x] **ROUND 38 — CLOSED AS NOT A DEFECT. Do not "fix" this one.** The audit
+      flagged `meta.width || 0` at `lib/thumbnail-prepare.ts:38`; the expression is
+      real but the conclusion is not, and the case is a DELIBERATE decision.
+
+      Two rounds of tracing, each disproving a worry I had recorded:
+
+      1. I first noted a "never resized" gap. Wrong — the caller defaults a null
+         `resizeWidth` to `THUMB_MAX_WIDTH` (`thumbnail-prepare.ts:89`), and
+         `encodeAt` passes `withoutEnlargement: true` to sharp (`:79`), so the cap
+         can never upscale a narrow image. My recorded concern that forcing the cap
+         would upscale was wrong for exactly that reason.
+      2. What remains is only: small bytes + unmeasurable width + actually too wide
+         → `passthrough: true`, leaving an oversized-width thumbnail. And the
+         existing test names the behaviour out loud —
+         `thumbnail-prepare.test.ts`: **"missing width is treated as in-spec
+         width"**. That is a chosen policy, not an oversight.
+
+      Reversing it would re-encode every image whose width probe failed, and the
+      harm it prevents is a lightweight-but-wide thumbnail. Per the standing rule,
+      a deliberate named choice is the owner's to revisit, not mine to flip inside
+      a bug-audit sweep. Left exactly as it is, and recorded here so a future
+      reader does not "fix" it by pattern-matching on `|| 0`.
+      width through the too-wide check.
+- [ ] `lib/broll-indexer.ts:74` — ffprobe `'N/A'` is truthy, so a good
+      `format.duration` is never read; the clip is dropped as "too short" with a
+      warning blaming the preset.
+
+# Group 4 — the long tail
+
+- [ ] Model dynamism: `motion-review.vue:743` (always 16:9),
+      `genstudio-client.ts:7315` (invented default ratio), `images.vue:1124`
+      (hardcoded ratio list), `images.vue:728` (retired cap map),
+      `images.vue:90` (stale caps+PRICES table), `genstudio-client.ts:144`
+      (unshown 100 MiB ceiling), `chunked-narration.ts:184` (frozen 8192).
+- [ ] Misleading empty states (a failed read told as a confident wrong answer):
+      `scene-review.vue:1214`, `research.vue:650`, `pipeline.vue:1250` **and**
+      `audio.vue:1665` (both suppress the pre-spend opening warning),
+      `subtitles.vue:56`, `AudioChapterSelector.vue:732`, `pipeline.vue:431`,
+      `video-assembly.vue:3285`/`:3337`/`:201`/`:2034`, `scene-plan.vue:583`,
+      `jobs.vue:1667`.
+- [x] **`scene-plan.vue:1151` (Style Bible silently truncated — §1) DONE,
+      v1.4.207.** See owner decision 2 below for the shape, the backend read cap
+      it forced, and the pre-existing test that was reversed on purpose.
+- [ ] `now-safe` frontend — remaining: `scene-plan.vue:39` (nonexistent prop), `settings.vue:2204`
+      (FFmpeg status never fetched), `settings.vue:4676` vs `:4766` (category
+      blanked), `projectSettingsSave.ts:23` (**AI-disclosure compliance**),
+      `scripts.vue:216`, `settings.vue:724` (Sync Folders missing),
+      `scene-review.vue:418`, `research.vue:36`, `jobs.vue` label maps,
+      `ContentPurchaseDialog.vue:262`, `settings.vue:5310`, and the geometry
+      clipping list.
+- [x] **v1.4.210 recovery patch — reviewed and verified locally, not shipped.** Queue cancellation
+      flags must live as long as either the history row or its active worker.
+      The interrupted patch deleted flags whenever rows were retired, incorrectly
+      assuming a terminal status proved the executor had returned.
+
+      [MEASURED] `stopLocalJobUnlocked` and `forceAbandonJobUnlocked` can mark a
+      live worker cancelled. The recovered tests first reproduced early flag
+      removal for Delete, Clear, Retry, and Abandon + Delete (4 failures out of
+      68 tests, runner exit 1). The repair tracks actual `runJob` lifetimes,
+      defers flag cleanup until its `finally` when necessary, and prevents late
+      worker completion from restoring retired history. Queued rows still shed
+      their flags immediately. Provider-evidence guards remain in place.
+
+      [MEASURED] The initial corrected run passed 68/68 (exit 0, two files
+      completed). Additional tests cover late rejection, paid-wait results,
+      and durable deletion. This focused run is not the release gate. Final
+      counts and full-gate status are in the takeover report: the final focused
+      run passed 82 tests; the full backend gate passed 5,442 tests across all
+      483 files. Frontend, release, corrected content-pack checks, build, and
+      isolated v1.4.210 launch also passed. Integration remains pending review
+      of the 70 inherited local commits; this is not a shipped release.
+
+- [ ] Queue: `:684` (5s timer
+      forever), `:2911` (crash-interrupted paid work mislabelled), `:1659`
+      (clone per frame), `routes/pipeline.ts:2202`, `useJobs.ts` (never
+      retries SSE), `jobs.vue:1956`/`:2675`/`:2205`/`:2240`/`:2844`/`:3203`.
+- [ ] YouTube: previous-channel tombstone dead end,
+      `youtubeArchiveProofForFile` mtime-only MOVE, archive proof ignores
+      channel, `/schedule` publish-then-record, `upload-plans.ts:533` DST,
+      legacy plan-apply unpublish, `storage-audit.ts:821` same-size copy proof.
+- [ ] **ROUND 40 — TRACED, NOT FIXED. Second-best next target after the queue.**
+      Content packs: `state.ts:99` (silent empty reset). The audit's description
+      is accurate but undersells it; here is what the code actually does.
+
+      `readOrResetState` branches four ways:
+      `valid` → the state · `missing` → `emptyContentPackState()` (correct — a
+      fresh install) · `io-error` → **throws** (correct, and NOT the defect) ·
+      anything else → `resetInvalidState`.
+
+      `resetInvalidState` (`:76-98`) is more careful than "silent" suggests: it
+      refuses a quarantine root that is not directly below the runtime root,
+      refuses a symlinked or non-directory quarantine, and writes the corrupt
+      bytes to `state-invalid-<sha256>.json` with `flag: 'wx'` before writing an
+      empty state. **The data is preserved.**
+
+      The defect is that nothing is SAID. On the success path there is no log
+      line, and `readOrResetState` returns `emptyContentPackState()` with no
+      signal to its caller that a reset happened — so the Content Store renders
+      an empty library exactly as it would for someone who has never installed
+      anything, while the user's actual state sits unread in quarantine. AGENTS.md
+      §6: "the answer is none" and "I discarded your state" must not produce the
+      same value.
+
+      Fix shape: return a discriminated result (state + `recovered_from` | null)
+      and surface it, rather than a bare state that has already forgotten what
+      happened. Do NOT stop quarantining — that part is right and should not be
+      traded away for a simpler error.
+
+- [ ] Content packs — remaining:
+      `installer.ts:617` (orphan version unreconcilable),
+      `content-store-delivery.ts:527` (damaged copy unrepairable), `:640`
+      (staging activated on boot), `lifecycle.ts:308` (prune deletes rollback
+      target), `content-store-install-state.ts:121` (wrong version).
+- [x] **DONE, v1.4.202.** `health.ts:112` (`200 []` for "no key"). `GET /models`
+      answered a missing GenStudio API key with `res.json([])` at HTTP 200, so
+      every picker rendered its own confident "no models" state and the customer
+      could not tell that the real problem was a key that was never added.
+
+      The same file already knew better twelve lines below: `/account`
+      (`:190-192`) answers the identical condition with a 400 and "Add a GenStudio
+      API key in Settings → This Mac." So the fix is the file's own convention,
+      not a new one — and I checked there is no caller of `health/models`
+      anywhere in the frontend or backend before changing the status code.
+
+      Test: `health-models-no-key.test.ts` (1), which mounts the real router with
+      supertest. **Proven red:** against `res.json([])` it fails; green after.
+
+- [ ] Settings / misc — remaining:
+      `routes/video.ts:1744` (`?path=` stat oracle — containment not yet
+      applied), `app.ts:124`/`:140` (hardcoded `version: '0.1.0'`),
+      `routes/debug.ts` (unused, returns absolute paths).
+- [ ] Dead code the owner has approved removing: `lib/ttl-cache.ts` + its test;
+      the orphaned `endpoint_labels` / `hub_url` / `endpoint_disabled` data
+      stays on disk, unread.
+
+---
+
+# Gateway-kh handoff, 2026-09-19 — verified, not assumed
+
+The owner asked me to verify the gateway's note (which claimed no code change was
+needed) rather than trust it. Method: read the note, then check every claim
+against the live service and our own code.
+
+**Endpoint — confirmed.** `genstudio_url` is `http://127.0.0.1:8000` in the saved
+setting AND the code default; `:8000` answers 401 (up); `:8010` refuses the
+connection. The note's correction to the earlier note is right.
+*(Probe gotcha for next time: the video catalogue is `/v1/videos/models`, plural.
+`/v1/video/models` returns `Not Found` — my first probe was wrong, not the
+gateway.)*
+
+**Catalogue — confirmed exactly.** chat 66 · image 9 · video 9 · tts 13 ·
+music 2 · transcription 3, all `stale=false`, no 402 in any request.
+
+**Nothing disappeared — confirmed against our own last-good cache**, which is the
+prior state: image 3→9, video 1→9, tts 12→13, music 1→2, voices 12→13, chat
+66→66, transcription 3→3. Voices now resolve for `studio-hub::` models (10 for
+the Qwen3 rows; before, an empty list). One row to confirm gateway-side rather
+than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
+
+**Field families — four of seven need nothing:**
+
+| Field | Live | Verdict |
+|---|---|---|
+| video `generates_audio` | `null` ×9 | `boolean \| null` end to end; UI claims audio only on `=== true`. Correct. |
+| music `supported_languages` | `[]` ×2 | Nothing reads it for music, so `[]` cannot mean English-only. Correct. |
+| music `supports_instrumental` | `null` ×2 | Nullable via `isNullableFlag`/`publishedOrNull`; unused in the UI. Correct. |
+| TTS `maximum_input_characters` | 25000 ×11, 40000 ×2 | Never null, so `.toLocaleString()` is safe. Guarantee holds. |
+| video `modes`, `variants[].operation` | 6 i2v-only, 3 **also text-to-video** | **Safe.** `STORY_STUDIO_VIDEO_MODE` enforced in `providers/video/genstudio.ts:50` AND `genstudio-client.ts:5122` — both throw on any other operation — and all 9 still publish i2v. Text-to-video cannot reach dispatch. |
+| chat `context_window_tokens` / `max_output_tokens` | ctx numeric; `max` null ×4 | 0 means "not published" and consumers fail closed. Correct — but see below. |
+
+- [x] **`returns_citations` null was flattened to `false`** — the one claim in the
+      note that was NOT implemented. Type is now `boolean | null` and the parse
+      preserves it; the qualification gate still requires `=== true` so an
+      unstated capability cannot ENABLE research. **Commit `57494344`**, v1.4.186,
+      pinned in `research-web-mode.test.ts` (null survives as null, `false`
+      survives as false, both still fail the gate).
+- [x] **`audio.vue:725` `.length` hardening** — `?.length`. Every TTS row
+      publishes an array today, but the gateway's rule is now "null unless
+      stated", and music's list already moved. Same commit.
+
+- [x] **ANSWERED BY THE OWNER (decision 6) AND SHIPPED — v1.4.209.** Four chat
+      rows publish `max_output_tokens: null` — `openrouter/free`,
+      `xai-direct::grok-4.3`, `grok-4.6`, `grok-build-0.1`. The owner's ruling
+      was to make them usable by omitting the field ("no output limit is fine"),
+      NOT to grey them out or refuse them. They are selectable AND now run: the
+      request carries no ceiling. See decision 6 for the shipped change and for
+      **E-2**, the separate scene-plan site that is still open. **This was new
+      exposure**: xAI is a new lane, so these rows did not exist before.
+
+---
+
+# Owner decisions still outstanding
+
+1. ~~**Opening-duration semantics**~~ **ANSWERED BY THE OWNER 2026-09-20: FAIL
+   LOUDLY. DONE, v1.4.203.** `measureClipSec` no longer falls back to
+   `fallback_sec || 0` for a clip that exists but cannot be probed; it throws and
+   names the file. Both real callers pass `fallback_sec: 5`, so the old behaviour
+   was silently reserving an unmeasured five seconds — and the plan reserved `0`
+   for the same clip, which is how plan and render came to disagree about the
+   caption offset. A wrong offset shifts every caption in the episode.
+   `fallback_sec` is still honoured for a clip with NO path, where no file exists
+   to measure and the stated length is the only information there is.
+   **This REVERSES two existing tests on purpose** — they now assert the throw
+   and say so in place. Do not restore the old expectations.
+2. ~~**Style Bible cap**~~ **ANSWERED 2026-09-20: YES. DONE, v1.4.207.**
+   `scene-plan.vue`'s channel-default box no longer does `.slice(0, 2000)`.
+   The ceiling is now `intendedImageModelCap` — the SELECTED image model's
+   published `max_prompt_characters`, read live — shown beside the box as a
+   `n / cap` counter (the same `promptLengthState`/`promptLengthLabel` the scene
+   prompts use), and a save that clips says so and by how much. A model that
+   publishes nothing yields NO ceiling, so the text is stored whole rather than
+   cut to an invented figure (rule 1).
+
+   **The backend read cap had to move with it, and that is the part the plan
+   under-estimated.** `lib/style-bible.ts` also sliced the project default to
+   `STYLE_BIBLE_MAX_CHARS` (2,000) on READ. Leaving that in place would have
+   silently cut a value the UI had just told the customer it accepted — worse
+   than the original defect, because now it would be a lie about a limit that
+   was shown. The project tier now returns the stored text; the EPISODE tier
+   keeps its 2,000 read guard, which still mirrors the write cap in
+   `routes/continuity.ts`. An over-long hand-edited config now fails LOUDLY at
+   render time (`providers/image/genstudio.ts` refuses an over-cap prompt and
+   names the model's limit) instead of being silently shortened.
+
+   **One pre-existing test's expectation was REVERSED on purpose** —
+   `style-bible-project-default.test.ts`'s "an over-long default is capped on
+   READ, not only on write" now asserts the value comes back whole, and a new
+   test pins the episode tier's guard at the boundary. The file says in place
+   why.
+
+   Tests: `frontend/__tests__/scenePlanStyleBibleCap.test.ts` (3, mounts the
+   real page; the REAL prompt-cap module is injected, not stubbed). **Proven
+   red:** with the original `.slice(0, 2000)` restored, all 3 fail — the other
+   two because "no published limit" was trimmed to 2,000. Backend
+   `--only style-bible` 23/23; frontend lane 1,842/1,842.
+3. ~~**`images.vue` "View all caps"**~~ **ANSWERED 2026-09-20: DELETE IT. DONE,
+   v1.4.206 (commit `eb1116d3`).**
+4. ~~**Is a whole-track-only subtitle state legitimate?**~~ **ANSWERED BY THE
+   OWNER 2026-09-20: NO — ALWAYS NEEDS THE STITCH.** So the behaviour shipped in
+   v1.4.191 is CORRECT and needs no change: an episode whose only transcript is
+   `${code}_whisper.srt` fails loudly, because Scene Plan consumes the stitched
+   timeline and the per-chapter sources it is built from. **Do not "fix" this.**
+   Kept for the record: (raised round 27.)
+   `ensureStitchedSubtitle` reports `not-applicable` when no per-chapter
+   transcript matches an audio section, and the completion contract treats that
+   as failure. So an episode whose ONLY transcript is `${code}_whisper.srt` now
+   fails loudly instead of reporting `skipped, complete: true`. If the merged
+   transcript is a legitimate finished state that never needs `_stitched.srt`,
+   this is a regression and the check needs to accept it; if Scene Plan always
+   needs the stitched timeline, the new failure is correct. Our own
+   `inspectSubtitleSourceFreshness` comment ("an intentional whole-track has no
+   per-section source to stale") hints the former, which is why I am not ruling
+   on it from the code.
+5. ~~**`ttl-cache.ts`**~~ **ANSWERED 2026-09-20: DELETE. DONE, v1.4.204.**
+6. ~~**Four chat models publish `max_output_tokens: null`**~~ **ANSWERED
+   2026-09-20: MAKE THEM USABLE — omit `max_output_tokens` and let the provider
+   decide.** Owner: "no output limit is fine. we never got close to 10% of their
+   output anyways for request." **THE SUBMISSION PATH IS DONE, v1.4.209. ONE
+   MORE SITE WAS FOUND WHILE DOING IT AND IS STILL OPEN (E-2 below).**
+
+   The four, verified against the live gateway on 2026-09-20: **Free Models
+   Router** (OpenRouter, 200k ctx) · **grok-4.3** (xAI, 1M) · **grok-4.6** (xAI,
+   500k) · **grok-build-0.1** (xAI, 256k). All `available`, unlocked. The other 44
+   null rows are image/video/audio models where no token ceiling applies.
+
+   **WHAT SHIPPED (v1.4.209).** The refusal is gone and the field is omitted:
+   - `services/output-token-budget.ts` — `productCeiling` now answers
+     `number | null`, and `resolveOutputTokenBudget` returns `number | null`.
+     `null` is returned for the three real absences (`undefined`, `null`, `0` —
+     the catalogue parser normalises an unpublished figure to `0`), while a
+     value that is present but MALFORMED (`-5`, `1.5`, `'many'`, `NaN`) still
+     throws with "published a malformed max_output_tokens". §6: "the product
+     published nothing" and "I could not read what it published" must not
+     collapse into one value.
+   - `lib/genstudio-client.ts` — `PreparedChatSubmission.maxOutputTokens` is
+     `number | null`; the pre-network refusal at the old `:6312` is replaced by
+     a guard that validates only a NUMBER (positive integer, and not above a
+     PUBLISHED ceiling); the two wire bodies (`max_output_tokens`,
+     `max_completion_tokens`), the three request previews and
+     `chatReplacementItemKey` all omit or null the field rather than carrying a
+     substitute. `buildGenStudioChatIdempotencyKey` needed no change: it hashes
+     the CALLER's `request.maxOutputTokens ?? 2_048`, a frozen digest component,
+     not the resolved ceiling — so every pre-existing key is byte-identical.
+   - `lib/ai-client.ts` — `assertPipelineModelRequestCapabilities` validates a
+     number only. Its old unconditional comparison against
+     `candidate.max_output_tokens` meant the parser's `0` made every request look
+     oversized, so the four products were refused before submission.
+   - `lib/chunked-narration.ts` needed NO change: `chunkingOutputBudget` and
+     `chunkThresholdWords` already answer `null` honestly, and
+     `batchSizeForBudget` already documents that a mode keeps its own batch size
+     with no published cap.
+
+   Tests: 2 reversed/added in `output-token-budget.test.ts` (an unpublished
+   ceiling resolves to `null` for EVERY tier including `workload`; the malformed
+   set still throws; and a wire test proving the call is SUBMITTED with no
+   `max_output_tokens` key), 1 in `pipeline-model-policy.test.ts` (the
+   capability gate accepts it, a published ceiling keeps its teeth), and a
+   nullable narrow in `chunking-budget.test.ts`. **Proven red twice:** restoring
+   the old throwing `productCeiling` fails exactly the two new budget tests; the
+   old unconditional capability guard fails exactly the new policy test.
+
+   **E-2 — THE OTHER SITE, STILL OPEN (needs the owner; see STATUS).**
+   `services/scene-prompt-batching.ts:168` (`normalizeMaxOutputTokens`) throws
+   for the identical condition, and `generators/scene-plan.ts:717` passes it the
+   selected prompt model's `max_output_tokens`. Reachable from Pipeline
+   `scene_plan_run`, so the four models still fail THERE. The Scene Plan page
+   compounds it: `hasPublishedPromptBudget` (`scene-plan.vue:1810`) hides the
+   prompt-stage buttons and disables the batch controls when no ceiling is
+   published. What it needs is a rule for "no derivable batch maximum" — the
+   recommendation is the channel's configured `scene_prompt_batch_size` (a value
+   the owner sets) with `prompt_max_tokens` omitted and the card saying so, but
+   the module once substituted 8,192 here and still calls that "the third
+   instance of the same mistake", so the fallback and the wording want a ruling.
+   Files to touch when ruled on: `scene-prompt-batching.ts`
+   (`normalizeMaxOutputTokens`, `maxSafeScenePromptPackSize`,
+   `automaticScenePromptPackSize`, `resolveScenePromptPackSize`,
+   `resolveScenePromptTokenBudget`, `describeScenePromptPackSize`),
+   `generators/scene-plan.ts:717` (`visualMaxTokens` nullable, the motion clamp
+   at `:723`, `pipeline_scene_request_plan`), and the Scene Plan page's batch
+   card (copy + the `hasPublishedPromptBudget` gate).
+
+7. ~~**Cross-project duplicate upload**~~ **ANSWERED 2026-09-20: WARN, WITH A
+   CLICK-THROUGH. DONE, v1.4.208.** Owner: "should be a warning that can be
+   clicked through." Admission now asks whether another project claimed this
+   episode code on this channel (via `video-claims.json` schema v2, which adds
+   the episode code and migrates v1 claims as "episode unknown"), and answers a
+   confirmable 409 rather than refusing; the page confirms and resends with
+   `acknowledge_foreign_episode: true`. The mistake is caught without ever
+   blocking a legitimate second series on one channel.
+   **`completeYouTubeOperation` was deliberately NOT made to fail loudly** — see
+   1.3 above for why that would invite a second upload of a video already live.
+   Full account, including the reachability check and the tests proven red, is
+   in 1.3.
+8. ~~**The reconciler's borrowed TTS model**~~ **ANSWERED 2026-09-20: YES,
+   RECORD IT. DONE, v1.4.207.** The episode now owns its record.
+
+   **What was built.** `services/audio-tts-model-record.ts` writes and reads
+   `audio_tts_model.json` in the EPISODE directory, carrying
+   `model_id`, the model's published `maximum_input_characters`, the
+   `request_budget` the generator actually split at, and the safety margin.
+   `generators/audio.ts` writes it at the same point the generated bytes become
+   the deliberate active selection (inside the existing
+   `!isCancelled() && !req.no_overwrite && !qualityRepairActionId` guard, right
+   after `selectNormalAudioSources`), NOT before the first submission — a run
+   that never becomes active must not leave a record claiming it did, or the
+   record itself becomes the next silent wrong number.
+
+   `services/audio-reconciler.ts` now resolves in this order: (1) the caller's
+   live selection, resolved against the catalogue; (2) **this episode's own
+   record**, whose stored budget is used AS RECORDED because the files on disk
+   were split at exactly that number; (3) the legacy cross-episode borrow.
+   `episodeDirForNarration()` was extracted from `resolveAudioDir` and exported
+   so the writer and the reader agree on one rule instead of each re-deriving
+   where the episode root is.
+
+   **Which sidecar, and why not `audio_chapters.json`.** That file is written by
+   Audio ASSEMBLY, i.e. after a successful merge — and the reconciler exists for
+   the state where TTS is partial and no merge has happened. A record that only
+   appears after the merge cannot answer the question the reconciler asks. The
+   file also had to be written before/independently of the merge for the same
+   reason. `audio_quality.json` already records a per-chapter `tts.model_id`,
+   but it too is written only after the whole run and carries no boundary; it
+   stays the quality subsystem's record.
+
+   Tests: `electron/server/__tests__/audio-tts-model-record.test.ts` (4).
+   **Proven red:** with the record-reading block removed, the "recorded model
+   decides the split" test fails and the other three stay green — exactly the
+   intended case, and the control ("no record, no history → one request, never
+   an invented boundary") keeps passing. `--only audio-tts-model-record --only
+   audio-status-request-boundary --only audio-workflow-readiness --only
+   style-bible` is 39/39.
+
+   **Known limit, stated rather than glossed:** a quality-repair CANDIDATE run
+   does not write the record (the active audio did not change), and promotion
+   copies versioned filenames the reconciler's base/`_partN` prediction does not
+   match anyway — so candidate-promoted audio was outside this prediction
+   before and still is.
+
+9. ~~**Scene Plan "Custom instructions"**~~ **ANSWERED 2026-09-20: EXCLUDE —
+   episode-specific stays episode-specific. EXCLUSION DONE, v1.4.207** (see the
+   Group 2 entry above for the harness work it needed). The owner also asked for
+   a **NEW CHANNEL-SPECIFIC BOX**, so text meant to persist can be typed THERE
+   and saved in presets deliberately. **THE BOX IS STILL NOT BUILT — that is the
+   one remaining piece of this decision.** Next step: add a second, clearly
+   labelled channel-level guidance field on Scene Plan whose text is IN a preset
+   (unlike `custom_instructions`), decide with the owner whether it writes to
+   `config.json` like `default_style_bible` or rides only in presets, and make
+   the two boxes visually distinct so one is never mistaken for the other.
+10. ~~**`character_ids` and `manual_guidance`**~~ **ANSWERED 2026-09-20: KEEP
+   `character_ids` (the cast), EXCLUDE `manual_guidance`** — a different answer
+   from 9, as the owner said. The cast is channel/series-level and identical
+   across episodes, so a preset restoring it is useful; written guidance becomes
+   the channel-specific box from 9 instead.
+   **`force` is excluded in every case** — a restored `force: true` silently
+   overwrites existing work; no reading of 9/10 makes that acceptable.
+   **DONE, v1.4.205 (commit `31970717`)** for `scripts.vue`;
+   `image-prompts.vue` needs NO change (its cast field is KEPT by this answer);
+   `scene-plan.vue`'s half is the `custom_instructions` exclusion shipped in
+   v1.4.207. Nothing is open here.
+
+Everything else in this plan is unblocked and I will proceed unless told
+otherwise.

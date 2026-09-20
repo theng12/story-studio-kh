@@ -32,7 +32,13 @@
         <h3>1. Your songs</h3>
         <span v-if="library" class="text-muted text-sm">
           {{ library.tracks.length }} track(s) ·
-          {{ formatMinutes(library.available_seconds) }} usable
+          <!-- v1.4.199 — a track whose length could not be measured contributes
+               nothing to the total, so the total is a floor. Saying "usable"
+               alone presented a silent under-count as the whole answer. -->
+          {{ library.unmeasured_enabled_tracks ? 'at least ' : ''
+          }}{{ formatMinutes(library.available_seconds) }} usable<template
+            v-if="library.unmeasured_enabled_tracks"
+          > ({{ library.unmeasured_enabled_tracks }} without a measured length)</template>
         </span>
       </div>
 
@@ -209,7 +215,7 @@ interface LibraryTrack {
   times_used: number
   last_used_at: string | null
 }
-interface LibraryState { tracks: LibraryTrack[]; folder: string; available_seconds: number }
+interface LibraryState { tracks: LibraryTrack[]; folder: string; available_seconds: number; unmeasured_enabled_tracks: number }
 interface MixPlan {
   entries: { filename: string; title: string; start_sec: number; duration_sec: number }[]
   total_sec: number

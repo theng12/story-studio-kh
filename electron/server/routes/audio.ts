@@ -217,7 +217,7 @@ async function quoteCandidateTts(input: {
   if (selected.length !== input.sections.length) throw new Error('The selected narration scope changed before it could be quoted.')
   const budget = resolveTtsRequestBudget(ttsModel)
   const requests = flattenTtsRequestPlan(planGenStudioTtsRequests(selected, budget.effective))
-  const { requestGenStudioTtsQuote } = await import('../lib/genstudio-client.js')
+  const { requestGenStudioTtsQuote, resolveGenStudioTtsSpeed } = await import('../lib/genstudio-client.js')
   const { resolveTtsControlValues } = await import('../lib/tts-controls.js')
   const { quoteNarrationRequests } = await import('../services/tts-narration-quote.js')
   const controls = resolveTtsControlValues(ttsModel.controls, input.controls as Record<string, unknown> | null | undefined)
@@ -225,7 +225,11 @@ async function quoteCandidateTts(input: {
     requests, quoteEnabled: voice.quote_enabled !== false,
     quoteRequest: text => requestGenStudioTtsQuote(apiKey, {
       modelId: input.modelId, voiceId: input.voiceId, text,
-      speed: Number.isFinite(Number(input.speed)) ? Number(input.speed) : 1, controls,
+      speed: resolveGenStudioTtsSpeed(input.speed, ttsModel.supports_speed, ttsModel.minimum_speed, ttsModel.maximum_speed),
+      supportsSpeed: ttsModel.supports_speed,
+      minimumSpeed: ttsModel.minimum_speed,
+      maximumSpeed: ttsModel.maximum_speed,
+      controls,
     }),
   })
   return { ...quote, model_id: ttsModel.id, model_name: ttsModel.display_name,
@@ -306,8 +310,8 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
       return res.status(400).json({ detail: 'There is no narration on disk yet to quote.' })
     }
 
-    const speed = Number(req.body?.speed)
-    const { requestGenStudioTtsQuote } = await import('../lib/genstudio-client.js')
+    const { requestGenStudioTtsQuote, resolveGenStudioTtsSpeed } = await import('../lib/genstudio-client.js')
+    const speed = resolveGenStudioTtsSpeed(req.body?.speed, ttsModel.supports_speed, ttsModel.minimum_speed, ttsModel.maximum_speed)
     const { resolveTtsControlValues } = await import('../lib/tts-controls.js')
     const { quoteNarrationRequests } = await import('../services/tts-narration-quote.js')
     // Resolved against the SELECTED model's published `controls[]`, so a name
@@ -324,7 +328,10 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
         text,
         // Generation always sends a speed (`req.speed ?? 1`). Quote the same
         // one — speed changes the billed duration on some models.
-        speed: Number.isFinite(speed) ? speed : 1,
+        speed,
+        supportsSpeed: ttsModel.supports_speed,
+        minimumSpeed: ttsModel.minimum_speed,
+        maximumSpeed: ttsModel.maximum_speed,
         controls,
       }),
     })
@@ -1353,6 +1360,15 @@ router.post('/projects/:slug/episodes/:code/audio-ingest', async (req, res) => {
           ? `Chapter_${String(n).padStart(2, '0')}`
           : ''
     if (!sectionSlug) return res.status(400).json({ detail: 'Provide chapterNumber or slug.' })
+    // `sectionSlug` becomes a FILENAME below (`${code}_${sectionSlug}.${ext}`) and
+    // is then written with `fs.writeFile`. It arrives from the request body with
+    // only a `.trim()`, so `{"slug":"../../../../tmp/pwn"}` wrote outside the
+    // project — an arbitrary-path file write of up to the body cap. A section
+    // slug is a name: a path separator, a NUL, or a leading dot is never
+    // legitimate, and traversal needs one of those.
+    if (/[/\\\u0000]/.test(sectionSlug) || sectionSlug.startsWith('.')) {
+      return res.status(400).json({ detail: 'Invalid slug — a chapter slug cannot contain a path separator.' })
+    }
     if (typeof audioBase64 !== 'string' || !audioBase64) {
       return res.status(400).json({ detail: 'audioBase64 is required.' })
     }

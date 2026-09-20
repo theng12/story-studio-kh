@@ -20,7 +20,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { downloadVideo } from '../lib/download-video.js'
 import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
-import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath, type ProjectFactsCache } from '../services/utils.js'
 import { resolveSceneImageReadPath } from './scene-image.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
@@ -144,9 +144,14 @@ export function sceneClipFleetBusyRetryPlan(e: unknown, attemptNum: number): Sce
  * Returns the existing on-disk folder when present, else the canonical path
  * (callers mkdir before writing).
  */
-export async function resolveVideoAssetsDir(slug: string, code: string, episodeDir: string): Promise<string> {
-  const names = await resolveSubfolderNames(slug, code)
-  const mediaBase = await mediaEpisodeBaseForCode(slug, code).catch(() => null)
+export async function resolveVideoAssetsDir(
+  slug: string,
+  code: string,
+  episodeDir: string,
+  cache?: ProjectFactsCache,
+): Promise<string> {
+  const names = await resolveSubfolderNames(slug, code, cache)
+  const mediaBase = await mediaEpisodeBaseForCode(slug, code, cache).catch(() => null)
   const parent = mediaBase || episodeDir
   const found = await findSubfolder(parent, names.video_assets)
   return found || path.join(parent, names.video_assets)
@@ -160,7 +165,7 @@ interface SceneClipGenerateParams {
   /** Image-to-video model id — a key in config.video_models whose `modes`
    *  include 'frames'. */
   model: string
-  /** Output aspect ('16:9' default → landscape; '9:16' → portrait). */
+  /** Exact GenStudio-published output aspect ratio. */
   aspect_ratio?: string
   /** Exact GenStudio-published pair saved when the job was queued. */
   operation?: string
@@ -311,11 +316,12 @@ export async function requireSceneClipGenStudioModel(
 ): Promise<{
   apiKey: string
   modelId: string
+  model: GenStudioVideoModel
   variant: GenStudioVideoVariant
 }> {
   const { apiKey, modelId, model } = await requireSceneClipGenStudioCatalogModel(selectedModel)
   const variant = selectSceneClipGenStudioVariant(model.variants, requestedVariant)
-  return { apiKey, modelId, variant }
+  return { apiKey, modelId, model, variant }
 }
 
 export async function generateSceneClipJob(job: Job): Promise<void> {
@@ -352,9 +358,14 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       duration_seconds: savedDuration?.duration_seconds ?? params.duration_seconds,
       resolution: params.resolution,
     }
-  const { apiKey, modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
-
-  const aspectRatio = (params.aspect_ratio === '9:16' || params.aspect_ratio === 'portrait') ? 'portrait' : 'landscape'
+  const { apiKey, modelId, model: catalogModel, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
+  const requestAspect = typeof params.aspect_ratio === 'string' ? params.aspect_ratio.trim() : ''
+  if (!requestAspect) {
+    throw new Error(`An aspect ratio is required for ${model}; GenStudio publishes no default aspect ratio for video models.`)
+  }
+  if (!catalogModel.aspect_ratios.some(ratio => ratio.trim() === requestAspect)) {
+    throw new Error(`GenStudio model ${modelId} does not publish aspect ratio ${requestAspect}.`)
+  }
 
   job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — animate via GenStudio KH / ${modelId}`)
   // The operation, duration, and resolution actually submitted are a current published
@@ -373,7 +384,6 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   await fs.mkdir(outDir, { recursive: true })
   const manifestKey = `${scene_id}.mp4`
   const outPath = path.join(outDir, manifestKey)
-  const requestAspect = aspectRatio === 'portrait' ? '9:16' : '16:9'
   // From the model's published catalogue, never a constant in this file.
   const durationSeconds = variant.duration_seconds
   const resolution = variant.resolution
@@ -650,6 +660,7 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
   const planPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)
   if (!existsSync(planPath)) throw new Error('No scene_plan.json yet — run Scene Plan first.')
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  if (!plan.scenes.length) throw new Error('scene_plan.json has no scenes — run Scene Plan first.')
   const clipsDir = await resolveVideoAssetsDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   const ready = [] as ScenePlan['scenes']
   const blockers: string[] = []
@@ -745,7 +756,7 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
         episode_id,
         scene_id: scene.id,
         model,
-        aspect_ratio: params.aspect_ratio || '16:9',
+        aspect_ratio: params.aspect_ratio,
         operation: params.operation,
         duration_seconds: params.scene_durations?.[scene.id]?.duration_seconds ?? params.duration_seconds,
         resolution: params.resolution,

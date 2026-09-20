@@ -20,7 +20,7 @@ import {
   hashSubtitleAudioSources,
   isPipelineRepairTranscriptUsable,
 } from '../services/subtitle-completion.js'
-import { recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
+import { readSubtitleSourceAudioHashes, recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { scanEpisodeAssets } from './video.js'
 import {
@@ -67,7 +67,7 @@ export const TRANSCRIPTION_WORD_TIMESTAMPS = true
 
 export interface TranscribeSubtitlesRequest {
   episode_id: string
-  audio_path?: string        // overrides the default merged-audio discovery
+  audio_path?: string        // may pin Audio Assembly's authoritative merged output
   language?: string
   model?: string
   /**
@@ -174,9 +174,20 @@ export function isFleetBusyTranscriptionFailure(error: unknown): boolean {
 }
 
 
-async function hashTranscriptionAudio(audioPath: string): Promise<string> {
+async function hashTranscriptionAudio(audioPath: string): Promise<{
+  requestHash: string
+  evidenceHash: string
+}> {
   const audio = await fs.readFile(audioPath)
-  return `sha256:${createHash('sha256').update(audio).digest('hex')}`
+  const raw = createHash('sha256').update(audio).digest('hex')
+  return {
+    // GenStudio's idempotency contract uses the raw file SHA-256.
+    requestHash: `sha256:${raw}`,
+    // Subtitle provenance uses the shared ordered-source hash contract, even
+    // for one whole-track file. Derive it from the same read rather than
+    // streaming a potentially large merged track twice.
+    evidenceHash: `sha256:${createHash('sha256').update(JSON.stringify([raw])).digest('hex')}`,
+  }
 }
 
 /**
@@ -259,6 +270,156 @@ async function resolveGenStudioTranscription(
   return { apiKey, modelId: selected.id, language }
 }
 
+/**
+ * May an existing whole-track transcript be kept instead of transcribed again?
+ *
+ * This was `existing.cues > 0`, and that alone was not enough for three reasons:
+ *
+ *  1. **No staleness check.** The per-chapter path consults `staleSections`; this
+ *     one did not, so re-running Audio and then Retry left the OLD transcript in
+ *     place and blessed it as current.
+ *  2. **`cues > 0` is not coverage.** One cue over a 40-minute episode passed.
+ *  3. It short-circuits before the stitch, which is recorded separately below.
+ *
+ * The check now also asks `inspectSubtitleSourceFreshness`, the same authority
+ * the per-chapter path uses, so "the audio changed under this transcript" cannot
+ * be skipped. Extracted as a predicate rather than inlined so the decision is
+ * unit-testable without driving the generator, which would call a provider.
+ */
+export async function existingTranscriptIsCurrent(input: {
+  projectSlug: string
+  episodeId: string
+  code: string
+  outDir: string
+  /** Audio Assembly's exact selected merge. Omitted only by legacy callers. */
+  sourceAudio?: string
+}): Promise<{ skip: boolean; reason: string; cues: number }> {
+  const outPath = path.join(input.outDir, `${input.code}_whisper.srt`)
+  let cues = 0
+  try {
+    cues = normalizeSrtOrVtt(await fs.readFile(outPath, 'utf-8')).cues
+  } catch {
+    return { skip: false, reason: 'the existing transcript could not be read', cues: 0 }
+  }
+  if (!(cues > 0)) return { skip: false, reason: 'the existing transcript has no valid cues', cues: 0 }
+
+  if (input.sourceAudio) {
+    const manifestKey = path.basename(outPath)
+    const savedHash = (await readSubtitleSourceAudioHashes(input.outDir))[manifestKey]
+    if (savedHash) {
+      const currentHash = await hashSubtitleAudioSources([input.sourceAudio])
+      if (!currentHash || currentHash !== savedHash) {
+        return { skip: false, cues, reason: 'the authoritative merged audio changed' }
+      }
+    } else {
+      // Migration fallback for imported and pre-provenance whole tracks. A
+      // legacy transcript remains intentional unless Audio Assembly has since
+      // replaced its source; cue duration is deliberately not a completeness
+      // heuristic because sparse timing can be intentional.
+      const statOrAbsent = async (filePath: string, label: string) => {
+        try {
+          return await fs.stat(filePath)
+        } catch (error: any) {
+          if (error?.code === 'ENOENT') return null
+          throw new Error(
+            `Could not inspect ${label} (${error?.code || error?.message || error}); no transcription was submitted.`,
+          )
+        }
+      }
+      const [transcriptStat, audioStat] = await Promise.all([
+        statOrAbsent(outPath, 'the existing transcript'),
+        statOrAbsent(input.sourceAudio, 'authoritative merged audio'),
+      ])
+      if (!transcriptStat || !audioStat || audioStat.mtimeMs > transcriptStat.mtimeMs) {
+        return { skip: false, cues, reason: 'the authoritative merged audio changed' }
+      }
+    }
+  }
+
+  const epaths = await resolveEpisodePathsByCodeWithSidecar(
+    input.projectSlug, input.episodeId, 'audio_chapters.json',
+  )
+  const freshness = await inspectSubtitleSourceFreshness(
+    epaths.episode_dir, epaths.audio_dir, input.outDir, input.code,
+  )
+  if (freshness.stale_sections.length) {
+    return {
+      skip: false,
+      cues,
+      reason: `the audio changed for ${freshness.stale_sections.length} section(s): ${freshness.stale_sections.join(', ')}`,
+    }
+  }
+  return { skip: true, cues, reason: `${cues} cue(s)` }
+}
+
+/**
+ * Roll the per-chapter SRTs up into {CODE}_stitched.srt, and PROVE the timeline.
+ *
+ * Extracted so the successful-transcription path and the "transcript is already
+ * current" skip path run the SAME stitch. Before this, the skip path returned at
+ * :294 — before the stitch — so a job that failed the stitch was told "Retry the
+ * local subtitle stitch before Scene Plan", and the Retry then skipped straight
+ * back out without stitching. **The Retry could not perform the repair its own
+ * error named.**
+ *
+ * `ensureStitchedSubtitle` owns the freshness decision and returns `'fresh'`
+ * when the existing stitch is current, so calling it on the skip path is cheap
+ * and idempotent. Deliberately NOT "refuse to skip when the stitch is missing":
+ * falling through would re-transcribe, spending money to repair a local file.
+ */
+async function stitchAndVerifyTranscript(
+  job: Job,
+  code: string,
+  epaths: Awaited<ReturnType<typeof resolveEpisodePathsByCodeWithSidecar>>,
+  outDir: string,
+): Promise<void> {
+  try {
+    // v1.0.397 — offset the stitched timeline by the intro lead-in so the
+    // burned captions line up with the merged audio (which plays the intro
+    // before any narration). Read-only against the merged file + sidecar.
+    //
+    // v1.3.4 — the bare `catch {}` that used to wrap this is gone. It spelled
+    // "I could not work out the intro" and "there is no intro" the same way —
+    // `leadIn = 0`, no log line — so a stitched timeline running sixteen
+    // seconds ahead of the video reported itself as a clean success. The
+    // resolver now returns a measurement and every outcome is stated below.
+    // v1.4.0 — through `ensureStitchedSubtitle`, which measures the lead-in and
+    // records the fingerprint of every input in the meta sidecar. A transcribe
+    // has by definition just rewritten those inputs, so this always restitches;
+    // routing it here is about the RECORD, so the render-time freshness check
+    // finds one and does not rebuild a good file on every render.
+    const { describeEpisodeIntroLeadIn } = await import('../lib/intro-lead-in.js')
+    const { ensureStitchedSubtitle } = await import('../lib/subtitle-autostitch.js')
+    const outcome = await ensureStitchedSubtitle({
+      episodeDir: epaths.episode_dir,
+      subtitlesDir: outDir,
+      mergedAudioDir: epaths.merged_audio_dir,
+      audioDir: epaths.audio_dir,
+      episodeCode: code,
+    })
+    if (outcome.status !== 'stitched' && outcome.status !== 'fresh') {
+      requireWrittenSubtitleStitch(outcome)
+      throw new Error('Unreachable subtitle stitch state')
+    }
+    const timeline = await readSubtitleTimelineIntegrity(outDir, code)
+    if (!timeline.complete) {
+      throw new Error(`Subtitle stitch did not verify: ${timeline.missing_sections.join(', ')}. Retry the local subtitle stitch before Scene Plan.`)
+    }
+    job.result = { ...job.result, complete: true, stitch_complete: true, recovery_state: 'repaired' }
+    job.output_lines.push(outcome.status === 'stitched'
+      ? `✓ Auto-stitched ${outcome.result.total_cues} cue(s) (${outcome.result.total_duration_sec.toFixed(1)}s)` +
+        ` → ${path.basename(outcome.result.output_path)}. Re-run Scene Plan to pick up the new timeline.`
+      : `✓ Stitched transcript is already current → ${path.basename(outcome.path)}.`)
+    job.output_lines.push(`${outcome.lead_in.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(outcome.lead_in)}`)
+  } catch (e: any) {
+    const msg = (e as Error)?.message || String(e)
+    const hint = msg.includes('audio_chapters.json not found') ? 'run Audio Assembly first' : msg
+    job.result = { ...job.result, complete: false, stitch_complete: false, stitch_error: hint }
+    job.output_lines.push(`✗ STITCH INCOMPLETE — ${hint}`)
+    throw new Error(`Subtitle transcription is incomplete because its stitched timeline is not ready: ${hint}`)
+  }
+}
+
 export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as TranscribeSubtitlesRequest
@@ -287,20 +448,41 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
     return await transcribePerChapter(job, project_slug, episode_id, req)
   }
 
+  const sourceAudio = assembly.merged_audio_path
+  if (!sourceAudio) throw new Error('No authoritative merged audio file found — run Audio Assembly first')
+  if (req.audio_path && path.resolve(req.audio_path) !== path.resolve(sourceAudio)) {
+    throw new Error(
+      `The requested audio_path is not Audio Assembly's authoritative output (${path.basename(sourceAudio)}). ` +
+      'Re-run Audio Assembly or omit audio_path; no transcription was submitted or charged.',
+    )
+  }
+
   // Preserve already-verified work. GenStudio has its own durable idempotency,
   // while this file guard prevents an unnecessary new Story job entirely.
   const outDir = await resolveSubtitlesDir(project_slug, code)
   const outPath = path.join(outDir, `${code}_whisper.srt`)
   if (!effectiveForce && await fileExistsWithContent(outPath)) {
-    const existing = normalizeSrtOrVtt(await fs.readFile(outPath, 'utf-8'))
-    if (existing.cues > 0) {
-      job.output_lines.push(`Skipping — ${code}_whisper.srt already exists and ${existing.cues} cue(s) were verified. Tick "Re-run transcription" to overwrite.`)
+    const current = await existingTranscriptIsCurrent({
+      projectSlug: project_slug, episodeId: episode_id, code, outDir, sourceAudio,
+    })
+    if (current.skip) {
+      job.output_lines.push(`Skipping — ${code}_whisper.srt already exists and ${current.reason} were verified. Tick "Re-run transcription" to overwrite.`)
       job.output_dir = outDir
-      ;(job as any).result = { srt_path: outPath, cues: existing.cues, skipped: true, complete: true }
+      ;(job as any).result = { srt_path: outPath, cues: current.cues, skipped: true, complete: true }
       job.progress = 100
+      // THE FIX. Return only AFTER the stitch has run and been verified. The
+      // skip path used to return here, before the stitch, so a job that had
+      // failed the stitch was told "Retry the local subtitle stitch before
+      // Scene Plan" and the Retry came straight back through this branch and
+      // out again without stitching — the Retry could not perform the repair
+      // its own error named.
+      const skipPaths = await resolveEpisodePathsByCodeWithSidecar(
+        project_slug, episode_id, 'audio_chapters.json',
+      )
+      await stitchAndVerifyTranscript(job, code, skipPaths, outDir)
       return
     }
-    job.output_lines.push(`Existing ${code}_whisper.srt has no valid cues — regenerating it.`)
+    job.output_lines.push(`Existing ${code}_whisper.srt is not current — regenerating: ${current.reason}`)
   }
 
   const config = await pm.getConfig(project_slug)
@@ -308,20 +490,6 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
 
   const genstudio = await resolveGenStudioTranscription(job, req)
 
-  // Resolve the audio source: explicit override wins; otherwise we use the
-  // first merged-audio file the scanner surfaces. Rejecting the chapter
-  // files here is intentional — transcribing 10+ small clips ~double-counts
-  // the Whisper API call budget and produces stitched-together offsets we'd
-  // have to reconcile manually.
-  let audioPath = req.audio_path
-  if (!audioPath) {
-    const assets = await scanEpisodeAssets(project_slug, episode_id)
-    const merged = assets.merged_audio[0]
-    if (!merged) throw new Error('No merged audio file found — run Audio Assembly first')
-    audioPath = merged.path
-  }
-  // `const` so TS keeps the string narrowing inside the async closures below.
-  const sourceAudio: string = audioPath
   job.output_lines.push(`Source: ${path.basename(sourceAudio)}`)
   const manifestKey = path.basename(outPath)
 
@@ -332,15 +500,15 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   }, 500)
 
   try {
-    const currentAudioHash = await hashTranscriptionAudio(sourceAudio)
+    const audioIdentity = await hashTranscriptionAudio(sourceAudio)
     const requestIdentity = `${project_slug}:${code}:transcription:${manifestKey}`
     const currentInputHash = hashInput(JSON.stringify({
-      requestIdentity, audioHash: currentAudioHash, modelId: genstudio.modelId,
+      requestIdentity, audioHash: audioIdentity.requestHash, modelId: genstudio.modelId,
       language: genstudio.language, wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
     }))
     const result = await runSubtitleTranscription({
       job, outDir, section: 'merged', manifestKey, inputHash: currentInputHash,
-      audioHash: currentAudioHash, apiKey: genstudio.apiKey, force: effectiveForce,
+      audioHash: audioIdentity.requestHash, apiKey: genstudio.apiKey, force: effectiveForce,
       generationActionId,
       manualCreditCeiling: req.subtitle_purchase?.additional_credit_ceiling,
       request: {
@@ -352,7 +520,11 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
     // Run the rest of the pipeline under the same try so `finally` always
     // clears the watcher interval — otherwise a parse failure would leak
     // a 500 ms timer per cancelled-during-parse job.
-    return await finalizeTranscript(job, project_slug, episode_id, result.srt)
+    return await finalizeTranscript(job, project_slug, episode_id, result.srt, {
+      manifestKey,
+      sourceAudioHash: audioIdentity.evidenceHash,
+      modelId: result.modelId,
+    })
   } finally {
     clearInterval(cancelWatcher)
   }
@@ -389,9 +561,10 @@ export function selectRequestedSections<T extends { slug: string }>(
     : []
   if (!wanted.length) return available
   const selected = available.filter(s => wanted.includes(s.slug.toLowerCase()))
-  if (!selected.length) {
+  const unknown = wanted.filter(slug => !selected.some(section => section.slug.toLowerCase() === slug))
+  if (unknown.length) {
     throw new Error(
-      `None of the requested chapters have audio: ${wanted.join(', ')}. ` +
+      `Requested chapters have no matching audio: ${unknown.join(', ')}. ` +
       `Available: ${available.map(s => s.slug).join(', ') || '(none)'}.`,
     )
   }
@@ -556,6 +729,9 @@ async function transcribePerChapter(
   const repairActionId = typeof req.pipeline_repair?.action_id === 'string'
     ? req.pipeline_repair.action_id.trim()
     : ''
+  const hasPipelineContinuation = Array.isArray(job.params?.pipeline_chain) && job.params.pipeline_chain.length > 0
+  const explicitlyScoped = !repairActionId && !hasPipelineContinuation && Array.isArray(req.sections)
+    && req.sections.some(section => typeof section === 'string' && section.trim() !== '')
   const generationActionId = req.generation_action?.kind === 'fresh'
     && typeof req.generation_action.id === 'string' && req.generation_action.id.trim()
     ? req.generation_action.id.trim()
@@ -644,15 +820,15 @@ async function transcribePerChapter(
         sec.files.map(file => path.join(audioDir, file)),
       )
       if (!sourceAudioHash) throw new Error(`Could not fingerprint active audio for ${sec.slug}`)
-      const currentAudioHash = await hashTranscriptionAudio(audioPath)
+      const currentAudioIdentity = await hashTranscriptionAudio(audioPath)
       const requestIdentity = `${projectSlug}:${code}:transcription:${manifestKey}`
       const currentInputHash = hashInput(JSON.stringify({
-        requestIdentity, audioHash: currentAudioHash, modelId: genstudio.modelId,
+        requestIdentity, audioHash: currentAudioIdentity.requestHash, modelId: genstudio.modelId,
         language: genstudio.language, wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
       }))
       const result = await runSubtitleTranscription({
         job, outDir, section: sec.slug, manifestKey, inputHash: currentInputHash,
-        audioHash: currentAudioHash, apiKey: genstudio.apiKey, force,
+        audioHash: currentAudioIdentity.requestHash, apiKey: genstudio.apiKey, force,
         generationActionId,
         ...(repairSection ? {
           pipelineRepair: { actionId: repairActionId, isResultUsable: isPipelineRepairTranscriptUsable },
@@ -743,27 +919,64 @@ async function transcribePerChapter(
   // coverage is useful evidence, but it cannot count as ready for this job's
   // result or Episode recovery would report a failed replacement as complete.
   const failedKeys = new Set(failedSlugs.map(slug => slug.toLowerCase()))
-  const readySections = coverage.completed_sections.filter(section => !failedKeys.has(section.toLowerCase()))
+  const scopeKeys = new Set(sections.map(section => section.slug.toLowerCase()))
+  const unselectedStaleKeys = new Set(Array.from(staleSections).filter(section => !scopeKeys.has(section)))
+  const unselectedStaleSections = Array.from(unselectedStaleKeys).map(key => (
+    allSections.find(section => section.slug.toLowerCase() === key)?.slug || key
+  ))
+  const completedScopeKeys = new Set(coverage.completed_sections
+    .filter(section => scopeKeys.has(section.toLowerCase()))
+    .map(section => section.toLowerCase()))
+  const scopeMissingSections = sections
+    .filter(section => !completedScopeKeys.has(section.slug.toLowerCase()))
+    .map(section => section.slug)
+  const scopeFailedSections = failures
+    .map(failure => failure.slug)
+    .filter(section => scopeKeys.has(section.toLowerCase()))
+  const scopeFailedSlugs = Array.from(new Set([...scopeMissingSections, ...scopeFailedSections]))
+  const scopeComplete = scopeFailedSlugs.length === 0
+  // An explicitly scoped job can finish its requested work while the episode
+  // still lacks other chapters or has stale unselected sources.
+  const episodeComplete = coverage.complete && failures.length === 0
+    && (!explicitlyScoped || unselectedStaleSections.length === 0)
+  const unselectedStaleLabelKeys = new Set(unselectedStaleSections.map(section => section.toLowerCase()))
+  const readySections = coverage.completed_sections.filter(section => !failedKeys.has(section.toLowerCase())
+    && !unselectedStaleLabelKeys.has(section.toLowerCase()))
+  const episodeMissingSlugs = Array.from(new Set([...failedSlugs, ...unselectedStaleSections]))
   job.result = {
     subtitles_dir: outDir,
-    complete: coverage.complete && failures.length === 0,
+    complete: explicitlyScoped ? scopeComplete : episodeComplete,
+    scope_complete: scopeComplete,
+    episode_complete: episodeComplete,
+    scoped_sections: explicitlyScoped ? sections.map(section => section.slug) : undefined,
+    ...(explicitlyScoped && !episodeComplete ? { stitch_complete: false } : {}),
     expected_sections: coverage.expected_sections.length,
     ready_sections: readySections.length,
     generated_sections: generatedSections,
     new_cues: totalCues,
-    missing_sections: failedSlugs,
+    missing_sections: episodeMissingSlugs,
     recovery_state: 'needs_attention',
   }
 
-  if (!coverage.complete || failures.length) {
-    const missingLabel = failedSlugs.length
-      ? failedSlugs.join(', ')
+  if (!scopeComplete || (!explicitlyScoped && !episodeComplete)) {
+    const incompleteSlugs = explicitlyScoped ? scopeFailedSlugs : failedSlugs
+    const missingLabel = incompleteSlugs.length
+      ? incompleteSlugs.join(', ')
       : 'coverage could not be verified; run Audio Assembly to rebuild audio_chapters.json'
     const message =
       `Transcription incomplete: ${readySections.length}/${coverage.expected_sections.length} sections ready. ` +
       `Missing: ${missingLabel}. Successful chapter files were saved; Retry fills only the missing sections.`
     job.output_lines.push(`✗ INCOMPLETE — ${message}`)
     throw new Error(message)
+  }
+
+  if (explicitlyScoped && !episodeComplete) {
+    job.output_lines.push(
+      `✓ Requested subtitle sections complete: ${sections.length}/${sections.length} ready. ` +
+      `Episode coverage remains incomplete (${readySections.length}/${coverage.expected_sections.length}); ` +
+      'auto-stitch waits until every chapter is present and current.',
+    )
+    return
   }
 
   job.output_lines.push(
@@ -778,51 +991,7 @@ async function transcribePerChapter(
   // planner on a stale timeline. Roll the fresh per-chapter SRTs up into
   // {CODE}_stitched.srt right here. A stitch failure remains visible because
   // downstream Scene Plan must never consume a stale or partial timeline.
-  try {
-    // v1.0.397 — offset the stitched timeline by the intro lead-in so the
-    // burned captions line up with the merged audio (which plays the intro
-    // before any narration). Read-only against the merged file + sidecar.
-    //
-    // v1.3.4 — the bare `catch {}` that used to wrap this is gone. It spelled
-    // "I could not work out the intro" and "there is no intro" the same way —
-    // `leadIn = 0`, no log line — so a stitched timeline running sixteen
-    // seconds ahead of the video reported itself as a clean success. The
-    // resolver now returns a measurement and every outcome is stated below.
-    // v1.4.0 — through `ensureStitchedSubtitle`, which measures the lead-in and
-    // records the fingerprint of every input in the meta sidecar. A transcribe
-    // has by definition just rewritten those inputs, so this always restitches;
-    // routing it here is about the RECORD, so the render-time freshness check
-    // finds one and does not rebuild a good file on every render.
-    const { describeEpisodeIntroLeadIn } = await import('../lib/intro-lead-in.js')
-    const { ensureStitchedSubtitle } = await import('../lib/subtitle-autostitch.js')
-    const outcome = await ensureStitchedSubtitle({
-      episodeDir: epaths.episode_dir,
-      subtitlesDir: outDir,
-      mergedAudioDir: epaths.merged_audio_dir,
-      audioDir: epaths.audio_dir,
-      episodeCode: code,
-    })
-    if (outcome.status !== 'stitched' && outcome.status !== 'fresh') {
-      requireWrittenSubtitleStitch(outcome)
-      throw new Error('Unreachable subtitle stitch state')
-    }
-    const timeline = await readSubtitleTimelineIntegrity(outDir, code)
-    if (!timeline.complete) {
-      throw new Error(`Subtitle stitch did not verify: ${timeline.missing_sections.join(', ')}. Retry the local subtitle stitch before Scene Plan.`)
-    }
-    job.result = { ...job.result, complete: true, stitch_complete: true, recovery_state: 'repaired' }
-    job.output_lines.push(outcome.status === 'stitched'
-      ? `✓ Auto-stitched ${outcome.result.total_cues} cue(s) (${outcome.result.total_duration_sec.toFixed(1)}s)` +
-        ` → ${path.basename(outcome.result.output_path)}. Re-run Scene Plan to pick up the new timeline.`
-      : `✓ Stitched transcript is already current → ${path.basename(outcome.path)}.`)
-    job.output_lines.push(`${outcome.lead_in.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(outcome.lead_in)}`)
-  } catch (e: any) {
-    const msg = (e as Error)?.message || String(e)
-    const hint = msg.includes('audio_chapters.json not found') ? 'run Audio Assembly first' : msg
-    job.result = { ...job.result, complete: false, stitch_complete: false, stitch_error: hint }
-    job.output_lines.push(`✗ STITCH INCOMPLETE — ${hint}`)
-    throw new Error(`Subtitle transcription is incomplete because its stitched timeline is not ready: ${hint}`)
-  }
+  await stitchAndVerifyTranscript(job, code, epaths, outDir)
 }
 
 /**
@@ -835,6 +1004,7 @@ async function finalizeTranscript(
   projectSlug: string,
   episodeId: string,
   srtRaw: string,
+  evidence?: { manifestKey: string; sourceAudioHash: string; modelId: string },
 ): Promise<void> {
   const code = episodeId.toUpperCase()
 
@@ -852,6 +1022,14 @@ async function finalizeTranscript(
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${code}_whisper.srt`)
   await fs.writeFile(outPath, srt, 'utf-8')
+  if (evidence) {
+    await recordSubtitleSourceEvidence(
+      outDir,
+      evidence.manifestKey,
+      evidence.sourceAudioHash,
+      evidence.modelId,
+    )
+  }
 
   job.output_lines.push(`Wrote ${cues} cues → ${outPath}`)
   job.output_dir = outDir

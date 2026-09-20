@@ -30,7 +30,7 @@ async function loadPageScript(): Promise<Component> {
     const useToast = () => ({ success: () => undefined, error: () => undefined, info: () => undefined })
     const useJobs = () => ({ jobs: ref([]) })
     const useProject = () => ({ project: ref(null), episodesRoot: ref('/fixture/episodes') })
-    const useGenStudioTranscriptionModels = () => ({
+    const useGenStudioTranscriptionModels = () => globalThis.__subtitleSelectionModel || ({
       modelId: ref(''), selectedModel: ref(null), options: ref([]), loading: ref(false),
       error: ref(''), ready: ref(false), load: async () => undefined,
     })
@@ -228,4 +228,67 @@ test('subtitle actions fail closed when selected-source freshness cannot be insp
   assert.match(source, /Subtitle freshness unavailable/)
   assert.match(source, /if \(status\.value\?\.freshness_unavailable\) return false/)
   assert.match(source, /subtitleFreshnessUnavailable \? '\?' : coverage\.done/)
+})
+
+
+test('selected subtitle chapters share one scoped request, retain retry identity, and reset with the episode', async () => {
+  const vue = await import('vue')
+  ;(globalThis as any).__subtitleSelectionModel = {
+    modelId: vue.ref('transcribe-test'), selectedModel: vue.ref({ id: 'transcribe-test', supported_languages: ['en'], supports_language_auto_detect: true }),
+    options: vue.ref([]), loading: vue.ref(false), error: vue.ref(''), ready: vue.ref(true), load: async () => undefined,
+  }
+  const requests: any[] = []
+  let reject = true
+  ;(globalThis as any).__subtitlesInitialRouterReplace = () => undefined
+  ;(globalThis as any).__subtitlesInitialApi = {
+    get: async (path: string) => {
+      if (path.endsWith('/audio-sections')) return { sections: [1, 2, 3].map(n => ({ label: `Chapter 0${n}`, slug: `Chapter_0${n}` })) }
+      return { has_chapter_audio: true, audio_assembly_ready: true, existing_srts: [], stale_sections: ['Chapter_01'],
+        completion: { mode: 'per-section', completed_sections: ['Chapter_02', 'Chapter_03'] } }
+    },
+    post: async (path: string, payload: any) => { requests.push({ path, payload: structuredClone(payload) }); if (reject) throw Error('response lost'); return {} },
+    del: async () => ({}),
+  }
+  const app = createApp(await loadPageScript()), container = document.createElement('div')
+  document.body.append(container)
+  try {
+    app.mount(container)
+    const state = (globalThis as any).__subtitlesInitialState
+    await waitFor(() => state.sections.value.length === 3, { label: 'selectable subtitle sections' })
+    state.language.value = 'en'
+    assert.equal(state.canTranscribe.value, true)
+    state.selectSubtitleAttention()
+    assert.deepEqual(state.selectedSubtitleSections.value, ['Chapter_01'])
+    state.selectedSubtitleSections.value = ['Chapter_03', 'Chapter_01']
+    await state.transcribe()
+    assert.equal(requests.length, 1)
+    assert.deepEqual(requests[0].payload.sections, ['Chapter_01', 'Chapter_03'])
+    assert.equal(requests[0].payload.force, true)
+    assert.ok(requests[0].payload.operation_id)
+    assert.deepEqual(state.selectedSubtitleSections.value, ['Chapter_03', 'Chapter_01'])
+    assert.equal(state.subtitleRetryPending.value, true)
+    const knownSections = [...state.sections.value]
+    state.sections.value = []
+    assert.equal(state.canTranscribe.value, false)
+    await state.transcribe()
+    assert.equal(requests.length, 1, 'unavailable selection must not submit all chapters')
+    state.sections.value = knownSections
+    reject = false
+    await state.transcribe()
+    assert.equal(requests[1].payload.operation_id, requests[0].payload.operation_id)
+    assert.deepEqual(state.selectedSubtitleSections.value, [])
+    state.selectedSubtitleSections.value = ['Chapter_02']
+    reject = true
+    await state.transcribe()
+    assert.equal(state.subtitleRetryPending.value, true)
+    state.episodeId.value = 'EP0084'
+    assert.deepEqual(state.selectedSubtitleSections.value, [])
+    assert.equal(state.subtitleRetryPending.value, false)
+    reject = false
+    await waitFor(() => state.sections.value.length === 3, { label: 'new episode sections' })
+    state.selectedSubtitleSections.value = ['Chapter_01', 'Chapter_03']
+    await state.transcribe()
+    assert.notEqual(requests[3].payload.operation_id, requests[0].payload.operation_id)
+    assert.ok(requests[3].path.endsWith('/EP0084'))
+  } finally { app.unmount(); container.remove(); delete (globalThis as any).__subtitleSelectionModel }
 })

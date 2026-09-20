@@ -119,6 +119,45 @@ function chatSubmissions() {
   return service.submissions.filter(entry => entry.operation === 'chat' && !entry.replay)
 }
 
+function queuePromptPackOutputs(sceneIds: string[], packSize: number): void {
+  for (let index = 0; index < sceneIds.length; index += packSize) {
+    const group = sceneIds.slice(index, index + packSize)
+    service.queueScenario('chat', {
+      states: ['succeeded'],
+      outputText: JSON.stringify({ results: group.map((sceneId, offset) => ({
+        scene_id: sceneId,
+        visual_prompt: `A distinct cinematic composition for ${sceneId}, subject ${offset + 1}, with unique lighting and location.`,
+      })) }),
+    })
+  }
+}
+
+async function withPipelineChatModel<T>(maxOutputTokens: number | null, run: () => Promise<T>): Promise<T> {
+  const mock = service as any
+  const original = mock.handleCatalog
+  mock.handleCatalog = function (pathname: string, incoming: unknown, response: any): boolean {
+    if (pathname !== '/v1/chat/models') return original.call(this, pathname, incoming, response)
+    const encoded = Buffer.from(JSON.stringify([{
+      id: 'mock-chat-v1', display_name: 'Mock Chat', description: 'In-process LLM fixture.',
+      available: true, qualification_only: false,
+      context_window_tokens: 128_000, max_output_tokens: maxOutputTokens,
+      max_structured_items_per_request: 250,
+      controls: ['temperature', 'top_p', 'max_output_tokens'], activation_blockers: [],
+      supports_structured_output: true, structured_output_mode: 'request_json_schema',
+    }]))
+    response.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(encoded.length) })
+    response.end(encoded)
+    return true
+  }
+  genstudio.clearGenStudioCatalogCache()
+  try {
+    return await run()
+  } finally {
+    mock.handleCatalog = original
+    genstudio.clearGenStudioCatalogCache()
+  }
+}
+
 function waitForStatus(jobId: string, statuses: string[]): Promise<any> {
   const current = jq.getJob(jobId)
   if (current && statuses.includes(current.status)) return Promise.resolve(current)
@@ -166,6 +205,130 @@ after(async () => {
   await jq._waitForJobPersistenceForTesting()
   await service.close()
   await temp.cleanup()
+})
+
+test('Pipeline checkpoints a no-ceiling request as an omission and recovers its saved pack without another paid POST', async () => {
+  service.reset()
+  await withPipelineChatModel(null, async () => {
+    const f = await fixture(8)
+    const sceneIds = Array.from({ length: 8 }, (_, index) => `scene-${String(index + 2).padStart(4, '0')}`)
+    const outputText = JSON.stringify({ results: sceneIds.map((sceneId, index) => ({
+      scene_id: sceneId,
+      visual_prompt: `A distinct cinematic composition for ${sceneId}, subject ${index + 1}, with unique lighting and location.`,
+    })) })
+    service.queueScenario('chat', { states: ['succeeded'], outputText })
+    const first = directJob(f, 'pipeline-no-ceiling-first')
+    first.params = {
+      ...f.params,
+      auto_repair_missing_prompts: false,
+      pipeline_model_policy: {
+        scene_plan: { mode: 'single', models: ['mock-chat-v1'], assigned_model: 'mock-chat-v1' },
+      },
+    }
+
+    await runScenePlanJob(first)
+
+    const savedShape = {
+      model_id: 'mock-chat-v1', context_window_tokens: 128_000, max_output_tokens: null,
+      visual_max_tokens: null, active_output_budget: null, prompt_pack_size: 50,
+    }
+    assert.deepEqual(first.params.pipeline_scene_request_plan, savedShape)
+    assert.deepEqual((await jq.loadAuthoritativeJob(f.project.slug, first.job_id))?.params.pipeline_scene_request_plan, savedShape)
+    assert.equal('max_output_tokens' in (chatSubmissions()[0]!.parsedBody || {}), false)
+
+    const plan = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
+    for (const scene of plan.scenes.slice(1)) scene.visual_prompt = ''
+    await fs.writeFile(f.planPath, JSON.stringify(plan, null, 2))
+    const recoveryKey = chatSubmissions()[0]!.idempotencyKey
+    const postsBeforeRetry = service.requests.filter(
+      entry => entry.method === 'POST' && entry.path === '/v1/chat/responses',
+    ).length
+    const retry = directJob(f, 'pipeline-no-ceiling-retry')
+    retry.params = {
+      ...structuredClone(first.params),
+      prompt_max_tokens: 1_024,
+      prompt_pack_size: 1,
+      scene_prompt_recoveries: [{ idempotency_key: recoveryKey, scene_ids: sceneIds }],
+    }
+    delete retry.params.pipeline_scene_prompt_pack_sizes
+
+    await runScenePlanJob(retry)
+
+    assert.deepEqual(retry.params.pipeline_scene_request_plan, savedShape)
+    assert.equal(service.providerSubmissionCount('chat'), 1, 'saved-key recovery must not create a replacement paid POST')
+    assert.equal(
+      service.requests.filter(entry => entry.method === 'POST' && entry.path === '/v1/chat/responses').length,
+      postsBeforeRetry,
+      'saved-key recovery must issue literally zero replacement POST requests',
+    )
+    assert.equal(service.requests.filter(entry => entry.method === 'GET' && entry.path.endsWith(`/by-idempotency-key/${recoveryKey}`)).length, 1)
+    assert.ok(retry.output_lines.includes('Visual pack output budget: none published; max_output_tokens omitted.'))
+  })
+})
+
+test('direct and Pipeline no-ceiling requests preserve an explicit allowance and derive 20-scene packs', async () => {
+  await withPipelineChatModel(null, async () => {
+    for (const pipeline of [false, true]) {
+      service.reset()
+      const f = await fixture(21)
+      const sceneIds = Array.from({ length: 21 }, (_, index) => `scene-${String(index + 2).padStart(4, '0')}`)
+      queuePromptPackOutputs(sceneIds, 20)
+      const job = directJob(f, `explicit-no-ceiling-${pipeline ? 'pipeline' : 'direct'}`)
+      job.params = {
+        ...f.params,
+        prompt_max_tokens: 8_192,
+        auto_repair_missing_prompts: false,
+        ...(pipeline ? {
+          pipeline_model_policy: {
+            scene_plan: { mode: 'single', models: ['mock-chat-v1'], assigned_model: 'mock-chat-v1' },
+          },
+        } : {}),
+      }
+
+      await runScenePlanJob(job)
+
+      const submissions = chatSubmissions()
+      assert.equal(submissions.length, 2, pipeline ? 'Pipeline pack count' : 'direct pack count')
+      assert.deepEqual(submissions.map(entry => (entry.parsedBody as any).max_output_tokens), [8_192, 8_192])
+      assert.deepEqual(submissions.map(entry => (
+        (entry.parsedBody as any)?.response_format?.json_schema?.schema
+          ?.properties?.results?.items?.properties?.scene_id?.enum?.length
+      )), [20, 1])
+      assert.ok(job.output_lines.some((line: string) => /selected output allowance/i.test(line)))
+      assert.ok(job.output_lines.every((line: string) => !/this model can only return/i.test(line)))
+      if (pipeline) {
+        assert.deepEqual(job.params.pipeline_scene_request_plan, {
+          model_id: 'mock-chat-v1', context_window_tokens: 128_000, max_output_tokens: null,
+          visual_max_tokens: 8_192, active_output_budget: 8_192, prompt_pack_size: 20,
+        })
+        assert.equal(job.params.pipeline_scene_prompt_pack_sizes?.visual, 20)
+      }
+    }
+  })
+})
+
+test('Pipeline checkpoints the published ceiling separately from an explicit caller ceiling', async () => {
+  service.reset()
+  await withPipelineChatModel(4_096, async () => {
+    const f = await fixture(1)
+    service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0002') })
+    const job = directJob(f, 'pipeline-explicit-ceiling')
+    job.params = {
+      ...f.params,
+      prompt_max_tokens: 2_048,
+      pipeline_model_policy: {
+        scene_plan: { mode: 'single', models: ['mock-chat-v1'], assigned_model: 'mock-chat-v1' },
+      },
+    }
+
+    await runScenePlanJob(job)
+
+    assert.deepEqual(job.params.pipeline_scene_request_plan, {
+      model_id: 'mock-chat-v1', context_window_tokens: 128_000, max_output_tokens: 4_096,
+      visual_max_tokens: 2_048, active_output_budget: 2_048, prompt_pack_size: 5,
+    })
+    assert.equal((chatSubmissions()[0]!.parsedBody as any).max_output_tokens, 2_048)
+  })
 })
 
 test('explicit repair fans a large missing tail into single-scene requests and preserves verified prompts', async () => {

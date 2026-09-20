@@ -34,6 +34,7 @@ import {
 } from '../lib/manifest-recovery.js'
 import { GenStudioImageTerminalFailureError, buildGenStudioImageIdempotencyKey, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import { FLEET_BUSY_RETRY_DELAYS_MS, isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
+import { imageRouteRetryDelayMs } from '../services/image-route-retry.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
@@ -307,7 +308,6 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
     // its waits fails exactly as it does today, the catch below still records
     // it, and the outer loop still goes on to the remaining items.
     let attemptNum = 1
-    let releasedZeroSettlementRetryUsed = false
     let zeroSettlementRetryPending = false
     let retryItem = true
     while (retryItem) {
@@ -651,22 +651,21 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           }
           // ── "Every machine was busy" — wait, then ask again ──
           // Fleet-busy failures follow the shared backoff. A fully refunded,
-          // policy-approved terminal image failure gets one immediate retry.
+          // policy-approved terminal failure keeps retrying with backoff.
           // A dead task id is REQUIRED because the next
           // identity is derived from it: without one `resolveImageRetryScope`
           // cannot promote the scope, and the retry would replay a
           // settled-failed key, which returns the same failure forever.
           const retryPlan = imagePoolFleetBusyRetryPlan(e, attemptNum)
-            || (releasedZeroSettlementRetry && !releasedZeroSettlementRetryUsed
-              ? { waitMs: 0, reason: 'The image failed before any credits settled', maxAttempts: attemptNum + 1 }
+            || (releasedZeroSettlementRetry
+              ? { waitMs: imageRouteRetryDelayMs(attemptNum - 1), reason: 'The failed image was fully refunded', maxAttempts: attemptNum + 1 }
               : null)
           if (retryPlan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
-            if (releasedZeroSettlementRetry) releasedZeroSettlementRetryUsed = true
             job.output_lines.push(
               `item ${item.index + 1}: ${retryPlan.reason.toLowerCase()} — nothing was charged, ` +
               'the credits came back whole. ' +
               `Waiting ${Math.round(retryPlan.waitMs / 1000)}s and asking again ` +
-              `(attempt ${attemptNum + 1} of ${retryPlan.maxAttempts}).`,
+              `(attempt ${attemptNum + 1}${releasedZeroSettlementRetry ? '' : ` of ${retryPlan.maxAttempts}`}).`,
             )
             await waitForFleetCapacity(retryPlan.waitMs)
             // Re-read after the wait. Minutes passed, and a Cancel or a Pause

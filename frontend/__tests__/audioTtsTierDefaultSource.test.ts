@@ -29,6 +29,7 @@ test('GenStudio TTS submission carries the voice, the text, the speed and publis
   // the work. `controls` joined it when GenStudio began publishing per-model
   // controls, and is spread CONDITIONALLY so a model publishing none produces
   // the exact bytes — and therefore the exact idempotency key — it did before.
-  assert.match(source, /voice_id: voiceId,\n\s*text: request\.text,\n\s*speed: request\.speed,\n\s*\.\.\.\(controls \? \{ controls \} : \{\}\),/)
+  assert.match(source, /voice_id: voiceId,\n\s*text: request\.text,\n\s*speed,\n\s*\.\.\.\(controls \? \{ controls \} : \{\}\),/)
+  assert.match(source, /const speed = resolveGenStudioTtsSpeed\(/)
   assert.doesNotMatch(source, /const body = \{[^}]*tier/)
 })

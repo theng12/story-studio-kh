@@ -3602,6 +3602,10 @@ function clearFailed() { return clearHistory('failed') }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-secondary);
+  /* The menu grows with its reasons, so bound it and let it scroll rather than
+     letting a long set of controls run off the bottom of the window. */
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
 }
 .job-more-actions-body .btn { margin-right: 4px; }
 .technical-summary { margin: 0 0 8px; color: var(--text-muted); font-size: var(--font-xs); }
@@ -3949,7 +3953,13 @@ function clearFailed() { return clearHistory('failed') }
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
+  /* NO `overflow: hidden` here. The "More actions" <details> at :413/:816 is a
+     descendant of this card, and its absolutely-positioned body holds one
+     button plus a full-reason paragraph per secondary control — Cancel, Stop
+     local work, Pause new submissions, Clear history, force-abandon. `hidden`
+     clipped that menu at the card's padding box, and no ancestor scrolls, so
+     the trailing controls could not be clicked at all: the only way to stop
+     running work was unreachable. Nothing inside the card needs the clip. */
 }
 .job-card.status-running { border-left: 3px solid var(--accent); }
 .job-card.status-error { border-left: 3px solid var(--error); }

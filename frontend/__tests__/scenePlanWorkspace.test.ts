@@ -92,13 +92,17 @@ describe('Scene Plan workspace', () => {
     assert.match(scenePlan, /async function regenAllEmptyPrompts[\s\S]*if \(scenePlanGenerationUnavailable\.value\) return/)
   })
 
-  test('separates saved-plan pacing from the next build and waits for published model limits', () => {
+  test('separates saved-plan pacing from the next build and explains an unpublished output limit', () => {
     assert.match(scenePlan, /Saved plan: \{\{ pacingSummary\(plan\.pacing\) \}\}/)
     assert.match(scenePlan, /Next build: \{\{ pacingSummary\(continuityPacing\) \}\}/)
     assert.match(scenePlan, /href="#visual-timing"/)
     assert.doesNotMatch(scenePlan, /Pacing:[\s\S]{0,160}character-sheet/)
-    assert.match(scenePlan, /Choose a prompt model to see its published output allowance and safe batch size/)
-    assert.match(scenePlan, /<button v-if="hasPublishedPromptBudget"[^>]*>Next \{\{ effectivePromptPackSize \}\}<\/button>/)
+    assert.match(scenePlan, /Choose a prompt model to see its published output allowance and batch size/)
+    assert.match(scenePlan, /publishes no output ceiling/)
+    assert.match(scenePlan, /Not published · omitted/)
+    assert.match(scenePlan, /User-chosen · \{\{ effectivePromptTokenBudget\.toLocaleString\(\) \}\} tokens/)
+    assert.match(scenePlan, /up to \{\{ effectivePromptTokenBudget\.toLocaleString\(\) \}\} output tokens · user-chosen allowance/)
+    assert.match(scenePlan, /<button v-if="hasSelectedPromptModel"[^>]*>Next \{\{ effectivePromptPackSize \}\}<\/button>/)
     assert.doesNotMatch(scenePlan, /FALLBACK_OUTPUT_TOKENS|8192/)
     assert.match(scenePlan, /if \(!status\.value\?\.audio_merged\) return 'Generate and assemble audio first'/)
     assert.match(scenePlan, /'Repair and re-stitch the subtitle timeline first'/)

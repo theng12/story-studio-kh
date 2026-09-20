@@ -38,7 +38,7 @@ GenStudio emits `LANGUAGE_PROVIDER_QUOTA_EXHAUSTED` but Story's language-code cl
 
 Optional additive metadata requested from the GenStudio owner session: verified opaque quota pool/scope, retry scope and quota kind, and quota-terminal retry/reset timestamps. Omit unknown values. Publish effective customer chargeability only if it can be authoritative. Existing aliases and `replacement_model_id` are reused. No provider route control is added to Story.
 
-Local coordination: `/build/Developer/_handoffs/STORY-GENSTUDIO-LLM-LINEUP-2026-09-14.md`. The owner named “GenStudio KH — continued” and explicitly corrected the use of GitHub for coordination. Issue 154 was closed. No direct cross-session messaging tool is exposed here; acknowledgement is pending. The handoff identifies the post-retirement contract gap: absent old rows need authoritative aliases or a successor lookup; Story does not invent that mapping.
+Local coordination: `<owner-home>/Developer/_handoffs/STORY-GENSTUDIO-LLM-LINEUP-2026-09-14.md`. The owner named “GenStudio KH — continued” and explicitly corrected the use of GitHub for coordination. Issue 154 was closed. No direct cross-session messaging tool is exposed here; acknowledgement is pending. The handoff identifies the post-retirement contract gap: absent old rows need authoritative aliases or a successor lookup; Story does not invent that mapping.
 
 ## Verification checkpoint — 2026-09-14
 

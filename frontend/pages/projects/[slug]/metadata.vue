@@ -372,6 +372,19 @@ watch([slug, episodeId], ([projectSlug, newEp], [previousSlug, oldEp]) => {
     // Override is per-episode-run only — never carry one episode's explicit
     // pick onto the next episode's generation.
     metadataFormulaSelection.value = CHANNEL_DEFAULT_FORMULA
+    // The generated title alternatives belong to the episode that produced
+    // them. Blanked here as well as in `applyVersion` so the window before the
+    // new episode's version loads cannot submit the old episode's titles.
+    titleOptions.value = []
+    // v1.4.194 — the finalization status belongs to one episode too. It was
+    // replaced only when a load SUCCEEDED, so between the episode change and
+    // the new status arriving `finalizerGateReason` kept answering from the
+    // previous episode's readiness — and after a failed load it kept answering
+    // from it indefinitely. Bumping the sequence discards any response already
+    // in flight for the episode that is no longer open.
+    finalizationStatus.value = null
+    finalizationChecking.value = false
+    finalizationLoadSequence++
   }
 })
 
@@ -1026,9 +1039,16 @@ function applyVersion(v: { title: string; title_options?: string[]; description:
   // includes them (pipeline runs always do; on-page runs do too if the
   // user hasn't cleared them). Lets the user pick a different title
   // later without re-running generation.
-  if (Array.isArray(v.title_options) && v.title_options.length) {
-    titleOptions.value = [...v.title_options]
-  }
+  //
+  // REPLACED unconditionally, including with an empty list. This used to be
+  // `if (Array.isArray(v.title_options) && v.title_options.length) { … }` with
+  // no else, and `titleOptions` is written nowhere else — so an episode whose
+  // saved version had no alternatives silently kept the PREVIOUS episode's and
+  // then sent them as its own (`title_options: titleOptions.value` at the
+  // existing-package generate and at save). AGENTS.md §4's exact shape: an
+  // episode change must REPLACE the field or blank it, never leave the previous
+  // episode's value standing.
+  titleOptions.value = Array.isArray(v.title_options) ? [...v.title_options] : []
 }
 
 function loadVersion() {

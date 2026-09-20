@@ -390,12 +390,15 @@ router.post('/system/reveal-folder', async (req, res) => {
     return res.status(404).json({ detail: `Path does not exist: ${abs}` })
   }
 
+  // `shell.openPath` LAUNCHES the target with its default handler — a `.app`,
+  // `.command`, `.terminal` or `.inetloc` handed to it is native code
+  // execution. This route is "Reveal in Finder"; `shell.showItemInFolder` is
+  // the API that reveals, and it never executes anything. The previous call
+  // was an open-with-default-handler primitive reachable from any local
+  // process and from any page on this Mac (desktop mode has no auth, and the
+  // Host guard allows `Host: 127.0.0.1`, which a cross-site fetch sends).
   try {
-    const err = await electron.shell.openPath(abs)
-    if (err) {
-      console.warn('[system/reveal-folder] openPath returned:', err)
-      return res.status(500).json({ detail: `Could not open: ${err}` })
-    }
+    electron.shell.showItemInFolder(abs)
     res.json({ ok: true })
   } catch (e: any) {
     console.warn('[system/reveal-folder] threw:', e?.message || e)

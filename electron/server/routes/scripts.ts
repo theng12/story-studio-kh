@@ -532,12 +532,19 @@ router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res
     }
 
     // Clear prior script artifacts for this episode so a re-import is clean.
+    //
+    // The code is ESCAPED before it is used as a pattern. It arrives as a route
+    // param, and an unescaped `.*` turns `^${code}_Chapter_` into a pattern that
+    // matches every episode's chapters in this folder — and the loop below
+    // `fs.rm`s each match. `scene-review.ts` already escapes at its own pattern
+    // sites; this block was the copy that did not.
+    const codePattern = episodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const entries = await fs.readdir(scriptDir).catch(() => [] as string[])
     for (const f of entries) {
       if (
-        new RegExp(`^${episodeId}_Chapter_\\d+\\.(md|docx)$`).test(f) ||
-        new RegExp(`^${episodeId}_Introduction\\.(md|docx)$`).test(f) ||
-        new RegExp(`^${episodeId}_Script_Narration\\.(md|docx)$`).test(f) ||
+        new RegExp(`^${codePattern}_Chapter_\\d+\\.(md|docx)$`).test(f) ||
+        new RegExp(`^${codePattern}_Introduction\\.(md|docx)$`).test(f) ||
+        new RegExp(`^${codePattern}_Script_Narration\\.(md|docx)$`).test(f) ||
         f === `${episodeId}_Script_Narration.intro.json` ||
         f === `${episodeId}_chunked-progress.json`
       ) {

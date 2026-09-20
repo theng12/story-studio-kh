@@ -24,6 +24,8 @@ export interface MediaInfo {
   durationSec: number
   /** Video stream duration, independent of a potentially longer audio track. */
   videoDurationSec?: number
+  /** Audio stream duration, independent of a potentially longer video track. */
+  audioDurationSec?: number
   hasVideo: boolean
   hasAudio: boolean
   videoCodec?: string
@@ -39,8 +41,7 @@ export interface MediaInfo {
   pixelFormat?: string
 }
 
-/** Read the video's clock without substituting the container/audio duration. */
-export function videoStreamDuration(stream: { duration?: unknown; duration_ts?: unknown; time_base?: unknown; nb_frames?: unknown; avg_frame_rate?: unknown; r_frame_rate?: unknown } | undefined): number | undefined {
+function streamDuration(stream: { duration?: unknown; duration_ts?: unknown; time_base?: unknown } | undefined): number | undefined {
   if (!stream) return undefined
   const positive = (value: number) => Number.isFinite(value) && value > 0 ? value : undefined
   const ratio = (value: unknown) => {
@@ -53,6 +54,19 @@ export function videoStreamDuration(stream: { duration?: unknown; duration_ts?: 
   if (timeBase !== undefined) {
     const fromTicks = positive(Number(stream.duration_ts) * timeBase)
     if (fromTicks !== undefined) return fromTicks
+  }
+  return undefined
+}
+
+/** Read the video's clock without substituting the container/audio duration. */
+export function videoStreamDuration(stream: { duration?: unknown; duration_ts?: unknown; time_base?: unknown; nb_frames?: unknown; avg_frame_rate?: unknown; r_frame_rate?: unknown } | undefined): number | undefined {
+  const duration = streamDuration(stream)
+  if (duration !== undefined) return duration
+  if (!stream) return undefined
+  const positive = (value: number) => Number.isFinite(value) && value > 0 ? value : undefined
+  const ratio = (value: unknown) => {
+    const [numerator, denominator] = String(value ?? '').split('/').map(Number)
+    return positive((numerator ?? NaN) / (denominator ?? NaN))
   }
   const frameRate = ratio(stream.avg_frame_rate) ?? ratio(stream.r_frame_rate)
   return frameRate === undefined ? undefined : positive(Number(stream.nb_frames) / frameRate)
@@ -123,6 +137,7 @@ export async function getMediaInfo(filePath: string): Promise<MediaInfo> {
         resolve({
           durationSec,
           videoDurationSec: videoStreamDuration(v),
+          audioDurationSec: streamDuration(a),
           hasVideo: !!v,
           hasAudio: !!a,
           videoCodec: v?.codec_name,

@@ -887,6 +887,14 @@ watch(() => form.episode_id, (newEp, oldEp) => {
     // import into the new episode if the user was mid-flow.
     brollSubtitleUploadPath.value = ''
     brollWhisperForce.value = false
+    // v1.4.195 — the manual b-roll pick belongs to the episode it was chosen
+    // for. It survived an episode change, so the new episode opened with the
+    // previous episode's clips still queued and would have assembled them.
+    // `narrationTargetSec` is that episode's measured narration length, so it
+    // moves with it for the same reason (AGENTS.md §4).
+    manualSelection.value = []
+    narrationTargetSec.value = 0
+    manualPoolFilter.value = ''
   }
 })
 

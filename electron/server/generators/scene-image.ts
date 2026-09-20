@@ -25,7 +25,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { registry } from '../providers/registry.js'
 import { stageGenStudioImage } from '../lib/genstudio-artifacts.js'
-import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath, type ProjectFactsCache } from '../services/utils.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as pm from '../services/project-manager.js'
@@ -61,9 +61,14 @@ export const SCENE_IMAGES_SUBFOLDER = 'scene_images'
  * external media root with everything else. Returns the existing on-disk folder
  * when present, else the canonical path (callers mkdir before writing).
  */
-export async function resolveSceneImagesDir(slug: string, code: string, episodeDir: string): Promise<string> {
-  const names = await resolveSubfolderNames(slug, code)
-  const mediaBase = await mediaEpisodeBaseForCode(slug, code).catch(() => null)
+export async function resolveSceneImagesDir(
+  slug: string,
+  code: string,
+  episodeDir: string,
+  cache?: ProjectFactsCache,
+): Promise<string> {
+  const names = await resolveSubfolderNames(slug, code, cache)
+  const mediaBase = await mediaEpisodeBaseForCode(slug, code, cache).catch(() => null)
   const parent = mediaBase || episodeDir
   const found = await findSubfolder(parent, names.images)
   return found || path.join(parent, names.images)

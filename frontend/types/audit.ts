@@ -13,8 +13,13 @@ export type AuditStage =
   | 'video'
   | 'merged_audio'
 
+export type AuditOutcome = 'measured' | 'not_started' | 'unmeasurable'
+
 export interface StageAudit {
   stage: AuditStage
+  outcome: AuditOutcome
+  /** Safe, actionable explanation when this stage could not be measured. */
+  error?: string
   started: boolean
   dir?: string
   expected: number

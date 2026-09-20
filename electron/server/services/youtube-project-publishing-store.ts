@@ -7,6 +7,7 @@ import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import type { YouTubeFoundationErrorCode } from '../contracts/youtube-upload-center.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { getProjectDir } from './project-manager.js'
+import { projectFactsFor, type ProjectFactsCache } from './utils.js'
 import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import type { PageCursor } from './youtube-page-cursor.js'
 import { logLine } from './logger.js'
@@ -909,10 +910,37 @@ async function currentAssignment(projectSlug: string, channelId: string) {
 
 
 
-export async function readYouTubeProjectPublishingState(project_slug: string): Promise<YouTubeProjectPublishingStateV1> {
+/**
+ * The project's YouTube publishing state, parsed at most once per cache.
+ *
+ * MEASURED 2026-09-18, cold `/episodes` on the 302-episode project: 604 reads
+ * of `youtube/project-state.json` — twice per episode. `readYouTubeRetentionStores`
+ * asked for it directly, and `youtube-operation-store.resolveProject` asked
+ * again while resolving each operation listing. One request, one answer.
+ *
+ * Only pass a cache on a READ path — the same reasoning as
+ * `listYouTubeOperations`.
+ */
+export async function readYouTubeProjectPublishingState(
+  project_slug: string,
+  cache?: ProjectFactsCache,
+): Promise<YouTubeProjectPublishingStateV1> {
   const projectSlug = normalizeProjectSlug(project_slug)
-  const project = await resolveValidatedProject(projectSlug)
-  return withLock(project.state_path, async () => cloneState(await readStateUnlocked(project.state_path, projectSlug)))
+  const scoped = projectFactsFor(cache, projectSlug)
+  const read = async (): Promise<YouTubeProjectPublishingStateV1> => {
+    const project = await resolveValidatedProject(projectSlug)
+    return withLock(project.state_path, async () => cloneState(await readStateUnlocked(project.state_path, projectSlug)))
+  }
+  if (!scoped) return read()
+  scoped.publishingState ??= read()
+  try {
+    return await scoped.publishingState as YouTubeProjectPublishingStateV1
+  } catch (error) {
+    // A failed read must not be remembered as the answer for the rest of the
+    // request: drop it so the next caller genuinely retries.
+    scoped.publishingState = undefined
+    throw error
+  }
 }
 
 

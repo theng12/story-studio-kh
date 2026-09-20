@@ -181,7 +181,13 @@ export async function inspectSubtitleSourceFreshness(
     const savedHash = recorded[srt]
     if (savedHash) {
       const currentHash = await hashSubtitleAudioSources(audioFiles)
-      if (currentHash && savedHash !== currentHash) stale.push(slug)
+      // v1.4.193 — `hashSubtitleAudioSources` answers `null` for "I could not
+      // read the audio" (a missing or unreadable file). The old test
+      // `currentHash && savedHash !== currentHash` folded that together with
+      // "the bytes are unchanged", so an episode whose narration had been
+      // deleted was reported as *current* and its transcript was kept. Not
+      // being able to measure the audio is not evidence that the audio matches.
+      if (!currentHash || savedHash !== currentHash) stale.push(slug)
       continue
     }
     // Older SRTs have no byte identity. Do not call all old work stale; only
@@ -190,8 +196,15 @@ export async function inspectSubtitleSourceFreshness(
       fs.stat(path.join(subtitlesDir, srt)).catch(() => null),
       Promise.all(audioFiles.map(file => fs.stat(file).catch(() => null))),
     ])
-    const newestAudio = Math.max(...audioStats.map(stat => stat?.mtimeMs || 0))
-    if (srtStat && newestAudio > srtStat.mtimeMs) stale.push(slug)
+    // v1.4.193 — same conflation through `stat?.mtimeMs || 0`: a missing audio
+    // file produced mtime 0, which is never newer than the SRT, so the section
+    // read as fresh. An absent file is the strongest possible "this changed".
+    if (!srtStat || audioStats.some(stat => !stat)) {
+      stale.push(slug)
+      continue
+    }
+    const newestAudio = Math.max(...audioStats.map(stat => stat!.mtimeMs))
+    if (newestAudio > srtStat.mtimeMs) stale.push(slug)
   }
   return { stale_sections: stale }
 }

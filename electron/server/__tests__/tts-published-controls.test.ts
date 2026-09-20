@@ -76,6 +76,9 @@ const baseRequest = {
   voiceId: 'voice-fabricated',
   text: 'A short line to submit.',
   speed: 1,
+  supportsSpeed: true,
+  minimumSpeed: 0.5,
+  maximumSpeed: 2,
   maxInputCharacters: 5_000,
 }
 
@@ -273,6 +276,9 @@ test('no controls ⇒ a body carrying only the model, voice, text and speed', ()
     voiceId: 'voice-alpha',
     text: 'Once upon a midnight dreary.',
     speed: 0.93,
+    supportsSpeed: true,
+    minimumSpeed: 0.5,
+    maximumSpeed: 2,
     maxInputCharacters: 5_000,
     requestIdentity: 'demo:EP001:audio:intro_part1.mp3',
   }
@@ -309,6 +315,9 @@ test('the same script at another model is another request, never a replay', () =
     voiceId: 'voice-alpha',
     text: 'Once upon a midnight dreary.',
     speed: 0.93,
+    supportsSpeed: true,
+    minimumSpeed: 0.5,
+    maximumSpeed: 2,
     maxInputCharacters: 5_000,
     requestIdentity: 'demo:EP001:audio:intro_part1.mp3',
   }

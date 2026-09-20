@@ -109,7 +109,14 @@ async function withGenStudioKey(): Promise<string> {
 
 router.get('/models', async (_req, res) => {
   const apiKey = await withGenStudioKey()
-  if (!apiKey) return res.json([])
+  // v1.4.202 — an empty ARRAY used to be the answer for "no key configured",
+  // which the pickers cannot tell apart from "the catalogue is genuinely empty".
+  // `/account` twelve lines below already answers a missing key with a 400 and a
+  // sentence the customer can act on; this endpoint was the only one in the file
+  // that spelled "I don't know" as an empty list (AGENTS.md §6).
+  if (!apiKey) {
+    return res.status(400).json({ detail: 'Add a GenStudio API key in Settings → This Mac.' })
+  }
   try {
     const models = (await listGenStudioChatModels(apiKey)).map(model => ({
       id: model.id,

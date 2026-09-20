@@ -56,10 +56,10 @@
 
     <section v-if="section === 'all' || section === 'performance'" class="panel paid-image-replacement">
       <div>
-        <h4>Automatically buy one replacement for a confirmed failed image</h4>
+        <h4>Automatically finish failed images</h4>
         <p>
           Off by default. Story Studio reconnects to the original GenStudio task first. After GenStudio confirms that task failed,
-          an eligible fully refunded site-failover failure may retry once immediately. For an eligible failure that already used
+          eligible fully refunded failures retry with a delay until the image finishes or you pause, cancel, or turn this off. For an eligible failure that already used
           credits, Story Studio waits 30 minutes, checks the image is still missing, refreshes the exact current price, and may buy
           one replacement within your per-Story-job credit limit. Time alone never proves a task stopped.
         </p>
@@ -86,7 +86,7 @@
           aria-describedby="paid-image-replacement-limits"
         />
       </label>
-      <p id="paid-image-replacement-limits" class="hint">Fully refunded failover: 1 immediate retry per image per run · Additional paid replacement: 30-minute wait, maximum 1 per image</p>
+      <p id="paid-image-replacement-limits" class="hint">Fully refunded failures: keep retrying with a delay · Additional paid replacement: 30-minute wait, maximum 1 per image</p>
       <p v-if="!paidImageReplacementLoaded && !paidImageReplacementResult" class="hint" aria-live="polite">Loading saved paid image replacement setting…</p>
       <p v-if="paidImageReplacementResult" :class="['result', paidImageReplacementResult.kind]" aria-live="polite">{{ paidImageReplacementResult.message }}</p>
       <div class="paid-image-replacement-actions">
