@@ -558,10 +558,25 @@ AGENTS.md §4, the repo's most expensive class. Each is "a value belonging to
 episode A reaching episode B". Two were fixed (`metadata.vue` titles,
 `pipeline.vue` force-re-run).
 
-- [ ] `scene-plan.vue:1690` — "Custom instructions" (labelled per-episode) never
-      reset, persisted per-project, snapshotted into presets.
-- [ ] `scripts.vue:870` — `manual_guidance` + `character_ids` survive and ride in
-      the script preset; plus the per-run `force` flag.
+- [ ] **ROUND 33 — ESCALATED (owner decision 9). NOT a code call; §5 says so.**
+      `scene-plan.vue:1690` — "Custom instructions". Verified mechanism, not the
+      audit's description: none of these three pages passes `excludeKeys`, so all
+      three fall back to `DEFAULT_EXCLUDE_KEYS = ['episode_id','episodeId','episode','title']`
+      (`usePresets.ts:91`). Every other key is therefore captured on write and
+      restored on apply at any depth.
+      Why it is not mine to rule on: §5's first test would exclude it ("Episode-
+      specific guidance is optional" is the field's own label), but §5 also says
+      a deliberate choice the customer makes elsewhere is the owner's to decide.
+      For a SERIES, carrying editorial direction forward is plausibly the point.
+- [ ] **ROUND 33 — ESCALATED (owner decision 10).** `scripts.vue:870` —
+      `manual_guidance` + `character_ids`. The file's OWN comment at ~`:880` says
+      "character_ids / force are per-run", and they are not in the exclude list,
+      so the comment and the behaviour disagree. The `force` flag is a genuine
+      defect regardless and is the part I would fix on a ruling: it is a one-shot
+      "re-run" switch, so a preset that restores `force: true` would silently
+      overwrite existing work on the next apply. `character_ids` and
+      `manual_guidance` are the judgement: a series legitimately reuses its cast
+      and its tone notes.
 - [ ] `services/audio-reconciler.ts:157` — `|| audioJobs[0]` takes **another
       episode's** TTS model to predict this episode's chunk split.
 
@@ -601,8 +616,11 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       sidecar predates the change. That is the recommendation, and it is a
       schema addition plus a migration, so it wants the owner's go-ahead →
       recorded below.
-- [ ] `image-prompts.vue:1398` — episode-scoped cast ids persist in a
-      project-only blob and are submitted for the new episode.
+- [ ] **ROUND 33 — ESCALATED, same ruling as decision 10.** `image-prompts.vue:1398`
+      — `thumbnail.character_ids` persists and is submitted for a new episode.
+      Same mechanism (default exclude list), same product question (does a cast
+      carry across a series?). Not fixed, because treating these three
+      differently would be worse than treating them together.
 - [x] **DONE, v1.4.195.** `broll.vue:922` — the `form.episode_id` watcher cleared
       the in-flight upload path and the whisper flag but not `manualSelection`
       (an ordered list of `{filename, target_duration}` chosen for one episode)
@@ -927,6 +945,16 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
    model exists. My recommendation is to add that record to the episode's own
    audio sidecar and resolve from it — a schema addition plus migration. Your
    call.
+
+9. **Scene Plan "Custom instructions"** (Group 2, round 33). It is snapshotted
+   into presets and restored onto another episode. Exclude it, or keep it as
+   reusable editorial direction for a series?
+10. **`character_ids` and `manual_guidance`** (Group 2, round 33; `scripts.vue`
+   and `image-prompts.vue`). Same question as 9, and they should move together.
+   Separate from that: the per-run `force` flag rides in the script preset, which
+   is a defect under any reading — a restored `force: true` would silently
+   overwrite existing work. Tell me and I will fix `force` immediately even if
+   the cast/guidance question stays open.
 
 Everything else in this plan is unblocked and I will proceed unless told
 otherwise.

@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.197 — 2026-09-20
+
+- B-Roll clips that ffprobe can measure are no longer indexed as zero seconds long. ffprobe reports a field it cannot read as the text "N/A" rather than leaving it blank, and the app treated that text as a real value — so it never looked at the container's own duration, which usually does have the number. The clip's length came out as 0, which reads downstream as "no usable footage". Clip length, width and height are now taken only from values that are genuinely numbers.
+
 ## v1.4.196 — 2026-09-20
 
 - Two more screens stopped showing one episode's results while another was open. On Images, the integrity card (how many pictures are missing) and the Browse grid were cleared only when you switched to *no* episode, so moving from one episode to the next left the previous episode's numbers and file list on screen — and there for good if the new read failed. On Research, a failed read left the previous episode's finished research on screen as though it belonged to the new episode, and saving would have written it into that episode. Both now clear the moment the episode changes.
