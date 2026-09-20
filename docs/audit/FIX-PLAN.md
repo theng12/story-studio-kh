@@ -1150,10 +1150,12 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
    to measure and the stated length is the only information there is.
    **This REVERSES two existing tests on purpose** — they now assert the throw
    and say so in place. Do not restore the old expectations.
-2. **`scene-plan.vue` Style Bible cap** — show a counter and say when a save was
-   clipped, or raise the limit?
-3. **`images.vue` "View all caps"** — delete the table (it prints copied caps and
-   prices as if current), or rebuild it from the live catalogue?
+2. ~~**Style Bible cap**~~ **ANSWERED 2026-09-20: YES.** Show a counter and say
+   when a save was clipped, and derive the cap from the SELECTED model's
+   published prompt budget rather than a fixed 2,000 (rule 1). OPEN — not yet
+   implemented.
+3. ~~**`images.vue` "View all caps"**~~ **ANSWERED 2026-09-20: DELETE IT.** OPEN
+   — not yet implemented.
 4. ~~**Is a whole-track-only subtitle state legitimate?**~~ **ANSWERED BY THE
    OWNER 2026-09-20: NO — ALWAYS NEEDS THE STITCH.** So the behaviour shipped in
    v1.4.191 is CORRECT and needs no change: an episode whose only transcript is
@@ -1170,11 +1172,31 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
    `inspectSubtitleSourceFreshness` comment ("an intentional whole-track has no
    per-section source to stale") hints the former, which is why I am not ruling
    on it from the code.
-5. **`ttl-cache.ts`** — delete the module and its test?
-6. **Four chat models publish `max_output_tokens: null`** — grey them out, or
-   leave selectable and fail at submit?
+5. ~~**`ttl-cache.ts`**~~ **ANSWERED 2026-09-20: DELETE. DONE, v1.4.204.**
+6. ~~**Four chat models publish `max_output_tokens: null`**~~ **ANSWERED
+   2026-09-20: MAKE THEM USABLE — omit `max_output_tokens` and let the provider
+   decide.** Owner: "no output limit is fine. we never got close to 10% of their
+   output anyways for request." **This is NOT a no-op:** the app currently
+   REFUSES them — `productCeiling` (`services/output-token-budget.ts:102-111`)
+   throws "the selected GenStudio product published no usable max_output_tokens".
+   Making them work means the tier resolver AND the credit-quote path
+   (`quote_language_reservation` holds credits for `max_output_tokens`) must both
+   learn an "unpublished" case, and neither may invent a number. OPEN — the
+   largest remaining item.
 
-7. **Cross-project duplicate upload** (Group 1.3, round 29). Should an upload be
+   The four, verified against the live gateway on 2026-09-20: **Free Models
+   Router** (OpenRouter, 200k ctx) · **grok-4.3** (xAI, 1M) · **grok-4.6** (xAI,
+   500k) · **grok-build-0.1** (xAI, 256k). All `available`, unlocked. The other 44
+   null rows are image/video/audio models where no token ceiling applies.
+
+7. ~~**Cross-project duplicate upload**~~ **ANSWERED 2026-09-20: WARN, WITH A
+   CLICK-THROUGH.** Owner: "should be a warning that can be clicked through." So
+   admission asks whether another project claimed this episode code on this
+   channel and, if so, shows a confirmable warning rather than a 409 — the
+   mistake is caught without ever blocking a legitimate second series on one
+   channel. Still needs `episode_code` on `video-claims.json` (schema v2 +
+   migration) to be answerable. **Do NOT make `completeYouTubeOperation` fail
+   loudly** — see 1.3. OPEN. Should an upload be
    refused when *another project* has already used this episode code on the same
    YouTube channel? Saying yes is the plan's finding, and needs an `episode_code`
    field added to `video-claims.json` (schema v2 + migration). Saying yes also
@@ -1182,7 +1204,11 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
    an "Episode 1". I have deliberately NOT changed this, and I have deliberately
    NOT made the post-upload bookkeeping conflict fail loudly — see 1.3 for why
    that would invite a second upload of a video that is already live.
-8. **The reconciler's borrowed TTS model** (Group 2, round 29). Today the audio
+8. ~~**The reconciler's borrowed TTS model**~~ **ANSWERED 2026-09-20: YES,
+   RECORD IT.** Owner: "of course record the tts model so we know which one."
+   Add the TTS model id (and the boundary it implied) to the episode's own audio
+   sidecar at generation time and resolve from that, keeping the borrow only as a
+   legacy fallback for episodes that predate the change. OPEN. Today the audio
    reconciler takes the project's most recent audio job's model when this
    episode has no job of its own, which can predict the wrong `_partN` filenames
    after a model change. The honest alternatives are "borrow" (silently wrong
@@ -1192,15 +1218,17 @@ than assert: `studio-hub::mlx-community/OmniVoice-bfloat16` lists 0 voices.
    audio sidecar and resolve from it — a schema addition plus migration. Your
    call.
 
-9. **Scene Plan "Custom instructions"** (Group 2, round 33). It is snapshotted
-   into presets and restored onto another episode. Exclude it, or keep it as
-   reusable editorial direction for a series?
-10. **`character_ids` and `manual_guidance`** (Group 2, round 33; `scripts.vue`
-   and `image-prompts.vue`). Same question as 9, and they should move together.
-   Separate from that: the per-run `force` flag rides in the script preset, which
-   is a defect under any reading — a restored `force: true` would silently
-   overwrite existing work. Tell me and I will fix `force` immediately even if
-   the cast/guidance question stays open.
+9. ~~**Scene Plan "Custom instructions"**~~ **ANSWERED 2026-09-20: EXCLUDE —
+   episode-specific stays episode-specific.** Owner also asked for a **NEW
+   CHANNEL-SPECIFIC BOX**, so text meant to persist can be typed THERE and saved
+   in presets deliberately. OPEN — exclusion is small; the channel box is new UI.
+10. ~~**`character_ids` and `manual_guidance`**~~ **ANSWERED 2026-09-20: KEEP
+   `character_ids` (the cast), EXCLUDE `manual_guidance`** — a different answer
+   from 9, as the owner said. The cast is channel/series-level and identical
+   across episodes, so a preset restoring it is useful; written guidance becomes
+   the channel-specific box from 9 instead.
+   **`force` is excluded in every case** — a restored `force: true` silently
+   overwrites existing work; no reading of 9/10 makes that acceptable. OPEN.
 
 Everything else in this plan is unblocked and I will proceed unless told
 otherwise.
