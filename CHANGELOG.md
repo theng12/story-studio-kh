@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.202 — 2026-09-20
+
+- A missing GenStudio API key no longer looks like an empty model catalogue. The app asked GenStudio for the model list without a key and reported back "no models" — so the pickers showed a confident empty state instead of telling you the key was missing. That request now answers with the same clear "Add a GenStudio API key in Settings → This Mac" message the rest of the app already uses.
+
 ## v1.4.201 — 2026-09-20
 
 - Versioned final videos are no longer invisible. Story Studio saves a second render as `_final_video_v2` and so on when the first name is already taken — a perfectly normal file — but three separate checks only recognised the unversioned name. Those videos counted as zero bytes in Settings, a versioned-only episode could look like it had no finished video at all, and storage cleanup could not reclaim the space. All three checks now recognise both names.

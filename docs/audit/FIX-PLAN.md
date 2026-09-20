@@ -915,7 +915,28 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       reverse. Recorded rather than rushed.
 - [ ] `soft-delete.ts:157` — the `-1` "unknown size" sentinel is unreachable;
       an unreadable folder reports 0 B.
-- [ ] `lib/thumbnail-prepare.ts:38` — `meta.width || 0` passes an unmeasurable
+- [x] **ROUND 38 — CLOSED AS NOT A DEFECT. Do not "fix" this one.** The audit
+      flagged `meta.width || 0` at `lib/thumbnail-prepare.ts:38`; the expression is
+      real but the conclusion is not, and the case is a DELIBERATE decision.
+
+      Two rounds of tracing, each disproving a worry I had recorded:
+
+      1. I first noted a "never resized" gap. Wrong — the caller defaults a null
+         `resizeWidth` to `THUMB_MAX_WIDTH` (`thumbnail-prepare.ts:89`), and
+         `encodeAt` passes `withoutEnlargement: true` to sharp (`:79`), so the cap
+         can never upscale a narrow image. My recorded concern that forcing the cap
+         would upscale was wrong for exactly that reason.
+      2. What remains is only: small bytes + unmeasurable width + actually too wide
+         → `passthrough: true`, leaving an oversized-width thumbnail. And the
+         existing test names the behaviour out loud —
+         `thumbnail-prepare.test.ts`: **"missing width is treated as in-spec
+         width"**. That is a chosen policy, not an oversight.
+
+      Reversing it would re-encode every image whose width probe failed, and the
+      harm it prevents is a lightweight-but-wide thumbnail. Per the standing rule,
+      a deliberate named choice is the owner's to revisit, not mine to flip inside
+      a bug-audit sweep. Left exactly as it is, and recorded here so a future
+      reader does not "fix" it by pattern-matching on `|| 0`.
       width through the too-wide check.
 - [ ] `lib/broll-indexer.ts:74` — ffprobe `'N/A'` is truthy, so a good
       `format.duration` is never read; the clip is dropped as "too short" with a
@@ -955,7 +976,21 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       `content-store-delivery.ts:527` (damaged copy unrepairable), `:640`
       (staging activated on boot), `lifecycle.ts:308` (prune deletes rollback
       target), `content-store-install-state.ts:121` (wrong version).
-- [ ] Settings / misc: `health.ts:110` (`200 []` for "no key"),
+- [x] **DONE, v1.4.202.** `health.ts:112` (`200 []` for "no key"). `GET /models`
+      answered a missing GenStudio API key with `res.json([])` at HTTP 200, so
+      every picker rendered its own confident "no models" state and the customer
+      could not tell that the real problem was a key that was never added.
+
+      The same file already knew better twelve lines below: `/account`
+      (`:190-192`) answers the identical condition with a 400 and "Add a GenStudio
+      API key in Settings → This Mac." So the fix is the file's own convention,
+      not a new one — and I checked there is no caller of `health/models`
+      anywhere in the frontend or backend before changing the status code.
+
+      Test: `health-models-no-key.test.ts` (1), which mounts the real router with
+      supertest. **Proven red:** against `res.json([])` it fails; green after.
+
+- [ ] Settings / misc — remaining:
       `routes/video.ts:1744` (`?path=` stat oracle — containment not yet
       applied), `app.ts:124`/`:140` (hardcoded `version: '0.1.0'`),
       `routes/debug.ts` (unused, returns absolute paths).
