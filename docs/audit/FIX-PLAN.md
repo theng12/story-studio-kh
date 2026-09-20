@@ -1027,7 +1027,35 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       `youtubeArchiveProofForFile` mtime-only MOVE, archive proof ignores
       channel, `/schedule` publish-then-record, `upload-plans.ts:533` DST,
       legacy plan-apply unpublish, `storage-audit.ts:821` same-size copy proof.
-- [ ] Content packs: `state.ts:99` (silent empty reset),
+- [ ] **ROUND 40 — TRACED, NOT FIXED. Second-best next target after the queue.**
+      Content packs: `state.ts:99` (silent empty reset). The audit's description
+      is accurate but undersells it; here is what the code actually does.
+
+      `readOrResetState` branches four ways:
+      `valid` → the state · `missing` → `emptyContentPackState()` (correct — a
+      fresh install) · `io-error` → **throws** (correct, and NOT the defect) ·
+      anything else → `resetInvalidState`.
+
+      `resetInvalidState` (`:76-98`) is more careful than "silent" suggests: it
+      refuses a quarantine root that is not directly below the runtime root,
+      refuses a symlinked or non-directory quarantine, and writes the corrupt
+      bytes to `state-invalid-<sha256>.json` with `flag: 'wx'` before writing an
+      empty state. **The data is preserved.**
+
+      The defect is that nothing is SAID. On the success path there is no log
+      line, and `readOrResetState` returns `emptyContentPackState()` with no
+      signal to its caller that a reset happened — so the Content Store renders
+      an empty library exactly as it would for someone who has never installed
+      anything, while the user's actual state sits unread in quarantine. AGENTS.md
+      §6: "the answer is none" and "I discarded your state" must not produce the
+      same value.
+
+      Fix shape: return a discriminated result (state + `recovered_from` | null)
+      and surface it, rather than a bare state that has already forgotten what
+      happened. Do NOT stop quarantining — that part is right and should not be
+      traded away for a simpler error.
+
+- [ ] Content packs — remaining:
       `installer.ts:617` (orphan version unreconcilable),
       `content-store-delivery.ts:527` (damaged copy unrepairable), `:640`
       (staging activated on boot), `lifecycle.ts:308` (prune deletes rollback
