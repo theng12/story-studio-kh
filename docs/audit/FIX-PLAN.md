@@ -589,6 +589,29 @@ AGENTS.md §4, the repo's most expensive class. Each is "a value belonging to
 episode A reaching episode B". Two were fixed (`metadata.vue` titles,
 `pipeline.vue` force-re-run).
 
+- [x] **PARTIALLY DONE, v1.4.205 — the `scripts.vue` half of decision 10.**
+      Excluded `force` (a restored `force: true` silently overwrites work) and
+      `manual_guidance`; KEPT `character_ids`, per the owner's answer. Two things
+      to know before finishing the other two pages:
+
+      1. **`excludeKeys` REPLACES the default list** (`usePresets.ts:147`,
+         `opts.excludeKeys ?? DEFAULT_EXCLUDE_KEYS`). Passing only
+         `['force','manual_guidance']` would have silently started snapshotting
+         `episode_id` again — the §4 leak, reintroduced by the fix for it.
+         `DEFAULT_EXCLUDE_KEYS` is now EXPORTED and callers spread it.
+      2. `useContinuityConfig` had been re-typing those four identity strings
+         with a comment apologising for the duplication. It now spreads the
+         exported list, so the two cannot drift.
+
+      Tests: `frontend/__tests__/presetExcludeKeys.test.ts` (3). Proven red:
+      removing the `excludeKeys` line fails the script-preset test.
+      Frontend lane 1,839/1,839, 200/200 files.
+
+      STILL OPEN on this item: `scene-plan.vue` (`custom_instructions`, decision
+      9) and `image-prompts.vue` (`thumbnail.character_ids`). Both need the same
+      `[...DEFAULT_EXCLUDE_KEYS, ...]` treatment — now a one-line change each.
+      The **channel-specific box** the owner asked for is new UI and is not built.
+
 - [ ] **ROUND 33 — ESCALATED (owner decision 9). NOT a code call; §5 says so.**
       `scene-plan.vue:1690` — "Custom instructions". Verified mechanism, not the
       audit's description: none of these three pages passes `excludeKeys`, so all

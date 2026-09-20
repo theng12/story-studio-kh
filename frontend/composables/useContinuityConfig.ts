@@ -15,6 +15,7 @@
 
 import { DEFAULT_SCENE_PACING, parseScenePacing, type ScenePacing } from '@shared/pacing'
 import { normalizeMotionScope, type MotionScope } from '@shared/motion-scope'
+import { DEFAULT_EXCLUDE_KEYS } from './usePresets'
 
 export interface ContinuityConfig {
   schema_version: 1
@@ -158,7 +159,9 @@ export const CONTINUITY_PRESET_EXCLUDE_KEYS = [
   'use_episode_sheet',
   'sheet',
   'motion_scope',
-  'episode_id', 'episodeId', 'episode', 'title',
+  // Spread rather than re-typed: v1.4.205 exported the list after a caller
+  // re-typing it (which is how a page silently loses the per-episode guards).
+  ...DEFAULT_EXCLUDE_KEYS,
 ]
 
 /**

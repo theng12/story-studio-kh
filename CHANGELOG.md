@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.205 — 2026-09-20
+
+- Saving a Script preset no longer stores the per-run "re-run even if it exists" switch. Restoring it would have silently overwritten existing work on the next apply. It also no longer stores that episode's written guidance — text meant to carry across a channel belongs in the channel-specific box instead. Your cast selection is still saved, since the cast is the same for every episode of a series and restoring it is the point of the preset.
+
 ## v1.4.204 — 2026-09-20
 
 - Removed an unused caching module left over from an earlier design. It had no callers anywhere in the app — only its own test — so nothing changes for you; the code is simply smaller.
