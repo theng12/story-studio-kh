@@ -1,5 +1,8 @@
 # Story Studio developer migration
 
+See [SKILLS.md](SKILLS.md) for the complete useful-skill inventory, engineering
+plugins, custom folders to transfer, and new-computer installation guidance.
+
 The five complete Story Content Pack authoring skill packages in `codex-skills/` are the canonical,
 Git-tracked copies. They include each `SKILL.md`, `agents/openai.yaml`, and every package reference.
 

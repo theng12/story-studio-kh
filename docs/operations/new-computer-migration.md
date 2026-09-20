@@ -4,6 +4,10 @@ Use this checklist to move Story Studio development and local customer state to
 another Mac without treating build output or an encrypted secret file as the
 source of truth.
 
+For the interrupted-audit recovery, start with the dated
+[2026-09-20 handoff](../handoffs/2026-09-20-new-computer.md). It identifies the
+GitHub recovery branch; the default branch alone does not contain that work.
+
 ## 1. Preserve the Git-tracked repository
 
 - Make sure every wanted change is committed and available from an approved
@@ -37,9 +41,12 @@ The check must report five packages and 13 files matching byte-for-byte.
 
 ## 3. Preserve projects and durable local state
 
-- Back up the effective projects root selected by
-  `app-settings.json -> projects_root_override`. Its default is
-  `~/Library/Application Support/Story Studio KH/projects/`.
+- Back up the effective Library selected by `app-settings.json -> library_root`.
+  `projects_root_override` is a legacy upgrade fallback, not the current setting.
+  Fresh installs ask the user to choose a Library, suggesting
+  `~/Documents/Story Studio KH`; the Application Support projects path is only
+  a path-resolution fallback before selection. Confirm the effective path in
+  Settings instead of assuming either location contains the user's work.
 - Project directories contain project configuration, jobs, scripts, prompts,
   generated images/audio/video, user templates or forks, and per-project
   YouTube OAuth tokens. Treat them as customer data, not build output.
@@ -48,11 +55,13 @@ The check must report five packages and 13 files matching byte-for-byte.
   survive. Important paths include:
   - `app-settings.json`
   - `app-secrets.json`
-  - `named-roots.json`
   - `content-packs/state.json`
   - `content-packs/commerce-state.json`
   - `content-packs/installed/`
-- Revalidate machine-specific absolute paths, named roots, FFmpeg locations,
+- Preserve an old `named-roots.json` with the backup if present as historical
+  migration evidence; it is retired and must not be restored as a current
+  location configuration system.
+- Revalidate machine-specific absolute paths, FFmpeg locations,
   and external media roots after migration. Copying an old path does not make it
   valid on the new computer.
 
@@ -86,13 +95,19 @@ Do not migrate these as authoritative inputs:
 
 - `.worktrees/` or `worktrees/`
 - root and frontend `node_modules/`
-- `electron/dist/`, `frontend/.nuxt/`, `frontend/.output/`, `build/`, `dist/`,
+- `electron/dist/`, `frontend/.nuxt/`, `frontend/.output/`, `dist/`,
   or `out/`
 - downloaded `bundled/ffmpeg/`
 - Electron browser/GPU caches, preview caches, logs, and temporary staging
 
 Recreate them from the accepted repository, lockfiles, release scripts, and the
 new machine's runtime.
+
+The repository-root `build/` directory is different: its tracked icons,
+`READ ME FIRST.txt`, and icon-generation script are packaging source resources.
+Keep the files supplied by Git. Fetch the ignored FFmpeg inputs through
+`npm run fetch:ffmpeg` when preparing desktop packaging; `npm run build` alone
+does not fetch them.
 
 ## 7. Verify the new computer
 

@@ -1,0 +1,714 @@
+[
+  {
+    "id": "C-01",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 92,
+    "end_line": 104,
+    "exact_text": "**Arbitrary file read via `?path=`.** `services/path-resolver.ts:68` returns a\nnon-`${VAR}` path unchanged, and the only gate is the file extension:\n`routes/video.ts:467` (preview-audio), `:531` (preview-media), `:579`\n(preview-image), `routes/audio-merge.ts:110`. `GET\n/api/projects/<slug>/video-editor/preview-media?path=/Users/<any>/private.mp4`\nstreams any file with a matching extension. The in-code comment (\"this backend\nbinds localhost, so the risk surface is the UI itself\") is false in server mode,\nwhich binds `0.0.0.0`.\n\n**BLOCKED ON THE OWNER.** Containing it requires choosing the allowed roots, and\nthat changes what can be previewed. Options: (a) Library + project tree +\nconfigured media root; (b) an opaque token for paths the app itself issued;\n(c) leave it.\n",
+    "heading": "OPEN — critical"
+  },
+  {
+    "id": "C-02",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 106,
+    "end_line": 108,
+    "exact_text": "**`routes/vision.ts:104`** — `source_path` from the body is `fs.readFile`'d,\ncopied into the project and **uploaded to GenStudio**. Any local image can be\nread and exfiltrated. Same decision class as `?path=`.\n",
+    "heading": "OPEN — critical"
+  },
+  {
+    "id": "H-01",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 114,
+    "end_line": 116,
+    "exact_text": "- **`routes/health.ts:110`** — `GET /api/models` returns `200 []` when no API key\n  is configured, so every LLM picker renders \"no models\" instead of \"add a key\".\n  Sibling routes correctly 400. (The only bare-200-empty-body found.)\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-02",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 117,
+    "end_line": 119,
+    "exact_text": "- **`services/soft-delete.ts:157,164`** — `tallyDirSize` swallows every error and\n  returns 0, so the declared `-1` \"unknown\" sentinel is unreachable and an\n  unreadable hidden project reports **0 B**.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-03",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 120,
+    "end_line": 126,
+    "exact_text": "- **`lib/folder-resolver.ts:132`** — `findEpisodeDir` matches a bare\n  `startsWith(code)` with no separator, and `routes/video.ts:344` passes no\n  title hint. With per-project `episode_digits`, `'EP10 - Other'.startsWith('EP1')`\n  is true, so the Video Editor can be handed another episode's\n  `audio_chapters.json`. Four copies of this matcher exist: `asset-status.ts:366`\n  and `:383`, `folder-resolver.ts:132`, `manifest-audit.ts:127`,\n  `audio-merge.ts:119` (the loosest — it does not even strip the `✅ ` prefix).\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-04",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 127,
+    "end_line": 130,
+    "exact_text": "- **`lib/broll-indexer.ts:74`** — `parseFloat(stream.duration || fmt.duration || '0')`:\n  ffprobe's `'N/A'` is truthy, so a good `format.duration` is never consulted and\n  the clip becomes duration 0, then is silently dropped as \"too short\" by\n  `broll-selector.ts:124` — with a warning blaming the preset or an empty pool.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-05",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 131,
+    "end_line": 135,
+    "exact_text": "- **`generators/episode.ts:1521`** — `outline_only` audits against\n  `params.totalChapters` while `buildOutline` keeps the extra chapters the\n  v1.4.36 owner ruling embraces, so an over-delivering outline is marked\n  `invalid: ['extra outline chapters']`, the paid work is binned, and\n  `MANUAL_ONLY` Retry replays the same cached failure forever.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-06",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 136,
+    "end_line": 141,
+    "exact_text": "- **`generators/scene-plan.ts:871-1016` + `routes/pipeline.ts:1183`** — a\n  Pipeline `scene_plan_run` carries no `stage`, so `stage` defaults to\n  `'timeline'`, which rebuilds every scene with `visual_prompt: ''` and\n  **whole-file replaces** `scene_plan.json` — discarding every approved,\n  already-paid prompt and re-requesting all of them. Reachable exactly when the\n  plan is *partially* done.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-07",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 142,
+    "end_line": 145,
+    "exact_text": "- **`generators/metadata.ts:595` vs `lib/upload-metadata.ts:115`** — a second\n  metadata run writes `_Metadata_v2.json` and the board audits v2, but the\n  Upload Center reads the fixed v1 path, so the upload publishes the old\n  title/description/tags.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-08",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 146,
+    "end_line": 148,
+    "exact_text": "- **`generators/broll-assemble.ts:409`** — the assembler has no completion audit\n  and encodes with `-shortest`, so a coverage-short selection produces a video\n  that cuts off mid-sentence while the board shows the final-video cell green.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-09",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 149,
+    "end_line": 152,
+    "exact_text": "- **`services/scene-timeline-integrity.ts:148`** — called without\n  `max_cue_gap_sec` it returns before the sha256 / cue-count check, so a\n  truncated `_stitched.srt` beside an intact `.json` gates paid scene generation\n  and Pipeline skips Subtitles as done.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-10",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 153,
+    "end_line": 154,
+    "exact_text": "- **`services/audio-workflow-readiness.ts:50`** — any audio file with size > 0 is\n  \"merged audio ready\", unblocking paid transcription on a superseded take.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-11",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 155,
+    "end_line": 160,
+    "exact_text": "- **`services/subtitle-completion.ts:295`** — a single whole-track SRT with\n  size > 0 returns `complete: true` with `completed_sections: expected`,\n  fabricating full coverage without parsing one cue. Same shape at\n  `episode-recovery.ts:150` (one cue certifies the episode) and\n  `generators/subtitles.ts:294` (staleness never checked, and Retry returns the\n  skip path so it cannot repair the stitch failure its own error named).\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-12",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 161,
+    "end_line": 163,
+    "exact_text": "- **`services/manifest-audit.ts:362`** — per-stage errors are swallowed into\n  `notStarted(...)` = `{expected: 0, missing: []}`, so \"could not measure\" reads\n  as \"nothing expected\" and the banner says assets are intact.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-13",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 164,
+    "end_line": 166,
+    "exact_text": "- **`generators/video.ts:5061` + `broll-assemble.ts:246`** — requested\n  word-mode/animated captions silently degrade to coarse static anchors and\n  `declareJobDegraded` is never called, so `result.degraded` is empty.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-14",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 167,
+    "end_line": 170,
+    "exact_text": "- **`generators/audio.ts:756` + `:1267`** — an existing non-empty mp3 is skipped\n  with no comparison to the current script, and the audit is filename-presence +\n  size, so editing a chapter and re-running ships the old narration while the\n  manifest records the new script's hash.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-15",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 171,
+    "end_line": 182,
+    "exact_text": "- **`services/job-completion.ts` on the ordinary success path** — the queue's\n  completion check is a **self-declaration**: `assertJobDidNotDeclareIncomplete`\n  returns immediately unless the executor itself set `result.complete === false`.\n  Every guarantee therefore depends on each generator choosing to prove.\n  `generateAudioMerge`, `generateVideoAssembly`, `generateSubtitlesTranscribe`,\n  `generateYoutubeUpload`, `generateYoutubePlaylistUpdate`,\n  `generateThumbnailRefresh` and `broll_assemble` contain no\n  `requireJobCompletion` at all. The infrastructure for a real fix exists and is\n  wired only on the provider-settlement path: `registerJobCancellationAuditor`\n  (`boot/executors.ts:129-198`) computes `complete | repair-required` from disk\n  for 10 job types. Running it on the ordinary success path closes the whole\n  class rather than ~20 instances.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-16",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 183,
+    "end_line": 188,
+    "exact_text": "- **`services/job-queue.ts:684`** — when the GenStudio key is unavailable,\n  `reconcileCancellationJob` returns early, the `finally` re-arms a 5-second\n  timer, and `requiresCancellationReconciliation` is true for ANY job holding\n  `remote_cancellations` + a recorded provider task — so the job stays `running`\n  and the timer fires every 5s for the life of the process with no backoff,\n  attempt cap or terminal escape.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "H-17",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 189,
+    "end_line": 195,
+    "exact_text": "- **`services/job-queue.ts:2911`** — a crash-interrupted `scene_plan_run` /\n  `metadata` / `image_prompts` / `research_run` becomes\n  `error: 'Interrupted by app restart'`; only `audio` / `subtitles_transcribe`\n  (needing a `story-*` asset key), `continuity_render` / `image_pool_generate`\n  and video assembly are re-dispatched. The message conceals that paid provider\n  work may already exist, and Retry is refused until an opportunistic re-check\n  settles it.\n",
+    "heading": "OPEN — high"
+  },
+  {
+    "id": "Q-01",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 202,
+    "end_line": 205,
+    "exact_text": "- `job-queue.ts:441` — the `cancelled` Set is never pruned (`removeTerminalJob`\n  and `clearFinished` delete from `jobs` only). Ids are 8-char UUID slices, so a\n  collision would terminalise a brand-new job as cancelled before its first\n  provider call.\n",
+    "heading": "OPEN — medium and low / Queue / pipeline"
+  },
+  {
+    "id": "Q-02",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 206,
+    "end_line": 208,
+    "exact_text": "- `routes/pipeline.ts:2202` — a per-step skip `continue`s out after the\n  inline character-sheet write has already happened, and the skip reason never\n  mentions it.\n",
+    "heading": "OPEN — medium and low / Queue / pipeline"
+  },
+  {
+    "id": "Q-03",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 209,
+    "end_line": 210,
+    "exact_text": "- `job-queue.ts:1659` — `safeJob()` (every persist) and `serializeJob()` (every\n  SSE frame) each `structuredClone` the job, and `output_lines` is unbounded.\n",
+    "heading": "OPEN — medium and low / Queue / pipeline"
+  },
+  {
+    "id": "Q-04",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 211,
+    "end_line": 214,
+    "exact_text": "- `frontend/composables/useJobs.ts` — once fallen back to polling, nothing ever\n  retries SSE; one burst of 3 errors leaves the page on 10s polling for the\n  session. `routes/jobs.ts:556` also never emits the `snapshot-error` event its\n  siblings emit.\n",
+    "heading": "OPEN — medium and low / Queue / pipeline"
+  },
+  {
+    "id": "Q-05",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 215,
+    "end_line": 216,
+    "exact_text": "- `frontend/pages/projects/[slug]/jobs.vue:1956` — a `paused`\n  `dispatch_status` is reported as \"needs attention\".\n",
+    "heading": "OPEN — medium and low / Queue / pipeline"
+  },
+  {
+    "id": "Q-06",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 217,
+    "end_line": 219,
+    "exact_text": "- `jobs.vue:2675` — Retry is offered on legacy rows the backend always 409s\n  (`image_prompts` / `images` with a non-thumbnails `mode`), and the bulk retry\n  applies no admission filter at all.\n",
+    "heading": "OPEN — medium and low / Queue / pipeline"
+  },
+  {
+    "id": "Q-07",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 220,
+    "end_line": 221,
+    "exact_text": "- `jobs.vue:2205` — two permanently-empty filter tabs (`scene_images`,\n  `scene_images_batch`); neither type exists any more.\n",
+    "heading": "OPEN — medium and low / Queue / pipeline"
+  },
+  {
+    "id": "Q-08",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 222,
+    "end_line": 223,
+    "exact_text": "- `jobs.vue:2240` — the empty state says \"No jobs yet\" when a status or batch\n  filter emptied the list.\n",
+    "heading": "OPEN — medium and low / Queue / pipeline"
+  },
+  {
+    "id": "Q-09",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 224,
+    "end_line": 225,
+    "exact_text": "- `jobs.vue:2844` — `jobQueuePath()` can build an `_app_` URL the backend does\n  not serve (`finish-missing-images`). Latent.\n",
+    "heading": "OPEN — medium and low / Queue / pipeline"
+  },
+  {
+    "id": "Q-10",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 226,
+    "end_line": 227,
+    "exact_text": "- `jobs.vue:3203` — the Retry tooltip for subtitles points at a Repair button\n  the page never renders.\n",
+    "heading": "OPEN — medium and low / Queue / pipeline"
+  },
+  {
+    "id": "E-01",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 231,
+    "end_line": 233,
+    "exact_text": "In every case a failed read is rendered as a confident, specific, wrong answer:\n- `scene-review.vue:1214` → \"No scene plan yet\" (on a 500, the whole control\n  deck and grid vanish and the user is told to redo work that exists).\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "E-02",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 234,
+    "end_line": 235,
+    "exact_text": "- `research.vue:650` → \"GenStudio API not configured\" (sends the user to\n  re-enter a valid key; only a reload recovers).\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "E-03",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 236,
+    "end_line": 238,
+    "exact_text": "- `pipeline.vue:1250` **and** `audio.vue:1665` → \"this channel has no\n  Introduction\", which **suppresses the pre-spend warning** (\"Four episodes were\n  voiced with no opening\", per that code's own comment).\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "E-04",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 239,
+    "end_line": 239,
+    "exact_text": "- `subtitles.vue:56` → \"No chapter audio found\", Transcribe disabled.\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "E-05",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 240,
+    "end_line": 241,
+    "exact_text": "- `AudioChapterSelector.vue:732` → \"No sections found. Generate the script\n  first.\"\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "E-06",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 242,
+    "end_line": 242,
+    "exact_text": "- `pipeline.vue:431` → \"No accepted ideas yet.\"\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "E-07",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 243,
+    "end_line": 244,
+    "exact_text": "- `video-assembly.vue:3285` / `:3337` → permanent \"Loading transitions…\" and the\n  picker never mounts.\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "E-08",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 245,
+    "end_line": 245,
+    "exact_text": "- `video-assembly.vue:201` → a failed asset scan blanks Step 1 entirely.\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "E-09",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 246,
+    "end_line": 247,
+    "exact_text": "- `video-assembly.vue:2034` → \"No subtitle file for this episode yet\" renders\n  from the initial `null`, so it flashes on every load.\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "E-10",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 248,
+    "end_line": 248,
+    "exact_text": "- `scene-plan.vue:583` → deleting the plan leaves a heading-only card.\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "E-11",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 249,
+    "end_line": 250,
+    "exact_text": "- `jobs.vue:1667` → `queuePaused` is a two-valued ref fed by a `catch` that\n  keeps the last value, so \"unknown\" reads as \"running\".\n",
+    "heading": "OPEN — medium and low / Frontend — misleading empty and error states"
+  },
+  {
+    "id": "S-01",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 256,
+    "end_line": 257,
+    "exact_text": "- `scene-plan.vue:1690` — \"Custom instructions\" (labelled per-episode) is never\n  reset, is persisted under a project-only key and is snapshotted into presets.\n",
+    "heading": "OPEN — medium and low / Frontend — episode state surviving a change (AGENTS.md §4)"
+  },
+  {
+    "id": "S-02",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 258,
+    "end_line": 259,
+    "exact_text": "- `scripts.vue:870` — `manual_guidance` and `character_ids` survive and ride in\n  the script preset, plus the per-run `force` flag.\n",
+    "heading": "OPEN — medium and low / Frontend — episode state surviving a change (AGENTS.md §4)"
+  },
+  {
+    "id": "S-03",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 260,
+    "end_line": 261,
+    "exact_text": "- `metadata.vue:1029` — `if (v.title_options.length) … }` with **no else**;\n  EP0001's title variants are saved as EP0002's.\n",
+    "heading": "OPEN — medium and low / Frontend — episode state surviving a change (AGENTS.md §4)"
+  },
+  {
+    "id": "S-04",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 262,
+    "end_line": 263,
+    "exact_text": "- `services/audio-reconciler.ts:157` — `|| audioJobs[0]` takes **another\n  episode's** TTS model to predict this episode's chunk split.\n",
+    "heading": "OPEN — medium and low / Frontend — episode state surviving a change (AGENTS.md §4)"
+  },
+  {
+    "id": "S-05",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 264,
+    "end_line": 265,
+    "exact_text": "- `image-prompts.vue:1398` — episode-scoped cast ids persist in a project-only\n  blob and are sent for the new episode.\n",
+    "heading": "OPEN — medium and low / Frontend — episode state surviving a change (AGENTS.md §4)"
+  },
+  {
+    "id": "S-06",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 266,
+    "end_line": 268,
+    "exact_text": "- `broll.vue:922`, `scene-review.vue:1035`, `images.vue:1411`,\n  `research.vue:1207`, `character-sheet.vue:534`, `motion-review.vue:886`,\n  `metadata.vue:279` — replaced only on a *successful* load, never blanked.\n",
+    "heading": "OPEN — medium and low / Frontend — episode state surviving a change (AGENTS.md §4)"
+  },
+  {
+    "id": "F-01",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 271,
+    "end_line": 272,
+    "exact_text": "- `scene-plan.vue:1151` — the Style Bible is `.slice(0, 2000)` with a \"Saved\"\n  toast and no counter. §1: a limit that is enforced must be shown.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-02",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 273,
+    "end_line": 275,
+    "exact_text": "- `scene-plan.vue:39` — `:loading-label` is bound to a prop that does not exist\n  (`TopActionBar` expects `generateLoadingLabel`), so the busy affordance never\n  appears.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-03",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 276,
+    "end_line": 277,
+    "exact_text": "- `video-assembly.vue:2929` — `needsChoice` from the output-option picker is not\n  enforced, and an informational notice is routed to `showError`.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-04",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 278,
+    "end_line": 280,
+    "exact_text": "- `settings.vue:2204` — FFmpeg status is never fetched when the tab is opened\n  from the nav, so a bundled install is offered \"Install recovery copy\", which\n  really downloads.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-05",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 281,
+    "end_line": 282,
+    "exact_text": "- `settings.vue:4676` vs `:4766` — two `immediate` watchers write\n  `category_id`; the second blanks what the first hydrated.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-06",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 283,
+    "end_line": 285,
+    "exact_text": "- `utils/projectSettingsSave.ts:23` — \"Use app default\" sends `undefined`, which\n  `JSON.stringify` drops, so the key is never cleared and the app still says\n  \"saved\". This is an **AI-disclosure compliance** field.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-07",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 286,
+    "end_line": 287,
+    "exact_text": "- `scripts.vue:216` — `v-if=\"false && formatContext\"` makes the format-envelope\n  and out-of-range warnings permanently unreachable, with ~200 lines of dead CSS.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-08",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 288,
+    "end_line": 289,
+    "exact_text": "- `settings.vue:724` — the page says to press \"Sync Folders\"; no such control\n  exists and `POST /projects/:slug/sync-folders` is unreachable from the UI.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-09",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 290,
+    "end_line": 291,
+    "exact_text": "- `scene-review.vue:418` — the 🎬 badge's tooltip promises a preview; the handler\n  writes a ref nothing reads.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-10",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 292,
+    "end_line": 293,
+    "exact_text": "- `research.vue:36` — `result?.claims.length` is unguarded; a `research.json`\n  without `claims` blanks the page.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-11",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 294,
+    "end_line": 297,
+    "exact_text": "- `composables/useJobs.ts:34`, `components/EpisodeSelector.vue:473`,\n  `jobs.vue:2028` — four hand-maintained job-type label maps have drifted;\n  `useJobs.ts` is missing 6 live types, `EpisodeSelector.vue` 20 of 30, so toasts\n  and the episode dropdown render raw slugs.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-12",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 298,
+    "end_line": 299,
+    "exact_text": "- `ContentPurchaseDialog.vue:262` — `overflow: hidden` with no inner scroller\n  clips the Cancel / \"Confirm up to N credits\" footer.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-13",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 300,
+    "end_line": 302,
+    "exact_text": "- `.input-sm`, `.btn-icon`, `.link-btn`, `.checkbox-label`, `.section-kicker`,\n  `.card-actions` — same shape as `.btn-ghost`: defined only inside one\n  component's scoped block.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-14",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 303,
+    "end_line": 304,
+    "exact_text": "- `settings.vue:5310` — a `position: sticky` save bar inside `overflow: hidden`\n  can never stick.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "F-15",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 305,
+    "end_line": 310,
+    "exact_text": "- Geometry, all clip with no scrollbar because `layouts/dashboard.vue:540` sets\n  `overflow-x: hidden`: `subtitles.vue:1121` (long SRT filename pushes the view\n  and delete buttons out), `SubtitleCuePreview.vue:75` (pushes the close button\n  out), `settings.vue:5759` (folder-template grid), `scene-plan.vue:3423`,\n  `video-assembly.vue:6449`, `audio.vue:2212`, `scene-review.vue:2011`,\n  `research.vue:1881`, `pipeline.vue:1972`.\n",
+    "heading": "OPEN — medium and low / Frontend — other confirmed"
+  },
+  {
+    "id": "Z-01",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 313,
+    "end_line": 319,
+    "exact_text": "- `lib/opening-duration.ts:104` — `return clip.fallback_sec || 0` makes 0 mean\n  both \"nothing precedes the scenes\" and \"the probe returned nothing\". The plan's\n  intro bucket has no fallback while the renderer's has `fallback_sec: 5`, so the\n  two disagree by construction for one input; `scene-plan.ts:994` writes\n  `opening_source: 'measured'` unconditionally and `video.ts:2030` then sets\n  `hide_during_intro = false`. `__tests__/opening-duration.test.ts:61-69` pins the\n  divergence. **Editorial — the fix shifts timelines.**\n",
+    "heading": "OPEN — medium and low / Zero-means-two-things (§6)"
+  },
+  {
+    "id": "Z-02",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 320,
+    "end_line": 326,
+    "exact_text": "- `services/storage-audit.ts:105` + `episode-media-cleanup.ts:307` +\n  `asset-status.ts:1019` — `startsWith(\\`${code}_final_video.\\`)` rejects\n  `_final_video_v2.mp4`, which the app itself writes (`upload-queue.ts:305`). The\n  same file IS recognised at `storage-audit.ts:792`, a half-applied fix. Result:\n  Settings shows \"Final videos: 0 B\" and the space cannot be reclaimed. The\n  correct matcher already exists in this repo: `MERGED_AUDIO_FILENAME`\n  (`lib/intro-lead-in.ts:161`).\n",
+    "heading": "OPEN — medium and low / Zero-means-two-things (§6)"
+  },
+  {
+    "id": "Z-03",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 327,
+    "end_line": 329,
+    "exact_text": "- `services/music-library.ts:132` — `available_seconds` sums `duration_sec || 0`,\n  so unmeasured tracks silently understate \"X min usable\" at the point the user\n  decides whether to buy more music.\n",
+    "heading": "OPEN — medium and low / Zero-means-two-things (§6)"
+  },
+  {
+    "id": "Z-04",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 330,
+    "end_line": 331,
+    "exact_text": "- `services/subtitle-completion.ts:189` — a failed `stat` becomes `mtimeMs = 0`,\n  i.e. the oldest value, so \"could not check\" resolves to \"not stale\".\n",
+    "heading": "OPEN — medium and low / Zero-means-two-things (§6)"
+  },
+  {
+    "id": "Z-05",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 332,
+    "end_line": 334,
+    "exact_text": "- `services/sound-design.ts:70` — `Math.max(0, ...[])` manufactures a 0-length\n  timeline on an empty plan, and every cue is then rejected as \"outside the\n  episode timeline\".\n",
+    "heading": "OPEN — medium and low / Zero-means-two-things (§6)"
+  },
+  {
+    "id": "Z-06",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 335,
+    "end_line": 336,
+    "exact_text": "- `lib/thumbnail-prepare.ts:38` — `meta.width || 0` means an unmeasurable width\n  passes the \"too wide\" check.\n",
+    "heading": "OPEN — medium and low / Zero-means-two-things (§6)"
+  },
+  {
+    "id": "M-01",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 339,
+    "end_line": 342,
+    "exact_text": "- `motion-review.vue:743` + `:384` — the only two statements of aspect ratio are\n  the literal `'16:9'`; the selected video model's published `aspect_ratios` is\n  parsed and discarded, and `scene-clip.ts:362` reduces whatever arrives to a\n  landscape/portrait binary. Every i2v clip is landscape on every model.\n",
+    "heading": "OPEN — medium and low / Model dynamism (§1/§2)"
+  },
+  {
+    "id": "M-02",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 343,
+    "end_line": 345,
+    "exact_text": "- `lib/genstudio-client.ts:7315` — the image parser substitutes\n  `default_aspect_ratio: '16:9'` when none is published, and\n  `scene-review.vue:839` then clamps onto a frame the model never named.\n",
+    "heading": "OPEN — medium and low / Model dynamism (§1/§2)"
+  },
+  {
+    "id": "M-03",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 346,
+    "end_line": 347,
+    "exact_text": "- `images.vue:1124` — a six-entry hardcoded ratio list is offered when a model\n  publishes none, and the clamp is skipped in exactly that case.\n",
+    "heading": "OPEN — medium and low / Model dynamism (§1/§2)"
+  },
+  {
+    "id": "M-04",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 348,
+    "end_line": 351,
+    "exact_text": "- `images.vue:728` — the per-row character badge reads\n  `config.image_models[].prompt_char_cap`, a retired map, instead of the live\n  `max_prompt_characters` already on the page — so a cap enforced at\n  `routes/image-preview.ts:172` is never shown.\n",
+    "heading": "OPEN — medium and low / Model dynamism (§1/§2)"
+  },
+  {
+    "id": "M-05",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 352,
+    "end_line": 353,
+    "exact_text": "- `images.vue:90` — the \"View all caps\" modal prints persisted caps **and\n  prices** from project config under copy implying they are current.\n",
+    "heading": "OPEN — medium and low / Model dynamism (§1/§2)"
+  },
+  {
+    "id": "M-06",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 354,
+    "end_line": 355,
+    "exact_text": "- `lib/genstudio-client.ts:144` — a 100 MiB transcription ceiling is enforced and\n  never shown.\n",
+    "heading": "OPEN — medium and low / Model dynamism (§1/§2)"
+  },
+  {
+    "id": "M-07",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 356,
+    "end_line": 357,
+    "exact_text": "- `lib/chunked-narration.ts:184` — `SINGLE_CHAPTER_REPAIR_OUTPUT_TOKENS = 8_192`\n  clamps down to the published ceiling but can never rise with it.\n",
+    "heading": "OPEN — medium and low / Model dynamism (§1/§2)"
+  },
+  {
+    "id": "M-08",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 358,
+    "end_line": 362,
+    "exact_text": "- The model-drift guard could not see the last two: its rules need a\n  `PUBLISHED_LIMIT_FIELDS` name plus a numeric literal, a `?? number` default, or\n  a `Number.isInteger(...) ? published : CONSTANT` ternary. A literal inside a\n  `typeof … === 'string' ? trimmed : '16:9'` ternary and a bare `const X = 8_192`\n  match none of those.\n",
+    "heading": "OPEN — medium and low / Model dynamism (§1/§2)"
+  },
+  {
+    "id": "Y-01",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 365,
+    "end_line": 372,
+    "exact_text": "- Cross-project duplicate upload: `video-claims.json` has exactly one reader and\n  one writer, both inside `acceptYouTubeOperation` — i.e. only AFTER YouTube has\n  accepted the bytes — while upload admission\n  (`routes/youtube-upload-center.ts:2218`) asks only `remoteVideoFor`, which is\n  project-scoped. Two projects sharing an episode code (`EP0001`–`EP0006` exist\n  in seven channels) on the same channel can both upload, and project B's\n  conflict is then downgraded to a job warning at\n  `generators/youtube-upload.ts:511`. Unrecoverable: a second public video.\n",
+    "heading": "OPEN — medium and low / YouTube"
+  },
+  {
+    "id": "Y-02",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 373,
+    "end_line": 377,
+    "exact_text": "- A sidecar tombstoned `manual` on a channel the project has since left is a\n  permanent refusal — `youtube-remote-video.ts:395` requires\n  `sidecar.channel_id === channelId`, and the new \"Forget upload\" route\n  (`:2085`) requires the same channel, so the only escape is a legacy route with\n  no frontend caller. The episode can never be published again.\n",
+    "heading": "OPEN — medium and low / YouTube"
+  },
+  {
+    "id": "Y-03",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 378,
+    "end_line": 381,
+    "exact_text": "- `youtubeArchiveProofForFile` (a MOVE) accepts a reconcile link or legacy\n  sidecar on an mtime test alone, with no content hash, where the deletion path\n  correctly demands a `sha256:` `ready_operation`\n  (`youtube-remote-video.ts:253` vs `:219`).\n",
+    "heading": "OPEN — medium and low / YouTube"
+  },
+  {
+    "id": "Y-04",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 382,
+    "end_line": 383,
+    "exact_text": "- The same helper returns `ready_operations[0].video_id` ignoring channel, so\n  the archive breadcrumb can misattribute a video.\n",
+    "heading": "OPEN — medium and low / YouTube"
+  },
+  {
+    "id": "Y-05",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 384,
+    "end_line": 386,
+    "exact_text": "- `routes/youtube-upload-center.ts:2916` — `/episodes/:code/schedule` PATCHes\n  YouTube first and writes the local receipt after, across four non-transactional\n  writes with an `expected_revision` read earlier in the request.\n",
+    "heading": "OPEN — medium and low / YouTube"
+  },
+  {
+    "id": "Y-06",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 387,
+    "end_line": 389,
+    "exact_text": "- `services/upload-plans.ts:533` — `addDays` adds a fixed 24h, which stalls on\n  sub-hour DST zones (reproduced on Australia/Lord_Howe). The failure is safe —\n  it refuses rather than publishing at a wrong time.\n",
+    "heading": "OPEN — medium and low / YouTube"
+  },
+  {
+    "id": "Y-07",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 390,
+    "end_line": 392,
+    "exact_text": "- `routes/upload.ts:1594` — the legacy plan-apply PATCHes without\n  `requirePrivacyStatus` and can set a live public video back to private. Its\n  preview/apply routes have no frontend caller.\n",
+    "heading": "OPEN — medium and low / YouTube"
+  },
+  {
+    "id": "Y-08",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 393,
+    "end_line": 394,
+    "exact_text": "- `services/storage-audit.ts:821` — a same-size destination file is taken as a\n  completed copy for non-final media, then the source is deleted.\n",
+    "heading": "OPEN — medium and low / YouTube"
+  },
+  {
+    "id": "P-01",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 397,
+    "end_line": 399,
+    "exact_text": "- `content-packs/state.ts:99` — one malformed record quarantines and rewrites\n  `state.json` as empty with **no log and no reconciliation against `installed/`**,\n  so every pack silently disappears from every catalogue and the Store.\n",
+    "heading": "OPEN — medium and low / Content packs"
+  },
+  {
+    "id": "P-02",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 400,
+    "end_line": 402,
+    "exact_text": "- `content-packs/installer.ts:617` vs `state.ts:155` — a crash between the\n  version-directory rename and the state checkpoint leaves an orphan no pass ever\n  reconciles, permanently blocking re-install of that version.\n",
+    "heading": "OPEN — medium and low / Content packs"
+  },
+  {
+    "id": "P-03",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 403,
+    "end_line": 405,
+    "exact_text": "- `services/content-store-delivery.ts:527` — `alreadyInstalled` calls the throwing\n  closure verifier with no try/catch, so a damaged local copy can never be\n  repaired by installing again.\n",
+    "heading": "OPEN — medium and low / Content packs"
+  },
+  {
+    "id": "P-04",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 406,
+    "end_line": 408,
+    "exact_text": "- `content-store-delivery.ts:640` vs `recovery.ts:202` — boot adoption silently\n  activates every retained-but-inactive pack, so a half-delivered bundle goes\n  partially live after a restart.\n",
+    "heading": "OPEN — medium and low / Content packs"
+  },
+  {
+    "id": "P-05",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 409,
+    "end_line": 411,
+    "exact_text": "- `content-packs/lifecycle.ts:308` — `pruneUnpinnedContentPackVersions` deletes\n  the version rolled back FROM, and deletes **every** version when no active\n  version exists. No production caller today.\n",
+    "heading": "OPEN — medium and low / Content packs"
+  },
+  {
+    "id": "P-06",
+    "source_file": "docs/audit/2026-09-19-defect-audit.md",
+    "start_line": 412,
+    "end_line": 413,
+    "exact_text": "- `content-store-install-state.ts:121` — reports `pack.active_version` for an\n  exact-hash match that is a different version.\n",
+    "heading": "OPEN — medium and low / Content packs"
+  }
+]

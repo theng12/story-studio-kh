@@ -34,5 +34,6 @@ above always works.)
 
 ## Project docs
 
+- [`New-computer handoff — 2026-09-20`](docs/handoffs/2026-09-20-new-computer.md) — recovery branch, verified baseline, bug backlog, data migration, and skills to restore.
 - [`CHANGELOG.md`](CHANGELOG.md) — what shipped in each release.
 - [`docs/`](docs/) — current architecture, operations, planning, and in-flight refactors. Start at [`docs/README.md`](docs/README.md) for the map.
