@@ -607,9 +607,31 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       removing the `excludeKeys` line fails the script-preset test.
       Frontend lane 1,839/1,839, 200/200 files.
 
-      STILL OPEN on this item: `scene-plan.vue` (`custom_instructions`, decision
-      9) and `image-prompts.vue` (`thumbnail.character_ids`). Both need the same
-      `[...DEFAULT_EXCLUDE_KEYS, ...]` treatment — now a one-line change each.
+      **`image-prompts.vue` NEEDS NO CHANGE.** The owner's #10 answer KEEPS
+      `character_ids`, and that is the same cast field — so the audit's
+      "episode-scoped cast ids persist" concern is resolved by the decision, not
+      by code.
+
+      **`scene-plan.vue` (`custom_instructions`, decision 9) IS STILL OPEN, and
+      is now known to be harder than one line.** I applied exactly the same
+      `[...DEFAULT_EXCLUDE_KEYS, 'custom_instructions']` treatment plus
+      `import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'`, and it
+      **broke SIX tests** — four "mounted Scene Plan …" mounts and two preset
+      tests — all failing during component setup, while the same import in
+      `scripts.vue` is fine. Reverting scene-plan alone restored 1,839/1,839, so
+      that import is the cause.
+
+      STRONGEST HYPOTHESIS, not yet confirmed: the mounted Scene Plan tests stub
+      `~/composables/usePresets`, so the named export is `undefined` and
+      `[...undefined, 'custom_instructions']` throws at setup ("not iterable").
+      `scripts.vue` is only ever read as SOURCE by its tests, never mounted, which
+      is exactly why it does not break.
+
+      NEXT STEP: find how the mounted tests resolve `~/composables/usePresets`,
+      and either add `DEFAULT_EXCLUDE_KEYS` to their stub or move the constant to
+      a module the harness does not stub (e.g. `@shared/`). Do NOT re-land the
+      literal keys — that is the duplication this change exists to remove.
+
       The **channel-specific box** the owner asked for is new UI and is not built.
 
 - [ ] **ROUND 33 — ESCALATED (owner decision 9). NOT a code call; §5 says so.**

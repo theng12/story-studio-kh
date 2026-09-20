@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.206 — 2026-09-20
+
+- Removed the "View all caps" reference table from Images. It listed every model's prompt limit and credits-per-image as fixed numbers, so once a provider changed either one the table quietly reported the old figure as current — and the cap and price for the model you actually have selected are already shown beside the selector.
+
 ## v1.4.205 — 2026-09-20
 
 - Saving a Script preset no longer stores the per-run "re-run even if it exists" switch. Restoring it would have silently overwritten existing work on the next apply. It also no longer stores that episode's written guidance — text meant to carry across a channel belongs in the channel-specific box instead. Your cast selection is still saved, since the cast is the same for every episode of a series and restoring it is the point of the preset.

@@ -74,8 +74,9 @@
                for the active model so users know how long their image
                prompts can be before the provider rejects/silently truncates.
                Cap values come from electron/server/models/defaults.ts and
-               are approximate — clickable "View all caps" link below opens
-               the full reference table. -->
+               are approximate. v1.4.206 — the "View all caps" reference table
+               is gone (owner decision 3): it printed copied caps and credit
+               prices as though they were current, which rule 1 forbids. -->
           <span class="cap-row">
             <template v-if="activeModelCap">
               <span class="cap-pill" :title="`Approximate provider limit for ${activeModelLabel}. Prompts over this may be rejected or silently truncated.`">
@@ -87,7 +88,6 @@
                 Prompt cap: <strong>unknown</strong>
               </span>
             </template>
-            <button type="button" class="cap-link" @click="showCapsTable = true">View all caps →</button>
           </span>
         </div>
 
@@ -541,45 +541,6 @@
          (Nano Banana at ~5000). All numbers approximate — recorded from
          each provider's published docs at last audit, see
          electron/server/models/defaults.ts:prompt_char_cap. -->
-    <div v-if="showCapsTable" class="modal-overlay" @click.self="showCapsTable = false">
-      <div class="caps-modal">
-        <div class="caps-modal-head">
-          <h3>Image model prompt-character caps</h3>
-          <button type="button" class="caps-modal-close" @click="showCapsTable = false" title="Close">×</button>
-        </div>
-        <p class="text-muted text-sm caps-modal-intro">
-          Approximate per-prompt character limits documented by each provider. A prompt longer than
-          the cap is typically rejected outright or silently truncated — wasting credits either way.
-          Keep prompts under the cap of whichever model you choose. Numbers refresh as
-          providers update their docs.
-        </p>
-        <div class="caps-table-wrap">
-          <table class="caps-table">
-            <thead>
-              <tr>
-                <th>Model</th>
-                <th class="caps-th-right">Prompt cap</th>
-                <th class="caps-th-right">Credits / image</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in allModelCaps" :key="row.id"
-                  :class="{ 'caps-row-active': row.id === activeForm.model }">
-                <td>{{ row.label }}</td>
-                <td class="caps-td-right">
-                  <template v-if="row.cap">~{{ row.cap.toLocaleString() }}</template>
-                  <span v-else class="text-muted">—</span>
-                </td>
-                <td class="caps-td-right">
-                  <template v-if="row.credits != null">{{ row.credits }}</template>
-                  <span v-else class="text-muted">—</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
 
   </div>
 </template>
@@ -740,34 +701,6 @@ const sceneModelInfo = computed(() => modelInfoFor(form.scene.model))
 const activeModelCap = computed(() => (form.mode === 'thumbs' ? thumbnailModelInfo : sceneModelInfo).value.cap)
 const activeModelLabel = computed(() => (form.mode === 'thumbs' ? thumbnailModelInfo : sceneModelInfo).value.label)
 
-// All-models caps table — sorted by cap ascending so the strictest
-// providers (e.g. Seedream at ~500) surface first. Built once per
-// config change; the modal mounts on demand via showCapsTable.
-const showCapsTable = ref(false)
-const allModelCaps = computed(() => {
-  const models = config.value?.image_models || {}
-  return Object.entries(models).map(([id, raw]) => {
-    const m = raw as any
-    return {
-      id,
-      label: (m?.label as string) || id,
-      // No provider column. `ImageModelResponse` publishes none — GenStudio
-      // publishes provider identity for voice, TTS models and transcription
-      // only — so this table had nothing true to put there. It printed the
-      // gateway's name for every row, and the only other candidate,
-      // `ImageModelConfig.provider`, is Story Studio's own transport key
-      // ('kie', 'genstudio-image'), not a vendor. A column that can only hold
-      // an invented or a misleading value is removed rather than blanked.
-      cap: typeof m?.prompt_char_cap === 'number' ? m.prompt_char_cap : null,
-      credits: typeof m?.credits_per_image === 'number' ? m.credits_per_image : null,
-    }
-  }).sort((a, b) => {
-    if (a.cap == null && b.cap == null) return a.label.localeCompare(b.label)
-    if (a.cap == null) return 1
-    if (b.cap == null) return -1
-    return a.cap - b.cap
-  })
-})
 const modelTierLabel = computed(() => {
   // Naming the picker by axis: "Resolution" if tier ids look like 1k/2k/4k,
   // "Quality" for turbo/balanced/quality, generic "Tier" otherwise. Keeps
@@ -2120,60 +2053,4 @@ async function submit() {
   border-color: var(--border);
 }
 .cap-pill strong { font-weight: 600; }
-.cap-link {
-  font-size: var(--font-xs);
-  background: none; border: none;
-  color: var(--accent, #6c8fff);
-  cursor: pointer; padding: 0;
-  text-decoration: underline;
-}
-.cap-link:hover { color: var(--text-primary); }
-
-.caps-modal {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md, 8px);
-  border: 1px solid var(--border);
-  padding: 18px 22px;
-  max-width: 720px;
-  width: 90vw;
-  max-height: 85vh;
-  display: flex; flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-}
-.caps-modal-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 6px;
-}
-.caps-modal-head h3 { margin: 0; font-size: 16px; color: var(--text-primary); }
-.caps-modal-close {
-  background: none; border: none; font-size: 22px;
-  color: var(--text-muted); cursor: pointer; padding: 0 6px; line-height: 1;
-}
-.caps-modal-close:hover { color: var(--text-primary); }
-.caps-modal-intro { margin: 4px 0 12px; line-height: 1.5; }
-.caps-table-wrap { overflow: auto; flex: 1 1 auto; }
-.caps-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.caps-table th, .caps-table td {
-  padding: 6px 10px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-.caps-table th {
-  position: sticky; top: 0;
-  background: var(--bg-secondary);
-  font-size: var(--font-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-.caps-th-right, .caps-td-right { text-align: right !important; font-variant-numeric: tabular-nums; }
-.caps-row-active {
-  background: rgba(108, 143, 255, 0.08);
-}
-.caps-row-active td:first-child::before { content: '▸ '; color: var(--accent, #6c8fff); }
 </style>
