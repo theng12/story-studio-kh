@@ -963,7 +963,32 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       `scene-review.vue:418`, `research.vue:36`, `jobs.vue` label maps,
       `ContentPurchaseDialog.vue:262`, `settings.vue:5310`, and the geometry
       clipping list.
-- [ ] Queue: `job-queue.ts:441` (unpruned `cancelled`), `:684` (5s timer
+- [ ] **ROUND 39 — TRACED, NOT FIXED. Start here next session.** Queue:
+      `job-queue.ts:441` — the `cancelled` Set is unpruned, and the audit is right.
+
+      Traced exactly: `cancelled.add(job_id)` fires on all three cancellation
+      paths (`cancelQueuedBeforeSubmitUnlocked` :5589, `stopLocalJobUnlocked`
+      :5613, and :5786), but the file contains **one** `cancelled.delete(jobId)`
+      — at :5063, on the "Finish missing images" re-queue path only. So an
+      ordinary cancellation leaves its id in the Set for the life of the process.
+      It is read on ~15 paths (`:1228`, `:1264`, `:1275`, `:2537`, `:2613`,
+      `:3378`, `:3435`, `:3471`, `:3484`, `:3522`, `:3544`, `:3629`, `:4023`,
+      `:4242`, `:4548`), all of them cheap, so this is slow unbounded growth
+      rather than a hot-path cost — which is presumably why it went unnoticed.
+
+      WHY I DID NOT FIX IT IN ONE LINE: the flag is what makes an in-flight
+      executor stop (`if (cancelled.has(job.job_id)) throw new Error('Cancelled by
+      user')`) and what stops the queue re-pumping the job. Deleting the id as
+      soon as `job.status === 'cancelled'` would clear the flag while the executor
+      is still unwinding, which is how a cancelled job gets resumed. The safe
+      shape is to prune once the job is terminal AND nothing is executing it —
+      i.e. at the same point terminal jobs are already evicted, and on project
+      unload/removal (`loadedProjects` / `projectRemovalInProgress` are the right
+      hooks) — and to prove it with a test that cancels a job, lets it settle, and
+      asserts the id is gone while `isJobCancelled()` is still correct for a job
+      that IS still running. That needs more care than a sweep can give it.
+
+- [ ] Queue: `:684` (5s timer
       forever), `:2911` (crash-interrupted paid work mislabelled), `:1659`
       (clone per frame), `routes/pipeline.ts:2202`, `useJobs.ts` (never
       retries SSE), `jobs.vue:1956`/`:2675`/`:2205`/`:2240`/`:2844`/`:3203`.
