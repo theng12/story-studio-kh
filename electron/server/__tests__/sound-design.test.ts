@@ -83,3 +83,49 @@ test('Sound Design mix dynamically ducks beds and keeps exact spot timing', () =
   assert.match(graph, /adelay=12400:all=1/)
   assert.match(graph, /amix=inputs=3:duration=first:normalize=0/)
 })
+
+/**
+ * v1.4.198 — an unmeasurable plan length is not a length of zero.
+ *
+ * `planDuration` was `Math.max(0, ...plan.scenes.map(s => Number(s.end_sec) || 0))`,
+ * which answers 0 for a plan with no scenes. That 0 then acted as an authority:
+ * every cue satisfies `start_sec >= 0`, so a good timeline was rejected with
+ * "Cue start is outside the episode timeline" — a message that blames the cue
+ * for a missing Scene Plan. AGENTS.md §6.
+ */
+describe('Sound Design when the Scene Plan supplies no length', () => {
+  const emptyPlan = { generated_at: plan.generated_at, scenes: [] } as unknown as ScenePlan
+  const unmeasuredPlan = {
+    generated_at: plan.generated_at,
+    scenes: [{ id: 'scene-1', start_sec: 0, end_sec: 0 }],
+  } as unknown as ScenePlan
+
+  test('an empty Scene Plan names the plan, not the cue', () => {
+    const current = timeline([cue({ start_sec: 10 })])
+    const issues = validateSoundDesignTimeline(current, emptyPlan, current.settings)
+
+    assert.ok(
+      issues.some(issue => /no measured scene timings/i.test(issue.detail)),
+      'the missing length must be reported as the Scene Plan\'s problem',
+    )
+    assert.ok(
+      !issues.some(issue => /outside the episode timeline/i.test(issue.detail)),
+      'a valid cue must not be blamed for a Scene Plan that has no length',
+    )
+  })
+
+  test('scene ends that are present but unmeasured are the same case', () => {
+    const current = timeline([cue({ start_sec: 10 })])
+    const issues = validateSoundDesignTimeline(current, unmeasuredPlan, current.settings)
+    assert.ok(issues.some(issue => /no measured scene timings/i.test(issue.detail)))
+    assert.ok(!issues.some(issue => /outside the episode timeline/i.test(issue.detail)))
+  })
+
+  test('a real length still rejects a cue past the end', () => {
+    // Pins the non-zero case: a fix must not simply stop checking.
+    const current = timeline([cue({ start_sec: 71 })])
+    const issues = validateSoundDesignTimeline(current, plan, current.settings)
+    assert.ok(issues.some(issue => /outside the episode timeline/i.test(issue.detail)))
+    assert.ok(!issues.some(issue => /no measured scene timings/i.test(issue.detail)))
+  })
+})

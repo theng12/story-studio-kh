@@ -799,7 +799,42 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       source file is stale. Tests in `subtitle-transcript-skip.test.ts` (now 6),
       one per branch. **Proven red:** with the old expressions restored, both
       fail; the other four keep passing. `--only subtitle` 356/356.
-- [ ] `sound-design.ts:70` — `Math.max(0, ...[])` manufactures a 0 timeline.
+- [x] **DONE, v1.4.198.** `sound-design.ts:70` — `Math.max(0, ...[])` manufactured a
+      0 timeline. The audit's description was accurate for once, and the damage
+      was worse than "a 0 timeline": `planDuration` answered `0` for a Scene Plan
+      with no scenes, and that 0 was then used as an AUTHORITY. Every cue
+      satisfies `start_sec >= 0`, so a perfectly good timeline was rejected with
+      **"Cue start is outside the episode timeline"** — a message that names the
+      cue as the problem when the plan is.
+
+      `planDuration` now returns `number | null`; `null` means "no scene end was
+      measurable" (empty plan, or every `end_sec` 0/non-finite). The length
+      checks are skipped when it is null, and a distinct issue says the Scene Plan
+      has no measured timings. Deliberately NOT "skip the checks silently" (that
+      would let an out-of-range cue through) and NOT "blame the cue".
+
+      Tests: 3 in `sound-design.test.ts` (now 9). **Proven red:** against the old
+      `planDuration`, exactly the two "no measured length" tests fail and the
+      third — "a real length still rejects a cue past the end" — stays green,
+      which is what proves the fix did not simply stop checking.
+      `--only sound-design` 9/9.
+
+- [ ] **ROUND 34 — TRACED, NOT FIXED; needs a contract decision.** The audit's
+      line for `lib/thumbnail-prepare.ts:38` (`meta.width || 0`) is right about
+      the expression but wrong about the consequence, so I did not change it.
+      `width = meta.width || 0` makes `tooWide` false for an unmeasurable width,
+      and `tooBig` (bytes over the cap) is computed independently — so a large
+      image with an unknown width is ALREADY taken off the passthrough path. The
+      real remaining gap is narrower: it is re-encoded but `resizeWidth` is
+      `tooWide ? CAP : null`, so it is **never resized** even though we know it
+      is too big and do not know how wide it is. Forcing `resizeWidth: CAP` would
+      be worse — an unknown width also covers a genuinely small image, and that
+      would UPSCALE it. Closing this honestly means letting the pure decision say
+      "width unknown" so the caller measures after decoding, i.e. a contract
+      change on `planThumbnailEncode` and its caller, and the existing test at
+      `thumbnail-prepare.test.ts:40` encodes a deliberate choice
+      (`{bytes: 1000, width: undefined}` → passthrough) that I must not silently
+      reverse. Recorded rather than rushed.
 - [ ] `soft-delete.ts:157` — the `-1` "unknown size" sentinel is unreachable;
       an unreadable folder reports 0 B.
 - [ ] `lib/thumbnail-prepare.ts:38` — `meta.width || 0` passes an unmeasurable

@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.198 — 2026-09-20
+
+- Sound Design no longer blames your cues for a missing Scene Plan. It worked out the episode's length from the Scene Plan's scene timings, and when there were none it treated the episode as zero seconds long — so every cue failed the "start is outside the episode timeline" check and the message pointed at the cue. It now says plainly that the Scene Plan has no measured timings, and only checks cues against the length when there is a length to check against.
+
 ## v1.4.197 — 2026-09-20
 
 - B-Roll clips that ffprobe can measure are no longer indexed as zero seconds long. ffprobe reports a field it cannot read as the text "N/A" rather than leaving it blank, and the app treated that text as a real value — so it never looked at the container's own duration, which usually does have the number. The clip's length came out as 0, which reads downstream as "no usable footage". Clip length, width and height are now taken only from values that are genuinely numbers.
