@@ -800,7 +800,35 @@ episode A reaching episode B". Two were fixed (`metadata.vue` titles,
       accounting fails exactly those two and leaves the other 11 green.
       `--only music-library` 13/13; frontend lane 1,836/1,836, 199/199 files.
 
-- [ ] **ROUND 35 — TRACED, NOT YET FIXED.** `soft-delete.ts:157` — the `-1`
+- [x] **DONE, v1.4.200.** `soft-delete.ts:157` — the `-1` "unknown size" sentinel
+      was unreachable, exactly as the audit said. `tallyDirSize` returned `0` for
+      both "the folder is empty" and "I could not read it", and skipped
+      unreadable children silently; the caller guarded with
+      `.catch(() => -1)`, which could never fire because the tally never
+      rejects. A folder nobody could measure was therefore reported as **0
+      bytes**.
+
+      `tallyDirSize` now returns `number | null`, and `null` propagates: one
+      unreadable child makes the whole total unknown, because a partial sum
+      presented as a total is the same lie in a smaller font. The call site
+      turns `null` into the documented `-1`, which is now genuinely reachable.
+
+      Tests: 2 in `soft-delete.test.ts` (now 13). **Proven red:** both fail
+      against the old tally and pass against the new one.
+
+      Two things worth recording from writing them. My FIRST attempt at the
+      propagation test replaced a directory with a file and expected the total
+      to become unknown — wrong: a file is perfectly measurable, so it just
+      contributed its own bytes (`108 !== -1`). The real case is a directory
+      that cannot be LISTED. And my second attempt passed VACUOUSLY: it guarded
+      the assertion with `if (result !== before)`, which is exactly the
+      condition the old code satisfied, so the test could not fail. It now
+      establishes the premise explicitly (`readdir` on the sealed child must
+      throw) and returns early only when it genuinely cannot be tested. **A test
+      that cannot fail is worse than no test**, because it reports coverage it
+      does not have.
+
+- [x] **ROUND 36 — the earlier note, kept for the record.** `soft-delete.ts:157` — the `-1`
       "unknown size" sentinel is unreachable, and the audit is right. The line is
       `estimated_bytes = await tallyDirSize(candidatePath).catch(() => -1)`, but
       `tallyDirSize` never rejects — its own contract (see `storage-audit.ts`) is

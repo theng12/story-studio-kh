@@ -95,6 +95,66 @@ describe('soft-delete', () => {
     }
   })
 
+  /**
+   * v1.4.200 — `estimated_bytes: -1` is documented as "unknown", but it was
+   * UNREACHABLE: the tally returned 0 for both "empty folder" and "I could not
+   * read it", and the caller's `.catch(() => -1)` could never fire because the
+   * tally never rejects. So a folder nobody could measure was reported as
+   * **0 bytes**. AGENTS.md §6.
+   */
+  test('a tombstone whose folder cannot be read reports unknown, not zero bytes', async () => {
+    const projDir = await seedProject(pm.projectsRoot(), 'tomb-unreadable')
+    await pm.deleteProject('tomb-unreadable')
+
+    // The folder is gone and a plain file now occupies its name — the shape a
+    // Finder tidy-up or a sync tool leaves behind. `existsSync` still says true.
+    await fs.rm(projDir, { recursive: true, force: true })
+    await fs.writeFile(projDir, 'not a directory')
+
+    const tombstone = (await sd.listSoftDeletedProjects()).find(t => t.slug === 'tomb-unreadable')
+    assert.ok(tombstone, 'a tombstone survives its folder becoming unreadable')
+    assert.equal(tombstone.exists, true, 'the path exists — it is simply not a project folder')
+    assert.equal(
+      tombstone.estimated_bytes, -1,
+      'an unmeasurable folder must report unknown (-1), never 0 bytes',
+    )
+  })
+
+  test('one unreadable child makes the whole total unknown, not a low total', async () => {
+    const projDir = await seedProject(pm.projectsRoot(), 'tomb-partial')
+    await pm.deleteProject('tomb-partial')
+    // Real children with real bytes, plus a child that cannot be read at all.
+    await fs.mkdir(path.join(projDir, 'media'), { recursive: true })
+    await fs.writeFile(path.join(projDir, 'media', 'clip.bin'), Buffer.alloc(4096))
+    await fs.writeFile(path.join(projDir, 'loose.bin'), Buffer.alloc(2048))
+
+    const good = (await sd.listSoftDeletedProjects()).find(t => t.slug === 'tomb-partial')!
+    assert.ok(good.estimated_bytes > 0, 'a readable folder is still measured')
+
+    // A directory that cannot be listed — the realistic case, and the one the
+    // old code silently skipped while still presenting a total.
+    const sealed = path.join(projDir, 'sealed')
+    await fs.mkdir(sealed, { recursive: true })
+    await fs.writeFile(path.join(sealed, 'hidden.bin'), Buffer.alloc(1024))
+    await fs.chmod(sealed, 0o000)
+    try {
+      // Establish the premise EXPLICITLY. Passing vacuously when the child
+      // happens to be readable (e.g. a root test runner) would make this test
+      // unable to fail, which is worse than not having it.
+      let unreadable = false
+      try { await fs.readdir(sealed) } catch { unreadable = true }
+      if (!unreadable) return
+
+      const blocked = (await sd.listSoftDeletedProjects()).find(t => t.slug === 'tomb-partial')!
+      assert.equal(
+        blocked.estimated_bytes, -1,
+        'a partial sum presented as a total is the same lie in a smaller font',
+      )
+    } finally {
+      await fs.chmod(sealed, 0o755).catch(() => {})
+    }
+  })
+
   test('forgetSoftDeletedProject restores visibility in listProjects', async () => {
     await seedProject(pm.projectsRoot(), 'oops')
     await pm.deleteProject('oops')

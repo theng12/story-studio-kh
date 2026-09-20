@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.200 — 2026-09-20
+
+- Deleted projects no longer claim to be zero bytes when the app cannot read them. The size shown for a project waiting to be forgotten was measured best-effort, and a folder it could not read came out as 0 bytes rather than "unknown" — so a project of any size could be listed as empty. It now reports the size as unknown in that case, and if any part of the folder cannot be read the whole figure is treated as unknown rather than quietly under-counted.
+
 ## v1.4.199 — 2026-09-20
 
 - The Music Library no longer reports a total it cannot stand behind. It adds up the playable length of your enabled tracks, and a track whose length it could not measure simply added nothing — so the figure was quietly too low while being shown as the whole answer. When any enabled track has no measured length the header now reads "at least" and says how many tracks are unaccounted for, so the number is understood as a floor rather than a total.
