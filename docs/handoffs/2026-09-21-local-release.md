@@ -2,15 +2,32 @@
 
 ## Current state
 
-Source candidate: **1.4.213**, recovery branch `codex/recover-interrupted-audit`,
-based on `652041b1f643dc01fed25442c56ddcc002434d48`. Integration and the final
-main-built arm64 DMG are pending. The scoped source changes are approved for
-integration after independent review and the completed checks below; this is
-not yet a packaged-release approval.
+Source **1.4.213** is integrated into `main` by
+[PR #123](https://github.com/theng12/story-studio-kh/pull/123).
+Reviewed repair commit: `8453e1480d7233e7579cab4537b8e3f1310eb319`;
+main merge: `d51849be32ece2dbde9176ca7928c5889e583e0e`.
+The merged Git tree exactly matches the reviewed/tested recovery tree. The
+official main-built arm64 DMG passed artifact, dependency and isolated launch
+verification. **The local unsigned release is complete and installed.** This is
+not a signed/notarized public release or an exhaustive historical-bug sign-off.
 
 The owner selected **fresh setup on this Mac**. No old Library restoration is
 required. GenStudio, Content Store and optional YouTube access must use normal
 authentication; no credentials, purchased ownership or old media were invented.
+
+## Use on this Mac
+
+`/Applications/Story Studio KH.app` is installed and open at `/welcome`.
+Its native first-run screen was inspected through accessibility and a screenshot:
+the Library field, Browse and Use this folder controls are visible and reachable.
+The user can accept the suggested Documents Library or choose another location,
+then configure normal GenStudio/Store access and optional YouTube authentication.
+No Library location was selected on the user's behalf.
+
+Installer: `dist/Story Studio KH 1.4.213-arm64.dmg`, **241,994,638 bytes**.
+SHA-256: `addf94fb8fe727356043cdb43afffb5f1b1cfcbba5b50ac27b63935f6297dcc8`.
+The installed `app.asar` is byte-identical to the main-built bundle; main package,
+bundle Info.plist and bundled package.json all report **1.4.213**.
 
 ## Accepted repair scope
 
@@ -49,7 +66,9 @@ storage, B-Roll and TTS findings. Review is not exhaustive defect discovery.
 | Final full backend | Exit 0; 5,579 tests, 5,578 pass, 0 fail, 1 platform-alias skip, 695 suites, 509/509 files, 6,274 marks; configured-projects sentinel unchanged. TTS pause/resume also passed in this full run |
 | Final lint/typechecks | Exit 0; lint has 0 errors and 1,925 warnings; Electron and frontend typechecks passed |
 | Corrected production build | Exit 0; changelog, typography, source/built security, model-drift (707 files, 38 justified annotations), release contract, frontend generation and Electron compilation passed. The prior chain exited 1 on two fixed Store-source discriminator annotations; only comments changed afterward, not behavior or the checker |
-| Main-built DMG/dependency closure/packaged launch | Pending integration |
+| Main-built official `dist:smoke` | Exit 0 from clean main `d51849be`; arm64 v1.4.213, ad-hoc signature/no Developer ID, DMG mounted read-only, 98 packaged dependencies, isolated health + Upload Center route smoke passed |
+| Explicit `verify:deps` and `verify:launch` | Exit 0 each; 98-package closure; health reports v1.4.213 and boot_complete true; fresh unconfigured Upload Center response verified; booted/served in 1,142 ms then quit cleanly |
+| Installed-app first run | Installed to previously absent Applications path; version and app.asar comparison passed; native welcome screen visually verified and left open |
 
 Filtered selections are not the backend release gate. The completed full gate
 must cover every backend file. Failed attempts are retained in the workflow
@@ -59,6 +78,13 @@ Across the four complete test lanes: **7,858 tests, 7,855 passed, 0 failed,
 3 explicit skips**. The original combined `npm run verify` failed; the corrected
 lanes and build were verified separately and are not relabelled as one green
 combined invocation. Lint and Nuxt retain non-fatal warnings.
+
+The first main packaging attempt encountered an interrupted Electron download
+and was stopped (exit 1) before packaging. The partial official v43.4.0 arm64
+archive was resumed over HTTP/1.1, then matched the package's pinned SHA-256
+`827f9f182566f46846377575b51c547b9926b111637313a373b6f717462aebac`.
+Electron's own installer consumed the verified cache. The unchanged official
+`dist:smoke` command then completed successfully; no worktree DMG was used.
 
 ## Evidence boundaries and remaining work
 
