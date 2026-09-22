@@ -5,7 +5,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { expandArtifactName, packagingTreeErrors } from './release-utils.mjs'
+import { expandArtifactName, packagingTreeErrors, restoreSourceManifests, snapshotSourceManifests } from './release-utils.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(scriptDir, '..', '..')
@@ -79,21 +79,32 @@ fs.rmSync(appOutputDir, { recursive: true, force: true })
 fs.rmSync(dmgOutputPath, { force: true })
 
 console.log(`[unsigned-package] packaging ${contract.productName} v${pkg.version} (${contract.architectures[0]}) into dist/`)
-await build({
-  targets: Platform.MAC.createTarget(['dmg'], Arch.arm64),
-  config,
-  publish: 'never',
-})
+// electron-builder has been seen to rewrite this checkout's own manifest into its
+// trimmed packaging shape (NEW-11). Snapshot both manifests and put them back in a
+// `finally`, so neither a successful package nor a failed one leaves a checkout
+// where `npm run …` no longer works.
+const manifestSnapshot = snapshotSourceManifests(root)
+try {
+  await build({
+    targets: Platform.MAC.createTarget(['dmg'], Arch.arm64),
+    config,
+    publish: 'never',
+  })
 
-const appPath = path.join(outputDir, 'mac-arm64', `${contract.productName}.app`)
-const dmgPath = path.join(outputDir, artifactName)
+  const appPath = path.join(outputDir, 'mac-arm64', `${contract.productName}.app`)
 
-const verify = spawnSync(process.execPath, [
-  path.join(scriptDir, 'verify-desktop-artifact.mjs'),
-  '--app', appPath,
-  '--dmg', dmgPath,
-], { cwd: root, stdio: 'inherit', env: process.env })
-if (verify.error) throw verify.error
-if (verify.status !== 0) throw new Error(`artifact verification exited ${verify.status}`)
+  const verify = spawnSync(process.execPath, [
+    path.join(scriptDir, 'verify-desktop-artifact.mjs'),
+    '--app', appPath,
+    '--dmg', dmgOutputPath,
+  ], { cwd: root, stdio: 'inherit', env: process.env })
+  if (verify.error) throw verify.error
+  if (verify.status !== 0) throw new Error(`artifact verification exited ${verify.status}`)
+} finally {
+  const rewritten = restoreSourceManifests(root, manifestSnapshot)
+  if (rewritten.length) {
+    console.log(`[unsigned-package] packaging rewrote ${rewritten.join(', ')}; restored the checkout's own copies (NEW-11)`)
+  }
+}
 
-console.log(`[unsigned-package] ready: ${dmgPath}`)
+console.log(`[unsigned-package] ready: ${dmgOutputPath}`)

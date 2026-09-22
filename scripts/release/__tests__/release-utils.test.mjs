@@ -13,6 +13,8 @@ import {
   packagedDependencyClosure,
   packagingTreeErrors,
   resolvePackagedDependency,
+  restoreSourceManifests,
+  snapshotSourceManifests,
   validateServiceBaseUrl,
 } from '../release-utils.mjs'
 
@@ -166,6 +168,37 @@ describe('packaging tree guard', () => {
       assert.equal(errors.length, 1)
       assert.match(errors[0], /symlink/)
       assert.match(packagingTreeErrors(sandbox)[0], /missing/)
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true })
+    }
+  })
+  test('packaging cannot leave the checkout\'s own manifests rewritten', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'source-manifests-'))
+    try {
+      const original = JSON.stringify({
+        name: 'story-studio-kh', version: '1.4.218',
+        scripts: { build: 'node build.mjs' }, devDependencies: { typescript: '~5.9.2' },
+      }, null, 2)
+      const lockOriginal = JSON.stringify({ name: 'story-studio-kh', version: '1.4.218', packages: {} }, null, 2)
+      fs.writeFileSync(path.join(sandbox, 'package.json'), original)
+      fs.writeFileSync(path.join(sandbox, 'package-lock.json'), lockOriginal)
+
+      const snapshot = snapshotSourceManifests(sandbox)
+      assert.deepEqual(snapshot.map(entry => entry.rel), ['package.json', 'package-lock.json'])
+
+      // The exact damage observed after `npm run dist:smoke` (NEW-11): the manifest
+      // is replaced with electron-builder's trimmed packaging shape.
+      fs.writeFileSync(path.join(sandbox, 'package.json'), JSON.stringify({
+        name: 'story-studio-kh', version: '1.4.218', dependencies: { express: '~5.2.1' },
+      }, null, 2))
+
+      const restored = restoreSourceManifests(sandbox, snapshot)
+      assert.deepEqual(restored, ['package.json'], 'only the rewritten manifest is reported')
+      assert.equal(fs.readFileSync(path.join(sandbox, 'package.json'), 'utf8'), original)
+      assert.equal(fs.readFileSync(path.join(sandbox, 'package-lock.json'), 'utf8'), lockOriginal)
+
+      // A second call is a no-op: the guard must not keep rewriting healthy files.
+      assert.deepEqual(restoreSourceManifests(sandbox, snapshot), [])
     } finally {
       fs.rmSync(sandbox, { recursive: true, force: true })
     }

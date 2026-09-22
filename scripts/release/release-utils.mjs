@@ -248,3 +248,34 @@ export function packagingTreeErrors(root) {
   if (!stat.isDirectory()) return [`node_modules at ${nodeModules} is not a directory`]
   return []
 }
+
+/** The repository's own manifests, which packaging must never leave rewritten. */
+const SOURCE_MANIFESTS = ['package.json', 'package-lock.json']
+
+/**
+ * Capture the checkout's manifests before electron-builder runs.
+ *
+ * Packaging has been observed to rewrite the repository's own `package.json` into
+ * its trimmed packaging shape — no `scripts`, no `devDependencies` — which leaves
+ * every `npm run …` in that checkout broken until the file is restored (NEW-11).
+ * The build scripts snapshot here and restore after packaging, so the hazard
+ * cannot be left behind even when the packaging step itself is what rewrites it.
+ */
+export function snapshotSourceManifests(root) {
+  return SOURCE_MANIFESTS.map(rel => ({ rel, text: fs.readFileSync(path.join(root, rel), 'utf8') }))
+}
+
+/**
+ * Put back any manifest packaging changed. Returns the paths that differed, so
+ * the caller can say what happened instead of restoring silently.
+ */
+export function restoreSourceManifests(root, snapshot) {
+  const changed = []
+  for (const { rel, text } of snapshot) {
+    const file = path.join(root, rel)
+    if (fs.readFileSync(file, 'utf8') === text) continue
+    fs.writeFileSync(file, text)
+    changed.push(rel)
+  }
+  return changed
+}

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { expandArtifactName, packagingTreeErrors } from './release-utils.mjs'
+import { expandArtifactName, packagingTreeErrors, restoreSourceManifests, snapshotSourceManifests } from './release-utils.mjs'
 import { notarytoolCredentialArgs, publicReleaseCredentialErrors } from './public-release-credentials.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
@@ -64,23 +64,35 @@ fs.rmSync(appOutputDir, { recursive: true, force: true })
 fs.rmSync(dmgPath, { force: true })
 
 console.log(`[public-package] signing and packaging ${contract.productName} v${pkg.version}`)
-await build({
-  targets: Platform.MAC.createTarget(['dmg'], Arch.arm64),
-  config,
-  publish: 'never',
-})
+// electron-builder has been seen to rewrite this checkout's own manifest into its
+// trimmed packaging shape (NEW-11). Snapshot both manifests and put them back in a
+// `finally`, so neither a successful build nor a failed one leaves a checkout where
+// `npm run …` no longer works.
+const manifestSnapshot = snapshotSourceManifests(root)
+try {
+  await build({
+    targets: Platform.MAC.createTarget(['dmg'], Arch.arm64),
+    config,
+    publish: 'never',
+  })
 
-// Electron Builder notarizes and staples the app before creating the DMG. The
-// finished container is a separate artifact and therefore receives its own
-// notary submission and ticket.
-run('xcrun', ['notarytool', 'submit', dmgPath, ...notarytoolCredentialArgs(), '--wait'], { redactArgs: true })
-run('xcrun', ['stapler', 'staple', dmgPath])
+  // Electron Builder notarizes and staples the app before creating the DMG. The
+  // finished container is a separate artifact and therefore receives its own
+  // notary submission and ticket.
+  run('xcrun', ['notarytool', 'submit', dmgPath, ...notarytoolCredentialArgs(), '--wait'], { redactArgs: true })
+  run('xcrun', ['stapler', 'staple', dmgPath])
 
-const appPath = path.join(outputDir, 'mac-arm64', `${contract.productName}.app`)
-run(process.execPath, [
-  path.join(scriptDir, 'verify-signed-desktop-artifact.mjs'),
-  '--app', appPath,
-  '--dmg', dmgPath,
-])
+  const appPath = path.join(outputDir, 'mac-arm64', `${contract.productName}.app`)
+  run(process.execPath, [
+    path.join(scriptDir, 'verify-signed-desktop-artifact.mjs'),
+    '--app', appPath,
+    '--dmg', dmgPath,
+  ])
+} finally {
+  const rewritten = restoreSourceManifests(root, manifestSnapshot)
+  if (rewritten.length) {
+    console.log(`[public-package] packaging rewrote ${rewritten.join(', ')}; restored the checkout's own copies (NEW-11)`)
+  }
+}
 
 console.log(`[public-package] ready: ${dmgPath}`)
