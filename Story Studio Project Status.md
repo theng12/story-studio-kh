@@ -174,7 +174,7 @@ next unblocked packet without asking whether to proceed.
 | [x] | WIRE-03 | Free-form "custom" lettering text reaches the prompt | complete | DeepSeek lead; `WIRE-03-custom-lettering-text.md` |
 | [x] | PING-01 | Ping gateway-kh when the 1.4.216 DMG exists (their step 1–4 hold) | complete | DeepSeek lead; `_handoffs/2026-09-22_story-ping-1.4.216-dmg.md` |
 | [ ] | ACCEPT-01 | Cross-workflow dev-Library acceptance | queued | DeepSeek lead (self-acceptance) |
-| [ ] | RELEASE-01 | Review, full gates, integration, main-built installer | queued | DeepSeek lead; commit/publish externally gated |
+| [ ] | RELEASE-01 | Review, full gates, integration, main-built installer | queued | DeepSeek lead; commit/publish externally gated — **work committed `498c19cc` and pushed to `origin/codex/stabilization-takeover` (2026-09-22); integration into `main` and the main-built installer still open** |
 
 ### DS-01 — missing-key reconciliation (H-16) — **accepted (self-acceptance)**
 
@@ -1118,3 +1118,13 @@ was built and verified locally at the owner's explicit request as a temporary ar
   notarized. Ping written to `_handoffs/2026-09-22_story-ping-1.4.216-dmg.md` as the signal for
   gateway-kh's steps 1–4 (both kinds, `min_app_version: "1.4.216"`, plus the `lettering-style →
   font_pack` exception). `RELEASE-01` remains open for integration/commit and any signed release.
+- **2026-09-22 — owner-authorized save and backup (commit + push):** at the owner's explicit request the
+  session work was committed as **`498c19cc`** — *"fix: read-failure honesty, Settings status, and the
+  Content Store wire contract (v1.4.216)"* — **96 files, 6,308 insertions, 337 deletions**, and pushed
+  to `origin/codex/stabilization-takeover` (new branch, tracking set; remote head `498c19cc`; `main`
+  untouched). The commit contains **only this session's work**: the other effort's in-flight
+  `content-packs/rebuilt/` and `content-packs/authoring-registry.json` were deliberately left modified
+  and untracked working-tree state, per the rule against sweeping unrelated work into a commit. The
+  branch is **not** integrated into `main`, no pull request was opened, and the commit author resolves
+  to the machine-local identity `vengtheng@build-mac.local` (git config was not set), which
+  is cosmetic and worth correcting before any integration. No signed/notarized release was built.
