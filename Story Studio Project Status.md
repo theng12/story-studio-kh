@@ -789,6 +789,21 @@ historical backlog. Its output must expand compact ranges into explicit candidat
 current evidence. The older audit contains time-sensitive notes; this reconciliation prevents
 both missed work and unnecessary repeat fixes.
 
+## Deferred cleanups (owner instructions we are deliberately not acting on yet)
+
+- **Remove the retired `niche_bundle` / "Channel Kit" kind once generation starts on a new work machine.**
+  Owner instruction, 2026-09-22: *"leave as is. but add a note to remove it in the future once i start
+  generation on a new work machine."* gateway-kh is a publisher only and will never publish `channel-kit`
+  again, but this machine still has archives that name the kind, and **one unrecognised kind discards the
+  whole catalogue** on both sides. So the kind stays parseable for now, with the instruction written into
+  the code where a future reader will meet it:
+  `electron/server/lib/genstudio-content-store.ts` (`PRODUCT_KINDS` + `GenStudioContentProductKind`) and
+  `frontend/content-store/product-kinds.ts` (`CONTENT_STORE_PRODUCT_KINDS`), each carrying the same dated
+  note. When the moment comes, remove it in all four places together — backend set, backend union,
+  frontend list, and the Content Store labels/filters (`catalog-presentation.ts`,
+  `library-organisation.ts`, `ContentStoreFilters.vue`) — and re-run the content-pack lane. Deleting it
+  early, while an archive on this Mac still names it, makes that archive unreadable.
+
 ## Cross-workflow acceptance and release — lead session owns preparation and self-acceptance
 
 - [ ] ACCEPT-01: record a disposable Library/project and at least two episodes. Verify fresh setup,
