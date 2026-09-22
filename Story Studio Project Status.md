@@ -17,9 +17,10 @@ zero paid submissions; it found and fixed `NEW-12` and `NEW-14` and reproduced `
 objective's queue is therefore either complete or blocked on an owner decision, and the remaining decisions
 are named here:
 
-- **Release 1.4.218 (prepared, not landed):** the tree is at 1.4.218 with a What's New entry for the two
-  fixes and all record guards passing; `main`/`origin/main` are still at `1c98f069` (1.4.217), and the
-  installed app is 1.4.217. Landing, building a DMG and installing it are one owner decision.
+- **Release 1.4.218 (landed, built and installed):** `main` = `origin/main` = `78bbd312`; the DMG is
+  `dist/Story Studio KH 1.4.218-arm64.dmg` (sha256 `3bd9e43f…`) and `/Applications/Story Studio KH.app`
+  was replaced with it at the owner's instruction — the 1.4.217 bundle and DMG pair are preserved under
+  `_trash/`.
 - **`X-07`:** one real paid generation needs the model and the hard credit ceiling agreed and written down
   first. Nothing has been called.
 - **Open findings:** `NEW-13` (the episode-status cache never watches the external final-video root —
@@ -28,14 +29,13 @@ are named here:
   Content Pack is registered without its source directory).
 
 Base for the takeover: `6f3c4e3316854b5eb9bf6100f078064254f61445` on `main`.
-Working branch: `codex/stabilization-takeover` @ `1f82a38f`; `main` and `origin/main` are at `1c98f069`
-and already carry the 1.4.216 and 1.4.217 work. The branch also carries the other effort's content-packs
+Working branch: `codex/stabilization-takeover` @ `3b65f86b`; `main` and `origin/main` are at `78bbd312`
+and carry the 1.4.216, 1.4.217 and 1.4.218 work. The branch also carries the other effort's content-packs
 commit `8051fc28`, deliberately not in `main` because it fails four content-pack guards.
 Checkout: `/build/Developer/story-studio-kh`.
 Inherited uncommitted work is preserved and recorded, never reset, stashed, rebased or discarded.
-**Version is 1.4.218 (prepared, uncommitted):** the two fixes, the acceptance driver and the release guard
-are uncommitted on the branch; the 1.4.217 DMG exists at `dist/Story Studio KH 1.4.217-arm64.dmg` and the
-installed app is 1.4.217.
+**Version is 1.4.218 (released and installed):** the two ACCEPT-01 fixes, the acceptance driver and the
+release guard are in `main`; the installed app is 1.4.218.
 
 **Goal:** stabilize existing behavior, not redesign the app or implement every historical allegation.
 **Approach:** reproduce one bounded concern, trace its callers, make the smallest complete repair
@@ -1593,3 +1593,23 @@ was built and verified locally at the owner's explicit request as a temporary ar
   Version/changelog hygiene is done for the two fixes (1.4.218 prepared; guards pass). What remains is
   owner-gated: land 1.4.218 in `main` and build/install a DMG, and agree the `X-07` credit ceiling before
   any real paid call. No commits/pushes/publish/paid calls.
+- **2026-09-22 — 1.4.218 landed in `main`, DMG built and installed (owner instruction):** the three commits
+  (`ef49c830` the two fixes + version/changelog, `c0639156` the release manifest guard, `78bbd312` the
+  ACCEPT-01 harness and record) were cherry-picked from the branch onto `land/1.4.218-into-main` from
+  `main` (`1c98f069`) — deliberately excluding the other effort's `8051fc28` — then `main` was
+  fast-forwarded to `78bbd312` and pushed. **Release gate on that tree: `npm run test:backend` exit 0,
+  5,635 tests, 5,634 pass, 0 fail, 1 skip, 517/517 file(s)** (the four external content-pack failures do
+  not exist here because `main` lacks that commit); release lane exit 0 (44 tests, 5/5 files);
+  `typecheck:electron` exit 0. `npm run dist:smoke` exit 0 in one pass:
+  **`dist/Story Studio KH 1.4.218-arm64.dmg`**, 242,033,438 bytes, sha256
+  `3bd9e43f44b141b87a95106345460bebcc20328a93e08d6268721e960caf4cb1`; app `com.storystudio.kh v1.4.218`
+  (arm64); ad-hoc signature; DMG mounts read-only; 98-package closure; launch smoke served `/api/health` +
+  Upload Center in 2,368 ms. The new `NEW-11` guard had nothing to restore (both manifests byte-identical
+  before and after the build), and the packaged `app.asar` carries the fixes (`origin: 'retry'` present in
+  the compiled jobs module). Installed at the owner's instruction: the running 1.4.217 instance was quit,
+  its bundle moved (never deleted) to `_trash/app/Story Studio KH 1.4.217.app`, the superseded DMG pair to
+  `_trash/dist/1.4.217-built-2026-09-22-1508/`, the new bundle copied with `ditto`, `com.apple.quarantine`
+  stripped, and the app relaunched through LaunchServices (pid 70678, PPID 1, so it outlives this session);
+  its own server log shows the real Library being served and `Info.plist` reports 1.4.218. The owner's
+  Library and projects were untouched. Remaining owner decision: the **`X-07`** paid-generation model and
+  credit ceiling before any real provider call. No paid call, no upload, no publish.
