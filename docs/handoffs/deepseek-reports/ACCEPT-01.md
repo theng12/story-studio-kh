@@ -5,7 +5,8 @@ mock gateway (zero paid submissions): ideas → script → audio → audio assem
 thumbnail prompts → thumbnails → scene images → Scene Review approval → local Video Assembly →
 metadata/upload preparation, plus the model switch, both cancellation directions, the missing-image block
 and every completion-audit refusal. Two defects were found and fixed on the way (`NEW-12`, `NEW-14`); one
-further finding (`NEW-13`) is reproduced with its fix direction recorded. What this packet **cannot** prove
+further finding (`NEW-13`, the export-root cache blind spot) was reproduced and has since been fixed for 1.4.219 — see
+the finding section below. What this packet **cannot** prove
 is stated in "Honest limits" below and is exactly the external set: real provider output, real speech
 timing, a real upload, and signed/notarized distribution (`X-07`, `RELEASE-01`).
 
@@ -235,8 +236,15 @@ episode, or (in the opposite direction) keep claiming it is done after the final
 **Fix direction (not implemented here):** add the resolved external final-video directory and the stamp
 file to the watched roots when an external root is configured, with the same care the cache already takes
 for a watcher that may not exist yet (`watcherTrustedSince`); a removable volume must not be treated as a
-trusted empty folder. Deliberately left unfixed this round rather than changed hastily in a hot,
-concurrency-sensitive path.
+trusted empty folder. **Fixed for 1.4.219** (`episode-folder-watcher.ts`): one process-wide watcher on the Library's export root
+parses `(slug, code)` from the path and invalidates the same cache entry the per-project watcher would, so a
+final appearing, being replaced or being archived away refreshes the verdict with no project-tree change.
+One FSEvents stream for the whole process, not one per project — macOS silently stops delivering beyond
+roughly 32 recursive streams, so doubling the per-project budget would break invalidation everywhere. Its
+creation is best-effort (absent or unmounted root → the cache falls back to its mtime check), and
+`SCHEMA_VERSION` moved 14 → 15 so rows persisted by 1.4.218 are recomputed once. Regression test:
+`electron/server/__tests__/episode-status-external-final-watch.test.ts` (real temp Library, real `fs.watch`;
+RED at HEAD, GREEN after — written final → `true`, removed final → `false`, replaced final → `true`).
 
 ## Leg 7 — metadata → upload preparation (no upload), plus the blocking checks — **complete**
 
