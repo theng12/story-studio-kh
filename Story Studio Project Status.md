@@ -17,10 +17,9 @@ zero paid submissions; it found and fixed `NEW-12` and `NEW-14` and reproduced `
 objective's queue is therefore either complete or blocked on an owner decision, and the remaining decisions
 are named here:
 
-- **Release 1.4.218 (landed, built and installed):** `main` = `origin/main` = `78bbd312`; the DMG is
-  `dist/Story Studio KH 1.4.218-arm64.dmg` (sha256 `3bd9e43f…`) and `/Applications/Story Studio KH.app`
-  was replaced with it at the owner's instruction — the 1.4.217 bundle and DMG pair are preserved under
-  `_trash/`.
+- **Release 1.4.219 (landed, built and installed):** `main` = `origin/main` = `3bbc59aa`; the DMG is
+  `dist/Story Studio KH 1.4.219-arm64.dmg` (sha256 `5bace953…`) and `/Applications/Story Studio KH.app`
+  is 1.4.219 — the 1.4.218 and 1.4.217 bundles and DMG pairs are preserved under `_trash/`.
 - **`X-07`:** one real paid generation needs the model and the hard credit ceiling agreed and written down
   first. Nothing has been called.
 - **Open findings:** `NEW-13` (the episode-status cache never watches the external final-video root —
@@ -29,13 +28,13 @@ are named here:
   Content Pack is registered without its source directory).
 
 Base for the takeover: `6f3c4e3316854b5eb9bf6100f078064254f61445` on `main`.
-Working branch: `codex/stabilization-takeover` @ `3b65f86b`; `main` and `origin/main` are at `78bbd312`
-and carry the 1.4.216, 1.4.217 and 1.4.218 work. The branch also carries the other effort's content-packs
+Working branch: `codex/stabilization-takeover` @ `55f01192`; `main` and `origin/main` are at `3bbc59aa`
+and carry the 1.4.216, 1.4.217, 1.4.218 and 1.4.219 work. The branch also carries the other effort's content-packs
 commit `8051fc28`, deliberately not in `main` because it fails four content-pack guards.
 Checkout: `/build/Developer/story-studio-kh`.
 Inherited uncommitted work is preserved and recorded, never reset, stashed, rebased or discarded.
-**Version is 1.4.218 (released and installed):** the two ACCEPT-01 fixes, the acceptance driver and the
-release guard are in `main`; the installed app is 1.4.218.
+**Version is 1.4.219 (released and installed):** the ACCEPT-01 fixes, the export-root status watch, the
+acceptance driver and the release guard are in `main`; the installed app is 1.4.219.
 
 **Goal:** stabilize existing behavior, not redesign the app or implement every historical allegation.
 **Approach:** reproduce one bounded concern, trace its callers, make the smallest complete repair
@@ -1637,3 +1636,21 @@ was built and verified locally at the owner's explicit request as a temporary ar
   `check:changelog` (v1.4.219), `check:release`, `check:typography` and `check:model-drift` all pass. Not
   landed, built or installed — that stays the owner's decision, together with `X-07`. No paid call, no
   upload, no publish; no commits/pushes in this entry.
+- **2026-09-22 — 1.4.219 landed in `main`, DMG built and installed (owner instruction):** the two commits
+  (`843999c6` the export-root status watch + version/changelog, `3bbc59aa` the docs record) were
+  cherry-picked onto `land/1.4.219-into-main` from `main` (`8c31b597`), excluding the other effort's
+  `8051fc28`, then `main` was fast-forwarded to `3bbc59aa` and pushed. **Release gate on that tree:
+  `npm run test:backend` exit 0 — 5,636 tests, 5,635 pass, 0 fail, 1 skip, 518/518 file(s)**; release lane
+  exit 0 (44 tests, 5/5 files); `typecheck:electron` exit 0. `npm run dist:smoke` exit 0 in one pass:
+  **`dist/Story Studio KH 1.4.219-arm64.dmg`**, 242,034,101 bytes, sha256
+  `5bace95337641c91ef033d8e3459f12bc1130024b90d9e8a4143a36f0ee144ba`; app `com.storystudio.kh v1.4.219`
+  (arm64); ad-hoc signature; DMG mounts read-only; 98-package closure; launch smoke served `/api/health` +
+  Upload Center in 2,609 ms; the packaged `app.asar` carries `ensureExportsWatcher`, and the `NEW-11` guard
+  had nothing to restore (the tree was still clean after the build). Installed at the owner's instruction:
+  the running 1.4.218 instance was quit, its bundle moved to `_trash/app/Story Studio KH 1.4.218.app`, the
+  superseded DMG pair to `_trash/dist/1.4.218-built-2026-09-22-1708/`, the new bundle copied with `ditto`,
+  `com.apple.quarantine` stripped, and the app relaunched through LaunchServices (pid 11883, PPID 1); its
+  own server log shows the real Library being served and `Info.plist` reports 1.4.219. The owner's Library
+  and projects were untouched. Remaining owner decision: the **`X-07`** paid-generation model and credit
+  ceiling before any real provider call; `RELEASE-01` signed distribution; `NEW-08` external. No paid call,
+  no upload, no publish.
