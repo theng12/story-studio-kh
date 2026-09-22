@@ -1,4 +1,9 @@
-/** Jobs Retry keeps saved work identities and adds only the thumbnail gap-fill repair intent. */
+/**
+ * Jobs Retry keeps saved work identities, adds the thumbnail gap-fill repair
+ * intent, and mints a fresh language action for a metadata retry that has none —
+ * otherwise the retry re-asks with the same deterministic identity and the
+ * provider replays the very answer the finalizer audit already rejected.
+ */
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -89,6 +94,59 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
     assert.equal(retiredRetry.status, 409, JSON.stringify(retiredRetry.body))
     assert.match(retiredRetry.body.detail, /Scene Plan/)
     assert.equal(jq.getJob(retiredScenePrompts.job_id)?.job_id, retiredScenePrompts.job_id, 'a retired scene-prompt retry retains its terminal history')
+
+    // A metadata job from the Pipeline/bare route carries no saved action. Retrying
+    // it must ask the provider for a NEW answer; with the deterministic identity it
+    // would replay the short answer the audit rejected (NEW-14).
+    const bareProject = await pm.createProject({ name: 'Jobs Retry metadata without a saved action' })
+    jq.registerExecutor('metadata', async () => { throw new Error('first bare metadata attempt failed') })
+    const bare = jq.enqueuePreparedForTest({
+      project_slug: bareProject.slug,
+      type: 'metadata',
+      episode_id: 'EP0007',
+      title: 'Bare metadata failure',
+      params: { episode_id: 'EP0007', title: 'Bare metadata', model: 'saved-metadata-model', force: true },
+    })
+    await waitForTerminal(jq, bare.job_id, 'bare metadata original failure')
+    let bareRetryParams: Record<string, any> | undefined
+    jq.registerExecutor('metadata', async job => { bareRetryParams = structuredClone(job.params) })
+    const bareRetry = await request(app).post(`/api/projects/${bareProject.slug}/jobs/${bare.job_id}/retry`).send({})
+    assert.equal(bareRetry.status, 202, JSON.stringify(bareRetry.body))
+    await waitForTerminal(jq, bareRetry.body.job.job_id, 'bare metadata retry')
+    assert.ok(bareRetryParams, 'the retried metadata job ran')
+    assert.equal(bareRetryParams!.generation_action?.kind, 'fresh', 'a retry without a saved action mints one')
+    assert.match(String(bareRetryParams!.generation_action?.id), /^[0-9a-f-]{36}$/i)
+    assert.ok(String(bareRetryParams!.generation_action_fingerprint || '').length >= 32, 'the minted action carries a fingerprint')
+    assert.equal(bareRetryParams!.generation_action?.origin, 'retry', 'a minted action records that a retry made it')
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(bareRetryParams!).filter(([key]) => !key.startsWith('generation_action'))),
+      { episode_id: 'EP0007', title: 'Bare metadata', model: 'saved-metadata-model', force: true },
+      'a minted action changes nothing else about the saved request',
+    )
+
+    // Retrying the retry must mint again. Preserving the first mint would replay
+    // the same answer and leave the customer in the loop the message promises to
+    // break (this was caught live before the marker existed).
+    jq.registerExecutor('metadata', async () => { throw new Error('retried metadata failed again') })
+    const secondOriginal = jq.enqueuePreparedForTest({
+      project_slug: bareProject.slug,
+      type: 'metadata',
+      episode_id: 'EP0007',
+      title: 'Bare metadata failure again',
+      params: bareRetryParams!,
+    })
+    await waitForTerminal(jq, secondOriginal.job_id, 'second bare metadata failure')
+    let secondRetryParams: Record<string, any> | undefined
+    jq.registerExecutor('metadata', async job => { secondRetryParams = structuredClone(job.params) })
+    const secondRetry = await request(app).post(`/api/projects/${bareProject.slug}/jobs/${secondOriginal.job_id}/retry`).send({})
+    assert.equal(secondRetry.status, 202, JSON.stringify(secondRetry.body))
+    await waitForTerminal(jq, secondRetry.body.job.job_id, 'second bare metadata retry')
+    assert.ok(secondRetryParams, 'the second retried metadata job ran')
+    assert.notEqual(
+      secondRetryParams!.generation_action?.id,
+      bareRetryParams!.generation_action?.id,
+      'each retry of a bare metadata job asks the provider afresh',
+    )
 
     for (const [label, params] of [
       ['without a mode', { episode_id: 'EP0004', model: 'saved-thumbnail-model' }],

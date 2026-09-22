@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -10,6 +11,7 @@ import { episodeRecoveryStep, recoverEpisode } from '../services/episode-recover
 import { inspectScenePromptIntegrity } from '../services/scene-prompt-integrity.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
+import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 export const router = Router()
 
@@ -151,10 +153,27 @@ function sendTerminalOnlyConflict(res: import('express').Response, job: Job): vo
 
 /** Retry-only repair intent derived from durable job state, never a client form. */
 function retryReplacementParams(job: Job): Record<string, any> | undefined {
-  if (job.type !== 'image_prompts') return undefined
-  // Prompt retries keep all saved identity/configuration and ask the generator
-  // to fill only the thumbnail slots still absent from disk.
-  return { ...job.params, fill_gaps: true }
+  if (job.type === 'image_prompts') {
+    // Prompt retries keep all saved identity/configuration and ask the generator
+    // to fill only the thumbnail slots still absent from disk.
+    return { ...job.params, fill_gaps: true }
+  }
+  const existingAction = job.params?.generation_action
+  if (job.type === 'metadata' && (!existingAction || existingAction.origin === 'retry')) {
+    // A finalizer job with no saved action — the Pipeline and bare-route path —
+    // derives its provider request identity from the prompt itself: a Retry would
+    // re-ask with that same identity, the provider would replay the short answer,
+    // and the audit would reject it again, so the terminal message "Retry to
+    // generate the missing fields" would be false (NEW-14). A retry is the
+    // customer deliberately asking for a new answer, exactly as the Finalizer page
+    // does with `freshMetadataAction`, so mint one. An action this retry path
+    // minted is marked `origin: 'retry'` and replaced on the next retry, or the
+    // second retry would replay the first one's answer. An action the customer's
+    // page stamped is kept untouched (pinned by job-retry-route-contract).
+    const minted = stampFreshGenerationAction(job.params ?? {}, randomUUID())
+    return { ...job.params, ...minted, generation_action: { ...minted.generation_action, origin: 'retry' } }
+  }
+  return undefined
 }
 
 /** Retired jobs keep their terminal record; Retry must not replace it with the same known failure. */

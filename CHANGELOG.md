@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.218 — 2026-09-22
+
+- Scene Plan's **Build timeline** no longer ends in an error after doing its job. Building the timeline is
+  deliberately model-free: it writes each scene's timing and leaves the visual prompt for the next step.
+  The completion check then insisted on those visual prompts and failed the run — “reported success, but
+  re-reading its output found required items missing” — after retrying three times, even though the
+  timeline was correct. A timeline-only run is now judged by the timeline it produced (real, forward-running
+  scene timings plus the record that a timeline was built); planning visuals and Pipeline runs are checked
+  for prompts exactly as before.
+- A failed **YouTube Finalizer** run now really can be repaired by **Retry**. When a provider answered with
+  fewer items than asked for (say one tag instead of fifteen), the run correctly refused the incomplete
+  package — but the retry re-sent the identical request, so the provider returned the same answer and the
+  job failed the same way, while the message told you to retry. Retrying a finalizer run now asks the
+  provider for a fresh answer, so the missing fields are really regenerated; a run that kept your own saved
+  choices is untouched.
+
 ## v1.4.217 — 2026-09-22
 
 - Scene Plan's creative controls — Creative intensity, Recurring motifs and Avoided imagery — no longer sit off the edge of their card. At an ordinary window size the card was narrower than the three columns those controls asked for, so the third control was laid out past the card and past the window and could not be seen or clicked. They now wrap inside the card, and all four intensity choices show their full names.

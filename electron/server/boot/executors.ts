@@ -105,6 +105,24 @@ export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repa
   const planPath = await resolveScenePlanPath(job.project_slug, job.episode_id, paths.episode_dir)
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
   const params = job.params || {}
+  // The model-free timeline step. `stage: 'timeline'` is the page's own "Build
+  // timeline" request; a Pipeline run omits `stage` (it owes prompts too) and the
+  // repair flags re-prompt saved scenes. Auditing a timeline-only run for visual
+  // prompts judged it against output it is deliberately not asked to produce, so
+  // a correct timeline failed its own completion proof. Its proof is the
+  // timeline: real, forward-running scene timings and the record that a timeline
+  // was built.
+  const timelineOnly = params.stage === 'timeline'
+    && !params.regenerate_prompt_scene_id && !params.regenerate_empty_prompts
+    && !params.regenerate_motion_prompt_scene_id && !params.regenerate_empty_motion_prompts
+    && !params.replan_scene_id
+  if (timelineOnly) {
+    const scenes = Array.isArray(plan?.scenes) ? plan.scenes : []
+    const usable = scenes.filter((scene: any) =>
+      Number.isFinite(scene?.start_sec) && Number.isFinite(scene?.end_sec)
+      && Number(scene.end_sec) > Number(scene.start_sec))
+    return usable.length > 0 && !!plan?.timeline_built_at ? 'complete' : 'repair-required'
+  }
   const stage: 'visual' | 'motion' = params.stage === 'motion' || params.regenerate_empty_motion_prompts
     || params.regenerate_motion_prompt_scene_id
     ? 'motion'
