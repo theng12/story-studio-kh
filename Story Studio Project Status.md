@@ -9,26 +9,33 @@ without waiting for an external assigner.
 
 ## Start here
 
-**Takeover in effect (2026-09-21).** The lead session works the stabilization queue directly. There
-is no separate orchestrator gate: DS-01 through DS-17b and X-01–X-06 were verified and accepted by the
-lead session, and **DS-12 (geometry/CSS/keyboard reachability) is now complete** — it was worked in the
-session that had the app on screen, and it produced three rendered fixes (F-15a, F-15b, and F-14, which
-the rendered pass exposed). The remaining work is the owner's ordered list: the two-episode walkthrough
-(ACCEPT-01), then the open decisions recorded below (`X-07` paid-call ceiling, `NEW-08` external
-content-pack source, and whether to land 1.4.217). This supersedes the earlier "Astra assigns, reviews
-and accepts" workflow.
+**Takeover in effect (2026-09-21).** The lead session works the stabilization queue directly. There is no
+separate orchestrator gate: DS-01 through DS-17b and X-01–X-06 were verified and accepted by the lead
+session, DS-12 produced three rendered fixes, and **ACCEPT-01 is closed as self-accepted** (the owner's
+item 6 — a full two-episode walkthrough on a disposable Library against the repository's own mock gateway,
+zero paid submissions; it found and fixed `NEW-12` and `NEW-14` and reproduced `NEW-13`). Everything in the
+objective's queue is therefore either complete or blocked on an owner decision, and the remaining decisions
+are named here:
+
+- **Release 1.4.218 (prepared, not landed):** the tree is at 1.4.218 with a What's New entry for the two
+  fixes and all record guards passing; `main`/`origin/main` are still at `1c98f069` (1.4.217), and the
+  installed app is 1.4.217. Landing, building a DMG and installing it are one owner decision.
+- **`X-07`:** one real paid generation needs the model and the hard credit ceiling agreed and written down
+  first. Nothing has been called.
+- **Open findings:** `NEW-13` (the episode-status cache never watches the external final-video root —
+  reproduced, fix direction recorded), `NEW-11` (packaging rewrote the checkout manifest once; now blocked
+  by a restore guard in both build scripts, culprit step unidentified), `NEW-08` (external: a private
+  Content Pack is registered without its source directory).
 
 Base for the takeover: `6f3c4e3316854b5eb9bf6100f078064254f61445` on `main`.
-Working branch: `codex/stabilization-takeover`; `main` and `origin/main` are at `f56cd504` and already
-carry the 1.4.216 work. The branch also carries the other effort's content-packs commit `8051fc28`,
-deliberately not in `main` because it fails four content-pack guards.
+Working branch: `codex/stabilization-takeover` @ `1f82a38f`; `main` and `origin/main` are at `1c98f069`
+and already carry the 1.4.216 and 1.4.217 work. The branch also carries the other effort's content-packs
+commit `8051fc28`, deliberately not in `main` because it fails four content-pack guards.
 Checkout: `/build/Developer/story-studio-kh`.
 Inherited uncommitted work is preserved and recorded, never reset, stashed, rebased or discarded.
-**Version is 1.4.217 (released and installed):** the DS-12 fixes are in `main` (`622f366a`), the DMG is
-`dist/Story Studio KH 1.4.217-arm64.dmg` (sha256 `4c46892b…`), and `/Applications/Story Studio KH.app`
-was replaced with it at the owner's instruction — the 1.4.216 bundle it replaced is preserved at
-`_trash/app/Story Studio KH 1.4.216.app`, and the superseded 1.4.216 DMG pair at
-`_trash/dist/1.4.216-built-2026-09-22-1359/`.
+**Version is 1.4.218 (prepared, uncommitted):** the two fixes, the acceptance driver and the release guard
+are uncommitted on the branch; the 1.4.217 DMG exists at `dist/Story Studio KH 1.4.217-arm64.dmg` and the
+installed app is 1.4.217.
 
 **Goal:** stabilize existing behavior, not redesign the app or implement every historical allegation.
 **Approach:** reproduce one bounded concern, trace its callers, make the smallest complete repair
@@ -182,7 +189,7 @@ next unblocked packet without asking whether to proceed.
 | [x] | WIRE-03 | Free-form "custom" lettering text reaches the prompt | complete | DeepSeek lead; `WIRE-03-custom-lettering-text.md` |
 | [x] | SMALL-01 | NEW-01, NEW-02, NEW-03, NEW-04, NEW-10: the small-fix list | complete | DeepSeek lead; `DS-17b-small-fixes.md` |
 | [x] | PING-01 | Ping gateway-kh when the 1.4.216 DMG exists (their step 1–4 hold) | complete | DeepSeek lead; `_handoffs/2026-09-22_story-ping-1.4.216-dmg.md` |
-| [ ] | ACCEPT-01 | Cross-workflow dev-Library acceptance | queued | DeepSeek lead (self-acceptance) |
+| [x] | ACCEPT-01 | Cross-workflow dev-Library acceptance | **complete (self-acceptance) — all in-scope legs exercised on a disposable Library with fake provider outputs; the only unexercised items are external by construction (real paid generation `X-07`, real upload, signed/notarized distribution `RELEASE-01`). Found and fixed `NEW-12` + `NEW-14`; reproduced `NEW-13`** | DeepSeek lead; `ACCEPT-01.md` |
 | [ ] | RELEASE-01 | Review, full gates, integration, main-built installer | queued | DeepSeek lead; commit/publish externally gated — **work committed `498c19cc` and pushed to `origin/codex/stabilization-takeover` (2026-09-22); integration into `main` and the main-built installer still open** |
 
 ### DS-01 — missing-key reconciliation (H-16) — **accepted (self-acceptance)**
@@ -665,7 +672,10 @@ historical line numbers are not authoritative.
 | F-13 | DS-12 | Named utility classes actually style sibling/teleported consumers in built CSS; verify computed style and specificity. | **verified** ([DS-12](docs/handoffs/deepseek-reports/DS-12.md)): all six are defined globally in `assets/css/main.css` (registered in `nuxt.config.ts`) and appear **unscoped** in the built `entry.*.css`. Consumers with no local rule compute exactly the declared values (`.link-btn` on `scripts.vue`, `.section-kicker` on `pipeline.vue`), and a probe element appended to `document.body` — outside `#__nuxt`, where every teleported dialog lives — computes all six correctly. A scan for other shared-but-scoped-only classes was attempted and abandoned as unparsable without a real template parser; recorded instead of a hand-picked list. |
 | F-14 | DS-12 | Settings Save remains reachable and obeys intended sticky behavior at multiple scroll offsets/sections. | **reproduced-fixed, self-accepted** ([DS-12](docs/handoffs/deepseek-reports/DS-12.md)): the Notification center save bar measured its exact natural document offset at every scroll position (1867/1411/955/500/44) — `position: sticky; bottom: 10px` was inert because `.notification-panel { overflow: hidden }` made the panel the bar's own scroll container. Live A/B: `overflow: visible` moves the bar to `833..898` at scrollTop 0. Fixed to `overflow: clip`; the bar is now inside the viewport at all five offsets (833/377/117/117/54). Caveat recorded: the 0%/25% offsets rest on geometry because this harness stopped producing fresh frames below ~y=250; the 50% frame shows the bar painted with its Save button. |
 | F-15 | DS-12 | Every named overflow surface has reachable tail/actions using mouse and keyboard at desktop and narrow sizes. | **reproduced-fixed, self-accepted** ([DS-12](docs/handoffs/deepseek-reports/DS-12.md)): both reported consumers were real and are fixed. (a) Scene Plan's "Avoided imagery" control sat at `1313..1533` — 93px past the viewport and 156px past its card, clipped by `main.main-content{overflow-x:hidden}`; the 680px three-column minimum is now a two-column layout inside the card, with the intensity picker spanning the row (a first attempt that only shrank the tracks ellipsised every intensity label to one letter and was rejected). (b) Scene Review's `generate-region` sat at `1150..1453`, 13px past; the tracks may now shrink. Re-measured: **0 unreachable** on both pages at 1600/1400/1280/1100/1024/900 and at 1440×900 / 900×640, no page scroll; Tab traversal reaches the Scene Plan input after 65/66 presses with the field fully in view and accepts typed text, and the Scene Review CTA (now `1088..1391`) is correctly skipped only because it is `disabled` in this empty fixture — its enabled path belongs to ACCEPT-01. |
-| NEW-11 | DS-12 / release tooling, found 2026-09-22 during the 1.4.217 build | The packaging path must not leave the checkout's own source files mutated, and a gate should say so. | **open — reproduced once, not yet fixed.** After `npm run dist:smoke` exited **0**, the repository-root `package.json` had been rewritten into electron-builder's packaging shape: `scripts` (37 entries) and `devDependencies` (14) gone, `description` re-serialized (`\u2014` → `—`), while `package-lock.json` was untouched. The artifact itself is sound — the `build` step ran before packaging and `verify-desktop-artifact` passed (98-package closure, launch smoke) — but any `npm run …` in that checkout would have failed until the file was restored from `HEAD` (`git checkout -- package.json`). The trimmed file is preserved at `_trash/evidence/package.json.trimmed-by-packaging-1.4.217.json`. No current guard asserts the root manifest is unchanged after packaging; the natural home is `check-desktop-release.mjs --package-input` or the tail of the unsigned build. |
+| NEW-11 | DS-12 / release tooling, found 2026-09-22 during the 1.4.217 build | The packaging path must not leave the checkout's own source files mutated, and a gate should say so. | **mitigated 2026-09-22 — culprit step still unidentified.** After `npm run dist:smoke` exited **0**, the repository-root `package.json` had been rewritten into electron-builder's packaging shape: `scripts` (37 entries) and `devDependencies` (14) gone, `description` re-serialized (`\u2014` → `—`), while `package-lock.json` was untouched. The artifact itself is sound — the `build` step ran before packaging and `verify-desktop-artifact` passed (98-package closure, launch smoke) — but any `npm run …` in that checkout would have failed until the file was restored from `HEAD` (`git checkout -- package.json`). The trimmed file is preserved at `_trash/evidence/package.json.trimmed-by-packaging-1.4.217.json`. No current guard asserts the root manifest is unchanged after packaging; **Mitigation added:** both build scripts (`scripts/release/build-unsigned-dmg.mjs` and `build-public-dmg.mjs`) now snapshot `package.json` + `package-lock.json` with `snapshotSourceManifests()` before electron-builder runs and call `restoreSourceManifests()` in a `finally`, so a rewritten manifest is put back and named in the log ("packaging rewrote package.json; restored the checkout's own copies (NEW-11)") whether the build succeeded or failed. Unit-tested in `scripts/release/__tests__/release-utils.test.mjs` (restores a manifest trimmed to the packaging shape, reports only the changed path, leaves the other file alone, and is a no-op on a second call); release lane green at **44 tests, 5/5 files**. **The culprit step is still unidentified:** a clean `npx electron-builder --dir --publish never` on this checkout — including its `@electron/rebuild` / "installing native dependencies" step — left both manifests byte-identical (`sha256 c5bf4c27…` / `c10ccc30…` before and after), and `scripts/fetch-ffmpeg.mjs` takes its present-binaries fast path without touching the manifest. So the guard prevents the observed harm regardless of which step does it, but no one should claim the writer is fixed. |
+| NEW-14 | ACCEPT-01 walkthrough, found 2026-09-22 | A promised repair must be one the named control can actually perform. | **reproduced-fixed, self-accepted** (fix in `routes/jobs.ts`, tests + live run below). With a provider answer that is short but usable (one tag line instead of the requested fifteen), the YouTube finalizer correctly refuses the package ("3/17 required item(s) verified … Missing/invalid: tag 2 … tag 15", partial package kept). Re-running the same route with the same params fails identically: three EP0001 jobs (`e49b81c9`, `61457d82`, `aca65751`) all cite provider job **`mock-chat-001`** with no `operation_id`, because an identical request identity reuses the provider idempotency key and the provider replays the same short answer — correct cost safety, but the terminal message "Retry to generate the missing fields" is not true for the **Jobs Retry** control, which re-runs stored params unchanged (`retryReplacementParams` only special-cases `image_prompts`). The Finalizer page heals because it always stamps a fresh action (`freshMetadataAction` in `metadata.vue`) — proven: a fourth job with a fresh `operation_id` completed 17/17 with 15 tags from the same seeded answers. **Fixed this round:** `retryReplacementParams` mints a fresh language action (`stampFreshGenerationAction` + `randomUUID`) for a `metadata` retry that has no saved action, and marks its own mint `origin: 'retry'` so each later retry mints again; a page-stamped action is still preserved (the pre-existing pinned contract). `job-retry-route-contract.test.ts` gained two cases: a bare retry carries a fresh action (UUID + fingerprint) changing nothing else, and **two consecutive retries carry different action ids** — the second was added because the live loop caught the first version preserving its own mint. Verified live on a fresh gateway: bare attempt `31707af7` → `error` 3/17 (provider `mock-chat-001/002`), Retry #1 `5bfb9976` → `error` 3/17 with **new** provider jobs `003/004` (no replay), Retry #2 `52a0cfab` → **`done` 17/17, 15 tags** (`005/006`); six gateway submissions across three attempts. Focused: `job-retry-route-contract` green, 176 tests across the job-retry/metadata/job-queue files green, `typecheck:electron` exit 0. Application-facing, so it joins `NEW-12` in needing a version bump + changelog line at the next release decision (not bumped; installed app remains 1.4.217). |
+| NEW-13 | ACCEPT-01 walkthrough, found 2026-09-22 | A cached completion verdict must be invalidated by the artifact it was computed from — including one outside the project tree. | **reproduced — fix not written.** The episode status cache (`<userData>/cache/<slug>/episode-status.json`) watches 13 paths, all inside the project tree; the **external final-video root** and its `<code>_video_assembly_source.json` stamp are not watched. With the two ACCEPT-01 finals briefly absent from that root the app persisted `video_assembly: false` for both episodes, and restoring the files did not change the verdict — it survived an app restart. A fresh, uncached computation of the same episode returns `video_assembly: true` and `final_video_bytes: 10591` (`scripts/developer/probe-video-assembly-status.ts`), so the assembly path, the stamp and the status rule are correct and only the cache is stale. Owner-facing because his Library root is `~/Documents/Story Studio KH`, so his finals live at the external root: a recompute while that root is unreachable (drive unplugged, Exports archived, cloud eviction) is cached and kept after the final returns. Fix direction: watch the resolved external directory + stamp when an external root is configured, with the cache's existing `watcherTrustedSince` care for a watcher that may not exist yet. Deliberately not changed this round. |
+| NEW-12 | ACCEPT-01 walkthrough, found 2026-09-22 | A completion audit must audit the output the job was actually asked to produce. | **reproduced-fixed, self-accepted** ([ACCEPT-01](docs/handoffs/deepseek-reports/ACCEPT-01.md)): Scene Plan's "Build timeline" action posts `{stage:'timeline'}`; the job built a correct cue-aligned plan (`scene_plan.json` with `timeline_built_at` and a timed scene, `visual_prompt: ''` — the step is documented as model-free) and then failed with `scene_plan_run reported success, but re-reading its output found required items missing` after three local attempts, for both episodes. Root cause: `auditScenePlanOutput` folded every non-motion stage into `'visual'` and demanded a `visual_prompt` per scene, which a timeline-only run is deliberately never asked to write. Fixed in `boot/executors.ts`: `stage: 'timeline'` (and only that, repair flags unchanged) is audited on at least one scene with finite forward-running timings plus a recorded `timeline_built_at`; Pipeline runs and the visual stage keep the prompt requirement. New regression test `scene-plan-timeline-audit.test.ts` RED→GREEN (2 cases), `scene-motion-scope-enforcement.test.ts` still green — 11/11 focused. Verified in the live app after recompiling and restarting: both timeline jobs `done`. Application-facing, so it needs a version bump + changelog line at the next release decision (not bumped yet; installed app remains 1.4.217). |
 | Q-03 | DS-13 | Measure representative large output serialization/persistence/SSE before claiming a performance defect or optimizing. | **measured — no observed user-impact case, no change.** Synthetic medians (3 passes, M2 Max): 1 job with 100/1,000/10,000 log lines writes 0.01/0.06/0.56 MiB in 6.7/7.5/20.8 ms; a full 750-job × 20-line history writes 0.96 MiB in 36.7 ms; one SSE frame is 4.9/39.2/400.6 KiB per subscriber. A 200-mutation burst coalesces to **1 atomic write**. The owner's real Library (9 projects, read-only) peaks at **592 log lines in one job (~100 KB record), 0.67 MiB `jobs.json`** — far below the synthetic extreme. No caps/caching/truncation proposed; durable evidence untouched. Script: `scripts/developer/measure-job-persistence-cost.ts`. |
 | M-08 | DS-14 | Synthetic missed-literal fixtures prove actual checker coverage while legitimate live-catalogue/local-policy cases pass. | **fixed, self-accepted** ([DS-14](docs/handoffs/deepseek-reports/DS-14.md)): 7 fixture cases run the guard's real walk+analyzer from a temp dir; every declared rule must fire while every legitimate control stays silent. Two real defects found: the coarse pre-filter hid whole files (`controls.X`, `max_reference_images` carry no catalogue vocabulary — gate removed, full scan 0.81 s / 708 files), and the documented module-specifier exemption never matched a quoted specifier. Removing the gate surfaced a **live** finding (`genstudio-relaxed-queue.ts:55` rendered a dollar figure) which is GenStudio's own published cents value, so it carries a written `model-drift-allow` (39 exceptions). |
 
@@ -1383,3 +1393,203 @@ was built and verified locally at the owner's explicit request as a temporary ar
   `HEAD`; the artifact was unaffected because the `build` step ran first, and the trimmed file is kept at
   `_trash/evidence/package.json.trimmed-by-packaging-1.4.217.json`. No paid model call and no upload
   occurred anywhere in this packet.
+- **2026-09-22 — DeepSeek lead, ACCEPT-01 leg 1 (ideas → script) on a disposable Library:** started the
+  owner's last ordered item with **fake provider outputs only** — the repository's own
+  `MockGenStudioService` fixture hosted as a real loopback gateway (`scripts/developer/serve-mock-genstudio.ts`)
+  and driven by `scripts/developer/accept-01-driver.ts`, which points a running dev app at it and then
+  uses the app's own routes. Disposable Library `/tmp/ssk-accept-data` (nothing of the owner's touched;
+  the installed 1.4.217 app was never involved). Backend identity proved first: after the URL/key PUT,
+  `GET /app-settings/genstudio/overview` returned the mock's own account (`"Angkor Pro"`, 1,000 credits).
+  Fresh setup seeded a project and **two episodes** (EP0001, EP0002) through ideas import + accept.
+  **Leg 1 complete for both episodes** via the Scripts page's real routes: outline-only → `done` with 3
+  slots, outline read back 3 slots, approval 200, expand-chapters → `done` with
+  "3/3 chapter file(s) on disk (2 batches)" and a re-assembled `Script_Narration.md` (837 B / 843 B);
+  chapter files 244/244/246 B each; 2 chat submissions per episode; **0 credits charged**. Cross-surface
+  agreement recorded: `status.script: true` in the episodes status map (which the Production Board
+  reads), four `done` script jobs in Jobs, and the byte sizes read from disk. Four **refusals** are kept
+  as evidence for the malformed/partial/provider-failure requirement: a bare JSON array outline
+  ("requires one JSON object"), invalid JSON, expansion before approval ("Outline is not approved yet"),
+  and a partial expansion batch ("did not pass its one-repair completion check; missing 2") — each failed
+  the job loudly and the passing run then wrote all three chapters without restarting from zero. Observed
+  and recorded as design, not a defect: `pipeline/preflight` on a fresh project refuses every step with
+  "No active preset for <step>" plus `missing_voice` for audio, so the remaining legs run either through
+  each page's routes or after seeding one preset per step (key map `PRESET_KEYS` in `routes/pipeline.ts`).
+  Remaining legs: audio → audio_merge (FFmpeg) → subtitles → scene plan → image prompts → images →
+  video assembly → metadata/upload preparation (no upload), then restart/cancel/resume with the mock
+  counting submissions, and a model switch. Report `docs/handoffs/deepseek-reports/ACCEPT-01.md`. No
+  paid call, no upload, no publish; no commits/pushes in this entry.
+- **2026-09-22 — DeepSeek lead, ACCEPT-01 legs 2–3 (audio → assembly → subtitles):** continued the
+  walkthrough and made the provider gateway **long-lived** (`serve-mock-genstudio.ts`, now a thin proxy
+  with a loopback-only control surface: queue a scenario / clear queued scenarios / read accounting), so
+  provider job ids recorded in manifests still resolve across app restarts. A **second, canonical project**
+  (`accept-01-walkthrough-v2-2026-09-22`) was seeded for this: the first project's audio manifest pointed
+  at ids from short-lived mocks, and the app correctly **refused to re-submit** unverifiable work
+  ("mock route not found" while polling the recorded ids) — the right behaviour, but not carryable
+  forward. Leg 1 reproduced byte-for-byte on v2. **Leg 2:** TTS `done` for both episodes (3 chapters
+  each, `mock-tts-001…006`, `Activated voice model boundary: mock-tts-v1`), chapter mp3s 3,789 B each;
+  audio assembly `done` writing `… - 08 Audio Merge Output/<EP>_merged_audio.mp3` (57,095 B,
+  `ffprobe` duration 2.3016 s, `mp3`), plus `_merged_audio.completion.json` (253 B) and
+  `audio_chapters.json` (3 × 0.1 s, 1 s gaps — agrees with ffprobe). **No duplicate paid submission on
+  re-run:** a second audio leg re-used verified files ("Skipping … (exists)") and the gateway's TTS count
+  stayed at 6. **Finding:** two-pass loudnorm cannot measure the mock's silent audio — the merge failed
+  honestly (`measured_I = -inf`, FFmpeg exit 222), named the retry path, kept verified partial files, and
+  succeeded with the request's own `normalize_volume: false`; real TTS is never silent, so it is recorded
+  as a fixture-induced edge case with correct local-failure handling. **Leg 3:** subtitles `done` for both
+  (quote → confirm → SRT), `<EP>_whisper.srt` 59 B with cue `00:00:00,000 --> 00:00:01,000 Hello from mock
+  GenStudio.`, sidecars `.task-manifest.json` 435 B, `.subtitle-recovery.json` ~926 B,
+  `audio_sentences.json` 1,888 B. Provider accounting across legs 1–3: **8 chat + 6 TTS + 2 transcription
+  submissions, 0 credits charged**. Episode status map (what the Production Board reads) for both:
+  `script/audio/merged_audio/subtitles: true`, `all_done: false` (visual + assembly stages outstanding).
+  Report `docs/handoffs/deepseek-reports/ACCEPT-01.md`. Note for future dev runs: the dev app needs
+  `bundled/ffmpeg` on `PATH` (or the in-app installer) — without it the audio job fails with
+  `spawn ffmpeg ENOENT` and the merge is blocked with the exact missing filenames. No paid call, no
+  upload, no publish; no commits/pushes in this entry.
+- **2026-09-22 — DeepSeek lead, ACCEPT-01 leg 4 (Scene Plan) — and a real defect fixed (`NEW-12`):**
+  continued the walkthrough on the canonical v2 project. Per-chapter transcription (the Subtitles page's
+  own option) produced 3/3 section transcripts and auto-stitched a 2.3 s timeline; the Scene Plan
+  **timeline** stage then exposed the defect: the page's "Build timeline" posts `{stage:'timeline'}`, the
+  job wrote a correct model-free plan (`planning_stage`, `timeline_built_at`, `ep0001-scene-0001`
+  0→2.301633 s, `visual_prompt: ''`) and **failed with "reported success, but re-reading its output found
+  required items missing" after three local attempts**, on both episodes. Root cause: `auditScenePlanOutput`
+  folded every non-motion stage into `'visual'` and required a `visual_prompt` per scene, which a
+  timeline-only run is deliberately never asked to write — `assertAuditedCompletionOnSuccess` runs that
+  same auditor, so a correct timeline always failed its own job. Fixed in `boot/executors.ts`: only an
+  explicit `stage: 'timeline'` (repair flags unchanged) is audited on its own proof — at least one scene
+  with finite forward-running timings plus a recorded `timeline_built_at` — while Pipeline runs (no
+  `stage`) and the explicit visual stage keep the prompt requirement. New test
+  `scene-plan-timeline-audit.test.ts` went RED→GREEN (2 cases) and `scene-motion-scope-enforcement.test.ts`
+  stays green: **11/11 focused**. Verified live, not only in tests: recompiled the backend, restarted the
+  acceptance app, re-ran the same request — both timeline jobs `done`. The visual stage then completed on
+  both episodes ("1 adaptive pack(s) · Checkpointed visual-0001: 1/1 prompts verified on disk · Verified
+  1/1 visual prompt(s) on disk by stable scene ID"), with the provider answer built from the scene ids the
+  app itself had written. Scene Plan status now `scene_plan: true` on both episodes. The fix is
+  application-facing, so it needs a version bump + changelog line at the next release decision (not bumped
+  yet; the installed app stays 1.4.217). **Full backend gate on this tree:** `npm run test:backend`
+  completed **5,635 tests, 4 failed, 517/517 file(s)** — and those four are the same external
+  `content-packs/rebuilt/**` failures this branch tip has produced in every run (they are absent from
+  `main`); because they fail deterministically, a total of exactly four means the audit fix and its new
+  test introduced no other failure. No paid call, no upload, no publish; no commits/pushes in this entry.
+- **2026-09-22 — DeepSeek lead, ACCEPT-01 legs 5–6 (images → local assembly) + `NEW-13`:** finished the
+  media chain on the canonical v2 project. **Leg 5:** thumbnail prompts first came back short (3 answered
+  against **5 required**) and the job failed precisely — "3/5 required item(s) verified. Missing/invalid:
+  Thumbnail 4, Thumbnail 5. Verified prompts were saved; Retry requests only the missing thumbnail
+  prompts." — then a `fill_gaps: true` run (what the page and the job Retry send) asked for exactly the
+  two missing slots and finished `done`; thumbnails rendered 5/5 (68 B each) and the planned scene image
+  rendered 1/1 (`mock-image-v1`, `ep0001-scene-0001.png`). **Leg 6:** Scene Review approval
+  (`{all:true}` → `{"total_scenes":1,"approved":1,"with_image":1,"all_approved":true}`) then local
+  assembly `done` for both episodes — `EP0001_final_video.mp4` / `EP0002_final_video.mp4`, `ffprobe`
+  `h264` 1920×1080 + `aac`, 2.333 s, 10,591 B, plus the `<code>_video_assembly_source.json` stamp. No
+  provider submission for assembly (local FFmpeg only). **Operational note:** exports resolve to
+  `<Library root>/Exports`, and this Mac's Library root is the default `~/Documents/Story Studio KH`, so
+  the two finals landed in the owner's Documents; they were **moved (not deleted) to
+  `_trash/documents-exports/accept-01-walkthrough-v2-2026-09-22/`**, the owner's Documents is back as it
+  was, and the acceptance app's own settings file (`/tmp/ssk-accept-data/app-settings.json`) was verified
+  separate from the owner's real one (which holds only `library_root`), so no acceptance run redirected the
+  installed app. **`NEW-13` (reproduced, fix not written):** with those finals briefly absent the app
+  persisted `video_assembly: false` in `<userData>/cache/<slug>/episode-status.json` and kept it after the
+  files were restored, across an app restart; the cache watches 13 paths all inside the project tree and
+  **never the external final-video root or its stamp**, while a fresh uncached computation returns
+  `video_assembly: true`/`final_video_bytes: 10591` (`scripts/developer/probe-video-assembly-status.ts`).
+  The assembly path, stamp and status rule are correct; the cache is stale. Owner-facing because his finals
+  live at that external root. Fix direction recorded; deliberately not changed in this round. Report
+  `docs/handoffs/deepseek-reports/ACCEPT-01.md`. No paid call, no upload, no publish; no commits/pushes.
+- **2026-09-22 — DeepSeek lead, ACCEPT-01 leg 7 (metadata → upload preparation) + `NEW-14` + two blocking
+  checks:** the finalizer preflight reports `audio_assembly_ready/subtitle_complete: true`, 3 chapter
+  markers and no warnings for both episodes; both metadata packages finalize (`metadata: true` on both) and
+  **no upload was attempted**. That leg exposed **`NEW-14`**: three EP0001 metadata jobs (`e49b81c9`,
+  61457d82, `aca65751`) all cite the *same* provider job `mock-chat-001` and fail identically at 3/17
+  because an identical request identity makes the provider replay the same short answer — the generator and
+  its completion audit are right, but the message "Retry to generate the missing fields" is not true for the
+  Jobs Retry, which re-runs the stored params unchanged (`retryReplacementParams` only special-cases
+  `image_prompts`). A fourth run with a fresh `operation_id` (what the Finalizer page always stamps,
+  `freshMetadataAction`) completed **17/17 with 15 tags** from the same seeded answers, so the page's path
+  heals and only the identity/message needs fixing. Two blocking checks passed: (a) cancelling a
+  deliberately slow five-image batch 3 s in was **refused** with `CANCELLATION_STATUS_UNKNOWN` — "cannot yet
+  prove whether every provider request was accepted", control disabled — and the batch then settled with 5
+  submissions and all 5 thumbnails, nothing resubmitted (H-16 behaving as designed; a *successful* mid-flight
+  cancel remains unexercised because the fixture cannot acknowledge a cancellation it received); (b) moving
+  `ep0001-scene-0001.png` out of the episode made assembly refuse with "Video Assembly is blocked: 1 missing
+  image(s): #1. Open Scene Plan or Scene Review, repair only the listed items, then retry." — no substitute
+  image, no partial video — and the file was restored afterwards. Remaining in ACCEPT-01: the **model switch**
+  (blocked on the fixture publishing only one language model). Report
+  `docs/handoffs/deepseek-reports/ACCEPT-01.md`. No paid call, no upload, no publish; no commits/pushes.
+- **2026-09-22 — DeepSeek lead, `NEW-14` fixed and verified (ACCEPT-01 follow-up):** the walkthrough's
+  metadata retry defect is repaired. `retryReplacementParams` now mints a fresh language action for a
+  `metadata` retry that carries **no** saved action — the Pipeline/bare-route case — and marks its own mint
+  `origin: 'retry'` so each subsequent retry mints again; an action the Finalizer page stamped is still
+  preserved, which is the behaviour `job-retry-route-contract.test.ts` already pinned, so the fix stays
+  narrow. The first version of the fix preserved its own mint and the live loop caught it: retry #2 replayed
+  retry #1's provider answer. Regression cases: a bare retry mints a valid fresh action (UUID + fingerprint)
+  and changes nothing else, and two consecutive retries carry different action ids. **Live proof on a fresh
+  gateway:** bare attempt `31707af7` → `error` 3/17 (`mock-chat-001/002`); Jobs Retry #1 `5bfb9976` →
+  `error` 3/17 with **new** provider jobs `003/004` (asked afresh, no replay); Jobs Retry #2 `52a0cfab` →
+  **`done` 17/17, 15 tags** (`005/006`) — six gateway submissions across three attempts, so the "Retry to
+  generate the missing fields" promise is now true for the control that makes it. Focused:
+  `job-retry-route-contract` green, 176 tests across the job-retry/metadata/job-queue files green,
+  `typecheck:electron` exit 0. **Full backend gate on this tree:** `npm run test:backend` completed
+  **5,635 tests, 4 failed, 517/517 file(s)** — the same four deterministic external `content-packs/rebuilt/**`
+  failures this branch tip always produces (absent from `main`), so the fix and its new assertions added no
+  other failure. The fix is application-facing, so
+  `NEW-12` and `NEW-14` together need a version bump + changelog line at the next release decision (not
+  bumped; installed app remains 1.4.217). Report `docs/handoffs/deepseek-reports/ACCEPT-01.md`. No paid call,
+  no upload, no publish; no commits/pushes.
+- **2026-09-22 — DeepSeek lead, ACCEPT-01 leg 8 (model switch, AGENTS §1):** the fixture could not
+  previously publish a second language product, so `MockGenStudioService` gained an optional `chatModels`
+  field (null keeps the single default row — no existing test changed) and the standalone runner gained
+  `POST /__control/chat-models`. The three catalogue suites stayed green (101 tests). Live check: the mock
+  published `mock-chat-small-v1` (`context_window_tokens: 32000`, `max_output_tokens: 1024`) beside
+  `mock-chat-v1` (`128000`/`4096`); a freshly started app reported both rows with those limits at
+  `freshness: {stale: false, ageMs: 0}`; a scene-prompt regeneration on the switched model logged
+  `Prompt model: genstudio-chat:mock-chat-small-v1`, `Prompt batching: … caps this batch at 2 complete
+  instead of the 250-scene default (1,024 output tokens × 0.75 ÷ …)` and `Visual pack output budget: 1,024
+  tokens`, and the provider evidence records `model_id: mock-chat-small-v1` with state `succeeded`. The
+  derived batch cap and pack budget moved 4,096 → 1,024 with the selection, i.e. they were read from the
+  live catalogue in that run rather than carried over — the §1 property the leg exists to prove. Remaining
+  in ACCEPT-01: a successful mid-flight cancel (needs fixture support for a provider job that stays running
+  after acceptance). Report `docs/handoffs/deepseek-reports/ACCEPT-01.md`. Full backend gate started on this
+  tree. No paid call, no upload, no publish; no commits/pushes.
+- **2026-09-22 — DeepSeek lead, ACCEPT-01: successful mid-flight cancel (the last in-scope item):** the
+  earlier packet recorded only the *refusal* (`CANCELLATION_STATUS_UNKNOWN` when provider acceptance was
+  unproven). This run got the other half without any fixture change: an image scenario whose state stays
+  `accepted` for several polls is `cancellable` throughout, which is what the app checks before it will
+  cancel. Forcing a 5-thumbnail re-render and cancelling 2 s later: the cancel was **admitted**
+  (`{"ok":true,…}`); the provider cancelled `mock-image-001/002/003` ("Cancelled before provider
+  execution", 7 credits released each); the app logged "Story Studio is reconciling the provider
+  cancellation; **no new generation request was sent**" and the gateway's submission count stayed at 5; the
+  two uncancelled tasks finished and saved, and the job settled `error` with "Completed with 3 error(s) …
+  Provider work settled with mixed completed and cancelled tasks. Repair missing output before Retry." —
+  valid work kept, gap named, no false success. ACCEPT-01's in-scope legs are therefore complete (script,
+  audio+assembly, subtitles, Scene Plan, thumbnail prompts+images, Scene Review→assembly, metadata/upload
+  preparation, model switch, both cancel directions, the missing-image block and the completion-audit
+  refusals); the only items left are *external* by construction — real provider output, real speech timing,
+  real upload, signed/notarized distribution (`X-07`, `RELEASE-01`). Report
+  `docs/handoffs/deepseek-reports/ACCEPT-01.md`. No paid call, no upload, no publish; no commits/pushes.
+- **2026-09-22 — DeepSeek lead, version/changelog hygiene for the two fixes (1.4.218 prepared):** the
+  two application-facing repairs found by ACCEPT-01 now have a version and a What's New entry, so the tree
+  is release-ready without publishing anything. `package.json` + `package-lock.json` are at **1.4.218** and
+  the newest `CHANGELOG.md` entry covers both in plain language: Scene Plan's **Build timeline** no longer
+  fails its own completion check (a model-free timeline is judged on its timings), and a failed **YouTube
+  Finalizer** run can really be repaired by Retry (the retry asks the provider afresh instead of re-sending
+  the identical request and replaying the same short answer). Guards after the bump:
+  `check:changelog` ok — package, lockfile and newest entry agree on v1.4.218; `check:typography` ok;
+  `check:model-drift` ok (708 files, 39 annotated exceptions). The full backend gate had already run on this
+  tree before the bump (5,635 tests, the same four external content-pack failures, 517/517 files). The
+  installed app remains **1.4.217** and nothing has been committed, pushed, built or published — landing
+  1.4.218 in `main` and building/installing a DMG is the owner's next decision, together with the `X-07`
+  paid-generation ceiling.
+- **2026-09-22 — DeepSeek lead, `NEW-11` mitigated and ACCEPT-01 closed:** both release build scripts now
+  snapshot the checkout's two manifests before electron-builder runs and restore them in a `finally`,
+  logging which file packaging rewrote (NEW-11) — defence that holds whether the build succeeds or fails,
+  with a unit test in the release lane (44 tests green, 5/5 files). The culprit step is **still
+  unidentified**: a clean `electron-builder --dir` run, including its `@electron/rebuild` /
+  "installing native dependencies" phase, left both manifests byte-identical, and `fetch:ffmpeg` takes its
+  present-binaries fast path, so the finding stays open with the guard documented as prevention rather than
+  a root-cause fix. **ACCEPT-01 is closed as self-accepted** ([ACCEPT-01.md](docs/handoffs/deepseek-reports/ACCEPT-01.md)):
+  legs 1–8 (script, audio + assembly, subtitles, Scene Plan, thumbnail prompts + images, Scene Review →
+  Video Assembly, metadata/upload preparation, model switch), both cancellation directions, the
+  missing-image block and every completion-audit refusal were exercised against the repository's own mock
+  gateway with zero paid submissions, and the record states plainly what that cannot prove — real provider
+  output, real speech timing, a real upload and signed/notarized distribution (`X-07`, `RELEASE-01`).
+  Version/changelog hygiene is done for the two fixes (1.4.218 prepared; guards pass). What remains is
+  owner-gated: land 1.4.218 in `main` and build/install a DMG, and agree the `X-07` credit ceiling before
+  any real paid call. No commits/pushes/publish/paid calls.

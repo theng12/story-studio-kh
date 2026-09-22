@@ -380,6 +380,14 @@ export class MockGenStudioService {
   private readonly transcriptionModelsByKey = new Map<string, Array<Record<string, unknown>>>()
   private readonly accountOverviewByKey = new Map<string, Record<string, unknown>>()
   private videoModels: Array<Record<string, unknown>> | null = null
+
+  /**
+   * Optional alternate language catalogue. Null keeps the single default row, so
+   * no existing test changes; a caller (acceptance, or a policy test) can publish
+   * a second product with different published limits to prove that switching the
+   * selection re-reads them from the catalogue instead of reusing a cached cap.
+   */
+  chatModels: Array<Record<string, unknown>> | null = null
   private readonly contentAccounts = new Map<string, string>()
   private readonly contentAccountCredits = new Map<string, number>()
   private readonly contentBundleComponents = new Map<string, string[]>()
@@ -664,6 +672,17 @@ export class MockGenStudioService {
     const queue = this.queuedScenarios.get(operation) || []
     queue.push(normalizeScenario(operation, scenario))
     this.queuedScenarios.set(operation, queue)
+  }
+
+  /**
+   * Drop queued responses that no submission consumed. Acceptance runs queue a
+   * generous batch for one step and then clear the remainder, so the next step
+   * never consumes a previous step's scripted answer. Never touches jobs or
+   * submissions — only the answers still waiting to be handed out.
+   */
+  clearQueuedScenarios(operation?: MockGenStudioOperation): void {
+    if (operation) this.queuedScenarios.delete(operation)
+    else this.queuedScenarios.clear()
   }
 
   jobCount(operation?: MockGenStudioOperation): number {
@@ -1904,7 +1923,7 @@ export class MockGenStudioService {
       return true
     }
     if (pathname === '/v1/chat/models') {
-      json(response, 200, [{
+      json(response, 200, this.chatModels || [{
         id: 'mock-chat-v1', display_name: 'Mock Chat', description: 'In-process LLM fixture.',
         available: true, qualification_only: false,
         context_window_tokens: 128_000, max_output_tokens: 4_096,
