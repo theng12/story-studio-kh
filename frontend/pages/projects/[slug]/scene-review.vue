@@ -1874,7 +1874,12 @@ watch([slug, episodeId], () => {
 
 .review-command-bar :deep(.top-action-bar) {
   display: grid;
-  grid-template-columns: minmax(350px, auto) minmax(420px, 1fr) auto;
+  /* DS-12/F-15b — 350px + 420px minimums plus the CTA needed ~1189px inside this
+     page's ~1136px workspace at a 1440 window (the rail plus padding is the rest), so
+     the generate region ran 13px past the viewport and was clipped. The tracks may now
+     shrink; the 1400px media query below still puts the CTA on its own row when the
+     viewport itself is narrow. */
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
   align-items: end;
   gap: 16px;
   margin-bottom: 0;
@@ -1883,11 +1888,17 @@ watch([slug, episodeId], () => {
   background: color-mix(in srgb, var(--bg-secondary) 92%, var(--review-gold) 8%);
   box-shadow: 0 10px 30px rgba(0,0,0,.1);
 }
+/* Grid items default to a min-content floor that would overflow a shrunk track. */
+.review-command-bar :deep(.preset-region),
+.review-command-bar :deep(.episode-region),
+.review-command-bar :deep(.generate-region) { min-width: 0; }
 .review-command-bar :deep(.region-spacer) { display: none; }
 .review-command-bar :deep(.preset-region),
 .review-command-bar :deep(.episode-region),
 .review-command-bar :deep(.generate-region) { align-self: stretch; }
 .review-command-bar :deep(.generate-region) { justify-content: flex-end; align-items: flex-end; }
+.review-command-bar :deep(.generate-region),
+.review-command-bar :deep(.generate-status) { min-width: 0; }
 .review-command-bar :deep(.btn-primary-cta) { min-width: 172px; min-height: 38px; border-radius: 9px; white-space: nowrap; }
 
 .back-to-top {

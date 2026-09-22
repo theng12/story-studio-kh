@@ -5349,7 +5349,13 @@ async function deleteProject() {
 }
 
 /* ── Notification center ───────────────────────────────────────────── */
-.notification-panel { overflow: hidden; }
+/* DS-12/F-14 — `overflow: hidden` made this panel the scroll container for its own
+   `position: sticky; bottom: 10px` save bar. A hidden-overflow ancestor is a scroll
+   container whose scroll position never changes, so the bar measured exactly its
+   natural offset at every scroll position and its Save action was invisible until
+   the very end of a 2680px page. `clip` still clips the panel's rounded corners but
+   is not a scroll container, so the bar sticks against main.main-content instead. */
+.notification-panel { overflow: clip; }
 .notification-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-bottom: 12px; }
 .notification-status-card {
   display: grid;

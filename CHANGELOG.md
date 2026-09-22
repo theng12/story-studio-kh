@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.217 — 2026-09-22
+
+- Scene Plan's creative controls — Creative intensity, Recurring motifs and Avoided imagery — no longer sit off the edge of their card. At an ordinary window size the card was narrower than the three columns those controls asked for, so the third control was laid out past the card and past the window and could not be seen or clicked. They now wrap inside the card, and all four intensity choices show their full names.
+- Scene Review's primary action no longer runs off the right edge. On a 1440-wide window the “Finish …” button and its status line were laid out 13px past the window and were cut off; the command bar now shrinks to fit instead.
+- Settings' notification **Save** bar now stays in view while you work in the Notification center. The panel clipped it into a scroll container of its own, which quietly cancelled its sticky behaviour: the bar only appeared once you had scrolled to the very end of the page. It now sticks to the bottom of the window for as long as that panel is on screen.
+
 ## v1.4.216 — 2026-09-22
 
 - A failed Introduction check no longer reads as “this channel has no Introduction”. Pipeline and Audio say they could not check the channel setting, keep the pre-spend warning visible, and offer Retry and a link to Introduction — instead of quietly writing episodes without the opening.

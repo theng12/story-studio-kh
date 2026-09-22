@@ -3468,11 +3468,20 @@ watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
 .creative-profile span { margin-top: 3px; font-size: var(--font-xs); line-height: 1.35; color: var(--text-muted); }
 .scene-creative-controls {
   display: grid;
-  grid-template-columns: minmax(220px, .8fr) minmax(220px, 1fr) minmax(220px, 1fr);
+  /* DS-12/F-15a — this grid demanded 680px (three 220px minimums) while the creative
+     card is only ~509px wide inside the two-column workspace at a 1440 window, so the
+     third control was laid out past its card and past the viewport and clipped by
+     main.main-content's hidden overflow. Two columns of the card's own width keep every
+     control inside it. The intensity picker spans the row on purpose: its four labels
+     need ~360px, which no third of this card provides at any realistic window width. */
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
   align-items: end;
   margin-top: 10px;
 }
+/* A grid item's automatic minimum size would otherwise stop its track from shrinking. */
+.scene-creative-controls > * { min-width: 0; }
+.scene-creative-controls > :first-child { grid-column: 1 / -1; }
 .scene-creative-controls .form-group { margin: 0; }
 .creative-strategy-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 0; }
 .creative-strategy-picker > span { flex-basis: 100%; margin-bottom: 2px; }
@@ -3498,8 +3507,6 @@ watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
 }
 @media (max-width: 1100px) {
   .creative-profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .scene-creative-controls { grid-template-columns: 1fr 1fr; }
-  .scene-creative-controls > :first-child { grid-column: 1 / -1; }
 }
 @media (max-width: 680px) {
   .creative-profile-grid, .scene-creative-controls { grid-template-columns: 1fr; }
