@@ -20,12 +20,14 @@ are named here:
 - **Release 1.4.219 (landed, built and installed):** `main` = `origin/main` = `3bbc59aa`; the DMG is
   `dist/Story Studio KH 1.4.219-arm64.dmg` (sha256 `5bace953…`) and `/Applications/Story Studio KH.app`
   is 1.4.219 — the 1.4.218 and 1.4.217 bundles and DMG pairs are preserved under `_trash/`.
-- **`X-07`:** one real paid generation needs the model and the hard credit ceiling agreed and written down
-  first. Nothing has been called.
-- **Open findings:** `NEW-13` (the episode-status cache never watches the external final-video root —
-  reproduced, fix direction recorded), `NEW-11` (packaging rewrote the checkout manifest once; now blocked
-  by a restore guard in both build scripts, culprit step unidentified), `NEW-08` (external: a private
-  Content Pack is registered without its source directory).
+- **`X-07` — closed by owner confirmation (nothing was spent here):** real paid generation and a real
+  YouTube upload were already run by the owner with an earlier build and work; the app reaches the
+  provider through the owner's **gateway-kh** app, not a GenStudio account; signed/notarized distribution
+  is not wanted (ad-hoc signature + the quarantine command in `build/READ ME FIRST.txt` and `README.md`).
+- **Open findings:** `NEW-11` (packaging rewrote the checkout manifest once; the restore guard in both
+  build scripts prevents the harm, and the culprit step is still unidentified), `NEW-08` (external: a
+  private Content Pack is registered without its source directory — belongs to the content-packs effort).
+  `NEW-12`, `NEW-13` and `NEW-14` are all fixed and released.
 
 Base for the takeover: `6f3c4e3316854b5eb9bf6100f078064254f61445` on `main`.
 Working branch: `codex/stabilization-takeover` @ `55f01192`; `main` and `origin/main` are at `3bbc59aa`
@@ -771,7 +773,7 @@ violations and zero for valid controls. Do not blanket-suppress findings or clai
 | X-04 | DS-16, external evidence | Two Symbolic Psychology checks require `STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT`; locate only owner-provided evidence or explicitly retain skips. Never fabricate or bypass evidence. | **reconciled in DS-16 — skips retained.** The owner elected to keep the two checks as explicit external-evidence skips and keep the honest wording. The evidence is demonstrably absent here: the documented root `~/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23` does not exist and Spotlight finds none of the four required files (`evidence-ledger.json`, `candidate-handoffs.json`, `receiver-handoff.json`, `review-requests.json`). The Content Pack lane stays **366 pass / 2 explicit skips**, and no record may describe them as passed; if the folder is ever recovered, the two checks run with the env var set. |
 | X-05 | DS-16, limitations record | Preserve platform-conditional `/var` alias skip, final path-check/unlink race, unproven physical power-loss behavior and multi-file crash-transaction limitations. Determine reachable/testable scenarios before architecture changes. These are limits, not all reproduced defects. | **complete, self-accepted** ([DS-16](docs/handoffs/deepseek-reports/DS-16.md)): each limit stated with its reachability — `/var` alias is a correct platform-conditional skip; the check/unlink race is narrowed by the coordination lock and `O_NOFOLLOW` and cannot be closed by a path-based API; power-loss behaviour is untestable on this Mac without fault-injecting hardware; multi-file crash transactions are compensated by quarantine-before-reset, durable recovery incidents and provider-evidence guards. No architecture change is justified by any of them. |
 | X-06 | Owner decision, resolved 2026-09-22 | Reusable/channel Scene Plan guidance persistence: project config versus preset-only. Keep episode instructions separate. No speculative feature until owner decides. | **decided — preset-only, implemented and self-accepted** ([X-06 report](docs/handoffs/deepseek-reports/X-06.md)). A second, clearly labelled **Reusable guidance** box travels in Scene Plan presets and is applied only when the customer applies one; it never writes project config and never applies itself. `custom_instructions` stays excluded from presets (owner decision #9) and is now cleared on an episode change with an announcement (AGENTS.md §4 repair found in the same area). Both boxes are composed into the one guidance input the backend accepts. RED at `HEAD` (19 pass / 3 fail, file restored byte-identically); GREEN 22/22; regression 174/174; full frontend lane exit 0, 1,914 pass, 213/213 files; lint 0 errors; typecheck unchanged. |
-| X-07 | Owner decision, resolved 2026-09-22 | Optional external acceptance | Live paid generation, actual YouTube upload and signed/notarized public distribution were not tested. Mock/local acceptance does not prove them. Obtain explicit authority and a bounded spend/destination plan before any such check. | **decided — bounded paid generation only.** The owner authorized **one** real generation on the cheapest published model with a hard credit ceiling, to be agreed and recorded before the call, proving real cost, provider provenance and artifact ownership. A real YouTube upload and signed/notarized public distribution remain **deferred and unauthorized**; both stay recorded as unverified limits. No paid call may run until the model, the ceiling and the proving checks are written down here first. |
+| X-07 | Owner decision, resolved 2026-09-22; **closed 2026-09-22 (later) by owner confirmation** | Optional external acceptance | Live paid generation, actual YouTube upload and signed/notarized public distribution were not tested here; mock acceptance does not prove them. | **Closed without running the check — owner-confirmed outside this session.** The owner states he has already run real paid generations and a real YouTube upload with an earlier build and confirmed both work, that the app connects through **his own gateway-kh app rather than a GenStudio account**, and that a Developer ID / notarized distribution is **not needed** (personal use; ad-hoc signature plus the documented quarantine command). The bounded paid check was therefore never run and is dropped. Nothing in this file may describe paid generation, upload or signed distribution as machine-verified by this session: they are **owner-attested**, which is a different and explicitly weaker claim, and the walkthrough's own limits stay as recorded. |
 
 DS-16 is a **read-only source/evidence + documentation packet**, not permission to patch the whole
 historical backlog. Its output must expand compact ranges into explicit candidate IDs and link
@@ -1654,3 +1656,16 @@ was built and verified locally at the owner's explicit request as a temporary ar
   and projects were untouched. Remaining owner decision: the **`X-07`** paid-generation model and credit
   ceiling before any real provider call; `RELEASE-01` signed distribution; `NEW-08` external. No paid call,
   no upload, no publish.
+- **2026-09-22 — owner confirmation closes X-07 and the external limits (record only, no code):** the owner
+  reports that real paid generations and a real YouTube upload were already run with an earlier build and
+  work, that the app connects through **his own gateway-kh app rather than a GenStudio account**, and that a
+  Developer ID / notarized distribution is not needed for personal use. The bounded paid check the X-07 row
+  had prepared was therefore never run and is dropped, and X-07 is closed. **Recorded as owner-attested, not
+  as machine-verified by this session:** nothing here may claim that paid generation, upload or signed
+  distribution was verified by these tools. The quarantine instruction he asked to sit with the DMG is
+  already in both places — `build/READ ME FIRST.txt` (Step 2, `xattr -dr com.apple.quarantine
+  "/Applications/Story Studio KH.app"`) and `README.md` (`xattr -cr "/Applications/Story Studio KH.app"`) —
+  so no rebuild was needed; the two commands differ (`-cr` also clears `com.apple.provenance`) and are left
+  as they are unless he wants one canonical line. The gateway clarification does not change any contract:
+  Story Studio still talks to exactly one endpoint (AGENTS.md §7), whose default is the local gateway.
+  No commits/pushes/paid calls/uploads.
