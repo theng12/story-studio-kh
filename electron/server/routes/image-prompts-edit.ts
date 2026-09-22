@@ -74,6 +74,16 @@ const RegenerateSchema = z.object({
   aspect_ratio: z.string().optional(),
   /** Recipe-owned copy strategy; short hooks are re-rendered as hooks, not full titles. */
   headline_mode: z.enum(['episode-title', 'curiosity-hook']).optional(),
+  /**
+   * NEW-10 — the lettering the workspace currently has selected. Without these
+   * the enforced ratio/title clause a regenerated row receives said "a font
+   * chosen to suit the concept" even when the customer had chosen one. Omitted
+   * means exactly what it meant before: no style is asserted.
+   */
+  thumb_font_style: z.string().max(200).optional(),
+  thumb_text_style: z.string().max(200).optional(),
+  thumb_font_style_custom: z.string().max(240).optional(),
+  thumb_text_style_custom: z.string().max(240).optional(),
   /** The character CEILING the rewrite is written under — the intended image
    *  model's published `max_prompt_characters`, resolved by the workspace.
    *  Absent = no limit in force. Never a length to fill; the result is never
@@ -239,6 +249,12 @@ router.post(
             aspectRatio: (req.body.aspect_ratio as string | undefined) || '16:9',
             title: req.body.headline_mode === 'curiosity-hook' ? next.title || currentTitle : titleParam || currentTitle,
             headlineMode: req.body.headline_mode as 'episode-title' | 'curiosity-hook' | undefined,
+            // NEW-10 — the workspace's current lettering, when it sent any, so a
+            // single-row regeneration states the same style the bulk run would.
+            fontStyle: typeof req.body.thumb_font_style === 'string' ? req.body.thumb_font_style : undefined,
+            textStyle: typeof req.body.thumb_text_style === 'string' ? req.body.thumb_text_style : undefined,
+            fontCustomText: typeof req.body.thumb_font_style_custom === 'string' ? req.body.thumb_font_style_custom : undefined,
+            textCustomText: typeof req.body.thumb_text_style_custom === 'string' ? req.body.thumb_text_style_custom : undefined,
           })
         }
 

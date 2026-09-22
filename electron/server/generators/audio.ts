@@ -36,6 +36,7 @@ import {
   resolveTtsRequestBudget,
   selectNarrationSections,
 } from '../services/tts-request-plan.js'
+import { chapterScriptFingerprint } from '../services/audio-quality.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -674,6 +675,16 @@ export async function generateAudio(job: Job): Promise<void> {
   for (const s of allSections) {
     job.output_lines.push(`  ${s.label} (${s.text.length.toLocaleString()} chars)`)
   }
+  // X-01 — capture each section's durable script fingerprint HERE, while the
+  // text is still exactly what the script file holds. Everything below
+  // transforms this array in memory for the run: expression markup swaps in
+  // tagged text, normalization cleans it, auto-pacing appends pause tags. The
+  // freshness check later recomputes the fingerprint from the script file, so
+  // recording a transformed value made a run with expression or auto-pacing
+  // report "the script changed" the moment a customer changed nothing.
+  const scriptFingerprints = new Map(
+    allSections.map(section => [section.slug, chapterScriptFingerprint(section.text)]),
+  )
 
   // v1.0.381/387/388 — inline expression markup. When the operator enabled the
   // expressive script, swap each section's spoken text for its tagged version
@@ -1388,7 +1399,16 @@ export async function generateAudio(job: Job): Promise<void> {
         if (task?.task_id) taskIds[file] = task.task_id
         if (task?.idempotency_key) idempotencyKeys[file] = task.idempotency_key
       }
-      updates.push({ slug: section.slug, sourceFiles, sourceAudioHash, taskIds, idempotencyKeys, scriptHash: hashInput(section.text) })
+      updates.push({
+        slug: section.slug,
+        sourceFiles,
+        sourceAudioHash,
+        taskIds,
+        idempotencyKeys,
+        // X-01 — the fingerprint of the script ON DISK, never the transformed
+        // text this run generated from. See the capture above.
+        scriptHash: scriptFingerprints.get(section.slug) ?? chapterScriptFingerprint(section.text),
+      })
     }
     const recoveryAssets = job.params?.genstudio_recovery?.version === 1
       && job.params.genstudio_recovery.route === 'genstudio'

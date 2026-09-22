@@ -1020,11 +1020,11 @@ async function refreshAmbientLibrary() {
   ambientLibraryLoading.value = true
   ambientLibraryError.value = ''
   try {
-    const r = await $fetch<{
+    const r = await $fetch(`/api/projects/${slug.value}/video-editor/ambient-files`) as {
       tracks: typeof ambientLibrary.value
       ambient_dir: string
       exists: boolean
-    }>(`/api/projects/${slug.value}/video-editor/ambient-files`)
+    }
     ambientLibrary.value = r.tracks || []
     ambientLibraryDir.value = r.ambient_dir || ''
     ambientLibraryExists.value = !!r.exists

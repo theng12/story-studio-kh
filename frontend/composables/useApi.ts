@@ -307,7 +307,7 @@ export function useApi() {
     const userHeaders: Record<string, string> = options.headers || {}
     const hasContentType = Object.keys(userHeaders).some(k => k.toLowerCase() === 'content-type')
     try {
-      return await $fetch<T>(`${baseURL}${path}`, {
+      return await $fetch(`${baseURL}${path}`, {
         ...options,
         headers: {
           // Only apply the JSON default when the caller hasn't set an explicit
@@ -315,7 +315,7 @@ export function useApi() {
           ...(hasContentType ? {} : { 'Content-Type': 'application/json' }),
           ...userHeaders,
         },
-      })
+      }) as T
     } catch (err: any) {
       // Redirect to /login on 401 in server mode. The error still bubbles
       // so per-component error handling sees it; the navigation just

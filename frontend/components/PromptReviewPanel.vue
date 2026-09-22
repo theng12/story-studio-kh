@@ -143,6 +143,16 @@ const props = defineProps<{
   pool?: 'scenes' | 'thumbnails' | 'all'
   /** Recipe-owned copy strategy for thumbnail rows. */
   thumbnailHeadlineMode?: string
+  /**
+   * NEW-10 — the lettering the workspace currently has selected. A single-row
+   * regeneration appends the same ratio/title clause the bulk run does, and
+   * without these that clause described an unchosen font to a customer who had
+   * chosen one. Omitted means "choose to suit the concept", exactly as before.
+   */
+  thumbnailFontStyle?: string
+  thumbnailTextStyle?: string
+  thumbnailFontStyleCustom?: string
+  thumbnailTextStyleCustom?: string
 }>()
 
 const { get, post, put } = useApi()
@@ -245,6 +255,12 @@ async function regenerateOne(
     current_prompt: payload.prompt,
     notes: payload.notes,
     headline_mode: kind === 'thumbnail' ? props.thumbnailHeadlineMode : undefined,
+    // NEW-10 — a regenerated thumbnail row keeps the workspace's lettering, so
+    // the enforced clause names the chosen style instead of a generic one.
+    thumb_font_style: kind === 'thumbnail' ? props.thumbnailFontStyle : undefined,
+    thumb_text_style: kind === 'thumbnail' ? props.thumbnailTextStyle : undefined,
+    thumb_font_style_custom: kind === 'thumbnail' ? props.thumbnailFontStyleCustom : undefined,
+    thumb_text_style_custom: kind === 'thumbnail' ? props.thumbnailTextStyleCustom : undefined,
     prompt_char_cap: (kind === 'scene' ? props.scenePromptCap : props.thumbnailPromptCap) || undefined,
     ...(payload.reword ? { reword: true } : {}),
   }

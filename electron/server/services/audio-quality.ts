@@ -77,6 +77,24 @@ async function activeChapters(episodeDir: string): Promise<AudioChapter[]> {
   }
 }
 
+/**
+ * The durable fingerprint of one chapter's script.
+ *
+ * X-01. The freshness check compares a value recorded at generation time with
+ * one recomputed from the script file later, so BOTH sides must describe the
+ * SCRIPT ON DISK and nothing else. The generator used to record
+ * `hashInput(section.text)` AFTER it had transformed that text in memory for
+ * the run — expression tags were swapped in and auto-pacing tags were appended —
+ * so any run with those features learned at quality-check time that "the script
+ * changed" when the customer had changed nothing.
+ *
+ * The recomputation trims before normalizing (`currentScript()` returns a
+ * trimmed string), so this does too: the two must be byte-identical inputs.
+ */
+export function chapterScriptFingerprint(rawSectionText: string): string {
+  return hashInput(normalizeForTts(rawSectionText.trim()).text)
+}
+
 async function currentScriptHash(scriptDir: string, episodeCode: string, slug: string): Promise<string | null> {
   return currentChapterScriptHash(scriptDir, episodeCode, slug)
 }
@@ -84,7 +102,7 @@ async function currentScriptHash(scriptDir: string, episodeCode: string, slug: s
 /** Shared with the local post-promotion refresh before it records active provenance. */
 export async function currentChapterScriptHash(scriptDir: string, episodeCode: string, slug: string): Promise<string | null> {
   const current = await currentScript(scriptDir, episodeCode, slug)
-  return current ? hashInput(normalizeForTts(current).text) : null
+  return current ? chapterScriptFingerprint(current) : null
 }
 
 async function currentScript(scriptDir: string, episodeCode: string, slug: string): Promise<string | null> {

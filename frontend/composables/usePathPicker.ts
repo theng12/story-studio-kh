@@ -86,14 +86,14 @@ export async function pickFolder(opts: PickerOptions = {}): Promise<string | nul
   if (isServerMode()) {
     return openModal<string | null>('dir', opts)
   }
-  const r = await $fetch<{ path: string | null }>('/api/system/pick-folder', {
+  const r = await $fetch('/api/system/pick-folder', {
     method: 'POST',
     body: {
       title: opts.title,
       buttonLabel: opts.button_label,
       defaultPath: opts.initial_path,
     },
-  })
+  }) as { path: string | null }
   return r.path
 }
 
@@ -104,10 +104,10 @@ export async function pickFile(opts: PickerOptions = {}): Promise<string | null>
   const filters = opts.extensions?.length
     ? [{ name: 'Allowed', extensions: opts.extensions.map(e => e.startsWith('.') ? e.slice(1) : e) }]
     : undefined
-  const r = await $fetch<{ path: string | null }>('/api/system/pick-file', {
+  const r = await $fetch('/api/system/pick-file', {
     method: 'POST',
     body: { title: opts.title, buttonLabel: opts.button_label, filters },
-  })
+  }) as { path: string | null }
   return r.path
 }
 
@@ -118,9 +118,9 @@ export async function pickFiles(opts: PickerOptions = {}): Promise<string[]> {
   const filters = opts.extensions?.length
     ? [{ name: 'Allowed', extensions: opts.extensions.map(e => e.startsWith('.') ? e.slice(1) : e) }]
     : undefined
-  const r = await $fetch<{ paths: string[] }>('/api/system/pick-files', {
+  const r = await $fetch('/api/system/pick-files', {
     method: 'POST',
     body: { title: opts.title, buttonLabel: opts.button_label, filters },
-  })
+  }) as { paths: string[] }
   return r.paths || []
 }

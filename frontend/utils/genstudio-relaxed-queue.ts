@@ -52,6 +52,7 @@ export function queueClassGroupLabel(
 
 function moneyFromCents(cents: number): string {
   const dollars = cents / 100
+  // model-drift-allow: this renders GenStudio's own published cents figure, never a Story-owned rate
   return `$${dollars.toLocaleString('en-US', {
     minimumFractionDigits: Number.isInteger(dollars) ? 0 : 2,
     maximumFractionDigits: 2,

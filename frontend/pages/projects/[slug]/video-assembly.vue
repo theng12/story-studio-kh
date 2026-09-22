@@ -3594,11 +3594,11 @@ async function refreshBackgroundLibrary() {
   bgLibraryLoading.value = true
   bgLibraryError.value = ''
   try {
-    const r = await $fetch<{
+    const r = await $fetch(`/api/projects/${slug.value}/video-editor/background-files`) as {
       backgrounds: typeof bgLibrary.value
       backgrounds_dir: string
       exists: boolean
-    }>(`/api/projects/${slug.value}/video-editor/background-files`)
+    }
     bgLibrary.value = r.backgrounds || []
     bgLibraryDir.value = r.backgrounds_dir || ''
     bgLibraryExists.value = !!r.exists
@@ -3656,11 +3656,11 @@ async function refreshOverlayLibrary() {
   overlayPickerLoading.value = true
   overlayPickerError.value = ''
   try {
-    const r = await $fetch<{
+    const r = await $fetch(`/api/projects/${slug.value}/video-editor/overlay-files`) as {
       overlays: typeof overlayLibrary.value
       overlays_dir: string
       exists: boolean
-    }>(`/api/projects/${slug.value}/video-editor/overlay-files`)
+    }
     overlayLibrary.value = r.overlays || []
     overlayLibraryDir.value = r.overlays_dir || ''
     overlayLibraryExists.value = !!r.exists

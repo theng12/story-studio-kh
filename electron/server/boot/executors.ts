@@ -44,6 +44,10 @@ import { registerJobCancellationAuditor } from '../services/job-cancellation-aud
 import { getAudioStatus } from '../services/audio-reconciler.js'
 import { getImageStatus, getVideoStatus } from '../services/asset-status.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
+import { inspectPromptCompletion } from '../services/prompt-completion.js'
+import { inspectMetadataCompletion } from '../services/metadata-completion.js'
+import { resolveResearchPaths } from '../lib/research-paths.js'
+import { isResearchComplete } from '../lib/research-verification.js'
 import { auditSceneClipCompletion, auditSceneImageCompletion } from '../services/scene-media-checkpoint.js'
 import { auditScenePromptCompletion } from '../services/scene-prompt-checkpoint.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
@@ -215,6 +219,31 @@ function registerCancellationAuditors(): void {
   registerJobCancellationAuditor('video', async job => {
     const status = await getVideoStatus(job.project_slug, job.episode_id)
     return status.total > 0 && status.present === status.total ? 'complete' : 'repair-required'
+  })
+  // NEW-02 — the text job types that had no auditor at all. A restart that
+  // removed the executor could leave a SETTLED provider task with nothing able
+  // to verify the local output, so the job failed loudly (DS-02). That is
+  // honest, but it is an error for work that may be complete. Each auditor
+  // reuses the same proof its generator already used, so "complete" still means
+  // verified output rather than a settled provider task (AGENTS.md §8), and an
+  // unreadable or partial artifact stays repair-required.
+  registerJobCancellationAuditor('image_prompts', async job => {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const audit = await inspectPromptCompletion(paths.thumb_prompts_dir, job.episode_id, 'thumbnail')
+    return audit.authoritative && audit.complete ? 'complete' : 'repair-required'
+  })
+  registerJobCancellationAuditor('metadata', async job => {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const audit = await inspectMetadataCompletion(paths.metadata_dir, job.episode_id)
+    return audit.authoritative && audit.complete ? 'complete' : 'repair-required'
+  })
+  registerJobCancellationAuditor('research_run', async job => {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const { jsonPath } = await resolveResearchPaths(paths.episode_dir, job.episode_id)
+    try {
+      const research = JSON.parse(await fs.readFile(jsonPath, 'utf-8'))
+      return isResearchComplete(research) ? 'complete' : 'repair-required'
+    } catch { return 'repair-required' }
   })
 }
 

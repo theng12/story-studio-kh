@@ -83,10 +83,10 @@ async function onSubmit() {
   error.value = null
   submitting.value = true
   try {
-    const r = await $fetch<{ username: string }>('/api/auth/login', {
+    const r = await $fetch('/api/auth/login', {
       method: 'POST',
       body: { username: username.value.trim(), password: password.value },
-    })
+    }) as { username: string }
     markAuthenticated(r.username)
     // Full reload to '/' so every cached useFetch / pinia store / composable
     // re-runs with the cookie set. Cleaner than trying to invalidate piecemeal.

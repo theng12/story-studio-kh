@@ -52,8 +52,14 @@ const MINIMUM_JUSTIFICATION_WORDS = 4
  * Module specifiers are file paths, not catalogue values. Matched on what
  * precedes the string — NOT on the line starting with `import`/`export`, which
  * would blind the guard to `export const MODEL = 'gpt-4o'`.
+ *
+ * DS-14: the optional quote matters. Without it the exemption never matched the
+ * ordinary form — `import … from 'pkg'` leaves the OPENING QUOTE as the last
+ * character before the match, so `\s*$` failed and every quoted specifier was
+ * reported as a product id. A documented exemption that never fires is worse
+ * than none: it reads as protection that does not exist.
  */
-const MODULE_SPECIFIER_CONTEXT = /\b(?:from|import|require)\s*\(?\s*$/
+const MODULE_SPECIFIER_CONTEXT = /\b(?:from|import|require)\s*\(?\s*['"`]?\s*$/
 
 /**
  * Story Studio's OWN identifiers, not catalogue products.
@@ -600,31 +606,33 @@ function enclosingString(spans, source, offset) {
   return span ? source.slice(span[0] + 1, Math.max(span[0] + 1, span[1] - 1)) : null
 }
 
-const files = []
-for (const scanRoot of scanRoots) {
-  const path = join(repoRoot, scanRoot)
-  if (extname(path)) files.push(path)
-  else files.push(...await collectFiles(path))
-}
-files.sort()
+/**
+ * The rules, exported so a fixture test can prove every one of them still
+ * fires. A rule that quietly stops matching is the failure mode this whole
+ * check cannot see from the outside: the guard keeps printing "passed".
+ */
+export const modelDriftRules = rules
 
-const violations = []
-const malformedAllowances = []
-let allowedCount = 0
+/** The production scan roots, so a test can run the real check as a positive control. */
+export const modelDriftScanRoots = scanRoots
 
-for (const file of files) {
-  const raw = await readFile(file, 'utf8')
-  if (!raw.includes(ALLOW_ANNOTATION)
-    && !/gpt-|claude-|gemini-|flux|seedream|kling|veo|sora|runway|wan|hailuo|whisper|eleven|qwen|nano-banana|genstudio-|imagen|dall-e|seedance|credit|price|cost|usd|token|character|kie|fal\.ai|openrouter|genaipro|deepseek|perplexity|anthropic|open ?ai|opencode|studio ?hub|\d{1,2}:\d{1,2}|\d{3,4}p/i.test(raw)) {
-    continue
-  }
+/**
+ * Analyze one source file's TEXT. Pure, so a fixture can be any string.
+ *
+ * `relativePath` is used only in the report and in the rules that care which
+ * side of the app a file is on, so a synthetic path behaves exactly as a real
+ * one does.
+ */
+export function analyzeModelDriftSource(raw, relativePath) {
+  const violations = []
+  const malformedAllowances = []
+  let allowedCount = 0
 
   const { code, stringSpans } = stripComments(raw)
   const rawLines = raw.split('\n')
   const codeLines = code.split('\n')
   const lineOf = lineIndexBuilder(code)
   const allowances = readAllowances(rawLines, codeLines)
-  const relativePath = relative(repoRoot, file)
 
   for (const rule of rules) {
     rule.pattern.lastIndex = 0
@@ -674,7 +682,44 @@ for (const file of files) {
       })
     }
   }
+
+  return { violations, malformedAllowances, allowedCount }
 }
+
+/**
+ * The whole check, pointed at any root. The CLI passes the repository and the
+ * production `scanRoots`; a fixture test passes a temporary directory, so the
+ * file walk, the coarse gate and the per-file analysis are the SAME code the
+ * release gate runs — not a re-implementation that could pass while the real
+ * one is broken.
+ */
+export async function scanForModelDrift({ root, roots }) {
+  const files = []
+  for (const scanRoot of roots) {
+    const path = join(root, scanRoot)
+    if (extname(path)) files.push(path)
+    else files.push(...await collectFiles(path))
+  }
+  files.sort()
+
+  const violations = []
+  const malformedAllowances = []
+  let allowedCount = 0
+  let filesScanned = 0
+
+  for (const file of files) {
+    const raw = await readFile(file, 'utf8')
+    filesScanned += 1
+    const analyzed = analyzeModelDriftSource(raw, relative(root, file))
+    violations.push(...analyzed.violations)
+    malformedAllowances.push(...analyzed.malformedAllowances)
+    allowedCount += analyzed.allowedCount
+  }
+
+  return { files, filesScanned, violations, malformedAllowances, allowedCount }
+}
+
+const { files, violations, malformedAllowances, allowedCount } = await scanForModelDrift({ root: repoRoot, roots: scanRoots })
 
 const failures = [...malformedAllowances]
 

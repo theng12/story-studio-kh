@@ -149,7 +149,7 @@ const canConfirm = computed(() => {
 // Load quick locations once on first mount.
 onMounted(async () => {
   try {
-    const r = await $fetch<{ locations: QuickLocation[] }>('/api/system/quick-locations')
+    const r = await $fetch('/api/system/quick-locations') as { locations: QuickLocation[] }
     quickLocations.value = r.locations || []
   } catch { /* non-fatal — sidebar just shows empty */ }
 })
@@ -172,10 +172,10 @@ async function loadDir(p: string) {
   loading.value = true
   error.value = null
   try {
-    const r = await $fetch<{ path: string; parent: string | null; entries: BrowseEntry[] }>(
+    const r = await $fetch(
       '/api/system/browse-dir',
       { method: 'POST', body: { path: p, show_hidden: showHidden.value } },
-    )
+    ) as { path: string; parent: string | null; entries: BrowseEntry[] }
     currentPath.value = r.path
     manualPath.value = r.path
     entries.value = filterEntriesByExtension(r.entries)

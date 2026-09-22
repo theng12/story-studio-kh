@@ -165,13 +165,14 @@ next unblocked packet without asking whether to proceed.
 | [x] | DS-11 | F-04, F-05: Settings status/hydration | complete | DeepSeek lead; `DS-11.md` |
 | [ ] | DS-12 | F-12–F-15: geometry, CSS and keyboard reachability | queued | unassigned |
 | [x] | DS-13 | Q-03: measure persistence/SSE cost before optimization | complete | DeepSeek lead; `DS-13.md` |
-| [ ] | DS-14 | M-08: model-drift guard fixture coverage | queued | unassigned |
-| [ ] | DS-15 | X-01: active audio versus script freshness investigation | queued | unassigned |
-| [ ] | DS-16 | X-02–X-05: reconcile historical leftovers and evidence limits | queued | unassigned |
+| [x] | DS-14 | M-08: model-drift guard fixture coverage | complete | DeepSeek lead; `DS-14.md` |
+| [x] | DS-15 | X-01: active audio versus script freshness investigation | complete | DeepSeek lead; `DS-15.md` |
+| [x] | DS-16 | X-02–X-05: reconcile historical leftovers and evidence limits | complete | DeepSeek lead; `DS-16.md` |
 | [x] | DS-17 | NEW-05, NEW-06, NEW-07: Content Store copy, gateway default, provider display | complete | DeepSeek lead; `DS-17.md` |
 | [x] | WIRE-01 | Gateway ask 1: `font_pack`/`lettering-style` delivery→prompt bridge | complete | DeepSeek lead; `WIRE-01-font-pack-bridge.md` |
 | [x] | WIRE-02 | Gateway ask 2: `metadata_formula` wire kind (owner-accepted) | complete | DeepSeek lead; `WIRE-02-metadata-formula-kind.md` |
 | [x] | WIRE-03 | Free-form "custom" lettering text reaches the prompt | complete | DeepSeek lead; `WIRE-03-custom-lettering-text.md` |
+| [x] | SMALL-01 | NEW-01, NEW-02, NEW-03, NEW-04, NEW-10: the small-fix list | complete | DeepSeek lead; `DS-17b-small-fixes.md` |
 | [x] | PING-01 | Ping gateway-kh when the 1.4.216 DMG exists (their step 1–4 hold) | complete | DeepSeek lead; `_handoffs/2026-09-22_story-ping-1.4.216-dmg.md` |
 | [ ] | ACCEPT-01 | Cross-workflow dev-Library acceptance | queued | DeepSeek lead (self-acceptance) |
 | [ ] | RELEASE-01 | Review, full gates, integration, main-built installer | queued | DeepSeek lead; commit/publish externally gated — **work committed `498c19cc` and pushed to `origin/codex/stabilization-takeover` (2026-09-22); integration into `main` and the main-built installer still open** |
@@ -490,7 +491,6 @@ seven kinds plus the unknown-kind guard. Reports:
 Gateway reply: `_handoffs/2026-09-22_story-response-wire-kind-parity.md`.
 
 ### WIRE-02 — `metadata_formula` wire kind (Gateway ask 2) — **accepted, owner-decided**
-
 **Disposition:** the owner ruled that Story sells metadata-formula as a Content Store product; wire
 kind **`metadata_formula`**, minimum app version **1.4.216**. The runtime was already built (pack
 schema, `metadataFormulaCatalogue()`, `metadataFormulaPlan()` → `buildDescriptionPrompt()`, project
@@ -512,6 +512,112 @@ effort's untracked `content-packs/rebuilt/` (created 01:24–02:09 today, mid-se
 **0**, 1,915 pass, `213/213 file(s)`, 2,118 marks; `npm run build` exit **0**; `npm run lint` exit 0
 with 0 errors (1,925 warnings); `check:changelog` and `git diff --check` exit 0; frontend typecheck
 unchanged at the 11 pre-existing `NEW-04` errors.
+
+### DS-14 — model-drift guard fixture coverage (M-08) — **accepted (self-acceptance)**
+
+**Disposition:** `fixed`. The guard is now exercisable on fixtures — it exports
+`analyzeModelDriftSource(raw, path)`, `scanForModelDrift({ root, roots })`, `modelDriftRules` and
+`modelDriftScanRoots`, with the CLI calling the same function — and seven cases prove it in both
+directions: every declared rule must fire on a real violation, the three **historical misses** are
+caught by name and file, and every legitimate control stays silent. The refactor is
+behaviour-preserving: original and refactored scripts produce byte-identical stdout and exit code.
+
+**Two real defects found, and one live violation exposed:**
+
+1. The coarse pre-filter could hide a whole file. `controls.stability` (a `named-control` violation)
+   and published fields such as `max_reference_images` contain none of its trigger words, so a file
+   whose only mistake was one of those was never read — and the guard still printed "passed". The
+   pre-filter is **removed**; a full scan costs **0.81 s for 708 files**.
+2. The documented module-specifier exemption never fired: `from 'pkg'` leaves the opening quote before
+   the match, which `\s*$` could not accept, so every quoted specifier was reported as a product id.
+   Fixed.
+3. Removing the pre-filter immediately surfaced a **live** finding the guard had always hidden:
+   `frontend/utils/genstudio-relaxed-queue.ts:55` rendered `$${…}` in a cost string. Investigated:
+   it renders **GenStudio's own published cents figure**, not a Story-owned rate, so it carries one
+   written `model-drift-allow` justification (exceptions 38 → 39) rather than a rules rewrite.
+
+**Evidence:** RED by restoring the pre-filter in the same code shape (2 fail / 5 pass) and by running
+`HEAD`'s guard against the tree with the annotation removed (exit **0** — missed) versus the fixed
+guard (exit **1**, naming the file and line); both files restored byte-identically. Green: release lane
+exit **0**, **43/43**, `5/5 file(s)` (was 36/4); `check:model-drift` exit 0; frontend lane exit **0**,
+1,916 pass, `213/213 file(s)`; `npm run build` exit **0**. Report:
+[`DS-14.md`](docs/handoffs/deepseek-reports/DS-14.md).
+**Limitation:** the guard is a source grep it always was; these fixtures prove the rules fire, not that
+the rules are complete — a mistake shape nobody has thought of yet still passes, which is why the
+exception list stays auditable and the fixture set is meant to grow with each new shape.
+
+### DS-16 — historical reconciliation and evidence limits (X-02–X-05) — **accepted (self-acceptance)**
+
+**Disposition:** read-only reconciliation, no production change. All eight appendix blocks are mapped
+to current source or released evidence, and the old notes are corrected where they were wrong:
+
+- **Integrated:** FIX-E2 (1.4.212 — an unpublished ceiling returns `null` and the page flag is copy
+  only, so Next and the batch controls stay usable), FIX-CONTENT (the reset now writes a durable
+  `invalid_state_reset` recovery incident beside the quarantine), FIX-SETTINGS (`?path=` containment is
+  applied at every site via `resolveAssetPath` + `isPreviewablePath`; the hardcoded `version: '0.1.0'`
+  is gone in favour of `resolveStoryStudioVersion()`; `lib/ttl-cache.ts` and its test are removed), and
+  FIX-RECOVERY (1.4.210 queue-cancellation lifetimes).
+- **Decided and implemented:** FIX-F as **X-06** (preset-only reusable guidance).
+- **Measured, no change:** the FIX-QUEUE "clone per frame" item is the SSE frame cost measured in
+  **DS-13** (4.9 KiB → 400.6 KiB per frame at 100 → 10,000 lines, one coalesced write per burst, no
+  observed impact). `useJobs` SSE retry and the `jobs.vue` items were closed by **DS-07** and **DS-08**;
+  crash-interrupted paid work by **DS-02**.
+- **Corrected notes:** `routes/debug.ts` is **not** "unused" — it is mounted (`routes/index.ts:84`) and
+  reachable by design, but gated by `requireSession` in server mode and by `requireAllowedHost` plus a
+  loopback bind in desktop mode, so it is support surface rather than an exposure (it returns absolute
+  paths, which is why the gating matters). Three FIX-QUEUE pointers (`:684`, `:1659`,
+  `routes/pipeline.ts:2202`) carry no description and no longer correspond to their lines; the nearest
+  current code was inspected and **no work was revived** from a bare pointer.
+- **Dormant, deliberately not repaired:** F-03, Y-07, P-05 — each is a reachability question with no
+  production caller at this base; a future caller must bring its own proof before behaviour changes.
+- **Retractions preserved:** Z-06, M-05, M-06, Y-01, plus the four inherited backlog retractions. None
+  was contradicted.
+- **No new bounded packet:** the leftovers are dormant-by-reachability, fail-closed by design, an
+  unresolvable old pointer, or already measured with no impact.
+
+**X-05 limitations** are recorded with reachability — the `/var` alias skip is a correct
+platform-conditional; the final check/unlink race is narrowed by the coordination lock and
+`O_NOFOLLOW` and cannot be closed by a path-based API; power-loss behaviour is untestable here without
+fault-injecting hardware; multi-file crash transactions are compensated by quarantine-before-reset,
+durable recovery incidents and provider-evidence guards. None justifies an architecture change.
+
+Report: [`DS-16.md`](docs/handoffs/deepseek-reports/DS-16.md).
+**Limitation:** source and released-changelog evidence only; the ledger's focused-green rows are cited
+as release evidence rather than re-executed here, and retained legacy data was left untouched.
+
+### SMALL-01 — the small-fix list (NEW-01, NEW-02, NEW-03, NEW-04, NEW-10) — **accepted (self-acceptance)**
+
+**Disposition:** all five fixed, each with a RED/GREEN pair and a restored file.
+
+- **NEW-04 — frontend typecheck.** Root cause found: Nuxt 4.5.2's generator emits `.nuxt/fetch.d.ts`
+  but never the `fetch.mjs` that `.nuxt/types/imports.d.ts` resolves the auto-import through, so the
+  global `$fetch` types with no type parameters and `$fetch<T>` is TS2558. Fixed at the 11 call sites
+  by turning the type argument into a trailing assertion (type-only; no dependency changed).
+  **`npm --prefix frontend run typecheck` is now exit 0** — green for the first time this session.
+- **NEW-03 — backend test PATH.** The runner prepends this checkout's `bundled/ffmpeg` when present.
+  RED with the runner at `HEAD`: 3 fail / 22 on `spawn ffmpeg ENOENT`; GREEN 62/62 with no manual
+  prefix.
+- **NEW-01 — the cancellation control names the missing key.** `reconcileCancellationJob` records
+  `MISSING_KEY_RECONCILIATION_DETAIL` (write-on-change, so DS-01's bounded growth holds). The first
+  attempt introduced a **stale-reason regression** the affected run caught: once a key exists the
+  reason made the admission guard refuse a legitimate cancellation, so `requestJobCancellation` now
+  drops exactly that reason when a key is configured. `job-cancel` + `job-cancellation-missing-key`
+  exit 0, **81/81**.
+- **NEW-02 — completion auditors.** `image_prompts`, `metadata` and `research_run` register auditors
+  that reuse `inspectPromptCompletion`, `inspectMetadataCompletion` and
+  `resolveResearchPaths` + `isResearchComplete`. Both directions pinned per type in
+  `text-job-completion-auditors.test.ts` (RED at `HEAD`: 4 fail).
+- **NEW-10 — a regenerated row names the chosen style.** The workspace's four lettering fields travel
+  with the regenerate request and reach the enforcement clause; omitted means unchanged. RED 2 fail,
+  GREEN 11/11.
+- Also fixed a round-2 slip this packet's `typecheck:electron` caught: `audio-script-freshness-hash.test.ts`
+  declared `let dir` without a type (tests are inside the electron typecheck).
+
+**Gates on the finished tree:** full backend exit **1** — **5,633 tests, 5,628 pass, 4 fail, 1 skip**,
+`516/516 file(s)`, 6,344 marks, the same four **external** content-pack failures; full frontend lane
+exit **0**, 1,916 pass, `213/213 file(s)`; `npm run build` exit **0**; both typechecks exit **0**;
+`check:changelog` and `git diff --check` exit 0. Report:
+[`DS-17b-small-fixes.md`](docs/handoffs/deepseek-reports/DS-17b-small-fixes.md).
 
 ## Remaining historical candidates — every open/partial row
 
@@ -552,7 +658,7 @@ historical line numbers are not authoritative.
 | F-14 | DS-12 | Settings Save remains reachable and obeys intended sticky behavior at multiple scroll offsets/sections. | partial |
 | F-15 | DS-12 | Every named overflow surface has reachable tail/actions using mouse and keyboard at desktop and narrow sizes. | open |
 | Q-03 | DS-13 | Measure representative large output serialization/persistence/SSE before claiming a performance defect or optimizing. | **measured — no observed user-impact case, no change.** Synthetic medians (3 passes, M2 Max): 1 job with 100/1,000/10,000 log lines writes 0.01/0.06/0.56 MiB in 6.7/7.5/20.8 ms; a full 750-job × 20-line history writes 0.96 MiB in 36.7 ms; one SSE frame is 4.9/39.2/400.6 KiB per subscriber. A 200-mutation burst coalesces to **1 atomic write**. The owner's real Library (9 projects, read-only) peaks at **592 log lines in one job (~100 KB record), 0.67 MiB `jobs.json`** — far below the synthetic extreme. No caps/caching/truncation proposed; durable evidence untouched. Script: `scripts/developer/measure-job-persistence-cost.ts`. |
-| M-08 | DS-14 | Synthetic missed-literal fixtures prove actual checker coverage while legitimate live-catalogue/local-policy cases pass. | open |
+| M-08 | DS-14 | Synthetic missed-literal fixtures prove actual checker coverage while legitimate live-catalogue/local-policy cases pass. | **fixed, self-accepted** ([DS-14](docs/handoffs/deepseek-reports/DS-14.md)): 7 fixture cases run the guard's real walk+analyzer from a temp dir; every declared rule must fire while every legitimate control stays silent. Two real defects found: the coarse pre-filter hid whole files (`controls.X`, `max_reference_images` carry no catalogue vocabulary — gate removed, full scan 0.81 s / 708 files), and the documented module-specifier exemption never matched a quoted specifier. Removing the gate surfaced a **live** finding (`genstudio-relaxed-queue.ts:55` rendered a dollar figure) which is GenStudio's own published cents value, so it carries a written `model-drift-allow` (39 exceptions). |
 
 ### Scope cards for later dispatch
 
@@ -641,11 +747,11 @@ violations and zero for valid controls. Do not blanket-suppress findings or clai
 
 | ID | Assignment / disposition | Required result | State |
 |---|---|---|---|
-| X-01 | DS-15, investigation before repair | Trace raw vs transformed script hashes, generation provenance, active selection and no-selector audio-quality paths. Prove changed script invalidates the right freshness decision without falsely invalidating equivalent TTS normalization. Record the exact caller chain and tests before changing the contract. Start at `audio-reconciler.ts`, `audio-quality.ts`, `generators/audio.ts`, `audio-quality-active-check-lifecycle.test.ts`. | queued |
-| X-02 | DS-16, historical evidence reconciliation | Map every appendix FIX-E2/F/QUEUE/YOUTUBE/CONTENT/CONTENT-REMAINING/SETTINGS/RECOVERY item to current source/release evidence, this queue, or an explicit remaining disposition. Do not revive integrated work because an old note says pending. Check debug-route reachability and TTL-cache retirement specifically; retained legacy data stays untouched. | queued |
-| X-03 | DS-16, assurance inventory | Review the other 57 historical rows: source-confirmed/focused-green residual proof, all 3 dormant reachability questions, duplicate and 4 retractions. Separate already-satisfied release checks from useful regression follow-up. Retractions stay retracted without new contradicting evidence. Identify any truly uncovered scenario as a new bounded packet, not an automatic repair. | queued |
-| X-04 | DS-16, external evidence | Two Symbolic Psychology checks require `STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT`; locate only owner-provided evidence or explicitly retain skips. Never fabricate or bypass evidence. | **decided — skips retained.** The owner elected to keep the two checks as explicit external-evidence skips and keep the honest wording. The evidence is demonstrably absent here: the documented root `~/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23` does not exist and Spotlight finds none of the four required files (`evidence-ledger.json`, `candidate-handoffs.json`, `receiver-handoff.json`, `review-requests.json`). The Content Pack lane stays **366 pass / 2 explicit skips**, and no record may describe them as passed; if the folder is ever recovered, the two checks run with the env var set. |
-| X-05 | DS-16, limitations record | Preserve platform-conditional `/var` alias skip, final path-check/unlink race, unproven physical power-loss behavior and multi-file crash-transaction limitations. Determine reachable/testable scenarios before architecture changes. These are limits, not all reproduced defects. | documented, further proof pending |
+| X-01 | DS-15, investigation before repair | Trace raw vs transformed script hashes, generation provenance, active selection and no-selector audio-quality paths. Prove changed script invalidates the right freshness decision without falsely invalidating equivalent TTS normalization. Record the exact caller chain and tests before changing the contract. Start at `audio-reconciler.ts`, `audio-quality.ts`, `generators/audio.ts`, `audio-quality-active-check-lifecycle.test.ts`. | **reproduced-fixed, self-accepted** ([DS-15](docs/handoffs/deepseek-reports/DS-15.md)): the recorded script fingerprint hashed the run's TRANSFORMED text (expression tags swapped in, auto-pacing appended) while the check recomputed it by normalizing the script file, so any expression/auto-pace run reported "the script changed" with nothing changed — measured `sha256:4bb06c57…` (recorded) vs `sha256:54e1d39b…` (recomputed). `chapterScriptFingerprint()` is now the single implementation used by both sides, and the generator captures it immediately after parsing, before every transformation. True positives preserved; 204/204 audio/tts regression; RED 2 fail / 5 pass with `audio.ts` at `HEAD`. |
+| X-02 | DS-16, historical evidence reconciliation | Map every appendix FIX-E2/F/QUEUE/YOUTUBE/CONTENT/CONTENT-REMAINING/SETTINGS/RECOVERY item to current source/release evidence, this queue, or an explicit remaining disposition. Do not revive integrated work because an old note says pending. Check debug-route reachability and TTL-cache retirement specifically; retained legacy data stays untouched. | **complete, self-accepted** ([DS-16](docs/handoffs/deepseek-reports/DS-16.md)): all eight blocks mapped to current source or release evidence. FIX-E2 integrated (1.4.212: unpublished ceiling returns `null`, the page's flag is copy only), FIX-F decided+implemented (X-06), FIX-CONTENT integrated (durable `invalid_state_reset` recovery incident), FIX-SETTINGS integrated (containment applied at every `?path=` site; version resolved live; `lib/ttl-cache.ts` and its test gone), FIX-RECOVERY integrated (1.4.210). **Debug-route check:** `/api/debug/info` is mounted and reachable by design, but gated by `requireSession` in server mode and by `requireAllowedHost`/loopback in desktop mode — support surface, not an exposure. **TTL-cache check:** removed, orphaned `endpoint_labels`/`hub_url`/`endpoint_disabled` left on disk and read by nothing. Three bare FIX-QUEUE pointers carry no description and no longer correspond to their lines: inspected at the current locations and **no work revived**. |
+| X-03 | DS-16, assurance inventory | Review the other 57 historical rows: source-confirmed/focused-green residual proof, all 3 dormant reachability questions, duplicate and 4 retractions. Separate already-satisfied release checks from useful regression follow-up. Retractions stay retracted without new contradicting evidence. Identify any truly uncovered scenario as a new bounded packet, not an automatic repair. | **complete, self-accepted** ([DS-16](docs/handoffs/deepseek-reports/DS-16.md)): 57 = 25 source-confirmed + 24 focused-green + 1 duplicate (H-09 → folded into H-11) + 3 dormant (F-03, Y-07, P-05 — reachability unestablished, **no speculative repair**) + 4 retracted (Z-06, M-05, M-06, Y-01 — preserved as negative evidence, none contradicted). No new bounded packet: everything left is either dormant-by-reachability, fail-closed by design, an unresolvable old pointer, or the two measured cost items from DS-13 with no observed impact. |
+| X-04 | DS-16, external evidence | Two Symbolic Psychology checks require `STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT`; locate only owner-provided evidence or explicitly retain skips. Never fabricate or bypass evidence. | **reconciled in DS-16 — skips retained.** The owner elected to keep the two checks as explicit external-evidence skips and keep the honest wording. The evidence is demonstrably absent here: the documented root `~/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23` does not exist and Spotlight finds none of the four required files (`evidence-ledger.json`, `candidate-handoffs.json`, `receiver-handoff.json`, `review-requests.json`). The Content Pack lane stays **366 pass / 2 explicit skips**, and no record may describe them as passed; if the folder is ever recovered, the two checks run with the env var set. |
+| X-05 | DS-16, limitations record | Preserve platform-conditional `/var` alias skip, final path-check/unlink race, unproven physical power-loss behavior and multi-file crash-transaction limitations. Determine reachable/testable scenarios before architecture changes. These are limits, not all reproduced defects. | **complete, self-accepted** ([DS-16](docs/handoffs/deepseek-reports/DS-16.md)): each limit stated with its reachability — `/var` alias is a correct platform-conditional skip; the check/unlink race is narrowed by the coordination lock and `O_NOFOLLOW` and cannot be closed by a path-based API; power-loss behaviour is untestable on this Mac without fault-injecting hardware; multi-file crash transactions are compensated by quarantine-before-reset, durable recovery incidents and provider-evidence guards. No architecture change is justified by any of them. |
 | X-06 | Owner decision, resolved 2026-09-22 | Reusable/channel Scene Plan guidance persistence: project config versus preset-only. Keep episode instructions separate. No speculative feature until owner decides. | **decided — preset-only, implemented and self-accepted** ([X-06 report](docs/handoffs/deepseek-reports/X-06.md)). A second, clearly labelled **Reusable guidance** box travels in Scene Plan presets and is applied only when the customer applies one; it never writes project config and never applies itself. `custom_instructions` stays excluded from presets (owner decision #9) and is now cleared on an episode change with an announcement (AGENTS.md §4 repair found in the same area). Both boxes are composed into the one guidance input the backend accepts. RED at `HEAD` (19 pass / 3 fail, file restored byte-identically); GREEN 22/22; regression 174/174; full frontend lane exit 0, 1,914 pass, 213/213 files; lint 0 errors; typecheck unchanged. |
 | X-07 | Owner decision, resolved 2026-09-22 | Optional external acceptance | Live paid generation, actual YouTube upload and signed/notarized public distribution were not tested. Mock/local acceptance does not prove them. Obtain explicit authority and a bounded spend/destination plan before any such check. | **decided — bounded paid generation only.** The owner authorized **one** real generation on the cheapest published model with a hard credit ceiling, to be agreed and recorded before the call, proving real cost, provider provenance and artifact ownership. A real YouTube upload and signed/notarized public distribution remain **deferred and unauthorized**; both stay recorded as unverified limits. No paid call may run until the model, the ceiling and the proving checks are written down here first. |
 
@@ -893,9 +999,9 @@ was built and verified locally at the owner's explicit request as a temporary ar
   `frontend/utils/job-presentation.ts`, `frontend/composables/useJobs.ts`,
   `frontend/components/EpisodeSelector.vue`, with the backend Jobs route/control definitions as the
   authority; the queued scope cards for DS-08 … DS-16 remain in this file. Outstanding follow-ups:
-  `NEW-02` (missing completion auditors for several text job types), `NEW-03` (bundled ffmpeg on
-  PATH for backend tests), `NEW-04` (frontend typecheck), `NEW-05`/`NEW-06`/`NEW-07` (fixed in
-  1.4.215), `NEW-08` (external: a private Content Pack is registered without its source directory, and
+  `NEW-02` (missing completion auditors for several text job types — **closed in SMALL-01, goal round 3**), `NEW-03` (bundled ffmpeg on
+  PATH for backend tests — **closed in SMALL-01**), `NEW-04` (frontend typecheck — **closed in SMALL-01**), `NEW-05`/`NEW-06`/`NEW-07` (fixed in
+  1.4.215), `NEW-01` (control names the missing key — **closed in SMALL-01**), `NEW-10` (regenerated row names the chosen style — **closed in SMALL-01**), `NEW-08` (external: a private Content Pack is registered without its source directory, and
   as of 2026-09-22 the same effort's untracked `content-packs/rebuilt/` `<slug>-v2` packs also trip
   three cross-pack-overlap guards; all four backend-gate failures are external to Story's own code).
   No commits/pushes/paid calls.
@@ -1128,3 +1234,69 @@ was built and verified locally at the owner's explicit request as a temporary ar
   branch is **not** integrated into `main`, no pull request was opened, and the commit author resolves
   to the machine-local identity `vengtheng@build-mac.local` (git config was not set), which
   is cosmetic and worth correcting before any integration. No signed/notarized release was built.
+- **2026-09-22 — DeepSeek lead, DS-14 (M-08, model-drift guard):** `fixed`, self-accepted. The guard is
+  now exercisable on fixtures (exports `analyzeModelDriftSource`, `scanForModelDrift`,
+  `modelDriftRules`, `modelDriftScanRoots`; the refactor is behaviour-preserving — original and
+  refactored scripts print byte-identical output). Two real defects found: the coarse pre-filter could
+  hide a whole file (`controls.X` and fields like `max_reference_images` contain none of its trigger
+  words — the gate is **removed**, a full scan is 0.81 s for 708 files), and the documented
+  module-specifier exemption never matched a quoted specifier. Removing the gate surfaced a **live**
+  finding (`frontend/utils/genstudio-relaxed-queue.ts:55` rendered a dollar figure — GenStudio's own
+  published cents value), which now carries one written `model-drift-allow` (39 exceptions). RED by
+  restoring the pre-filter (2 fail / 5 pass) and by running `HEAD`'s guard with the annotation removed
+  (exit 0 — missed) against the fixed guard (exit 1); both files restored byte-identically. Release
+  lane exit 0, **43/43**, `5/5 file(s)`; frontend lane exit 0, 1,916 pass; `npm run build` exit 0.
+  Report: `docs/handoffs/deepseek-reports/DS-14.md`.
+- **2026-09-22 — DeepSeek lead, DS-15 (X-01, audio freshness vs script):** `reproduced-fixed`,
+  self-accepted. The recorded script fingerprint hashed the run's **transformed** text (expression
+  tags swapped in, auto-pacing appended) while the check recomputed it by normalizing the script file,
+  so any expression or auto-pacing run reported "the script changed" with nothing changed — measured
+  `sha256:4bb06c57…` (recorded) vs `sha256:54e1d39b…` (recomputed). `chapterScriptFingerprint()` is now
+  the single implementation both sides use, and the generator captures it immediately after parsing,
+  before every transformation. A real script edit still changes the fingerprint. RED with `audio.ts`
+  at `HEAD` (2 fail / 5 pass, restored byte-identically); audio/tts regression **204/204**; full
+  backend gate **5,620/5,625 with the same 4 external failures**, `515/515 file(s)`; `npm run build`
+  exit 0; changelog bullet added for the user-visible false warning. Report:
+  `docs/handoffs/deepseek-reports/DS-15.md`.
+- **2026-09-22 — DeepSeek lead, DS-16 (X-02–X-05, historical reconciliation):** complete,
+  self-accepted, **read-only — no production file changed**. All eight appendix blocks mapped to
+  current source or released evidence: FIX-E2 integrated in 1.4.212 (an unpublished ceiling returns
+  `null`; `hasPublishedPromptBudget` is copy only, so Next and the batch controls stay usable);
+  FIX-CONTENT integrated (a durable `invalid_state_reset` recovery incident is written beside the
+  quarantine); FIX-SETTINGS integrated (`?path=` containment applied at every site; the hardcoded
+  `version: '0.1.0'` replaced by `resolveStoryStudioVersion()`; `lib/ttl-cache.ts` and its test
+  removed); FIX-RECOVERY integrated (1.4.210); FIX-F decided and implemented as X-06. Two old notes
+  corrected: `routes/debug.ts` **is** mounted and reachable (`routes/index.ts:84`) — support surface,
+  gated by `requireSession` in server mode and by `requireAllowedHost` plus a loopback bind in desktop
+  mode, so not an exposure; and three FIX-QUEUE bare pointers (`:684`, `:1659`,
+  `routes/pipeline.ts:2202`) have no description and no longer match their lines, so **no work was
+  revived**. The 57 non-open rows reviewed: 25 source-confirmed + 24 focused-green treated as release
+  evidence and regression fixtures, H-09 folded into H-11 as its canonical duplicate, F-03/Y-07/P-05
+  kept **dormant** (reachability unestablished, no speculative repair), and Z-06/M-05/M-06/Y-01 plus
+  the four inherited retractions preserved. No new bounded packet: the leftovers are
+  dormant-by-reachability, fail-closed by design, an unresolvable pointer, or measured in DS-13 with no
+  observed impact. X-05's four limits are recorded with reachability and no architecture change is
+  justified. Report: `docs/handoffs/deepseek-reports/DS-16.md`. No commits/pushes. Next: item 4 of the
+  owner's list (small fixes: NEW-10, NEW-01, NEW-02, NEW-03, NEW-04).
+- **2026-09-22 — goal re-armed.** The session goal was `disarmed` (the state a compacted/resumed
+  session enters, which stops automatic continuation until a human says continue). The owner's
+  "work your way through 1–6" is that instruction, so the goal was resumed (`activation: armed`) and
+  items 3–6 continue in subsequent rounds.
+- **2026-09-22 — DeepSeek lead, SMALL-01 (NEW-01, NEW-02, NEW-03, NEW-04, NEW-10):** all five fixed,
+  self-accepted; **both typechecks are green for the first time this session.** NEW-04's root cause is
+  Nuxt 4.5.2's missing generated `fetch.mjs`: the auto-import types `$fetch` with no type parameters,
+  so the 11 `$fetch<T>` call sites became trailing assertions (type-only, no dependency change) —
+  `npm --prefix frontend run typecheck` exit **0**. NEW-03: the backend test runner prepends the
+  checkout's `bundled/ffmpeg` (RED at `HEAD`: 3 fail / 22 on `spawn ffmpeg ENOENT`; GREEN 62/62 with no
+  manual prefix). NEW-01: the missing-key reason is recorded so the primary cancellation control names
+  the key; the first attempt introduced a stale-reason regression the affected run caught (a configured
+  key was still refused as missing), fixed in `requestJobCancellation` by dropping exactly that reason
+  when a key now exists — `job-cancel` + `job-cancellation-missing-key` **81/81**. NEW-02:
+  `image_prompts`, `metadata` and `research_run` register completion auditors reusing their generators'
+  own proofs, with **both directions** pinned per type (RED 4 fail at `HEAD`; GREEN 4/4). NEW-10: a
+  regenerated thumbnail row carries the workspace's four lettering fields into the enforcement clause
+  (RED 2 fail; GREEN 11/11). Also fixed a round-2 slip `typecheck:electron` caught (an untyped `let dir`
+  in the audio hash test). Full backend gate **5,628/5,633 with the same 4 external failures**,
+  `516/516 file(s)`; frontend lane exit 0, 1,916 pass, `213/213 file(s)`; `npm run build` exit 0.
+  Report: `docs/handoffs/deepseek-reports/DS-17b-small-fixes.md`. No commits/pushes. Next: item 5
+  (visual checks, needs the app on screen).

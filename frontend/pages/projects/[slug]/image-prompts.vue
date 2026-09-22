@@ -892,6 +892,10 @@
       :thumbnail-headline-mode="thumbnailHeadlineMode"
       :thumbnail-prompt-cap="effectivePromptCharCap || null"
       :thumbnail-model-label="intendedImageModel?.display_name || ''"
+      :thumbnail-font-style="form.thumbnail.thumb_font_style"
+      :thumbnail-text-style="form.thumbnail.thumb_text_style"
+      :thumbnail-font-style-custom="form.thumbnail.thumb_font_style_custom"
+      :thumbnail-text-style-custom="form.thumbnail.thumb_text_style_custom"
       pool="thumbnails"
     />
 

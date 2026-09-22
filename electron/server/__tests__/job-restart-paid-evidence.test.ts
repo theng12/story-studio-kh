@@ -7,7 +7,10 @@
  * must settle. What the boot path cannot know is what happens next. When the
  * provider answers `succeeded`, `finalizeSettledProviderJob` needs a registered
  * output auditor before it can move the row to a terminal state. `metadata`,
- * `image_prompts` and `research_run` register none (see
+ * `image_prompts` and `research_run` had none when this packet ran; NEW-02
+ * registered all three, and their own both-directions proof now lives in
+ * `text-job-completion-auditors.test.ts`. What this file pins is unchanged: the
+ * row must reach an honest terminal state either way (see
  * `boot/executors.ts:registerCancellationAuditors`), so their row is left
  * `running` — with the reconcile timer no longer rescheduled, no error, and no
  * Retry, because `retryTerminalJob` only accepts `error`/`cancelled`.

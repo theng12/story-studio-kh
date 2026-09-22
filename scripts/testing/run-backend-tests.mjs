@@ -7,6 +7,26 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+/**
+ * The bundled ffmpeg binaries, prepended to the child's PATH.
+ *
+ * NEW-03. Several backend tests exercise real ffmpeg work, and on a Mac with no
+ * system ffmpeg they failed with `ENOENT` unless the caller happened to run
+ * `PATH="$PWD/bundled/ffmpeg:$PATH" npm run test:backend`. A gate that only
+ * passes when the operator remembers an undocumented prefix is not a gate: the
+ * next person reads the failures as product defects. The app ships these
+ * binaries, so the suite uses the same ones.
+ *
+ * An absent directory changes nothing — a machine with a system ffmpeg still
+ * resolves normally.
+ */
+const BUNDLED_FFMPEG_DIR = path.join(ROOT, 'bundled', 'ffmpeg')
+let bundledFfmpegDir = null
+try {
+  await fs.access(path.join(BUNDLED_FFMPEG_DIR, 'ffmpeg'))
+  bundledFfmpegDir = BUNDLED_FFMPEG_DIR
+} catch { /* no bundled binaries on this checkout */ }
 const ELECTRON_ROOT = path.join(ROOT, 'electron')
 const PROBE_PATH = path.join(ROOT, 'scripts', 'release', 'fixtures', 'hermetic-backend-probe.test.mjs')
 // Preloaded into every backend test process so supertest binds the IPv4
@@ -197,6 +217,11 @@ async function run() {
       TEMP: sandbox,
       STORY_STUDIO_TEST_HARNESS_ROOT: sandbox,
       STORY_STUDIO_DISABLE_LISTEN: '1',
+      // NEW-03 — see BUNDLED_FFMPEG_DIR. Prepended, so a caller's own PATH still
+      // takes precedence for anything else it needed.
+      PATH: bundledFfmpegDir
+        ? [bundledFfmpegDir, process.env.PATH].filter(Boolean).join(path.delimiter)
+        : process.env.PATH,
       // `--import` rather than an argv flag: tsx re-spawns node for `--test`,
       // and NODE_OPTIONS is what survives that hop.
       NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import ${pathToFileURL(LOOPBACK_PRELOAD).href}`]

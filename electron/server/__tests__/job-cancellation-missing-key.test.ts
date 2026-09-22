@@ -235,3 +235,39 @@ test('missing key never replays an already-claimed cancellation, and a dispatche
     await jq._waitForJobPersistenceForTesting().catch(() => {})
   }
 })
+
+/**
+ * NEW-01 — the primary control must NAME the missing key.
+ *
+ * DS-01 bounded the waiting and kept the actionable sentence in `output_lines`,
+ * but the control the customer actually presses is derived from
+ * `reconciliation_error`, which the missing-key pass never set. So the button
+ * read "Checking cancellation" and gave no reason, while the sentence that
+ * explains it sat in the log beside it.
+ */
+test('missing key: the primary cancellation control names the key, not just "Checking cancellation"', async () => {
+  const { clearApiKey } = await import('../services/app-secrets-store.js')
+  const { classifyJobControl } = await import('../services/job-control.js')
+  await clearApiKey('genstudio')
+  const project = await pm.createProject({ name: 'Missing key control copy' })
+  const persisted = job('queued')
+  persisted.job_id = 'missing-key-control-copy'
+  await seed(project.slug, persisted)
+
+  await jq.getJobs(project.slug)
+  await waitFor(
+    () => (jq.getJob('missing-key-control-copy')?.output_lines || []).some(line => WAITING_LINE.test(line)),
+    { label: 'the missing-key waiting statement' },
+  )
+
+  const loaded = jq.getJob('missing-key-control-copy')!
+  const control = classifyJobControl(loaded, { remoteCancellationAudited: true })
+  const copy = `${control.label} ${control.reason}`
+
+  assert.match(copy, /GenStudio API key/,
+    'the control the customer presses must say the key is missing, not only that something is being checked')
+  assert.match(copy, /Settings/,
+    'it must say where to fix it — the whole point of naming the cause')
+  assert.match(copy, /cannot be confirmed yet|cannot confirm/i,
+    'and it must not claim the cancellation is progressing while no request can be made')
+})

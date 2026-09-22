@@ -669,6 +669,14 @@ function reportUnverifiedTranscriptionAbsence(job: Job): void {
 }
 
 /**
+ * The reason the primary Jobs cancellation control shows while no GenStudio key
+ * exists, so the control names the missing key instead of saying only that it is
+ * checking (NEW-01).
+ */
+const MISSING_KEY_RECONCILIATION_DETAIL =
+  'The GenStudio API key is not available on this Mac, so this cancellation cannot be confirmed yet. Add it in Settings → This Mac.'
+
+/**
  * Reconciliation has its own persisted set, not a queue worker slot. This is
  * critical after restart: it retains the duplicate lock while allowing normal
  * generation work in the same lane to proceed.
@@ -691,8 +699,20 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
       // the job waited. State the fact once, and write only when this pass
       // actually changed something.
       const line = 'Cancellation is waiting for the GenStudio API key to be available on this Mac.'
+      let changed = false
       if (!job.output_lines.slice(-8).includes(line)) {
         job.output_lines.push(line)
+        changed = true
+      }
+      // NEW-01 — the Jobs cancellation control derives its copy from
+      // `reconciliation_error`, so the same fact must live there too. Without
+      // this the primary control said "Checking cancellation" and named no
+      // reason while the actionable sentence sat in output_lines only.
+      if (job.reconciliation_error !== MISSING_KEY_RECONCILIATION_DETAIL) {
+        job.reconciliation_error = MISSING_KEY_RECONCILIATION_DETAIL
+        changed = true
+      }
+      if (changed) {
         await persistJob(job)
         emitUpdate(job)
       }
@@ -5733,6 +5753,17 @@ export async function requestJobCancellation(projectSlug: string, jobId: string)
   const job = jobs.get(jobId)
   if (!job || job.project_slug !== projectSlug) {
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+  }
+
+  // NEW-01 — the missing-key reason is written while no key exists, so the
+  // primary control can name the key instead of saying only that it is checking.
+  // Once a key IS configured that reason is stale, and leaving it standing would
+  // make the admission guard below refuse a cancellation the customer can now
+  // legitimately request (it classifies any reconciliation_error as
+  // return-later). Drop exactly that reason, and only when a key now exists.
+  if (job.reconciliation_error === MISSING_KEY_RECONCILIATION_DETAIL) {
+    const key = await getApiKey('genstudio').catch(() => '')
+    if (key) job.reconciliation_error = undefined
   }
 
   // A repeated click must not create another provider cancellation request.

@@ -130,3 +130,56 @@ describe('the job request carries the typed text into both builders', () => {
     assert.match(generatorSource, /thumb_font_style_custom\?: string/)
   })
 })
+
+/**
+ * NEW-10 — a single-row regeneration must state the same lettering the bulk run
+ * would. Its enforced ratio/title clause used to be built with no style at all,
+ * so a customer who had chosen a font was told "a font chosen to suit the
+ * concept" on the row they had just regenerated.
+ */
+describe('the single-row regeneration carries the workspace lettering', () => {
+  const routeSource = readFileSync(
+    fileURLToPath(new URL('../routes/image-prompts-edit.ts', import.meta.url)),
+    'utf8',
+  )
+  const panelSource = readFileSync(
+    fileURLToPath(new URL('../../../frontend/components/PromptReviewPanel.vue', import.meta.url)),
+    'utf8',
+  )
+  const pageSource = readFileSync(
+    fileURLToPath(new URL('../../../frontend/pages/projects/[slug]/image-prompts.vue', import.meta.url)),
+    'utf8',
+  )
+
+  test('the request schema accepts the four lettering fields', () => {
+    for (const field of ['thumb_font_style', 'thumb_text_style', 'thumb_font_style_custom', 'thumb_text_style_custom']) {
+      assert.match(routeSource, new RegExp(`${field}: z\\.string\\(\\)`),
+        `${field} must be accepted, or zod strips it before the handler`)
+    }
+  })
+
+  test('the route passes them into the enforcement clause', () => {
+    const enforceCall = routeSource.slice(
+      routeSource.indexOf('next.prompt = enforceThumbnailPromptElements('),
+      routeSource.indexOf('next.prompt = enforceThumbnailPromptElements(') + 1600,
+    )
+    assert.match(enforceCall, /fontStyle: typeof req\.body\.thumb_font_style === 'string'/)
+    assert.match(enforceCall, /textStyle: typeof req\.body\.thumb_text_style === 'string'/)
+    assert.match(enforceCall, /fontCustomText: typeof req\.body\.thumb_font_style_custom === 'string'/)
+    assert.match(enforceCall, /textCustomText: typeof req\.body\.thumb_text_style_custom === 'string'/)
+  })
+
+  test('the panel sends them and the page supplies them', () => {
+    const request = panelSource.slice(
+      panelSource.indexOf('const request = {'),
+      panelSource.indexOf('const operationId = freshPromptAction.begin(request, key)'),
+    )
+    for (const field of ['thumb_font_style:', 'thumb_text_style:', 'thumb_font_style_custom:', 'thumb_text_style_custom:']) {
+      assert.ok(request.includes(field), `the regeneration request must carry ${field}`)
+    }
+    for (const prop of ['thumbnail-font-style', 'thumbnail-text-style', 'thumbnail-font-style-custom', 'thumbnail-text-style-custom']) {
+      assert.ok(pageSource.includes(`:${prop}="form.thumbnail.`),
+        `the page must pass :${prop} from the form the customer is editing`)
+    }
+  })
+})

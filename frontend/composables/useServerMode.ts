@@ -80,7 +80,7 @@ export function initServerMode(): Promise<void> {
   if (_authCheckPromise) return _authCheckPromise
   _authCheckPromise = (async () => {
     try {
-      const r = await $fetch<{ username: string }>('/api/auth/me')
+      const r = await $fetch('/api/auth/me') as { username: string }
       state.isAuthenticated = true
       state.username = r.username
     } catch {
