@@ -10,17 +10,23 @@ without waiting for an external assigner.
 ## Start here
 
 **Takeover in effect (2026-09-21).** The lead session works the stabilization queue directly. There
-is no separate orchestrator gate: DS-01 through DS-11, DS-13 and X-06 were verified and accepted by the
-lead session,
-DS-12 (geometry/CSS/keyboard reachability) is **deferred until a session with the app on screen** because
-it needs real rendering, and
-DS-14–DS-16 are the next active packets, worked in reproduced-severity/dependency order without
-a new assignment. This supersedes the earlier "Astra assigns, reviews and accepts" workflow.
+is no separate orchestrator gate: DS-01 through DS-17b and X-01–X-06 were verified and accepted by the
+lead session, and **DS-12 (geometry/CSS/keyboard reachability) is now complete** — it was worked in the
+session that had the app on screen, and it produced three rendered fixes (F-15a, F-15b, and F-14, which
+the rendered pass exposed). The remaining work is the owner's ordered list: the two-episode walkthrough
+(ACCEPT-01), then the open decisions recorded below (`X-07` paid-call ceiling, `NEW-08` external
+content-pack source, and whether to land 1.4.217). This supersedes the earlier "Astra assigns, reviews
+and accepts" workflow.
 
 Base for the takeover: `6f3c4e3316854b5eb9bf6100f078064254f61445` on `main`.
-Working branch: `codex/stabilization-takeover` (uncommitted diff; no commits authorized).
+Working branch: `codex/stabilization-takeover`; `main` and `origin/main` are at `f56cd504` and already
+carry the 1.4.216 work. The branch also carries the other effort's content-packs commit `8051fc28`,
+deliberately not in `main` because it fails four content-pack guards.
 Checkout: `/build/Developer/story-studio-kh`.
 Inherited uncommitted work is preserved and recorded, never reset, stashed, rebased or discarded.
+**Version is 1.4.217 (pending):** the DS-12 fixes are uncommitted and await the owner's decision on
+commit, push, landing in `main` and a rebuilt DMG; the 1.4.216 DMG already exists at
+`dist/Story Studio KH 1.4.216-arm64.dmg` (sha256 `cfa817f2…`).
 
 **Goal:** stabilize existing behavior, not redesign the app or implement every historical allegation.
 **Approach:** reproduce one bounded concern, trace its callers, make the smallest complete repair
@@ -163,7 +169,7 @@ next unblocked packet without asking whether to proceed.
 | [x] | DS-09b | E-03, E-10: Introduction read failure + Scene Plan delete empty state | complete | DeepSeek lead; `DS-09b.md` |
 | [x] | DS-10 | E-04, E-05, E-07–E-09: media read/loading failures | complete | DeepSeek lead; `DS-10.md` |
 | [x] | DS-11 | F-04, F-05: Settings status/hydration | complete | DeepSeek lead; `DS-11.md` |
-| [~] | DS-12 | F-12–F-15: geometry, CSS and keyboard reachability | **in progress — rendered harness built, two exact failing consumers reported** | DeepSeek lead; `DS-12.md` |
+| [x] | DS-12 | F-12–F-15: geometry, CSS and keyboard reachability | **complete — rendered harness built, three layout defects fixed and re-measured; F-12 remains fixture-blocked** | DeepSeek lead; `DS-12.md` |
 | [x] | DS-13 | Q-03: measure persistence/SSE cost before optimization | complete | DeepSeek lead; `DS-13.md` |
 | [x] | DS-14 | M-08: model-drift guard fixture coverage | complete | DeepSeek lead; `DS-14.md` |
 | [x] | DS-15 | X-01: active audio versus script freshness investigation | complete | DeepSeek lead; `DS-15.md` |
@@ -653,10 +659,10 @@ historical line numbers are not authoritative.
 | E-09 | DS-10 | Delayed existing-subtitle response shows loading, not a false empty flash. | reproduced-fixed, self-accepted ([DS-10](docs/handoffs/deepseek-reports/DS-10.md)): `subtitlesStatusLoading`/`subtitlesStatusError`; the "No subtitle file…" claim requires a completed read for a real episode and a failed read is unknown + retryable. |
 | F-04 | DS-11 | Settings navigation fetches actual FFmpeg status before proposing install/recovery actions. | reproduced-fixed, self-accepted ([DS-11](docs/handoffs/deepseek-reports/DS-11.md)): entering the Files & maintenance tab probes `/ffmpeg/status`, a failed check is an explicit unknown with Retry instead of `{ installed: false }`, and the installer/manual fallback require a real status. |
 | F-05 | DS-11 | Hydration and both category watchers preserve the legitimate saved category; deliberate edits still persist. | reproduced-fixed, self-accepted ([DS-11](docs/handoffs/deepseek-reports/DS-11.md)): the project-meta watcher no longer blanks `category_id` (the parallel meta/config fetch raced it and the next save persisted the clear); the per-project reset moved to the slug watcher, and an unsaved deliberate change survives a same-project refresh. |
-| F-12 | DS-12 | Long purchase dialogs retain reachable Cancel/Confirm at short/narrow viewports; do not submit a purchase. | **not yet tested** — the 800×500 pass needs the Content Store dialogs, which need a reachable catalogue (no key in the QA fixture). One dialog specimen was captured instead: the What's New dialog renders correctly at 900×640. |
-| F-13 | DS-12 | Named utility classes actually style sibling/teleported consumers in built CSS; verify computed style and specificity. | **not yet done** — the built-CSS specificity pass for `.input-sm`, `.btn-icon`, `.link-btn`, `.checkbox-label`, `.section-kicker`, `.card-actions` remains. |
-| F-14 | DS-12 | Settings Save remains reachable and obeys intended sticky behavior at multiple scroll offsets/sections. | partial — Settings measured at both viewports with **no unreachable element** and no page scroll; the multiple-scroll-offset and sticky-behaviour check remains. |
-| F-15 | DS-12 | Every named overflow surface has reachable tail/actions using mouse and keyboard at desktop and narrow sizes. | **in progress — two exact failing consumers reported with rendered evidence** ([DS-12](docs/handoffs/deepseek-reports/DS-12.md)): (a) Scene Plan's "Avoided imagery" `label.form-group`/`input` in `.scene-creative-controls` sits at `1313..1533` at 1440px — 93px past the viewport and 156px past its card, clipped by `main.main-content{overflow-x:hidden}` with no scroll ancestor; (b) Scene Review's `div.region.generate-region` (the primary CTA and status) sits at `1150..1453` — 13px past. Both reproduce on fresh navigation, neither is caused by this session's X-06 work (live-DOM A/B: hiding the new field leaves the rect identical). **Nothing patched yet** — the scope card requires reporting first. Keyboard traversal remains. |
+| F-12 | DS-12 | Long purchase dialogs retain reachable Cancel/Confirm at short/narrow viewports; do not submit a purchase. | **still blocked by the fixture** ([DS-12](docs/handoffs/deepseek-reports/DS-12.md)): the disposable library's Content Store reports `Discover 0 / Owned 0 / Installed 0 / Updates 0` and offers only Retry (no GenStudio scope or key), so `ContentPurchaseDialog`/`ContentBatchPurchaseDialog` cannot be opened at all. No purchase was attempted. The What's New dialog remains the one short-viewport specimen (900×640, renders correctly). |
+| F-13 | DS-12 | Named utility classes actually style sibling/teleported consumers in built CSS; verify computed style and specificity. | **verified** ([DS-12](docs/handoffs/deepseek-reports/DS-12.md)): all six are defined globally in `assets/css/main.css` (registered in `nuxt.config.ts`) and appear **unscoped** in the built `entry.*.css`. Consumers with no local rule compute exactly the declared values (`.link-btn` on `scripts.vue`, `.section-kicker` on `pipeline.vue`), and a probe element appended to `document.body` — outside `#__nuxt`, where every teleported dialog lives — computes all six correctly. A scan for other shared-but-scoped-only classes was attempted and abandoned as unparsable without a real template parser; recorded instead of a hand-picked list. |
+| F-14 | DS-12 | Settings Save remains reachable and obeys intended sticky behavior at multiple scroll offsets/sections. | **reproduced-fixed, self-accepted** ([DS-12](docs/handoffs/deepseek-reports/DS-12.md)): the Notification center save bar measured its exact natural document offset at every scroll position (1867/1411/955/500/44) — `position: sticky; bottom: 10px` was inert because `.notification-panel { overflow: hidden }` made the panel the bar's own scroll container. Live A/B: `overflow: visible` moves the bar to `833..898` at scrollTop 0. Fixed to `overflow: clip`; the bar is now inside the viewport at all five offsets (833/377/117/117/54). Caveat recorded: the 0%/25% offsets rest on geometry because this harness stopped producing fresh frames below ~y=250; the 50% frame shows the bar painted with its Save button. |
+| F-15 | DS-12 | Every named overflow surface has reachable tail/actions using mouse and keyboard at desktop and narrow sizes. | **reproduced-fixed, self-accepted** ([DS-12](docs/handoffs/deepseek-reports/DS-12.md)): both reported consumers were real and are fixed. (a) Scene Plan's "Avoided imagery" control sat at `1313..1533` — 93px past the viewport and 156px past its card, clipped by `main.main-content{overflow-x:hidden}`; the 680px three-column minimum is now a two-column layout inside the card, with the intensity picker spanning the row (a first attempt that only shrank the tracks ellipsised every intensity label to one letter and was rejected). (b) Scene Review's `generate-region` sat at `1150..1453`, 13px past; the tracks may now shrink. Re-measured: **0 unreachable** on both pages at 1600/1400/1280/1100/1024/900 and at 1440×900 / 900×640, no page scroll; Tab traversal reaches the Scene Plan input after 65/66 presses with the field fully in view and accepts typed text, and the Scene Review CTA (now `1088..1391`) is correctly skipped only because it is `disabled` in this empty fixture — its enabled path belongs to ACCEPT-01. |
 | Q-03 | DS-13 | Measure representative large output serialization/persistence/SSE before claiming a performance defect or optimizing. | **measured — no observed user-impact case, no change.** Synthetic medians (3 passes, M2 Max): 1 job with 100/1,000/10,000 log lines writes 0.01/0.06/0.56 MiB in 6.7/7.5/20.8 ms; a full 750-job × 20-line history writes 0.96 MiB in 36.7 ms; one SSE frame is 4.9/39.2/400.6 KiB per subscriber. A 200-mutation burst coalesces to **1 atomic write**. The owner's real Library (9 projects, read-only) peaks at **592 log lines in one job (~100 KB record), 0.67 MiB `jobs.json`** — far below the synthetic extreme. No caps/caching/truncation proposed; durable evidence untouched. Script: `scripts/developer/measure-job-persistence-cost.ts`. |
 | M-08 | DS-14 | Synthetic missed-literal fixtures prove actual checker coverage while legitimate live-catalogue/local-policy cases pass. | **fixed, self-accepted** ([DS-14](docs/handoffs/deepseek-reports/DS-14.md)): 7 fixture cases run the guard's real walk+analyzer from a temp dir; every declared rule must fire while every legitimate control stays silent. Two real defects found: the coarse pre-filter hid whole files (`controls.X`, `max_reference_images` carry no catalogue vocabulary — gate removed, full scan 0.81 s / 708 files), and the documented module-specifier exemption never matched a quoted specifier. Removing the gate surfaced a **live** finding (`genstudio-relaxed-queue.ts:55` rendered a dollar figure) which is GenStudio's own published cents value, so it carries a written `model-drift-allow` (39 exceptions). |
 
@@ -1317,4 +1323,33 @@ was built and verified locally at the owner's explicit request as a temporary ar
   specificity and F-15's keyboard traversal remain. Screenshots under
   `docs/handoffs/deepseek-reports/qa/`; report `docs/handoffs/deepseek-reports/DS-12.md`. QA app and
   Nuxt dev stopped afterwards. No commits/pushes/paid calls. Next: finish DS-12 (dialogs at 800×500,
-  built-CSS specificity, keyboard traversal) and fix F-15a/F-15b under bounded ownership.
+  built-CSS specificity, keyboard traversal) and fix F-15a/F-15b under bounded ownership.- **2026-09-22 — DeepSeek lead, DS-12 fixes and second rendered pass (F-12–F-15):** complete. Patched the
+  two reported consumers plus one more defect the rendered pass exposed, all in page-scoped CSS, then
+  re-measured in the live renderer. **F-15a** — `.scene-creative-controls` demanded 680px inside a ~509px
+  card, so "Avoided imagery" was laid out past the card and past the 1440px viewport and clipped; it is now
+  two columns with the intensity picker spanning the row. A first attempt (shrink the three tracks to
+  `minmax(0, …)`) fixed the geometry but squeezed the four intensity labels to one letter each, so it was
+  rejected on the rendered result, not the numbers. **F-15b** — the review command bar's
+  `minmax(350px,auto) minmax(420px,1fr) auto` tracks needed ~1189px in a ~1136px workspace at 1440, putting
+  the CTA 13px past the viewport; the tracks may now shrink (`minmax(0, …)` + `min-width: 0`). **F-14 (new)**
+  — the Notification center's `position: sticky; bottom: 10px` save bar was inert: it measured its natural
+  document offset at every scroll position (1867/1411/955/500/44) because `.notification-panel
+  { overflow: hidden }` made the panel the bar's own scroll container; `overflow: clip` keeps the corner
+  clipping without being a scroll container, and the bar is now inside the viewport at all five offsets
+  (833/377/117/117/54). **F-13** verified: all six named utilities are global in `assets/css/main.css`,
+  unscoped in the built entry CSS, compute their declared values on consumers with no local rule
+  (`.link-btn` on scripts, `.section-kicker` on pipeline), and style a probe element appended to
+  `document.body` — the DOM position every teleported dialog occupies. **F-12** stays fixture-blocked: the
+  Content Store in the disposable library has no scope or catalogue, so the purchase dialogs cannot be
+  opened and none was attempted. Re-measured after the fixes: **0 unreachable** elements on both pages at
+  1600/1400/1280/1100/1024/900 and at 1440×900 / 900×640 with no page scroll; Tab traversal reaches the
+  Scene Plan input after 65/66 presses with the field in view and accepts typed text; the Scene Review CTA
+  (now `1088..1391`) is skipped only because it is `disabled` in this empty fixture. Version moved to
+  **1.4.217** with a changelog entry. Gates on the final tree: `check:changelog` exit 0, `typecheck` exit 0,
+  frontend lane exit 0 (1,916 pass, 213/213 files), `npm run build` exit 0, backend gate 5,633 tests with the
+  same 4 external `content-packs/rebuilt/**` failures (absent from `main`). Honest gap recorded: the 0%/25%
+  sticky offsets rest on geometry because this harness stopped producing fresh frames below ~y=250 (two
+  captures returned a byte-identical PNG). Screenshots `docs/handoffs/deepseek-reports/qa/ds12-*.png`; report
+  `docs/handoffs/deepseek-reports/DS-12.md`. QA app and Nuxt dev stopped; installed app untouched. No
+  commits/pushes/paid calls. Next: owner's item 6 (two-episode walkthrough) and the 1.4.217 commit/land/DMG
+  decision.
