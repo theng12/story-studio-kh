@@ -292,3 +292,14 @@ work is integrated into `main`, build the final DMG from the **main** checkout w
 The artifact belongs in the repository-root `dist/`; verify its versioned `arm64` filename and the
 bundled `app.asar` version against `main`, and never copy a worktree-built DMG into `main`'s
 `dist/` before its source is integrated.
+
+## Working rules
+
+- **Every removal goes to this project's `_trash/` — never `rm`.** This covers *all*
+  of it, not only what the owner asks for: a file he names, and equally a file you
+  decide is clutter while cleaning up. Move it into `_trash/` (create the folder if
+  absent), keep any sub-structure, and say where it went. `_trash/` itself is his to
+  sort out: never delete or tidy anything *inside* it. The one thing that is not a
+  file is a Git branch or remote ref — record its name and SHA in a note under
+  `_trash/` before deleting it, and never rewrite published history.
+
