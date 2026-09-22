@@ -163,7 +163,7 @@ next unblocked packet without asking whether to proceed.
 | [x] | DS-09b | E-03, E-10: Introduction read failure + Scene Plan delete empty state | complete | DeepSeek lead; `DS-09b.md` |
 | [x] | DS-10 | E-04, E-05, E-07–E-09: media read/loading failures | complete | DeepSeek lead; `DS-10.md` |
 | [x] | DS-11 | F-04, F-05: Settings status/hydration | complete | DeepSeek lead; `DS-11.md` |
-| [ ] | DS-12 | F-12–F-15: geometry, CSS and keyboard reachability | queued | unassigned |
+| [~] | DS-12 | F-12–F-15: geometry, CSS and keyboard reachability | **in progress — rendered harness built, two exact failing consumers reported** | DeepSeek lead; `DS-12.md` |
 | [x] | DS-13 | Q-03: measure persistence/SSE cost before optimization | complete | DeepSeek lead; `DS-13.md` |
 | [x] | DS-14 | M-08: model-drift guard fixture coverage | complete | DeepSeek lead; `DS-14.md` |
 | [x] | DS-15 | X-01: active audio versus script freshness investigation | complete | DeepSeek lead; `DS-15.md` |
@@ -653,10 +653,10 @@ historical line numbers are not authoritative.
 | E-09 | DS-10 | Delayed existing-subtitle response shows loading, not a false empty flash. | reproduced-fixed, self-accepted ([DS-10](docs/handoffs/deepseek-reports/DS-10.md)): `subtitlesStatusLoading`/`subtitlesStatusError`; the "No subtitle file…" claim requires a completed read for a real episode and a failed read is unknown + retryable. |
 | F-04 | DS-11 | Settings navigation fetches actual FFmpeg status before proposing install/recovery actions. | reproduced-fixed, self-accepted ([DS-11](docs/handoffs/deepseek-reports/DS-11.md)): entering the Files & maintenance tab probes `/ffmpeg/status`, a failed check is an explicit unknown with Retry instead of `{ installed: false }`, and the installer/manual fallback require a real status. |
 | F-05 | DS-11 | Hydration and both category watchers preserve the legitimate saved category; deliberate edits still persist. | reproduced-fixed, self-accepted ([DS-11](docs/handoffs/deepseek-reports/DS-11.md)): the project-meta watcher no longer blanks `category_id` (the parallel meta/config fetch raced it and the next save persisted the clear); the per-project reset moved to the slug watcher, and an unsaved deliberate change survives a same-project refresh. |
-| F-12 | DS-12 | Long purchase dialogs retain reachable Cancel/Confirm at short/narrow viewports; do not submit a purchase. | open |
-| F-13 | DS-12 | Named utility classes actually style sibling/teleported consumers in built CSS; verify computed style and specificity. | open |
-| F-14 | DS-12 | Settings Save remains reachable and obeys intended sticky behavior at multiple scroll offsets/sections. | partial |
-| F-15 | DS-12 | Every named overflow surface has reachable tail/actions using mouse and keyboard at desktop and narrow sizes. | open |
+| F-12 | DS-12 | Long purchase dialogs retain reachable Cancel/Confirm at short/narrow viewports; do not submit a purchase. | **not yet tested** — the 800×500 pass needs the Content Store dialogs, which need a reachable catalogue (no key in the QA fixture). One dialog specimen was captured instead: the What's New dialog renders correctly at 900×640. |
+| F-13 | DS-12 | Named utility classes actually style sibling/teleported consumers in built CSS; verify computed style and specificity. | **not yet done** — the built-CSS specificity pass for `.input-sm`, `.btn-icon`, `.link-btn`, `.checkbox-label`, `.section-kicker`, `.card-actions` remains. |
+| F-14 | DS-12 | Settings Save remains reachable and obeys intended sticky behavior at multiple scroll offsets/sections. | partial — Settings measured at both viewports with **no unreachable element** and no page scroll; the multiple-scroll-offset and sticky-behaviour check remains. |
+| F-15 | DS-12 | Every named overflow surface has reachable tail/actions using mouse and keyboard at desktop and narrow sizes. | **in progress — two exact failing consumers reported with rendered evidence** ([DS-12](docs/handoffs/deepseek-reports/DS-12.md)): (a) Scene Plan's "Avoided imagery" `label.form-group`/`input` in `.scene-creative-controls` sits at `1313..1533` at 1440px — 93px past the viewport and 156px past its card, clipped by `main.main-content{overflow-x:hidden}` with no scroll ancestor; (b) Scene Review's `div.region.generate-region` (the primary CTA and status) sits at `1150..1453` — 13px past. Both reproduce on fresh navigation, neither is caused by this session's X-06 work (live-DOM A/B: hiding the new field leaves the rect identical). **Nothing patched yet** — the scope card requires reporting first. Keyboard traversal remains. |
 | Q-03 | DS-13 | Measure representative large output serialization/persistence/SSE before claiming a performance defect or optimizing. | **measured — no observed user-impact case, no change.** Synthetic medians (3 passes, M2 Max): 1 job with 100/1,000/10,000 log lines writes 0.01/0.06/0.56 MiB in 6.7/7.5/20.8 ms; a full 750-job × 20-line history writes 0.96 MiB in 36.7 ms; one SSE frame is 4.9/39.2/400.6 KiB per subscriber. A 200-mutation burst coalesces to **1 atomic write**. The owner's real Library (9 projects, read-only) peaks at **592 log lines in one job (~100 KB record), 0.67 MiB `jobs.json`** — far below the synthetic extreme. No caps/caching/truncation proposed; durable evidence untouched. Script: `scripts/developer/measure-job-persistence-cost.ts`. |
 | M-08 | DS-14 | Synthetic missed-literal fixtures prove actual checker coverage while legitimate live-catalogue/local-policy cases pass. | **fixed, self-accepted** ([DS-14](docs/handoffs/deepseek-reports/DS-14.md)): 7 fixture cases run the guard's real walk+analyzer from a temp dir; every declared rule must fire while every legitimate control stays silent. Two real defects found: the coarse pre-filter hid whole files (`controls.X`, `max_reference_images` carry no catalogue vocabulary — gate removed, full scan 0.81 s / 708 files), and the documented module-specifier exemption never matched a quoted specifier. Removing the gate surfaced a **live** finding (`genstudio-relaxed-queue.ts:55` rendered a dollar figure) which is GenStudio's own published cents value, so it carries a written `model-drift-allow` (39 exceptions). |
 
@@ -1300,3 +1300,21 @@ was built and verified locally at the owner's explicit request as a temporary ar
   `516/516 file(s)`; frontend lane exit 0, 1,916 pass, `213/213 file(s)`; `npm run build` exit 0.
   Report: `docs/handoffs/deepseek-reports/DS-17b-small-fixes.md`. No commits/pushes. Next: item 5
   (visual checks, needs the app on screen).
+- **2026-09-22 — DeepSeek lead, DS-12 first rendered pass (F-12–F-15):** in progress, report-only, no
+  patch. Built a real rendered harness this packet previously lacked: the dev app run with a
+  **disposable Library** (`/tmp/ssk-qa-data`) and `--remote-debugging-port`, driven over CDP to set
+  viewports, measure every element's rect/scroll width (walking ancestors for `overflow-x: auto|scroll`
+  so deliberate scrollers are not miscalled) and capture PNGs; fixtures seeded through the app's own
+  API with a deliberately over-long project name and episode titles. The owner's installed app ran
+  untouched throughout. Coverage: 13 routes × 1440×900 and 900×640; no page-level horizontal scroll
+  anywhere. **Two exact failing consumers (F-15), both reproducible and both clipped by
+  `main.main-content { overflow-x: hidden }`:** Scene Plan's "Avoided imagery" control at
+  `1313..1533` (93px past the viewport, 156px past its card, no scroll ancestor), and Scene Review's
+  `div.region.generate-region` CTA/status at `1150..1453` (13px past). The scene-plan finding is not
+  mine: a live-DOM A/B hiding the new `.guidance-reusable` field leaves the rect identical, and the
+  session diff only mentions `avoid_legible_text` in payload/preset hunks. Settings (F-14) measured
+  with zero unreachable elements and no page scroll; F-12's 800×500 purchase dialogs, F-13's built-CSS
+  specificity and F-15's keyboard traversal remain. Screenshots under
+  `docs/handoffs/deepseek-reports/qa/`; report `docs/handoffs/deepseek-reports/DS-12.md`. QA app and
+  Nuxt dev stopped afterwards. No commits/pushes/paid calls. Next: finish DS-12 (dialogs at 800×500,
+  built-CSS specificity, keyboard traversal) and fix F-15a/F-15b under bounded ownership.
