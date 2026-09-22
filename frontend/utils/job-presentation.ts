@@ -5,6 +5,129 @@ export interface JobControlLike {
   enabled: boolean
 }
 
+/**
+ * The ONE user-facing job-type label map (F-11).
+ *
+ * Four hand-maintained copies had drifted from the live `JobType` union in
+ * `electron/server/models/types.ts`, so several current types rendered as raw
+ * slugs in the Jobs rows, the completion toasts and the episode dropdown. This
+ * is the single authority all four now read. Legacy ids are kept so historical
+ * rows stay interpretable; `jobTypeLabel` still humanizes an unknown/future id
+ * rather than rendering a slug.
+ */
+export const JOB_TYPE_LABELS: Record<string, string> = {
+  idea_campaign: 'Idea Campaign',
+  'script-only': 'Script (chapters)',
+  'introduction-only': 'Introduction',
+  'chapter-only': 'Chapter regen',
+  outline_only: 'Script outline',
+  expand_chapters: 'Chapter expansion',
+  image_prompts: 'Prompts',
+  thumb_images: 'Thumbnail Images',
+  images_repair: 'Image Repair',
+  audio: 'Audio',
+  audio_merge: 'Audio Merge',
+  metadata: 'Metadata',
+  video: 'AI Video',
+  video_assembly: 'Video Assembly',
+  subtitles_transcribe: 'Subtitles',
+  youtube_upload: 'YouTube upload',
+  youtube_playlist_update: 'YouTube playlist',
+  youtube_thumbnail_refresh: 'YouTube thumbnail',
+  broll_select: 'B-roll selection',
+  broll_normalize: 'B-roll normalize',
+  broll_assemble: 'B-roll assembly',
+  research_run: 'Research',
+  scene_plan_run: 'Scene Plan',
+  scene_image_generate: 'Scene image',
+  scene_clip_generate: 'Motion clip',
+  scene_clips_batch: 'Motion Review clips',
+  continuity_render: 'Scene Review images',
+  composition_generate: 'Image composition',
+  expression_markup: 'Expression markup',
+  contextual_cues: 'Contextual Cues',
+  image_pool_generate: 'Image pool',
+  music_generate: 'Music generation',
+  music_video: 'Music video',
+  // Retired ids retained so old history rows stay readable.
+  images: 'Images (All)',
+  scene_images: 'Scene Images',
+  scene_images_batch: 'Scene Review Batch',
+  broll_autotag: 'B-roll tags',
+  thumb_prompts: 'Thumb Prompts',
+  tiktok_upload: 'TikTok upload',
+  facebook_upload: 'Facebook upload',
+}
+
+/** A human label for any job type; an unknown id is humanized, never a raw slug. */
+export function jobTypeLabel(type: string): string {
+  return JOB_TYPE_LABELS[type] || type.replace(/[_-]/g, ' ').replace(/\b\w/g, character => character.toUpperCase())
+}
+
+/** The label a specific job shows, including the prompt-mode distinction. */
+export function jobDisplayLabel(job: { type: string; params?: { mode?: unknown } | null }): string {
+  const mode = job.params?.mode
+  if (job.type === 'image_prompts' && mode === 'thumbnails') return 'Thumbnail Prompts'
+  if (job.type === 'image_prompts' && mode === 'scenes') return 'Scene Prompts'
+  return jobTypeLabel(job.type)
+}
+
+/**
+ * The frontend half of the backend's `retryAdmissionError` legacy rules
+ * (Q-06). These two shapes are always refused with a 409, so offering Retry —
+ * per row or through Retry all — is a dead end the user only discovers after
+ * clicking. Keep this in step with `routes/jobs.ts`.
+ */
+export function retryAdmissionAllowed(job: { type: string; params?: { mode?: unknown } | null }): boolean {
+  const mode = job.params?.mode
+  // Truthiness, not `=== undefined`: the backend's guard is
+  // `job.params?.mode && job.params.mode !== 'thumbnails'`, so any falsy mode
+  // (absent, null, empty string) is admitted.
+  if (job.type === 'image_prompts') return !mode || mode === 'thumbnails'
+  if (job.type === 'images') return !mode || mode === 'thumbs'
+  return true
+}
+
+export interface JobsEmptyStateInput {
+  hiddenInScope: number
+  showHidden: boolean
+  scopedJobs: number
+  typeFilter: string
+  typeLabel: string
+  statusFilter: string
+  batchFilter: string | null
+  universal: boolean
+}
+
+/**
+ * Q-08 — a status or batch filter that empties a nonempty list must say "no
+ * matches", not "no jobs yet". The page cannot know the difference from the
+ * filtered array alone, so the decision lives here where it can be tested.
+ */
+export function jobsEmptyState(input: JobsEmptyStateInput): { title: string; message: string } {
+  if (input.hiddenInScope > 0 && !input.showHidden) {
+    return {
+      title: 'No visible jobs',
+      message: 'Show hidden jobs to restore them. Work and settlement checks continue in the background.',
+    }
+  }
+  const filterActive = input.typeFilter !== 'all' || input.statusFilter !== 'all' || input.batchFilter !== null
+  if (filterActive && input.scopedJobs > 0) {
+    return {
+      title: 'No matching jobs',
+      message: `This view has ${input.scopedJobs} job${input.scopedJobs === 1 ? '' : 's'}, but none match the current filter. Clear the filter to see them.`,
+    }
+  }
+  return {
+    title: input.typeFilter === 'all' ? 'No jobs yet' : `No ${input.typeLabel} jobs`,
+    message: input.typeFilter === 'all'
+      ? (input.universal
+          ? 'Jobs from every project appear here automatically as soon as they are queued.'
+          : 'Start generating scripts, images, or audio to see this project’s background jobs here.')
+      : 'Try switching to the All tab to see other jobs.',
+  }
+}
+
 export interface JobFilterLike {
   type?: string
   status?: string

@@ -184,6 +184,36 @@ describe('the Content Store catalogue saved on this Mac', () => {
     assert.deepEqual(saved.shelves, [{ id: 'cshf_featured', title: 'Featured', productIds: ['formula'] }])
   })
 
+  test('every published wire kind survives a save/restore round trip', () => {
+    // The reader validates a product's kind against a list that used to be a
+    // private copy here — and that copy had fallen behind the wire contract: it
+    // never learned `font_pack`. Because ONE unrecognised product discards the
+    // whole document (the test below pins that), a catalogue containing a font
+    // pack was thrown away on every load. Ask 1/Ask 2, 2026-09-22.
+    const kinds = [
+      'series_formula', 'topic_pack', 'visual_style', 'thumbnail_recipe',
+      'font_pack', 'metadata_formula', 'niche_bundle',
+    ] as const
+    const products = kinds.map((kind, index) => ({
+      ...overviewProduct(),
+      productId: `p-${kind}`,
+      entitlementFamily: `family.${kind}`,
+      kind,
+      discount: null,
+      bundleComponents: [],
+      ownedComponentCreditValue: 0,
+    })) as unknown as ContentStoreProduct[]
+
+    const saved = serializePersistedCatalog(catalog(products))
+    const parsed = parsePersistedCatalog(saved, { now: Date.parse('2026-08-17T10:05:00Z') })
+
+    assert.ok(parsed, 'a catalogue containing any published kind must restore, not be discarded')
+    assert.deepEqual(
+      restoredCatalogProducts(parsed).map(product => product.kind).sort(),
+      [...kinds].sort(),
+    )
+  })
+
   test('restores a catalogue whose account-scoped placeholders assert nothing', () => {
     const parsed = parsePersistedCatalog(serializePersistedCatalog(catalog()), { now: Date.parse('2026-08-17T10:05:00Z') })
     assert.ok(parsed)

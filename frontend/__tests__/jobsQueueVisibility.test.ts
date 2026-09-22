@@ -93,3 +93,22 @@ test('Jobs shows a local lineup availability wait and clears it once work resume
   assert.equal(queueDetail({ ...job, status: 'running' }), '')
   assert.equal(queueDetail({ ...job, params: { llm_lineup_retry_at: 'invalid' } }), '')
 })
+
+/**
+ * E-11 (DS-07) — an unreadable queue status is unknown, not "running".
+ *
+ * `queuePaused` was a two-valued ref whose `catch` kept the last value, so a
+ * failed `/system/queue/status` read rendered the queue as running — AGENTS.md
+ * §6: "I could not work out the answer" must not share a value with "the
+ * answer is none". The page now keeps `null` for unreadable and says so.
+ */
+test('Jobs renders an unreadable queue status as unknown, never as running', () => {
+  assert.match(jobs, /const queuePaused = ref<boolean \| null>\(null\)/,
+    'the queue state must have an explicit unknown value')
+  const check = extractFunction('checkQueuePaused')
+  assert.match(check, /catch\s*\{[\s\S]*?queuePaused\.value = null/,
+    'a failed queue-status read must clear to unknown rather than keep the last answer')
+  assert.match(jobs, /queueStateUnknown/, 'the page must derive an unknown state')
+  assert.match(jobs, /queuePaused === true/, 'the paused banner must require a KNOWN paused state')
+  assert.match(jobs, /Queue state could not be read/, 'the page must tell the user the state is unknown')
+})

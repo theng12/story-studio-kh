@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.216 — 2026-09-22
+
+- A failed Introduction check no longer reads as “this channel has no Introduction”. Pipeline and Audio say they could not check the channel setting, keep the pre-spend warning visible, and offer Retry and a link to Introduction — instead of quietly writing episodes without the opening.
+- Deleting a Scene Plan now leaves an actionable “No plan yet” card with a Build action, instead of a heading with nothing under it.
+- A failed media read no longer reads as a confident empty answer. Video Assembly states that the asset check failed and can retry it rather than leaving the first step blank; the transition list and the subtitle-file check show when they are loading and offer Retry when the read fails, instead of sitting on “Loading transitions…” or claiming the episode has no subtitle file; and Subtitles and the chapter selector say they could not read the chapter audio or sections rather than telling you to generate audio or a script you already have.
+- Settings reads FFmpeg’s real status when you open its tab instead of offering a repair download it has not justified, and a failed check now says the status could not be read rather than reporting FFmpeg as not installed. A project’s saved YouTube category is no longer cleared when the project record reloads, so an unsaved choice and the saved value both survive; switching projects still blanks it and re-hydrates it from that project’s own settings.
+- Scene Plan has a second guidance box, **Reusable guidance**, for a rule you want on more than one episode. It is saved into Scene Plan presets and applied only when you apply that preset — it is never written to the project settings and never applies on its own. The **Custom instructions** box stays per-episode: its text is now cleared when you change episode (and says so), instead of silently steering the next episode’s prompts. When both boxes have text, the planner receives them labelled so the job log shows which is which.
+- A lettering style bought as a Content Pack now reaches the image prompt. The picker showed the swatch you paid for, but prompt writing looked the style up in the app’s built-in list only, so a pack font silently became the plain serif. Pack styles are now resolved from the installed catalogue; if that catalogue cannot be read, the job says so instead of quietly downgrading a style you own. Choosing **Custom…** and describing your own font or treatment now sends that description to the writer too — it used to fall back to the built-in serif or gold finish and ignore what you typed.
+- **Metadata Formula** packs can now be delivered and installed. They are the shapes an episode’s YouTube write-up can take — its sections, lengths, title shaping and tone — and five still ship free with the app. This also fixes the catalogue saved on your Mac being thrown away whenever it contained a font pack: the reader that validates a saved catalogue had never learned that kind, and one unrecognised product discarded the whole cache.
+
+## v1.4.215 — 2026-09-21
+
+- Job rows now name the provider that served each model (for example “DeepSeek V4.1 Flash · Token Harbour”) wherever the catalogue publishes one. Provider is display only: it never selects, ranks, or routes a request, and a model with no published provider shows nothing rather than a guess. The name is remembered for old rows after a model retires.
+- A gateway with no Content Store connected is no longer reported as a bad API URL or key. The key test says the Store is not connected instead of telling you to check a working key; generation is unaffected.
+- The built-in GenStudio endpoint is now `http://127.0.0.1:8787`, matching the gateway, so a fresh install reaches it without setting the URL by hand. A saved per-Mac URL is unchanged.
+
+## v1.4.214 — 2026-09-21
+
+- A missing GenStudio API key no longer repeats the same waiting message and rewrites the job record every five seconds. The job still keeps its duplicate lock and resumes reconciling the same provider cancellation as soon as the key is configured.
+- A restart that leaves already-paid GenStudio work no longer strands the job. When a settled provider task has no completion audit for its job type, the job now fails with a repair/Retry message instead of running forever with no Retry path, and its provider evidence is retained.
+- Audio status no longer predicts another episode's chunk split. When an episode has no recorded voice model and no audio job of its own, the split is borrowed from project history only when every retained audio job names the same model; conflicting models are treated as unknown rather than guessed.
+- Character Sheet clears the previous episode's anchors, pacing and references the moment the episode changes, instead of leaving them live until the new configuration finishes loading.
+- A render that falls back from the styled subtitle document now records the captions it lost. Word-by-word captions, animation, precise placement, blur, rounded boxes and line wrapping that the fallback cannot draw are listed on the job result and marked degraded, instead of reporting a clean success.
+- The All Jobs stream now tells the page when its first snapshot could not be read and buffers live updates behind that snapshot, instead of only writing to the server log. An unreadable queue status is shown as unknown rather than as a running queue, and the pause/resume control stays disabled until the state is known.
+- Job types now read with one human label everywhere — Jobs rows, completion toasts and the episode dropdown — covering thumbnail, motion, expression, image-pool and music work that previously showed raw internal ids. The permanently empty retired Scene Images tabs are gone, a filter that hides every job says “no matching jobs” instead of “no jobs yet”, the subtitle Retry tooltip no longer names a Repair control that is not shown, and Retry no longer offers legacy prompt/image jobs the backend refuses.
+- A workspace read that fails no longer renders as a confident empty answer. Scene Review shows a retry instead of “No scene plan yet”, Research says it could not check GenStudio access instead of claiming the API is unconfigured, and Pipeline says it could not load accepted ideas instead of “No accepted ideas yet”. Nothing on disk is changed by a failed read.
+
 ## v1.4.213 — 2026-09-21
 
 - Audio replacements become active only after every selected section is ready. Refused or incomplete replacements keep the prior model selection; Resume preserves the completed provider task identity, and multipart replacements stay selected even before Audio Assembly creates its selector.

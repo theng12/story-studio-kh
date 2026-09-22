@@ -23,6 +23,7 @@
  */
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
 
 import { useTempDataDir } from './_helpers.js'
@@ -157,6 +158,156 @@ test('a missing, corrupt, or unattributable record reads as "no record"', async 
     const record = await readAudioTtsModelRecord(paths.episode_dir)
     assert.equal(record?.model_id, 'recorded-voice-model')
     assert.equal(record?.request_budget, 0, 'zero means "not usable", so the caller re-resolves')
+  } finally {
+    await tmp.cleanup()
+  }
+})
+
+/**
+ * S-04 (DS-03) — the LEGACY BORROW that outlived the record fix.
+ *
+ * The record above settles the split for any episode that has one. What is left
+ * is `audio-reconciler.ts`'s last-resort history borrow, which reads the
+ * PROJECT's most recent audio job (`audioJobs[0]`) when the episode has no
+ * record and no job of its own. In a project whose episodes were voiced with
+ * different models that is another episode's model, and AGENTS.md §4 says a
+ * value belonging to one episode must not reach another. The borrow is only
+ * defensible when the project's history agrees on one model.
+ *
+ * These tests use the only two published budgets that matter — a per-model
+ * `maximum_input_characters` small enough to split a long chapter and one large
+ * enough not to — served from a fake catalogue.
+ */
+
+/** Long enough to split several times at the small model's ~180-char budget. */
+const SPLIT_CHAPTER = Array.from(
+  { length: 24 },
+  (_, i) => `Sentence number ${i + 1} carries enough words to occupy some room in the request.`,
+).join(' ')
+
+async function seedAudioHistory(
+  dataDir: string,
+  projectSlug: string,
+  jobs: Array<{ job_id: string; episode_id: string; model: string; finished_at: string }>,
+): Promise<void> {
+  await fs.writeFile(
+    path.join(dataDir, 'projects', projectSlug, 'jobs.json'),
+    JSON.stringify({
+      jobs: jobs.map(job => ({
+        job_id: job.job_id,
+        project_slug: projectSlug,
+        type: 'audio',
+        episode_id: job.episode_id,
+        title: `audio ${job.episode_id}`,
+        status: 'done',
+        created_at: job.finished_at,
+        started_at: job.finished_at,
+        finished_at: job.finished_at,
+        error: null,
+        output_lines: [],
+        params: { model: job.model },
+      })),
+    }),
+  )
+}
+
+/** Serve the live voice catalogue so the two models publish different boundaries. */
+async function withFakeTtsCatalogue<T>(run: () => Promise<T>): Promise<T> {
+  const { setGenStudioUrl } = await import('../services/app-settings.js')
+  const { setApiKey } = await import('../services/app-secrets-store.js')
+  const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+  await setGenStudioUrl('https://audio-ownership.test')
+  await setApiKey('genstudio', 'audio-ownership-key')
+  clearGenStudioCatalogCache()
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input))
+    if ((init?.method || 'GET').toUpperCase() === 'GET' && url.pathname === '/v1/tts/models') {
+      return Response.json([
+        {
+          id: 'project-model-small', display_name: 'Small budget',
+          credits_per_1000_characters: 1, minimum_credits: 1, maximum_input_characters: 200,
+          supports_speed: true, generation_enabled: true,
+        },
+        {
+          id: 'project-model-large', display_name: 'Large budget',
+          credits_per_1000_characters: 1, minimum_credits: 1, maximum_input_characters: 200_000,
+          supports_speed: true, generation_enabled: true,
+        },
+      ])
+    }
+    return Response.json({ detail: `unexpected ${url.pathname}` }, { status: 500 })
+  }
+  try {
+    return await run()
+  } finally {
+    globalThis.fetch = originalFetch
+    clearGenStudioCatalogCache()
+  }
+}
+
+test('S-04: two episode models and no local match means no borrowed split for this episode', async () => {
+  const { tmp, project, code, paths } = await episodeFixture('TTS cross-model borrow')
+  try {
+    await fs.writeFile(paths.narration_docx, `# Narration\n\n## Chapter 01: Cross model\n\n${SPLIT_CHAPTER}\n`)
+    // Two episodes, two models. The small-budget job is the most recent, so the
+    // old `audioJobs[0]` borrow would predict its parts for EP0001.
+    await seedAudioHistory(tmp.dir, project.slug, [
+      { job_id: 'other-episode-small', episode_id: 'EP0002', model: 'project-model-small', finished_at: '2026-09-20T00:00:00.000Z' },
+      { job_id: 'other-episode-large', episode_id: 'EP0003', model: 'project-model-large', finished_at: '2026-09-19T00:00:00.000Z' },
+    ])
+
+    await withFakeTtsCatalogue(async () => {
+      const { getAudioStatus } = await import('../services/audio-reconciler.js')
+      const status = await getAudioStatus(project.slug, code)
+      const names = status.expected.map(chunk => chunk.filename)
+      assert.deepEqual(
+        names,
+        [`${code}_Chapter_01.mp3`],
+        `a conflicting project history must not decide this episode's split; got ${JSON.stringify(names)}`,
+      )
+    })
+  } finally {
+    await tmp.cleanup()
+  }
+})
+
+test('S-04 control: this episode\'s own job decides the split, even when another episode is newer', async () => {
+  const { tmp, project, code, paths } = await episodeFixture('TTS own job wins')
+  try {
+    await fs.writeFile(paths.narration_docx, `# Narration\n\n## Chapter 01: Own job\n\n${SPLIT_CHAPTER}\n`)
+    await seedAudioHistory(tmp.dir, project.slug, [
+      { job_id: 'this-episode-large', episode_id: code, model: 'project-model-large', finished_at: '2026-09-19T00:00:00.000Z' },
+      { job_id: 'other-episode-small', episode_id: 'EP0002', model: 'project-model-small', finished_at: '2026-09-20T00:00:00.000Z' },
+    ])
+
+    await withFakeTtsCatalogue(async () => {
+      const { getAudioStatus } = await import('../services/audio-reconciler.js')
+      const status = await getAudioStatus(project.slug, code)
+      assert.deepEqual(status.expected.map(chunk => chunk.filename), [`${code}_Chapter_01.mp3`])
+    })
+  } finally {
+    await tmp.cleanup()
+  }
+})
+
+test('S-04 control: a single project-wide model is still borrowed for a legacy episode', async () => {
+  const { tmp, project, code, paths } = await episodeFixture('TTS unambiguous borrow')
+  try {
+    await fs.writeFile(paths.narration_docx, `# Narration\n\n## Chapter 01: Unambiguous\n\n${SPLIT_CHAPTER}\n`)
+    // Only one model appears anywhere in this project's audio history, so the
+    // legacy borrow is unambiguous and must keep working.
+    await seedAudioHistory(tmp.dir, project.slug, [
+      { job_id: 'only-job', episode_id: 'EP0002', model: 'project-model-small', finished_at: '2026-09-20T00:00:00.000Z' },
+    ])
+
+    await withFakeTtsCatalogue(async () => {
+      const { getAudioStatus } = await import('../services/audio-reconciler.js')
+      const status = await getAudioStatus(project.slug, code)
+      const names = status.expected.map(chunk => chunk.filename)
+      assert.ok(names.length > 1, `the single available model's split should still be predicted; got ${JSON.stringify(names)}`)
+      assert.ok(names.includes(`${code}_Chapter_01_part1.mp3`))
+    })
   } finally {
     await tmp.cleanup()
   }

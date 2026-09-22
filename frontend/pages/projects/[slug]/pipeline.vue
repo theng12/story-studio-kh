@@ -260,6 +260,20 @@
         Change it under <NuxtLink :to="`/projects/${slug}/introduction`">Introduction</NuxtLink>.
       </WorkspaceNotice>
 
+      <WorkspaceNotice
+        v-if="channelIntroUnknown"
+        tone="warning"
+        title="Could not check whether this channel opens with an Introduction"
+      >
+        The Introduction step follows the channel setting, which Story Studio could not read. It stays
+        off for this run rather than being guessed, so an episode the channel wants an opening for
+        would be written without one. Confirm the setting before running.
+        <template #actions>
+          <button type="button" class="btn btn-sm btn-secondary" @click="loadChannelIntroduction">Retry</button>
+          <NuxtLink :to="`/projects/${slug}/introduction`" class="btn btn-sm btn-secondary">Open Introduction</NuxtLink>
+        </template>
+      </WorkspaceNotice>
+
       <WorkspaceNotice v-if="preflightSummary" tone="success" title="Preflight passed">
         {{ preflightSummary }}
       </WorkspaceNotice>
@@ -430,6 +444,12 @@
 
       <div v-if="epLoading && !episodes.length" class="text-muted text-md mt-2">
         <LoadingSpinner size="sm" /> Loading episodes…
+      </div>
+
+      <!-- E-06 (DS-09) — a failed read is not "no accepted ideas". -->
+      <div v-else-if="!episodes.length && epError" class="text-muted text-md mt-2">
+        Could not load this project's accepted ideas. Nothing was changed.
+        <button class="btn btn-sm btn-secondary" @click="refreshEpisodes">Retry</button>
       </div>
 
       <div v-else-if="!episodes.length" class="text-muted text-md mt-2">
@@ -1246,14 +1266,20 @@ watch(slug, () => {
   savedLlmLineup.value = { enabled: false, models: [], prefer_savings: true }
 })
 
-const channelIntroEnabled = ref(false)
+// Tri-state (E-03): true = the channel opens with an Introduction, false = it
+// does not, null = the read failed. Encoding "could not check" as `false` used
+// to drop the Introduction step from a batch without a word and told the user
+// their channel had no opening — a confident answer to a question never
+// answered (AGENTS.md §6).
+const channelIntroEnabled = ref<boolean | null>(null)
+const channelIntroUnknown = computed(() => channelIntroEnabled.value === null)
 async function loadChannelIntroduction(): Promise<void> {
   try {
     const data = await get<{ segments?: Record<string, { enabled: boolean }> }>(
       `/projects/${slug.value}/segments`)
     channelIntroEnabled.value = data.segments?.introduction?.enabled === true
   } catch {
-    channelIntroEnabled.value = false
+    channelIntroEnabled.value = null
   }
 }
 watch(slug, () => { void loadChannelIntroduction() }, { immediate: true })
@@ -1268,7 +1294,7 @@ function clearSelectedSteps(): void {
  * the channel setting the run will actually follow.
  */
 function syncDerivedSteps(): void {
-  stepChecked['introduction-only'] = !!stepChecked['script-only'] && channelIntroEnabled.value
+  stepChecked['introduction-only'] = !!stepChecked['script-only'] && channelIntroEnabled.value === true
 }
 
 function selectRequiredSteps(): void {
@@ -1308,6 +1334,9 @@ function stepDisabled(stepId: StepId): boolean {
 }
 function stepDisabledReason(stepId: StepId): string {
   if (stepId !== 'introduction-only') return ''
+  if (channelIntroEnabled.value === null) {
+    return 'Story Studio could not check whether this channel opens with an Introduction, so the step stays off rather than being guessed. Open Introduction to confirm, then Retry.'
+  }
   if (!channelIntroEnabled.value) {
     return 'This channel does not open with an Introduction. Turn it on under Introduction in the sidebar.'
   }

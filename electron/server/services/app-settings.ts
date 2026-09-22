@@ -1108,28 +1108,24 @@ export async function setLastSeenVersion(version: string): Promise<void> {
 
 export const GENSTUDIO_URL_KEY = 'genstudio_url'
 /**
- * The built-in fallback endpoint — **gateway-kh on `:8000`**, correct as of
- * 2026-09-19.
+ * The built-in fallback endpoint — **gateway-kh on `:8787`**, correct as of
+ * 2026-09-21.
  *
- * This comment previously claimed the opposite: that `:8000` was the retired
- * GenStudio and the live service was `gateway-kh` on `:8010`. That was true for
- * part of 2026-09-18 and is now inverted — the gateway moved to `:8000` and
- * **nothing listens on `:8010` at all** (verified: `:8000` answers 401 without
- * a key, `:8010` refuses the connection). A reader following the old text would
- * have gone looking for a live service on a dead port, so the record is
- * corrected here rather than left to mislead.
+ * This constant has moved before, because the gateway has moved before: it has
+ * answered on `:8000` (old GenStudio, then gateway-kh), been documented at
+ * `:8010` for part of 2026-09-18, and on 2026-09-21 the owner moved it to
+ * `:8787` to avoid colliding with other local apps. The installed
+ * `/Applications/gateway-kh.app` was verified bound to `0.0.0.0:8787` and
+ * answering `401` without a key on both loopback and the Tailscale address.
+ * A reader who finds a different port in old notes is looking at history.
  *
  * The default is still only a fallback. The owner's saved `genstudio_url` is
- * what every call actually uses (`getGenStudioUrl` below).
+ * what every call actually uses (`getGenStudioUrl` below); this value decides
+ * only where a fresh, unconfigured install looks first.
  *
- * The trap worth knowing, and the reason this default is not simply deleted:
- * the old GenStudio and the gateway have both occupied `:8000` at different
- * times, so clearing this setting does not fail — it silently repoints Story
- * Studio at whatever is listening. If the catalogue looks frozen or an expected
- * model is missing, check `genstudio_url` before suspecting the service.
  * See `docs/genstudio-handoff/gateway-kh-story-studio-wiring.md` §1.
  */
-export const DEFAULT_GENSTUDIO_URL = 'http://127.0.0.1:8000'
+export const DEFAULT_GENSTUDIO_URL = 'http://127.0.0.1:8787'
 
 /**
  * GenStudio is intentionally configured separately from the local Hub. During

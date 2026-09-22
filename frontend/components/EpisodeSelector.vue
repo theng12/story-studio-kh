@@ -138,6 +138,7 @@
 <script setup lang="ts">
 import { STEP_STATUS_FIELD } from '~/composables/useProjectFlow'
 import { localMediaStatusLabel } from '~/composables/useEpisodes'
+import { jobTypeLabel } from '~/utils/job-presentation'
 
 const props = defineProps<{
   modelValue: string
@@ -468,27 +469,9 @@ watch(loading, (isLoading) => {
 }, { immediate: true })
 onBeforeUnmount(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 
-// v1.0.48 Layer 3 — pretty-print job types for the dropdown suffix.
-// Maps the internal job-type strings to short user-facing verbs.
-const JOB_TYPE_LABELS: Record<string, string> = {
-  'script-only':         'script',
-  'introduction-only':   'intro',
-  'outline_only':        'outline',
-  'expand_chapters':     'chapter expansion',
-  'chapter-only':        'chapter regeneration',
-  'metadata':            'metadata',
-  'thumb_prompts':       'thumb prompts',
-  'images':              'images',
-  'thumb_images':        'thumbnail images',
-  'images_repair':       'image repair',
-  'audio':               'audio',
-  'audio_merge':         'audio merge',
-  'subtitles_transcribe':'subtitles',
-  'video_assembly':      'video assembly',
-  'youtube_upload':      'YouTube upload',
-  'tiktok_upload':       'TikTok upload',
-  'facebook_upload':     'Facebook upload',
-}
+// F-11 — job-type labels come from the ONE authoritative map in
+// `~/utils/job-presentation`. This file used to keep its own short-verb map
+// missing most live types, so the dropdown rendered raw slugs.
 
 // Per-context suffix so the user can tell at a glance what each episode is ready for.
 // For video assembly specifically: ✓ rendered, ● ready to assemble, ○ missing inputs.
@@ -501,7 +484,7 @@ function statusSuffix(ep: any): string {
     // Pick the first job type alphabetically for stable display when
     // multiple are running (rare). Map to a friendly label.
     const primary = activeTypes.slice().sort()[0]
-    const label = JOB_TYPE_LABELS[primary] || primary
+    const label = jobTypeLabel(primary)
     return ` 🔄 generating ${label}…`
   }
   const s = ep.status || {}
@@ -597,7 +580,7 @@ async function onSelect(code: string) {
   const oldCode = props.modelValue
   const oldActive = oldCode ? activeJobsByEpisode.value.get(oldCode) : null
   if (oldCode && oldActive && oldActive.length > 0) {
-    const labels = oldActive.map(t => JOB_TYPE_LABELS[t] || t).join(', ')
+    const labels = oldActive.map(t => jobTypeLabel(t)).join(', ')
     const proceed = await ask({
       title: `Switch away from ${oldCode}?`,
       message:

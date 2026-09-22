@@ -646,14 +646,19 @@ const genStudioSource = ref<SourceInfo>({
   configured: false,
 })
 const sourcesLoading = ref(false)
+// E-02 (DS-09) — "the read failed" is not "no API key configured". Keeping the
+// two distinct stops the page sending the user to re-enter a valid key.
+const sourcesError = ref('')
 
 async function loadSources(): Promise<void> {
   sourcesLoading.value = true
   try {
     const r = await get<{ sources: SourceInfo[] }>('/research/sources')
     genStudioSource.value = r.sources.find(source => source.id === 'llm-only') || genStudioSource.value
+    sourcesError.value = ''
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to load research sources')
+    sourcesError.value = e?.data?.detail || e?.message || 'Failed to load research sources'
+    showError(sourcesError.value)
   } finally {
     sourcesLoading.value = false
   }
@@ -902,6 +907,8 @@ const canRun = computed(() => {
 const runDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!form.value.topic.trim()) return 'Enter a topic'
+  // E-02 — an unreadable source list is unknown, not "unconfigured".
+  if (sourcesError.value) return 'Could not check GenStudio access — reopen Research to retry'
   if (!genStudioSource.value?.configured) return 'GenStudio API not configured — Settings → This Mac'
   if (!modelReadiness.value.model) return modelReadiness.value.reason
   return ''

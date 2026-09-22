@@ -16,6 +16,11 @@
  *        because a restored `force: true` silently overwrites existing work.
  *   #9   exclude Scene Plan `custom_instructions`: an episode's written
  *        guidance stays with that episode.
+ *
+ * OWNER DECISION, 2026-09-22 (X-06): the reusable Scene Plan guidance box is
+ * preset-only. Its text MUST be captured by a preset (that is its only durable
+ * home — it is never written to project config) and must therefore stay out of
+ * `excludeKeys`, while `custom_instructions` remains excluded.
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -132,6 +137,99 @@ describe('the scene plan preset', () => {
     }
     assert.ok(keys.includes('custom_instructions'), 'an episode\'s written guidance must not ride along')
     assert.ok(!keys.includes('character_ids'), 'the cast is kept — owner decision #10')
+    // X-06 (owner decision 2026-09-22) — the reusable box IS the preset payload.
+    // Excluding it would strip it on write AND on read, and it has no other
+    // durable home: it is never written to project config.
+    assert.ok(!keys.includes('reusable_guidance'), 'reusable guidance must travel with the preset')
+    assert.match(
+      scenePlanSource,
+      /reusable_guidance: form\.value\.reusable_guidance,/,
+      'the page’s own snapshot must capture the reusable box — the round-trip '
+      + 'cases below supply their own snapshot and would not notice its absence',
+    )
+  })
+
+  test('X-06: the reusable guidance is captured and the episode guidance still is not', async () => {
+    const presets = scenePlanController('scene-plan-x06-save', () => ({
+      model: 'chosen-model',
+      reusable_guidance: 'one subject per scene; never render legible text',
+      custom_instructions: 'keep the protagonist off-centre',
+      episode_id: 'EP0007',
+    }), () => undefined)
+
+    await presets.saveAs('Channel rule')
+    const stored = configStore['scene-plan-x06-save'].scene_plan_presets[0].data
+
+    assert.equal(stored.reusable_guidance, 'one subject per scene; never render legible text',
+      'the reusable text must be in the preset — that is its only durable home')
+    assert.equal('custom_instructions' in stored, false,
+      'the episode-only box must still be excluded (owner decision #9)')
+    assert.equal('episode_id' in stored, false, 'the §4 identity leak must not return')
+  })
+
+  test('X-06: applying a preset restores its reusable guidance and never touches the episode box', async () => {
+    configStore['scene-plan-x06-apply'] = {
+      scene_plan_presets: [{
+        id: 'x06-1',
+        name: 'Channel rule',
+        type: 'scene-plan',
+        data: {
+          model: 'old-model',
+          reusable_guidance: 'the preset’s standing rule',
+          custom_instructions: 'the previous episode’s guidance',
+        },
+      }],
+      'scene_plan_last_preset_scene-plan': 'x06-1',
+    }
+    const live: Record<string, any> = {
+      model: 'live-model',
+      reusable_guidance: 'text the customer typed and has not saved',
+      custom_instructions: 'this episode’s own guidance',
+    }
+    const presets = usePresets<any>({
+      slug: 'scene-plan-x06-apply',
+      configKey: 'scene_plan',
+      presetType: 'scene-plan',
+      excludeKeys: scenePlanExcludeKeys(),
+      snapshot: () => ({}),
+      apply: data => Object.assign(live, data),
+    })
+
+    await presets.load()
+
+    assert.equal(live.reusable_guidance, 'the preset’s standing rule',
+      'applying a preset is the deliberate act that brings the reusable rule in')
+    assert.equal(live.custom_instructions, 'this episode’s own guidance',
+      'the episode box must be neither replaced nor blanked by a preset')
+  })
+
+  test('X-06: a preset saved before the reusable field existed does not blank the live text', async () => {
+    configStore['scene-plan-x06-legacy'] = {
+      scene_plan_presets: [{
+        id: 'legacy-no-guidance',
+        name: 'Old look',
+        type: 'scene-plan',
+        data: { model: 'old-model' },
+      }],
+      'scene_plan_last_preset_scene-plan': 'legacy-no-guidance',
+    }
+    const live: Record<string, any> = {
+      model: 'live-model',
+      reusable_guidance: 'text the customer typed and has not saved',
+    }
+    const presets = usePresets<any>({
+      slug: 'scene-plan-x06-legacy',
+      configKey: 'scene_plan',
+      presetType: 'scene-plan',
+      excludeKeys: scenePlanExcludeKeys(),
+      snapshot: () => ({}),
+      apply: data => Object.assign(live, data),
+    })
+
+    await presets.load()
+
+    assert.equal(live.reusable_guidance, 'text the customer typed and has not saved',
+      'a preset that never stored the field must leave the live value alone')
   })
 
   test('saving writes the reusable plan but not the episode guidance or identity', async () => {

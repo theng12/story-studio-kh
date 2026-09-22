@@ -3,13 +3,17 @@ import { useApi } from './useApi.js'
 import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
 import {
   buildGenStudioModelLabelEntries,
+  buildGenStudioModelProviderEntries,
   isGenStudioModelId,
   plainGenStudioModelName,
   type GenStudioDisplayCatalogEntry,
 } from '../utils/genstudio-model-display.js'
 
 const STORAGE_KEY = 'genstudio_model_display_labels_v1'
+const PROVIDER_STORAGE_KEY = 'genstudio_model_display_providers_v1'
 const labels = ref<Record<string, string>>({})
+// §2 provider transparency. Display only — nothing dispatches from this map.
+const providers = ref<Record<string, string>>({})
 
 // The label map is cumulative and localStorage-persisted by design: once a
 // model has been seen, its human-readable name stays available for old
@@ -97,6 +101,30 @@ function rememberLabels(next: Record<string, string>): void {
   try { storage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* best effort */ }
 }
 
+/** Same durable-map treatment as the names, so an old job row still names its provider. */
+function readRememberedProviders(): Record<string, string> {
+  const storage = store()
+  if (!storage) return {}
+  try {
+    const parsed = JSON.parse(storage.getItem(PROVIDER_STORAGE_KEY) || '{}')
+    if (!parsed || typeof parsed !== 'object') return {}
+    const healed: Record<string, string> = {}
+    for (const [id, provider] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof provider !== 'string' || !provider.trim()) continue
+      healed[id] = provider.trim()
+    }
+    return healed
+  } catch {
+    return {}
+  }
+}
+
+function rememberProviders(next: Record<string, string>): void {
+  const storage = store()
+  if (!storage) return
+  try { storage.setItem(PROVIDER_STORAGE_KEY, JSON.stringify(next)) } catch { /* best effort */ }
+}
+
 /**
  * Resolves GenStudio model ids into the account catalog's published model
  * names. Speech is in the map like every other modality now: the customer picks
@@ -119,8 +147,9 @@ export function useGenStudioModelDisplay() {
    */
   function hydrate(): void {
     const remembered = readRememberedLabels()
-    if (!Object.keys(remembered).length) return
-    labels.value = { ...remembered, ...labels.value }
+    if (Object.keys(remembered).length) labels.value = { ...remembered, ...labels.value }
+    const rememberedProviders = readRememberedProviders()
+    if (Object.keys(rememberedProviders).length) providers.value = { ...rememberedProviders, ...providers.value }
   }
 
   /**
@@ -129,20 +158,29 @@ export function useGenStudioModelDisplay() {
    * catalogue for itself; each of those reads is a chance to learn a name, and
    * the name it learns is what the next failed read will fall back on.
    */
-  function remember(entries: Array<{ id?: unknown; label?: unknown; legacy_ids?: unknown }>): void {
+  function remember(entries: Array<{ id?: unknown; label?: unknown; legacy_ids?: unknown; provider_name?: unknown }>): void {
     const next: Record<string, string> = {}
+    const nextProviders: Record<string, string> = {}
     for (const entry of entries || []) {
       const label = typeof entry?.label === 'string' ? plainGenStudioModelName(entry.label) : ''
-      if (!label) continue
+      const provider = typeof entry?.provider_name === 'string' ? entry.provider_name.trim() : ''
+      if (!label && !provider) continue
       const ids = [entry?.id, ...(Array.isArray(entry?.legacy_ids) ? entry.legacy_ids : [])]
       for (const rawId of ids) {
         const id = typeof rawId === 'string' ? rawId.trim() : ''
-        if (id) next[id] = label
+        if (!id) continue
+        if (label) next[id] = label
+        if (provider) nextProviders[id] = provider
       }
     }
-    if (!Object.keys(next).length) return
-    labels.value = { ...readRememberedLabels(), ...labels.value, ...next }
-    rememberLabels(labels.value)
+    if (Object.keys(next).length) {
+      labels.value = { ...readRememberedLabels(), ...labels.value, ...next }
+      rememberLabels(labels.value)
+    }
+    if (Object.keys(nextProviders).length) {
+      providers.value = { ...readRememberedProviders(), ...providers.value, ...nextProviders }
+      rememberProviders(providers.value)
+    }
   }
 
   /**
@@ -170,12 +208,29 @@ export function useGenStudioModelDisplay() {
     const current = Object.fromEntries(buildGenStudioModelLabelEntries(catalogCache.data.value))
     labels.value = { ...remembered, ...current }
     rememberLabels(labels.value)
+    const rememberedProviders = { ...readRememberedProviders(), ...providers.value }
+    const currentProviders = Object.fromEntries(buildGenStudioModelProviderEntries(catalogCache.data.value))
+    providers.value = { ...rememberedProviders, ...currentProviders }
+    rememberProviders(providers.value)
   }
 
   function displayName(modelId: unknown): string {
     const id = typeof modelId === 'string' ? modelId.trim() : ''
     if (!id) return ''
     return labels.value[id] || id
+  }
+
+  /**
+   * The provider name the catalogue published for a model id, or ''.
+   *
+   * Display only (AGENTS.md §2): never inferred from the id or a name pattern,
+   * never used to select or rank a provider, and never sent on a request.
+   * Absent means the catalogue published none — the row shows nothing.
+   */
+  function providerName(modelId: unknown): string {
+    const id = typeof modelId === 'string' ? modelId.trim() : ''
+    if (!id) return ''
+    return providers.value[id] || readRememberedProviders()[id] || ''
   }
 
   function hasReadableName(modelId: unknown): boolean {
@@ -196,6 +251,7 @@ export function useGenStudioModelDisplay() {
     remember,
     knownName,
     displayName,
+    providerName,
     hasReadableName,
   }
 }

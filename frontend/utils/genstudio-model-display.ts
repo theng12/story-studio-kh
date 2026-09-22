@@ -5,6 +5,9 @@ export type GenStudioModelKind = 'chat' | 'image' | 'video' | 'transcription' | 
 export interface GenStudioDisplayCatalogEntry {
   id: string
   display_name: string
+  /** §2 provider transparency — published display fields, never a dispatch input. */
+  provider_id?: string | null
+  provider_name?: string | null
   /** Owner-defined public handle, e.g. `gpt-image-2`. */
   customer_handle?: string | null
   public_model_id?: string | null
@@ -70,4 +73,34 @@ export function buildGenStudioModelLabelEntries(
 
 export function isGenStudioModelId(modelId: unknown): boolean {
   return typeof modelId === 'string' && /^genstudio(?:-|:)/i.test(modelId.trim())
+}
+
+/**
+ * §2 — every identifier a model answers to, mapped to the provider name the
+ * catalogue publishes for it.
+ *
+ * This is DISPLAY ONLY. It exists so a job row can say which provider served a
+ * model; it must never be read by anything that selects, ranks, prefers, or
+ * dispatches a provider, and no provider field is ever sent on a request.
+ * A model the catalogue publishes no provider for is simply absent (unknown,
+ * not invented).
+ */
+export function buildGenStudioModelProviderEntries(
+  catalogs: GenStudioDisplayCatalogs,
+): Array<[string, string]> {
+  const providers = new Map<string, string>()
+  for (const kind of Object.keys(PREFIX_BY_KIND) as GenStudioModelKind[]) {
+    const prefix = PREFIX_BY_KIND[kind]
+    for (const model of catalogs[kind] || []) {
+      const provider = typeof model.provider_name === 'string' ? model.provider_name.trim() : ''
+      if (!model.id?.trim() || !provider) continue
+      for (const rawId of genStudioProductAliases(model)) {
+        const id = rawId?.trim()
+        if (!id) continue
+        providers.set(id, provider)
+        providers.set(`${prefix}${id}`, provider)
+      }
+    }
+  }
+  return [...providers.entries()]
 }

@@ -1089,6 +1089,20 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         })
       }
 
+      // The gateway publishes a deliberate `CONTENT_STORE_NOT_CONNECTED` 503
+      // while no Store is linked (verified on gateway-kh). That refusal is about
+      // the gateway's Store, not about the URL or the key, so it must not be
+      // reported as one (AGENTS.md §6: "not connected" ≠ "bad key").
+      async function isContentStoreNotConnected(response: Response): Promise<boolean> {
+        if (response.status !== 503) return false
+        try {
+          const body = await response.clone().json() as { code?: unknown; detail?: unknown }
+          return body?.code === 'CONTENT_STORE_NOT_CONNECTED'
+            || /Content Store is not connected/i.test(String(body?.detail || ''))
+        } catch { return false }
+      }
+
+      let contentStoreConnected = true
       for (const probe of probes) {
         const response = await fetch(`${root}${probe.path}`, {
           headers,
@@ -1100,6 +1114,10 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
             reachable: true,
             message: `The GenStudio API key is invalid or is missing ${probe.scope}.`,
           })
+        }
+        if (probe.path === '/v1/content/account' && await isContentStoreNotConnected(response)) {
+          contentStoreConnected = false
+          continue
         }
         if (response.status !== probe.expected) {
           return res.json({
@@ -1119,7 +1137,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         reachable: true,
         usage_available: usageAvailable,
         content_store: {
-          read_scope: 'verified',
+          read_scope: contentStoreConnected ? 'verified' : 'not_connected',
           purchase_scope: 'required_unverified',
         },
         warning: usageAvailable ? null : 'Generation scopes work, but GenStudio did not accept this key for usage:read. Balance and exact settlement history remain unavailable; Story Studio will not calculate them locally.',

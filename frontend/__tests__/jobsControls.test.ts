@@ -126,7 +126,7 @@ test('Jobs keeps all seven toolbar actions available, disabled when their scoped
   for (const action of ['recoverAllEpisodes', 'repairAllFailed', 'retryAllFailed', 'resumePausedJobs', 'clearFinished', 'clearFailed']) {
     assert.match(jobs, new RegExp(`:disabled="[^"\\n]+"[\\s\\S]{0,240}@click="${action}`))
   }
-  assert.match(jobs, /:disabled="changingQueueState \|\| resumingQueue \|\| \(!queuePaused && !hasQueueWork\)"[\s\S]{0,240}@click="queuePaused \? resumeQueue\(\) : pauseQueue\(\)"/)
+  assert.match(jobs, /:disabled="changingQueueState \|\| resumingQueue \|\| queueStateUnknown \|\| \(!queuePaused && !hasQueueWork\)"[\s\S]{0,520}@click="queuePaused \? resumeQueue\(\) : pauseQueue\(\)"/)
   assert.match(jobs, /recoverableEpisodes\.length === 0/)
   assert.match(jobs, /repairableFailedJobs\.length === 0/)
   assert.match(jobs, /retryAllTriage\.retry\.length === 0/)
@@ -502,4 +502,40 @@ test('Paused controls give filters and actions separate wrapping room on narrow 
 test('Jobs keeps every sort control reachable on narrow layouts', () => {
   assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.sort-bar \{ flex-wrap: wrap; min-width: 0; \}/)
   assert.match(jobs, /@media \(max-width: 760px\)[\s\S]*?\.sort-label \{ flex: 1 1 100%; margin-right: 0; \}/)
+})
+
+/**
+ * DS-08 (Q-07, Q-10, Q-06) — the Jobs-only rules that are not pure enough to
+ * unit-test directly. The behavioural halves live in
+ * `jobPresentationLabels.test.ts`; these pin the page wiring.
+ */
+test('Q-07: retired scene-image filter tabs are not hard-coded', () => {
+  // `scene_images` and `scene_images_batch` no longer exist in JOB_TYPES, and
+  // the dynamic loop below the list already adds a tab when a historical row of
+  // that type exists. Hard-coding them left two permanently-empty tabs.
+  const tabs = jobs.slice(jobs.indexOf('const filterTabs = computed'), jobs.indexOf('const filterLabel'))
+  assert.doesNotMatch(tabs, /type: 'scene_images'/)
+  assert.doesNotMatch(tabs, /type: 'scene_images_batch'/)
+})
+
+test('Q-10: the subtitle Retry tooltip does not point at a Repair control', () => {
+  // `subtitles_transcribe` is not in REPAIR_ENDPOINTS, so no Repair button is
+  // rendered for it. The tooltip must describe what Retry actually does.
+  const start = jobs.indexOf("if (jobType === 'subtitles_transcribe')")
+  assert.ok(start >= 0, 'the subtitle tooltip branch must exist')
+  const block = jobs.slice(start, jobs.indexOf('}', start))
+  assert.doesNotMatch(block, /Repair first retrieves saved GenStudio work/)
+  assert.match(block, /Retry keeps completed SRT files/)
+})
+
+test('Q-06: per-row and bulk Retry apply the shared admission filter', () => {
+  assert.match(jobs, /retryAdmissionAllowed\(job\)/, 'per-row Retry must refuse backend-rejected legacy rows')
+  assert.match(jobs, /retryAdmissionAllowed\(j\)/, 'Retry all must apply the same admission filter')
+})
+
+test('Jobs names the published provider beside the model (§2 display-only)', () => {
+  assert.match(jobs, /function jobModelProvider\(job: RJob\): string \{/)
+  assert.match(jobs, /return genStudioModels\.providerName\(job\.params\?\.model\)/)
+  const display = jobs.slice(jobs.indexOf('function jobModelDisplay'), jobs.indexOf('function jobModelTitle'))
+  assert.match(display, /jobModelProvider\(job\)/, 'the model label must include the provider when one is published')
 })

@@ -30,7 +30,7 @@ import { ref, readonly, computed } from 'vue'
 import { useApi } from './useApi.js'
 import { useJobs, type Job } from './useJobs.js'
 import { retiringConfiguredModels, type ChannelCatalogRow } from '../utils/genstudio-model-retirement.js'
-import { customerSafeJobText, jobRequestIds } from '../utils/job-presentation.js'
+import { customerSafeJobText, jobDisplayLabel, jobRequestIds } from '../utils/job-presentation.js'
 
 export type NotifSeverity = 'blocking' | 'warning' | 'info'
 export type NotifTab = 'activity' | 'action'
@@ -67,44 +67,8 @@ export interface ActivityItem {
   error?: string | null
 }
 
-const JOB_TYPE_LABELS: Record<string, string> = {
-  idea_campaign: 'Idea Campaign',
-  'script-only': 'Script',
-  'introduction-only': 'Introduction',
-  'chapter-only': 'Chapter regen',
-  outline_only: 'Outline',
-  expand_chapters: 'Chapters',
-  images: 'Images',
-  scene_images: 'Scene Images',
-  thumb_images: 'Thumbnails',
-  image_prompts: 'Prompts',
-  images_repair: 'Image Repair',
-  audio: 'Audio',
-  audio_merge: 'Audio Assembly',
-  video: 'Video',
-  video_assembly: 'Video Assembly',
-  continuity_render: 'Continuity Render',
-  metadata: 'Metadata',
-  youtube_upload: 'YouTube Upload',
-  youtube_playlist_update: 'Playlist Update',
-  subtitles_transcribe: 'Subtitles',
-  broll_normalize: 'B-Roll Normalize',
-  broll_assemble: 'B-Roll Assembly',
-  broll_select: 'B-Roll Selection',
-  broll_autotag: 'B-Roll Tagging',
-  research_run: 'Research',
-  scene_plan_run: 'Scene Plan',
-  contextual_cues: 'Contextual Cues',
-  scene_image_generate: 'Scene Image',
-  scene_clips_batch: 'Motion Clips',
-}
-
-function labelForJob(job: Job): string {
-  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'thumbnails') return 'Thumbnail Prompts'
-  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'scenes') return 'Scene Prompts'
-  const t = job.type
-  return JOB_TYPE_LABELS[t] || t.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-}
+// F-11 — labels come from the ONE authoritative map in
+// `utils/job-presentation.ts` (previously a drifted local copy).
 
 function tsOf(iso: string | null): number {
   if (!iso) return 0
@@ -115,8 +79,8 @@ function tsOf(iso: string | null): number {
 export function activityItemForJob(job: Job): ActivityItem {
   return {
     id: job.job_id,
-    kind: labelForJob(job),
-    title: job.title || job.episode_id || labelForJob(job),
+    kind: jobDisplayLabel(job),
+    title: job.title || job.episode_id || jobDisplayLabel(job),
     status: job.status as 'done' | 'error',
     ts: tsOf(job.finished_at),
     error: job.error === null ? null : customerSafeJobText(job.error, jobRequestIds(job)),

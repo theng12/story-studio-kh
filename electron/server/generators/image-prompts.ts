@@ -21,6 +21,7 @@ import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import type { Job, ThumbnailRecipeProfile } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
+import { letteringPhraseMaps, type LetteringPhraseMaps } from '../services/lettering-catalogue.js'
 import { DEFAULT_HEADLINE_MODE, HEADLINE_MODE_IDS, headlineInstruction, headlineMode as resolveHeadlineMode } from '../models/thumbnail-headlines.js'
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { requireJobCompletion } from '../services/job-completion.js'
@@ -47,6 +48,14 @@ interface ThumbnailPromptsParams {
   thumb_text_style?: string
   thumb_text_position?: string
   thumb_font_style?: string
+  /**
+   * The customer's own words for the `custom` lettering ids. `resolveTextStyle`
+   * / `resolveFontStyle` have always accepted them, but nothing ever sent them,
+   * so choosing "Custom…" and typing a description fell back to the built-in
+   * gold treatment / serif and the text was silently ignored.
+   */
+  thumb_text_style_custom?: string
+  thumb_font_style_custom?: string
   /** Recipe-owned thumbnail copy strategy. The resolved recipe remains authoritative. */
   thumb_headline_mode?: string
   thumb_reference_style?: string
@@ -171,6 +180,22 @@ export function buildThumbnailDirective(opts: {
   creativeDirection?: string
   /** The headline mode the customer chose on this run. Beats the recipe's. */
   headlineModeId?: string
+  /**
+   * Phrases for installed-pack lettering styles, keyed by style id, resolved by
+   * `letteringPhraseMaps()` before this synchronous builder runs. A pack style
+   * is not in the hardcoded `FONT_STYLES` / `TEXT_STYLES` maps, so without
+   * these a bought style silently fell back to the built-in serif — the picker
+   * showed the swatch and the image model was told to draw something else.
+   */
+  fontPhrases?: Record<string, string>
+  textPhrases?: Record<string, string>
+  /**
+   * The customer's own description for a `custom` lettering id. Passed through
+   * to the resolver rather than substituted, so a blank one still falls back the
+   * way it always did.
+   */
+  fontCustomText?: string
+  textCustomText?: string
 }): string {
   if (opts.thumbs <= 0) return ''
   const annotatedCollage = opts.fmt?.layout === 'annotated-collage'
@@ -197,8 +222,8 @@ export function buildThumbnailDirective(opts: {
   const textStyle = !opts.textStyle || opts.textStyle === 'auto'
     ? opts.fmt?.defaultTextStyle
     : opts.textStyle
-  const font = fontStyle ? resolveFontStyle(fontStyle) : ''
-  const text = textStyle ? resolveTextStyle(textStyle) : ''
+  const font = (fontStyle && opts.fontPhrases?.[fontStyle]) || (fontStyle ? resolveFontStyle(fontStyle, opts.fontCustomText) : '')
+  const text = (textStyle && opts.textPhrases?.[textStyle]) || (textStyle ? resolveTextStyle(textStyle, opts.textCustomText) : '')
   const position = !opts.textPosition || opts.textPosition === 'auto' ? '' : opts.textPosition
   if (!font && !text && !position) {
     lines.push('TITLE DESIGN: choose the font, text treatment, and placement that best suits each variation while keeping the title highly readable.')
@@ -247,6 +272,13 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
   fontStyle?: string
   textPosition?: string
   headlineMode?: string
+  /** Installed-pack phrases, resolved before this synchronous call. See
+   *  `buildThumbnailDirective` — the same reason applies to this clause. */
+  fontPhrases?: Record<string, string>
+  textPhrases?: Record<string, string>
+  /** Free-form descriptions for a `custom` lettering id. */
+  fontCustomText?: string
+  textCustomText?: string
 }): string {
   const out = stripEpisodeLabelFromDrawnText((prompt || '').trim())
   if (!out) return out
@@ -261,10 +293,10 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
   if (opts.title.trim() && !out.includes(opts.title.trim())) {
     const font = !opts.fontStyle || opts.fontStyle === 'auto'
       ? 'a font chosen to suit the concept'
-      : resolveFontStyle(opts.fontStyle)
+      : (opts.fontPhrases?.[opts.fontStyle] || resolveFontStyle(opts.fontStyle, opts.fontCustomText))
     const text = !opts.textStyle || opts.textStyle === 'auto'
       ? 'a treatment chosen to suit the concept'
-      : resolveTextStyle(opts.textStyle)
+      : (opts.textPhrases?.[opts.textStyle] || resolveTextStyle(opts.textStyle, opts.textCustomText))
     const position = !opts.textPosition || opts.textPosition === 'auto'
       ? 'the strongest placement for the composition'
       : opts.textPosition
@@ -450,6 +482,10 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   let headlineMode: string = HEADLINE_MODE_IDS.includes(String(req.thumb_headline_mode))
     ? String(req.thumb_headline_mode)
     : DEFAULT_HEADLINE_MODE
+  // Resolved inside the generation branch (a fully-verified repair run has
+  // nothing to write and must not read the pack registry) but declared here
+  // because the enforcement pass below runs for every run.
+  let letteringPhrases: LetteringPhraseMaps = { font: {}, text: {} }
   if (targetNumbers.length > 0) {
     const storyContext = await readStoryContext(projectSlug, episodeId, title)
     const characters = Array.isArray(req.character_ids) && req.character_ids.length
@@ -511,6 +547,17 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       // who may not have chosen at all — in which case this is the choice.
       if (!req.thumb_headline_mode && recipe?.headlineMode) headlineMode = recipe.headlineMode
     }
+    // A lettering style bought as a Content Pack is NOT in the built-in
+    // `FONT_STYLES` / `TEXT_STYLES` maps, so the synchronous builders below can
+    // only honour it if its phrase is resolved here first. Without this bridge
+    // the picker showed the swatch the customer paid for and the image model was
+    // told to draw the built-in serif instead. A failure to read the catalogue
+    // must not silently downgrade a paid style, so it is recorded on the job.
+    try {
+      letteringPhrases = await letteringPhraseMaps()
+    } catch (error: any) {
+      job.output_lines.push(`Lettering catalogue unavailable, using built-in styles only: ${error?.message || error}`)
+    }
     const thumbnailDirective = buildThumbnailDirective({
       thumbs: targetNumbers.length,
       title,
@@ -521,6 +568,10 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       fmt: thumbnailFormat,
       creativeDirection: req.thumb_creative_direction,
       headlineModeId: headlineMode,
+      fontPhrases: letteringPhrases.font,
+      textPhrases: letteringPhrases.text,
+      fontCustomText: req.thumb_font_style_custom,
+      textCustomText: req.thumb_text_style_custom,
     })
     job.output_lines.push(
       `Thumbnail art direction: ${recipeName ? `recipe “${recipeName}”` : thumbnailFormat ? 'format-specific' : 'generic high-CTR'}, ` +
@@ -636,6 +687,10 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       fontStyle: req.thumb_font_style || 'auto',
       textPosition: req.thumb_text_position || 'auto',
       headlineMode,
+      fontPhrases: letteringPhrases.font,
+      textPhrases: letteringPhrases.text,
+      fontCustomText: req.thumb_font_style_custom,
+      textCustomText: req.thumb_text_style_custom,
     }),
   }))
   const missing = Array.from({ length: count }, (_, index) => index + 1)

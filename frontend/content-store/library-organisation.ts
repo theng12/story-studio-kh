@@ -16,6 +16,7 @@ import { contentStoreKindLabel } from './catalog-presentation'
 const KIND_ORDER: readonly ContentStoreProductKind[] = [
   'series_formula',
   'topic_pack',
+  'metadata_formula',
   'visual_style',
   'thumbnail_recipe',
   'font_pack',

@@ -1401,6 +1401,15 @@
           <span v-if="ffmpegStatus.installed && !ffmpegStatus.has_libass" class="badge badge-warn">no libass</span>
         </template>
       </div>
+      <!-- F-04 (DS-11) — a failed check is its own state: not "not installed". -->
+      <div v-if="ffmpegStatusError" class="ffmpeg-warning mt-1" role="alert">
+        <p class="text-muted text-md">
+          We couldn't determine FFmpeg's status: <code>{{ ffmpegStatusError }}</code>.
+          This is different from "not installed" — the backend may be unreachable, or the
+          binary isn't executable, or detection hit a permissions error.
+        </p>
+        <button type="button" class="btn btn-sm btn-secondary mt-1" @click="refreshFfmpegStatus">Retry check</button>
+      </div>
       <p v-if="ffmpegStatus?.installed && ffmpegStatus.path" class="text-muted mt-1" style="font-size: var(--font-xs);">
         Resolved path: <code>{{ ffmpegStatus.path }}</code>
       </p>
@@ -1418,10 +1427,11 @@
       </div>
 
       <!-- Recovery installer only. A healthy release bundle must never invite
-           an unnecessary replacement download. -->
+           an unnecessary replacement download, and an unknown status (not yet
+           read, or a failed read) never justifies one either. -->
       <details
-        v-else
-        :open="!ffmpegStatus?.installed || ffmpegInstalling"
+        v-else-if="ffmpegStatus"
+        :open="!ffmpegStatus.installed || ffmpegInstalling"
         class="ffmpeg-install-block mt-2"
       >
         <summary
@@ -1495,9 +1505,14 @@
           </p>
         </div>
       </details>
+      <!-- The unknown branch of the installer chain: no repair action is
+           offered until the status has actually been read. -->
+      <p v-else class="text-muted mt-2" style="font-size: 13px;">
+        Checking FFmpeg before offering any repair download…
+      </p>
 
       <!-- Manual install fallback -->
-      <details v-if="ffmpegStatus?.source !== 'bundled'" class="ffmpeg-manual mt-3">
+      <details v-if="ffmpegStatus && ffmpegStatus.source !== 'bundled'" class="ffmpeg-manual mt-3">
         <summary style="cursor: pointer; font-weight: 600; font-size: 13px;">
           Manual install (advanced)
         </summary>
@@ -3516,7 +3531,14 @@ watch(activeTab, (t) => {
   if (t === 'publishing' && !ytAppDefaults.value) {
     void loadYoutubeAppDefaults()
   }
-  if (t === 'maintenance') void restoreArchiveInFlight()
+  if (t === 'maintenance') {
+    // F-04 (DS-11) — entering the tab that owns the FFmpeg card must fetch the
+    // real status before the card can propose an install or recovery download.
+    // Re-probing only while the answer is unknown keeps the explicit
+    // "Re-check status" button meaningful and avoids a hidden fetch per visit.
+    if (!ffmpegStatus.value && !ffmpegStatusLoading.value) void refreshFfmpegStatus()
+    void restoreArchiveInFlight()
+  }
   // v1.0.107+ — load location status so the "Unlink from this Mac"
   // danger-zone renders only when the project is actually linked.
 
@@ -3690,6 +3712,12 @@ interface FfmpegStatus {
 }
 const ffmpegStatus = ref<FfmpegStatus | null>(null)
 const ffmpegStatusLoading = ref(false)
+// F-04 (DS-11) — the FFmpeg card proposes an install/recovery download from
+// `ffmpegStatus.installed === false`, and a failed status check used to be
+// written as exactly that (`{ installed: false }`). "I could not check" must
+// not become "not installed" (AGENTS.md §6), and no install action may be
+// offered for a status that was never read. `null` status = unknown.
+const ffmpegStatusError = ref('')
 const ffmpegInstalling = ref(false)
 const ffmpegInstallProgress = ref(0)
 const ffmpegInstallMessage = ref('')
@@ -3735,13 +3763,17 @@ async function refreshFfmpegStatus() {
   // the in-app installer success path.
   const wasMissing = !!ffmpegStatus.value && !ffmpegStatus.value.installed
   ffmpegStatusLoading.value = true
+  ffmpegStatusError.value = ''
   try {
     ffmpegStatus.value = await get<FfmpegStatus>('/ffmpeg/status')
     if (wasMissing && ffmpegStatus.value.installed) {
       showFfmpegRestartPrompt.value = true
     }
   } catch (e: any) {
-    ffmpegStatus.value = { installed: false }
+    // Unknown, not missing. The card keeps the installer closed and shows the
+    // failure with a Retry instead of inviting a download it cannot justify.
+    ffmpegStatus.value = null
+    ffmpegStatusError.value = e?.data?.detail || e?.message || 'Could not check FFmpeg'
   } finally {
     ffmpegStatusLoading.value = false
   }
@@ -4737,6 +4769,13 @@ watch(slug, () => {
   standardsLoadedSlug = ''
   standardsLoading.value = false
   standardsError.value = ''
+  // F-05 (DS-11) — a different project is now on screen, so the previous
+  // project's Publishing values must not stand (AGENTS.md §4). These two live
+  // on ProjectConfig and are re-hydrated from this project's own config, which
+  // is fetched after the slug changes; a failed or empty config read leaves
+  // them blank rather than showing the last project's answer.
+  projectForm.category_id = undefined
+  projectForm.mark_as_ai_generated = undefined
   if (activeTab.value === 'files') void loadFolderConfig()
   if (activeTab.value === 'writing') void loadStandards()
 })
@@ -4759,11 +4798,14 @@ watch(project, (p) => {
     mediaRootInput.value = (p as any).media_root || ''
     mediaRootSavedValue.value = mediaRootInput.value
     if (mediaRootInput.value) void checkMediaRoot()
-    // Item J — category_id lives on ProjectConfig (not project meta), so
-    // it's hydrated from `config` after refreshConfig fires (see watch
-    // below). The initial undefined here means "show the default option
-    // until config arrives".
-    projectForm.category_id = undefined
+    // F-05 (DS-11) — `category_id` lives on ProjectConfig, not project meta, so
+    // this watcher must not touch it. It used to blank the field on every
+    // `project` replacement, and `loadProject()` fetches project meta and
+    // config IN PARALLEL: whenever meta resolved after config, the hydrated
+    // category was wiped and the next Publishing save persisted that silent
+    // clear. The per-project reset now happens on the slug change itself (see
+    // the `watch(slug, …)` reset above), which is the only event that actually
+    // means "a different project is on screen" (AGENTS.md §4).
   }
 }, { immediate: true })
 const seasonSizeChanged = computed(() =>

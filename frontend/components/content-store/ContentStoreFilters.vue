@@ -35,7 +35,7 @@ import type { ContentStoreKindFilter } from '~/content-store/catalog-presentatio
 export type PriceFilter = 'all' | 'free' | 'paid'
 const props = defineProps<{ products: readonly ContentStoreProduct[]; query: string; price: PriceFilter; kind: ContentStoreKindFilter; tag: string; compatibleOnly: boolean }>()
 defineEmits<{ 'update:query': [value: string]; 'update:price': [value: PriceFilter]; 'update:kind': [value: ContentStoreKindFilter]; 'update:tag': [value: string]; 'update:compatibleOnly': [value: boolean] }>()
-const labels: Record<ContentStoreProductKind, string> = { series_formula: 'Series Formula', topic_pack: 'Topic Pack', visual_style: 'Visual Style', thumbnail_recipe: 'Thumbnail Recipe', font_pack: 'Font Pack', niche_bundle: 'Channel Kit' }
+const labels: Record<ContentStoreProductKind, string> = { series_formula: 'Series Formula', topic_pack: 'Topic Pack', visual_style: 'Visual Style', thumbnail_recipe: 'Thumbnail Recipe', font_pack: 'Font Pack', metadata_formula: 'Metadata Formula', niche_bundle: 'Channel Kit' }
 const kinds = computed(() => [...new Set(props.products.map(product => product.kind))].map(id => ({ id, label: labels[id] })))
 const tags = computed(() => [...new Set(props.products.flatMap(product => product.presentation.tags))].sort((a, b) => a.localeCompare(b)))
 </script>

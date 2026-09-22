@@ -613,10 +613,10 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
       entitlementFamily: 'com.storystudio.test/family', version: '1.0.0',
     })
     assert.deepEqual(calls.map(call => [call.url, call.init?.method]), [
-      ['http://127.0.0.1:8000/v1/content/public-key', 'GET'],
-      ['http://127.0.0.1:8000/v1/content/receipts', 'GET'],
-      ['http://127.0.0.1:8000/v1/content/entitlements/com.storystudio.test%2Ffamily/releases', 'GET'],
-      ['http://127.0.0.1:8000/v1/content/downloads', 'POST'],
+      ['http://127.0.0.1:8787/v1/content/public-key', 'GET'],
+      ['http://127.0.0.1:8787/v1/content/receipts', 'GET'],
+      ['http://127.0.0.1:8787/v1/content/entitlements/com.storystudio.test%2Ffamily/releases', 'GET'],
+      ['http://127.0.0.1:8787/v1/content/downloads', 'POST'],
     ])
     for (const call of calls) assert.equal((call.init?.headers as Record<string, string>).Authorization, 'Bearer gsk_test')
     assert.equal(calls[3].init?.body, JSON.stringify({
@@ -696,7 +696,7 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
     assert.equal(resolved.entitlement.entitlementFamily, 'com.storystudio.test')
     assert.equal(resolved.release.version, '0.9.0')
     assert.equal(resolved.release.state, 'withdrawn')
-    assert.deepEqual(calls, ['http://127.0.0.1:8000/v1/content/entitlements/com.storystudio.test/releases'])
+    assert.deepEqual(calls, ['http://127.0.0.1:8787/v1/content/entitlements/com.storystudio.test/releases'])
 
     await assert.rejects(resolveOwnedContentStoreDependency({
       apiKey: 'gsk_test', receipts: parseContentStoreReceipts(receipts()), releaseHistories: new Map(),
@@ -781,7 +781,7 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
 })
 
 describe('a restore receipt states the whole owned library, not only its newest row', () => {
-  const ORIGIN = 'http://127.0.0.1:8000'
+  const ORIGIN = 'http://127.0.0.1:8787'
 
   /** The family's history: the current release, and an older one it still owns. */
   function history() {

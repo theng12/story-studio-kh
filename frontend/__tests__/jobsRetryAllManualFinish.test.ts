@@ -7,7 +7,7 @@ import { compileScript, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 import { describeEpisodeAssetRecovery, recoverEpisodeAssets } from '../utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '../utils/episode-recovery'
-import { customerSafeJobText, filterJobsForView } from '../utils/job-presentation'
+import { customerSafeJobText, filterJobsForView, jobDisplayLabel, jobsEmptyState, jobTypeLabel, retryAdmissionAllowed } from '../utils/job-presentation'
 
 const pagePath = fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url))
 const source = readFileSync(pagePath, 'utf8')
@@ -58,6 +58,10 @@ async function loadJobs(): Promise<Component> {
     const groupEpisodeRecoveryRetries = globalThis.__groupEpisodeRecoveryRetries
     const isVerifiedRecoveredSubtitleJob = globalThis.__isVerifiedRecoveredSubtitleJob
     const jobDisplayStatus = globalThis.__jobDisplayStatus
+    const jobTypeLabel = globalThis.__jobTypeLabel
+    const jobDisplayLabel = globalThis.__jobDisplayLabel
+    const jobsEmptyState = globalThis.__jobsEmptyState
+    const retryAdmissionAllowed = globalThis.__retryAdmissionAllowed
   `
   const content = script.content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm, '')
@@ -149,6 +153,10 @@ async function mount(
   ;(globalThis as any).__jobDisplayStatus = jobDisplayStatus
   ;(globalThis as any).__filterJobsForView = filterJobsForView
   ;(globalThis as any).__customerSafeJobText = customerSafeJobText
+  ;(globalThis as any).__jobTypeLabel = jobTypeLabel
+  ;(globalThis as any).__jobDisplayLabel = jobDisplayLabel
+  ;(globalThis as any).__jobsEmptyState = jobsEmptyState
+  ;(globalThis as any).__retryAdmissionAllowed = retryAdmissionAllowed
   const Jobs = await loadJobs()
   const host = document.body.appendChild(document.createElement('div'))
   const app = createApp(Jobs)

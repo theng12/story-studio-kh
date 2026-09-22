@@ -2420,6 +2420,17 @@ async function runGenerate(mode: PromptMode) {
     thumb_text_style: form.thumbnail.thumb_text_style,
     thumb_text_position: form.thumbnail.thumb_text_position,
     thumb_font_style: form.thumbnail.thumb_font_style,
+    // The free-form description the customer typed for a `custom` choice. The
+    // backend resolvers have always accepted it; without sending it the run fell
+    // back to the built-in treatment and the text was silently ignored. Sent
+    // only when `custom` is the chosen id so the request fingerprint changes
+    // exactly when the text actually matters.
+    thumb_text_style_custom: form.thumbnail.thumb_text_style === 'custom'
+      ? form.thumbnail.thumb_text_style_custom
+      : undefined,
+    thumb_font_style_custom: form.thumbnail.thumb_font_style === 'custom'
+      ? form.thumbnail.thumb_font_style_custom
+      : undefined,
     thumb_reference_style: form.thumbnail.thumb_reference_style,
     thumb_creative_direction: form.thumbnail.thumb_creative_direction,
     prompt_char_cap: effectivePromptCharCap.value || undefined,

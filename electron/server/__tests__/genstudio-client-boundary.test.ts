@@ -742,7 +742,7 @@ test('GenStudio music catalog preserves only published provider details', async 
   clearGenStudioCatalogCache()
   try {
     globalThis.fetch = async (input, init) => {
-      assert.equal(String(input), 'http://127.0.0.1:8000/v1/music/models')
+      assert.equal(String(input), 'http://127.0.0.1:8787/v1/music/models')
       assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer scoped-key')
       return Response.json([
         {

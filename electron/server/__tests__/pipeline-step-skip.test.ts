@@ -692,6 +692,102 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
     assert.equal(cfg.style_bible, 'test bible')
     assert.equal(cfg.schema_version, 1)
   })
+
+  test('Q-02: a character_sheet step skipped as already complete does not rewrite continuity.json', async () => {
+    const proj = await pm.createProject({ name: 'Pipeline Skip Test' })
+    await pm.updateConfig(proj.slug, {
+      continuity_page_presets: [{
+        id: 'cp1', name: 'anchor', type: 'continuity-page',
+        data: { schema_version: 1, anchor_character_ids: ['preset-anchor'], style_bible: 'preset bible' },
+      }],
+      'continuity_page_last_preset_continuity-page': 'cp1',
+    } as any)
+    const im = await import('../services/idea-manager.js')
+    const ideas = await im.addIdeas(proj.slug, [{
+      title: 'Test episode', logline: '', themes: [], suggested_chapters: 5, suggested_length: '20 min', mood: 'calm',
+    }], 'test-model')
+    await im.acceptIdea(proj.slug, ideas[0].id)
+    const episodeId = (await im.getIdeas(proj.slug, 'accepted'))[0].episode_code!
+
+    // A non-empty continuity.json makes the step "already done", so the batch
+    // must skip it WITHOUT rewriting the file the user already has.
+    const episodeDir = await findEpisodeDir(proj.slug, episodeId)
+    const continuityPath = path.join(episodeDir, 'continuity.json')
+    await fs.writeFile(continuityPath, JSON.stringify({
+      schema_version: 1, anchor_character_ids: ['manual-keep'], style_bible: 'manual',
+    }))
+    const before = await fs.readFile(continuityPath, 'utf-8')
+
+    const res = await request(app)
+      .post(`/api/projects/${proj.slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['character_sheet'] })
+
+    assert.equal(res.status, 201)
+    assert.equal(res.body.character_sheets_applied, 0, 'a skipped step must not claim a write')
+    assert.ok(
+      (res.body.steps_skipped_as_done || []).some((entry: any) => entry.step === 'character_sheet'),
+      'the already-complete character_sheet step must be reported as skipped-as-done',
+    )
+    assert.equal(
+      await fs.readFile(continuityPath, 'utf-8'),
+      before,
+      'a skipped character_sheet step must leave the persisted config byte-identical',
+    )
+  })
+
+  test('Q-02: an episode aborted by the duplicate guard still reports the inline character-sheet write', async () => {
+    const proj = await pm.createProject({ name: 'Pipeline Skip Test' })
+    await pm.updateConfig(proj.slug, {
+      continuity_page_presets: [{
+        id: 'cp1', name: 'anchor', type: 'continuity-page',
+        data: { schema_version: 1, anchor_character_ids: ['applied-anchor'], style_bible: 'applied bible' },
+      }],
+      'continuity_page_last_preset_continuity-page': 'cp1',
+      metadata_presets: [{ id: 'mp1', name: 'default', data: { model: 'gpt-4o' } }],
+      metadata_last_preset: 'mp1',
+    } as any)
+    const im = await import('../services/idea-manager.js')
+    const ideas = await im.addIdeas(proj.slug, [{
+      title: 'Test episode', logline: '', themes: [], suggested_chapters: 5, suggested_length: '20 min', mood: 'calm',
+    }], 'test-model')
+    await im.acceptIdea(proj.slug, ideas[0].id)
+    const episodeId = (await im.getIdeas(proj.slug, 'accepted'))[0].episode_code!
+    await im.setEpisodeStatusOverrides(proj.slug, episodeId, { script: true, merged_audio: true })
+
+    // Make the chain's first step a duplicate so the episode-level guard aborts
+    // AFTER the inline character-sheet write has already happened.
+    const jq = await import('../services/job-queue.js')
+    const blocker = await jq.enqueue({
+      project_slug: proj.slug,
+      type: 'metadata',
+      episode_id: episodeId,
+      title: 'existing metadata run',
+      params: { episode_id: episodeId, model: 'gpt-4o' },
+    })
+
+    try {
+      const res = await request(app)
+        .post(`/api/projects/${proj.slug}/pipeline/run-batch`)
+        .send({ episode_ids: [episodeId], steps: ['character_sheet', 'metadata'] })
+
+      assert.equal(res.status, 201)
+      assert.equal(res.body.character_sheets_applied, 1, 'the selected character_sheet step is applied inline')
+      assert.equal(res.body.enqueued, 0, 'the duplicate step queues no second run')
+      assert.ok(
+        (res.body.skipped || []).some((entry: any) => /already queued\/running/.test(String(entry.reason || ''))),
+        'the aborted step is reported, not silently dropped',
+      )
+      // The write persists — it is the explicitly selected work, not a side
+      // effect of the aborted step — and the response's `character_sheets_applied`
+      // is what the Pipeline receipt surfaces so it is not a silent mutation.
+      const episodeDir = await findEpisodeDir(proj.slug, episodeId)
+      const cfg = JSON.parse(await fs.readFile(path.join(episodeDir, 'continuity.json'), 'utf-8'))
+      assert.deepEqual(cfg.anchor_character_ids, ['applied-anchor'])
+      assert.equal(cfg.style_bible, 'applied bible')
+    } finally {
+      await jq.forceAbandonJob(proj.slug, blocker.job_id).catch(() => {})
+    }
+  })
 })
 
 // Regression: every Pipeline step must enqueue under a JobType that has a real

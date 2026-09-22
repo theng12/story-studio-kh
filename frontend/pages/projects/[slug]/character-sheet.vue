@@ -541,6 +541,12 @@ watch([slug, episodeId], () => {
   saving.value = false
   uploadingSheet.value = false
   uploadingComposition.value = false
+  // The episode's anchor/continuity config is episode-scoped. `loadConfig`
+  // already replaces it with defaults when the read FAILS, but that is still
+  // one await away: between the switch and the new read the previous episode's
+  // anchors, pacing and references stayed live on the page. Blank synchronously
+  // (AGENTS.md §4), matching the pattern the sibling pages use.
+  config.value = continuityDefaults()
   onPacingEdited()   // the last apply said nothing about the episode now open
   void loadCharacters()
   void loadConfig()

@@ -541,13 +541,32 @@
             </p>
           </div>
           <div class="form-group">
-            <label>Custom instructions <span class="text-muted text-xs">— optional</span></label>
+            <label>Custom instructions <span class="text-muted text-xs">— this episode only</span></label>
             <textarea
               v-model="form.custom_instructions"
               class="textarea"
               rows="2"
               placeholder="e.g. keep the protagonist off-centre and the same red scarf throughout"
             />
+            <p v-if="episodeGuidanceNotice" role="status" class="text-muted text-xs">{{ episodeGuidanceNotice }}</p>
+          </div>
+          <!-- X-06 (owner decision 2026-09-22) — the reusable box. It is
+               deliberately a separate field with its own label: this text is
+               carried by a Scene Plan preset and may be applied to another
+               episode, while the box above belongs to the episode on screen. -->
+          <div class="form-group guidance-reusable">
+            <label>Reusable guidance <span class="text-muted text-xs">— saved in presets</span></label>
+            <textarea
+              v-model="form.reusable_guidance"
+              class="textarea"
+              rows="2"
+              placeholder="e.g. one subject per scene; never render legible text"
+            />
+            <p class="scene-setting-help">
+              Saved into a Scene Plan preset and applied only when you apply that preset to an
+              episode. Used for this episode alongside the instructions above. It is never written
+              to the project settings and never applies on its own.
+            </p>
           </div>
         </div>
       </div>
@@ -603,7 +622,7 @@
     </WorkspaceSection>
 
     <!-- Step 3: Plan + edit -->
-    <section v-if="status?.scene_plan || planning" class="card workspace-section">
+    <section v-if="plan || planning" class="card workspace-section">
       <!-- v1.0.250 — the plan predates the current stitched SRT (you changed
            audio / re-stitched after this plan was generated). Re-run so it
            matches the new timeline. -->
@@ -985,8 +1004,17 @@
       <p class="text-muted text-sm">
         <span v-if="!episodeId">Pick an episode first.</span>
         <span v-else-if="!status?.stitched_srt">Stitch subtitles first (step 1).</span>
-        <span v-else>No plan yet. Pick a model + click <strong>Plan scenes</strong> in the action bar to start.</span>
+        <span v-else>No plan yet. Build the timeline to split this episode's stitched subtitles into narrated scenes.</span>
       </p>
+      <button
+        v-if="episodeId && status?.stitched_srt"
+        type="button"
+        class="btn btn-sm btn-secondary mt-2"
+        :disabled="!canPlan || planning || planJobActive"
+        @click="planScenes"
+      >
+        Build the plan
+      </button>
     </section>
 
     <!-- v1.0.286 — back-to-top floating button. Appears after the scrollable
@@ -1029,6 +1057,7 @@ import {
   type PromptCharCapSetting,
 } from '../../../utils/prompt-char-cap.js'
 import { readRememberedImageModelId } from '../../../utils/project-image-model.js'
+import { composeScenePlanGuidance } from '../../../utils/scene-plan-guidance.js'
 import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
@@ -1729,6 +1758,11 @@ const form = ref({
   // Episode-specific guidance is optional. The visual style always comes from
   // the Character Sheet continuity Style Bible.
   custom_instructions: '',
+  // X-06 (owner decision 2026-09-22) — reusable guidance. Unlike the box above,
+  // this text IS carried by a Scene Plan preset and is meant to be applied to
+  // another episode. It is never written to project config and never applies
+  // itself; the durable copy lives inside the preset the customer saved.
+  reusable_guidance: '',
 })
 const customPromptPackSize = ref(12)
 /** Shape check only. No upper bound: what is too large for the CHOSEN model is
@@ -2323,7 +2357,9 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
       detail_level: 4,
       motion_level: form.value.motion_level,
       creative_direction: creativeDirectionPayload.value,
-      custom_instructions: form.value.custom_instructions.trim() || undefined,
+      // X-06 — the episode box plus the preset-carried reusable text, composed
+      // into the one guidance input the backend accepts.
+      custom_instructions: composeScenePlanGuidance(form.value.custom_instructions, form.value.reusable_guidance),
       avoid_legible_text: form.value.avoid_legible_text,
     })
     success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued — watch progress in Jobs.`)
@@ -2441,7 +2477,7 @@ async function regenerateScenePrompt(scene: ScenePlanEntry, opts: { reword?: boo
     detail_level: 4,
     prompt_char_cap: effectivePromptCharCap.value || undefined,
     creative_direction: creativeDirectionPayload.value,
-    custom_instructions: form.value.custom_instructions.trim() || undefined,
+    custom_instructions: composeScenePlanGuidance(form.value.custom_instructions, form.value.reusable_guidance),
     avoid_legible_text: form.value.avoid_legible_text,
     ...(opts.reword ? { reword_prompt: true } : {}),
   }
@@ -2558,7 +2594,9 @@ async function regenAllEmptyPrompts(): Promise<void> {
       prompt_char_cap: effectivePromptCharCap.value || undefined,
       use_research: form.value.use_research,
       creative_direction: creativeDirectionPayload.value,
-      custom_instructions: form.value.custom_instructions.trim() || undefined,
+      // X-06 — the episode box plus the preset-carried reusable text, composed
+      // into the one guidance input the backend accepts.
+      custom_instructions: composeScenePlanGuidance(form.value.custom_instructions, form.value.reusable_guidance),
       avoid_legible_text: form.value.avoid_legible_text,
     })
     bulkReplan.value.jobId = job?.job_id || null
@@ -2843,6 +2881,9 @@ const visualTimingMotion = ref<{
   applyPreset: (data: any) => void
 } | null>(null)
 const visualPresetNotice = ref('')
+// X-06 (owner decision 2026-09-22) — set when an episode change drops written
+// episode guidance, so the clear is announced rather than silent (AGENTS.md §4).
+const episodeGuidanceNotice = ref('')
 
 function snapshotVisualPreset(): Record<string, unknown> {
   if (visualTimingMotion.value) return visualTimingMotion.value.snapshotPreset()
@@ -2909,12 +2950,18 @@ const planPresets = usePresets<any>({
   presetType: 'scene-plan',
   autoApplyOnLoad: false,
   // Owner decision #9, 2026-09-20. `custom_instructions` is written for ONE
-  // episode ("Episode-specific guidance is optional" is the field's own label),
-  // so a preset must not carry it onto another episode. The cast and the
-  // reusable look still travel. Spread the shared list — `excludeKeys` REPLACES
-  // the default rather than extending it, so restating the four identity
-  // strings here is exactly the duplication that drifts and re-opens the §4
-  // episode-identity leak.
+  // episode ("this episode only" is the field's own label), so a preset must not
+  // carry it onto another episode. The cast and the reusable look still travel.
+  // Spread the shared list — `excludeKeys` REPLACES the default rather than
+  // extending it, so restating the four identity strings here is exactly the
+  // duplication that drifts and re-opens the §4 episode-identity leak.
+  //
+  // X-06 (owner decision 2026-09-22) — `reusable_guidance` is NOT excluded: the
+  // whole point of the second box is that it travels with the preset and is
+  // applied deliberately. It is never written to project config, so this preset
+  // entry is its only durable home; and because `apply` reads through the same
+  // exclusion list, excluding it here would silently discard it on the way back
+  // in as well (AGENTS.md §5's two-way trap).
   excludeKeys: [...DEFAULT_EXCLUDE_KEYS, 'custom_instructions'],
   snapshot: () => ({
     model: form.value.model,
@@ -2933,6 +2980,7 @@ const planPresets = usePresets<any>({
     creative_direction: creativeDirectionPayload.value,
     detail_level: 4,
     custom_instructions: form.value.custom_instructions,
+    reusable_guidance: form.value.reusable_guidance,
     avoid_legible_text: form.value.avoid_legible_text,
     ...snapshotVisualPreset(),
   }),
@@ -2952,6 +3000,15 @@ const planPresets = usePresets<any>({
 
 watch([slug, episodeId], () => {
   visualPresetNotice.value = ''
+  // X-06 (owner decision 2026-09-22) — the box above is labelled "this episode
+  // only", so written guidance must not follow the customer to the next one and
+  // silently steer its prompts (AGENTS.md §4). The reusable box is deliberately
+  // NOT cleared: it is not owned by an episode, and its durable copy lives in
+  // the customer's presets.
+  episodeGuidanceNotice.value = form.value.custom_instructions.trim()
+    ? 'Episode-specific guidance was cleared because the episode changed. Reusable guidance was kept.'
+    : ''
+  form.value.custom_instructions = ''
   status.value = null
   plan.value = null
   dirty.value = false
@@ -2959,6 +3016,11 @@ watch([slug, episodeId], () => {
   statusLoading.value = Boolean(episodeId.value)
   void Promise.all([loadStatus(), loadContinuity(), loadVisualSource()])
 }, { immediate: true, flush: 'sync' })
+// The announcement has done its job once the customer writes new guidance for
+// the episode now on screen.
+watch(() => form.value.custom_instructions, (value) => {
+  if (value.trim()) episodeGuidanceNotice.value = ''
+})
 watch(() => [route.query.episode_id, route.query.episode], ([episodeFromId, episodeFromAlias]) => {
   const nextEpisodeId = typeof episodeFromId === 'string'
     ? episodeFromId

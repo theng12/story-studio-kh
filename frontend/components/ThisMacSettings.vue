@@ -270,7 +270,7 @@
         <dl v-if="result?.contentStore" class="scope-results" aria-label="Content Store scope test result">
           <div>
             <dt><code>content:read</code></dt>
-            <dd :data-state="result.contentStore.readScope">{{ result.contentStore.readScope === 'verified' ? 'Read scope verified' : 'Read scope not verified' }}</dd>
+            <dd :data-state="result.contentStore.readScope">{{ result.contentStore.readScope === 'verified' ? 'Read scope verified' : result.contentStore.readScope === 'not_connected' ? 'Content Store not connected on this gateway' : 'Read scope not verified' }}</dd>
           </div>
           <div>
             <dt><code>content:purchase</code></dt>
@@ -307,7 +307,7 @@ const sectionDescription = computed(() => ({
 }[section.value]))
 type ThemeChoice = 'light' | 'dark' | 'system'
 interface ProviderRow { providerId: string; hasKey: boolean; keyMasked: string }
-interface ContentStoreProbe { read_scope: 'verified'; purchase_scope: 'required_unverified' }
+interface ContentStoreProbe { read_scope: 'verified' | 'not_connected'; purchase_scope: 'required_unverified' }
 interface EmojiSetting { allow_emoji_in_generated_text: boolean }
 interface PaidImageReplacementSetting { enabled: boolean; additional_credit_ceiling: number | null }
 
@@ -346,7 +346,7 @@ const paidWritingReplacementResult = ref<{ kind: 'ok' | 'err'; message: string }
 const result = ref<{
   kind: 'ok' | 'warn' | 'err'
   message: string
-  contentStore?: { readScope: 'verified'; purchaseScope: 'required_unverified' }
+  contentStore?: { readScope: 'verified' | 'not_connected'; purchaseScope: 'required_unverified' }
 } | null>(null)
 
 async function load(): Promise<void> {

@@ -233,6 +233,27 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
     assert.throws(() => parseContentStoreShelves({ shelves: wire.shelves_response.shelves, fallback_product_ids: [] }, productIds), /missing/i)
   })
 
+  test('the wire accepts every published kind, and one unknown kind still collapses the catalogue', () => {
+    // The 2026-09-22 wire-kind parity letter: the Gateway may only publish a
+    // kind this parse accepts, because one unknown kind is not a degraded
+    // catalogue — it is no catalogue (the 1.4.62 font_pack incident). These
+    // assertions are the contract the Gateway's SUPPORTED_KINDS mirrors on the
+    // wire side, so both halves can be checked against the same spelling.
+    for (const kind of [
+      'series_formula', 'topic_pack', 'visual_style', 'thumbnail_recipe', 'font_pack', 'metadata_formula', 'niche_bundle',
+    ]) {
+      const catalog = parseContentStoreCatalog({ products: [{ ...product(), kind }] })
+      assert.equal(catalog.products[0]?.kind, kind,
+        `a delivered ${kind} product must parse and keep its wire spelling`)
+    }
+
+    assert.throws(
+      () => parseContentStoreCatalog({ products: [{ ...product(), kind: 'unknown_kind_probe' }] }),
+      /published Content Store product kind/i,
+      'an unrecognised kind must still fail the whole parse rather than be skipped',
+    )
+  })
+
   test('preserves the complete signed quote while canonicalising recursively', () => {
     const parsed = parseContentStoreQuote(quote())
     const exact = parseContentStoreQuote(quote({ quote: signedQuote({
@@ -513,8 +534,8 @@ describe('GenStudio Content Store one-attempt HTTP client', () => {
     assert.equal((await getGenStudioContentAccount('gsk_test')).contentSpendableCredits, 5000)
     assert.deepEqual((await listGenStudioContentProducts('gsk_test', '1.0.834')).products, [])
     assert.deepEqual(calls.map(call => call.url), [
-      'http://127.0.0.1:8000/v1/content/account',
-      'http://127.0.0.1:8000/v1/content/products?story_version=1.0.834',
+      'http://127.0.0.1:8787/v1/content/account',
+      'http://127.0.0.1:8787/v1/content/products?story_version=1.0.834',
     ])
     for (const call of calls) {
       assert.equal(call.init?.method, 'GET')
@@ -526,7 +547,7 @@ describe('GenStudio Content Store one-attempt HTTP client', () => {
     let attempts = 0
     globalThis.fetch = async (input, init) => {
       attempts += 1
-      assert.equal(String(input), 'http://127.0.0.1:8000/v1/content/quotes')
+      assert.equal(String(input), 'http://127.0.0.1:8787/v1/content/quotes')
       assert.equal(init?.method, 'POST')
       assert.equal(init?.body, JSON.stringify({ product_id: 'cprod_a', release_id: null }))
       return Response.json({ code: 'signing_unavailable', detail: 'signer offline' }, { status: 503 })
@@ -556,7 +577,7 @@ describe('GenStudio Content Store one-attempt HTTP client', () => {
     const canonical = canonicalizeContentStoreObject(signedQuote())
     globalThis.fetch = async (input, init) => {
       attempts += 1
-      assert.equal(String(input), 'http://127.0.0.1:8000/v1/content/purchases')
+      assert.equal(String(input), 'http://127.0.0.1:8787/v1/content/purchases')
       assert.equal(init?.method, 'POST')
       assert.equal((init?.headers as Record<string, string>)['Idempotency-Key'], 'store-attempt-123')
       assert.equal(init?.body, JSON.stringify({ quote: JSON.parse(canonical.canonicalJson), quote_signature: SIGNATURE }))

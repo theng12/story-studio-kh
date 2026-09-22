@@ -39,13 +39,16 @@ describe('grouping a library by what a thing actually is', () => {
       product({ productId: 'formula', kind: 'series_formula' }),
       product({ productId: 'topic', kind: 'topic_pack' }),
       product({ productId: 'recipe', kind: 'thumbnail_recipe' }),
+      // Ask 2, 2026-09-22 — metadata formulas became a Store kind. They sort
+      // beside the other formula, before anything visual.
+      product({ productId: 'write-up', kind: 'metadata_formula' }),
     ])
     assert.deepEqual(groups.map(group => group.label), [
-      'Series Formula', 'Topic Pack', 'Visual Style', 'Thumbnail Recipe', 'Channel Kit',
+      'Series Formula', 'Topic Pack', 'Metadata Formula', 'Visual Style', 'Thumbnail Recipe', 'Channel Kit',
     ])
     // Order is fixed rather than alphabetical or input order, so a section does
     // not move about as the library grows.
-    assert.deepEqual(groups.map(group => group.products.length), [1, 1, 1, 1, 1])
+    assert.deepEqual(groups.map(group => group.products.length), [1, 1, 1, 1, 1, 1])
   })
 
   test('a kind with nothing in it is not shown as an empty heading', () => {

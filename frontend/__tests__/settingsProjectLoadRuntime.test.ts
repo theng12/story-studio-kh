@@ -5,6 +5,7 @@ import test from 'node:test'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 import { createApp, h, nextTick, reactive, ref, type Component } from 'vue'
+import { projectSettingsSavePlan } from '../utils/projectSettingsSave.ts'
 
 const filename = fileURLToPath(new URL('../pages/projects/[slug]/settings.vue', import.meta.url))
 
@@ -38,7 +39,7 @@ async function loadPage(): Promise<Component> {
     const pickFolderShared = async () => undefined
     const resolveSettingsSectionHash = () => null
     const settingsAnchorTargetIds = () => []
-    const projectSettingsSavePlan = () => ({})
+    const projectSettingsSavePlan = (...args) => (globalThis.__settingsFixture.savePlan || (() => ({})))(...args)
     const genstudioStaleNote = () => ''
   `
   const content = script.content
@@ -118,4 +119,155 @@ test('a stale project standards load cannot restore A drafts after switching to 
     host.remove()
     delete (globalThis as any).__settingsFixture
   }
+})
+
+// ── DS-11 (F-05) — the two competing category writers ──────────────────────
+
+test('a project refresh cannot blank the hydrated YouTube category, and a deliberate change survives it', async () => {
+  const route = reactive({ params: reactive({ slug: 'project-a' }), hash: '', query: {} })
+  const project = ref<any>({ name: 'A', episode_prefix: 'EP' })
+  const config = ref<any>({ category_id: 27, mark_as_ai_generated: false })
+  const puts: Array<{ path: string; body: any }> = []
+  const fixture: any = {
+    route,
+    savePlan: projectSettingsSavePlan,
+    api: {
+      get: async () => ({}),
+      post: async () => ({}),
+      put: async (path: string, body: any) => { puts.push({ path, body }); return {} },
+      patch: async () => ({}),
+      del: async () => ({}),
+    },
+    projectState: {
+      project, config,
+      refreshConfig: async () => undefined, loadProject: async () => undefined,
+    },
+  }
+  ;(globalThis as any).__settingsFixture = fixture
+  const app = createApp(await loadPage())
+  const host = document.body.appendChild(document.createElement('div'))
+  app.mount(host)
+  await flush()
+  try {
+    assert.equal(fixture.state.projectForm.category_id, 27, 'the saved category must hydrate from ProjectConfig')
+
+    // `loadProject()` fetches project meta and config IN PARALLEL, so meta can
+    // resolve after config. Replacing the project ref must not blank the field:
+    // the old code reset `category_id = undefined` here, and the next Publishing
+    // save then persisted that silent clear.
+    project.value = { name: 'A renamed', episode_prefix: 'EP' }
+    await flush()
+    assert.equal(fixture.state.projectForm.category_id, 27,
+      'a later project-meta load must not wipe this project’s own saved category')
+
+    // A deliberate choice the customer has not saved yet must survive the same event.
+    fixture.state.projectForm.category_id = 31
+    project.value = { name: 'A renamed again', episode_prefix: 'EP' }
+    await flush()
+    assert.equal(fixture.state.projectForm.category_id, 31,
+      'an unsaved deliberate change must survive a project refresh')
+
+    // Saving writes BOTH records: the project meta and the config that owns the category.
+    await fixture.state.saveProject('publishing')
+    await flush()
+    const projectWrite = puts.find(entry => entry.path === '/projects/project-a')
+    const configWrite = puts.find(entry => entry.path === '/projects/project-a/settings/config')
+    assert.ok(projectWrite, 'the Publishing save must still write the project record')
+    assert.ok(configWrite, 'the category belongs to ProjectConfig and must be written there')
+    assert.equal(configWrite.body.category_id, 31, 'the customer’s deliberate category must persist')
+
+    // Switching project blanks the previous project’s Publishing values…
+    route.params.slug = 'project-b'
+    config.value = null
+    await flush()
+    assert.equal(fixture.state.projectForm.category_id, undefined,
+      'another project must not inherit the previous project’s category')
+    // …then hydrates this project’s own.
+    config.value = { category_id: 10 }
+    await flush()
+    assert.equal(fixture.state.projectForm.category_id, 10, 'the new project’s saved category must hydrate')
+  } finally {
+    app.unmount()
+    host.remove()
+    delete (globalThis as any).__settingsFixture
+  }
+})
+
+// ── DS-11 (F-04) — the FFmpeg card fetches its status before proposing repairs ──
+
+test('entering the FFmpeg tab reads the real status, and a failed check is unknown rather than "not installed"', async () => {
+  const route = reactive({ params: reactive({ slug: 'project-a' }), hash: '', query: {} })
+  const gets: string[] = []
+  let ffmpegCheck: 'ok' | 'fail' = 'ok'
+  const fixture: any = {
+    route,
+    api: {
+      get: async (path: string) => {
+        gets.push(path)
+        if (path === '/ffmpeg/status') {
+          if (ffmpegCheck === 'fail') {
+            const err: any = new Error('backend unreachable')
+            err.data = { detail: 'Backend unreachable' }
+            throw err
+          }
+          return { installed: true, source: 'bundled', has_drawtext: true, has_libass: true, version: '7.1' }
+        }
+        return {}
+      },
+      post: async () => ({}), put: async () => ({}), patch: async () => ({}), del: async () => ({}),
+    },
+    projectState: {
+      project: ref(null), config: ref(null),
+      refreshConfig: async () => undefined, loadProject: async () => undefined,
+    },
+  }
+  ;(globalThis as any).__settingsFixture = fixture
+  const app = createApp(await loadPage())
+  const host = document.body.appendChild(document.createElement('div'))
+  app.mount(host)
+  await flush()
+  try {
+    assert.equal(gets.includes('/ffmpeg/status'), false,
+      'mounting Settings must not probe FFmpeg for a tab the customer has not opened')
+
+    fixture.state.activeTab.value = 'maintenance'
+    await flush()
+    assert.ok(gets.includes('/ffmpeg/status'),
+      'entering the tab that owns the card must fetch the real status before any repair action is offered')
+    assert.equal(fixture.state.ffmpegStatus.value?.installed, true, 'a successful check stores the real status')
+    assert.equal(fixture.state.ffmpegStatusError.value, '')
+
+    // A failed re-check is its own state. Rendering it as `{ installed: false }`
+    // is what made the card invite a replacement download it could not justify.
+    ffmpegCheck = 'fail'
+    await fixture.state.refreshFfmpegStatus()
+    await flush()
+    assert.equal(fixture.state.ffmpegStatus.value, null, 'a failed check leaves the status unknown')
+    assert.equal(fixture.state.ffmpegStatusError.value, 'Backend unreachable',
+      'the failure must be stated so the card can explain it and offer Retry')
+
+    // And a later success clears the failure.
+    ffmpegCheck = 'ok'
+    await fixture.state.refreshFfmpegStatus()
+    await flush()
+    assert.equal(fixture.state.ffmpegStatus.value?.installed, true)
+    assert.equal(fixture.state.ffmpegStatusError.value, '')
+  } finally {
+    app.unmount()
+    host.remove()
+    delete (globalThis as any).__settingsFixture
+  }
+})
+
+// The card's template branches cannot be reached by the headless harness (it
+// renders `h('main')`), so the wiring that keeps an unknown status from opening
+// the installer is pinned at the source level.
+test('the FFmpeg installer and manual fallback stay closed while the status is unknown', () => {
+  const source = readFileSync(filename, 'utf8')
+  assert.match(source, /<details\s+v-else-if="ffmpegStatus"/,
+    'the recovery installer must require a real status, not merely "not bundled"')
+  assert.match(source, /<details v-if="ffmpegStatus && ffmpegStatus\.source !== 'bundled'"/,
+    'the manual-install fallback must not appear for a status that was never read')
+  assert.match(source, /v-if="ffmpegStatusError"[\s\S]{0,700}@click="refreshFfmpegStatus"/,
+    'a failed check must be stated with a retry')
 })

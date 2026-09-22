@@ -22,53 +22,15 @@ import { ref, readonly, computed } from 'vue'
 import { useApi } from './useApi.js'
 import { useToast } from './useToast.js'
 import type { JobEnqueuedResponse, JobListResponse, JobStreamEvent } from '@shared/contracts'
+import { jobDisplayLabel } from '../utils/job-presentation.js'
 
 // Types re-exported under the old names so existing importers keep working.
 export type Job = JobEnqueuedResponse
 export type JobStats = JobListResponse['stats']
 
-// v1.0.298 — keep this in sync with the JobType union (models/types.ts). A
-// missing entry falls back to the raw type string (e.g. "metadata"), which is
-// what made the Jobs panel + completion toasts read like internal slugs. Every
-// user-facing job type now has a human label.
-const JOB_TYPE_LABELS: Record<string, string> = {
-  idea_campaign: 'Idea Campaign',
-  'script-only': 'Script (chapters)',
-  'introduction-only': 'Introduction',
-  'chapter-only': 'Chapter regen',
-  outline_only: 'Outline',
-  expand_chapters: 'Chapter expansion',
-  image_prompts: 'Image prompts',
-  images: 'Images',
-  scene_images: 'Scene Images',
-  thumb_images: 'Thumbnail Images',
-  images_repair: 'Image repair',
-  audio: 'Audio',
-  audio_merge: 'Audio merge',
-  metadata: 'Metadata',
-  video: 'Video (AI scenes)',
-  video_assembly: 'Video assembly',
-  subtitles_transcribe: 'Subtitles',
-  youtube_upload: 'YouTube upload',
-  youtube_playlist_update: 'YouTube playlist',
-  broll_normalize: 'B-roll normalize',
-  broll_assemble: 'B-roll assembly',
-  broll_select: 'B-roll selection',
-  broll_autotag: 'B-roll auto-tag',
-  research_run: 'Research',
-  scene_plan_run: 'Scene plan',
-  contextual_cues: 'Contextual cues',
-  scene_image_generate: 'Scene image',
-  scene_clips_batch: 'Motion clips',
-  continuity_render: 'Continuity render',
-  composition_generate: 'Composition',
-}
-
-function jobLabel(job: Job): string {
-  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'thumbnails') return 'Thumbnail prompts'
-  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'scenes') return 'Scene prompts'
-  return JOB_TYPE_LABELS[job.type] || job.type
-}
+// F-11 — labels come from the ONE authoritative map in
+// `utils/job-presentation.ts`. The local copy that used to live here had
+// drifted from the live JobType union and rendered raw slugs in toasts.
 
 const EMPTY_STATS: JobStats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 }
 
@@ -147,7 +109,7 @@ function announceTransitions(next: Job[]) {
   for (const job of next) {
     const prev = previousStatuses.get(job.job_id)
     if (prev && (prev === 'running' || prev === 'queued')) {
-      const label = jobLabel(job)
+      const label = jobDisplayLabel(job)
       if (job.status === 'done') {
         const notice = jobCompletionNotice(job, label)
         if (notice.kind === 'success') success(notice.message)
@@ -162,7 +124,7 @@ function announceTransitions(next: Job[]) {
 
 export function jobCompletionNotice(
   job: Pick<Job, 'job_id' | 'type' | 'episode_id' | 'result' | 'output_lines'>,
-  label = jobLabel(job as Job),
+  label = jobDisplayLabel(job as Job),
 ): { kind: 'success' | 'info'; message: string } {
   if (job.type !== 'images_repair') {
     return { kind: 'success', message: `${label} completed: ${job.episode_id}` }

@@ -54,7 +54,8 @@ import {
   buildSubtitleForceStyle,
   parseSrt,
 } from '../lib/subtitle-builder.js'
-import { normalizeSubtitleStyle } from '../contracts/subtitle-style.js'
+import { normalizeSubtitleStyle, assOnlySubtitleFeatures } from '../contracts/subtitle-style.js'
+import { declareJobDegraded } from '../services/job-completion.js'
 import { resolveBurnSubtitle } from '../lib/subtitle-selection.js'
 import type { Job, BrollUsageEntry, VideoSubtitleStyle } from '../models/types.js'
 
@@ -295,6 +296,7 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   // preset looks the same whether the episode uses scenes or a B-Roll pool.
   const normalizedSubtitleStyle = subtitles_style ? normalizeSubtitleStyle(subtitles_style) : null
   let generatedSubtitleAssPath: string | null = null
+  let subtitleFallbackReason: string | null = null
   if (subPath && normalizedSubtitleStyle) {
     try {
       const cues = parseSrt(await fsp.readFile(subPath, 'utf-8'))
@@ -307,11 +309,28 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
           job.output_lines.push(`Subtitles: word mode ${normalizedSubtitleStyle.word.mode} using ${rendered.wordPrecision} word timing (${rendered.events} events).`)
         }
       } else {
+        subtitleFallbackReason = 'the subtitle file contained no parseable cues'
         job.output_lines.push('Subtitles: selected file could not be converted for styling; using its original formatting.')
       }
     } catch (error: any) {
+      subtitleFallbackReason = error?.message || String(error)
       job.output_lines.push(`Subtitles: styled document preparation failed (${error?.message || error}); falling back to coarse anchors, which cannot render word modes, animation or line wrapping.`)
       generatedSubtitleAssPath = null
+    }
+    // Same contract as the scene assembler: a fallback that ships without the
+    // requested caption features must say so in `result.degraded`, not only in
+    // the job log (AGENTS.md §8).
+    if (!generatedSubtitleAssPath) {
+      const assOnlyFeatures = assOnlySubtitleFeatures(normalizedSubtitleStyle)
+      if (assOnlyFeatures.length) {
+        declareJobDegraded(job, {
+          tier: 'B-Roll subtitles force_style fallback',
+          reason: subtitleFallbackReason || 'the styled subtitle document could not be built',
+          requested: assOnlyFeatures,
+          survived: ['caption text and basic style'],
+          dropped: assOnlyFeatures,
+        })
+      }
     }
   }
   const forceStyleClause = (subPath && normalizedSubtitleStyle)

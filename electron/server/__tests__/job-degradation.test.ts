@@ -16,6 +16,8 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import {
   declareJobDegraded,
@@ -23,6 +25,7 @@ import {
   assertJobDidNotDeclareIncomplete,
   DEGRADED_LINE_PREFIX,
 } from '../services/job-completion.js'
+import { normalizeSubtitleStyle, assOnlySubtitleFeatures } from '../contracts/subtitle-style.js'
 import type { Job } from '../models/types.js'
 
 function job(): Job {
@@ -120,5 +123,75 @@ describe('degraded render reporting', () => {
       clean.result?.degraded, lossy.result?.degraded,
       'but the degraded one must be identifiable from result without parsing logs',
     )
+  })
+})
+
+/**
+ * H-13 (DS-06) — the subtitle `force_style` fallback.
+ *
+ * The subtitle ASS document is the only renderer that can express word modes,
+ * animation, precise placement, blur, rounded boxes and the style's line
+ * wrapping. When it cannot be built the assemblers fall back to
+ * `subtitles=…:force_style=`, which can express none of them. Before this fix
+ * that fallback only wrote a line to the job log: `result.degraded` stayed
+ * empty, so a render that shipped without the requested captions reported a
+ * clean success. `requiresAssDocument` already existed for exactly this
+ * decision and had no callers.
+ */
+const WORD_STYLE = normalizeSubtitleStyle({
+  schema_version: 2,
+  typography: { max_chars_per_line: 42, max_lines: 2 },
+  word: { mode: 'highlight' },
+  animation: { type: 'fade' },
+  box: { mode: 'rounded' },
+})
+
+function subtitleFallbackJob(): Job {
+  return { output_lines: [], status: 'running', error: null } as unknown as Job
+}
+
+describe('subtitle force_style fallback degradation (H-13)', () => {
+  test('the dropped-feature list names the requested word mode, animation and wrapping', () => {
+    const features = assOnlySubtitleFeatures(WORD_STYLE)
+    assert.ok(features.some(feature => /word-by-word captions \(highlight\)/.test(feature)), JSON.stringify(features))
+    assert.ok(features.some(feature => /caption animation \(fade\)/.test(feature)), JSON.stringify(features))
+    assert.ok(features.includes('rounded caption box'), JSON.stringify(features))
+    assert.ok(features.includes('caption line wrapping'), JSON.stringify(features))
+  })
+
+  test('the exact fallback composition records the loss on result.degraded and keeps done', () => {
+    const j = subtitleFallbackJob()
+    const features = assOnlySubtitleFeatures(WORD_STYLE)
+    declareJobDegraded(j, {
+      tier: 'subtitles force_style fallback',
+      reason: 'subtitle document contained no events',
+      requested: features,
+      survived: ['caption text and basic style'],
+      dropped: features,
+    })
+    requireJobCompletion(j, { label: 'Final video assembly', expected: 1, completed: 1 })
+
+    assert.equal(j.result?.complete, true, 'the usable render is still kept')
+    const degraded = j.result?.degraded
+    assert.ok(degraded, 'a word-mode fallback must not report a clean success')
+    assert.ok(degraded.dropped.some((feature: string) => /word-by-word captions \(highlight\)/.test(feature)))
+    assert.ok(degraded.requested.some((feature: string) => /caption animation \(fade\)/.test(feature)))
+    assert.match(j.output_lines.join('\n'), new RegExp(DEGRADED_LINE_PREFIX))
+  })
+
+  test('a plain static style still reports the line-wrapping the fallback ignores', () => {
+    const plain = normalizeSubtitleStyle({ schema_version: 2, typography: { max_chars_per_line: 42, max_lines: 2 } })
+    const features = assOnlySubtitleFeatures(plain)
+    assert.deepEqual(features, ['caption line wrapping'])
+  })
+
+  test('both assemblers wire the fallback into declareJobDegraded', () => {
+    // A behavioural test would need ffmpeg plus real media; this pins the
+    // wiring that H-13 was about — the lossy branch must declare its loss.
+    for (const file of ['../generators/video.ts', '../generators/broll-assemble.ts']) {
+      const source = readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8')
+      assert.match(source, /assOnlySubtitleFeatures\(/, `${file} must name the dropped caption features`)
+      assert.match(source, /declareJobDegraded\(job, \{/, `${file} must record the degradation on the job result`)
+    }
   })
 })

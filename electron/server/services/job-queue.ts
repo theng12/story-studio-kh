@@ -684,9 +684,18 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     // is not useful until a later boot/control-plane pass.
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (!apiKey) {
-      job.output_lines.push('Cancellation is waiting for the GenStudio API key to be available on this Mac.')
-      await persistJob(job)
-      emitUpdate(job)
+      // The 5-second reschedule in the `finally` below is the mechanism by
+      // which a later key save is noticed, so the waiting itself stays. What
+      // must not grow is the record of it: an unconfigured Mac used to append
+      // this same line — and rewrite jobs.json — once per tick for as long as
+      // the job waited. State the fact once, and write only when this pass
+      // actually changed something.
+      const line = 'Cancellation is waiting for the GenStudio API key to be available on this Mac.'
+      if (!job.output_lines.slice(-8).includes(line)) {
+        job.output_lines.push(line)
+        await persistJob(job)
+        emitUpdate(job)
+      }
       return
     }
     for (const [key, record] of Object.entries(job.remote_cancellations || {})) {
@@ -956,7 +965,18 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
     } else if (evidence.length && evidence.every(entry => entry.state === 'succeeded')) {
       const auditor = getJobCancellationAuditor(job.type)
       if (!auditor) {
-        job.output_lines.push('Provider work settled, but no output auditor is registered. Keeping this job running until output can be verified.')
+        // A settled provider task with no way to verify local output is a dead
+        // end, not a wait. The interrupted executor is gone, no control-plane
+        // pass will register an auditor, no reconcile timer remains (the
+        // evidence is settled), and `retryTerminalJob` refuses a `running` row —
+        // so the old "keep running" branch stranded the job with Abandon as its
+        // only exit. AGENTS.md §8: unverifiable output is never success, so fail
+        // loudly, retain the provider evidence, and let the owner Retry.
+        job.status = 'error'
+        job.error = 'GenStudio finished this step\'s provider work, but Story Studio cannot verify the local output because no completion audit is registered for this job type. Retry runs this step again; the settled provider task stays recorded as evidence.'
+        job.result = { ...(job.result || {}), provider_settled: 'succeeded', repair_required: true }
+        job.finished_at = new Date().toISOString()
+        job.output_lines.push(job.error)
         await persistJob(job)
         emitUpdate(job)
         return

@@ -5002,7 +5002,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   //     always renders on top.
   if (subtitles?.enabled && subtitles.srt_path && existsSync(subtitles.srt_path)) {
     const { buildSubtitleAssDocument, parseSrt } = await import('../lib/subtitle-builder.js')
-    const { normalizeSubtitleStyle } = await import('../contracts/subtitle-style.js')
+    const { normalizeSubtitleStyle, assOnlySubtitleFeatures } = await import('../contracts/subtitle-style.js')
     // v1.1.0 — ONE renderer. Every style now burns through the full ASS
     // document, not just animated or precisely-placed ones. The `force_style`
     // path below survives only as the fallback for a subtitle file we cannot
@@ -5012,6 +5012,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     const style = normalizeSubtitleStyle(subtitles.style)
     const st = vn()
     let wired = false
+    let subtitleFallbackReason: string | null = null
     {
       try {
         const cues = parseSrt(await fs.readFile(subtitles.srt_path, 'utf-8'))
@@ -5059,6 +5060,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
           wired = true
         }
       } catch (e: any) {
+        subtitleFallbackReason = e?.message || String(e)
         job.output_lines.push(`Subtitle document build failed (${e?.message || e}) — falling back to coarse static anchors, which cannot render word modes, animation or line wrapping.`)
       }
     }
@@ -5080,6 +5082,21 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       // square frame.
       filterParts.push(`${vLabel}subtitles=filename=${escapeFilterPath(subtitles.srt_path)}:original_size=${w}x${h}:force_style='${ass}'${st}`)
       job.output_lines.push(`Burning in subtitles: ${path.basename(subtitles.srt_path)}`)
+      // `force_style` can express none of the style's word modes, animation,
+      // precise placement or line wrapping, so this fallback is a genuine
+      // degradation of the requested captions. Logging it in `output_lines` is
+      // not enough: the Jobs UI keys on `result.degraded`. AGENTS.md §8 says a
+      // run may not report a clean success without naming what it dropped.
+      const assOnlyFeatures = assOnlySubtitleFeatures(style)
+      if (assOnlyFeatures.length) {
+        declareJobDegraded(job, {
+          tier: 'subtitles force_style fallback',
+          reason: subtitleFallbackReason || 'the styled subtitle document could not be built',
+          requested: assOnlyFeatures,
+          survived: ['caption text and basic style'],
+          dropped: assOnlyFeatures,
+        })
+      }
     }
     vLabel = st
   }

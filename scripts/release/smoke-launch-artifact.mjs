@@ -64,9 +64,18 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
   let output = ''
   let exited = null
 
+  // A caller (a test harness or shell profile) may export
+  // ELECTRON_RUN_AS_NODE=1. Inherited here, it makes the packaged app run as
+  // Node and reject `--user-data-dir` with "bad option: --user-data-dir=…",
+  // which the verifier then reports as "the app exited before its backend
+  // started" — a false artifact failure. The smoke launch always wants the
+  // real Electron app, so never forward that switch.
+  const childEnv = { ...process.env }
+  delete childEnv.ELECTRON_RUN_AS_NODE
+
   const child = spawn(executable, [`--user-data-dir=${userDataDir}`], {
     env: {
-      ...process.env,
+      ...childEnv,
       STORY_STUDIO_DATA_DIR: dataDir,
       ELECTRON_ENABLE_LOGGING: '1',
       ELECTRON_NO_ATTACH_CONSOLE: '1',

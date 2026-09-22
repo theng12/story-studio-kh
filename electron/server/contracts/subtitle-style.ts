@@ -564,3 +564,29 @@ export function requiresAssDocument(style: SubtitleStyleDocument): boolean {
     || style.box.mode === 'rounded'
     || style.typography.all_caps
 }
+
+/**
+ * The requested caption features a `force_style=` fallback drops, named for a
+ * job log and for `declareJobDegraded`.
+ *
+ * `requiresAssDocument` answers "is the fallback lossy at all"; this answers
+ * "what exactly will be missing", which is what the verified-completion
+ * contract (AGENTS.md §8) needs: a fallback that ships without these can no
+ * longer report a clean success. Line wrapping belongs here even though it is
+ * not in `requiresAssDocument` — `force_style` ignores `max_chars_per_line` /
+ * `max_lines` on every style, which is the original reason the ASS document
+ * became the only styled path.
+ */
+export function assOnlySubtitleFeatures(style: SubtitleStyleDocument): string[] {
+  const features: string[] = []
+  if (style.word.mode !== 'off') features.push(`word-by-word captions (${style.word.mode})`)
+  if (style.animation.type !== 'none') features.push(`caption animation (${style.animation.type})`)
+  if (hasPreciseSubtitleAnchor(style)) features.push('precise caption placement')
+  if (style.edge.blur_px > 0) features.push('caption blur')
+  if (style.edge.shadow_offset_x_px !== 0 || style.edge.shadow_offset_y_px !== 0) features.push('caption shadow offset')
+  if (style.typography.line_spacing_px > 0) features.push('caption line spacing')
+  if (style.box.mode === 'rounded') features.push('rounded caption box')
+  if (style.typography.all_caps) features.push('ALL CAPS captions')
+  if (style.typography.max_chars_per_line > 0 && style.typography.max_lines > 0) features.push('caption line wrapping')
+  return features
+}

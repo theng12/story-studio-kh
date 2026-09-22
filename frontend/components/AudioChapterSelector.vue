@@ -68,6 +68,13 @@
 
     <div v-if="!episodeId" class="cs-empty">Select an episode to see its sections.</div>
     <div v-else-if="loading && !sections.length" class="cs-empty">Scanning audio files…</div>
+    <!-- E-05 (DS-10) — a failed scan used to fall through to the empty-script
+         claim, telling the customer their script was empty when the app had
+         simply failed to read it (AGENTS.md §6). -->
+    <div v-else-if="loadError" class="cs-empty" role="alert">
+      <p>We couldn't read this episode's sections: <code>{{ loadError }}</code>.</p>
+      <button type="button" class="btn btn-sm btn-secondary" @click="refresh">Retry</button>
+    </div>
     <div v-else-if="!sections.length" class="cs-empty">
       No sections found. Generate the script first, then this selector will
       list each chapter to target individually.
@@ -344,6 +351,9 @@ const { error: showError } = useToast()
 
 const sections = ref<SectionRow[]>([])
 const loading = ref(false)
+// E-05 (DS-10) — carries a failed section scan so the empty state is only shown
+// on a real, successful answer.
+const loadError = ref('')
 const unavailableRequestedSection = ref('')
 let refreshRevision = 0
 
@@ -688,9 +698,11 @@ async function refresh() {
   if (!episodeId) {
     sections.value = []
     loading.value = false
+    loadError.value = ''
     return
   }
   loading.value = true
+  loadError.value = ''
   try {
     const r = await get<{ sections: SectionRow[] }>(
       `/projects/${projectSlug}/episodes/${episodeId}/audio-sections`
@@ -729,8 +741,11 @@ async function refresh() {
         .map(s => s.slug)
       if (missing.length) emit('update:selected', missing.join(','))
     }
-  } catch {
-    if (revision === refreshRevision) sections.value = []
+  } catch (e: any) {
+    if (revision === refreshRevision) {
+      sections.value = []
+      loadError.value = e?.data?.detail || e?.message || 'Could not read this episode’s sections'
+    }
   } finally {
     if (revision === refreshRevision) loading.value = false
   }

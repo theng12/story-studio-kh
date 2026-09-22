@@ -120,3 +120,33 @@ export async function letteringPhrase(
   const rows = await letteringCatalogue(options)
   return rows.find(row => row.axis === axis && row.id === id)?.phrase || ''
 }
+
+export interface LetteringPhraseMaps {
+  font: Record<string, string>
+  text: Record<string, string>
+}
+
+/**
+ * Every phrase the catalogue knows, keyed by axis and style id — built-ins and
+ * installed packs alike.
+ *
+ * WHY THIS EXISTS. The thumbnail prompt builder is synchronous and used to
+ * resolve a style id against the hardcoded `FONT_STYLES` / `TEXT_STYLES` maps
+ * only. A pack's style id is not in those maps, so a bought lettering style
+ * resolved to the built-in serif: the picker showed the swatch the customer
+ * paid for and the image model was told to draw something else. The builder
+ * cannot await the pack registry, so the resolution happens here, once per run,
+ * and the caller hands the builder a map it can look up synchronously.
+ *
+ * Returning the whole map rather than a probe for two guessed ids matters: the
+ * effective style may come from the request, from the recipe's own default, or
+ * from `auto`, and this way the builder resolves whichever id it actually ends
+ * up using without the caller having to predict it.
+ */
+export async function letteringPhraseMaps(
+  options: ContentPackRegistryOptions = {},
+): Promise<LetteringPhraseMaps> {
+  const maps: LetteringPhraseMaps = { font: {}, text: {} }
+  for (const row of await letteringCatalogue(options)) maps[row.axis][row.id] = row.phrase
+  return maps
+}

@@ -100,9 +100,9 @@
         <div class="jobs-control-group" role="group" aria-label="Queue controls">
           <span class="jobs-control-label">Queue · pause applies to all projects</span>
           <div class="jobs-control-buttons">
-            <button class="btn btn-sm btn-secondary" :disabled="changingQueueState || resumingQueue || (!queuePaused && !hasQueueWork)"
-              :title="queuePaused ? 'Release the queue hold across all projects.' : 'Hold new work across all projects. Accepted work is saved before it pauses.'"
-              @click="queuePaused ? resumeQueue() : pauseQueue()">{{ changingQueueState || resumingQueue ? 'Updating queue…' : queuePaused ? 'Resume queue' : 'Pause queue' }}</button>
+            <button class="btn btn-sm btn-secondary" :disabled="changingQueueState || resumingQueue || queueStateUnknown || (!queuePaused && !hasQueueWork)"
+              :title="queueStateUnknown ? 'Story Studio cannot read the queue state right now. Refresh to check before pausing or resuming.' : queuePaused ? 'Release the queue hold across all projects.' : 'Hold new work across all projects. Accepted work is saved before it pauses.'"
+              @click="queuePaused ? resumeQueue() : pauseQueue()">{{ changingQueueState || resumingQueue ? 'Updating queue…' : queueStateUnknown ? 'Queue state unknown' : queuePaused ? 'Resume queue' : 'Pause queue' }}</button>
             <button class="btn btn-sm btn-secondary resume-paused-btn" :disabled="bulkActionBusy || pausedJobCount === 0"
               @click="resumePausedJobs">{{ bulkResumeBusy ? `Resuming ${bulkResumeCount}…` : `Resume paused (${pausedJobCount})` }}</button>
           </div>
@@ -134,9 +134,13 @@
 
     <!-- Durable Story-side queue hold. Queued work has not been submitted;
          accepted GenStudio items checkpoint before their job pauses. -->
-    <WorkspaceNotice v-if="queuePaused" tone="warning" title="Job queue is paused">
+    <WorkspaceNotice v-if="queuePaused === true" tone="warning" title="Job queue is paused">
       New Story jobs are held before submission. Running GenStudio jobs finish saving already accepted items, then pause safely.
 
+    </WorkspaceNotice>
+    <WorkspaceNotice v-if="queueStateUnknown" tone="info" title="Queue state could not be read">
+      Story Studio could not confirm whether the queue is paused, so the state is unknown rather than "running". Refresh to check before changing it.
+      <button class="btn btn-sm btn-secondary" @click="checkQueuePaused">Refresh queue state</button>
     </WorkspaceNotice>
     <WorkspaceNotice v-if="jobsStale" tone="warning" title="Jobs may be out of date">
       {{ jobsRefreshMessage }}
@@ -1134,9 +1138,13 @@ import {
   customerSafeJobText,
   filterJobsForView,
   isVerifiedLiveCapacity,
+  jobDisplayLabel,
   jobRequestIds,
+  jobsEmptyState,
+  jobTypeLabel,
   jobWorkspaceLink,
   primaryControl,
+  retryAdmissionAllowed,
   secondaryControls,
 } from '~/utils/job-presentation'
 import { formatCredits } from '~/utils/genstudio-credit-cost'
@@ -1287,12 +1295,21 @@ function expandSummary(job: RJob): string {
   return parts.join(' + ')
 }
 
+function jobModelProvider(job: RJob): string {
+  // §2 — the provider the catalogue published for this model, display only.
+  return genStudioModels.providerName(job.params?.model)
+}
+
 function jobModelDisplay(job: RJob): string {
-  return genStudioModels.displayName(job.params?.model)
+  const name = genStudioModels.displayName(job.params?.model)
+  const provider = jobModelProvider(job)
+  return provider ? `${name} · ${provider}` : name
 }
 
 function jobModelTitle(job: RJob): string {
-  return jobModelDisplay(job)
+  const name = genStudioModels.displayName(job.params?.model)
+  const provider = jobModelProvider(job)
+  return provider ? `${name} — served by ${provider}` : name
 }
 
 const GENSTUDIO_QUEUE_LABELS: Record<string, string> = {
@@ -1664,7 +1681,12 @@ let timer: ReturnType<typeof setInterval> | null = null
 // Surface the durable Story-side queue hold and keep its status synchronized
 // across project and universal Jobs views.
 const net = useNetworkStatus()
-const queuePaused = ref(false)
+// `null` is the honest "could not read" state. It is deliberately NOT `false`:
+// a two-valued ref fed by a `catch` that keeps the last value renders an
+// unreadable queue as "running", which is the §6 zero-that-means-two-things
+// defect. See `queueStateUnknown` and the notice below.
+const queuePaused = ref<boolean | null>(null)
+const queueStateUnknown = computed(() => queuePaused.value === null)
 const globalQueueWork = ref<boolean | null>(null)
 const resumingQueue = ref(false)
 const changingQueueState = ref(false)
@@ -1682,7 +1704,12 @@ async function checkQueuePaused(): Promise<void> {
     const r = await get<{ paused: boolean; stats: { queued: number; running: number } }>('/system/queue/status')
     queuePaused.value = !!r.paused
     globalQueueWork.value = r.stats ? r.stats.queued + r.stats.running > 0 : null
-  } catch { /* backend unreachable — leave the last-known value */ }
+  } catch {
+    // Backend unreachable: the state is UNKNOWN, not the last answer. Keeping
+    // the previous value here is how a failed read silently read as "running".
+    queuePaused.value = null
+    globalQueueWork.value = null
+  }
 }
 
 async function refreshGenStudioCapacity(): Promise<void> {
@@ -1714,7 +1741,7 @@ async function resumeQueue(): Promise<void> {
     await net.refresh()        // re-probe so the indicator + sync state agree
     await checkQueuePaused()
     void refreshGenStudioCapacity()
-    if (!queuePaused.value) success('Job queue resumed')
+    if (queuePaused.value === false) success('Job queue resumed')
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to resume the queue')
   } finally {
@@ -1855,6 +1882,9 @@ const failedJobsForRetryAll = computed(() =>
     (j.status === 'error' || j.status === 'cancelled')
     && !isVerifiedRecoveredSubtitleJob(j)
     && j.params?.auto_repair_missing_prompts !== true
+    // Q-06 — bulk Retry must apply the same admission filter as the per-row
+    // button and the backend, or it counts jobs it can only 409 on.
+    && retryAdmissionAllowed(j)
     && (!j.params?.jobs_replace_failed_items || canRetryManualFailedItemExactly(j)))
 )
 const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
@@ -2023,59 +2053,10 @@ function reviewFailures() {
 
 // Display label per job type. Every executor registered in
 // `electron/server/boot/executors.ts` should appear here — otherwise the
-// Jobs page renders the raw type string (e.g. `video_assembly`) which
-// reads as a database key, not a feature name.
-const JOB_TYPE_LABELS: Record<string, string> = {
-  idea_campaign: 'Idea Campaign',
-  'script-only': 'Script (chapters)',
-  'introduction-only': 'Introduction',
-  'chapter-only': 'Chapter regen',
-  outline_only: 'Script outline',
-  expand_chapters: 'Chapter expansion',
-  image_prompts: 'Prompts',
-  images: 'Images (All)',
-  scene_images: 'Scene Images',
-  thumb_images: 'Thumbnail Images',
-  images_repair: 'Image Repair',
-  audio: 'Audio',
-  audio_merge: 'Audio Merge',
-  metadata: 'Metadata',
-  video: 'AI Video',
-  video_assembly: 'Video Assembly',
-  subtitles_transcribe: 'Subtitles',
-  research_run: 'Research',
-  scene_plan_run: 'Scene Plan prompts',
-  contextual_cues: 'Contextual Cues',
-  scene_image_generate: 'Scene image',
-  scene_images_batch: 'Scene Review images',
-  scene_clip_generate: 'Motion clip',
-  scene_clips_batch: 'Motion Review clips',
-  continuity_render: 'Scene Review images',
-  composition_generate: 'Image composition',
-  expression_markup: 'Expression markup',
-  image_pool_generate: 'Image pool',
-  youtube_upload: 'YouTube upload',
-  youtube_playlist_update: 'YouTube playlist',
-  youtube_thumbnail_refresh: 'YouTube thumbnail',
-  broll_normalize: 'B-roll normalize',
-  broll_select: 'B-roll selection',
-  broll_assemble: 'B-roll assembly',
-  broll_autotag: 'B-roll tags',
-  music_generate: 'Music generation',
-  music_video: 'Music video',
-}
-function jobTypeLabel(type: string): string {
-  return JOB_TYPE_LABELS[type] || type
-}
-function jobDisplayLabel(job: Pick<RJob, 'type' | 'params'>): string {
-  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'thumbnails') {
-    return 'Thumbnail Prompts'
-  }
-  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'scenes') {
-    return 'Scene Prompts'
-  }
-  return jobTypeLabel(job.type)
-}
+// F-11 — labels come from the ONE authoritative map in
+// `~/utils/job-presentation` (`jobTypeLabel` / `jobDisplayLabel`). This page
+// used to keep a fourth hand-maintained copy, which is how live types drifted
+// into rendering as raw slugs here, in the toasts and in the episode dropdown.
 
 // ── Filter tabs ─────────────────────────────────────────────────────────
 
@@ -2207,9 +2188,7 @@ const filterTabs = computed(() => {
     { type: 'image_prompts',        label: 'Prompts' },
     { type: 'scene_plan_run',       label: 'Scene Plan' },
     { type: 'contextual_cues',       label: 'Contextual Cues' },
-    { type: 'scene_images',         label: 'Scene Images' },
     { type: 'continuity_render',    label: 'Scene Review' },
-    { type: 'scene_images_batch',   label: 'Scene Review Batch' },
     { type: 'thumb_images',         label: 'Thumb Images' },
     { type: 'images',               label: 'Images (All)' },
     { type: 'images_repair',        label: 'Image Repair' },
@@ -2237,16 +2216,18 @@ const filterTabs = computed(() => {
 
 const filterLabel = computed(() => filterTabs.value.find(t => t.type === activeFilter.value)?.label || '')
 
-const emptyTitle = computed(() => hiddenJobsInScope.value.length && !showHidden.value
-  ? 'No visible jobs'
-  : activeFilter.value === 'all' ? 'No jobs yet' : `No ${filterLabel.value} jobs`)
-const emptyMessage = computed(() => hiddenJobsInScope.value.length && !showHidden.value
-  ? 'Show hidden jobs to restore them. Work and settlement checks continue in the background.'
-  : activeFilter.value === 'all'
-    ? (isUniversal.value
-        ? 'Jobs from every project appear here automatically as soon as they are queued.'
-        : 'Start generating scripts, images, or audio to see this project’s background jobs here.')
-    : 'Try switching to the All tab to see other jobs.')
+const emptyState = computed(() => jobsEmptyState({
+  hiddenInScope: hiddenJobsInScope.value.length,
+  showHidden: showHidden.value,
+  scopedJobs: presentationScopedJobs.value.length,
+  typeFilter: activeFilter.value,
+  typeLabel: filterLabel.value,
+  statusFilter: statusFilter.value,
+  batchFilter: failureBatchFilter.value,
+  universal: isUniversal.value,
+}))
+const emptyTitle = computed(() => emptyState.value.title)
+const emptyMessage = computed(() => emptyState.value.message)
 
 // Auto-select tab for most recent active type
 watch(jobs, (list) => {
@@ -2676,6 +2657,9 @@ function canRetryJob(job: RJob): boolean {
     || isVerifiedRecoveredSubtitleJob(job)
     || isTerminalContinuityRender(job)
     || job.params?.auto_repair_missing_prompts === true) return false
+  // Q-06 — do not offer a Retry the backend always refuses (legacy prompt/image
+  // modes). The admission rule mirrors `retryAdmissionError` in routes/jobs.ts.
+  if (!retryAdmissionAllowed(job)) return false
   if (job.params?.jobs_replace_failed_items) return canRetryManualFailedItemExactly(job)
   // The queue can replay this saved chat identity without submitting a fresh
   // provider request. Keep Retry available beside Recheck for that exact path.
@@ -3201,7 +3185,10 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
     return 'SMART RETRY — Regenerates ONLY missing scene/thumbnail prompts and merges them into the existing files, keeping prompts that already succeeded. Local models: free. Cloud models: charges only for the missing prompts.'
   }
   if (jobType === 'subtitles_transcribe') {
-    return 'CHARGES MAY APPLY — Repair first retrieves saved GenStudio work for free. Retry keeps completed SRT files and submits only missing chapters, confirming a fresh quote for each new request.'
+    // Q-10 — subtitles are not in REPAIR_ENDPOINTS, so no Repair button is
+    // rendered for them. The old copy told the user to "Repair first", pointing
+    // at a control that does not exist. Describe what Retry actually does.
+    return 'CHARGES MAY APPLY — Retry keeps completed SRT files and submits only missing chapters, confirming a fresh quote for each new request.'
   }
   if (jobCanBeRepaired(job)) {
     return 'CHARGES MAY APPLY — Re-submits this job as a fresh request. Click Repair FIRST (free — recovers in-flight provider work). The generator skips assets already on disk, so after Repair, Retry only re-submits genuinely-missing items.'

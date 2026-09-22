@@ -87,3 +87,23 @@ test('image workflows pin project scope as well as episode scope across same-cod
   assert.match(sceneReview, /async function pollUntilAllPresent\(ep: string, project: string, scope: number\)[\s\S]*?scope === reviewScopeSequence/)
   assert.match(imagePool, /let imagePoolScopeSequence = 0[\s\S]*?watch\(\[slug, episodeId, poolId\][\s\S]*?imagePoolScopeSequence\+\+/)
 })
+
+test('a free-form custom lettering choice is sent with the run, not left in the form', () => {
+  // The page collects the description and the backend resolvers accept it, but
+  // the payload used to send only the `custom` id — so the run fell back to the
+  // built-in serif/gold and the words the customer typed were ignored.
+  const payload = imagePrompts.slice(
+    imagePrompts.indexOf('async function runGenerate(mode: PromptMode)'),
+    imagePrompts.indexOf('const operationId = payload.force'),
+  )
+  assert.match(
+    payload,
+    /thumb_text_style_custom: form\.thumbnail\.thumb_text_style === 'custom'[\s\S]{0,120}form\.thumbnail\.thumb_text_style_custom/,
+    'the typed text style description must travel when `custom` is the chosen id',
+  )
+  assert.match(
+    payload,
+    /thumb_font_style_custom: form\.thumbnail\.thumb_font_style === 'custom'[\s\S]{0,120}form\.thumbnail\.thumb_font_style_custom/,
+    'and the typed font description with it',
+  )
+})

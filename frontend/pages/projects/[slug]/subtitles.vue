@@ -54,7 +54,17 @@
           <LoadingSpinner size="sm" /> Checking subtitle status…
         </div>
         <template v-else>
-          <p v-if="!status?.has_chapter_audio" class="validation-msg text-sm mt-2">
+          <!-- E-04 (DS-10) — a failed read is not an empty episode. Without this
+               branch the app asserted the missing-chapter-audio claim about an
+               episode it never managed to look at. -->
+          <div v-if="statusError" class="validation-msg text-sm mt-2" role="alert">
+            <p>
+              We couldn't read this episode's subtitle status: <code>{{ statusError }}</code>.
+              This is a failed check — it does not mean the chapter audio is missing.
+            </p>
+            <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadStatus">Retry</button>
+          </div>
+          <p v-else-if="!status?.has_chapter_audio" class="validation-msg text-sm mt-2">
             ⚠ No chapter audio found for {{ episodeId }}. Generate audio in the
             <NuxtLink :to="`/projects/${slug}/audio`" class="inline-link">Audio Generator</NuxtLink>
             first — subtitles are built from it.
@@ -525,6 +535,11 @@ function selectSubtitleAttention(): void {
 const audioReview = ref<{ section: string; startSeconds: number } | null>(null)
 const audioReviewPanel = ref<HTMLElement | null>(null)
 const loading = ref(false)
+// E-04 (DS-10) — a failed status read left `status` null, and the template's
+// `!status?.has_chapter_audio` branch then told the customer "No chapter audio
+// found for <episode>" — a claim the app had not established. AGENTS.md §6:
+// "I could not work out the answer" must not render as "the answer is none".
+const statusError = ref('')
 
 const force = ref(false)
 const transcribing = ref(false)
@@ -770,9 +785,10 @@ const transcribeDisabledReason = computed(() => {
 let loadToken = 0
 async function loadStatus(): Promise<void> {
   const myToken = ++loadToken
-  if (!episodeId.value) { status.value = null; sections.value = []; loading.value = false; return }
+  if (!episodeId.value) { status.value = null; sections.value = []; loading.value = false; statusError.value = ''; return }
   let loaded = false
   loading.value = true
+  statusError.value = ''
   try {
     const [st, secs] = await Promise.all([
       get<SubtitleStatus>(`/projects/${slug.value}/video-editor/subtitles/status/${episodeId.value}`),
@@ -784,7 +800,10 @@ async function loadStatus(): Promise<void> {
     loaded = true
     void loadStitchStatus()
   } catch (e: any) {
-    if (myToken === loadToken && !e?.__slugRace) showError(e?.data?.detail || e?.message || 'Could not load subtitle status')
+    if (myToken === loadToken && !e?.__slugRace) {
+      statusError.value = e?.data?.detail || e?.message || 'Could not load subtitle status'
+      showError(statusError.value)
+    }
   } finally {
     if (myToken === loadToken) loading.value = false
   }

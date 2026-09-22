@@ -198,6 +198,17 @@
         <div class="progress-bar"><div class="progress-fill" /></div>
       </div>
 
+      <!-- E-08 (DS-10) — a failed asset scan clears `scannedAssets`, so Step 1
+           used to render blank with only a toast to explain it. Keep the
+           failure visible and give it its own retry. -->
+      <div v-if="scanError && !scanning" class="ffmpeg-warning mt-2" role="alert">
+        <p class="text-muted text-md">
+          We couldn't check this episode's assets: <code>{{ scanError }}</code>.
+          Nothing below reflects this episode until the check succeeds.
+        </p>
+        <button type="button" class="btn btn-sm btn-secondary mt-1" @click="scanAssets">Retry asset check</button>
+      </div>
+
       <div v-if="scannedAssets && !scanning" class="assets-overview mt-2">
         <h4>Found Assets</h4>
 
@@ -676,7 +687,13 @@
           Pick one primary transition, optionally tick additional ones into a pool for randomization.
         </p>
 
-        <div v-if="!transitionsCatalog.length" class="text-muted text-sm catalog-loading">Loading transitions…</div>
+        <div v-if="transitionsCatalogLoading" class="text-muted text-sm catalog-loading">Loading transitions…</div>
+        <div v-else-if="transitionsCatalogError" class="ffmpeg-warning" role="alert">
+          <p class="text-muted text-md">
+            We couldn't load the transition catalogue: <code>{{ transitionsCatalogError }}</code>.
+          </p>
+          <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadTransitionsCatalog">Retry</button>
+        </div>
         <TransitionPicker
           v-else
           :slug="slug"
@@ -2031,7 +2048,17 @@
             transcript it has. Create or re-transcribe them in the
             <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Subtitles tab</NuxtLink>.
           </p>
-          <p v-if="!burnView.burning" class="validation-msg text-sm mt-2">
+          <p v-if="subtitlesStatusLoading" class="text-muted text-sm mt-2">
+            Checking this episode's subtitle files…
+          </p>
+          <div v-else-if="subtitlesStatusError" class="validation-msg text-sm mt-2" role="alert">
+            <p>
+              We couldn't read this episode's subtitle files: <code>{{ subtitlesStatusError }}</code>.
+              What this step would burn is unknown until the check succeeds.
+            </p>
+            <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadSubtitlesStatus">Retry</button>
+          </div>
+          <p v-else-if="episodeId && !burnView.burning" class="validation-msg text-sm mt-2">
             No subtitle file for this episode yet — create one in the
             <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Subtitles tab</NuxtLink> first.
           </p>
@@ -3300,11 +3327,24 @@ const transition = reactive({
 
 const transitionsCatalog = ref<Array<{ id: string; label: string; xfade: string; category: string; hint?: string }>>([])
 
+// E-07 (DS-10) — the catalogue fetch used to swallow every failure, so the
+// picker sat on "Loading transitions…" forever with no way to tell a slow
+// request from a broken one. Track both states explicitly.
+const transitionsCatalogLoading = ref(true)
+const transitionsCatalogError = ref('')
+
 async function loadTransitionsCatalog() {
+  transitionsCatalogLoading.value = true
+  transitionsCatalogError.value = ''
   try {
     const r = await get<{ transitions: typeof transitionsCatalog.value }>(`/projects/${slug.value}/video-editor/transitions/catalog`)
     transitionsCatalog.value = r.transitions || []
-  } catch { /* non-fatal */ }
+  } catch (e: any) {
+    transitionsCatalog.value = []
+    transitionsCatalogError.value = e?.data?.detail || e?.message || 'Could not load transitions'
+  } finally {
+    transitionsCatalogLoading.value = false
+  }
 }
 
 const transitionPresets = usePresets({
@@ -3884,6 +3924,15 @@ const subtitlesStatus = ref<{
   scene_plan_timeline?: { checked: boolean; stale: boolean; drift_sec: number | null; reason: string }
 } | null>(null)
 
+// E-09 (DS-10) — `subtitlesStatus` starts (and stays) null when the status
+// request has not answered, so Step 5 announced "No subtitle file for this
+// episode yet" while the answer was still in flight and again forever after a
+// failed request. AGENTS.md §6: "I could not work out the answer" must never
+// render as "the answer is none". These two refs carry the fetch's own state so
+// the empty message is shown only on a real, successful answer.
+const subtitlesStatusLoading = ref(false)
+const subtitlesStatusError = ref('')
+
 /**
  * v1.4.0 — what Step 5 displays about the burn target. Derived entirely from the
  * status response for the episode on screen, so it holds nothing across an
@@ -3935,11 +3984,28 @@ async function loadSubtitlesStatus() {
   const request = ++subtitleStatusSequence
   const episode = episodeId.value
   const project = slug.value
-  if (!episode) { subtitlesStatus.value = null; return }
+  if (!episode) {
+    subtitlesStatus.value = null
+    subtitlesStatusLoading.value = false
+    subtitlesStatusError.value = ''
+    return
+  }
+  subtitlesStatusLoading.value = true
+  subtitlesStatusError.value = ''
   try {
     const result = await get(`/projects/${project}/video-editor/subtitles/status/${episode}`)
-    if (request === subtitleStatusSequence && episode === episodeId.value && project === slug.value) subtitlesStatus.value = result
-  } catch { /* non-fatal */ }
+    if (request === subtitleStatusSequence && episode === episodeId.value && project === slug.value) {
+      subtitlesStatus.value = result
+      subtitlesStatusLoading.value = false
+    }
+  } catch (e: any) {
+    if (request !== subtitleStatusSequence) return
+    // Leave `subtitlesStatus` null: a failed read is not "this episode has no
+    // subtitle file", and the banner below must not fall back to that claim.
+    subtitlesStatus.value = null
+    subtitlesStatusError.value = e?.data?.detail || e?.message || 'Could not read subtitle files for this episode'
+    subtitlesStatusLoading.value = false
+  }
 }
 
 /**
@@ -5630,7 +5696,7 @@ async function normalizeVideoAssemblyPathsInState(): Promise<void> {
 // logic with no rendering concerns — they now live in `useVideoAssemblyIo`.
 // The composable mutates the reactive state we pass in, so the template below
 // still binds to the same refs.
-const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo, buildPayload: buildVideoAssemblyPayload } = useVideoAssemblyIo({
+const { checkFfmpeg, scanAssets, scanError, generateVideo: runGenerateVideo, buildPayload: buildVideoAssemblyPayload } = useVideoAssemblyIo({
   slug, episodeId, selectedEpisode, visualSource, ffmpegStatus, scannedAssets, scanning, scenes,
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
@@ -5854,6 +5920,11 @@ watch([slug, episodeId], ([, newEp]) => {
   visualSourceSaving.value = false
   subtitleStatusSequence++
   subtitlesStatus.value = null
+  // A failure belonging to the previous episode must not stand while another is
+  // on screen; the re-read below decides the new episode's answer. Mirror the
+  // visual-source loading flag so "Checking…" is the state until it answers.
+  subtitlesStatusError.value = ''
+  subtitlesStatusLoading.value = !!newEp
   pinningSubtitle.value = false
   resetSubtitlePreflight()
   generating.value = false

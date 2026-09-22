@@ -430,3 +430,42 @@ describe('SSE /jobs/all/stream', () => {
     assert.ok(updates.some(job => job.project_slug === project.slug && job.episode_id === 'ALL_LIVE_1'))
   })
 })
+
+/**
+ * Q-04 (DS-07) — the application-wide stream.
+ *
+ * This route is what the app-level Jobs view subscribes to. It used to
+ * hand-roll its `send` and only `console.error` a snapshot failure, so the
+ * client's `snapshot-error` listener never fired and the view rendered an
+ * incomplete list as though it were complete. It also registered its update
+ * listeners before reading the snapshot, so an update could overtake it.
+ */
+describe('SSE /jobs/app/stream', () => {
+  test('sends exactly one snapshot frame carrying application-scoped jobs', async () => {
+    const appJob = jq.enqueuePreparedForTest({
+      project_slug: '_app_', type: 'script-only', episode_id: 'APP_STREAM_1', title: 'app stream', params: {},
+    })
+
+    const frames = await collectFrames('/api/jobs/app/stream', 50, f => hasEvent(f, 'snapshot'))
+    const snapshots = frames.filter(frame => frame.event === 'snapshot')
+    assert.equal(snapshots.length, 1, 'the app stream must send exactly one snapshot')
+    assert.ok(JSON.parse(snapshots[0]!.data).jobs.some((job: any) => job.job_id === appJob.job_id))
+  })
+
+  test('reports a snapshot failure as snapshot-error instead of swallowing it', async () => {
+    // `getJobs` is an immutable ESM export, so the failure cannot be injected
+    // through the module namespace. `createBufferedJobStream`'s own test above
+    // proves `sendSnapshotError()` emits one `snapshot-error` before releasing
+    // buffered updates; this pins that THIS route uses it (and no longer only
+    // `console.error`s the failure, which left the client's `snapshot-error`
+    // listener silent and the app Jobs view incomplete with no warning).
+    const source = await fs.readFile(new URL('../routes/jobs.ts', import.meta.url), 'utf8')
+    const start = source.indexOf("router.get('/jobs/app/stream'")
+    assert.ok(start >= 0, 'the app stream route must exist')
+    const route = source.slice(start, source.indexOf('\n})', start) + 3)
+    assert.match(route, /createBufferedJobStream\(send, 'Could not load Jobs\.'\)/,
+      'the app stream must buffer events behind its snapshot and name the failure')
+    assert.match(route, /catch[\s\S]*?stream\.sendSnapshotError\(\)/,
+      'a failed app snapshot must be reported to the client, not only logged')
+  })
+})

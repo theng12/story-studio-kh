@@ -76,6 +76,19 @@
       </template>
     </WorkspaceNotice>
 
+    <WorkspaceNotice
+      v-if="openingCheckUnknown"
+      tone="warning"
+      title="Could not check whether this channel opens with an Introduction"
+    >
+      Story Studio could not read this channel's Introduction setting, so it cannot say whether
+      narrating now would leave the opening out. Check Introduction before you spend on narration.
+      <template #actions>
+        <button type="button" class="btn btn-secondary btn-sm" @click="loadChannelIntroduction">Retry</button>
+        <NuxtLink :to="`/projects/${slug}/introduction`" class="btn btn-secondary btn-sm">Open Introduction</NuxtLink>
+      </template>
+    </WorkspaceNotice>
+
     <div class="card mt-3">
       <div class="grid-2">
         <div class="form-group">
@@ -1668,21 +1681,31 @@ const { selectedEpisode, scriptReady, statusKnown, refetch: refetchEpisodeStatus
  * one, and a gate that cannot be overruled is how people learn to ignore
  * gates. It never fires for a channel that does not use openings.
  */
-const channelIntroEnabled = ref(false)
-onMounted(async () => {
+const channelIntroEnabled = ref<boolean | null>(null)
+const channelIntroUnknown = computed(() => channelIntroEnabled.value === null)
+async function loadChannelIntroduction(): Promise<void> {
   try {
     const data = await get<{ segments?: Record<string, { enabled: boolean }> }>(
       `/projects/${slug.value}/segments`)
     channelIntroEnabled.value = data.segments?.introduction?.enabled === true
   } catch {
-    channelIntroEnabled.value = false
+    // E-03 — a failed read is unknown, not "this channel has no opening".
+    // Encoding it as `false` silently removed the pre-spend warning.
+    channelIntroEnabled.value = null
   }
-})
-const openingMissing = computed(() => channelIntroEnabled.value
+}
+onMounted(() => { void loadChannelIntroduction() })
+const openingMissing = computed(() => channelIntroEnabled.value === true
   && statusKnown.value
   && !!form.episode_id
   && scriptReady.value
   && !selectedEpisode.value?.status?.introduction)
+// The warning must still reach the user before narration when the check could
+// not be made; "unknown" is its own state, not permission to spend.
+const openingCheckUnknown = computed(() => channelIntroEnabled.value === null
+  && statusKnown.value
+  && !!form.episode_id
+  && scriptReady.value)
 // v1.0.296 — gate copy distinguishes "still checking" from "confirmed missing".
 const scriptGateReason = computed(() => {
   if (!form.episode_id || scriptReady.value) return ''

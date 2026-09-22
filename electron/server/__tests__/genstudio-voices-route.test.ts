@@ -34,7 +34,7 @@ test('GenStudio voice discovery forwards the saved bearer key and catalog', asyn
 
   globalThis.fetch = async (input, init) => {
     // Scoped by model: GenStudio requires `model_id` on /v1/voices (ADR-0016).
-    assert.equal(String(input), 'http://127.0.0.1:8000/v1/voices?model_id=tts-qwen3')
+    assert.equal(String(input), 'http://127.0.0.1:8787/v1/voices?model_id=tts-qwen3')
     assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_test_story_catalog')
     return new Response(JSON.stringify([
       {
@@ -80,7 +80,7 @@ test('the voice model catalogue is published with its price, minimum and boundar
     .expect(200)
 
   globalThis.fetch = async (input) => {
-    assert.equal(String(input), 'http://127.0.0.1:8000/v1/tts/models')
+    assert.equal(String(input), 'http://127.0.0.1:8787/v1/tts/models')
     return Response.json([{
       id: 'tts-qwen3', display_name: 'Qwen3 TTS', provider_id: 'fish', provider_name: 'Fish Audio',
       description: 'Multilingual narration', credits_per_1000_characters: 48, minimum_credits: 10,
@@ -122,7 +122,7 @@ test('the voice model catalogue keeps direct and relaxed Fish products separate 
   }
 
   globalThis.fetch = async (input) => {
-    assert.equal(String(input), 'http://127.0.0.1:8000/v1/tts/models')
+    assert.equal(String(input), 'http://127.0.0.1:8787/v1/tts/models')
     return Response.json([
       { ...base, id: 'fish-s2.1-pro', display_name: 'Fish Audio S2.1 Pro', queue_class: 'direct' },
       {
@@ -160,7 +160,7 @@ test('the music model catalogue forwards GenStudio published details without inf
     .expect(200)
 
   globalThis.fetch = async (input, init) => {
-    assert.equal(String(input), 'http://127.0.0.1:8000/v1/music/models')
+    assert.equal(String(input), 'http://127.0.0.1:8787/v1/music/models')
     assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_music_catalog')
     return Response.json([
       {
@@ -368,7 +368,7 @@ test('GenStudio transcription discovery uses the same scoped boundary key', asyn
     .expect(200)
 
   globalThis.fetch = async (input, init) => {
-    assert.equal(String(input), 'http://127.0.0.1:8000/v1/transcription/models')
+    assert.equal(String(input), 'http://127.0.0.1:8787/v1/transcription/models')
     assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_test_story_catalog')
     return new Response(JSON.stringify([
       {
@@ -419,20 +419,20 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
   })
   assert.deepEqual(visited, [
     // Resolved first, so the voice probe below can be scoped by a real model id.
-    'http://127.0.0.1:8000/v1/tts/models',
-    'http://127.0.0.1:8000/v1/models',
-    'http://127.0.0.1:8000/v1/transcription/models',
-    'http://127.0.0.1:8000/v1/image/models',
-    'http://127.0.0.1:8000/v1/videos/models',
-    'http://127.0.0.1:8000/v1/music/models',
-    'http://127.0.0.1:8000/v1/jobs/story-studio-key-probe',
-    'http://127.0.0.1:8000/v1/chat/responses/story-studio-key-probe',
-    'http://127.0.0.1:8000/v1/images/story-studio-key-probe',
-    'http://127.0.0.1:8000/v1/transcriptions/story-studio-key-probe',
-    'http://127.0.0.1:8000/v1/videos/story-studio-key-probe',
-    'http://127.0.0.1:8000/v1/content/account',
-    'http://127.0.0.1:8000/v1/voices?model_id=tts-probe',
-    'http://127.0.0.1:8000/v1/account/overview',
+    'http://127.0.0.1:8787/v1/tts/models',
+    'http://127.0.0.1:8787/v1/models',
+    'http://127.0.0.1:8787/v1/transcription/models',
+    'http://127.0.0.1:8787/v1/image/models',
+    'http://127.0.0.1:8787/v1/videos/models',
+    'http://127.0.0.1:8787/v1/music/models',
+    'http://127.0.0.1:8787/v1/jobs/story-studio-key-probe',
+    'http://127.0.0.1:8787/v1/chat/responses/story-studio-key-probe',
+    'http://127.0.0.1:8787/v1/images/story-studio-key-probe',
+    'http://127.0.0.1:8787/v1/transcriptions/story-studio-key-probe',
+    'http://127.0.0.1:8787/v1/videos/story-studio-key-probe',
+    'http://127.0.0.1:8787/v1/content/account',
+    'http://127.0.0.1:8787/v1/voices?model_id=tts-probe',
+    'http://127.0.0.1:8787/v1/account/overview',
   ])
 })
 
@@ -513,7 +513,7 @@ test('GenStudio usage failures name the supported usage:read scope actionably', 
   globalThis.fetch = async (input, init) => {
     const url = String(input)
     visited.push(url)
-    assert.match(url, /^http:\/\/127\.0\.0\.1:8000\/v1\/account\//)
+    assert.match(url, /^http:\/\/127\.0\.0\.1:8787\/v1\/account\//)
     assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_missing_usage_scope')
     return Response.json({ detail: 'missing usage:read' }, { status: 403 })
   }
@@ -527,7 +527,7 @@ test('GenStudio usage failures name the supported usage:read scope actionably', 
   assert.match(response.body.detail, /GenStudio key with usage:read/i)
   assert.match(response.body.detail, /all-access keys already include it/i)
   assert.doesNotMatch(response.body.detail, /after GenStudio exposes/i)
-  assert.deepEqual(visited, ['http://127.0.0.1:8000/v1/account/overview'])
+  assert.deepEqual(visited, ['http://127.0.0.1:8787/v1/account/overview'])
 })
 
 test('GenStudio usage requests supported account pagination and returns authoritative settlement', async () => {
@@ -567,9 +567,9 @@ test('GenStudio usage requests supported account pagination and returns authorit
   assert.equal(response.body.jobs.page_size, 20)
   assert.equal(response.body.credit_activity.page_size, 20)
   assert.deepEqual([...visited].sort(), [
-    'http://127.0.0.1:8000/v1/account/overview',
-    'http://127.0.0.1:8000/v1/account/jobs?page=1&page_size=20',
-    'http://127.0.0.1:8000/v1/account/credit-activity?page=1&page_size=20',
+    'http://127.0.0.1:8787/v1/account/overview',
+    'http://127.0.0.1:8787/v1/account/jobs?page=1&page_size=20',
+    'http://127.0.0.1:8787/v1/account/credit-activity?page=1&page_size=20',
   ].sort())
 })
 
@@ -628,4 +628,35 @@ test('the key test scopes its voice probe, and skips it when no voice model is p
   // could not be asked.
   assert.equal(response.body.valid, true)
   assert.ok(!visited.some(url => url.includes('/v1/voices')), 'no unscoped voice probe may be made')
+})
+
+test('a disconnected Content Store is reported as not connected, never as a bad key or URL', async () => {
+  await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_store_not_connected' })
+    .expect(200)
+
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.includes('story-studio-key-probe')) return new Response(null, { status: 404 })
+    if (url.endsWith('/v1/content/account')) {
+      return Response.json({
+        detail: 'Content Store is not connected. The private Pack Library preserves archives, but Story Studio requires verified account ownership, receipts and trusted signing keys before installation.',
+        code: 'CONTENT_STORE_NOT_CONNECTED',
+      }, { status: 503 })
+    }
+    if (url.endsWith('/v1/account/overview')) return Response.json({ credit_balance: 10 })
+    return Response.json([])
+  }
+
+  const response = await request(app)
+    .post('/api/app-settings/api-keys/genstudio/test')
+    .send({ apiKey: 'gsk_store_not_connected' })
+    .expect(200)
+
+  // The gateway's deliberate CONTENT_STORE_NOT_CONNECTED stub is a fact about
+  // the gateway's Store, not evidence the key or URL is wrong.
+  assert.equal(response.body.valid, true, 'a disconnected Store must not invalidate a working key')
+  assert.equal(response.body.content_store.read_scope, 'not_connected')
+  assert.doesNotMatch(String(response.body.message), /Check the API URL and key/i)
 })

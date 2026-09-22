@@ -543,6 +543,7 @@ router.get('/jobs/app', async (_req, res) => {
 // errors. Reordered + reserved-word guard so a future re-reorder fails
 // cleanly instead of silently regressing.
 router.get('/jobs/app/stream', async (req, res) => {
+  let closed = false
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
@@ -551,32 +552,42 @@ router.get('/jobs/app/stream', async (req, res) => {
   })
   res.write('retry: 5000\n\n')
   function send(eventName: string, payload: unknown) {
+    if (closed) return
     res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`)
   }
-  try {
-    send('snapshot', {
-      jobs: await jq.getJobs(APP_SLUG),
-      stats: jq.getQueueStats(APP_SLUG),
-    })
-  } catch (e) {
-    console.error('[jobs/app/stream] snapshot error:', e)
-  }
+  // Same shape as the project and universal streams: events that arrive while
+  // the first durable snapshot is still being read are buffered behind it, and
+  // a snapshot that cannot be read is reported as `snapshot-error`. This route
+  // used to hand-roll `send` and only `console.error` the failure, so the app
+  // Jobs view showed an incomplete list with no stale warning while updates
+  // could also overtake the snapshot.
+  const stream = createBufferedJobStream(send, 'Could not load Jobs.')
   const onUpdate = (job: Job) => {
     if (job.project_slug !== APP_SLUG) return
-    send('update', job)
+    stream.send('update', job)
   }
   const onCleared = (event: jq.JobsClearedEvent) => {
     if (event.project_slug !== APP_SLUG) return
-    send('cleared', event)
+    stream.send('cleared', event)
   }
   jq.jobEvents.on('update', onUpdate)
   jq.jobEvents.on('cleared', onCleared)
   const keepalive = setInterval(() => res.write(': ping\n\n'), 15000)
   req.on('close', () => {
+    closed = true
     clearInterval(keepalive)
     jq.jobEvents.off('update', onUpdate)
     jq.jobEvents.off('cleared', onCleared)
   })
+  try {
+    stream.sendSnapshot({
+      jobs: await jq.getJobs(APP_SLUG),
+      stats: jq.getQueueStats(APP_SLUG),
+    })
+  } catch (error) {
+    console.error('[jobs/app/stream] snapshot error:', error)
+    stream.sendSnapshotError()
+  }
 })
 
 // /jobs/app/:jobId — must come AFTER /jobs/app/stream (see comment on the

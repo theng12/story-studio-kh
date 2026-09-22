@@ -10,14 +10,15 @@ import {
   storedCatalogFingerprint,
   writeStoredCatalog,
 } from '../content-store/persisted-catalog'
+import type { ContentStoreProductKind } from '../content-store/product-kinds'
 
-export type ContentStoreProductKind =
-  | 'series_formula'
-  | 'topic_pack'
-  | 'visual_style'
-  | 'thumbnail_recipe'
-  | 'font_pack'
-  | 'niche_bundle'
+// The wire kinds live in one leaf module so the persisted-catalogue reader and
+// this composable cannot disagree about what a valid kind is (they did: the
+// reader never learned `font_pack`, and one unrecognised product makes it
+// discard the whole cached catalogue). Re-exported here because this module is
+// where callers already import the type from.
+export { CONTENT_STORE_PRODUCT_KINDS } from '../content-store/product-kinds'
+export type { ContentStoreProductKind } from '../content-store/product-kinds'
 
 export interface ContentStoreRelease {
   releaseId: string

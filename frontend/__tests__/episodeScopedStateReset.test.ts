@@ -31,6 +31,22 @@ const researchSource = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/research.vue', import.meta.url)),
   'utf8',
 )
+const characterSheetSource = readFileSync(
+  fileURLToPath(new URL('../pages/projects/[slug]/character-sheet.vue', import.meta.url)),
+  'utf8',
+)
+const motionReviewSource = readFileSync(
+  fileURLToPath(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url)),
+  'utf8',
+)
+const metadataSource = readFileSync(
+  fileURLToPath(new URL('../pages/projects/[slug]/metadata.vue', import.meta.url)),
+  'utf8',
+)
+const scenePlanSource = readFileSync(
+  fileURLToPath(new URL('../pages/projects/[slug]/scene-plan.vue', import.meta.url)),
+  'utf8',
+)
 
 /**
  * The body of the watcher that fires when the open episode changes.
@@ -119,4 +135,63 @@ test('Research blanks the loaded result on an episode change so a failed read is
     "loadExisting's catch is empty because the empty-state card renders — which needs result to be null",
   )
   assert.match(watcher, /serverResult\.value = ''/, 'the server snapshot must not survive either')
+})
+
+test('Character Sheet blanks the episode continuity config before the new read resolves', () => {
+  // `loadConfig` replaces the config on success and falls back to defaults on
+  // failure, so the earlier "replaced only on a successful load" shape is gone.
+  // What was left is the window in between: the watcher is `flush: 'sync'`, yet
+  // the previous episode's anchors, pacing and references stayed live until the
+  // awaited read returned. Blank it on the change (AGENTS.md §4).
+  const watcher = episodeChangeWatcher(
+    characterSheetSource,
+    /watch\(\[slug, episodeId\],[\s\S]*?flush: 'sync' \}\)/,
+  )
+  assert.match(watcher, /config\.value = continuityDefaults\(\)/, 'the episode continuity config must be blanked on the change')
+  const blankAt = watcher.indexOf('continuityDefaults()')
+  const loadAt = watcher.indexOf('loadConfig()')
+  assert.ok(blankAt >= 0 && loadAt >= 0 && blankAt < loadAt, 'the blank must happen before the reload, not inside it')
+})
+
+test('Motion Review resets every episode-scoped motion field on an episode change', () => {
+  const watcher = episodeChangeWatcher(motionReviewSource, /watch\(episodeId,[\s\S]*?\n\}, \{ immediate: true \}\)/)
+  assert.match(watcher, /resetEpisodeScopedMotionState\(\)/, 'the episode-scoped reset must run on the change')
+  const body = /function resetEpisodeScopedMotionState\(\) \{([\s\S]*?)\n\}/.exec(motionReviewSource)?.[1]
+  assert.ok(body, 'the reset function must exist')
+  for (const field of ['scenes.value = []', 'stats.value = null', 'motionScope.value', 'cacheBuster.value = Date.now()']) {
+    assert.ok(body.includes(field), `the reset must clear ${field}`)
+  }
+})
+
+test('Metadata blanks the episode-owned generation and finalization state on an episode change', () => {
+  const watcher = episodeChangeWatcher(
+    metadataSource,
+    /watch\(\[slug, episodeId\],[\s\S]*?\n\}\)/,
+    'titleOptions.value = []',
+  )
+  assert.match(watcher, /titleOptions\.value = \[\]/, "the previous episode's title variants must not be submittable")
+  assert.match(watcher, /finalizationStatus\.value = null/, 'the finalization gate must not answer from the previous episode')
+  assert.match(watcher, /genAll\.value = false/, 'the previous episode\'s in-flight banner must not gate the new episode')
+  assert.match(watcher, /lastGenResult\.value = null/, 'the result banner belonged to the episode just left')
+})
+
+/**
+ * X-06 (owner decision 2026-09-22) — Scene Plan now has two guidance boxes, and
+ * they must not share a lifetime: the episode-only one is dropped on an episode
+ * change and the reusable one is kept, because it is the text a preset carries
+ * to the next episode rather than a value owned by this one.
+ */
+test('Scene Plan drops the episode-only guidance on an episode change and keeps the reusable rule', () => {
+  const watcher = episodeChangeWatcher(
+    scenePlanSource,
+    /watch\(\[slug, episodeId\],[\s\S]*?flush: 'sync' \}\)/,
+    'custom_instructions',
+  )
+
+  assert.match(watcher, /form\.value\.custom_instructions = ''/,
+    'the previous episode’s written guidance must not steer the new episode’s prompts')
+  assert.match(watcher, /episodeGuidanceNotice\.value =/,
+    'clearing the customer’s text must be announced, not silent (AGENTS.md §4)')
+  assert.doesNotMatch(watcher, /reusable_guidance/,
+    'the reusable rule is not episode-owned and must survive the change')
 })

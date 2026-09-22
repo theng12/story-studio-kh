@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   buildGenStudioModelLabelEntries,
+  buildGenStudioModelProviderEntries,
   plainGenStudioModelName,
 } from '../utils/genstudio-model-display.ts'
 
@@ -111,4 +112,26 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
   // voice_tier is published metadata carried beside the job for history —
   // taken from the SELECTED VOICE, no longer from a Story-owned tier token.
   assert.match(audioRoute, /req\.body\.tts_tier = selectedVoice\.voice_tier/)
+})
+
+test('§2 provider transparency: a published provider is mapped, an absent one is never invented', () => {
+  const providers = new Map(buildGenStudioModelProviderEntries({
+    chat: [
+      {
+        id: 'genstudio-chat-opaque-v1',
+        display_name: 'DeepSeek V4.1 Flash',
+        provider_name: 'Token Harbour',
+        legacy_ids: ['deepseek-v4.1-flash'],
+      },
+      { id: 'genstudio-chat-no-provider', display_name: 'Mystery Model' },
+    ],
+    tts: [{ id: 'tts-qwen3', display_name: 'Qwen3 TTS', provider_name: 'Experimental Labs' }],
+  }))
+
+  assert.equal(providers.get('genstudio-chat:genstudio-chat-opaque-v1'), 'Token Harbour')
+  assert.equal(providers.get('deepseek-v4.1-flash'), 'Token Harbour')
+  assert.equal(providers.get('tts-qwen3'), 'Experimental Labs')
+  assert.equal(providers.get('genstudio-tts:tts-qwen3'), 'Experimental Labs')
+  assert.equal(providers.has('genstudio-chat-no-provider'), false,
+    'a model with no published provider must be absent, never guessed from its id or name')
 })

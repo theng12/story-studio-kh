@@ -296,8 +296,14 @@ export async function getAudioStatus(
   }
   // LEGACY FALLBACK — episodes generated before that record existed. Terminal
   // job history is pruned, so an episode whose job has aged out borrows the
-  // project's most recent audio job: the same model in practice, and the only
-  // answer available when nothing recorded one.
+  // project's model — but ONLY when this episode's own job is absent AND the
+  // retained history agrees on one model. Ownership is a fact, not a guess
+  // (AGENTS.md §4): `audioJobs[0]` used to hand the newest job of ANY episode
+  // to this one, so a project whose episodes were voiced with different models
+  // predicted `_partN` files for a section another model renders whole. The
+  // single-model borrow is the "same model in practice" this path always
+  // assumed; conflicting history has no honest answer, so the section is
+  // expected whole (exactly as when there is no history at all).
   if (!model) {
     try {
       const { getJobs } = await import('./job-queue.js')
@@ -305,8 +311,14 @@ export async function getAudioStatus(
       const audioJobs = jobs
         .filter(j => j.type === 'audio')
         .sort((a, b) => String(b.finished_at || b.created_at || '').localeCompare(String(a.finished_at || a.created_at || '')))
-      const lastAudio = audioJobs.find(j => (j.episode_id || '').toUpperCase() === code) || audioJobs[0]
-      const remembered = (lastAudio?.params as any)?.model
+      const ownJob = audioJobs.find(j => (j.episode_id || '').toUpperCase() === code)
+      let remembered = ownJob?.params?.model
+      if (typeof remembered !== 'string' || !remembered.trim()) {
+        const models = new Set(
+          audioJobs.map(j => String(j.params?.model || '').trim()).filter(Boolean),
+        )
+        remembered = models.size === 1 ? [...models][0] : undefined
+      }
       if (typeof remembered === 'string') model = remembered.trim()
     } catch { /* no history — handled below */ }
     if (model) {

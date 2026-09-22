@@ -289,7 +289,12 @@
 
     <!-- Render presets are owned by the page-level TopActionBar. -->
 
-    <section v-if="!usesImagePool && !stats && !plan && !loading" class="card mt-3">
+    <WorkspaceNotice v-if="reviewError && !loading" tone="warning" title="Scene Review could not be loaded">
+      {{ reviewError }} Nothing on disk was changed.
+      <button class="btn btn-sm btn-secondary" @click="loadReview()">Retry</button>
+    </WorkspaceNotice>
+
+    <section v-if="!usesImagePool && !stats && !plan && !loading && !reviewError" class="card mt-3">
       <p class="text-muted text-sm">
         <strong>No scene plan yet.</strong>
         Open the <NuxtLink :to="`/projects/${slug}/scene-plan`" class="text-accent">Scene Plan</NuxtLink>
@@ -770,6 +775,9 @@ const subtitleRepairLink = computed(() => {
   return `/projects/${slug.value}/subtitles?${query.toString()}`
 })
 const loading = ref(false)
+// E-01 (DS-09) — a failed read is not "no scene plan". Without this the empty
+// card told the user to redo work that may exist, and swallowed the real error.
+const reviewError = ref('')
 const renderStatus = ref<RenderStatus | null>(null)
 const activeRenderJobFromReview = ref<any | null>(null)
 const cancelingRender = ref(false)
@@ -1181,6 +1189,7 @@ async function loadReview(): Promise<void> {
     visualSource.value = 'scene_plan'
     promptIntegrity.value = null
     subtitleIntegrity.value = null
+    reviewError.value = ''
     return
   }
   let loaded = false
@@ -1210,9 +1219,13 @@ async function loadReview(): Promise<void> {
     subtitleIntegrity.value = r.subtitle_integrity || null
     renderStatus.value = r.render_status || null
     activeRenderJobFromReview.value = r.active_render_job || null
+    reviewError.value = ''
     loaded = true
   } catch (e: any) {
     if (e?.__slugRace) return
+    // Keep the error and offer a retry instead of letting the empty card claim
+    // there is no plan (E-01).
+    reviewError.value = e?.data?.detail || e?.message || 'Could not load this episode\'s Scene Review.'
   } finally {
     if (current()) loading.value = false
   }

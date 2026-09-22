@@ -49,7 +49,8 @@ const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
 // font pack threw here and took all 82 products down with it. One unknown kind
 // kills the whole parse, so a kind added in GenStudio must be added HERE first.
 const PRODUCT_KINDS = new Set<GenStudioContentProductKind>([
-  'series_formula', 'topic_pack', 'visual_style', 'thumbnail_recipe', 'font_pack', 'niche_bundle',
+  'series_formula', 'topic_pack', 'visual_style', 'thumbnail_recipe', 'font_pack', 'metadata_formula',
+  'niche_bundle',
 ])
 const numberSources = new WeakMap<object, Map<string, string>>()
 
@@ -59,6 +60,7 @@ export type GenStudioContentProductKind =
   | 'visual_style'
   | 'thumbnail_recipe'
   | 'font_pack'
+  | 'metadata_formula'
   | 'niche_bundle'
 
 export interface CanonicalJsonObject {

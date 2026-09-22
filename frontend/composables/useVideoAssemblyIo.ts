@@ -26,7 +26,7 @@
 // Explicit composable imports so this module is usable from plain node:test
 // (no Nuxt auto-import context). Nuxt's auto-imports remain additive inside
 // .vue files.
-import { watch, type Ref } from 'vue'
+import { ref, watch, type Ref } from 'vue'
 import { useApi } from './useApi.js'
 import { useToast } from './useToast.js'
 
@@ -125,6 +125,11 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
   const { get } = useApi()
   const { success, error: showError } = useToast()
 
+  // E-08 (DS-10) — a failed asset scan used to clear `scannedAssets` and only
+  // toast, so Step 1 rendered blank with no way to retry. The message is kept
+  // here so the page can show an actionable error instead of an empty step.
+  const scanError = ref('')
+
   async function checkFfmpeg() {
     try {
       s.ffmpegStatus.value = await get<{
@@ -170,6 +175,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     s.scenes.value = []
     s.titleImage.image_path = ''
     s.titleCard.text = s.selectedEpisode.value?.title || ''
+    scanError.value = ''
     if (!s.episodeId.value) { s.scanning.value = false; return }
     s.scanning.value = true
     try {
@@ -187,7 +193,8 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       s.titleImage.image_path = titlePath
     } catch (e: any) {
       if (!current()) return
-      showError(e?.data?.detail || 'Could not scan video assets')
+      scanError.value = e?.data?.detail || e?.message || 'Could not scan video assets'
+      showError(scanError.value)
     } finally {
       if (current()) s.scanning.value = false
     }
@@ -465,5 +472,5 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     // output panel within milliseconds of clicking Generate.
   }
 
-  return { checkFfmpeg, scanAssets, generateVideo, buildPayload }
+  return { checkFfmpeg, scanAssets, scanError, generateVideo, buildPayload }
 }

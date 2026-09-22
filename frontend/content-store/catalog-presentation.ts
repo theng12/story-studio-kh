@@ -12,6 +12,7 @@ const productKindLabels: Record<ContentStoreProductKind, string> = {
   visual_style: 'Visual Style',
   thumbnail_recipe: 'Thumbnail Recipe',
   font_pack: 'Font Pack',
+  metadata_formula: 'Metadata Formula',
   niche_bundle: 'Channel Kit',
 }
 
