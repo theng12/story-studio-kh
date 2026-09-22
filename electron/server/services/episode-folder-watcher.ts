@@ -81,6 +81,30 @@ const ensurePending = new Map<string, Promise<void>>()
 let onInvalidate: InvalidateFn | null = null
 
 /**
+ * ONE process-wide watcher on the Library's export root.
+ *
+ * Final videos live at `<library>/Exports/<slug>/Season NNN/<CODE> - <Title>/`,
+ * outside the project's `episodes/` tree, and their appearance, replacement or
+ * removal changes episode status (Video Assembly). The per-project watcher above
+ * cannot see any of that, so the cache's trust boundary — "a confirmed entry
+ * cannot go stale without an event" — did not hold for the export root, and a
+ * Board verdict could stay wrong until an unrelated file in the project tree
+ * moved (NEW-13). This watcher closes that hole: it parses `(slug, code)` out of
+ * the path and invalidates the same entry the project watcher would have.
+ *
+ * Deliberately ONE stream for the whole process rather than one per project:
+ * macOS FSEvents silently stops delivering beyond roughly 32 recursive streams,
+ * so doubling every project's watcher would break the `MAX_WATCHERS` budget. It
+ * is created on first cache access (when the export root exists), re-created if
+ * the Library moves, and dropped if the root disappears — an unmounted volume
+ * simply loses proactive invalidation, and the cache falls back to its mtime
+ * check, which is slower but never stale.
+ */
+let exportsWatcher: fs.FSWatcher | null = null
+let exportsWatcherRoot: string | null = null
+const exportsPendingInvalidations = new Map<string, NodeJS.Timeout>()
+
+/**
  * Wire the cache's invalidation hook. Called once at module load time
  * from `episode-status-cache.ts` to avoid a circular import.
  */
@@ -95,6 +119,9 @@ export function bindInvalidator(fn: InvalidateFn): void {
  * invalidation.
  */
 export async function ensureProjectWatcher(slug: string): Promise<void> {
+  // Cheap and idempotent once running: the export root is part of episode
+  // status, so it is watched whenever this project's tree is.
+  await ensureExportsWatcher()
   if (watchers.has(slug)) {
     // Already-watching slugs become MRU on access so the LRU eviction
     // below kicks the right project when we hit the cap.
@@ -223,6 +250,7 @@ export function stopProjectWatcher(slug: string): void {
 /** Stop all watchers — for graceful shutdown / tests. */
 export function stopAllWatchers(): void {
   for (const slug of Array.from(watchers.keys())) stopProjectWatcher(slug)
+  stopExportsWatcher()
 }
 
 /**
@@ -249,6 +277,77 @@ function scheduleInvalidate(state: WatcherState, slug: string, code: string): vo
   }, COALESCE_MS)
   if (typeof t.unref === 'function') t.unref()
   state.pendingInvalidations.set(code, t)
+}
+
+/**
+ * Watch the Library's export root once per process. Failures are swallowed: a
+ * missing (or unmounted) root means no proactive invalidation, never a broken
+ * cache — the caller's mtime check still runs.
+ */
+async function ensureExportsWatcher(): Promise<void> {
+  try {
+    const { getExternalFinalVideoRoot } = await import('./external-video-store.js')
+    const root = await getExternalFinalVideoRoot().catch(() => '')
+    if (!root) return
+    if (exportsWatcher && exportsWatcherRoot === root) return
+    stopExportsWatcher()
+    const st = await fs.promises.stat(root).catch(() => null)
+    if (!st?.isDirectory()) return
+    const watcher = fs.watch(root, { recursive: true, persistent: false })
+    watcher.on('change', (_event, rawName) => {
+      try {
+        if (typeof rawName !== 'string' || !rawName) return
+        const segments = rawName.split(/[\\/]/).filter(Boolean)
+        const slug = segments[0]
+        if (!slug) return
+        const code = extractEpisodeCode(rawName)
+        // An event with no episode folder in its path (a file dropped at the
+        // season or slug level) cannot be attributed to one episode, so it is
+        // ignored rather than guessing.
+        if (!code) return
+        scheduleExportsInvalidate(slug, code)
+      } catch (e) {
+        if (process.env.NODE_ENV !== 'test') {
+          console.warn('[episode-folder-watcher] export dispatch error', (e as Error)?.message)
+        }
+      }
+    })
+    watcher.on('error', () => {
+      // Events may have stopped arriving; drop the watcher so the cache goes
+      // back to re-statting rather than trusting a dead stream.
+      stopExportsWatcher()
+    })
+    exportsWatcher = watcher
+    exportsWatcherRoot = root
+  } catch (e) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn('[episode-folder-watcher] failed to watch the export root:', (e as Error)?.message)
+    }
+  }
+}
+
+/** Close the export-root watcher and any debounce it still holds. */
+function stopExportsWatcher(): void {
+  for (const t of exportsPendingInvalidations.values()) clearTimeout(t)
+  exportsPendingInvalidations.clear()
+  if (exportsWatcher) {
+    try { exportsWatcher.close() } catch { /* ignore */ }
+  }
+  exportsWatcher = null
+  exportsWatcherRoot = null
+}
+
+/** Coalesce export-root bursts the same way the per-project watcher does. */
+function scheduleExportsInvalidate(slug: string, code: string): void {
+  const key = `${slug}::${code}`
+  if (exportsPendingInvalidations.has(key)) clearTimeout(exportsPendingInvalidations.get(key)!)
+  else if (onInvalidate) onInvalidate(slug, code)
+  const t = setTimeout(() => {
+    exportsPendingInvalidations.delete(key)
+    if (onInvalidate) onInvalidate(slug, code)
+  }, COALESCE_MS)
+  if (typeof t.unref === 'function') t.unref()
+  exportsPendingInvalidations.set(key, t)
 }
 
 /**
@@ -288,6 +387,11 @@ export function watcherTrustedSince(slug: string): number | null {
   const state = watchers.get(slug)
   if (!state || !state.healthy) return null
   return state.startedAt
+}
+
+/** Test diagnostics for the export-root watcher. */
+export function _debugExportsWatcherRoot(): string | null {
+  return exportsWatcherRoot
 }
 
 /** Test diagnostics. */

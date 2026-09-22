@@ -39,7 +39,14 @@ import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-path
 // v14 — visual-source sidecars are watched directly so an Image Pool pick or
 // source switch invalidates render readiness in place. Discard v13 rows whose
 // watched-mtime snapshot predates that file.
-export const SCHEMA_VERSION = 14 as const
+/**
+ * v15 — entries now also cover the Library's export root (the per-process
+ * watcher in `episode-folder-watcher.ts` invalidates them). Rows persisted by
+ * 1.4.218 watched only the project tree, so a final that changed while the app
+ * was closed would be served from disk until some unrelated project file moved.
+ * Discarding v14 rows recomputes every episode against disk once (NEW-13).
+ */
+export const SCHEMA_VERSION = 15 as const
 const MAX_ENTRIES = 1000
 /**
  * Watcher-backed reads (see `trusted()`): how long an entry may be served

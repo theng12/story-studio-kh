@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.219 — 2026-09-22
+
+- The Production Board now notices a finished video that appears, is replaced or is moved away in your Library's **Exports** folder. Final videos are written outside the project folder, so the board could stay stuck on an old answer — an episode whose video had been archived away still read as assembled, and a newly finished one could read as unfinished — until some unrelated file inside the project changed. That folder is now watched, and every episode's saved status is recomputed once when you install this update.
+
 ## v1.4.218 — 2026-09-22
 
 - Scene Plan's **Build timeline** no longer ends in an error after doing its job. Building the timeline is
