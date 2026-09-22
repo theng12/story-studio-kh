@@ -24,9 +24,11 @@ carry the 1.4.216 work. The branch also carries the other effort's content-packs
 deliberately not in `main` because it fails four content-pack guards.
 Checkout: `/build/Developer/story-studio-kh`.
 Inherited uncommitted work is preserved and recorded, never reset, stashed, rebased or discarded.
-**Version is 1.4.217 (pending):** the DS-12 fixes are uncommitted and await the owner's decision on
-commit, push, landing in `main` and a rebuilt DMG; the 1.4.216 DMG already exists at
-`dist/Story Studio KH 1.4.216-arm64.dmg` (sha256 `cfa817f2…`).
+**Version is 1.4.217 (released and installed):** the DS-12 fixes are in `main` (`622f366a`), the DMG is
+`dist/Story Studio KH 1.4.217-arm64.dmg` (sha256 `4c46892b…`), and `/Applications/Story Studio KH.app`
+was replaced with it at the owner's instruction — the 1.4.216 bundle it replaced is preserved at
+`_trash/app/Story Studio KH 1.4.216.app`, and the superseded 1.4.216 DMG pair at
+`_trash/dist/1.4.216-built-2026-09-22-1359/`.
 
 **Goal:** stabilize existing behavior, not redesign the app or implement every historical allegation.
 **Approach:** reproduce one bounded concern, trace its callers, make the smallest complete repair
@@ -863,6 +865,7 @@ Serialized full gates on the `codex/stabilization-takeover` working tree (versio
 | Production build `npm run build` | Exit **0**; changelog, typography, source+built security, model-drift, release contract, frontend generate and Electron compile all passed |
 | Unsigned arm64 DMG `npm run dist:smoke` (later, owner-authorized) | Built and **verified** at 1.4.214: `dist/Story Studio KH 1.4.214-arm64.dmg`, 241,994,062 bytes, sha256 `0012f57d…`; ad-hoc signature, DMG mounts read-only, 98-package closure, launch smoke booted and served `/api/health` + Upload Center in ~1.1s. This is a **worktree build of the uncommitted 1.4.214 change set**, not an integrated main release. It is an owner-requested temp artifact; the installed app was not replaced. |
 | Unsigned arm64 DMG **1.4.215** (owner-urgent) | `dist/Story Studio KH 1.4.215-arm64.dmg`, 241,998,873 bytes, sha256 `726fbfe8…`; app `com.storystudio.kh v1.4.215`; ad-hoc signature, read-only mount, 98-package closure, launch smoke served `/api/health` + Upload Center in 2,910 ms. Same temp-artifact caveat as 1.4.214. |
+| Unsigned arm64 DMG **1.4.217** (owner-authorized; built from `main`) | `dist/Story Studio KH 1.4.217-arm64.dmg`, 242,032,636 bytes, sha256 `4c46892bbfe077c3956dec531e747b9594c4974227a0ffbcd29822da27a65e20`; app `com.storystudio.kh v1.4.217`; ad-hoc signature (no Developer ID); DMG mounts read-only; 98-package closure in `app.asar`; launch smoke booted the packaged app and served `/api/health` + Upload Center in 2,745 ms. Built **after** the DS-12 fixes landed in `main`, from the `main` checkout rather than a worktree. Installed at the owner's instruction; the superseded 1.4.216 DMG + blockmap moved to `_trash/dist/1.4.216-built-2026-09-22-1359/`. |
 | Dependency audits (root all/prod, frontend all/prod) | Exit **0** each; `found 0 vulnerabilities` |
 | Electron typecheck `npm run typecheck:electron` | Exit **0**, no diagnostics |
 | Frontend typecheck `npm --prefix frontend run typecheck` | **Exit 2 — NOT green**: 11 pre-existing `TS2558` errors on `$fetch<T>()` in files this work never touched (`NEW-04`). `npx nuxi prepare` does not change them; no dependency was modified |
@@ -1353,3 +1356,24 @@ was built and verified locally at the owner's explicit request as a temporary ar
   `docs/handoffs/deepseek-reports/DS-12.md`. QA app and Nuxt dev stopped; installed app untouched. No
   commits/pushes/paid calls. Next: owner's item 6 (two-episode walkthrough) and the 1.4.217 commit/land/DMG
   decision.
+- **2026-09-22 — 1.4.217 landed in `main`, DMG built and installed (owner instruction):** the three DS-12
+  rendered fixes were cherry-picked onto `land/1.4.217-into-main` from `main` (`f56cd504`) — deliberately
+  excluding the other effort's `8051fc28` — then `main` was fast-forwarded to `622f366a` and pushed.
+  Release gate on that exact tree: `npm run test:backend` exit **0**, **5,633 tests, 5,632 pass, 0 fail,
+  1 skip**, `516/516 file(s)`. `npm run dist:smoke` exit **0** in one pass (its own `fetch:ffmpeg`,
+  `build`, `check:release --built --package-input`, packaging, `verify-desktop-artifact`):
+  **`dist/Story Studio KH 1.4.217-arm64.dmg`**, 242,032,636 bytes, sha256
+  `4c46892bbfe077c3956dec531e747b9594c4974227a0ffbcd29822da27a65e20`; bundle `com.storystudio.kh
+  v1.4.217` (arm64); ad-hoc signature; DMG mounts read-only; 98-package closure; launch smoke booted the
+  packaged app and served `/api/health` + Upload Center in 2,745 ms. The installed app was then replaced
+  at the owner's instruction: the running 1.4.216 instance was quit first, the old bundle **moved** (never
+  deleted) to `_trash/app/Story Studio KH 1.4.216.app`, the new bundle copied with `ditto`,
+  `com.apple.quarantine` stripped, and the app relaunched **through LaunchServices** so it is owned by
+  launchd and outlives this session. Verified after install: `/api/health` answers
+  `{"status":"ok","version":"1.4.217","boot_complete":true}`, and the app's own server log shows the real
+  Library serving `/projects`, `/app-settings/genstudio/overview` and `/library/notices` at 15:10–15:11
+  local. The owner's Library and projects were never touched — the installed app was launched with no QA
+  data dir. One environment note for future sessions: this shell exports `ELECTRON_RUN_AS_NODE=1`, which
+  makes a **directly** launched packaged Electron app exit immediately with no output; the app itself is
+  fine and a Finder/Dock launch is unaffected, and `scripts/release/smoke-launch-artifact.mjs` strips the
+  variable. No paid model call and no upload occurred anywhere in this packet.
