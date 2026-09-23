@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-**Written:** 2026-09-23 · **against:** v1.4.219 · branch `codex/stabilization-takeover` @ `734ccd70` · `main` @ `eced221b`
+**Written:** 2026-09-23 · **against:** v1.4.219 · branch `codex/stabilization-takeover` @ `734ccd70` (record-only commits after this pin leave the app unchanged) · `main` @ `eced221b`
 
 **Read this first.** This file is the cold-start briefing for a session that knows nothing about the last one.
 If it disagrees with the code, the code wins — and then fix this file. The authoritative record of *what happened

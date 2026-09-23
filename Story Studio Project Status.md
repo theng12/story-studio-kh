@@ -17,16 +17,29 @@ zero paid submissions; it found and fixed `NEW-12` and `NEW-14` and reproduced `
 objective's queue is therefore either complete or blocked on an owner decision, and the remaining decisions
 are named here:
 
-- **Release 1.4.219 (landed, built and installed):** `main` = `origin/main` = `3bbc59aa`; the DMG is
+- **Release 1.4.219 (landed, built and installed):** `main` = `origin/main` = `a721d9ca`; the DMG is
   `dist/Story Studio KH 1.4.219-arm64.dmg` (sha256 `5bace953…`) and `/Applications/Story Studio KH.app`
-  is 1.4.219 — the 1.4.218 and 1.4.217 bundles and DMG pairs are preserved under `_trash/`.
+  is 1.4.219. **Correction:** the 1.4.218/1.4.217 bundles and DMG pairs are **no longer on disk** —
+  `_trash/` now holds only its `README.md`, and who removed the rest, and when, is not recorded. Treat
+  `_trash/` as the owner's and as non-durable; the pre-convention ledger in `_trash/README.md` is a record
+  of what was moved there, not a live inventory.
 - **`X-07` — closed by owner confirmation (nothing was spent here):** real paid generation and a real
   YouTube upload were already run by the owner with an earlier build and work; the app reaches the
   provider through the owner's **gateway-kh** app, not a GenStudio account; signed/notarized distribution
   is not wanted (ad-hoc signature + the quarantine command in `build/READ ME FIRST.txt` and `README.md`).
-- **Open findings:** `NEW-11` only (packaging rewrote the checkout manifest once; the restore guard in both
+- **Open findings:** `NEW-11` (packaging rewrote the checkout manifest once; the restore guard in both
   build scripts prevents the harm, and the culprit step is still unidentified). `NEW-08` is closed by the
   Content Pack retirement, and `NEW-12`, `NEW-13` and `NEW-14` are all fixed and released.
+- **An independent audit exists and is unresolved** — [`docs/audit/2026-09-23-independent-audit.md`](docs/audit/2026-09-23-independent-audit.md),
+  dated 2026-09-23, scoped to this branch at `734ccd70` / v1.4.219, no code changed, claiming ~90 findings
+  (~26 high/medium) against AGENTS §8, §6 and §4 and disputing that the green gates mean healthy. It is
+  **leads, not accepted facts**: a spot-check of four concrete claims by this session found the hardcoded
+  `~$0.005` price (`PreviewPromptRow.vue:38`) and the `'grok-imagine'` fallback real (the latter in
+  `generators/images.ts:318`, not the `routes/images.ts` path the audit cites), `'deepseek-v4-flash'` at
+  `audio.ts:710` **not found** (that id appears only in test fixtures), and the frontend statistic in the
+  right range (168 of 213 frontend test files reference `readFile`/`readFileSync`). Every packet in
+  `docs/handoffs/deepseek-reports/` remains `self-accepted` by its author. Reconciling this audit with the
+  packet record is the open verification work.
 - **Content Pack contract, settled 2026-09-22** ([gateway reply](_handoffs/2026-09-22_gateway-content-pack-1.4.219.md)):
   gateway-kh is a **publisher only** (its authoring surface was removed in `3ab440f`; gateway version 0.2.1)
   and serves **six** wire kinds — `topic_pack` 49, `series_formula` 22, `visual_style` 44,
@@ -38,9 +51,13 @@ are named here:
   `/admin/api/content-shelf` with per-row `archive_sha256`, and receipts sit above baseline revision **289**.
 
 Base for the takeover: `6f3c4e3316854b5eb9bf6100f078064254f61445` on `main`.
-Working branch: `codex/stabilization-takeover` @ `55f01192`; `main` and `origin/main` are at `3bbc59aa`
-and carry the 1.4.216, 1.4.217, 1.4.218 and 1.4.219 work. The branch also carries the other effort's content-packs
-commit `8051fc28`, deliberately not in `main` because it fails four content-pack guards.
+Working branch: `codex/stabilization-takeover` @ `866c375d`; `main` and `origin/main` are at `a721d9ca`
+and carry the 1.4.216, 1.4.217, 1.4.218 and 1.4.219 work. **Correction:** the branch no longer carries the
+other effort's content-packs *content*. Commit `8051fc28` ("the re-authored pack sources and the registry")
+was never in `main`; on the owner's decision relayed in the gateway's Content Pack reply it was **retired by
+revert `2db266f3`**, which removed `content-packs/rebuilt/**` from the working line and returned
+`content-packs/authoring-registry.json` to the revision 289 baseline. The commit itself stays recoverable in
+history, and `content-packs/rebuilt/` is now an empty directory.
 Checkout: `/build/Developer/story-studio-kh`.
 Inherited uncommitted work is preserved and recorded, never reset, stashed, rebased or discarded.
 **Version is 1.4.219 (released and installed):** the ACCEPT-01 fixes, the export-root status watch, the
@@ -1714,3 +1731,24 @@ was built and verified locally at the owner's explicit request as a temporary ar
   note: the revert briefly removed the tracked `_trash/format-niche-refactor-plan.md` from the working tree;
   it was restored from `HEAD` in the same step and the revert commit contains only `content-packs/**`. Full
   backend gate is running on this branch. No paid calls, uploads or publishes.
+- **2026-09-23 — reconciliation pass: every contradiction the handoff flagged is now settled in the record.**
+  (1) **Header SHAs were stale** — `main` was recorded as `3bbc59aa` and the branch as `55f01192`; they are
+  now read from Git at write time (`a721d9ca` / `866c375d`) so the header cannot drift behind its own
+  commits again. (2) **`_trash/` was described as holding the 1.4.217/218 bundles and DMGs** — it holds only
+  its `README.md`; the header now says so, marks `_trash/` non-durable, marks the removal's author and date
+  as **not recorded**, and states that the ledger inside it is a record of moves, not a live inventory (the
+  ledger itself was deliberately left untouched: `_trash/` is the owner's, and tidying inside it is
+  forbidden). (3) **A tracked file inside `_trash/` made the tree permanently dirty** —
+  `_trash/format-niche-refactor-plan.md` was deleted from disk by whoever emptied the folder; it is now
+  **untracked** (bytes stay in Git history, the path stays the owner's, disk state unchanged), matching
+  `_trash/README.md`'s own statement that nothing there is in Git. (4) **The branch was described as
+  carrying `8051fc28`** — it no longer carries its content: the revert `2db266f3` retired it on the owner's
+  decision, and the header now says so. (5) **"Independent review: none" was wrong** — an independent audit
+  dated 2026-09-23 covers exactly this tree (`734ccd70` / v1.4.219); it is now an open item in the header,
+  the review log and the handoff, marked as unresolved leads with the four-claim spot-check recorded
+  (two confirmed, one miscited path, one not found as cited). The audit file itself is another effort's
+  untracked work and was read only — not edited, moved or committed.
+  Nothing here changes a released artifact: this pass touched the record, the handoff and Git's index only.
+  **Correction to an earlier line in this log:** the 1.4.219 entry says the superseded DMG pair went to
+  `_trash/dist/1.4.218-built-2026-09-22-1708/`; that was true when written, and those files are gone from
+  disk now — the entry is left as the historical record of the move, not as a claim they are still there.
