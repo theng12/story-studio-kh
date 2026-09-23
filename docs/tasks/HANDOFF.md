@@ -85,7 +85,7 @@ Each is an instruction, not advice.
 
 | Area | Why |
 |---|---|
-| `_trash/` — including anything you think belongs back in the repo | The owner's; he may empty it at any time (he has). |
+| `_trash/` — including anything you think belongs back in the repo | The owner's; he may empty it at any time. It is not durable: as of this writing it holds only `README.md`. Never restore what is no longer there. |
 | `main`'s history, `land/*` branches, anything already pushed | Published history is never rewritten. |
 | Other repositories and worktrees (Studio Hub KH, gateway-kh, any `codex/*` branch from another effort) | Not ours; `codex/content-pack-delivery`'s commit is deliberately absent from `main`. |
 | `~/Documents/Story Studio KH` | The owner's real Library, `_Project Assets/` and final-video `Exports/`. Normal app use only; never reorganise or clear. |
@@ -104,7 +104,7 @@ Each is an instruction, not advice.
 | Independent review | **None.** Every packet is `self-accepted` by the same session that wrote it. Treat "verified" as "verified by its author", with the evidence in the reports. |
 | Platform coverage | Proven on this **one Mac** (arm64, current macOS, ffmpeg 8.1) only. No Intel, Windows or Linux run. |
 | ACCEPT-01 walkthrough | Ran against the repo's **mock** gateway, not a real provider: real cost accounting, real speech timing, a real upload and long-form quality are unproven there. |
-| `_trash/` | Emptied by the owner after the 1.4.219 release; the 1.4.217/218 bundles and the earlier DMGs/evidence are no longer on disk. The retired commit `8051fc28` is still recoverable from Git. |
+| `_trash/` | Now holds only `README.md`; the 1.4.217/218 bundles, the earlier DMGs and the evidence copies are no longer on disk. **Who removed them, and when, is not recorded** — do not infer an agent or the owner did it. The retired commit `8051fc28` itself is still recoverable from Git. |
 | SSD copies | Verified on 2026-09-22, before the drives were unmounted. Current contents unverified. |
 
 ## SECRETS
