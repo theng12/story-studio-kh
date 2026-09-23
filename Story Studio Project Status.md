@@ -17,7 +17,9 @@ zero paid submissions; it found and fixed `NEW-12` and `NEW-14` and reproduced `
 objective's queue is therefore either complete or blocked on an owner decision, and the remaining decisions
 are named here:
 
-- **Release 1.4.219 (landed, built and installed):** `main` = `origin/main` = `a721d9ca`; the DMG is
+- **Release 1.4.219 (landed, built and installed):** the 1.4.219 release commit on `main` = `origin/main` is
+  `3bbc59aa`, with record-only commits on top (this file moves the tip whenever the record is updated — read
+  `git log -1` rather than trusting a pinned tip here); the DMG is
   `dist/Story Studio KH 1.4.219-arm64.dmg` (sha256 `5bace953…`) and `/Applications/Story Studio KH.app`
   is 1.4.219. **Correction:** the 1.4.218/1.4.217 bundles and DMG pairs are **no longer on disk** —
   `_trash/` now holds only its `README.md`, and who removed the rest, and when, is not recorded. Treat
@@ -51,8 +53,9 @@ are named here:
   `/admin/api/content-shelf` with per-row `archive_sha256`, and receipts sit above baseline revision **289**.
 
 Base for the takeover: `6f3c4e3316854b5eb9bf6100f078064254f61445` on `main`.
-Working branch: `codex/stabilization-takeover` @ `866c375d`; `main` and `origin/main` are at `a721d9ca`
-and carry the 1.4.216, 1.4.217, 1.4.218 and 1.4.219 work. **Correction:** the branch no longer carries the
+Working branch: `codex/stabilization-takeover`; `main` and `origin/main` carry the 1.4.216, 1.4.217, 1.4.218
+and 1.4.219 work (1.4.219 landed as `3bbc59aa`; record-only commits sit above it on both lines, so the tips
+are deliberately not pinned — read `git log -1`). **Correction:** the branch no longer carries the
 other effort's content-packs *content*. Commit `8051fc28` ("the re-authored pack sources and the registry")
 was never in `main`; on the owner's decision relayed in the gateway's Content Pack reply it was **retired by
 revert `2db266f3`**, which removed `content-packs/rebuilt/**` from the working line and returned
