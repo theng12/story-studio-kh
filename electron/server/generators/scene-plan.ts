@@ -193,7 +193,9 @@ interface ScenePlanRunParams {
   /** v1.0.291 — planning strategy. 'single-pass' (default) uses the
    *  historical windowed LLM planner; 'two-pass' splits cues deterministic-
    *  ally then generates prompts per-scene as plain prose. The two-pass
-   *  path is recommended for small local models that fail JSON output. */
+   *  path is recommended for small local models that fail JSON output, but
+   *  no shipped UI selects it (see ScenePlanRunOptions.planning_mode) — an
+   *  API caller or a saved run is the only way it is chosen today. */
   planning_mode?: 'single-pass' | 'two-pass'
   /** v1.0.291 — neighbor-context window for two-pass prompt generation.
    *  See ScenePlanRunOptions.neighbor_context_{back,forward}. */

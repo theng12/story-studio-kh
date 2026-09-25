@@ -4630,9 +4630,12 @@ export interface ScenePlanRunOptions {
   /**
    * v1.0.285 — per-window scene-count tuning for local-model reliability.
    *
-   *   'auto'  (default) — picks based on the model: local `lmstudio:*`
-   *           models get small windows (10 scenes), cloud models get full
-   *           windows (30 scenes).
+   *   'auto'  (default) — sizes off the selected product's PUBLISHED context
+   *           window: available input under 64,000 tokens gets small windows
+   *           (10 scenes), everything else full windows (30 scenes). This used
+   *           to switch on a `chatstudio:` / `lmstudio:*` model-id prefix — a
+   *           capability guess from a name, which AGENTS.md's first rule
+   *           forbids. See `resolveTargetScenesPerWindow` in scene-planner.ts.
    *   'full'  — always 30 scenes per window. Fewer LLM calls, richer
    *           cross-scene cohesion, but larger JSON output that smaller
    *           local models may truncate.
@@ -4683,10 +4686,16 @@ export interface ScenePlanRunOptions {
    *           JSON output anywhere, so even small local models that can't
    *           reliably emit JSON produce usable plans.
    *
-   * Frontend exposes 'two-pass' only when an `lmstudio:*` model is
-   * selected — cloud users have no reason to take the per-scene
-   * request-overhead hit, and single-pass cross-scene cohesion is better
-   * with cloud-grade models that can hold all 30 scenes in context.
+   * NOT SELECTED BY ANY SHIPPED UI, AND NOT BY ANY MODEL ID (corrected
+   * 2026-09-26 — this block claimed otherwise and gateway-kh read it as
+   * current). The Scene Plan form sent `planning_mode` only between v1.0.291
+   * and v1.0.551, when "simplify staged scene planning" removed it along with
+   * `window_size`; the id check that exposed it died earlier still, with the
+   * LM Studio provider in v1.0.459. `planScenesTwoPass` and this parameter
+   * remain reachable by an API caller or a saved run, but nothing infers the
+   * mode from a model id, a name, or a provider, and nothing may: AGENTS.md's
+   * first rule. Reintroducing it is an owner decision, and its trigger would
+   * be a published capability field, never a string match on an id.
    */
   planning_mode?: 'single-pass' | 'two-pass'
   /**
@@ -4701,7 +4710,9 @@ export interface ScenePlanRunOptions {
    *     what's coming.
    *
    * Larger windows give better continuity at the cost of bigger per-call
-   * input. Frontend dropdown maps: Minimal=0/0, Standard=2/1, Rich=3/2.
+   * input. The Scene Plan dropdown that mapped Minimal=0/0, Standard=2/1,
+   * Rich=3/2 was removed in v1.0.551 with the rest of the two-pass controls;
+   * a caller naming these two fields is the only way they are set today.
    */
   neighbor_context_back?: number
   neighbor_context_forward?: number
