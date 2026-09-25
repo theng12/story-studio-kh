@@ -1907,6 +1907,14 @@ interface GenStudioChatJob extends GenStudioResearchEnvelope {
   /** False once GenStudio has dropped the retained text for this job. */
   output_retained?: boolean | null
   finish_reason?: string | null
+  /** The provider's own count for this answer. Present on the settled job —
+   *  `verified_token_usage` beside it says whether it was re-measured. */
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+  } | null
+  verified_token_usage?: boolean | null
   failure_code?: string | null
   failure_detail?: string | null
   retry_after_seconds?: number | null
@@ -2323,6 +2331,34 @@ export interface GenStudioIncompleteOutput {
   finish_reason?: string | null
   state?: unknown
   failure_code?: string | null
+  /**
+   * The provider's own completion-token count for THIS answer, when reported.
+   *
+   * Story Studio needs it because `finish_reason` alone is not trustworthy on
+   * every lane: a Studio Hub worker whose own 4,096-token fallback cut a
+   * chapter short still reported `finish_reason: "stop"` (measured live,
+   * 2026-09-26, during the STORY-2 acceptance run), and the truncated text was
+   * written to disk as a finished chapter. Usage is the signal that survived.
+   */
+  completion_tokens?: number | null
+  /** The output ceiling the request carried, when it carried one. */
+  requested_max_output_tokens?: number | null
+}
+
+/**
+ * Did this answer use up the entire ceiling the request asked for?
+ *
+ * True only when BOTH numbers are known: a request that carried no ceiling
+ * (owner decision #6) can never be judged this way, and `undefined`/`null`
+ * usage stays "unknown", never "complete" by default. Equality counts: the
+ * provider stops *at* the cap, so an answer that used exactly the ceiling is
+ * the truncated case, not a coincidence to be explained away.
+ */
+function hitOutputCeiling(job: GenStudioIncompleteOutput): boolean {
+  const ceiling = job.requested_max_output_tokens
+  const used = job.completion_tokens
+  return typeof ceiling === 'number' && Number.isInteger(ceiling) && ceiling > 0
+    && typeof used === 'number' && Number.isInteger(used) && used >= ceiling
 }
 
 /**
@@ -2366,9 +2402,22 @@ export class GenStudioChatIncompleteError extends Error {
 
   constructor(job: GenStudioIncompleteOutput) {
     const finishReason = typeof job.finish_reason === 'string' ? job.finish_reason : null
-    const truncated = isTruncationFinishReason(finishReason)
+    const truncatedByReason = isTruncationFinishReason(finishReason)
+    // A ceiling-hit answer whose provider still said "stop" (Studio Hub does
+    // this) is the same defect from the customer's side: the text stops
+    // mid-sentence. Detected from usage because the finish reason cannot be
+    // trusted — see `GenStudioIncompleteOutput.completion_tokens`.
+    const truncatedByUsage = !truncatedByReason && hitOutputCeiling(job)
+    const truncated = truncatedByReason || truncatedByUsage
     super(
-      truncated
+      truncatedByUsage
+        ? 'The answer was cut off before it finished: it used the entire output-token ceiling this '
+          + `request asked for (${job.completion_tokens} of ${job.requested_max_output_tokens}), even though `
+          + `the provider reported finish_reason "${finishReason ?? 'none'}". Story Studio did not return the `
+          + 'partial answer as a finished result. Choose a language product with a larger published '
+          + 'output limit, or make the request smaller (fewer chapters, scenes, or items per run), '
+          + 'then run it again.'
+        : truncatedByReason
         // The user has two real levers here, so name both. "Try again" is not
         // one of them: the same request against the same ceiling truncates
         // again at the same place.
@@ -5761,6 +5810,15 @@ const LEGACY_CHAT_TOP_P_DIGEST_COMPONENT = 1
  * reads `PROSE_RESPONSE_FORMAT`, the SAME constant hashed here, so the two can
  * never drift apart again the way they did in v1.0.788.
  *
+ * SECOND PROSE WIRE CHANGE (2026-09-26): the constant went from
+ * `{ type: 'text' }` to `null`, i.e. prose now sends no `response_format` at
+ * all because a Studio Hub lane refuses the explicit text object. The record
+ * here therefore changes from `{response_format:{type:'text'}}` to
+ * `{response_format:null}` — deliberately, and for the same reason as above:
+ * a prose job that failed terminally under the old wire must not compute the
+ * same key under the new one, or its key stays blocked forever against a
+ * request shape that can never match again.
+ *
  * `json_object` / `json_schema` are DELIBERATELY given no entry (the spread
  * below contributes nothing for them, so their digest bytes are IDENTICAL to
  * every key ever computed for those modes). Their wire mapping has never
@@ -6105,6 +6163,10 @@ const JSON_OBJECT_WRAPPER_INSTRUCTION =
 /**
  * What GenStudio KH is asked to return for a `prose` contract, on the wire.
  *
+ * `null` means the field is NOT SENT — since 2026-09-26 prose asks for nothing
+ * and the provider's default is text. See `productResponseFormat` for the probe
+ * evidence; the `{ type: 'text' }` it replaced is refused by a Studio Hub lane.
+ *
  * SINGLE SOURCE OF TRUTH: `productResponseFormat` sends this value, and
  * `buildGenStudioChatIdempotencyKey` hashes this same constant — never a
  * second literal that happens to say the same thing today. The v1.0.788
@@ -6113,7 +6175,7 @@ const JSON_OBJECT_WRAPPER_INSTRUCTION =
  * one constant makes that drift a compile-time impossibility: change this
  * value and both call sites move together.
  */
-const PROSE_RESPONSE_FORMAT: Record<string, unknown> = { type: 'text' }
+const PROSE_RESPONSE_FORMAT: Record<string, unknown> | null = null
 
 /**
  * Choose the response format for one published language product.
@@ -6144,16 +6206,21 @@ const PROSE_RESPONSE_FORMAT: Record<string, unknown> = { type: 'text' }
  * That holds for a product advertising `json_object` and for one advertising
  * `request_json_schema` alike, which is why `productMode` is not consulted here.
  *
- * `{ type: 'text' }` is sent EXPLICITLY rather than omitted:
- * `/v1/chat/completions` keeps `response_format` a required field with no
- * default, so an omitted format is a 422 there. `/v1/chat/responses` treats an
- * absent format as text, and accepts the same explicit object — one value is
- * therefore correct on both routes.
+ * PROSE SENDS NO `response_format` AT ALL (changed 2026-09-26). `{ type: 'text' }`
+ * was sent explicitly because GenStudio once kept `response_format` a required
+ * field on `/v1/chat/completions` with no default. gateway-kh does not: a
+ * prose request that omits the field is answered normally on both routes
+ * (probed live against the running gateway, 2026-09-26), while
+ * `{ type: 'text' }` is REFUSED by a Studio Hub lane —
+ * `response_format.type: must be json_object or json_schema; received str 'text'`
+ * — which failed every chapter expansion on the local model during the STORY-2
+ * acceptance run. "No format" is the honest way to ask for prose; the explicit
+ * object was a compatibility shim for a rule the one endpoint no longer has.
  */
 function productResponseFormat(
   productMode: GenStudioChatModel['structured_output_mode'],
   outputContract: TextOutputContract,
-): { responseFormat: Record<string, unknown>; wrapperInstruction?: string } {
+): { responseFormat: Record<string, unknown> | null; wrapperInstruction?: string } {
   if (outputContract.mode === 'prose') return { responseFormat: PROSE_RESPONSE_FORMAT }
 
   const name = outputContract.name ?? 'story_studio_json_object'
@@ -6197,7 +6264,16 @@ function parseLanguageOutput(
   // us — but "should not" is not a guarantee, and the failure mode if it does
   // is the worst kind: a half-written chapter saved to disk as if it were
   // finished. Check it here, at the one place every language call passes.
-  if (!isCompleteFinishReason(output.finish_reason)) {
+  //
+  // TWO signals, because the first one lies on some lanes: a Studio Hub worker
+  // whose own output ceiling cut a chapter short still reported
+  // `finish_reason: "stop"` (measured live, 2026-09-26), so an answer that used
+  // the entire ceiling the request asked for is incomplete even when the
+  // provider says it stopped. That check moved HERE, not into the error's
+  // constructor: the constructor only runs once something already decided the
+  // output was incomplete, which is exactly the decision the usage signal has
+  // to be able to make on its own.
+  if (!isCompleteFinishReason(output.finish_reason) || hitOutputCeiling(output)) {
     throw new GenStudioChatIncompleteError(output)
   }
   if (typeof raw !== 'string' || !raw.trim()) {
@@ -6225,6 +6301,7 @@ function parseLanguageOutput(
 function parseProductCompletion(
   completion: GenStudioChatCompletion,
   outputContract: TextOutputContract,
+  requestedMaxOutputTokens: number | null,
 ): { text: string; jobId: string; modelId: string } {
   const choice = completion.choices?.[0]
   return parseLanguageOutput({
@@ -6232,6 +6309,9 @@ function parseProductCompletion(
     model_id: completion.model,
     output_text: typeof choice?.message?.content === 'string' ? choice.message.content : null,
     finish_reason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
+    completion_tokens: typeof completion.usage?.completion_tokens === 'number'
+      ? completion.usage.completion_tokens : null,
+    requested_max_output_tokens: requestedMaxOutputTokens,
   }, outputContract)
 }
 
@@ -6268,7 +6348,15 @@ interface PreparedChatSubmission {
    */
   maxOutputTokens: number | null
   outputContract: TextOutputContract
-  responseFormat: Record<string, unknown>
+  /**
+   * The `response_format` this request carries, or `null` when it carries none.
+   *
+   * `null` is prose, and it means the field is OMITTED from the wire body, the
+   * request preview and the replacement identity — the provider's own default
+   * is text, and a Studio Hub lane refuses an explicit `{ type: 'text' }`.
+   * Same contract as `maxOutputTokens` above: absent, never a stand-in value.
+   */
+  responseFormat: Record<string, unknown> | null
   /** system (+ wrapper instruction) then user — but ONLY when the product
    *  publishes the `system_instruction` control. When it does not, the same
    *  text is folded into the single user turn instead, so the instruction is
@@ -6497,7 +6585,7 @@ async function recoverChatByIdempotencyKey(
   apiKey: string,
   idempotencyKey: string,
   request: GenStudioChatRequest,
-  prepared: Pick<PreparedChatSubmission, 'outputContract'>,
+  prepared: Pick<PreparedChatSubmission, 'outputContract' | 'maxOutputTokens'>,
   requestPreview?: GenStudioRequestPreview,
   baseUrlOverride?: string,
 ): Promise<GenStudioChatResult> {
@@ -6880,12 +6968,19 @@ function chatReplacementItemKey(prepared: PreparedChatSubmission, request: GenSt
 async function finishChatJob(
   apiKey: string,
   request: GenStudioChatRequest,
-  prepared: Pick<PreparedChatSubmission, 'outputContract'>,
+  prepared: Pick<PreparedChatSubmission, 'outputContract' | 'maxOutputTokens'>,
   completed: GenStudioChatJob,
 ): Promise<GenStudioChatResult> {
   let parsed: ReturnType<typeof parseLanguageOutput>
   try {
-    parsed = parseLanguageOutput(completed, prepared.outputContract)
+    parsed = parseLanguageOutput({
+      ...completed,
+      // The ceiling THIS request carried, so an answer that used all of it is
+      // read as truncated even when the provider said "stop".
+      completion_tokens: typeof completed.usage?.completion_tokens === 'number'
+        ? completed.usage.completion_tokens : null,
+      requested_max_output_tokens: prepared.maxOutputTokens,
+    }, prepared.outputContract)
   } catch (error) {
     // The job is settled either way, so the account slot is free: release it
     // before rejecting the payload, or a run of unusable outputs (truncation,
@@ -6979,7 +7074,9 @@ async function callChatViaResponsesOnce(
           // `ChatResponseRequest` field names — NOT the OpenAI-compatible ones.
           model_id: prepared.modelId,
           input: prepared.messages,
-          response_format: prepared.responseFormat,
+          // Omitted for prose: "no format asked for" is the request, and an
+          // explicit `{ type: 'text' }` is refused by a Studio Hub lane.
+          ...(prepared.responseFormat === null ? {} : { response_format: prepared.responseFormat }),
           // Only the sampling fields this product publishes. Never `top_p`.
           ...prepared.samplingFields,
           // Omitted when the product publishes no ceiling — no number is
@@ -7067,7 +7164,8 @@ async function callChatViaCompletions(
       body: wellFormedJson({
         model: prepared.modelId,
         messages: prepared.messages,
-        response_format: prepared.responseFormat,
+        // Omitted for prose — see the preview comment above the submission.
+        ...(prepared.responseFormat === null ? {} : { response_format: prepared.responseFormat }),
         stream: false,
         // Only the sampling fields this product publishes. Never `top_p`.
         ...prepared.samplingFields,
@@ -7087,7 +7185,7 @@ async function callChatViaCompletions(
   // pool until it times out.
   let parsed: ReturnType<typeof parseProductCompletion>
   try {
-    parsed = parseProductCompletion(completion, prepared.outputContract)
+    parsed = parseProductCompletion(completion, prepared.outputContract, prepared.maxOutputTokens)
   } catch (error) {
     await request.onState?.('failed', completion.id)
     await request.onQueueState?.('failed', completion.id)
@@ -7176,6 +7274,10 @@ async function callChatWithGenStudioAdmitted(
     return recoverChatByIdempotencyKey(apiKey, idempotencyKey, request, {
       outputContract: request.outputContract
         ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT),
+      // The recovered job's own ceiling is unknown here by design (the saved key
+      // outranks today's catalogue), so the usage check has nothing to compare
+      // against and stays off for a recovery — `null`, not a guess.
+      maxOutputTokens: null,
     })
   }
   // Bind the entire verified retry to one server. The catalogue shapes the

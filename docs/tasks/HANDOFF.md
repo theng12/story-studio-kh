@@ -13,6 +13,7 @@ out of scope unless a task needs them.
 | Thing | State |
 |---|---|
 | Current release | **1.4.219** — landed in `main` (`eced221b`), DMG built, installed at `/Applications/Story Studio KH.app` |
+| Pending release | **1.4.220** (working tree, not committed or released as of 2026-09-26): prose requests send **no** `response_format` — a Studio Hub lane refuses `{"type":"text"}` with a 422, which killed every chapter expansion on the local model — and a language answer whose reported usage equals the ceiling the request asked for is **incomplete** even when the provider says `finish_reason: "stop"` (a local 9B wrote a chapter that ends mid-sentence and still reported `stop`). Both found by the STORY-2 acceptance run against gateway-kh; receipts in `_handoffs/2026-09-26_story-response-story-2-acceptance-run.md`. |
 | Version decision | Application/desktop change → bump `package.json` **and** `package-lock.json` in the same change set + add a newest-first `## vX.Y.Z` entry to `CHANGELOG.md` + `npm run check:changelog`. Content-Pack-only change → its own `.sspack`, **no** bump (floor: [`content-packs/release-floor.json`](../../content-packs/release-floor.json)). Mixed → app path only for the runtime part. |
 | Branch convention | Work on `codex/stabilization-takeover`. Ship by cherry-picking onto `land/<version>-into-main` from `origin/main`, then fast-forward `main` and push. **Never merge the working branch wholesale**: it also carries another effort's commits that are deliberately not in `main`. |
 | Endpoint | Story Studio talks to **exactly one** endpoint — the owner's **gateway-kh** app (`http://127.0.0.1:8787` default), which fronts the provider. Not a GenStudio account. |
@@ -66,6 +67,7 @@ Each is an instruction, not advice.
 - **Do not package from a symlinked-`node_modules` worktree** — the app ships with no runtime dependencies and dies at launch.
 - **Put `bundled/ffmpeg` on `PATH`** before any run that generates or assembles audio; otherwise you get `spawn ffmpeg ENOENT` and assembly blocks with a precise missing-file list.
 - **Rebuild and restart after backend edits** — the app runs compiled output, so a source edit alone changes nothing you can observe.
+- **A provider's `finish_reason` can lie; usage does not.** A Studio Hub lane reported `stop` on an answer that had used its entire 4,096-token ceiling and stopped mid-sentence (2026-09-26). Treat "usage ≥ the ceiling the request asked for" as truncation, whatever the reason says — and never hand a provider's word for "complete" to the customer unverified.
 - **One suite at a time**, and never quote an `--only` run as a gate: it prints `PARTIAL RUN` precisely so this cannot be confused.
 - **No wallclock sleeps in tests.** Use `waitFor`; a fixed sleep asserts the scheduler, not the product.
 - **Gates cannot see geometry, CSS or dev wiring.** When the complaint is visual, screenshot the render; when a declaration seems not to apply, check the **built** CSS for specificity, not the source. `:deep()` on a teleported dialog never matches.

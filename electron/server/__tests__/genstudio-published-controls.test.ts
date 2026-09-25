@@ -180,6 +180,17 @@ test('productPublishesControl treats an empty list as "publishes nothing"', () =
  * value (`jsonObject: true`) is untouched on purpose: JSON Object's wire
  * format has not changed, so its key must not move, or a JSON-mode job still
  * in flight at GenStudio when this fix ships would get double-submitted.
+ *
+ * THEY MOVED A SECOND TIME, DELIBERATELY (2026-09-26): prose now sends NO
+ * `response_format` at all, because a Studio Hub lane refuses the explicit
+ * `{"type":"text"}` object with a 422 — every chapter expansion on the local
+ * model failed on it (STORY-2 acceptance run). The digest component follows
+ * the wire, so both prose values below are the new ones and the JSON-mode
+ * value is STILL byte-identical to the v1.0.768 record — which is the
+ * property this test exists to protect. Same reasoning as v1.0.788: a prose
+ * job that failed terminally under the old wire must not compute the same key
+ * under the new one, or its key stays blocked forever against a request shape
+ * that can never match again.
  */
 test('chat idempotency keys are byte-identical to the pre-change build', () => {
   assert.equal(
@@ -188,7 +199,7 @@ test('chat idempotency keys are byte-identical to the pre-change build', () => {
       system: 'You are a Story Studio narrator.',
       userMessage: 'Write one line about the sea.',
     } as any),
-    'story-chat-8c0998756b586fc90331e5cf2d5f113dcfa487af483ef75',
+    'story-chat-a2c26b7e291e49a5aa632d6d871a15ec1709607e9e96e1a',
   )
   assert.equal(
     buildGenStudioChatIdempotencyKey({
@@ -197,7 +208,7 @@ test('chat idempotency keys are byte-identical to the pre-change build', () => {
       userMessage: 'Plain user turn only.',
       temperature: 0.35,
     } as any),
-    'story-chat-cbd90b412483a1420e3d4697a6ff6a5725565cf44c828ba',
+    'story-chat-b3ed6d24aab2d7989f388638511ab341200127d2029e10c',
   )
   // The exact shape routes/vision.ts used to send, including its old
   // `topP: 1` — the key must not move now that the field is gone. JSON

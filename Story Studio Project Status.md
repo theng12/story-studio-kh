@@ -1754,4 +1754,33 @@ was built and verified locally at the owner's explicit request as a temporary ar
   Nothing here changes a released artifact: this pass touched the record, the handoff and Git's index only.
   **Correction to an earlier line in this log:** the 1.4.219 entry says the superseded DMG pair went to
   `_trash/dist/1.4.218-built-2026-09-22-1708/`; that was true when written, and those files are gone from
-  disk now — the entry is left as the historical record of the move, not as a claim they are still there.
+  disk now — the entry is left as the historical record of the move, not as a claim they are still there.- **2026-09-26 — DeepSeek lead (STORY-2 acceptance run, gateway-kh relay):** processed the four-row relay
+  paste from gateway-kh (`_handoffs/2026-09-25-story-studio-prompts.md`, their commit `aa18c3a`, which lives
+  in *their* repo — this checkout never had it; read there, answered from the paste). Wrote
+  `_handoffs/2026-09-26_story-response-four-rows.md`: STORY-1b = **no id shape**, GW-2 closes with no gateway
+  change (the `lmstudio:*` two-pass gate was deleted in v1.0.459 then v1.0.551, and the comment claiming it
+  still existed — what Studio Hub read — is corrected in `c7c31282`, comments only); STORY-4 = **enum, not a
+  sentence**, with the vocabulary named (`model` / `worker_default` / `operator_default` / `curated` /
+  `gateway` / `unknown`) and the reminder that our own 8,192 substitution was removed 2026-09-18;
+  STORY-5 = yes, publish, but scope it (`defaults_scope`), because six studio-hub providers here serve the
+  one row. Then ran STORY-2 for real, against the live gateway (`http://127.0.0.1:8787`, build
+  `0c42cf1-202609251735`) with `studio-hub::mlx-community/Qwen3.5-9B-4bit`, on a disposable Library
+  (`/tmp/ssk-live`, `STORY_STUDIO_DATA_DIR` + `--user-data-dir`), harness
+  `scripts/developer/story-2-local-model-run.ts`, receipts in `_handoffs/2026-09-26_story-response-story-2-acceptance-run.md`.
+  **Three of four flows pass on the local model**: outline (3 slots, 68 s), chapter (3/3 files + narration),
+  thumbnail prompt set (5/5 verified, 5,112 B). Metadata is reached-but-blocked by our own
+  `YOUTUBE_FINALIZER_AUDIO_REQUIRED` gate, and the audio leg cannot run because every voice the aggregated
+  TTS row publishes belongs to `studio-hub-local`, whose Hub is not running ("1 location offline") — a
+  finding, not a defect of theirs. **Two real defects found.** (1) *Ours, fixed:* every prose request sent
+  `response_format: {"type":"text"}` — a shim for a GenStudio rule the gateway does not have — and a Studio
+  Hub lane refuses it (`422 … received str 'text'`), so every chapter expansion on the local model died
+  before writing a word. Probed live (with → 502/422; without → 200), then prose now sends **no**
+  `response_format` on either route, with the idempotency digest recording the wire change deliberately
+  (the v1.0.788 lesson). Re-run: 3/3 chapters, narration re-assembled. (2) *Theirs, named:* a completion
+  that used its entire 4,096-token ceiling still reported `finish_reason: "stop"`, and the mid-sentence
+  chapter it produced was written to disk as complete — a §8 failure on our side too, now closed by treating
+  "usage ≥ the ceiling the request asked for" as truncation whatever the reason says (test file
+  `output-token-budget.test.ts`, positive and negative controls). Both changes are the **unreleased 1.4.220**
+  change set (version bumped in `package.json` + `package-lock.json`, changelog entry added, handoff
+  updated); the full backend gate was run over it. Nothing was published, deployed, or charged: the local
+  lane is 0 credits per million tokens, and no paid model was called.

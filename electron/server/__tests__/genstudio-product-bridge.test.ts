@@ -325,12 +325,17 @@ test('a prose workflow asks for text, whatever structured-output mode the produc
       })
 
       assert.equal(sent.length, 1)
-      // Nothing schema-shaped rides along — asserted before the whole-object
-      // comparison narrows the type away.
-      assert.equal(sent[0]!.response_format.json_schema, undefined, `mode ${mode}`)
-      // Explicit, never omitted: `/v1/chat/completions` keeps `response_format`
-      // required with no default, so an absent field is a 422 there.
-      assert.deepEqual(sent[0]!.response_format, { type: 'text' }, `mode ${mode}`)
+      // Prose asks for NO response_format (2026-09-26). It used to send
+      // `{ type: 'text' }` explicitly, on the belief that
+      // `/v1/chat/completions` required the field; gateway-kh does not, and a
+      // Studio Hub lane REFUSES the explicit text object with a 422 — which
+      // failed every chapter expansion on the local model during the STORY-2
+      // acceptance run. Probed live: with `{type:'text'}` → 502/422; with the
+      // field omitted → 200 and normal prose.
+      assert.ok(
+        !('response_format' in sent[0]!),
+        `mode ${mode}: prose must send no response_format at all`,
+      )
 
       // No wrapper instruction. The model is told to write, not to serialise.
       const system = systemPrompt(sent[0]!)
@@ -347,9 +352,10 @@ test('a prose workflow asks for text, whatever structured-output mode the produc
   }
 })
 
-test('the rollback route sends the explicit text format too, never an absent one', async () => {
-  // `/v1/chat/completions` refuses a body with no `response_format` (422), so
-  // "ask for prose" must mean `{ type: 'text' }` on this route, not omission.
+test('the rollback route omits response_format for prose too', async () => {
+  // Both routes treat an absent `response_format` as "the provider's default",
+  // which is prose. The explicit `{ type: 'text' }` this used to send is
+  // refused by a Studio Hub lane (see the test above).
   const originalFetch = globalThis.fetch
   const sent: Array<Record<string, any>> = []
   try {
@@ -368,8 +374,10 @@ test('the rollback route sends the explicit text format too, never an absent one
       transport: 'completions',
     })
     assert.equal(sent.length, 1)
-    assert.ok('response_format' in sent[0]!, 'the required field must still be present')
-    assert.deepEqual(sent[0]!.response_format, { type: 'text' })
+    assert.ok(
+      !('response_format' in sent[0]!),
+      'prose must ask for no format rather than an explicit text one',
+    )
     assert.equal(result.text, 'A quiet harbour at dawn.')
   } finally {
     globalThis.fetch = originalFetch

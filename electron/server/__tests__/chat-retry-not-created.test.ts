@@ -12,7 +12,10 @@ import {
 function savedNormalBatchPreview(key: string, system: string, user: string) {
   return {
     method: 'POST', path: '/v1/chat/responses', model_id: 'mock-chat-v1',
-    response_format: '{"type":"text"}', token_limits: { max_output_tokens: 2048 },
+    // No `response_format`: prose asks for none since 2026-09-26 (the explicit
+    // `{type:'text'}` object is refused by a Studio Hub lane). These fixtures
+    // are the preview the CURRENT build writes — which is what a retry matches.
+    token_limits: { max_output_tokens: 2048 },
     idempotency_key: key,
     messages: [{ role: 'user', text: `${system}\n\n${user}`, length: `${system}\n\n${user}`.length, truncated: false }],
     fields: [
@@ -45,7 +48,6 @@ test('Retry resumes a proven not-created chat request with its exact key and pre
       method: 'POST',
       path: '/v1/chat/responses',
       model_id: 'writer-alpha',
-      response_format: '{"type":"text"}',
       token_limits: { max_output_tokens: 2048 },
       idempotency_key: 'story-chat-ss0175-chapters-21-23',
       messages: [{
@@ -98,7 +100,7 @@ test('conflicting or settled chat evidence never unlocks a not-created POST', as
   try {
     const userMessage = 'Write 3 chapter(s) of an in-progress episode.\n\nSLOTS TO WRITE NOW:\n  Chapter 21: Twenty-one\n  Chapter 22: Twenty-two\n  Chapter 23: Twenty-three\n\nOutput the chapters in this exact format (and ONLY these chapters, in numeric order):\n'
     const preview = {
-      method: 'POST', path: '/v1/chat/responses', model_id: 'writer-alpha', response_format: '{"type":"text"}',
+      method: 'POST', path: '/v1/chat/responses', model_id: 'writer-alpha',
       token_limits: { max_output_tokens: 2048 }, idempotency_key: 'story-chat-unsafe-evidence',
       messages: [{ role: 'user', text: userMessage, length: userMessage.length, truncated: false }], captured_at: new Date().toISOString(),
     }
@@ -190,7 +192,7 @@ test('a verified absent chat request posts its exact saved body under the same k
     assert.equal(service.submissions[0]?.idempotencyKey, key)
     assert.deepEqual(service.submissions[0]?.parsedBody, {
       model_id: 'mock-chat-v1', input: [{ role: 'user', content: `${system}\n\n${user}` }],
-      response_format: { type: 'text' }, temperature: 0.7, max_output_tokens: 2048,
+      temperature: 0.7, max_output_tokens: 2048,
     })
     assert.ok(service.requests.some(request =>
       request.method === 'GET'

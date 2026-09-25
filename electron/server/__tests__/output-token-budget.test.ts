@@ -338,6 +338,69 @@ test('a finish_reason "length" job fails loudly and returns no partial', async (
   }
 })
 
+test('a ceiling-hit answer that still says "stop" is incomplete, not done', async () => {
+  // Measured live on a Studio Hub lane, 2026-09-26 (the STORY-2 acceptance
+  // run): the worker stopped exactly at its own 4,096-token fallback and still
+  // reported `finish_reason: "stop"`, and the chapter it produced ends
+  // mid-sentence. Usage is the only signal that survived, so it has to be the
+  // one that fails the job — a half-written chapter must never reach disk as a
+  // finished one.
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog(4_096))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      return Response.json(chatJob({
+        id: 'job_ceiling_1',
+        output_text: '## Chapter 02: The Fog That Eats Sound\n\nHe remembers the light is the only safe place in',
+        finish_reason: 'stop',
+        usage: { prompt_tokens: 1_264, completion_tokens: 4_096, total_tokens: 5_360 },
+      }))
+    }
+    const error = await callChatWithGenStudio('ceiling-key', { ...baseRequest, outputBudget: 'maximum' })
+      .then(result => result as unknown, (err: unknown) => err)
+    assert.ok(
+      error instanceof GenStudioChatIncompleteError,
+      `expected GenStudioChatIncompleteError, got ${error}`,
+    )
+    assert.equal(error.truncated, true)
+    assert.equal(error.finishReason, 'stop')
+    assert.match(error.message, /ceiling/i)
+    assert.match(error.message, /4,?096/)
+    assert.match(error.message, /finish_reason "stop"/i)
+    assert.equal(error.partialText, '## Chapter 02: The Fog That Eats Sound\n\nHe remembers the light is the only safe place in')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('an answer under the ceiling, and one with no usage at all, are still results', async () => {
+  // The negative control: without it, "always throw" would pass the test above.
+  const originalFetch = globalThis.fetch
+  async function run(usage: unknown): Promise<unknown> {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog(4_096))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      return Response.json(chatJob({ id: 'job_ceiling_2', finish_reason: 'stop', ...(usage === undefined ? {} : { usage }) }))
+    }
+    return callChatWithGenStudio('ceiling-negative-key', { ...baseRequest, outputBudget: 'maximum' })
+      .then(result => result as unknown, (err: unknown) => err)
+  }
+  try {
+    for (const [label, usage] of [
+      ['under the ceiling', { prompt_tokens: 997, completion_tokens: 967, total_tokens: 1_964 }],
+      ['usage not reported', undefined],
+    ] as const) {
+      const outcome = await run(usage)
+      assert.ok(!(outcome instanceof Error), `${label} was wrongly rejected: ${outcome}`)
+    }
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('every non-stop finish reason is rejected; genuine stops are not', async () => {
   const originalFetch = globalThis.fetch
   async function run(finishReason: unknown): Promise<unknown> {

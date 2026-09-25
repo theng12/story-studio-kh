@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.220 — 2026-09-26
+
+- Chapters and other narrative writing now work on your local Studio Hub models. Every prose request
+  sent an explicit `response_format: {"type": "text"}`, a shim for a rule the old service had; your
+  gateway does not need it, and a Studio Hub lane refuses it outright — so chapter expansion failed with
+  “response_format.type: must be json_object or json_schema; received str 'text'” before a word was
+  written. Prose now asks for no response format at all, which is what "plain text" means to every
+  provider behind the gateway. Structured steps (outlines, thumbnail prompts, metadata) are unchanged.
+- An answer that uses its entire output allowance is no longer accepted as finished. A local model given a
+  4,096-token ceiling wrote a chapter that stopped mid-sentence, and reported `finish_reason: "stop"` — so
+  nothing upstream objected and the half-written chapter was saved as complete. A language answer whose
+  reported token usage equals the ceiling the request asked for is now treated as cut off: the run fails
+  loudly, keeps the parts that did finish, and tells you to choose a larger model or a smaller batch
+  rather than presenting a truncated draft as done.
+
 ## v1.4.219 — 2026-09-22
 
 - The Production Board now notices a finished video that appears, is replaced or is moved away in your Library's **Exports** folder. Final videos are written outside the project folder, so the board could stay stuck on an old answer — an episode whose video had been archived away still read as assembled, and a newly finished one could read as unfinished — until some unrelated file inside the project changed. That folder is now watched, and every episode's saved status is recomputed once when you install this update.
