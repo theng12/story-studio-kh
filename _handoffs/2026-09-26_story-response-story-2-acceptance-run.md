@@ -101,9 +101,13 @@ And the file our pipeline wrote ends mid-sentence:
 repeated sentences — the classic shape of a 9B model hitting a hard cap. Two consequences:
 
 1. **Our app accepted it as complete.** Nothing in our completion audit could see it: the
-   text is present, parses, and the provider said `stop`. A §8 defect on our side, and we
-   are fixing it: a completion whose usage equals the ceiling the request asked for is
-   **incomplete**, whatever `finish_reason` says.
+   text is present, parses, and the provider said `stop`. A §8 defect on our side, and it is
+   **fixed** in the unreleased 1.4.220 change set: a completion whose reported usage equals
+   the ceiling the request asked for is **incomplete**, whatever `finish_reason` says. A
+   request that carried no ceiling is never judged this way, and unknown usage stays unknown
+   — both directions are pinned by tests, and the full backend gate passes over the change
+   (5,638 tests, 0 failures). The fix is code on our side only; nobody has to publish
+   anything for it.
 2. **You cannot detect it either, from this row.** A caller that sizes work against
    `max_output_tokens`, as we do, needs `finish_reason: "length"` when the worker's own cap
    cut the answer. Today the only way to know is to compare `completion_tokens` against the
@@ -191,12 +195,12 @@ a cloud model if you would rather see the flow than the lane; say which.
 
 ## 8. What we are doing next
 
-- **Our side, now:** the ceiling-hit completeness check from §4 — a provider completion whose
-  usage equals the ceiling the request asked for is incomplete, not done. That lands in the
-  next Story Studio release.
+- **Our side: done.** §3's prose fix and §4's ceiling-hit completeness check are both in the
+  unreleased 1.4.220 change set, verified by the full backend gate and by the live re-run
+  above. Nothing in either fix needs anything from you.
 - **Your side, from the previous letter:** the `*_source` enum (with `worker_default` split
   from `model`), `max_structured_items_per_request`, and the STORY-5 default statement with
-  its scope. §2/§4 above show where each one would have changed our behaviour rather than our
-  wording.
+  its scope — plus §7's `finish_reason` and site/voice-visibility items, which are new here.
+  §2/§4 above show where each one would have changed our behaviour rather than our wording.
 - **Metadata:** waiting on a live TTS lane. Everything before it on the local model is done
   and receipted.
