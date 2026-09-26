@@ -67,6 +67,7 @@ Each is an instruction, not advice.
 - **Do not package from a symlinked-`node_modules` worktree** — the app ships with no runtime dependencies and dies at launch.
 - **Put `bundled/ffmpeg` on `PATH`** before any run that generates or assembles audio; otherwise you get `spawn ffmpeg ENOENT` and assembly blocks with a precise missing-file list.
 - **Rebuild and restart after backend edits** — the app runs compiled output, so a source edit alone changes nothing you can observe.
+- **A window of scenes is ONE response, so the output ceiling sizes it too.** The auto window size used to read only the *input* budget, so a 262,144-in / 4,096-out lane was asked for 30 scenes it could not return (fixed in 1.4.221). Before adding any batch, ask what one response can carry.
 - **A provider's `finish_reason` can lie; usage does not.** A Studio Hub lane reported `stop` on an answer that had used its entire 4,096-token ceiling and stopped mid-sentence (2026-09-26). Treat "usage ≥ the ceiling the request asked for" as truncation, whatever the reason says — and never hand a provider's word for "complete" to the customer unverified.
 - **One suite at a time**, and never quote an `--only` run as a gate: it prints `PARTIAL RUN` precisely so this cannot be confused.
 - **No wallclock sleeps in tests.** Use `waitFor`; a fixed sleep asserts the scheduler, not the product.
