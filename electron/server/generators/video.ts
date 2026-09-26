@@ -24,6 +24,7 @@ import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeW
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
+import { mulberry32 } from '../lib/seeded-random.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
@@ -2969,17 +2970,6 @@ function pickAnimationsPerScene(
     }
   }
   return picks
-}
-
-function mulberry32(seed: number) {
-  let a = seed | 0
-  return function () {
-    a = (a + 0x6d2b79f5) | 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
 }
 
 export interface VideoAssemblySceneClipRecovery {

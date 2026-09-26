@@ -4,6 +4,39 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.229 — 2026-09-27
+
+- **Reveal effects — the engine.** A scene still can now *arrive*: a geometric wipe, a stack of
+  palette layers, or a drawn-on line — and then hold while it drifts. Twenty presets ship in three
+  families (`geometric`, `palette`, `draw-on`), the six wipes the design names as reading well on
+  photoreal frames are the default pool, and everything renders locally through the FFmpeg this app
+  already bundles — no model, no memory tier, so it also runs on the 8 GB Macs that cannot touch
+  FLUX or video.
+- **A reveal plus a hold is what pays for it.** One image can carry 10–15 s instead of 5, which is
+  where an episode's images — the expensive fleet step — come down. Holds drift 3–8% continuously
+  (a frozen frame reads as a slideshow) and stage one to three micro-events at the narration lines
+  and music beats the pipeline already knows. Pace is a per-episode setting — Fast / Standard /
+  Slow / Documentary — because overdone, slow pacing reads as padding.
+- **Randomisation that does not look amateur.** One seed per episode, derived per scene, so a
+  re-render is identical and a per-scene reroll moves *one* scene instead of resequencing the
+  episode; a pool, never the whole library; no immediate repeats; a cap per effect that starts a new
+  pass rather than running one look into the ground; **the duration is never randomised**, only the
+  look; coherence modes per scene / per act / fixed. Verified: the same preset, pace and window
+  rendered twice gives the identical MP4 (sha256 `8fa79ca5…`).
+- **The draw-on is honest about what it is.** It is a directional wipe across the line art, not a
+  stroke-ordered trace — that needs a vector trace this version does not do — and the preset says so
+  in its `approximation`, which the picker shows rather than quietly rendering something else.
+- **Engine only in this release: no surface chooses a reveal yet, and the assembly does not use one
+  yet.** `docs/reveal-effects.md` records exactly what shipped and the next slice in order (the
+  settings surface, the Content Pack kind, then the assembly integration that turns the longer
+  clips into fewer generated images).
+- Three private copies of `mulberry32` — in `transition-filters.ts`, `broll-selector.ts` and
+  `generators/video.ts` — are now one (`lib/seeded-random.ts`), because reveal selection would have
+  been the fourth. The algorithm is unchanged, so every existing seeded sequence is unchanged.
+- New: `scripts/reveal-preview.mts` renders one clip per preset per pace with a receipt; 24 engine
+  tests in `electron/server/__tests__/reveal-engine.test.ts`. Verified on real images — 76 clips
+  across every preset and pace, plus draw-on against line art.
+
 ## v1.4.228 — 2026-09-27
 
 - **A motion clip carries the shape it was priced at.** The video catalogue now publishes each

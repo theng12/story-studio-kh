@@ -13,6 +13,7 @@
  */
 
 import { TRANSITIONS, getTransition, type TransitionDef } from '../models/transitions.js'
+import { mulberry32 } from './seeded-random.js'
 
 export interface TransitionPickPlan {
   /**
@@ -164,18 +165,6 @@ export function resolveXfade(id: string): string {
   if (def && def.xfade) return def.xfade
   // Unknown or "none" — default to the basic fade so the filter graph stays valid.
   return 'fade'
-}
-
-/** Tiny seeded PRNG (mulberry32) — identical across Node and browser. */
-function mulberry32(seed: number) {
-  let a = seed | 0
-  return function () {
-    a = (a + 0x6d2b79f5) | 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
 }
 
 /** All registered xfade keywords — useful for validators. */
