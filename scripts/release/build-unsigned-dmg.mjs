@@ -79,10 +79,11 @@ fs.rmSync(appOutputDir, { recursive: true, force: true })
 fs.rmSync(dmgOutputPath, { force: true })
 
 console.log(`[unsigned-package] packaging ${contract.productName} v${pkg.version} (${contract.architectures[0]}) into dist/`)
-// electron-builder has been seen to rewrite this checkout's own manifest into its
-// trimmed packaging shape (NEW-11). Snapshot both manifests and put them back in a
-// `finally`, so neither a successful package nor a failed one leaves a checkout
-// where `npm run …` no longer works.
+// NEW-11 is NOT this build's doing — see the corrected note on `snapshotSourceManifests`.
+// The manifest was overwritten by `npx asar extract-file … package.json` run from the repo
+// root, which writes the packaged manifest into the current working directory. This guard
+// is kept as cheap insurance against a future electron-builder that really does rewrite it;
+// the test that actually catches the symptom is source-manifest-integrity.test.ts.
 const manifestSnapshot = snapshotSourceManifests(root)
 try {
   await build({

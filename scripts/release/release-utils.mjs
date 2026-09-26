@@ -255,11 +255,22 @@ const SOURCE_MANIFESTS = ['package.json', 'package-lock.json']
 /**
  * Capture the checkout's manifests before electron-builder runs.
  *
- * Packaging has been observed to rewrite the repository's own `package.json` into
- * its trimmed packaging shape — no `scripts`, no `devDependencies` — which leaves
- * every `npm run …` in that checkout broken until the file is restored (NEW-11).
- * The build scripts snapshot here and restore after packaging, so the hazard
- * cannot be left behind even when the packaging step itself is what rewrites it.
+ * NEW-11 was recorded as "packaging rewrites the repository's own `package.json` into its
+ * trimmed shape — no `scripts`, no `devDependencies`". **That diagnosis was wrong**, and
+ * corrected 2026-09-26 when the symptom recurred: during a real `dist:smoke` this guard
+ * reported no rewrite at all, because electron-builder never touched the file. The actual
+ * cause is an INSPECTION command:
+ *
+ *     npx asar extract-file "<app>.app/Contents/Resources/app.asar" package.json
+ *
+ * `asar extract-file` writes the named file into the CURRENT WORKING DIRECTORY, so run
+ * from the repository root it overwrites the source manifest with the packaged one.
+ * Reproduced on demand from a clean tree.
+ *
+ * The snapshot/restore is kept anyway — it is cheap, and a future electron-builder release
+ * that does rewrite the file would otherwise go unnoticed. It is no longer the guard that
+ * matters, though: `electron/server/__tests__/source-manifest-integrity.test.ts` is, because
+ * it catches the shape however the file got that way.
  */
 export function snapshotSourceManifests(root) {
   return SOURCE_MANIFESTS.map(rel => ({ rel, text: fs.readFileSync(path.join(root, rel), 'utf8') }))
