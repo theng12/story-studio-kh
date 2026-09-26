@@ -1,0 +1,445 @@
+DYING NARRATION PART — the input that produced the 900 s kill, for Studio Hub's measurement
+=============================================================================================
+Why this file exists: Studio Hub asked for "the part that died, or a representative long one" so
+they can replace a 1.76x inference with a measured synthesis rate. This is the input.
+
+Facts, read from our own artifacts (nothing here is reconstructed):
+  provider job        c4ef3edc-2651-4de1-98a4-8b461a600007
+  outcome             PROVIDER_SUBMISSION_UNCERTAIN — "hub job did not finish within 900s"
+  wall clock          901.3 s (gateway's own jobs table)
+  idempotency key     story-tts-ea1ee97c91cf84aaf9cdc6d61183a809394f3d579655df47
+  input hash          sha256:03c78eed8bffb90b   (first 16 hex of the SHA-256 of the submitted part text)
+  lane + model        mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit, voice studio-hub-local::voice-a9aedc5c6bd3
+  submitted           2026-09-25T18:30:49Z
+
+The part is the FIRST SLICE of the chapter below, cut by our request planner at the model's
+published `section_max_characters` x 0.9 (the safety margin). The chapter is 13,578 characters and
+2,657 words; the manifest shows exactly two parts, so the first slice is ~9,000 characters, i.e.
+roughly 1,760 words, i.e. about 11-12 minutes of speech.
+
+Measured baselines from the same run, for scale:
+  Chapter 01  841 words -> succeeded in 256 s, 5,965,004 B mp3  (~1.3x realtime)
+  Chapter 03  ~700 words -> succeeded, 4,532,684 B mp3
+  Chapter 02 part 2 -> succeeded, 65,804 B mp3
+  Chapter 02 part 1 -> THIS ONE, killed at 900 s
+
+So: a part that would speak for ~11-12 minutes did not finish inside 900 s, while a ~5.6-minute part
+took 256 s. They asked to measure rather than infer; this text is the thing to time.
+
+=============================================================================
+CHAPTER 02 TEXT AS SUBMITTED (the part is the leading slice of it)
+=============================================================================
+
+## Chapter 02: The Fog That Eats Sound
+
+The light beam sweeps again, cutting through the darkness with renewed fury. The clock ticks forward with a powerful, confident rhythm. The frozen town below seems to shudder, just for a fraction of a second, as if the light has nudged them forward one tiny step. Elias leans his head against the cold glass of the light assembly. He can feel the heat radiating from the flame, a warm, living pulse against his cheek.
+
+He understands now. He is not just a keeper of the light. He is the keeper of time itself. He will not sleep. He will not eat. He will not let the light go out. He is the prisoner in the tower, but he is also the jailer of the world outside.
+
+He picks up the oil can again. It is light, but he pours another measure. The light burns brighter, a golden star in the endless night. The light is the only safe place in the world.
+
+He remembers the town below. He remembers the silence. He remembers the way the fog ate the sound of his wife's name. He remembers the way the fog ate the sound of his own screaming.
+
+He remembers the frozen faces in the doorway. He remembers the way their mouths opened in silent screams, but no sound came out.
+
+He remembers the light cutting through the fog like a blade. He remembers the light eating the gray stuff, dissolving it into nothingness where the light touched it.
+
+He remembers the light is the shield. He remembers the light is the wall.
+
+He remembers the light is the only thing that can make noise travel.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in the world.
+
+He remembers the light is the only safe place in
