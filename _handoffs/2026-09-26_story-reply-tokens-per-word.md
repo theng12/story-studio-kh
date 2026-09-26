@@ -19,8 +19,13 @@ Your threshold table therefore moves with it, at every ceiling:
 | Published cap | Words we will ask for in one call (was 1.3 → now 1.6) |
 |---|---|
 | 4,096 | 458 → **372** |
-| 8,192 | 3,609 → **2,931** |
-| 16,384 | 9,910 → **8,051** |
+| 8,192 | 3,609 → **2,932** |
+| 16,384 | 9,910 → **8,052** |
+
+*Corrected 2026-09-26: this table read 2,931 and 8,051 when the letter was sent. The code's
+`chunkThresholdWords` returns **2,932** and **8,052** — `floor(4,692 ÷ 1.6)` and
+`floor(12,884 ÷ 1.6)`, each a `.5` rounded **down**, which is what `Math.floor` does. The 4,096
+row was already right. Reproduce: `node -e "const m=require('./electron/dist/server/lib/chunked-narration.js');console.log([4096,8192,16384].map(m.chunkThresholdWords))"`*
 
 Two knock-ons worth knowing:
 

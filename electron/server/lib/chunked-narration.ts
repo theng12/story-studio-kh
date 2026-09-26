@@ -161,12 +161,12 @@ const TYPICAL_PROMPT_TOKENS = 2000
 // GENEROUS BY DESIGN. Under-requesting truncates a chapter mid-sentence and
 // costs another request to repair; over-requesting only holds more of the
 // balance for the minute or two the job runs. Every constant below leans that
-// way: the tokens-per-word figure is nearly double the measured 1.3, the
-// overhead is a flat extra 2,048 for JSON scaffolding and chapter titles, and
-// a floor stops a tiny batch from asking for a uselessly small number.
+// way: the reservation ratio is 2.5 against a measured 1.6, the overhead is a
+// flat extra 2,048 for JSON scaffolding and chapter titles, and a floor stops a
+// tiny batch from asking for a uselessly small number.
 
-/** Tokens per output word for RESERVATION sizing. Deliberately ~1.9× the
- *  measured `OUTPUT_TOKENS_PER_WORD` of 1.3: the measurement is an average,
+/** Tokens per output word for RESERVATION sizing. Deliberately ~1.6× the
+ *  measured `OUTPUT_TOKENS_PER_WORD` of 1.6: the measurement is an average,
  *  and a batch that runs long must still fit. */
 const BUDGET_TOKENS_PER_WORD = 2.5
 
@@ -288,7 +288,8 @@ export function chunkThresholdWords(productMaxOutputTokens?: number | null): num
  * Estimation:
  *   - Input tokens ≈ chars / 4 (English; safe for prose, slightly
  *     pessimistic for JSON-dense prompts which is what we want here)
- *   - Output tokens ≈ words × 1.3 (English narration, measured)
+ *   - Output tokens ≈ words × `OUTPUT_TOKENS_PER_WORD` (English narration,
+ *     measured; 1.6 today)
  *
  * If `(input + output + safety) > budget`, one call can truncate or shrink
  * per-chapter wordcount. Chunked mode is safer.

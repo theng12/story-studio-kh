@@ -14,14 +14,17 @@ more. This page says what each one actually is, for the owner.
 - **The acceptance run** (STORY-2): outline, chapters and thumbnail prompts produced by the local
   model; metadata blocked and fully explained.
 
-## Open on Studio Hub — three are about not misleading you in the app
+## Open — one is ours now, two are Studio Hub's, all about not misleading you in the app
 
 1. **"Whose number is this?"** (HUB-20). Every limit arrives with a note saying who it came from —
-   the model's own documentation, Studio Hub's fallback, or your own curated file. Today we receive
-   "16,384, worker default" as a sentence we cannot show, so the app prints **16,384** as if the
-   model stated it. Studio Hub's own fallback is not the model's spec — the checkpoint states no
-   output figure at all. **This is the one that matters:** it is exactly the "don't show a number as
-   the model's when it isn't" rule you gave me. They agree; it is not built yet.
+   the model's own documentation, Studio Hub's fallback, or your own curated file. **Studio Hub's
+   half is built** (0.6.72): the wire now carries `max_output_tokens_source: worker_default` for
+   its own 16,384 fallback, so "who stated this number" is data and not a sentence, and the gateway
+   relays it. **Ours is not done** — the app does not read that field yet, so it still prints
+   **16,384** as if the model stated it. Studio Hub's own fallback is not the model's spec — the
+   checkpoint states no output figure at all. **This is the one that matters:** it is exactly the
+   "don't show a number as the model's when it isn't" rule you gave me. Copy the token through and
+   show the label.
 2. **"How many items fit in one answer?"** (HUB-21). For bulk work — 30 scenes, 15 tags — the app
    needs to know how many items one reply may contain. We already read that field; nobody publishes
    it, so it is always blank. Nothing breaks today; bulk sizing is just done by token count alone.
@@ -38,6 +41,7 @@ more. This page says what each one actually is, for the owner.
 
 ## Why nothing of ours is stuck
 
-Neither open item blocks a run. Item 1 changes what the app *says* about a number; item 2 makes bulk
-sizing more precise; item 3 is a sentence. When their build lands and the gateway re-reads it, the
-app picks all three up with no release from us.
+Neither remaining Studio Hub item blocks a run. Item 1 is ours and small: the token is already on
+the wire, so the app needs a change to read it and show the label. Item 2 makes bulk sizing more
+precise; item 3 is a sentence. When their builds land and the gateway re-reads them, the app picks
+items 2 and 3 up with no release from us.

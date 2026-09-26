@@ -4,6 +4,28 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.226 — 2026-09-26
+
+- Documentation and comments only; no behaviour changes. A cross-repo audit found stale claims in the
+  handoffs and trackers, and each was checked against the code before it was corrected. Three comments in
+  `electron/server/lib/chunked-narration.ts` still described the reservation ratio against a
+  `OUTPUT_TOKENS_PER_WORD` of 1.3; the constant has been **1.6** since the measurement was re-taken, so
+  they now say 1.6 and the thresholds they imply are **372 / 2,932 / 8,052** for 4,096 / 8,192 / 16,384
+  output tokens. (The audit's own list said 8,051; the function returns 8,052, and the code wins.)
+- `_handoffs/2026-09-26_story-reply-tokens-per-word.md` carried the same off-by-one in a table; corrected
+  with its arithmetic shown.
+- `_handoffs/2026-09-26_plain-english-open-items.md` said the model's own `max_output_tokens` provenance
+  "is not built yet". The producer half **is** built — Studio Hub 0.6.72 publishes it and GatewayKH 0.2.48
+  relays it — and what is missing is our side: the app does not read `max_output_tokens_source` yet. The
+  item now says so instead of blaming the other end of the wire.
+- `_handoffs/2026-09-26_next-session-prompt.md` told the next session "no subagents, no spawned workers",
+  which contradicts `AGENTS.md` §10 (the owner's 2026-09-20 ruling: act as the orchestrator and delegate
+  bounded work). The prompt now matches AGENTS.md and keeps the one-writer-per-file rule that made it safe.
+- `docs/tasks/HANDOFF.md` pointed at `_trash/app/` for replaced bundles. That folder is gone — the owner
+  deleted it by hand — so the file now says where they would be instead of implying they are there.
+
+---
+
 ## v1.4.225 — 2026-09-26
 
 - Scene Plan no longer refuses a scene pack because a model publishes no item limit. **This is the other

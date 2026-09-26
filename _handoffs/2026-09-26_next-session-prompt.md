@@ -1,8 +1,11 @@
 # Paste this into the new session
 
 You are taking over **Story Studio KH** (an Electron + Nuxt desktop app) on this Mac. Work like the
-lead developer: investigate, decide, implement, verify, record — one writer, no subagents, no
-spawned workers. This is the cold-start prompt; the repository is the record.
+lead developer: investigate, decide, implement, verify, record — **acting as the orchestrator
+`AGENTS.md` §10 requires**, delegating bounded implementation work with a base commit, owned files,
+deliverable and proving checks, and keeping one writer per file. Workers do not recursively delegate,
+commit, push, or make paid calls unless that authority is explicitly assigned. This is the cold-start
+prompt; the repository is the record.
 
 ## Read these first, in this order
 
@@ -35,8 +38,10 @@ spawned workers. This is the cold-start prompt; the repository is the record.
 
 ## Where things stand right now
 
-- Installed app: **1.4.224** at `/Applications/Story Studio KH.app` (replaced bundles 1.4.219–1.4.223
-  are in `_trash/app/`). Latest gate: **5,646 tests / 5,645 pass / 0 fail / 1 skip, exit 0.**
+- Installed app: **1.4.225** at `/Applications/Story Studio KH.app` (the Scene Plan item-limit fix,
+  landed `38b87ae3`). The bundles it replaced are **no longer in `_trash/app/`** — the owner deleted
+  that folder by hand, so `_trash/` now holds only its README; do not go looking for them there.
+  Latest gate: **5,646 tests / 5,645 pass / 0 fail / 1 skip, exit 0.**
 - `main` = `origin/main` @ `4483bb74` (or later record-only commits above it); work happens on
   `codex/stabilization-takeover`.
 - Endpoint: **gateway-kh**, the owner's app at `http://127.0.0.1:8787` (it is running; its key lives
@@ -80,12 +85,14 @@ of failure the earlier run found (a rambling model, a truncation reported as `fi
 **3. `NEW-11` (small):** identify the packaging step that rewrote `package.json` once. The restore
 guard makes it harmless; instrument one `npm run dist:smoke` to hash both manifests after each phase.
 
-**4. Waiting on gateway-kh / Studio Hub — nothing blocked, do not invent anything.** They agreed to
-build: **the `*_source` enum** (so the app can label a limit as the model's own rather than Studio
-Hub's worker fallback — the one that matters most, since 16,384 is a worker number), the
-`max_structured_items_per_request` field, and the omitted-parameter statement. When those appear on
-the wire, copy them into `GenStudioChatModel` (`lib/genstudio-client.ts`) and show the label and the
-sentence next to the number. Their outstanding letters are the newest files in `_handoffs/`.
+**4. Waiting on gateway-kh / Studio Hub — nothing blocked, do not invent anything.**
+**The `*_source` enum is already on the wire**: Studio Hub 0.6.72 publishes `source_kind` and
+gateway 0.2.48 relays it as `max_output_tokens_source` / `context_window_tokens_source`
+(`worker_default` on the local row today). **So this one is ours now** — copy the fields into
+`GenStudioChatModel` (`lib/genstudio-client.ts`) and show the label and the `*_source_detail`
+sentence next to the number, so 16,384 stops reading as the model's own figure. Still owed by
+Studio Hub: `max_structured_items_per_request` and the omitted-parameter statement
+(`defaults_scope`). Their outstanding letters are the newest files in `_handoffs/`.
 
 **5. A real end-to-end run** (assembly and upload included) through the real gateway — the earlier
 acceptance work covered the language half only.
