@@ -86,7 +86,12 @@ fs.mkdirSync(trashDist, { recursive: true })
 const dmgStamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
 for (const entry of fs.readdirSync(outputDir)) {
   if (!entry.endsWith('.dmg') && !entry.endsWith('.dmg.blockmap')) continue
-  fs.renameSync(path.join(outputDir, entry), path.join(trashDist, `${path.basename(entry, path.extname(entry))}-${dmgStamp}${path.extname(entry)}`))
+  // The stamp goes BEFORE the extension, so a trashed blockmap still reads as one:
+  // `…-arm64-<stamp>.dmg.blockmap`. Stripping only the last extension left
+  // `…-arm64.dmg-<stamp>.blockmap`, which reads as a blockmap of a `.dmg-…` file.
+  const suffix = entry.endsWith('.blockmap') ? '.dmg.blockmap' : '.dmg'
+  const stem = entry.slice(0, -suffix.length)
+  fs.renameSync(path.join(outputDir, entry), path.join(trashDist, `${stem}-${dmgStamp}${suffix}`))
 }
 
 console.log(`[unsigned-package] packaging ${contract.productName} v${pkg.version} (${contract.architectures[0]}) into dist/`)
