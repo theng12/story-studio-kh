@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.225 — 2026-09-26
+
+- Scene Plan no longer refuses a scene pack because a model publishes no item limit. **This is the other
+  half of v1.4.224's fix, and the half the 30-scene pack runs through** — Contextual Cues was corrected
+  there, and Scene Plan kept treating an unpublished `max_structured_items_per_request` as a limit of zero,
+  so the pack stopped before making a single request and the message read "above its published unpublished
+  item limit". **This is why raising Studio Hub's output ceiling to 16,384 did not open the 30-scene pack:**
+  the refusal was on the item count, not the token count. The pack now goes out bounded by the model's
+  published output tokens — a bound that was already enforced in the same function, and is unchanged — and
+  a model that **does** publish an item limit is still held to it exactly, with the refusal naming the number.
+
 ## v1.4.224 — 2026-09-26
 
 - Contextual Cues no longer refuses to run because a model publishes no item limit. An unpublished

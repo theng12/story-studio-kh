@@ -493,7 +493,16 @@ export function assertModelCanHoldAJsonContract(model: GenStudioChatModel): void
   )
 }
 
-function assertScenePromptPackCapability(model: GenStudioChatModel, maxTokens: number | undefined, itemCount: number): void {
+/**
+ * Exported for its guard test (`__tests__/scene-pack-item-limit.test.ts`), the same
+ * way `assertModelCanHoldAJsonContract` is: a refusal nobody can call is a refusal
+ * nobody can prove.
+ *
+ * `itemCount` is the number of scenes the pack asks for. The token budget is checked
+ * first and always; the PUBLISHED item limit is the second bound, and only a
+ * published one counts (see the comment inside).
+ */
+export function assertScenePromptPackCapability(model: GenStudioChatModel, maxTokens: number | undefined, itemCount: number): void {
   assertModelCanHoldAJsonContract(model)
   if (maxTokens !== undefined && Number.isInteger(model.max_output_tokens) && model.max_output_tokens >= 1 && model.max_output_tokens < maxTokens) {
     throw new GenStudioChatCapabilityUnavailableError(
@@ -501,11 +510,26 @@ function assertScenePromptPackCapability(model: GenStudioChatModel, maxTokens: n
       `this ${itemCount}-scene pack requires ${maxTokens.toLocaleString()} output tokens, above its published ${model.max_output_tokens.toLocaleString()} limit`,
     )
   }
-  const structuredItemLimit = model.max_structured_items_per_request
-  if (typeof structuredItemLimit !== 'number' || !Number.isInteger(structuredItemLimit) || structuredItemLimit < itemCount) {
+  // AN UNPUBLISHED ITEM LIMIT IS NOT A LIMIT OF ZERO (fixed 2026-09-26, owner
+  // ruling: we follow what a model publishes and invent no ceiling of our own).
+  // This used to refuse whenever `max_structured_items_per_request` was null —
+  // which is what every row publishes today, including the local lane — so an
+  // absent number decided a 30-scene pack could not even be attempted, and the
+  // refusal read "above its published unpublished item limit". Contextual Cues
+  // was fixed this way in v1.4.224 (`assertContextualCueCapability`); this is the
+  // other half of that same fix, and it is the half the 30-scene pack runs
+  // through. Only a PUBLISHED limit can refuse now: the token budget checked
+  // above still bounds the pack, and a provider refusal is the answer if the
+  // lane disagrees.
+  const published = model.max_structured_items_per_request
+  const structuredItemLimit = typeof published === 'number' && Number.isInteger(published) && published > 0
+    ? published
+    : null
+  if (structuredItemLimit === null) return
+  if (structuredItemLimit < itemCount) {
     throw new GenStudioChatCapabilityUnavailableError(
       model.id,
-      `this JSON contract requires ${itemCount} structured items, above its published ${structuredItemLimit ?? 'unpublished'} item limit`,
+      `this ${itemCount}-scene pack requires ${itemCount} structured items, above its published item limit of ${structuredItemLimit}`,
     )
   }
 }
