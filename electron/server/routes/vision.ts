@@ -23,14 +23,50 @@ import { JSON_OBJECT_OUTPUT_CONTRACT } from '../lib/json-output-contract.js'
 export const router = Router()
 
 type Detail = 'low' | 'high' | 'auto'
+
+/**
+ * Whether this model can be asked to read a reference image.
+ *
+ * **This gate used to require four fields the gateway never publishes** —
+ * `max_input_images`, `supported_detail_levels` and the two image limits — and
+ * the parse turns their absence into `0` and `[]`. So `max_input_images >= 1`
+ * was false for *every* model in the catalogue and no model was ever eligible:
+ * the thumbnail-reference vision feature could not run at all, while the only
+ * genuine statement it needed (`supports_vision: true`, which the gateway does
+ * publish from the provider's own `architecture.input_modalities`) sat unread
+ * beside it. Measured 2026-09-27 — this is `WIRE-3` doing real damage, not a
+ * cosmetic gap.
+ *
+ * The gate now rests on what is published: the model is available, not locked,
+ * and *states* image input. `supports_structured_output === false` is a refusal
+ * and is honoured; `null` is not, because the JSON contract is validated here
+ * after the call either way (`JSON_OBJECT_OUTPUT_CONTRACT`).
+ */
 function eligibleThumbnailVisionModel(model: GenStudioChatModel): boolean {
-  return model.available && model.locked !== true && model.supports_vision && model.max_input_images >= 1 && model.supports_structured_output
-    && model.supported_detail_levels.some(level => level === 'high' || level === 'auto' || level === 'low')
+  return model.available && model.locked !== true
+    && model.supports_vision === true
+    && model.supports_structured_output !== false
 }
-function safeDetail(model: GenStudioChatModel): Detail {
-  if (model.supported_detail_levels.includes('high')) return 'high'
-  if (model.supported_detail_levels.includes('auto')) return 'auto'
-  return 'low'
+
+/**
+ * The detail level to send, and whose number it is.
+ *
+ * A model that publishes its levels gets one of its own; a model that publishes
+ * none gets Story's `auto` — labelled `story`, because "we chose this" and "the
+ * model states this" are different answers and the menu shows which one it is.
+ */
+function detailFor(model: GenStudioChatModel): { detail: Detail; source: 'model' | 'story' } {
+  for (const level of ['high', 'auto', 'low'] as const) {
+    if (model.supported_detail_levels.includes(level)) return { detail: level, source: 'model' }
+  }
+  return { detail: 'auto', source: 'story' }
+}
+
+/** Whether the model published any per-image limits at all. */
+function referenceLimitsSource(model: GenStudioChatModel): 'model' | 'story' {
+  return model.accepted_image_mime_types.length || model.max_image_bytes > 0 || model.max_image_dimension > 0
+    ? 'model'
+    : 'story'
 }
 function imageMime(filename: string): string {
   switch (path.extname(filename).toLowerCase()) {
@@ -81,6 +117,11 @@ router.get('/projects/:slug/thumbnail-reference/vision-models', async (req, res)
       relaxed_queue_hint: model.relaxed_queue_hint,
       max_input_images: model.max_input_images, accepted_image_mime_types: model.accepted_image_mime_types,
       max_image_bytes: model.max_image_bytes, max_image_dimension: model.max_image_dimension,
+      // Whose numbers these are. The per-image limits are not published by any
+      // provider today, so the menu must be able to say "Story's own limits"
+      // rather than imply the model stated them.
+      reference_limits_source: referenceLimitsSource(model),
+      detail_source: detailFor(model).source,
       // Published retirement, same as the language picker. This menu is a
       // second place a customer commits to a chat product, and a whitelist
       // that forwards prices but not the withdrawal date is how the first one
@@ -106,8 +147,14 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
     const model = (await listChatModels(apiKey)).find(item => item.id === modelId && eligibleThumbnailVisionModel(item))
     if (!model) return res.status(422).json({ detail: 'Select a currently available vision model that supports structured JSON output.' })
     const mime = imageMime(sourcePath)
-    if (!mime || !model.accepted_image_mime_types.includes(mime)) {
-      return res.status(422).json({ detail: `This model accepts ${model.accepted_image_mime_types.join(', ') || 'no published image formats'}, not this file type.` })
+    if (!mime) {
+      return res.status(422).json({ detail: `Story Studio cannot send ${path.extname(sourcePath) || 'that file type'} to a model. Use a PNG, JPEG, WebP or GIF.` })
+    }
+    // A published list is enforced. An *unpublished* one is not a refusal —
+    // absence is not "it accepts nothing" — so the file goes and the gateway's
+    // own upload rules answer for it.
+    if (model.accepted_image_mime_types.length && !model.accepted_image_mime_types.includes(mime)) {
+      return res.status(422).json({ detail: `This model accepts ${model.accepted_image_mime_types.join(', ')}, not this file type.` })
     }
     // CONTAINMENT. `source_path` comes straight from the request body. Before
     // this the only gate was the image extension, so any image on the machine
@@ -146,7 +193,10 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
       // flag this call used still maps to the same contract internally, which
       // is exactly why it was easy to leave behind.
       temperature: 0.2, maxOutputTokens: 1200, outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
-      inputImage: { assetId: remote.id, detail: safeDetail(model) },
+      // The detail level this model states, or Story's own when it states none
+      // — `detail_source` in the menu says which, so the choice is never
+      // presented as the model's own.
+      inputImage: { assetId: remote.id, detail: detailFor(model).detail },
       requestIdentity: `thumbnail-reference:${slug}:${sha256}:${model.id}`,
     })
     const analysis = parseComposition(result.text)

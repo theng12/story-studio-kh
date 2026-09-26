@@ -555,55 +555,32 @@ test('A submitted terminal failure is never replayed as a new candidate identity
   assert.equal(calls, 0)
 })
 
-test('Temporary availability sharing stays within one account and never invents a shared quota pool', () => {
+test('an unavailable catalogue row invents no retry window', () => {
+  // `availability_reason` and `available_again_at` described a temporary
+  // absence, and no gateway has published either since the old GenStudio was
+  // retired — so the cooldown they fed was dead code that read as a working
+  // feature. The honest statement is the one asserted here: a row that is simply
+  // unavailable carries NO retry time, because nobody stated one.
   const catalogue = [{
     id: 'live-product', legacy_ids: ['saved-product'], available: false, qualification_only: false,
-    availability_reason: 'daily_quota_depleted' as const, available_again_at: null,
   }] as GenStudioChatModel[]
-  const originalNow = Date.now
-  try {
-    Date.now = () => 1_000
-    assert.throws(() => resolveLivePipelineModel('saved-product', catalogue, { accountId: 'account-a', shareTemporaryAvailability: true }), (error: unknown) => {
-      return error instanceof GenStudioChatProductUnavailableError && error.availableAgainAt === '1970-01-01T00:01:01.000Z'
-    })
-    Date.now = () => 2_000
-    assert.throws(() => resolveLivePipelineModel('saved-product', catalogue, { accountId: 'account-b', shareTemporaryAvailability: true }), (error: unknown) => {
-      return error instanceof GenStudioChatProductUnavailableError && error.availableAgainAt === '1970-01-01T00:01:02.000Z'
-    })
-    Date.now = () => 3_000
-    assert.throws(() => resolveLivePipelineModel('saved-product', catalogue, { accountId: 'account-a', shareTemporaryAvailability: true }), (error: unknown) => {
-      return error instanceof GenStudioChatProductUnavailableError && error.availableAgainAt === '1970-01-01T00:01:01.000Z'
-    })
-  } finally {
-    Date.now = originalNow
-  }
+  assert.throws(
+    () => resolveLivePipelineModel('saved-product', catalogue, { accountId: 'account-a', shareTemporaryAvailability: true }),
+    (error: unknown) => error instanceof GenStudioChatProductUnavailableError
+      && error.availabilityReason === null
+      && error.availableAgainAt === null,
+  )
 })
 
-test('Live availability uses only future published resets and bounds stale catalogue rechecks', () => {
-  const staleCatalogue = [{
-    id: 'stale-reset', available: false, qualification_only: false,
-    availability_reason: 'daily_quota_depleted' as const, available_again_at: '1970-01-01T00:01:30.000Z',
+test('a catalogue refusal carries the gateway\'s own activation blockers', () => {
+  const catalogue = [{
+    id: 'locked-product', available: false, qualification_only: false, locked: true,
+    activation_blockers: ['No Studio Hub location offering this model is answering.'],
   }] as GenStudioChatModel[]
-  const invalidCatalogue = [{
-    id: 'invalid-reset', available: false, qualification_only: false,
-    availability_reason: 'temporary_backpressure' as const, available_again_at: 'not-a-date',
-  }] as GenStudioChatModel[]
-  const futureCatalogue = [{
-    id: 'future-reset', available: false, qualification_only: false,
-    availability_reason: 'daily_quota_depleted' as const, available_again_at: '1970-01-01T00:03:20.000Z',
-  }] as GenStudioChatModel[]
-  const originalNow = Date.now
-  try {
-    Date.now = () => 100_000
-    for (const [modelId, catalogue] of [['stale-reset', staleCatalogue], ['invalid-reset', invalidCatalogue]] as const) {
-      assert.throws(() => resolveLivePipelineModel(modelId, catalogue, { accountId: `catalogue-${modelId}`, shareTemporaryAvailability: true }), (error: unknown) => {
-        return error instanceof GenStudioChatProductUnavailableError && error.availableAgainAt === '1970-01-01T00:02:40.000Z'
-      })
-    }
-    assert.throws(() => resolveLivePipelineModel('future-reset', futureCatalogue, { accountId: 'catalogue-future', shareTemporaryAvailability: true }), (error: unknown) => {
-      return error instanceof GenStudioChatProductUnavailableError && error.availableAgainAt === '1970-01-01T00:03:20.000Z'
-    })
-  } finally {
-    Date.now = originalNow
-  }
+  assert.throws(
+    () => resolveLivePipelineModel('locked-product', catalogue),
+    (error: unknown) => error instanceof GenStudioChatProductUnavailableError
+      && error.activationBlockers.length === 1
+      && /No Studio Hub location offering this model is answering/.test(error.message),
+  )
 })

@@ -149,28 +149,26 @@ test('a standard rate that is not a real published figure stays absent', async (
   assert.equal(model?.standard_output_credits_per_million_tokens, null)
 })
 
-test('availability metadata is allowlisted and timestamps are normalized', async () => {
+test('the gateway\'s activation blockers reach the row, and no absence is invented', async () => {
+  // This used to allowlist `availability_reason` / `available_again_at` — two
+  // fields no catalogue has published since the old GenStudio, which meant the
+  // cooldown they fed could never fire. What the gateway does state is
+  // `activation_blockers`: the reason a row cannot be used. It is carried
+  // through untouched, and a row that states none carries an empty list rather
+  // than a sentence nobody wrote.
   const models = await servedCatalog([
     {
       ...CHAT_BASE,
-      id: 'depleted',
-      display_name: 'Depleted',
-      availability_reason: 'daily_quota_depleted',
-      available_again_at: '2027-01-02T12:00:00+00:00',
+      id: 'locked-by-gateway',
+      display_name: 'Locked by the gateway',
+      activation_blockers: ['No Studio Hub location offering this model is answering.'],
     },
-    {
-      ...CHAT_BASE,
-      id: 'unknown',
-      display_name: 'Unknown',
-      availability_reason: 'provider_outage',
-      available_again_at: 'not-a-date',
-    },
-  ], 'availability-metadata-key')
+    { ...CHAT_BASE, id: 'quiet', display_name: 'Nothing stated' },
+  ], 'activation-blockers-key')
 
-  assert.equal(models[0]?.availability_reason, 'daily_quota_depleted')
-  assert.equal(models[0]?.available_again_at, '2027-01-02T12:00:00.000Z')
-  assert.equal(models[1]?.availability_reason, null)
-  assert.equal(models[1]?.available_again_at, null)
+  assert.deepEqual(models[0]?.activation_blockers,
+    ['No Studio Hub location offering this model is answering.'])
+  assert.deepEqual(models[1]?.activation_blockers, [])
 })
 
 // ── 3. The whitelist that feeds the language picker ───────────────────────
@@ -188,8 +186,6 @@ test('GET /models forwards the shelf, the hint and the undiscounted rates', asyn
           ...CHAT_BASE,
           id: 'relaxed-1',
           display_name: 'Relaxed Product',
-          availability_reason: 'temporary_backpressure',
-          available_again_at: '2027-01-02T12:00:00.000Z',
           queue_class: 'relaxed',
           relaxed_queue_hint: HINT,
           standard_input_credits_per_million_tokens: 60,
@@ -209,14 +205,17 @@ test('GET /models forwards the shelf, the hint and the undiscounted rates', asyn
     assert.deepEqual(relaxed.relaxed_queue_hint, HINT)
     assert.equal(relaxed.standard_input_credits_per_million_tokens, 60)
     assert.equal(relaxed.standard_output_credits_per_million_tokens, 120)
-    assert.equal(relaxed.availability_reason, 'temporary_backpressure')
-    assert.equal(relaxed.available_again_at, '2027-01-02T12:00:00.000Z')
+    // The temporary-availability pair used to be asserted here, and no catalogue
+    // publishes either field — so this pins that they are gone from the
+    // forwarded row rather than quietly defaulted to null.
+    assert.equal((relaxed as Record<string, unknown>).availability_reason, undefined)
+    assert.equal((relaxed as Record<string, unknown>).available_again_at, undefined)
 
     assert.equal(direct.queue_class, 'direct')
     assert.equal(direct.relaxed_queue_hint, null)
     assert.equal(direct.standard_input_credits_per_million_tokens, null)
-    assert.equal(direct.availability_reason, null)
-    assert.equal(direct.available_again_at, null)
+    assert.equal((direct as Record<string, unknown>).availability_reason, undefined)
+    assert.equal((direct as Record<string, unknown>).available_again_at, undefined)
   } finally {
     globalThis.fetch = originalFetch
     clearGenStudioCatalogCache()

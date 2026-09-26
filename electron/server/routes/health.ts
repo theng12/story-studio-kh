@@ -131,8 +131,11 @@ router.get('/models', async (_req, res) => {
       locked: model.locked,
       lock_reason: model.lock_reason,
       available: model.available,
-      availability_reason: model.availability_reason,
-      available_again_at: model.available_again_at,
+      // The gateway's own reasons, which is what `disabled_reason` below joins
+      // into a sentence. The two fields that used to sit here
+      // (`availability_reason`, `available_again_at`) described a temporary
+      // absence no catalogue has published since the old GenStudio; a job's
+      // retry window is the fact that replaced them, and it rides on the job.
       disabled_reason: model.available
         ? null
         : (model.activation_blockers.join(' ') || 'This model is not currently available in GenStudio.'),

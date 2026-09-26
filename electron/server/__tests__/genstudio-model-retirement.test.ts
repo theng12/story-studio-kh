@@ -194,6 +194,64 @@ test('the thumbnail-reference vision list carries the retirement', async () => {
   assert.equal(row.retires_at, new Date(WITHDRAWN).toISOString())
 })
 
+test('a vision model is eligible on what IS published, not on limits nobody states', async () => {
+  clearCache()
+  // The regression this pins: eligibility required `max_input_images >= 1` and a
+  // non-empty `supported_detail_levels`, and the gateway publishes **neither** —
+  // the parse turns their absence into 0 and []. So every model failed the gate
+  // and the thumbnail-reference feature could not run at all, while the one fact
+  // that decides it (`supports_vision: true`, published from the provider's own
+  // `architecture.input_modalities`) sat unread beside them. WIRE-3, doing real
+  // damage rather than merely leaving a field empty.
+  publishing([chatRow({
+    supports_vision: true,
+    input_modalities: ['text', 'image'],
+    supports_structured_output: true,
+    structured_output_mode: 'request_json_schema',
+    // No max_input_images, no supported_detail_levels, no image limits: exactly
+    // what a real gateway row carries today.
+  })])
+  const created = await request(app).post('/api/projects').send({ name: 'Vision Gate Probe' }).expect(201)
+  const slug = created.body.slug || created.body.project?.slug
+  const response = await request(app)
+    .get(`/api/projects/${slug}/thumbnail-reference/vision-models`)
+    .expect(200)
+  const row = response.body.models.find((model: any) => model.id === 'catalog-row-a')
+  assert.ok(row, 'a model that states image input is eligible without per-image limits')
+  // And the menu is told whose choices these are, so a level Story picked is
+  // never presented as the model's own.
+  assert.equal(row.detail_source, 'story')
+  assert.equal(row.reference_limits_source, 'story')
+
+  // A model that states its own levels and limits keeps them, labelled as its.
+  clearCache()
+  publishing([chatRow({
+    supports_vision: true,
+    input_modalities: ['text', 'image'],
+    supports_structured_output: true,
+    max_input_images: 2,
+    accepted_image_mime_types: ['image/png'],
+    max_image_bytes: 1_000_000,
+    max_image_dimension: 2_000,
+    supported_detail_levels: ['high'],
+  })])
+  const second = await request(app)
+    .get(`/api/projects/${slug}/thumbnail-reference/vision-models`)
+    .expect(200)
+  const stated = second.body.models.find((model: any) => model.id === 'catalog-row-a')
+  assert.ok(stated)
+  assert.equal(stated.detail_source, 'model')
+  assert.equal(stated.reference_limits_source, 'model')
+
+  // And a model that does NOT state image input stays out.
+  clearCache()
+  publishing([chatRow({ supports_vision: false })])
+  const third = await request(app)
+    .get(`/api/projects/${slug}/thumbnail-reference/vision-models`)
+    .expect(200)
+  assert.equal(third.body.models.length, 0)
+})
+
 test('the web-research option carries it too', async () => {
   const { toWebResearchModelOption } = await import('../services/research/web-capability.js')
   const retiring = toWebResearchModelOption({

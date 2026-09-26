@@ -1616,9 +1616,7 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
   description?: string
   available: boolean
   /** GenStudio's published reason for a temporarily unavailable row. */
-  availability_reason?: 'daily_quota_depleted' | 'temporary_backpressure' | null
   /** GenStudio's published future availability time, normalized to ISO. */
-  available_again_at?: string | null
   qualification_only: boolean
   /**
    * Total prompt-plus-output budget published for this product.
@@ -2550,16 +2548,25 @@ export class GenStudioChatProductUnavailableError extends Error {
   readonly availabilityReason: 'daily_quota_depleted' | 'temporary_backpressure' | null
   /** GenStudio's reported time, or a local bounded recheck timestamp. */
   readonly availableAgainAt: string | null
+  /** The gateway's own reasons this product cannot be used, when it stated any. */
+  readonly activationBlockers: string[]
 
   constructor(
     modelId: string,
     availability?: {
       reason?: 'daily_quota_depleted' | 'temporary_backpressure' | null
       availableAgainAt?: string | null
+      blockers?: readonly string[] | null
     },
   ) {
+    const blockers = Array.isArray(availability?.blockers)
+      ? availability!.blockers!.filter((item): item is string => typeof item === 'string' && !!item.trim())
+      : []
     super(
-      `The selected GenStudio language product "${modelId}" is not available. Choose a published product before retrying. No request or credit charge was made.`,
+      blockers.length
+        ? `The selected GenStudio language product "${modelId}" is not available: ${blockers.join(' ')} `
+          + 'Choose a published product before retrying. No request or credit charge was made.'
+        : `The selected GenStudio language product "${modelId}" is not available. Choose a published product before retrying. No request or credit charge was made.`,
     )
     this.name = 'GenStudioChatProductUnavailableError'
     this.modelId = modelId
@@ -2570,6 +2577,7 @@ export class GenStudioChatProductUnavailableError extends Error {
     this.availableAgainAt = typeof availability?.availableAgainAt === 'string' && availability.availableAgainAt
       ? availability.availableAgainAt
       : null
+    this.activationBlockers = blockers
   }
 }
 
@@ -4912,11 +4920,6 @@ export async function listChatModelsSnapshot(
     provider_name: publishedText(value?.provider_name),
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
-    availability_reason: value?.availability_reason === 'daily_quota_depleted'
-      || value?.availability_reason === 'temporary_backpressure'
-      ? value.availability_reason
-      : null,
-    available_again_at: readReportedTimestamp(value?.available_again_at),
     qualification_only: value?.qualification_only !== false,
     ...parseGenStudioCatalogLock(value),
     context_window_tokens: readPublishedTokenLimit(
@@ -6484,8 +6487,13 @@ async function prepareChatSubmission(
   const product = findGenStudioProduct(await listChatModels(apiKey), modelId)
   if (!product || !product.available || product.qualification_only || product.locked === true) {
     throw new GenStudioChatProductUnavailableError(modelId, {
-      reason: product?.availability_reason,
-      availableAgainAt: product?.available_again_at,
+      // **The gateway's own words.** `availability_reason` and
+      // `available_again_at` were read here for years and never published by
+      // any catalogue, so this call always passed two nulls and the operator got
+      // the generic sentence. What the gateway *does* state is
+      // `activation_blockers`: the lock reason, and a location's own reason for a
+      // package it cannot place.
+      blockers: product?.activation_blockers,
     })
   }
   // An explicit number still wins (and is still checked below). Otherwise the

@@ -108,24 +108,31 @@ export function resolveLivePipelineModel(
   options: { accountId?: string; shareTemporaryAvailability?: boolean } = {},
 ): GenStudioChatModel {
   const model = findGenStudioProduct(catalogue, savedModelId)
-  if (!model || model.qualification_only) throw new GenStudioChatProductUnavailableError(savedModelId)
+  if (!model) throw new GenStudioChatProductUnavailableError(savedModelId)
+  if (model.qualification_only) {
+    throw new GenStudioChatProductUnavailableError(savedModelId, { blockers: model.activation_blockers })
+  }
   const canonicalKey = sharedAvailabilityKey(options.accountId, model.id)
   const savedKey = sharedAvailabilityKey(options.accountId, savedModelId)
-  const reason = model.availability_reason === 'daily_quota_depleted' || model.availability_reason === 'temporary_backpressure'
-    ? model.availability_reason
-    : null
-  const publishedRetryAt = model.available_again_at && Date.parse(model.available_again_at) > Date.now()
-    ? model.available_again_at
-    : null
+  // **No reason comes from the catalogue.** This read `availability_reason` and
+  // `available_again_at` from the model row, and no gateway ever published
+  // either — so `reason` was always null and every branch below that needed it
+  // was dead. What remains is the path that really works: a local recheck
+  // recorded when a quota result arrives (`noteLlmLineupQuotaExhaustion`), which
+  // is Story Studio's own measurement rather than a published fact.
+  const reason: 'daily_quota_depleted' | 'temporary_backpressure' | null = null
+  // Kept as a named value, not inlined as `null`: if a gateway ever publishes a
+  // temporary-availability window again, this is the one place it enters.
+  const retryAtFromCatalogue: string | null = null
   if (options.shareTemporaryAvailability === true) {
     resolvedLlmLineupModels.set(savedKey, model.id)
     // A live catalogue timestamp is GenStudio's fact and supersedes a local
     // recheck left by an earlier terminal quota result.
-    if (!model.available && reason && publishedRetryAt) {
-      const value: SharedLlmLineupAvailability = { retryAt: publishedRetryAt, reason }
+    if (!model.available && reason && retryAtFromCatalogue) {
+      const value: SharedLlmLineupAvailability = { retryAt: retryAtFromCatalogue, reason }
       sharedLlmLineupAvailability.set(canonicalKey, value)
       sharedLlmLineupAvailability.set(savedKey, value)
-      throw new GenStudioChatProductUnavailableError(savedModelId, { reason, availableAgainAt: publishedRetryAt })
+      throw new GenStudioChatProductUnavailableError(savedModelId, { reason, availableAgainAt: retryAtFromCatalogue })
     }
     const cached = sharedLlmLineupAvailability.get(canonicalKey) || sharedLlmLineupAvailability.get(savedKey)
     if (cached && Date.parse(cached.retryAt) > Date.now()) {
@@ -144,14 +151,20 @@ export function resolveLivePipelineModel(
     return model
   }
   const retryAt = reason
-    ? publishedRetryAt || localAvailabilityRecheckAt()
+    ? retryAtFromCatalogue || localAvailabilityRecheckAt()
     : null
   if (reason && options.shareTemporaryAvailability === true && retryAt) {
     const value: SharedLlmLineupAvailability = { retryAt, reason }
     sharedLlmLineupAvailability.set(canonicalKey, value)
     sharedLlmLineupAvailability.set(savedKey, value)
   }
-  throw new GenStudioChatProductUnavailableError(savedModelId, { reason, availableAgainAt: retryAt })
+  throw new GenStudioChatProductUnavailableError(savedModelId, {
+    reason,
+    availableAgainAt: retryAt,
+    // What the gateway said, when it said anything — the operator gets the
+    // reason instead of the generic sentence.
+    blockers: model.activation_blockers,
+  })
 }
 
 function noteLlmLineupQuotaExhaustion(accountScope: string | undefined, savedModelId: string): string {

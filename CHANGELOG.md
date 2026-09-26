@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.230 — 2026-09-27
+
+- **The thumbnail-reference vision feature could not run at all (WIRE-3).** Its model gate required
+  `max_input_images >= 1` and a non-empty `supported_detail_levels`, and **no gateway publishes
+  either** — the parse turns their absence into `0` and `[]`, so every model failed and the vision
+  model list was always empty. The one fact that decides it, `supports_vision: true` (published from
+  the provider's own `architecture.input_modalities`), sat unread beside them. Eligibility now rests
+  on what is published: available, not locked, states image input, and is not stated to refuse
+  structured output. The per-image limits are enforced when a model states them, and where it states
+  none the file goes and the gateway's own upload rules answer for it.
+- **The menu now says whose numbers it is showing.** A detail level or limit a model did not state
+  is labelled `story` (`detail_source`, `reference_limits_source`), so a choice Story made is never
+  presented as the model's own.
+- **Two dead fields are gone: `availability_reason` and `available_again_at`.** They described a
+  temporary model absence the old GenStudio published; no catalogue has carried either since, so the
+  cooldown they fed was code that read as a working feature. What replaced that fact is a *job's*
+  retry window — already on every job and already rendered in the Jobs window — and Story's own
+  quota measurement (`noteLlmLineupQuotaExhaustion`) still drives the shared-availability path.
+- **A catalogue refusal now names the gateway's own reason.** `activation_blockers` (gateway 0.2.59)
+  reaches `GenStudioChatProductUnavailableError` and its message, so an operator is told why a model
+  is unusable instead of reading the generic sentence. The three other readers of that field
+  (`/api/models`, the pickers) were already joined to it.
+- **Retirement warnings can fire now, once a model he uses retires.** Gateway 0.2.59 publishes the
+  retirement family from the provider's own `expiration_date`; Story's parse and surfaces for it
+  already existed and were reading `null` forever. Measured on live data: 28 provider models state an
+  expiry today, none of them among the 75 enabled rows — so the mechanism is proven and quiet.
+
 ## v1.4.229 — 2026-09-27
 
 - **Reveal effects — the engine.** A scene still can now *arrive*: a geometric wipe, a stack of
