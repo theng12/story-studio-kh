@@ -1568,6 +1568,46 @@ export interface GenStudioRelaxedQueueHint {
   message: string
 }
 
+/**
+ * Whose figure a published limit is.
+ *
+ * The gateway labels every limit with where it came from, and the two producers use
+ * overlapping vocabularies on purpose (HUB-20):
+ *
+ *   - a **cloud** row says `provider` (the model's own file or API stated it),
+ *     `curated` (the owner's `model-limits.local.json` filled a silence) or
+ *     `gateway` (a default of the gateway's own);
+ *   - a **Studio Hub** row says `model` (the checkpoint's own file states it),
+ *     `worker_default` (the Hub's own fallback), `curated` (the Hub's packaged
+ *     metadata) or `unknown` (nothing states it, and the value travels as null).
+ *
+ * A number is still a number; this is what says whether the *model* stated it. The
+ * difference matters where the UI would otherwise print a worker's fallback as the
+ * model's own figure — the failure this field exists to end.
+ */
+export type GenStudioLimitSource =
+  | 'provider' | 'model' | 'curated' | 'gateway' | 'worker_default' | 'unknown'
+
+const GENSTUDIO_LIMIT_SOURCES: readonly GenStudioLimitSource[] = [
+  'provider', 'model', 'curated', 'gateway', 'worker_default', 'unknown',
+]
+
+/**
+ * Read a limit's provenance, or null.
+ *
+ * Null means "nobody labelled it" — which is NOT a synonym for `provider`. A caller
+ * that renders a sentence has to distinguish "the model said so" from "we were not
+ * told", and folding an absent label into `provider` is how a worker default gets
+ * printed as the model's own number.
+ */
+export function readPublishedLimitSource(value: unknown): GenStudioLimitSource | null {
+  if (typeof value !== 'string') return null
+  const token = value.trim().toLowerCase()
+  return (GENSTUDIO_LIMIT_SOURCES as readonly string[]).includes(token)
+    ? token as GenStudioLimitSource
+    : null
+}
+
 export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProductAliases {
   id: string
   display_name: string
@@ -1597,6 +1637,16 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
    * publishes no output ceiling is submitted without `max_output_tokens`.
    */
   max_output_tokens: number
+  /**
+   * Whose `max_output_tokens` that is — the model's own figure, a curated default, a
+   * worker's fallback, or nothing stated at all (`null`).
+   *
+   * Carried so the surfaces that show the allowance can say so. A Studio Hub row's
+   * 16,384 is `worker_default` when the checkpoint ships no `generation_config.json`
+   * (measured live 2026-09-26), and a UI that printed it bare would be presenting the
+   * Hub's fallback as the model's own ceiling.
+   */
+  max_output_tokens_source: GenStudioLimitSource | null
   /** Published structured-item ceiling. Null means unmeasured, never unlimited. */
   max_structured_items_per_request: number | null
   controls: string[]
@@ -4863,6 +4913,7 @@ export async function listChatModelsSnapshot(
     // a figure GenStudio had published for the product, and a chapter sized
     // against it comes back truncated after the customer has paid for it.
     max_output_tokens: readPublishedChatMaxOutputTokens(value?.max_output_tokens, value?.id),
+    max_output_tokens_source: readPublishedLimitSource(value?.max_output_tokens_source),
     max_structured_items_per_request: Number.isInteger(value?.max_structured_items_per_request)
       && value.max_structured_items_per_request > 0
       ? value.max_structured_items_per_request

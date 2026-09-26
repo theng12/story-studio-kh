@@ -20,6 +20,10 @@ export interface GenStudioChatModelInfo {
   qualification_only: boolean
   context_window_tokens?: number
   max_output_tokens?: number
+  /** Whose `max_output_tokens` that is — the model's own figure, a curated default, a
+   *  worker's fallback, or nothing stated. `null`/absent means unlabelled, which is not
+   *  the same answer as `provider`. See `model-token-budget.ts`. */
+  max_output_tokens_source?: 'provider' | 'model' | 'curated' | 'gateway' | 'worker_default' | 'unknown' | null
   input_credits_per_million_tokens?: number
   output_credits_per_million_tokens?: number
   /** The undiscounted rates, published only while GenStudio is applying a sale

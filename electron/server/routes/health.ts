@@ -146,6 +146,10 @@ router.get('/models', async (_req, res) => {
       // holds no context window, output ceiling, or character cap of its own.
       context_window_tokens: model.context_window_tokens,
       max_output_tokens: model.max_output_tokens,
+      // Whose number that is. Forwarded for the same reason every other published
+      // field is: the page that shows the allowance must be able to say whether the
+      // *model* stated it, and it cannot reconstruct that here.
+      max_output_tokens_source: model.max_output_tokens_source,
       structured_output_mode: model.structured_output_mode,
       // Preserve GenStudio's published pricing verbatim. The renderer shows
       // these as rates because an LLM total is unknowable before generation.

@@ -22,6 +22,17 @@
  * mis-measured by any such conversion.
  */
 
+/**
+ * Whose figure a published limit is — the gateway's own label, relayed verbatim.
+ *
+ * `provider`/`model` mean the model's artefact or API stated the number; `curated`,
+ * `gateway` and `worker_default` mean somebody *chose* it; `unknown` means nothing was
+ * stated. Absent is a different answer from any of them and is kept as `null`, because
+ * "we were not told" must never render as "the model said so".
+ */
+export type PublishedLimitSource =
+  | 'provider' | 'model' | 'curated' | 'gateway' | 'worker_default' | 'unknown'
+
 /** The catalogue fields this module reads. Everything else is irrelevant here. */
 export interface ModelTokenLimits {
   id?: string
@@ -30,6 +41,47 @@ export interface ModelTokenLimits {
   /** @deprecated Alias read only when `context_window_tokens` is absent. */
   context_limit_tokens?: number
   max_output_tokens?: number
+  /** Where `max_output_tokens` came from. Absent/null means unlabelled. */
+  max_output_tokens_source?: PublishedLimitSource | null
+}
+
+const PUBLISHED_LIMIT_SOURCES: readonly PublishedLimitSource[] = [
+  'provider', 'model', 'curated', 'gateway', 'worker_default', 'unknown',
+]
+
+/** The label the gateway published for this model's output ceiling, or null. */
+export function maxOutputTokensSource(
+  model: ModelTokenLimits | null | undefined,
+): PublishedLimitSource | null {
+  const value = model?.max_output_tokens_source
+  if (typeof value !== 'string') return null
+  const token = value.trim().toLowerCase() as PublishedLimitSource
+  return PUBLISHED_LIMIT_SOURCES.includes(token) ? token : null
+}
+
+/**
+ * Story Studio's own sentence for a limit that is **not** the model's statement, or
+ * null when it is (or when nobody labelled it).
+ *
+ * The owner's rule, and HUB-20's whole point: a worker's fallback is a different fact
+ * from the model's limit, and a UI that shows the number without the difference
+ * presents one as the other. The wording names the producer, never a number.
+ */
+export function describeUnstatedLimitSource(
+  model: ModelTokenLimits | null | undefined,
+): string | null {
+  switch (maxOutputTokensSource(model)) {
+    case 'curated':
+      return 'a curated default, not the model’s own figure'
+    case 'gateway':
+      return 'the gateway’s own default, not the model’s own figure'
+    case 'worker_default':
+      return 'the worker’s fallback, not the model’s own figure'
+    case 'unknown':
+      return 'unstated by the model'
+    default:
+      return null
+  }
 }
 
 /** `0` means "not published" — never a Story Studio guess, never a zero budget. */

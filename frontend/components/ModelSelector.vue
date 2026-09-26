@@ -83,6 +83,9 @@ interface LlmModelRow {
   context_limit_tokens?: number
   /** Maximum selectable output allowance, published live by GenStudio. */
   max_output_tokens?: number
+  /** Whose maximum that is. Carried through the picker so a surface that shows the
+   *  allowance can say whether the model stated it or a worker defaulted it. */
+  max_output_tokens_source?: 'provider' | 'model' | 'curated' | 'gateway' | 'worker_default' | 'unknown' | null
   structured_output_mode?: 'json_object' | 'request_json_schema'
   legacy_ids?: string[]
   cost_tier?: GenStudioLlmCostTier

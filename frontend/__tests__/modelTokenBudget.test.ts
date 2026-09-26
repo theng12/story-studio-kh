@@ -18,9 +18,11 @@ import {
   availableInputTokens,
   clampOutputAllowance,
   contextWindowTokens,
+  describeUnstatedLimitSource,
   formatTokenCount,
   isModelTokenLimitError,
   maxOutputTokens,
+  maxOutputTokensSource,
   outputAllowanceOptions,
 } from '../utils/model-token-budget.js'
 
@@ -255,10 +257,51 @@ describe('Scene Plan workspace wiring', () => {
   })
 })
 
+describe('a published limit names its author (HUB-20)', () => {
+  test('the label is read verbatim, and an absent one stays null', () => {
+    assert.equal(maxOutputTokensSource({ max_output_tokens_source: 'worker_default' }),
+      'worker_default')
+    assert.equal(maxOutputTokensSource({ max_output_tokens_source: 'provider' }), 'provider')
+    for (const value of [undefined, null, '', 'stated', 42]) {
+      assert.equal(maxOutputTokensSource({ max_output_tokens_source: value as never }), null)
+    }
+  })
+
+  test('a number nobody attributed is not described as the model’s', () => {
+    // `provider`/`model` are the model's own statement: no extra sentence.
+    assert.equal(describeUnstatedLimitSource({ max_output_tokens_source: 'provider' }), null)
+    assert.equal(describeUnstatedLimitSource({ max_output_tokens_source: 'model' }), null)
+    // Unlabelled is also silent — but it is never rendered as "the model said so".
+    assert.equal(describeUnstatedLimitSource({ max_output_tokens: 16_384 }), null)
+    // Everything else says whose number it is, in Story Studio's own words.
+    assert.match(describeUnstatedLimitSource({ max_output_tokens_source: 'worker_default' }) ?? '',
+      /worker’s fallback/)
+    assert.match(describeUnstatedLimitSource({ max_output_tokens_source: 'curated' }) ?? '',
+      /curated default/)
+    assert.match(describeUnstatedLimitSource({ max_output_tokens_source: 'gateway' }) ?? '',
+      /gateway’s own default/)
+    assert.match(describeUnstatedLimitSource({ max_output_tokens_source: 'unknown' }) ?? '',
+      /unstated by the model/)
+  })
+
+  test('the scene plan renders the sentence beside the limit it describes', () => {
+    assert.match(scenePlan, /promptBudgetSourceNote/)
+    assert.match(scenePlan, /describeUnstatedLimitSource\(liveModelLimits\.value\)/)
+    assert.match(scenePlan, /That limit is \{\{ promptBudgetSourceNote \}\}/)
+  })
+
+  test('the field travels from the gateway through the server whitelist', () => {
+    assert.match(source('../../electron/server/routes/health.ts'), /max_output_tokens_source/)
+    assert.match(source('../../electron/server/lib/genstudio-client.ts'),
+      /max_output_tokens_source: readPublishedLimitSource/)
+  })
+})
+
 describe('ModelSelector', () => {
   test('publishes the live limits under the current field name', () => {
     assert.match(modelSelector, /context_window_tokens\?: number/)
     assert.match(modelSelector, /max_output_tokens\?: number/)
+    assert.match(modelSelector, /max_output_tokens_source\?:/)
   })
 
   test('exposes a forced catalogue reload that reuses the shared read cache', () => {

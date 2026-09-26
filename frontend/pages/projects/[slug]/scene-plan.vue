@@ -247,6 +247,7 @@
             Automatic sends this channel’s default of {{ promptBatchSizeDefault }} scenes per request, reduced only if
             the selected GenStudio model cannot return that many complete in one response. Its published output
             limit is the only ceiling — {{ maximumPromptPackSize.toLocaleString() }} scenes on the model chosen now.
+            <template v-if="promptBudgetSourceNote">That limit is {{ promptBudgetSourceNote }}.</template>
           </p>
           <p v-else-if="hasUnpublishedExplicitPromptBudget" class="scene-setting-help">
             This model publishes no output ceiling. Story Studio sends your selected allowance of up to
@@ -260,7 +261,7 @@
           <p v-else class="scene-setting-help">Choose a prompt model to see its published output allowance and batch size.</p>
           <div v-if="hasSelectedPromptModel" class="scene-batch-summary">
             <span><strong>{{ effectivePromptPackSize }} scenes</strong> per request</span>
-            <span v-if="hasPublishedPromptBudget">up to {{ effectivePromptTokenBudget.toLocaleString() }} output tokens</span>
+            <span v-if="hasPublishedPromptBudget">up to {{ effectivePromptTokenBudget.toLocaleString() }} output tokens<template v-if="promptBudgetSourceNote"> · {{ promptBudgetSourceNote }}</template></span>
             <span v-else-if="hasUnpublishedExplicitPromptBudget">up to {{ effectivePromptTokenBudget.toLocaleString() }} output tokens · user-chosen allowance</span>
             <span v-else>no output-token limit is sent</span>
           </div>
@@ -1040,6 +1041,7 @@ import {
   clampOutputAllowance,
   contextWindowTokens,
   formatTokenCount,
+  describeUnstatedLimitSource,
   isModelTokenLimitError,
   maxOutputTokens as publishedMaxOutputTokens,
   outputAllowanceOptions,
@@ -1857,6 +1859,14 @@ const publishedMaxOutput = computed(() => publishedMaxOutputTokens(liveModelLimi
 const selectedModelMaxOutput = computed(() => publishedMaxOutput.value || 0)
 const hasSelectedPromptModel = computed(() => !!form.value.model && !!liveModelLimits.value)
 const hasPublishedPromptBudget = computed(() => !!form.value.model && selectedModelMaxOutput.value > 0)
+/**
+ * When the published allowance is real but the *model* did not state it — a curated
+ * default, a gateway default or a Studio Hub worker's fallback — this is Story
+ * Studio's sentence saying so, and it is rendered beside the number. Null when the
+ * model stated it or when nobody labelled it; a bare number in those two cases is
+ * not a claim about its author.
+ */
+const promptBudgetSourceNote = computed(() => describeUnstatedLimitSource(liveModelLimits.value))
 /** Published `context_window_tokens`, falling back to the deprecated
  *  `context_limit_tokens` alias only when the current field is absent. */
 const selectedModelContextWindow = computed(() => contextWindowTokens(liveModelLimits.value))

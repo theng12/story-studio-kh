@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.227 — 2026-09-26
+
+- **A published limit now names its author (HUB-20, our half).** Studio Hub 0.6.72 began publishing
+  `model_limits.*.source_kind` and GatewayKH 0.2.48 relays it as `max_output_tokens_source`, but this app
+  read none of it — so a limit the *worker defaulted* was printed as if the model had stated it. The
+  measured case is the local chat lane: the checkpoint ships no `generation_config.json`, the Hub's
+  fallback is 16,384, and the live row says `worker_default` while every surface here showed the number
+  bare. `GenStudioChatModel` now carries the label (both producers' vocabularies: `provider | model |
+  curated | gateway | worker_default | unknown`), `/api/models` forwards it, and Scene Plan renders
+  *"That limit is the worker's fallback, not the model's own figure"* beside the allowance. An absent or
+  unrecognised label stays `null` — "we were not told" is not "the model said so", and folding null into
+  `provider` is the defect this ends.
+- The `up to N output tokens` chip in the batch summary carries the same sentence, so the picker and the
+  line beneath it cannot describe the same number two ways.
+- No other behaviour changes: the allowance, the option ladder and the request are exactly what they were.
+
 ## v1.4.226 — 2026-09-26
 
 - Documentation and comments only; no behaviour changes. A cross-repo audit found stale claims in the
