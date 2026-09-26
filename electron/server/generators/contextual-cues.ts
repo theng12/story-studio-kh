@@ -72,11 +72,25 @@ function assertContextualCueCapability(model: GenStudioChatModel, itemCount: num
   if (model.structured_output_mode === 'none') {
     throw new GenStudioChatCapabilityUnavailableError(model.id, 'it publishes no structured-output support for contextual-cue JSON')
   }
-  const structuredItemLimit = model.max_structured_items_per_request
-  if (typeof structuredItemLimit !== 'number' || !Number.isInteger(structuredItemLimit) || structuredItemLimit < itemCount) {
+  // AN UNPUBLISHED ITEM LIMIT IS NOT A LIMIT OF ZERO (fixed 2026-09-26, owner
+  // ruling: we follow what a model publishes and invent no ceiling of our own).
+  // This used to refuse whenever `max_structured_items_per_request` was null —
+  // which is what every row publishes today, including the local lane — so an
+  // absent number decided that the model could not do work it may well be able
+  // to do, and the refusal read "above its published unpublished item limit".
+  // Now only a PUBLISHED limit can refuse. When nothing is published the batch
+  // goes out bounded by the token budget (`resolveContextualCueBatchSize` sizes
+  // from the policy default rather than inventing a cap), and a provider
+  // refusal is the answer if the lane disagrees.
+  const published = model.max_structured_items_per_request
+  const structuredItemLimit = typeof published === 'number' && Number.isInteger(published) && published > 0
+    ? published
+    : null
+  if (structuredItemLimit === null) return
+  if (structuredItemLimit < itemCount) {
     throw new GenStudioChatCapabilityUnavailableError(
       model.id,
-      `this cue batch requires ${itemCount} structured items, above its published ${structuredItemLimit ?? 'unpublished'} item limit`,
+      `this cue batch requires ${itemCount} structured items, above its published item limit of ${structuredItemLimit}`,
     )
   }
 }

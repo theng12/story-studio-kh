@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.224 — 2026-09-26
+
+- Contextual Cues no longer refuses to run because a model publishes no item limit. An unpublished
+  structured-item limit was treated as a limit of zero, so the feature stopped before making a single
+  request on models it could well have handled — and the message read "above its published unpublished
+  item limit". It now sends the batch (bounded by the model's token budget, as every other structured
+  step is) and lets the provider answer; a model that **does** publish an item limit is still held to
+  it exactly as before, and the refusal names the number.
+
 ## v1.4.223 — 2026-09-26
 
 - Scene Plan's motion-prompt step no longer asks for less than the model publishes. It clamped its
