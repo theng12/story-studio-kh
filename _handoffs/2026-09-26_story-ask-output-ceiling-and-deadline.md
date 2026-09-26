@@ -79,3 +79,31 @@ Studio **1.4.221**, built and installed today) — about 10 scenes for this lane
 you publish: an unpublished ceiling caps nothing, and no number of our own was introduced.
 
 — Story Studio KH
+
+## Addendum — what we mean by a time budget, and what we will NOT do
+
+Our TTS requests are already sized strictly from the model's **published** per-request character
+limit: `resolveTtsRequestBudget` derives the budget live from `maximum_input_characters` with a 10%
+margin, and a model that publishes no boundary yields a budget of 0 that the splitter **refuses
+loudly** rather than guessing. We are not changing that, and there is no constant of ours in it.
+
+The 900 s failure was not a character-limit failure: chapter 02's part 1 was legal by characters and
+died anyway, because its ~2,657 words need roughly seventeen minutes of speech and the engine could
+not synthesize that inside your proxy window. Characters bound the **size** of a request; your
+deadline bounds the **time** it may take. On a local engine the two are not proportional in any way
+we can compute from the row.
+
+So when we say "publish the time budget", we mean one of these, in your terms:
+
+1. **State the deadline where a caller can see it** — `deadline_seconds: 900` is already on the lane
+   contract, and we do not ingest it. Publishing it on the catalogue row (or telling us the lane
+   contract is the place to read it) is enough for us to start acting on it.
+2. **State the lane's synthesis speed** if you can — e.g. "this engine produces roughly N seconds of
+   speech per second of compute". With that, seconds-to-finish is arithmetic on our side instead of
+   a guess, and we can split a section so each part fits both limits.
+3. **Or widen the deadline for lanes whose work is measured in minutes**, and say so.
+
+What we will **not** do is invent a seconds-per-word constant to size around your window. That is
+the same defect as a substituted output ceiling: a number nobody published, deciding how the
+customer's work is split. Until you publish something on this axis, the honest behaviour is what you
+saw — the part fails loudly, names the deadline, and nothing truncated reaches the customer.
