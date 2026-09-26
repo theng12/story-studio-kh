@@ -1,5 +1,8 @@
 const MIN_IDEA_OUTPUT_TOKENS = 4_096
-const MAX_IDEA_OUTPUT_TOKENS = 16_384
+// Named FLOOR, not cap: this bounds the workload floor we ASK for, and the
+// request is still clamped to the product's published figure in both
+// directions. Renamed 2026-09-26 so no reader mistakes it for a ceiling.
+const MAX_IDEA_FLOOR_TOKENS = 16_384
 const IDEA_OUTPUT_TOKENS_PER_ITEM = 640
 const TOKEN_ROUNDING_STEP = 1_024
 
@@ -26,6 +29,6 @@ export function ideaOutputTokenBudget(expectedIdeas: number): number {
   ) * TOKEN_ROUNDING_STEP
   return Math.max(
     MIN_IDEA_OUTPUT_TOKENS,
-    Math.min(MAX_IDEA_OUTPUT_TOKENS, requested),
+    Math.min(MAX_IDEA_FLOOR_TOKENS, requested),
   )
 }

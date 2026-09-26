@@ -763,13 +763,19 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     : (promptModel
       ? resolveScenePromptTokenBudget(promptModel.max_output_tokens, promptTokenSetting)
       : SCENE_TIMELINE_ONLY_OUTPUT_BUDGET)
-  // Motion records are intentionally short; keeping their batches within 4K
-  // prevents a large visual-model allowance from creating truncated motion JSON.
+  // NO stage-specific cap of ours (removed 2026-09-26, owner ruling: we follow
+  // the published per-model figure and invent no ceiling). The motion stage used
+  // to clamp this to 4,096 "so a large visual-model allowance could not create
+  // truncated motion JSON" — but the value it clamped IS the model's published
+  // allowance, and this budget drives the wire field, the batch size and the
+  // job-log arithmetic, so a 16,384-token model was asked for 4,096 and then
+  // described in the log as a 4,096-token model. The batch is already bounded
+  // from the published figure by `resolveScenePromptPackSize`
+  // (16,384 × 0.75 ÷ 300 ≈ 40 motion scenes per call), which is the protection
+  // the old cap was reaching for — derived instead of declared.
   const activePromptOutputBudget = savedRequestPlan
     ? savedRequestPlan.active_output_budget
-    : requestedStage === 'motion'
-      ? visualMaxTokens === null ? null : Math.min(4_096, visualMaxTokens)
-      : visualMaxTokens
+    : visualMaxTokens
   const promptPackSetting = parseScenePromptPackSetting(params.prompt_pack_size)
   let promptPackTuning = parseScenePromptPackTuning(undefined)
   try { promptPackTuning = parseScenePromptPackTuning(await getConfig(job.project_slug)) } catch { /* defaults apply */ }

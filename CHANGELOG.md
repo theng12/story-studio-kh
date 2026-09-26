@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.223 — 2026-09-26
+
+- Scene Plan's motion-prompt step no longer asks for less than the model publishes. It clamped its
+  output allowance to 4,096 tokens whatever the selected model allowed, so a model publishing 16,384
+  was asked for 4,096, split into batches as if it were a 4,096-token model, and described that way in
+  the job log — a limit attributed to a model that never published it. The step now uses the published
+  allowance, and its batch is sized from that figure as every other step already was. Motion prompts
+  are short, so on a large model this means fewer, fuller batches rather than longer answers.
+
 ## v1.4.222 — 2026-09-26
 
 - Chapter batches are now split on a measured estimate of how long a model's answer runs, rather than

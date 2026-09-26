@@ -466,3 +466,19 @@ test('the hardcoded 16,000-token guess is gone', () => {
     assert.doesNotMatch(source(file), /maxTokens: 16000/, `${file} still hardcodes 16,000`)
   }
 })
+
+test('no stage clamps the scene-plan budget below the model’s published allowance', () => {
+  // 1.4.223 removed `Math.min(4_096, visualMaxTokens)` from the motion stage.
+  // It capped the PUBLISHED allowance, and because that value also drives the
+  // wire field, the batch size and the job-log arithmetic, a 16,384-token model
+  // was requested and described as a 4,096-token one. Source-level, like the
+  // 16,000 pin above: the cap was a literal in a long generator function, and
+  // the point is that no literal may come back.
+  const text = source('../generators/scene-plan.ts')
+  assert.doesNotMatch(text, /Math\.min\(\s*4_?096\s*,/, 'a 4,096-token cap came back')
+  assert.match(
+    text,
+    /const activePromptOutputBudget = savedRequestPlan\s*\?\s*savedRequestPlan\.active_output_budget\s*:\s*visualMaxTokens/,
+    'the active prompt budget must be the published allowance, uncapped',
+  )
+})
