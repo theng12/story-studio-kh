@@ -12,13 +12,13 @@ out of scope unless a task needs them.
 
 | Thing | State |
 |---|---|
-| Current release | **1.4.223** — landed in `main` (`a79d3e98`), DMG `dist/Story Studio KH 1.4.223-arm64.dmg` (242,023,146 B, sha256 `e66641d63c7184f79197166b9b38abc47dfc448b5391f491c3881db95ad3a268`), **installed** at `/Applications/Story Studio KH.app`. Replaced bundles (1.4.219–1.4.222) are in `_trash/app/`. |
+| Current release | **1.4.224** — landed in `main` (`2e6a55ae`), DMG `dist/Story Studio KH 1.4.224-arm64.dmg`, **installed**. An unpublished structured-item limit is no longer a limit of zero (Contextual Cues); replaced bundles 1.4.219–1.4.223 are in `_trash/app/`. |
 | Pending release | **1.4.220** (working tree, not committed or released as of 2026-09-26): prose requests send **no** `response_format` — a Studio Hub lane refuses `{"type":"text"}` with a 422, which killed every chapter expansion on the local model — and a language answer whose reported usage equals the ceiling the request asked for is **incomplete** even when the provider says `finish_reason: "stop"` (a local 9B wrote a chapter that ends mid-sentence and still reported `stop`). Both found by the STORY-2 acceptance run against gateway-kh; receipts in `_handoffs/2026-09-26_story-response-story-2-acceptance-run.md`. |
 | Version decision | Application/desktop change → bump `package.json` **and** `package-lock.json` in the same change set + add a newest-first `## vX.Y.Z` entry to `CHANGELOG.md` + `npm run check:changelog`. Content-Pack-only change → its own `.sspack`, **no** bump (floor: [`content-packs/release-floor.json`](../../content-packs/release-floor.json)). Mixed → app path only for the runtime part. |
 | Branch convention | Work on `codex/stabilization-takeover`. Ship by cherry-picking onto `land/<version>-into-main` from `origin/main`, then fast-forward `main` and push. **Never merge the working branch wholesale**: it also carries another effort's commits that are deliberately not in `main`. |
 | Endpoint | Story Studio talks to **exactly one** endpoint — the owner's **gateway-kh** app (`http://127.0.0.1:8787` default), which fronts the provider. Not a GenStudio account. |
 | Distribution media | `dist/Story Studio KH 1.4.219-arm64.dmg` (242,034,101 B, sha256 `5bace95337641c91ef033d8e3459f12bc1130024b90d9e8a4143a36f0ee144ba`); the DMG's own `READ ME FIRST.txt` carries the Gatekeeper step. Verified copies were written to the four owner SSDs (`KH-STUDIO-ATLAS/UGREEN/ORICO/NOVA`) on 2026-09-22; **the owner has since handed the SSD kit to Studio Hub KH**, the drives are unmounted, and their current contents are not verifiable from this machine. No Developer ID/notarization — the owner's decision. |
-| Installed app | 1.4.223, launched by LaunchServices, serving the owner's real Library. **Update it automatically** — never wait for the owner to ask. |
+| Installed app | 1.4.224, launched by LaunchServices. **Update it automatically** — never wait for the owner to ask. |
 
 ## THE WORKING LOOP
 
@@ -54,7 +54,7 @@ Run in this order. Anything marked ⚠ has burned us before.
 | `STORY_STUDIO_DATA_DIR` | dev/QA Library (projects, cache, app settings). A disposable QA Library does **not** survive a reboot — `/tmp` copies are gone as of this writing. |
 | `--user-data-dir` | Electron profile; the app's `app-settings.json` and secret store live here |
 | Default Library root | `~/Documents/Story Studio KH` — `_Project Assets/` and `Exports/` (final videos land here **outside** the project tree) |
-| Installed app | 1.4.223, launched by LaunchServices, serving the owner's real Library. **Update it automatically** — never wait for the owner to ask. |
+| Installed app | 1.4.224, launched by LaunchServices. **Update it automatically** — never wait for the owner to ask. |
 
 ## RULES THAT COST US TIME
 
