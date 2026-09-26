@@ -30,7 +30,7 @@ import {
 } from './scene-creative-direction.js'
 import { buildPromptCharCapInstruction } from './prompt-char-cap.js'
 import { imagePromptGuidanceBlock, legibleTextGuidanceBlock } from '../lib/image-content-guidance.js'
-import { availableInputTokens } from './scene-prompt-batching.js'
+import { availableInputTokens, maxSafeScenePromptPackSize } from './scene-prompt-batching.js'
 import type {
   ResearchOutput,
   SceneCreativeDirection,
@@ -2133,6 +2133,19 @@ const AUTO_SMALL_WINDOW_INPUT_CEILING = 64_000
  * rather than assume a large context nobody published. Manual `'full'` /
  * `'small'` still override `'auto'` outright. See
  * `ScenePlanRunOptions.window_size` for the user-facing description.
+ *
+ * `'auto'` ALSO READS THE PUBLISHED OUTPUT CEILING (fixed 2026-09-26), and that
+ * is the half the input figure cannot see: a whole window comes back as ONE
+ * JSON response, so a product with a huge context and a small output allowance
+ * (measured: 262,144 in, 4,096 out, on a Studio Hub lane) was asked for 30
+ * scenes it could never return in one answer — the plan came back truncated,
+ * which the §8 completeness check only converted into a loud failure. The cap
+ * is the same estimate the scene-prompt packer already uses, because a planner
+ * window and a prompt pack are the same shape of per-scene structured output;
+ * it is an ESTIMATE for splitting work, never a claim about the product.
+ * Unpublished ceiling → nothing to cap with, so the input figure stands.
+ * Explicit `'full'` still overrides both, unchanged: a caller who names a size
+ * has made a deliberate choice, and the completion audit is what protects them.
  */
 export function resolveTargetScenesPerWindow(
   sizeMode: ScenePlanRunOptions['window_size'],
@@ -2142,7 +2155,9 @@ export function resolveTargetScenesPerWindow(
   if (sizeMode === 'small') return 10
   if (sizeMode === 'full') return 30
   const availableInput = availableInputTokens(contextWindowTokens, maxOutputTokens)
-  return availableInput < AUTO_SMALL_WINDOW_INPUT_CEILING ? 10 : 30
+  const inputSized = availableInput < AUTO_SMALL_WINDOW_INPUT_CEILING ? 10 : 30
+  const outputSized = maxSafeScenePromptPackSize(maxOutputTokens)
+  return outputSized === null ? inputSized : Math.max(1, Math.min(inputSized, outputSized))
 }
 
 /** Run the LLM planner. Returns a ScenePlan object ready to persist. */

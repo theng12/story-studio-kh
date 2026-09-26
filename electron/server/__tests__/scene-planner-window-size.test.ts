@@ -25,8 +25,11 @@ describe('resolveTargetScenesPerWindow', () => {
   })
 
   it('auto picks the small window for a constrained published context', () => {
-    // A small local-scale context window leaves little available input.
-    assert.equal(resolveTargetScenesPerWindow('auto', 8_192, 2_048), 10)
+    // A small local-scale context window leaves little available input — and
+    // since 2026-09-26 the OUTPUT ceiling is read too, which here binds tighter
+    // still: 2,048 output tokens carries ~5 scenes of plan JSON, so 5 is the
+    // honest window rather than 10. More, smaller calls is the safe direction.
+    assert.equal(resolveTargetScenesPerWindow('auto', 8_192, 2_048), 5)
   })
 
   it('auto falls back to the small window when GenStudio published nothing usable', () => {
@@ -37,5 +40,34 @@ describe('resolveTargetScenesPerWindow', () => {
     assert.equal(resolveTargetScenesPerWindow('auto', undefined, undefined), 10)
     assert.equal(resolveTargetScenesPerWindow('auto', 0, 0), 10)
     assert.equal(resolveTargetScenesPerWindow('auto', null, null), 10)
+  })
+
+  it('auto respects the published OUTPUT ceiling, because one window is one response', () => {
+    // Measured on a Studio Hub lane, 2026-09-26: 262,144 tokens of context and
+    // only 4,096 of output. The input figure alone says "large window", while
+    // one JSON response can carry ~10 scenes of it — asking for 30 is how a
+    // plan comes back truncated mid-JSON.
+    assert.equal(resolveTargetScenesPerWindow('auto', 262_144, 4_096), 10)
+  })
+
+  it('a ceiling that can carry the full window leaves the input-based answer alone', () => {
+    // The same context, a ceiling that is not the binding constraint.
+    assert.equal(resolveTargetScenesPerWindow('auto', 262_144, 65_536), 30)
+    // An unpublished OUTPUT ceiling is not a licence to assume a large input
+    // budget: `availableInputTokens` returns 0 for it (pre-existing rule), so
+    // the safer small window stands. The new cap changes nothing here.
+    assert.equal(resolveTargetScenesPerWindow('auto', 262_144, undefined), 10)
+  })
+
+  it('the output ceiling can only ever SHRINK the window, never widen it', () => {
+    // A constrained context stays small even when the product can emit plenty.
+    assert.equal(resolveTargetScenesPerWindow('auto', 8_192, 65_536), 10)
+  })
+
+  it('explicit full/small still override the output ceiling', () => {
+    // The caller named a size; that is a deliberate choice, and the §8
+    // completeness audit is what protects a run that chooses too much.
+    assert.equal(resolveTargetScenesPerWindow('full', 262_144, 4_096), 30)
+    assert.equal(resolveTargetScenesPerWindow('small', 262_144, 65_536), 10)
   })
 })

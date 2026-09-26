@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.221 — 2026-09-26
+
+- Scene Plan no longer asks a model for more than its output allowance can return in one answer.
+  A window of scenes comes back as a single JSON response, but the automatic window size was chosen
+  from the model's *input* budget alone — so a model with a huge context window and a small output
+  limit (your local Studio Hub model publishes 262,144 tokens in and 4,096 out) was asked for thirty
+  scenes it could never finish, and the plan came back cut off. The window size now also respects the
+  published output ceiling, which for that model means about ten scenes per request. Models whose
+  output allowance is not the binding constraint are unchanged, an unpublished ceiling caps nothing,
+  and an explicit window size still overrides both.
+
 ## v1.4.220 — 2026-09-26
 
 - Chapters and other narrative writing now work on your local Studio Hub models. Every prose request
