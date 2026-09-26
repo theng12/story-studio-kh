@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.228 — 2026-09-27
+
+- **A motion clip carries the shape it was priced at.** The video catalogue now publishes each
+  duration/resolution row with its own `aspect_ratio`, and this app carries it through the transport
+  (`GenStudioVideoVariant.aspect_ratio`) instead of guessing. The guess was `16:9`, or `9:16` for a
+  portrait request — and on a Studio Hub video lane that is not a shape the lane has. Its canvases are
+  pairs on the model's 64-pixel grid: `11:7` (704x448) and `1:1` (448x448) at `448p`, `7:4` and `4:7` at
+  `256p`. Measured 2026-09-27: `16:9` at `448p` was refused by the lane outright (*"448p is not published
+  for 16:9"*), and the one canvas the lane did accept for `16:9` was the canvas its pack rounds down to
+  2:1 — so the clip that came back was a different shape than the label on it. The ratio now travels
+  with the row: where a product publishes one per row this app sends exactly that, where it publishes
+  only a ratio list (every cloud lane) it reads the one matching the requested orientation, and where it
+  publishes none at all the field is omitted and the lane's own default decides.
+- **A duration and a resolution can name two different pictures, and the row is what tells them apart.**
+  `GenStudioVideoVariant` now includes the ratio, the scene-clip selector picks the row whose ratio
+  matches the request rather than the first duration/resolution match, and a ratio the catalogue does not
+  publish for that duration and resolution is refused by name — naming the ratios it does publish —
+  instead of being submitted and refused downstream.
+- **Motion Review only offers shapes that exist.** The ratio picker and the size picker were two
+  independent lists — every published ratio beside every published size — which offered `11:7` at `256p`
+  and other combinations no row carries. Where the catalogue states a ratio per row, both lists come from
+  the rows, the duration list follows the chosen row, and changing the ratio re-snaps the size and length
+  onto rows that ratio actually has. A product that publishes only a ratio list behaves exactly as
+  before.
+- Two hand-built catalogue fixtures in the chat-limit suites now state `max_output_tokens_source: null`
+  explicitly; they had omitted a required field, which `npm run typecheck:electron` reported.
+
 ## v1.4.227 — 2026-09-26
 
 - **A published limit now names its author (HUB-20, our half).** Studio Hub 0.6.72 began publishing

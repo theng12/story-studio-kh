@@ -263,9 +263,29 @@ export function selectSceneClipGenStudioVariant(
   if (typeof duration !== 'number' || !Number.isFinite(duration) || typeof resolution !== 'string' || !resolution.trim()) {
     throw new Error('A queued motion clip variant must include both duration_seconds and resolution.')
   }
-  const exact = findGenStudioVideoVariant(intended, duration, resolution)
-  if (exact) return exact
-  throw new Error(`GenStudio does not publish a ${duration}s at ${resolution.trim()} option for this model.`)
+  const matches = intended.filter(variant => (
+    variant.duration_seconds === duration && variant.resolution.trim() === resolution.trim()
+  ))
+  if (!matches.length) {
+    throw new Error(`GenStudio does not publish a ${duration}s at ${resolution.trim()} option for this model.`)
+  }
+  // **A duration and resolution can name more than one row, and the aspect ratio is what
+  // separates them.** A Studio Hub video lane publishes canvases as pairs — its 448p class
+  // carries 704x448 (11:7) and 448x448 (1:1) — so choosing the first match would submit the
+  // landscape request against the square row. Where the catalogue states a ratio per row, the
+  // requested ratio selects the row; a ratio the catalogue does not publish for this duration
+  // and resolution is a loud refusal naming the ones it does.
+  const requestedAspect = typeof requestedVariant.aspect_ratio === 'string'
+    ? requestedVariant.aspect_ratio.trim()
+    : ''
+  const stated = matches.filter(variant => typeof variant.aspect_ratio === 'string' && variant.aspect_ratio.trim())
+  if (!requestedAspect || !stated.length) return matches[0]
+  const ratioMatch = stated.find(variant => variant.aspect_ratio!.trim() === requestedAspect)
+  if (ratioMatch) return ratioMatch
+  throw new Error(
+    `GenStudio does not publish ${requestedAspect} at ${duration}s ${resolution.trim()} for this model; `
+    + `that duration and resolution offer: ${stated.map(variant => variant.aspect_ratio!.trim()).join(', ')}.`,
+  )
 }
 
 /** Round narration UP to a currently published duration at the chosen
@@ -275,13 +295,21 @@ export function selectSceneClipNarrationVariant(
   variants: readonly GenStudioVideoVariant[] | undefined,
   resolution: string,
   narrationDurationSeconds: number,
+  aspectRatio?: string,
 ): GenStudioVideoVariant {
   if (!Number.isFinite(narrationDurationSeconds) || narrationDurationSeconds <= 0) {
     throw new Error('Scene narration duration must be a positive number.')
   }
   const normalizedResolution = resolution.trim().toLowerCase()
-  const candidates = variantsForGenStudioVideoOperation(variants, STORY_STUDIO_VIDEO_MODE)
+  const forResolution = variantsForGenStudioVideoOperation(variants, STORY_STUDIO_VIDEO_MODE)
     .filter(variant => variant.resolution.trim().toLowerCase() === normalizedResolution)
+  // The requested ratio keeps this on one canvas where the catalogue states a ratio per row,
+  // so a portrait request is not measured against the landscape row's durations.
+  const requested = typeof aspectRatio === 'string' ? aspectRatio.trim() : ''
+  const ratioMatched = requested
+    ? forResolution.filter(variant => typeof variant.aspect_ratio === 'string' && variant.aspect_ratio.trim() === requested)
+    : []
+  const candidates = (ratioMatched.length ? ratioMatched : forResolution)
     .sort((a, b) => a.duration_seconds - b.duration_seconds)
   if (!candidates.length) {
     throw new Error(`GenStudio publishes no priced image-to-video duration at ${resolution.trim()} for this model.`)
@@ -348,6 +376,15 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     throw new Error(`Scene ${scene_id} has no motion_prompt — write one on the Scene Plan page first.`)
   }
 
+  // The ratio is resolved BEFORE the variant, because the variant is a *row* of the catalogue and
+  // the ratio is part of which row this is. A queued job whose ratio and resolution are not one
+  // published row is refused here, naming the rows that exist, rather than submitted and refused
+  // by the lane — or worse, submitted and answered with a different shape.
+  const requestAspect = typeof params.aspect_ratio === 'string' ? params.aspect_ratio.trim() : ''
+  if (!requestAspect) {
+    throw new Error(`An aspect ratio is required for ${model}; GenStudio publishes no default aspect ratio for video models.`)
+  }
+
   // Re-check the live catalog at execution time. A queued historical job may
   // outlive a route/catalog refresh, but it must never revive a direct route.
   const savedDuration = params.scene_durations?.[scene_id]
@@ -357,15 +394,18 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       operation: params.operation,
       duration_seconds: savedDuration?.duration_seconds ?? params.duration_seconds,
       resolution: params.resolution,
+      aspect_ratio: requestAspect,
     }
   const { apiKey, modelId, model: catalogModel, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
-  const requestAspect = typeof params.aspect_ratio === 'string' ? params.aspect_ratio.trim() : ''
-  if (!requestAspect) {
-    throw new Error(`An aspect ratio is required for ${model}; GenStudio publishes no default aspect ratio for video models.`)
-  }
   if (!catalogModel.aspect_ratios.some(ratio => ratio.trim() === requestAspect)) {
     throw new Error(`GenStudio model ${modelId} does not publish aspect ratio ${requestAspect}.`)
   }
+  // The ratio actually submitted: the resolved row's own published one where the catalogue states
+  // it, otherwise the ratio the caller asked for. It is the same value the selector used to choose
+  // the row, so what is submitted and what was priced cannot be two different canvases.
+  const submittedAspect = typeof variant.aspect_ratio === 'string' && variant.aspect_ratio.trim()
+    ? variant.aspect_ratio.trim()
+    : requestAspect
 
   job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — animate via GenStudio KH / ${modelId}`)
   // The operation, duration, and resolution actually submitted are a current published
@@ -442,7 +482,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       prompt: scene.motion_prompt,
       modelId,
       sourceSha256,
-      aspectRatio: requestAspect,
+      aspectRatio: submittedAspect,
       operation,
       durationSeconds,
       resolution,
@@ -465,7 +505,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       prompt: scene.motion_prompt.trim(),
       modelId,
       sourceSha256,
-      aspectRatio: requestAspect,
+      aspectRatio: submittedAspect,
       operation,
       durationSeconds,
       resolution,
@@ -504,7 +544,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       prompt: scene.motion_prompt,
       modelId,
       sourceImagePath: resolvedImagePath,
-      aspectRatio: requestAspect,
+      aspectRatio: submittedAspect,
       operation,
       durationSeconds,
       resolution,

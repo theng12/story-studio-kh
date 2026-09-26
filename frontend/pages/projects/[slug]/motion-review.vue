@@ -413,6 +413,8 @@ type VideoVariant = {
   operation: string
   duration_seconds: number
   resolution: string
+  /** Published per row by a Studio Hub lane; absent on every cloud lane. */
+  aspect_ratio?: string
   credits_per_video: number
   minimum_credits: number
   price_version: string
@@ -508,12 +510,40 @@ const selectedVideoModel = computed(() => {
 const selectedVideoVariants = computed<VideoVariant[]>(() => (
   variantsForVideoOperation(selectedVideoModel.value?.variants, STORY_STUDIO_VIDEO_OPERATION)
 ))
-const availableAspectRatios = computed(() => [...new Set(
-  (selectedVideoModel.value?.aspect_ratios || []).filter(ratio => typeof ratio === 'string' && ratio.trim()),
-)])
-const availableResolutions = computed(() => [...new Set(selectedVideoVariants.value.map(variant => variant.resolution))])
+/**
+ * The ratios and resolutions that can actually be submitted, as PAIRS.
+ *
+ * These were two independent lists — every published ratio beside every published resolution —
+ * which offered combinations no row carries: a Studio Hub video lane's `448p` class is 704x448
+ * (11:7) or 448x448 (1:1) and its `256p` class is 448x256 (7:4) or 256x448 (4:7), so `11:7` at
+ * `256p` is not a canvas the lane has. The lane refuses such a request, and offering it at all
+ * was the UI repeating an error the catalogue never made. Where GenStudio states a ratio per
+ * row, the rows decide both lists; where it states none (every cloud lane) the old behaviour is
+ * unchanged, because there is no pairing to respect.
+ */
+const variantsStatingAspectRatio = computed(() => selectedVideoVariants.value
+  .filter((variant): variant is VideoVariant & { aspect_ratio: string } => (
+    typeof variant.aspect_ratio === 'string' && !!variant.aspect_ratio.trim()
+  )))
+const availableAspectRatios = computed(() => {
+  const stated = variantsStatingAspectRatio.value.map(variant => variant.aspect_ratio.trim())
+  if (stated.length) return [...new Set(stated)]
+  return [...new Set(
+    (selectedVideoModel.value?.aspect_ratios || []).filter(ratio => typeof ratio === 'string' && ratio.trim()),
+  )]
+})
+const availableResolutions = computed(() => {
+  const stated = variantsStatingAspectRatio.value
+  if (stated.length && selectedAspectRatio.value) {
+    const forRatio = stated.filter(variant => variant.aspect_ratio.trim() === selectedAspectRatio.value)
+    if (forRatio.length) return [...new Set(forRatio.map(variant => variant.resolution))]
+  }
+  return [...new Set(selectedVideoVariants.value.map(variant => variant.resolution))]
+})
 const selectedResolutionVariants = computed(() => selectedVideoVariants.value
   .filter(variant => variant.resolution === selectedResolution.value)
+  .filter(variant => !variantsStatingAspectRatio.value.length || !selectedAspectRatio.value
+    || variant.aspect_ratio?.trim() === selectedAspectRatio.value)
   .sort((a, b) => a.duration_seconds - b.duration_seconds))
 const selectedManualVariant = computed(() => selectedResolutionVariants.value
   .find(variant => variant.duration_seconds === manualDurationSeconds.value) || null)
@@ -553,8 +583,33 @@ function syncPublishedSelection(variants: readonly VideoVariant[]): void {
 }
 
 function normalizeSelectedAspectRatio(): void {
-  if (!availableAspectRatios.value.includes(selectedAspectRatio.value)) selectedAspectRatio.value = ''
+  if (availableAspectRatios.value.includes(selectedAspectRatio.value)) return
+  // Where the rows state their own ratio, blank is not an option: the page has already shown which
+  // canvases exist, and a request with no ratio lets the lane decide instead of the operator.
+  // Default to the cheapest row's ratio, the way the resolution picker defaults to its cheapest
+  // row. A product that states only a ratio LIST keeps the old behaviour, where an unpublished
+  // saved ratio is cleared rather than replaced by one the operator did not choose.
+  if (!variantsStatingAspectRatio.value.length) {
+    selectedAspectRatio.value = ''
+    return
+  }
+  const stated = cheapestVariant(selectedVideoVariants.value)?.aspect_ratio
+  selectedAspectRatio.value = typeof stated === 'string' && availableAspectRatios.value.includes(stated.trim())
+    ? stated.trim()
+    : (availableAspectRatios.value[0] ?? '')
 }
+
+watch(selectedAspectRatio, () => {
+  // A ratio change can move the resolution off the pairs: snap onto a row the new ratio carries.
+  const resolutions = availableResolutions.value
+  if (resolutions.length && !resolutions.includes(selectedResolution.value)) {
+    selectedResolution.value = resolutions[0]
+  }
+  const durations = selectedResolutionVariants.value
+  if (durations.length && !durations.some(variant => variant.duration_seconds === manualDurationSeconds.value)) {
+    setManualDuration(cheapestVariant(durations)?.duration_seconds ?? null)
+  }
+})
 
 watch(selectedVideoVariants, (variants) => {
   syncPublishedSelection(variants)

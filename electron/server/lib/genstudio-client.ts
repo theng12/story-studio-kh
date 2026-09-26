@@ -1826,6 +1826,16 @@ export interface GenStudioVideoVariant {
   operation: string
   duration_seconds: number
   resolution: string
+  /**
+   * The aspect ratio this exact variant has, where GenStudio publishes one.
+   *
+   * A Studio Hub video lane publishes canvases as pairs — its `448p` class carries
+   * 704x448 (11:7) and 448x448 (1:1) — so `(duration, resolution)` alone names two
+   * different pictures and this field is what tells them apart. Absent means the
+   * product states none (every cloud video lane), which is not the same as 16:9 and
+   * must never be defaulted to one here.
+   */
+  aspect_ratio?: string
   credits_per_video: number
   minimum_credits: number
   price_version: string
@@ -2002,7 +2012,15 @@ export interface GenStudioVideoRequest extends GenStudioOperationContext {
   prompt: string
   modelId: string
   sourceImagePath: string
-  aspectRatio: string
+  /**
+   * The aspect ratio to submit, from the resolved variant's own published ratio.
+   *
+   * Optional on purpose: a product that publishes no ratio (per variant, or at all) gets
+   * no `aspect_ratio` field, so the lane's own default decides. Sending a hardcoded
+   * 16:9 there is how a Studio Hub lane whose smallest widescreen canvas is 11:7 was
+   * asked for a canvas it does not publish.
+   */
+  aspectRatio?: string
   /** Exact published operation for the selected variant. */
   operation: string
   /** Taken from a variant the model PUBLISHES. Not a literal union: the
@@ -5087,6 +5105,11 @@ export async function listVideoModelsSnapshot(
           operation: item.operation.trim(),
           duration_seconds: item.duration_seconds,
           resolution: item.resolution.trim(),
+          // Carried only when published. A product that states no ratio per variant must not
+          // acquire one in transport — the request builder omits the field instead.
+          ...(typeof item.aspect_ratio === 'string' && item.aspect_ratio.trim()
+            ? { aspect_ratio: item.aspect_ratio.trim() }
+            : {}),
           credits_per_video: item.credits_per_video,
           minimum_credits: item.minimum_credits,
           price_version: item.price_version.trim(),
@@ -5119,7 +5142,8 @@ export function buildGenStudioVideoIdempotencyKey(input: {
   prompt: string
   modelId: string
   sourceSha256: string
-  aspectRatio: string
+  /** Absent when the product published no ratio: the key then describes a request that sends none. */
+  aspectRatio?: string
   operation: string
   durationSeconds: number
   resolution: string
@@ -5304,7 +5328,7 @@ async function generateVideoWithGenStudioAdmitted(
       ['mode', request.operation],
       ['duration_seconds', request.durationSeconds],
       ['resolution', request.resolution],
-      ['aspect_ratio', request.aspectRatio],
+      ...(request.aspectRatio ? [['aspect_ratio', request.aspectRatio] as [string, string]] : []),
       ['reference_asset_id', sourceAsset.id],
     ],
   })

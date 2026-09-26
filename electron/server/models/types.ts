@@ -1907,6 +1907,15 @@ export interface SceneClipVariantSelection {
   operation: string
   duration_seconds: number
   resolution: string
+  /**
+   * The published aspect ratio of that row, where the catalogue states one per row.
+   *
+   * Optional because most products publish a ratio list rather than a ratio per variant.
+   * Where it IS published it is part of the row's identity: a Studio Hub video lane's 448p
+   * class carries both 704x448 (11:7) and 448x448 (1:1), so the duration and resolution
+   * alone do not name one picture.
+   */
+  aspect_ratio?: string
 }
 
 export interface VoicePreset {

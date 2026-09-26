@@ -194,6 +194,9 @@ function webModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioChatMod
     replacement_model_id: null,
     context_window_tokens: 128_000,
     max_output_tokens: 8_192,
+    // These fixtures are catalogue rows built by hand, not parsed ones, so they state
+    // the absence explicitly rather than omitting a required field.
+    max_output_tokens_source: null,
     max_structured_items_per_request: null,
     controls: [],
     activation_blockers: [],

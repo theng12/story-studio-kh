@@ -30,12 +30,36 @@ const PREFIX = 'genstudio-video:'
  *   - nothing requested        → the model's cheapest published variant;
  *   - a published combination  → exactly that variant;
  *   - anything else            → a loud error naming what IS published.
+ *
+ * **Two variants can share a duration and resolution and differ only in aspect
+ * ratio.** A Studio Hub video lane publishes canvases as PAIRS — its `448p` class
+ * carries 704x448 (11:7) and 448x448 (1:1) — so `(duration, resolution)` alone does
+ * not name one picture, and the orientation the caller asked for is what tells them
+ * apart. The published ratio travels back with the variant so the request can carry
+ * the ratio that variant actually has, instead of Story Studio's old guess.
  */
+interface ResolvedVideoVariant {
+  variant: GenStudioVideoVariant
+  /** Every aspect ratio the model publishes, in published order. Empty when it states none. */
+  publishedAspectRatios: string[]
+}
+
+/** Whether a published `w:h` ratio is taller than it is wide. Unparseable ratios are neither. */
+function isPortraitRatio(ratio: string): boolean | undefined {
+  const match = /^\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\s*$/.exec(ratio)
+  if (!match) return undefined
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!(width > 0) || !(height > 0)) return undefined
+  return height > width
+}
+
 async function resolveRequestedVariant(
   apiKey: string,
   modelId: string,
   providerParams: Record<string, any> | undefined,
-): Promise<GenStudioVideoVariant> {
+  portrait: boolean,
+): Promise<ResolvedVideoVariant> {
   const catalog = await listVideoModels(apiKey)
   // Resolved by ANY identifier the catalog publishes — id, customer handle, or
   // a published legacy id — so a motion preset saved before a product was
@@ -57,25 +81,63 @@ async function resolveRequestedVariant(
       + 'so Story Studio cannot submit a clip for it.',
     )
   }
+  const publishedAspectRatios = Array.isArray(model.aspect_ratios) ? [...model.aspect_ratios] : []
+
+  /** When several variants share a duration and resolution, the orientation picks between them. */
+  const forOrientation = (candidates: GenStudioVideoVariant[]): GenStudioVideoVariant => {
+    const withRatios = candidates.filter(candidate => typeof candidate.aspect_ratio === 'string')
+    if (!withRatios.length) return candidates[0]
+    const wanted = withRatios.find(candidate => isPortraitRatio(candidate.aspect_ratio!) === portrait)
+    return wanted ?? withRatios[0]
+  }
 
   const requestedDuration = providerParams?.duration_seconds
   const requestedResolution = providerParams?.resolution
   const askedForDuration = requestedDuration !== undefined && requestedDuration !== null && requestedDuration !== ''
   const askedForResolution = typeof requestedResolution === 'string' && requestedResolution.trim().length > 0
 
-  if (!askedForDuration && !askedForResolution) return cheapestGenStudioVideoVariant(published)!
+  if (!askedForDuration && !askedForResolution) {
+    const cheapest = cheapestGenStudioVideoVariant(published)!
+    const samePriced = published.filter(candidate => (
+      candidate.duration_seconds === cheapest.duration_seconds
+      && candidate.resolution === cheapest.resolution
+    ))
+    return { variant: forOrientation(samePriced.length ? samePriced : [cheapest]), publishedAspectRatios }
+  }
 
   const cheapest = cheapestGenStudioVideoVariant(published)!
   const duration = askedForDuration ? Number(requestedDuration) : cheapest.duration_seconds
   const resolution = askedForResolution ? String(requestedResolution).trim() : cheapest.resolution
-  const match = findGenStudioVideoVariant(published, duration, resolution)
-  if (match) return match
+  const matches = published.filter(candidate => (
+    candidate.duration_seconds === duration && candidate.resolution === resolution
+  ))
+  if (matches.length) return { variant: forOrientation(matches), publishedAspectRatios }
 
   throw new Error(
     `"${model.display_name}" does not publish a ${duration}s at ${resolution} option. `
     + `GenStudio publishes: ${published.map(describeGenStudioVideoVariant).join(', ')}. `
     + 'Story Studio will not substitute a different length or resolution for the one requested.',
   )
+}
+
+/**
+ * The aspect ratio to send for a resolved variant.
+ *
+ * The variant's own published ratio first. Where the product publishes no ratio per
+ * variant (every cloud video lane), the model's published `aspect_ratios` list is read
+ * for one that matches the requested orientation — still published data, never a guess.
+ * Where the product publishes no ratio at all, the field is omitted and the lane's own
+ * default decides, which is its choice to make and not Story Studio's.
+ */
+export function aspectRatioForResolvedVariant(
+  resolved: ResolvedVideoVariant,
+  portrait: boolean,
+): string | undefined {
+  if (typeof resolved.variant.aspect_ratio === 'string' && resolved.variant.aspect_ratio.trim()) {
+    return resolved.variant.aspect_ratio.trim()
+  }
+  const match = resolved.publishedAspectRatios.find(ratio => isPortraitRatio(ratio) === portrait)
+  return match ? match.trim() : undefined
 }
 
 const genstudioVideoProvider: VideoProvider = {
@@ -105,17 +167,21 @@ const genstudioVideoProvider: VideoProvider = {
     const modelId = request.modelId.startsWith(PREFIX)
       ? request.modelId.slice(PREFIX.length)
       : request.modelId
-    const variant = await resolveRequestedVariant(request.apiKey, modelId, request.providerParams)
+    const portrait = request.aspectRatio === 'portrait'
+    const resolved = await resolveRequestedVariant(request.apiKey, modelId, request.providerParams, portrait)
+    const variant = resolved.variant
     const duration = variant.duration_seconds
     const resolution = variant.resolution
-    const aspectRatio = request.aspectRatio === 'portrait' ? '9:16' : '16:9'
+    // The published ratio for this exact variant. Omitted when the product publishes none,
+    // which leaves the choice to the lane rather than to a hardcoded 16:9.
+    const aspectRatio = aspectRatioForResolvedVariant(resolved, portrait)
     const results = []
     for (let index = 0; index < Math.max(1, request.numberOfVideos); index++) {
       results.push(await generateVideoWithGenStudio(request.apiKey, {
         prompt: request.prompt,
         modelId,
         sourceImagePath: request.startImagePath,
-        aspectRatio,
+        ...(aspectRatio ? { aspectRatio } : {}),
         operation: variant.operation,
         durationSeconds: duration,
         resolution,
