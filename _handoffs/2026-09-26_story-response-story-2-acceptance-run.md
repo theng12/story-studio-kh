@@ -157,12 +157,30 @@ pocket-tts-4bit       → 409 "pocket-tts-4bit is locked for this GenStudio acco
 ```
 
 The cause is visible from here: all **10 voices** the aggregated TTS row publishes belong to
-`studio-hub-local`, and this Mac's own Hub is not running (nothing listening on 47873). Your
+`studio-hub-local`, and this Mac's own Hub was not running (nothing listening on 47873). Your
 availability logic was right; the row simply never said the voice is bound to one site.
 
-So the metadata flow stops one step short — script ✅, chapters ✅, thumbnail prompts ✅, and
-its two language calls never got made. We can run it the moment a TTS lane is up, or against
-a cloud model if you would rather see the flow than the lane; say which.
+**We then started the Hub (v0.6.69) and re-ran the audio leg, so this part is measured rather
+than inferred.** Result:
+
+| Section | Outcome |
+|---|---|
+| Chapter 01 (841 words) | ✅ `EP0001_Chapter_01.mp3` **5,965,004 B**, one part, **256 s** |
+| Chapter 03 (~700 words) | ✅ `EP0001_Chapter_03.mp3` **4,532,684 B** |
+| Chapter 02 (2,657 words, the truncated one from §4) | ❌ part 1 killed by **your 900-second hub deadline**: `PROVIDER_SUBMISSION_UNCERTAIN — hub job did not finish within 900s. Upstream outcome is unknown; reconcile the provider request before retrying; the gateway will not resubmit it automatically.` |
+
+Two attempts to rewrite chapter 02 at a smaller target (550 then 450 words) were **refused by
+the ceiling guard from §4** — both times at exactly `4096 of 4096` tokens with
+`finish_reason: "stop"`. That is the §4 fix doing its job on live traffic: before it, the same
+answer became a chapter file on disk.
+
+So the metadata flow stays one step short today, and the reason is a chain worth naming: the
+**only** section long enough to be unusable is the one the truncation defect produced, its
+TTS part is sized by the model's published character limit and therefore looks legal, and your
+lane then kills it at 900 s. Nothing here is a defect in the Finalizer; its precondition is
+simply stricter than what this lane can deliver for that section. We will run it on a
+regenerated episode, or against a cloud model if you would rather see the flow than the lane;
+say which. Script ✅, chapters ✅, thumbnail prompts ✅ stand.
 
 ## 7. What the row did not tell us — the list you asked for
 
@@ -192,6 +210,13 @@ a cloud model if you would rather see the flow than the lane; say which.
    in flight; reconcile the upstream request before retrying`. We did reconcile (empty
    result), re-ran, and it passed. Worth knowing that a restart can strand completed work
    that the caller has to pay for twice if it retries blindly.
+8. **A 900-second hub deadline that a legal-sized request can exceed.** Your lane contract
+   publishes `deadline_seconds: 900`; a TTS part sized to the model's own published character
+   limit took longer than that and died as `PROVIDER_SUBMISSION_UNCERTAIN`, with the text
+   already sent. Nothing in the catalogue row says a legal request can be killed on time
+   rather than on size, and we do not ingest `deadline_seconds` at all — so the caller cannot
+   size around it. Publishing it where the size limit lives (or a `max_seconds_per_request`
+   on the row) is the fact that would have prevented this.
 
 ## 8. What we are doing next
 
@@ -202,5 +227,7 @@ a cloud model if you would rather see the flow than the lane; say which.
   from `model`), `max_structured_items_per_request`, and the STORY-5 default statement with
   its scope — plus §7's `finish_reason` and site/voice-visibility items, which are new here.
   §2/§4 above show where each one would have changed our behaviour rather than our wording.
-- **Metadata:** waiting on a live TTS lane. Everything before it on the local model is done
-  and receipted.
+- **Metadata:** the audio leg now runs (Hub up: chapters 01 and 03 synthesized, 5.97 MB and
+  4.53 MB), and it stops on the one section the truncation defect produced — its TTS part
+  exceeds your 900-second deadline. Re-running it on a regenerated episode is the next step;
+  everything before it on the local model is done and receipted.

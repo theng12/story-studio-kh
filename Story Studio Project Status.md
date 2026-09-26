@@ -1784,3 +1784,20 @@ was built and verified locally at the owner's explicit request as a temporary ar
   change set (version bumped in `package.json` + `package-lock.json`, changelog entry added, handoff
   updated); the full backend gate was run over it. Nothing was published, deployed, or charged: the local
   lane is 0 credits per million tokens, and no paid model was called.
+- **2026-09-26 — DeepSeek lead (1.4.220 DMG, and the metadata follow-up):** the four commits landed on
+  `main` by cherry-pick onto `land/1.4.220-into-main` (`51081fda` → `58b3cc80`), main fast-forwarded and
+  pushed, and the unsigned DMG was then built **from the main checkout**: `dist/Story Studio KH
+  1.4.220-arm64.dmg`, **242,018,652 B**, sha256
+  `19025fa22bf0f2f22805173e4701436496da0a51e0f3ac9e15f9f0a36048410f`; the build's own verification reports
+  app `com.storystudio.kh v1.4.220 (arm64)`, ad-hoc signature, DMG mounted read-only, 98 runtime packages in
+  `app.asar`, and a launch smoke test that booted and served `/api/health` on port 59353 in 2,963 ms. It is
+  **built but not installed** — replacing the installed 1.4.219 is the owner's call. The metadata follow-up
+  ran after the owner authorised starting `/Applications/Studio Hub.app` (v0.6.69, pid 33827): chapters 01
+  and 03 synthesized on the local TTS lane (5,965,004 B and 4,532,684 B), chapter 02's part 1 was killed by
+  the **gateway's own 900-second hub deadline** (`PROVIDER_SUBMISSION_UNCERTAIN`), and two attempts to
+  rewrite chapter 02 at a smaller target were refused by the new ceiling guard at exactly `4096 of 4096`
+  tokens — the §4 fix firing on live traffic, which is the point of it. So metadata still cannot run, for a
+  reason now fully receipted: the only unusable section is the one the truncation defect produced, and its
+  TTS part is sized by the model's published *character* limit while the lane kills on *time*. That
+  deadline-visibility finding was added to the STORY-2 letter's list for gateway-kh. Studio Hub was left
+  running (the owner authorised the launch); the disposable dev app and Nuxt server were stopped.
