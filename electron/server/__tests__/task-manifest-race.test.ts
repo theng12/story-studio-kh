@@ -227,19 +227,25 @@ test('shouldChunkByBudget: trips chunking when prompt + output crowd the cap', a
   // product the case is about is named here instead.
   const SMALL_PRODUCT_TOKENS = 16_000
 
-  // Median sleep-story shape — 8400 words, modest prompt. Should NOT chunk.
+  // Median sleep-story shape — 8400 words, modest prompt. It USED to stay on
+  // the single-call path, and now chunks: 8K input chars ≈ 2K tokens, 8400
+  // words ≈ 13.4K output tokens at the measured 1.6 tokens/word, plus the
+  // 1.5K margin = 16.9K > 16K cap. The estimate moving to the measured rate is
+  // what moved this case over the line (2026-09-26), and that is the intended
+  // direction: a call that would consume ~96% of the ceiling is exactly the one
+  // that comes back cut off, so it is split instead.
   assert.equal(
     shouldChunkByBudget({
       systemPromptChars: 4000, userPromptChars: 4000, targetWords: 8400,
       outputTokenCap: SMALL_PRODUCT_TOKENS,
     }),
-    false,
-    'median sleep-story should stay on the single-call path',
+    true,
+    'median sleep-story at 8400 words now chunks — the measured rate leaves no margin',
   )
 
   // Heavy character cast + standards: same word count, much bigger prompt.
-  // 20K input chars → ~5K input tokens. 8400 words → ~10.9K output tokens.
-  // 5K + 10.9K + 1.5K margin = 17.4K > 16K cap → must chunk.
+  // 20K input chars → ~5K input tokens. 8400 words → ~13.4K output tokens.
+  // 5K + 13.4K + 1.5K margin = 19.9K > 16K cap → must chunk.
   assert.equal(
     shouldChunkByBudget({
       systemPromptChars: 12000, userPromptChars: 8000, targetWords: 8400,

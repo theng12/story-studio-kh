@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.222 — 2026-09-26
+
+- Chapter batches are now split on a measured estimate of how long a model's answer runs, rather than
+  an optimistic one. At an 8,192-token output ceiling, three 1,200-word chapters used to pass the size
+  check by **twelve tokens** — a fit that survives only if the model is exactly as brief as the
+  estimate, and comes back cut off when it is not. The estimate now sits at the typical measured rate
+  (1.6 tokens per word, from a 17-sample measurement on the local lane and our own two samples), so
+  those chapters go out two per call instead of three, and three per call return at a 16,384-token
+  ceiling. Nothing else changes: the figure is still only used to decide how to split work, never as a
+  limit on what a model may return, and it still only ever shrinks a batch.
+
 ## v1.4.221 — 2026-09-26
 
 - Scene Plan no longer asks a model for more than its output allowance can return in one answer.

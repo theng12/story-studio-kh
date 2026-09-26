@@ -118,8 +118,18 @@ const SAFETY_MARGIN_FLOOR_TOKENS = 1500
 /** Output tokens per English word, measured. An ESTIMATE used to decide how
  *  to SPLIT work — never a ceiling imposed on output, and never converted
  *  into a character or word limit (Khmer and mixed-script text break any
- *  fixed ratio, which is why the 500,000-character cap was removed). */
-const OUTPUT_TOKENS_PER_WORD = 1.3
+ *  fixed ratio, which is why the 500,000-character cap was removed).
+ *
+ * RAISED 1.3 → 1.6 on 2026-09-26, on evidence from both sides of the local
+ * lane: a 17-sample measurement of 1.45 from the Studio Hub session, and our
+ * own two samples at 1.38 and 2.52 (the high one is the model rambling to its
+ * ceiling). At 1.3 a three-chapter batch of 1,200-word chapters passed the
+ * budget guard by TWELVE tokens at an 8,192 ceiling — a fit that only survives
+ * if the model is exactly at the estimate, which is the failure this constant
+ * exists to prevent. 1.6 sits at the typical measured rate with room below the
+ * rambling case; it only ever SHRINKS a batch, so the cost of being high is
+ * extra round-trips, and the cost of being low is a truncated batch. */
+const OUTPUT_TOKENS_PER_WORD = 1.6
 
 /** Nominal system+user prompt allowance for the fast word-count threshold,
  *  which by design does not have the assembled prompts in hand. The dynamic

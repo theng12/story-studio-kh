@@ -72,9 +72,11 @@ test('the chunking threshold is derived from the product, not from a constant', 
   assert.notEqual(legacy, luna)
   assert.ok(luna > legacy * 5, `128k should not chunk near the 16k threshold (${legacy} → ${luna})`)
 
-  // At the legacy cap the derived number stays in the neighbourhood of the
-  // documented 9,000, so nothing about small products silently changed.
-  assert.ok(legacy >= 9_000 && legacy <= 10_000, `legacy threshold drifted to ${legacy}`)
+  // At the legacy cap the derived number is 12,500 usable tokens ÷ the
+  // tokens-per-word estimate. Pinned exactly, like the idempotency keys: the
+  // estimate is an input to this figure, so changing it (1.3 → 1.6, 2026-09-26,
+  // on measured evidence) must show up here as a decision rather than a drift.
+  assert.equal(legacy, 7_812, `legacy threshold drifted to ${legacy}`)
 
   // A smaller product lowers the threshold instead of pretending it can write
   // as much as the old streaming cap could.
@@ -190,7 +192,9 @@ test('a product too small for the mode batch shrinks it rather than truncating',
   // Asking a 4,096-token product for three 700-word chapters in one call is
   // how a batch comes back cut off mid-chapter. The budget may only ever
   // SHRINK a batch, and never below one chapter.
-  assert.equal(batchSizeForBudget('listicle', budget(8_192), 700), 5)
+  // 4,692 usable tokens ÷ (700 words × 1.6) = 4 — the same arithmetic, with the
+  // measured tokens-per-word estimate rather than the optimistic one.
+  assert.equal(batchSizeForBudget('listicle', budget(8_192), 700), 4)
   assert.equal(batchSizeForBudget('narrative', budget(4_096), 700), 1)
   assert.equal(batchSizeForBudget('narrative', budget(1_024), 5_000), 1)
 })
