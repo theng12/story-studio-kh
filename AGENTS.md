@@ -303,6 +303,20 @@ bundled `app.asar` version against `main`, and never copy a worktree-built DMG i
   file is a Git branch or remote ref — record its name and SHA in a note under
   `_trash/` before deleting it, and never rewrite published history.
 
+- **Every change is merged, committed, pushed, and built into a DMG — and the previous DMG moves
+  to `_trash/dist/` automatically.** The owner's rule, 2026-09-26: **the whole cycle every time**,
+  not only for something you would call a release. Bump `package.json` **and** `package-lock.json`,
+  add the newest-first `CHANGELOG.md` entry, run `npm run check:changelog` and the full gate, build
+  with `npm run dist:smoke`, land it on `main` through the `land/<version>-into-main` flow, push.
+  **A change is not finished while any of those is missing.**
+  `scripts/release/build-unsigned-dmg.mjs` moves the previous DMG aside itself — that line used to be
+  `fs.rmSync(dmgOutputPath)`, so a rebuild of the same version destroyed the previous artefact — which
+  means `dist/` holds exactly the build you just made and `_trash/dist/` holds the history, with no
+  tidy-up step for anyone to remember.
+  **The one exception is a content-only change**: a standalone `.sspack` is its own artefact and takes
+  no app version bump and no DMG (the release classification in §10). That is a deliberate carve-out,
+  not an oversight.
+
 - **Every release updates `docs/tasks/HANDOFF.md`.** Read it first in a new session,
   and keep it current: the version, anything newly learned, anything newly forbidden,
   and what is still open. A stale handoff is worse than none, because it is trusted —

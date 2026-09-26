@@ -76,7 +76,18 @@ const dmgOutputPath = path.join(outputDir, artifactName)
 // may contain prior releases. Remove only this version's app + DMG so stale
 // files cannot satisfy the verification that follows.
 fs.rmSync(appOutputDir, { recursive: true, force: true })
-fs.rmSync(dmgOutputPath, { force: true })
+// **The owner's rule, 2026-09-26: an old DMG moves to `_trash/dist/`; it is never `rm`d.**
+// This line was `fs.rmSync(dmgOutputPath, { force: true })`, so a rebuild of the same version
+// destroyed the previous artefact, and every other version's DMG simply stayed in `dist/` for
+// ever. Both now move aside. `mac-arm64/` above is a working tree electron-builder regenerates,
+// not an artefact anyone keeps, so removing that one stands.
+const trashDist = path.join(root, '_trash', 'dist')
+fs.mkdirSync(trashDist, { recursive: true })
+const dmgStamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+for (const entry of fs.readdirSync(outputDir)) {
+  if (!entry.endsWith('.dmg') && !entry.endsWith('.dmg.blockmap')) continue
+  fs.renameSync(path.join(outputDir, entry), path.join(trashDist, `${path.basename(entry, path.extname(entry))}-${dmgStamp}${path.extname(entry)}`))
+}
 
 console.log(`[unsigned-package] packaging ${contract.productName} v${pkg.version} (${contract.architectures[0]}) into dist/`)
 // NEW-11 is NOT this build's doing — see the corrected note on `snapshotSourceManifests`.
