@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.233 — 2026-09-27
+
+- **The reveal library has nineteen presets, not twenty, and now says so.** Fifteen wipes, three
+  palette looks and one draw-on. The count was wrong in the 1.4.229 notes and in the design
+  document, and the receipts from that release had already contradicted it: *76 clips across four
+  paces* is 19 × 4, not 20 × 4. A test now pins the library's own composition — fifteen, three and
+  one — so the number cannot drift again.
+- **The three reveal routes have tests.** The catalogue, the plan and the per-scene choice are
+  driven over HTTP against a real episode plan: the same settings plan the same episode twice, a
+  stored choice is what the next plan resolves, clearing it goes back to the derived pick, and the
+  choice is written into that episode's own `scene_plan.json` rather than a page cache.
+- **The handoff's header repeated a sentence** since 1.4.232 (the audio switch was announced
+  twice), and the 1.4.229 summary carried the same wrong preset count. Both corrected.
+
 ## v1.4.232 — 2026-09-27
 
 - **Reveal effects ship end to end.** The engine landed in 1.4.229 and nothing could choose one; now
@@ -21,7 +35,7 @@ What's new in each release. Newest first.
   `docs/receipts/reveal-episode-slow-20260927/`.
 - **Presets ship as Content Packs.** A new `reveal` pack kind carries a reveal document and its
   family; installed packs append to the library, and a pack may never claim one of the engine's own
-  twenty preset ids or disagree with its own document's family.
+  built-in preset id or disagree with its own document's family.
 - **The pace never trims your script.** The pace band sets how long a scene *wants* to be; a long
   narration line wins, and the hold absorbs the difference rather than the scene being cut short.
 - **Two honest limitations, both named in `docs/reveal-effects.md`:** holds do not yet snap to
@@ -86,7 +100,7 @@ What's new in each release. Newest first.
 ## v1.4.229 — 2026-09-27
 
 - **Reveal effects — the engine.** A scene still can now *arrive*: a geometric wipe, a stack of
-  palette layers, or a drawn-on line — and then hold while it drifts. Twenty presets ship in three
+  palette layers, or a drawn-on line — and then hold while it drifts. Nineteen presets ship in three
   families (`geometric`, `palette`, `draw-on`), the six wipes the design names as reading well on
   photoreal frames are the default pool, and everything renders locally through the FFmpeg this app
   already bundles — no model, no memory tier, so it also runs on the 8 GB Macs that cannot touch

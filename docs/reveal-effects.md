@@ -117,7 +117,7 @@ considered or as padding.
 | Piece | Where |
 | --- | --- |
 | The document and its rules (families, field, layers, timing, hold, seed policy) | `electron/server/contracts/scene-reveal.ts` |
-| The built-in library — 16 wipes, 3 palettes, 1 draw-on, and the default pool of six | `electron/server/contracts/scene-reveal-presets.ts` |
+| The built-in library — 15 wipes, 3 palettes, 1 draw-on (19 presets), and the default pool of six | `electron/server/contracts/scene-reveal-presets.ts` |
 | The compiler: a document in, an FFmpeg `xfade` chain out | `electron/server/lib/reveal-compiler.ts` |
 | Pacing: Fast / Standard / Slow / Documentary, hold snapping, micro-event staging | `electron/server/lib/reveal-pacing.ts` |
 | Selection: seeded derivation, no immediate repeats, cap per effect, coherence modes, reroll | `electron/server/lib/reveal-selection.ts` |
@@ -126,7 +126,7 @@ considered or as padding.
 
 **Verified `[M]`, 2026-09-27, on this Mac:**
 
-- All 20 presets × 4 paces render (76 clips) on a real scene image, plus the draw-on against line
+- All 19 presets × 4 paces render (76 clips) on a real scene image, plus the draw-on against line
   art. Contact sheets and `receipt.json` per run.
 - **Determinism:** the same preset, pace and window rendered twice gives the identical MP4
   (`sha256 8fa79ca5…`), identical plan and identical filter strings.
