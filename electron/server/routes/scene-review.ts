@@ -36,6 +36,7 @@ import {
   resolveVideoAssetsDir,
   selectSceneClipNarrationVariant,
 } from '../generators/scene-clip.js'
+import { publishedVideoControls, type GenStudioVideoControl } from '../lib/genstudio-client.js'
 import { decodeUploadBuffer } from './image-references.js'
 import {
   assertScenePromptsRenderable,
@@ -87,6 +88,34 @@ function requestedSceneClipVariant(body: Record<string, unknown>): SceneClipVari
 
 type SceneClipDurationMode = 'manual' | 'follow_narration'
 type SceneClipDurations = Record<string, { duration_seconds: number; narration_duration_seconds: number }>
+
+/**
+ * The published `audio` switch for a queued clip, or `undefined` when the request set none.
+ *
+ * **Validated against the model the request is actually billed at**, because a switch is a
+ * choice the lane publishes rather than one Story Studio knows about: a value for a switch
+ * this model does not offer is refused here, naming the model, instead of being queued and
+ * quietly dropped at execution time. Absent is not `false` — no field means the lane's own
+ * default applies, which is a different request from asking for sound.
+ */
+function requestedSceneClipAudio(
+  body: Record<string, unknown>,
+  model: { display_name?: string, controls?: GenStudioVideoControl[] | null },
+): boolean | undefined {
+  const value = body.audio
+  if (value === undefined || value === null || value === '') return undefined
+  if (typeof value !== 'boolean') {
+    throw new Error('audio must be true or false when it is sent')
+  }
+  const published = publishedVideoControls(model.controls)
+  if (!published.some(control => control.name === 'audio')) {
+    throw new Error(
+      `${model.display_name || 'This model'} publishes no audio switch, so a clip from it cannot `
+      + 'be asked for with or without sound. Choose a model that publishes one.',
+    )
+  }
+  return value
+}
 
 function requestedSceneClipDurationMode(body: Record<string, unknown>): SceneClipDurationMode {
   if (body.duration_mode === undefined || body.duration_mode === null || body.duration_mode === 'manual') return 'manual'
@@ -888,6 +917,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
     let variant: SceneClipVariantSelection
     let sceneDurations: SceneClipDurations | undefined
     let modelId: string
+    // The published switch is resolved against the SAME catalogue row the variant is priced at.
+    let audio: boolean | undefined
     if (durationMode === 'follow_narration') {
       const resolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
       if (!resolution) return res.status(400).json({ detail: 'resolution is required when following narration' })
@@ -897,11 +928,13 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
       const followVariant = selectSceneClipNarrationVariant(selected.model.variants, resolution, narrationDurationSeconds(scene))
       modelId = selected.modelId
       variant = followVariant
+      audio = requestedSceneClipAudio(body, selected.model)
       sceneDurations = sceneClipDurations([scene], narration => selectSceneClipNarrationVariant(selected.model.variants, resolution, narration).duration_seconds)
     } else {
       const selected = await requireSceneClipGenStudioModel(model, requestedVariant)
       modelId = selected.modelId
       variant = selected.variant
+      audio = requestedSceneClipAudio(body, selected.model)
       const scene = plan.scenes.find(item => item.id === sceneId)
       if (scene) sceneDurations = sceneClipDurations([scene], () => variant.duration_seconds)
     }
@@ -924,6 +957,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
         duration_mode: durationMode,
         visual_source: visualSource.source,
         ...(sceneDurations ? { scene_durations: sceneDurations } : {}),
+        ...(typeof audio === 'boolean' ? { audio } : {}),
         auto_approve_clip: body.auto_approve_clip === true,
       },
     })
@@ -957,6 +991,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
     let variant: SceneClipVariantSelection
     let sceneDurations: SceneClipDurations | undefined
     let modelId: string
+    let audio: boolean | undefined
     if (durationMode === 'follow_narration') {
       const resolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
       if (!resolution) return res.status(400).json({ detail: 'resolution is required when following narration' })
@@ -967,10 +1002,12 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
       const followVariant = selectSceneClipNarrationVariant(selected.model.variants, resolution, first.narration_duration_seconds)
       modelId = selected.modelId
       variant = followVariant
+      audio = requestedSceneClipAudio(body, selected.model)
     } else {
       const selected = await requireSceneClipGenStudioModel(model, requestedVariant)
       modelId = selected.modelId
       variant = selected.variant
+      audio = requestedSceneClipAudio(body, selected.model)
       sceneDurations = sceneClipDurations(eligible, () => variant.duration_seconds)
     }
     const job = await jq.enqueue({
@@ -989,6 +1026,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
         motion_scene_ids: eligible.map(scene => scene.id),
         visual_source: visualSource.source,
         ...(sceneDurations ? { scene_durations: sceneDurations } : {}),
+        ...(typeof audio === 'boolean' ? { audio } : {}),
       },
     })
     res.status(201).json(job)
@@ -1021,6 +1059,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
     let modelId: string
     let followVariants: ReturnType<typeof selectSceneClipNarrationVariant>[] | undefined
     let followResolution = ''
+    let audio: boolean | undefined
     if (durationMode === 'follow_narration') {
       followResolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
       if (!followResolution) return res.status(400).json({ detail: 'resolution is required when following narration' })
@@ -1029,10 +1068,12 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
       // Kept only as a type-preserving container for the live published rows;
       // each eligible scene resolves its own exact row below.
       followVariants = selected.model.variants
+      audio = requestedSceneClipAudio(body, selected.model)
     } else {
       const selected = await requireSceneClipGenStudioModel(model, requestedVariant)
       modelId = selected.modelId
       variant = selected.variant
+      audio = requestedSceneClipAudio(body, selected.model)
     }
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
@@ -1087,6 +1128,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
           motion_scene_ids: [s.id],
           visual_source: visualSource.source,
           scene_durations: durations,
+          ...(typeof audio === 'boolean' ? { audio } : {}),
         },
       })
       queued++

@@ -449,3 +449,121 @@ test('the image model picker shows the reference dimension it will enforce', () 
   assert.match(picker, /imageMode !== 'img2img'/)
   assert.match(picker, /limit <= 0\) return ''/)
 })
+
+// ── 4. A published SWITCH: the lane's boolean parameters ─────────────────
+//
+// `generates_audio` above says the product makes a soundtrack. It says nothing
+// about whether a caller may ask for a clip WITHOUT one — that is a separate
+// published fact, measured 2026-09-27 when Studio Hub's LTX lane began
+// publishing `audio` (default true, with the lane's own note) and the gateway
+// relayed it on the video row. These tests pin the three statements apart:
+// a switch, a lane that publishes none, and an entry that cannot be read.
+
+test('published video switches are carried through, and a lane with none carries no key', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => Response.json([
+      {
+        id: 'video-switch', display_name: 'Video Switch', available: true,
+        modes: ['image-to-video'], aspect_ratios: ['16:9'], generates_audio: true,
+        controls: [
+          { name: 'audio', type: 'boolean', default: true, note: 'the lane its own sentence' },
+          // Neither of these is a switch a caller could render or send a value for.
+          { name: 'seed', type: 'integer', default: -1 },
+          { name: '   ', type: 'boolean', default: false },
+          { type: 'boolean', default: true },
+        ],
+        variants: [{ operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'v1' }],
+      },
+      {
+        id: 'video-no-switch', display_name: 'Video No Switch', available: true,
+        modes: ['image-to-video'], aspect_ratios: ['16:9'], generates_audio: true,
+        variants: [{ operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'v1' }],
+      },
+    ])
+    const models = await listVideoModels('video-switch-key')
+    const withSwitch = models.find(model => model.id === 'video-switch')
+    assert.deepEqual(withSwitch?.controls, [
+      // Name, type and the lane's own default and note — nothing coerced, nothing added.
+      { name: 'audio', type: 'boolean', default: true, note: 'the lane its own sentence' },
+    ])
+    // Absent is not an empty list: a lane that publishes no switch must be
+    // distinguishable from one whose switches were all unreadable, because a
+    // surface renders a control for the first and nothing for either.
+    assert.equal('controls' in (models.find(model => model.id === 'video-no-switch') || {}), false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('the audio switch changes the idempotency key, because it changes what is bought', async () => {
+  const { buildGenStudioVideoIdempotencyKey } = await import('../lib/genstudio-client.js')
+  const base = {
+    prompt: 'a harbour at dawn',
+    modelId: 'baa-ai/LTX-2.3-22B-RAM-12GB-MLX',
+    sourceSha256: 'a'.repeat(64),
+    aspectRatio: '11:7',
+    operation: 'image-to-video',
+    durationSeconds: 4,
+    resolution: '448p',
+  }
+  const unstated = buildGenStudioVideoIdempotencyKey(base)
+  const on = buildGenStudioVideoIdempotencyKey({ ...base, audio: true })
+  const off = buildGenStudioVideoIdempotencyKey({ ...base, audio: false })
+  // All three are different requests: "the lane defaulted" must not replay the
+  // job that was asked to write a track, and a silent retry must not re-attach
+  // to it either.
+  assert.notEqual(unstated, on)
+  assert.notEqual(unstated, off)
+  assert.notEqual(on, off)
+  // And the same request is still the same key.
+  assert.equal(off, buildGenStudioVideoIdempotencyKey({ ...base, audio: false }))
+})
+
+test('a silent request reaches the wire, and an unstated one sends no field at all', async () => {
+  const { generateVideoWithGenStudio } = await import('../lib/genstudio-client.js')
+  const calls: Array<{ path: string, body: any }> = []
+  const originalFetch = globalThis.fetch
+  const temp = mkdtempSync(path.join(tmpdir(), 'story-audio-switch-'))
+  const source = path.join(temp, 'scene.png')
+  const { writeFileSync } = await import('node:fs')
+  writeFileSync(source, Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+  ))
+  try {
+    globalThis.fetch = async (input: any, init: any) => {
+      const url = String(typeof input === 'string' ? input : input?.url || input)
+      // The source-image upload is multipart; only the JSON submissions are read here.
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null
+      calls.push({ path: new URL(url).pathname, body })
+      if (url.includes('/v1/videos/source-images')) return Response.json({ id: 'asset-1' })
+      if (url.includes('/v1/videos/generations')) {
+        return Response.json({
+          id: 'job-1', state: 'succeeded', model_id: 'video-switch', credits: 0, remaining_credits: 0,
+          outputs: [{ asset_id: 'clip-1', url: 'http://127.0.0.1:1/clip.mp4' }],
+        })
+      }
+      return Response.json({ paid_concurrency_limit: 5, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 25, generation_submissions_per_minute: 30 })
+    }
+    const submit = (audio?: boolean) => generateVideoWithGenStudio('video-switch-key', {
+      prompt: 'a harbour at dawn',
+      modelId: 'video-switch',
+      sourceImagePath: source,
+      aspectRatio: '16:9',
+      operation: 'image-to-video',
+      durationSeconds: 5,
+      resolution: '720p',
+      ...(typeof audio === 'boolean' ? { audio } : {}),
+    })
+    await submit(false)
+    const silent = calls.filter(call => call.path === '/v1/videos/generations').at(-1)
+    assert.equal(silent?.body?.audio, false, 'the OFF half of the switch is the whole point of it')
+    await submit(undefined)
+    const unstated = calls.filter(call => call.path === '/v1/videos/generations').at(-1)
+    assert.equal('audio' in (unstated?.body || {}), false,
+      'sending `true` on every request would override a lane whose default is the other way')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

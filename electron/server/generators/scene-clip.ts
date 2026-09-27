@@ -42,6 +42,7 @@ import {
   generateVideoWithGenStudio,
   GenStudioTerminalFailureError,
   listVideoModels as listGenStudioVideoModels,
+  publishedVideoControls,
   recoverVideoWithGenStudio,
   resolveGenStudioRetryScope,
   supportsGenStudioVideoMode,
@@ -171,6 +172,15 @@ interface SceneClipGenerateParams {
   operation?: string
   duration_seconds?: number
   resolution?: string
+  /**
+   * The published `audio` switch for this clip, when the operator set it.
+   *
+   * Only a switch the SELECTED model publishes is honoured; anything else is dropped below,
+   * with a line in the job log, rather than sent to a lane that would ignore or refuse it.
+   * Absent means the lane's own default — which is why `undefined` and `true` are different
+   * requests in the idempotency digest rather than the same one written twice.
+   */
+  audio?: boolean
   /** Exact per-scene requests accepted at enqueue time. Follow narration
    * resolves these from the authoritative Scene Plan windows. */
   scene_durations?: Record<string, {
@@ -407,6 +417,19 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     ? variant.aspect_ratio.trim()
     : requestAspect
 
+  // The published `audio` switch, resolved against the row this clip is actually billed at.
+  // A model that publishes no switch gets no field — its own default decides — and a value
+  // for a switch this model does not publish is dropped with a line saying so, because a
+  // silently-forwarded field is a request nobody can account for afterwards.
+  const publishesAudioSwitch = publishedVideoControls(catalogModel.controls)
+    .some(control => control.name === 'audio')
+  if (typeof params.audio === 'boolean' && !publishesAudioSwitch) {
+    job.output_lines.push(
+      `Ignoring audio=${params.audio}: ${modelId} publishes no audio switch, so its own default applies.`,
+    )
+  }
+  const audioChoice = publishesAudioSwitch && typeof params.audio === 'boolean' ? params.audio : undefined
+
   job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — animate via GenStudio KH / ${modelId}`)
   // The operation, duration, and resolution actually submitted are a current published
   // row. Say so, with its price: an enforced limit the user was never told
@@ -486,6 +509,10 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       operation,
       durationSeconds,
       resolution,
+      // The switch is part of what this request IS. A saved task with a track must never
+      // satisfy a silent retry of the same scene, and both hash and key are what decide
+      // whether a recovered job belongs to this request.
+      audio: audioChoice ?? null,
     }))
     // Reconnect ONLY to a saved job that belongs to this exact request AND has
     // not already settled. Hash equality alone would let an old failed job
@@ -509,6 +536,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       operation,
       durationSeconds,
       resolution,
+      audio: audioChoice,
       requestIdentity,
     })
     const submittedAt = recoveryEntry?.submitted_at || new Date().toISOString()
@@ -548,6 +576,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       operation,
       durationSeconds,
       resolution,
+      ...(typeof audioChoice === 'boolean' ? { audio: audioChoice } : {}),
       requestIdentity,
       idempotencyKey,
       isCancelled: () => jq.isCancelled(job.job_id),

@@ -1879,6 +1879,33 @@ export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioProd
    * is exactly why it has to reach the picker instead of dying at the parse.
    */
   generates_audio: boolean | null
+  /**
+   * The lane's own **switches**: every boolean parameter GenStudio publishes for
+   * this row, with the lane's default and the lane's own sentence about it.
+   *
+   * A switch is a choice, not a capability, and the distinction is the reason
+   * this is a separate field from `generates_audio`. `generates_audio: true`
+   * says the product makes a soundtrack; it says nothing about whether the
+   * caller may ask for a clip WITHOUT one. Measured on 2026-09-27: Studio Hub's
+   * LTX lane publishes `audio` (default `true`, note and all) and no cloud video
+   * lane publishes any switch, so the control must be rendered from this list
+   * and never from a name Story Studio knows.
+   *
+   * Absent means the catalogue published none — which is NOT an empty list, and
+   * a caller must be able to tell them apart. `note` is relayed verbatim: the
+   * lane knows what unticking its switch does and this app does not.
+   */
+  controls?: GenStudioVideoControl[] | null
+}
+
+/** One published boolean switch on a video row. */
+export interface GenStudioVideoControl {
+  name: string
+  type: 'boolean'
+  /** The lane's own default, or `null` when it stated none. */
+  default: boolean | null
+  /** The lane's own sentence, shown verbatim. `null` when it wrote none. */
+  note: string | null
 }
 
 /** Story Studio's one video mode. Enforced where a request is BUILT, never by
@@ -2025,6 +2052,18 @@ export interface GenStudioVideoRequest extends GenStudioOperationContext {
    *  catalogue owns the list, and the caller resolves against it. */
   durationSeconds: number
   resolution: string
+  /**
+   * The lane's published `audio` switch, when the caller wants it OFF.
+   *
+   * Only `false` is ever sent, and only when the selected model publishes the
+   * switch: a lane that publishes none gets no field at all, so its own default
+   * decides rather than this app deciding for it. `true` travels as nothing
+   * because the lane's own default is what a caller who wants sound gets — and
+   * unticking it does **not** shorten the run (the model denoises picture and
+   * sound together), which is why the lane's own note is shown beside the
+   * switch instead of a invented promise about time saved.
+   */
+  audio?: boolean
   requestIdentity?: string
   /**
    * Reuse a key already checkpointed beside the Story asset. Persisting the key
@@ -5122,8 +5161,42 @@ export async function listVideoModelsSnapshot(
     // say"), never coerced to `false` — claiming a model is silent when the
     // catalogue never said so is inventing a capability answer.
     generates_audio: typeof value?.generates_audio === 'boolean' ? value.generates_audio : null,
+    // Every published boolean switch, carried whole: the name a caller keys a
+    // value by, the lane's default, and the lane's own note. Nothing is
+    // synthesised here — a row whose catalogue entry lists no switches carries
+    // no `controls` key at all, which is how a caller tells "none published"
+    // from "published as none". A malformed entry is dropped rather than
+    // repaired: a switch this transport cannot describe is one no surface may
+    // render, and inventing a default would decide a lane's behaviour.
+    ...(publishedVideoControls(value?.controls).length
+      ? { controls: publishedVideoControls(value?.controls) }
+      : {}),
   })).filter((model: GenStudioVideoModel) => model.id && model.display_name)
   }, { ...options, baseUrl, apiKey })
+}
+
+/**
+ * The published switches on one video row, filtered to what a caller can use.
+ *
+ * Extracted from the parse so the same rule shapes the type it produces: a
+ * control needs a name to be settable and must be a boolean to be a switch. A
+ * `note` and a `default` are optional and are never coerced — a lane that
+ * stated no default gets `null`, so a surface falls back to its own display
+ * rather than showing a value the lane never chose.
+ */
+export function publishedVideoControls(value: unknown): GenStudioVideoControl[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry: any): GenStudioVideoControl[] => {
+    const name = typeof entry?.name === 'string' ? entry.name.trim() : ''
+    if (!name) return []
+    if (String(entry?.type ?? '').trim().toLowerCase() !== 'boolean') return []
+    return [{
+      name,
+      type: 'boolean' as const,
+      default: typeof entry?.default === 'boolean' ? entry.default : null,
+      note: typeof entry?.note === 'string' && entry.note.trim() ? entry.note.trim() : null,
+    }]
+  })
 }
 
 export async function listVideoModels(apiKey: string): Promise<GenStudioVideoModel[]> {
@@ -5150,6 +5223,18 @@ export function buildGenStudioVideoIdempotencyKey(input: {
   operation: string
   durationSeconds: number
   resolution: string
+  /**
+   * The published `audio` switch, when it was set.
+   *
+   * **A digest component because it changes what is bought.** `false` asks for a
+   * clip with no track, which is a different artifact from the one the same
+   * prompt buys with sound; a key that ignored it would let a retry after
+   * unticking the box re-attach to the track-bearing job and report success for
+   * a request nobody made. It is written as a tri-state (`null` when unstated)
+   * so "the lane defaulted" and "the caller asked for sound" are distinct
+   * requests rather than the same key.
+   */
+  audio?: boolean
   requestIdentity?: string
 }): string {
   const digest = createHash('sha256').update(JSON.stringify({
@@ -5160,6 +5245,7 @@ export function buildGenStudioVideoIdempotencyKey(input: {
     operation: input.operation,
     duration_seconds: input.durationSeconds,
     resolution: input.resolution,
+    audio: typeof input.audio === 'boolean' ? input.audio : null,
     request_identity: input.requestIdentity || null,
   })).digest('hex')
   return `story-video-${digest.slice(0, 44)}`
@@ -5303,6 +5389,7 @@ async function generateVideoWithGenStudioAdmitted(
     operation: request.operation,
     durationSeconds: request.durationSeconds,
     resolution: request.resolution,
+    audio: request.audio,
     requestIdentity: request.requestIdentity,
   })
   const baseUrl = await getGenStudioUrl()
@@ -5332,6 +5419,11 @@ async function generateVideoWithGenStudioAdmitted(
       ['duration_seconds', request.durationSeconds],
       ['resolution', request.resolution],
       ...(request.aspectRatio ? [['aspect_ratio', request.aspectRatio] as [string, string]] : []),
+      // Only the OFF half of a published switch is ever sent, and only when the
+      // caller set it. The request preview is what the owner reads to see what
+      // was actually asked for, so a silent request has to say so here — an
+      // omission would make the two requests look identical in the record.
+      ...(typeof request.audio === 'boolean' ? [['audio', String(request.audio)] as [string, string]] : []),
       ['reference_asset_id', sourceAsset.id],
     ],
   })
@@ -5353,6 +5445,11 @@ async function generateVideoWithGenStudioAdmitted(
         aspect_ratio: request.aspectRatio,
         duration_seconds: request.durationSeconds,
         resolution: request.resolution,
+        // Omitted entirely unless the caller set a published switch: the lane's
+        // own default is the right answer for a caller who stated nothing, and
+        // sending `true` on every request would override a lane whose default
+        // is the other way.
+        ...(typeof request.audio === 'boolean' ? { audio: request.audio } : {}),
       }),
     },
     request,

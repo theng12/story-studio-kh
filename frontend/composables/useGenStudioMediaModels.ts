@@ -24,6 +24,20 @@ export interface GenStudioVoiceModelInfo {
   lock_reason?: string
 }
 
+/** One published boolean switch on a video row. Kept in step with the transport's
+ *  `GenStudioVideoControl` (electron/server/lib/genstudio-client.ts): the frontend
+ *  cannot import from the Electron server tree, so the shape is declared twice and
+ *  both copies are parsed by the same rule — a name to key a value by, a boolean
+ *  type, and the lane's own default and note, neither of which is ever coerced. */
+export interface GenStudioVideoControl {
+  name: string
+  type: 'boolean'
+  /** The lane's own default, or `null` when it stated none. */
+  default: boolean | null
+  /** The lane's own sentence, shown verbatim. `null` when it wrote none. */
+  note: string | null
+}
+
 export interface GenStudioVideoModelInfo {
   id: string
   display_name: string
@@ -52,6 +66,19 @@ export interface GenStudioVideoModelInfo {
    *  Story Studio's assembly composes narration over the clip and drops any
    *  embedded track, so a `true` is disclosed at the point of choosing. */
   generates_audio?: boolean | null
+  /**
+   * The lane's own **switches**: every boolean parameter GenStudio publishes for
+   * this row, with the lane's default and the lane's own sentence about it.
+   *
+   * A separate field from `generates_audio` on purpose: that one says the
+   * product makes a soundtrack, which says nothing about whether a caller may
+   * ask for a clip WITHOUT one. Measured 2026-09-27 — Studio Hub's LTX lane
+   * publishes `audio` (default `true`, note and all) and no cloud video lane
+   * publishes any switch — so the control is rendered from this list and never
+   * from a name Story Studio knows on its own. Absent means none published,
+   * which is not the same statement as a published empty list.
+   */
+  controls?: GenStudioVideoControl[] | null
   /** Owner-defined public handle, e.g. `gpt-image-2`. GenStudio republishes
    *  image and video products under this name; a preset saved earlier holds
    *  the raw id, so both name the same product. */

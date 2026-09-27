@@ -102,6 +102,30 @@
               {{ selectedVideoModelAudioNotice }}
             </span>
           </label>
+          <!-- The lane's own switches, rendered from what it publishes and nothing else.
+               A model that publishes no switch shows no control here, so this page never
+               decides on the lane's behalf. The lane's own note travels with the switch: it
+               is the only honest statement of what unticking does (for `audio` on a local
+               lane: picture and sound are denoised together, so a silent clip is not a
+               quicker one). -->
+          <label
+            v-for="control in selectedVideoControls"
+            :key="control.name"
+            class="model-field switch-field"
+          >
+            <span>{{ switchLabel(control.name) }}</span>
+            <span class="switch-row">
+              <input
+                :checked="switchValue(control)"
+                type="checkbox"
+                role="switch"
+                :aria-label="`${switchLabel(control.name)} — published by the selected model`"
+                @change="setSwitch(control, ($event.target as HTMLInputElement).checked)"
+              >
+              <span class="switch-word">{{ switchValue(control) ? 'On' : 'Off' }}</span>
+            </span>
+            <span v-if="control.note" class="switch-note">{{ control.note }}</span>
+          </label>
           <label class="model-field resolution-field">
             <span>Aspect ratio</span>
             <select v-model="selectedAspectRatio" class="select" :disabled="!availableAspectRatios.length" aria-label="Published aspect ratio">
@@ -296,6 +320,7 @@ import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selec
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-cost'
 import { variantsForVideoOperation } from '~/utils/genstudio-video-variants'
+import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModels'
 
 // usePresets captures the project slug at setup. Recreate this page for a
 // project navigation so controls and scene state cannot carry into another project.
@@ -376,6 +401,16 @@ const savingId = ref<string | null>(null)
 const animatingId = ref<string | null>(null)
 const uploadingId = ref<string | null>(null)
 const videoModel = ref('')
+/**
+ * The operator's own choice for each published switch, by published name.
+ *
+ * Only a switch the SELECTED model publishes is ever rendered, so a value here
+ * for a model that publishes none is ignored rather than sent. An untouched
+ * switch has no entry at all, which is what keeps "the model's own default"
+ * and "the operator asked for this" two different requests all the way down to
+ * the idempotency key.
+ */
+const switchChoices = ref<Record<string, boolean>>({})
 const selectedAspectRatio = ref('')
 const selectedResolution = ref('')
 const durationMode = ref<DurationMode>('manual')
@@ -394,9 +429,20 @@ const motionPresets = usePresets({
     duration_seconds: manualDurationSeconds.value ?? undefined,
     resolution: selectedResolution.value || undefined,
     duration_mode: durationMode.value,
+    // A reusable setting, so it belongs in the preset (AGENTS.md §5). It is stored by
+    // published name, and the pipeline resolves it against the model that will run: a
+    // preset applied to a model without that switch simply carries nothing.
+    ...(Object.keys(switchChoices.value).length ? { switches: { ...switchChoices.value } } : {}),
   }),
   apply: (data: any) => {
     if (typeof data?.model === 'string') videoModel.value = data.model
+    // Restored whole rather than merged: a preset that stored no switches must not inherit the
+    // previous one's choices, and a key is only kept when it is a real boolean — a stored string
+    // is a corrupt preset, not a value to coerce.
+    switchChoices.value = Object.fromEntries(
+      Object.entries((data?.switches || {}) as Record<string, unknown>)
+        .filter(([, value]) => typeof value === 'boolean'),
+    ) as Record<string, boolean>
     if (typeof data?.aspect_ratio === 'string') selectedAspectRatio.value = data.aspect_ratio.trim()
     normalizeSelectedAspectRatio()
     selectedResolution.value = typeof data?.resolution === 'string' ? data.resolution.trim() : ''
@@ -440,12 +486,26 @@ function cheapestVariant(variants: readonly VideoVariant[]) {
  * generated track could honestly be placed in. Offering a "keep the generated
  * audio" switch would be a switch that does nothing on the assembly path,
  * which is worse than saying so plainly.
+ *
+ * **A lane can also publish the opposite choice** — writing the clip with no
+ * track at all — and that IS offered, because it is a real thing the lane does
+ * (Studio Hub's LTX lane publishes `audio`, default on). Two sentences, because
+ * the two situations are not the same: a lane that generates sound and offers no
+ * switch is money spent on a track the episode discards, while a lane whose
+ * switch is off still costs the same — the picture and the sound are denoised
+ * together — and simply writes a silent file.
  */
 const GENERATED_AUDIO_DISCLOSURE =
   'This model also generates its own audio track, and you are charged for it. '
   + 'Story Studio composes your narration mix over the picture, so the generated audio is not in the '
   + 'assembled episode — it is kept only in the downloaded clip file. Choose a picture-only model if '
   + 'you do not want to pay for a soundtrack the episode will not use.'
+
+/** Said instead, once the published switch is OFF: the honest version of the same fact. */
+const SILENT_CLIP_NOTICE =
+  'Sound is off for this model, so its clips are written without an audio track. '
+  + 'The clip is not cheaper and not faster — this model denoises picture and sound together — it is '
+  + 'simply silent, and the episode uses your narration either way.'
 
 const i2vModels = computed(() => {
   const discovered = genStudioVideoModels.value
@@ -462,6 +522,10 @@ const i2vModels = computed(() => {
       // said nothing) both say nothing here — a silent model needs no warning,
       // and an unpublished field is not evidence of one either way.
       const generatesAudio = model.generates_audio === true
+      // The same publication rule the switch itself uses: only a model that publishes the
+      // control can have its sound turned off, so only those rows say so.
+      const publishesAudioSwitch = Array.isArray(model.controls)
+        && model.controls.some(control => control?.name === 'audio' && control?.type === 'boolean')
       return {
         id: `genstudio-video:${model.id}`,
         label: model.display_name,
@@ -478,7 +542,11 @@ const i2vModels = computed(() => {
             + 'Choose a resolution, then use one published length or match each scene to its narration.'
           : 'GenStudio publishes no priced length or resolution for this model, so Story Studio '
             + 'cannot generate a clip with it.')
-          + (generatesAudio ? ` ${GENERATED_AUDIO_DISCLOSURE}` : ''),
+          + (generatesAudio ? ` ${GENERATED_AUDIO_DISCLOSURE}` : '')
+          + (publishesAudioSwitch
+            ? ' You can write its clips without sound below; the price is the same, because it makes'
+              + ' picture and sound in one pass.'
+            : ''),
         disabled: !model.available || model.locked === true || !variant,
         disabledReason: genStudioModelLockReason(model) || (!model.available
           ? 'This video model is not currently available.'
@@ -495,11 +563,11 @@ const i2vModels = computed(() => {
 /** The selected model's audio disclosure, or empty when there is nothing to
  *  disclose. Re-derived from the live catalogue on every model change. */
 const selectedVideoModelAudioNotice = computed(() => {
-  const raw = videoModel.value.startsWith('genstudio-video:')
-    ? videoModel.value.slice('genstudio-video:'.length)
-    : videoModel.value
-  const model = genStudioVideoModels.value.find(item => item.id === raw)
-  return model?.generates_audio === true ? GENERATED_AUDIO_DISCLOSURE : ''
+  if (selectedVideoModel.value?.generates_audio !== true) return ''
+  // The switch, when the lane publishes one, decides which of the two true sentences applies.
+  const audioSwitch = selectedVideoControls.value.find(control => control.name === 'audio')
+  if (audioSwitch && !switchValue(audioSwitch)) return SILENT_CLIP_NOTICE
+  return GENERATED_AUDIO_DISCLOSURE
 })
 const selectedVideoModel = computed(() => {
   const raw = videoModel.value.startsWith('genstudio-video:')
@@ -510,6 +578,50 @@ const selectedVideoModel = computed(() => {
 const selectedVideoVariants = computed<VideoVariant[]>(() => (
   variantsForVideoOperation(selectedVideoModel.value?.variants, STORY_STUDIO_VIDEO_OPERATION)
 ))
+
+/**
+ * The switches the SELECTED model publishes, in the lane's own order.
+ *
+ * Nothing is inferred from the model's name or family: a row that publishes no `controls`
+ * list renders no control at all, which is why a cloud lane shows none and the local LTX
+ * lane shows its own. A malformed entry is dropped rather than repaired — a switch this
+ * page cannot describe is one it must not offer.
+ */
+const selectedVideoControls = computed<GenStudioVideoControl[]>(() => {
+  const published = (selectedVideoModel.value as { controls?: unknown } | null)?.controls
+  if (!Array.isArray(published)) return []
+  return published.flatMap((entry): GenStudioVideoControl[] => {
+    const candidate = entry as { name?: unknown, type?: unknown, default?: unknown, note?: unknown }
+    const name = typeof candidate?.name === 'string' ? candidate.name.trim() : ''
+    if (!name || String(candidate?.type ?? '').trim().toLowerCase() !== 'boolean') return []
+    return [{
+      name,
+      type: 'boolean' as const,
+      default: typeof candidate.default === 'boolean' ? candidate.default : null,
+      note: typeof candidate.note === 'string' && candidate.note.trim() ? candidate.note.trim() : null,
+    }]
+  })
+})
+
+/** The switch's published name, as a label. The lane's own `note` carries the meaning. */
+function switchLabel(name: string): string {
+  return name ? name.charAt(0).toUpperCase() + name.slice(1) : name
+}
+
+/**
+ * What the switch shows: the operator's own choice, else the lane's published default.
+ *
+ * A lane that published no default shows the off position and the control is disabled — the
+ * page cannot display a state nobody stated, and sending one would decide on the lane's behalf.
+ */
+function switchValue(control: GenStudioVideoControl): boolean {
+  const chosen = switchChoices.value[control.name]
+  return typeof chosen === 'boolean' ? chosen : control.default === true
+}
+
+function setSwitch(control: GenStudioVideoControl, value: boolean): void {
+  switchChoices.value = { ...switchChoices.value, [control.name]: value }
+}
 /**
  * The ratios and resolutions that can actually be submitted, as PAIRS.
  *
@@ -805,8 +917,15 @@ async function loadReview() {
   }
 }
 
-function generationPayload(): Record<string, string | number> | null {
+function generationPayload(): Record<string, string | number | boolean> | null {
   if (!videoModel.value || !selectionReady.value) return null
+  // Only a switch this model publishes AND the operator actually chose travels. The `audio`
+  // wire field is carried by its published name, which is the lane's own contract — the same
+  // rule that lets `duration_seconds` and `resolution` be named here and not invented.
+  const chosenAudio = selectedVideoControls.value
+    .filter(control => control.name === 'audio')
+    .map(control => switchChoices.value[control.name])
+    .find(value => typeof value === 'boolean')
   return {
     model: videoModel.value,
     aspect_ratio: selectedAspectRatio.value,
@@ -816,6 +935,7 @@ function generationPayload(): Record<string, string | number> | null {
     ...(durationMode.value === 'manual' && selectedManualVariant.value
       ? { duration_seconds: selectedManualVariant.value.duration_seconds }
       : {}),
+    ...(typeof chosenAudio === 'boolean' ? { audio: chosenAudio } : {}),
   }
 }
 
@@ -1067,6 +1187,17 @@ input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-
   margin: 6px 0 0; max-width: 46ch;
   color: var(--warning, #d97706); font-size: var(--font-xs); font-weight: 500;
   letter-spacing: normal; text-transform: none; line-height: 1.45;
+}
+/* A published switch: the control, its state in words, and the lane's own sentence about what
+   it does. The note is not decoration — it is the only honest statement of the trade-off. */
+.switch-field { min-width: 200px; }
+.switch-row { display: flex; align-items: center; gap: 8px; }
+.switch-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--motion-blue); }
+.switch-row input[type="checkbox"]:disabled { opacity: .5; }
+.switch-word { color: var(--text, inherit); font-size: var(--font-sm); font-weight: 600; }
+.model-field > span.switch-note {
+  margin: 6px 0 0; max-width: 44ch; color: var(--text-muted);
+  font-size: var(--font-xs); font-weight: 500; letter-spacing: normal; text-transform: none; line-height: 1.45;
 }
 .motion-ready { border-color: color-mix(in srgb, var(--motion-green) 65%, var(--border)); }
 

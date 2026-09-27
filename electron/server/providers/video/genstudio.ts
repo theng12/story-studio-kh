@@ -8,9 +8,11 @@ import {
   findGenStudioVideoVariant,
   generateVideoWithGenStudio,
   listVideoModels,
+  publishedVideoControls,
   supportsGenStudioVideoMode,
   STORY_STUDIO_VIDEO_MODE,
   variantsForGenStudioVideoOperation,
+  type GenStudioVideoControl,
   type GenStudioVideoVariant,
 } from '../../lib/genstudio-client.js'
 import { findGenStudioProduct } from '../../contracts/genstudio-product-identity.js'
@@ -42,6 +44,31 @@ interface ResolvedVideoVariant {
   variant: GenStudioVideoVariant
   /** Every aspect ratio the model publishes, in published order. Empty when it states none. */
   publishedAspectRatios: string[]
+  /**
+   * Every boolean switch the model publishes, in published order.
+   *
+   * Carried with the resolved variant because the choice has to be resolved against the
+   * SAME row the variant came from: a caller that looked the model up a second time could
+   * read a catalogue that changed in between, and would then send a switch the lane never
+   * published.
+   */
+  controls: GenStudioVideoControl[]
+}
+
+/** What the caller set for one published switch, resolved against the model's own list.
+ *
+ * Returns `undefined` for "send nothing": the switch is not published by this model, the
+ * caller set nothing, or the value is not a boolean. A boolean travels as itself — `false`
+ * is the whole point of the switch — and nothing is invented for a lane that publishes no
+ * switch, because the lane's own default is the right answer there.
+ */
+export function publishedAudioChoice(
+  resolved: ResolvedVideoVariant,
+  providerParams: Record<string, any> | undefined,
+): boolean | undefined {
+  if (!resolved.controls.some(control => control.name === 'audio')) return undefined
+  const value = providerParams?.audio
+  return typeof value === 'boolean' ? value : undefined
 }
 
 /** Whether a published `w:h` ratio is taller than it is wide. Unparseable ratios are neither. */
@@ -82,6 +109,8 @@ async function resolveRequestedVariant(
     )
   }
   const publishedAspectRatios = Array.isArray(model.aspect_ratios) ? [...model.aspect_ratios] : []
+  // The model's own published switches, read from the same row the variant came from.
+  const controls = publishedVideoControls(model.controls)
 
   /** When several variants share a duration and resolution, the orientation picks between them. */
   const forOrientation = (candidates: GenStudioVideoVariant[]): GenStudioVideoVariant => {
@@ -102,7 +131,7 @@ async function resolveRequestedVariant(
       candidate.duration_seconds === cheapest.duration_seconds
       && candidate.resolution === cheapest.resolution
     ))
-    return { variant: forOrientation(samePriced.length ? samePriced : [cheapest]), publishedAspectRatios }
+    return { variant: forOrientation(samePriced.length ? samePriced : [cheapest]), publishedAspectRatios, controls }
   }
 
   const cheapest = cheapestGenStudioVideoVariant(published)!
@@ -111,7 +140,7 @@ async function resolveRequestedVariant(
   const matches = published.filter(candidate => (
     candidate.duration_seconds === duration && candidate.resolution === resolution
   ))
-  if (matches.length) return { variant: forOrientation(matches), publishedAspectRatios }
+  if (matches.length) return { variant: forOrientation(matches), publishedAspectRatios, controls }
 
   throw new Error(
     `"${model.display_name}" does not publish a ${duration}s at ${resolution} option. `
@@ -175,6 +204,12 @@ const genstudioVideoProvider: VideoProvider = {
     // The published ratio for this exact variant. Omitted when the product publishes none,
     // which leaves the choice to the lane rather than to a hardcoded 16:9.
     const aspectRatio = aspectRatioForResolvedVariant(resolved, portrait)
+    // The caller's published `audio` switch, when it set one. `resolved` carries the
+    // model's own published controls, and a value for a switch this model does not
+    // publish is dropped rather than forwarded: the lane would either ignore it or
+    // refuse the request, and neither is what the operator asked for. `undefined`
+    // stays `undefined` so the lane's own default decides.
+    const audio = publishedAudioChoice(resolved, request.providerParams)
     const results = []
     for (let index = 0; index < Math.max(1, request.numberOfVideos); index++) {
       results.push(await generateVideoWithGenStudio(request.apiKey, {
@@ -182,6 +217,7 @@ const genstudioVideoProvider: VideoProvider = {
         modelId,
         sourceImagePath: request.startImagePath,
         ...(aspectRatio ? { aspectRatio } : {}),
+        ...(typeof audio === 'boolean' ? { audio } : {}),
         operation: variant.operation,
         durationSeconds: duration,
         resolution,

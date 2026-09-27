@@ -50,7 +50,7 @@ import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
 import { lineupModelPolicies, applyLlmLineupSnapshot, replaceRetiredLineupModels } from '../services/llm-lineup.js'
 import { normalizeLlmLineup } from '../contracts/llm-lineup.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
-import { listChatModels, listTranscriptionModels } from '../lib/genstudio-client.js'
+import { listChatModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
@@ -1278,7 +1278,7 @@ async function resolvePipelineTranscriptionParams(
  * their executor-only fallback; presets must be re-saved instead. */
 async function resolvePipelineMotionParams(
   preset: StoredPreset,
-): Promise<{ model: string; operation: string; duration_seconds: number; resolution: string }> {
+): Promise<{ model: string; operation: string; duration_seconds: number; resolution: string; audio?: boolean }> {
   const params = resolveStepParams('motion_review', '', '', preset)
   const model = typeof params.model === 'string' ? params.model.trim() : ''
   const operation = typeof params.operation === 'string' ? params.operation.trim() : ''
@@ -1289,11 +1289,23 @@ async function resolvePipelineMotionParams(
   }
   try {
     const resolved = await requireSceneClipGenStudioModel(model, { operation, duration_seconds, resolution })
+    // The preset's saved switch is honoured only when THIS model publishes it. A preset saved
+    // against a model that offers the choice must not carry it to a model that does not — the
+    // lane would ignore it, and the batch would report a silent clip nobody asked for. A
+    // non-boolean is refused rather than coerced: `"false"` is a string, not a request.
+    const saved = (preset?.data ?? preset) as Record<string, any>
+    const publishesAudio = publishedVideoControls(resolved.model.controls)
+      .some(control => control.name === 'audio')
+    if (saved.audio !== undefined && typeof saved.audio !== 'boolean') {
+      throw new Error('The saved Motion Review preset has a non-boolean audio setting. Open Motion Review and save the preset again.')
+    }
+    const audio = publishesAudio && typeof saved.audio === 'boolean' ? saved.audio : undefined
     return {
       model: `genstudio-video:${resolved.modelId}`,
       operation: resolved.variant.operation,
       duration_seconds: resolved.variant.duration_seconds,
       resolution: resolved.variant.resolution,
+      ...(typeof audio === 'boolean' ? { audio } : {}),
     }
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : 'The selected Motion Review variant is unavailable.'
@@ -1916,7 +1928,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     }
   }
 
-  let pipelineMotionParams: { model: string; operation: string; duration_seconds: number; resolution: string } | null = null
+  let pipelineMotionParams: { model: string; operation: string; duration_seconds: number; resolution: string; audio?: boolean } | null = null
   if (presetByStep.motion_review) {
     try {
       pipelineMotionParams = await resolvePipelineMotionParams(presetByStep.motion_review)

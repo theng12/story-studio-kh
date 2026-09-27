@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.231 — 2026-09-27
+
+- **You can ask a video model for a clip with no sound — where the model offers the choice.** Motion
+  Review now renders a switch for every boolean parameter the *selected* model publishes: the local
+  LTX lane publishes `audio` (on by default), and a cloud lane that publishes nothing shows no
+  control at all. The control is built from the model's own published list, never from a family name
+  and never from `generates_audio`, which answers a different question — whether the product makes a
+  soundtrack, not whether you may ask it not to write one.
+- **The lane's own sentence is what the switch says about itself.** `note` travels from the lane and
+  is shown verbatim: for `audio` it says the model makes picture and sound in one pass, so a silent
+  clip is **not** cheaper or faster — it skips the audio decode and writes an MP4 with no track.
+  Unticking the box changes what the file contains and nothing else, and the page says so rather
+  than letting the switch imply a saving it does not make.
+- **The choice is part of what you asked for.** It travels on the request, in the recovery hash, and
+  in the idempotency key, so a retry can never re-attach to the other half of the switch — the same
+  rule that makes `instrumental` a component of the music key. It is restored by Motion Review
+  presets (a reusable setting, not episode state), and an unattended Pipeline run honours the saved
+  choice when the model it resolves publishes it.
+- **A value the model cannot honour is refused, not dropped.** The three clip routes validate the
+  switch against the row they priced and refuse a value for a model that publishes none, or a
+  non-boolean value, before anything is queued; a queued job that outlives a catalogue change drops
+  it and records the line in the job log.
+- **Not wired, deliberately:** the retired `/generate/video` lane has no caller in the app and was
+  left alone rather than half-wired; its clips use the model's own default. Needs gateway-kh
+  **0.2.60**, which publishes and forwards the switch; against an older gateway no model publishes
+  one, so the page shows no control and nothing is sent.
+
 ## v1.4.230 — 2026-09-27
 
 - **The thumbnail-reference vision feature could not run at all (WIRE-3).** Its model gate required

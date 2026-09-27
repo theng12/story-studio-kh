@@ -33,14 +33,14 @@ const variant = (extra: Record<string, unknown> = {}) => ({
 test('the variant\'s own published ratio is what is sent', () => {
   assert.equal(
     aspectRatioForResolvedVariant(
-      { variant: variant({ aspect_ratio: '11:7' }), publishedAspectRatios: ['11:7', '1:1'] },
+      { variant: variant({ aspect_ratio: '11:7' }), publishedAspectRatios: ['11:7', '1:1'], controls: [] },
       false,
     ),
     '11:7',
   )
   assert.equal(
     aspectRatioForResolvedVariant(
-      { variant: variant({ aspect_ratio: '4:7' }), publishedAspectRatios: ['7:4', '4:7'] },
+      { variant: variant({ aspect_ratio: '4:7' }), publishedAspectRatios: ['7:4', '4:7'], controls: [] },
       true,
     ),
     '4:7',
@@ -52,11 +52,11 @@ test('a product with no per-variant ratio is read from its published ratio list'
   // Every cloud video lane. The list is GenStudio's, so choosing from it is reading
   // published data — the old hardcoded pair happened to match this list and would not
   // have matched a product that publishes only 1:1.
-  const cloud = { variant: variant({ resolution: '720p' }), publishedAspectRatios: ['16:9', '9:16', '1:1'] }
+  const cloud = { variant: variant({ resolution: '720p' }), publishedAspectRatios: ['16:9', '9:16', '1:1'], controls: [] }
   assert.equal(aspectRatioForResolvedVariant(cloud, false), '16:9')
   assert.equal(aspectRatioForResolvedVariant(cloud, true), '9:16')
 
-  const squareOnly = { variant: variant({ resolution: '1024' }), publishedAspectRatios: ['1:1'] }
+  const squareOnly = { variant: variant({ resolution: '1024' }), publishedAspectRatios: ['1:1'], controls: [] }
   assert.equal(aspectRatioForResolvedVariant(squareOnly, false), '1:1')
   assert.equal(
     aspectRatioForResolvedVariant(squareOnly, true),
@@ -68,11 +68,11 @@ test('a product with no per-variant ratio is read from its published ratio list'
 
 test('nothing published means no aspect_ratio field, never a guess', () => {
   assert.equal(
-    aspectRatioForResolvedVariant({ variant: variant(), publishedAspectRatios: [] }, false),
+    aspectRatioForResolvedVariant({ variant: variant(), publishedAspectRatios: [], controls: [] }, false),
     undefined,
   )
   assert.equal(
-    aspectRatioForResolvedVariant({ variant: variant(), publishedAspectRatios: [] }, true),
+    aspectRatioForResolvedVariant({ variant: variant(), publishedAspectRatios: [], controls: [] }, true),
     undefined,
     'the lane\'s own default decides; Story Studio does not invent 16:9/9:16 for it',
   )
@@ -81,14 +81,14 @@ test('nothing published means no aspect_ratio field, never a guess', () => {
 test('an unparseable published ratio is ignored rather than treated as landscape', () => {
   assert.equal(
     aspectRatioForResolvedVariant(
-      { variant: variant(), publishedAspectRatios: ['wide', '9:16'] },
+      { variant: variant(), publishedAspectRatios: ['wide', '9:16'], controls: [] },
       true,
     ),
     '9:16',
     '"wide" is not a ratio this reader understands, so the portrait one is still found',
   )
   assert.equal(
-    aspectRatioForResolvedVariant({ variant: variant(), publishedAspectRatios: ['wide'] }, false),
+    aspectRatioForResolvedVariant({ variant: variant(), publishedAspectRatios: ['wide'], controls: [] }, false),
     undefined,
   )
 })
