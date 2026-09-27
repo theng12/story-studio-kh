@@ -2987,6 +2987,9 @@ export interface VideoScene {
   plan_scene_id?: string
   /** Internal proof that duration was hydrated from the authoritative plan. */
   __scene_plan_duration?: boolean
+  /** Internal, per-request: chapter → act index, filled while the reveal plan is resolved so a
+   *  scene's act is its chapter's first-appearance order rather than a second pass over the list. */
+  __revealChapterOrder?: Map<string, number>
   /** Follow narration clips hold their final frame during assembly, including
    * transition tails after a nominally long clip. */
   clip_shortfall_mode?: 'hold'
@@ -3670,6 +3673,19 @@ export interface GenerateVideoRequest {
   outro_card?: VideoOutroCard
   chapter_titles: VideoChapterTitles
   scene_animation?: VideoSceneAnimation
+  /**
+   * Reveal effects for this episode, decided in 1.4.229 and wired here in 1.4.232.
+   *
+   * Absent or `enabled: false` is the shipped behaviour: every scene is a still with the camera
+   * move above. When it is on, each scene's arrival comes from the reveal engine and the scene's
+   * duration comes from the pace plan rather than the uniform recycling default — which is what
+   * lets one image carry 10–15 s and an episode need roughly 2.4× fewer of them.
+   *
+   * Typed as the engine's own settings object (`lib/reveal-assembly.ts`) so the request and the
+   * planner cannot drift: a field the planner reads but the request cannot carry would be a
+   * control that does nothing.
+   */
+  scene_reveal?: import('../lib/reveal-assembly.js').SceneRevealSettings
   post_audio?: VideoPostAudio       // what happens after narration ends, default fade-to-black
   audio_gap?: number                // seconds of silence between narration chapters, default 5
   narration_chapters?: string[]     // individual chapter audio file paths (for gap insertion)
@@ -4293,6 +4309,15 @@ export interface ScenePlanEntry {
    *  scene-clip generator into the "11 Video Assets" folder. Absent until the
    *  scene is animated. */
   clip_path?: string
+  /**
+   * v1.4.232 — this scene's manual reveal choice, when the operator made one.
+   *
+   * Absent is the normal case and means "derived": the reveal planner computes this scene's arrival
+   * from the episode seed, pool and coherence mode, so a re-render reproduces it without anything
+   * stored. A stored choice wins over the derivation, and `reroll` makes a second choice a *new*
+   * one rather than the same pick written twice — the same shape `RevealOverride` carries.
+   */
+  reveal?: { preset_id: string; reroll?: number }
   /** v1.0.470 — the `motion_prompt` value the current `clip_path` was rendered
    *  from. If it later differs from `motion_prompt` (user re-prompted), the clip
    *  is STALE — Scene Review flags it, mirroring `rendered_prompt` for images. */

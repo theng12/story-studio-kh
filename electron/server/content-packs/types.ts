@@ -21,7 +21,7 @@ export type ContentPackItemKind = z.infer<typeof ContentPackItemKindSchema>
  */
 export type UserForkableContentPackItemKind = Exclude<
   ContentPackItemKind,
-  'visual-style' | 'subtitle-style' | 'scene-effect' | 'overlay'
+  'visual-style' | 'subtitle-style' | 'scene-effect' | 'overlay' | 'reveal'
 >
 
 export type ContentPackManifest = z.infer<typeof ContentPackManifestSchema>

@@ -732,6 +732,95 @@
           How each scene image moves — pick one, or tick a pool and turn on randomize.
         </p>
 
+        <!-- Reveal effects. Off by default: a reveal changes how an episode looks, so it is never
+             a silent default. The panel says what the saving is and shows the plan the render will
+             use, because the plan is deterministic and the page should not be a guess at it. -->
+        <div class="reveal-panel mt-3">
+          <label class="reveal-toggle">
+            <input v-model="sceneReveal.enabled" type="checkbox">
+            <span><strong>Reveal effects</strong> — each scene arrives in pieces, then holds and drifts.</span>
+          </label>
+          <p class="text-muted text-sm hint-line">
+            One image carries a whole narration line instead of a few seconds, so an episode needs
+            fewer images. Rendered locally: no model, no memory tier.
+          </p>
+
+          <template v-if="sceneReveal.enabled">
+            <div class="grid-2 mt-2">
+              <div class="form-group">
+                <label>Pace</label>
+                <select v-model="sceneReveal.pace" class="select">
+                  <option v-for="pace in revealPaces" :key="pace.id" :value="pace.id">{{ pace.name }}</option>
+                </select>
+                <small class="text-muted">{{ revealPaceHint }}</small>
+              </div>
+              <div class="form-group">
+                <label>Look changes</label>
+                <select v-model="sceneReveal.coherence" class="select">
+                  <option value="scene">Every scene</option>
+                  <option value="act">Once per act</option>
+                  <option value="episode">Once per episode</option>
+                </select>
+                <small class="text-muted">How often the arrival changes. Per act usually reads best.</small>
+              </div>
+            </div>
+            <div class="grid-2 mt-2">
+              <div class="form-group">
+                <label>Episode seed</label>
+                <input v-model.number="sceneReveal.seed" type="number" class="input" min="0" step="1">
+                <small class="text-muted">The same seed renders the same episode. Change it to redraw every look.</small>
+              </div>
+              <div class="form-group">
+                <label>Cap per effect</label>
+                <input v-model.number="sceneReveal.cap_per_effect" type="number" class="input" min="0" step="1">
+                <small class="text-muted">0 means no cap. A cap starts a new pass rather than repeating one look.</small>
+              </div>
+            </div>
+
+            <div class="form-group mt-2">
+              <label>Pool — the looks this episode may draw from</label>
+              <div v-if="!revealLibrary.length" class="text-muted text-sm">Loading the reveal library…</div>
+              <div v-else class="reveal-pool">
+                <label v-for="preset in revealLibrary" :key="preset.id" class="reveal-pool-row">
+                  <input
+                    type="checkbox"
+                    :checked="sceneReveal.pool.includes(preset.id)"
+                    @change="toggleRevealPool(preset.id, ($event.target as HTMLInputElement).checked)"
+                  >
+                  <span>
+                    <strong>{{ preset.name }}</strong>
+                    <small class="text-muted"> · {{ preset.family }}</small>
+                    <small v-if="preset.approximation" class="reveal-approx"> · {{ preset.approximation }}</small>
+                  </span>
+                </label>
+              </div>
+              <small class="text-muted">Nothing ticked uses the engine's default six wipes.</small>
+            </div>
+
+            <div v-if="revealPlan" class="mt-3">
+              <div class="reveal-plan-head">
+                <strong>Planned arrivals</strong>
+                <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="loadRevealPlan()">
+                  {{ revealPlanLoading ? 'Planning…' : 'Refresh plan' }}
+                </button>
+              </div>
+              <p class="text-muted text-sm">
+                Scene track {{ revealPlanTotal }}s across {{ revealPlan.scenes.length }} scene(s) —
+                the lengths the render will use.
+              </p>
+              <ul class="reveal-plan">
+                <li v-for="entry in revealPlan.scenes" :key="entry.scene_id">
+                  <span class="reveal-plan-scene">{{ entry.scene_index + 1 }}</span>
+                  <span class="reveal-plan-name">{{ revealName(entry.preset_id) }}</span>
+                  <span class="text-muted">{{ entry.hold.reveal_seconds.toFixed(1) }}s + {{ entry.hold.hold_seconds.toFixed(1) }}s</span>
+                  <span v-if="entry.source === 'override'" class="reveal-plan-badge">your choice</span>
+                  <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="rerollRevealScene(entry.scene_id)">Reroll</button>
+                </li>
+              </ul>
+            </div>
+          </template>
+        </div>
+
         <div v-if="!animationsCatalog.length" class="text-muted text-sm catalog-loading">Loading animations…</div>
         <AnimationPicker
           v-else
@@ -3390,6 +3479,130 @@ const sceneAnimation = reactive({
   randomize_mode: 'off' as 'off' | 'single' | 'per-scene',
 })
 
+const sceneReveal = reactive({
+  enabled: false,
+  pace: 'standard' as string,
+  coherence: 'scene' as string,
+  seed: 7,
+  cap_per_effect: 0,
+  no_immediate_repeat: true,
+  pool: [] as string[],
+})
+
+const revealLibrary = ref<Array<{ id: string; name: string; family: string; description: string; approximation?: string }>>([])
+const revealPlan = ref<{ enabled: boolean; pace: string; scenes: Array<{ scene_id: string; scene_index: number; preset_id: string; source: string; hold: { reveal_seconds: number; hold_seconds: number; total_seconds: number } }> } | null>(null)
+const revealPlanLoading = ref(false)
+const revealPaces = [
+  { id: 'fast', name: 'Fast', description: 'Short scenes, quick arrivals.' },
+  { id: 'standard', name: 'Standard', description: 'A clear arrival and a few seconds of hold.' },
+  { id: 'slow', name: 'Slow', description: 'One image carries a whole narration line — the image saving lives here.' },
+  { id: 'documentary', name: 'Documentary', description: 'Long holds, the calmest arrivals.' },
+]
+const revealPaceHint = computed(() => revealPaces.find(pace => pace.id === sceneReveal.pace)?.description || '')
+const revealPlanTotal = computed(() => (revealPlan.value?.scenes || [])
+  .reduce((sum, entry) => sum + entry.hold.reveal_seconds + entry.hold.hold_seconds, 0).toFixed(1))
+
+/**
+ * The reveal settings as a bundle carries them.
+ *
+ * Exactly the keys the assembly reads — the same set `revealPayload()` sends — so a batch render and
+ * a single-episode render cannot be given two different descriptions of the same look.
+ */
+function revealBundleSnapshot(): Record<string, unknown> {
+  return {
+    enabled: sceneReveal.enabled === true,
+    pace: sceneReveal.pace,
+    coherence: sceneReveal.coherence,
+    seed: Number(sceneReveal.seed) || 0,
+    cap_per_effect: Math.max(0, Math.round(Number(sceneReveal.cap_per_effect) || 0)),
+    no_immediate_repeat: sceneReveal.no_immediate_repeat !== false,
+    pool: [...sceneReveal.pool],
+  }
+}
+
+/** Put a bundle's reveal settings back on the panel. An absent block is a preset saved before
+ *  reveals existed, and it leaves the switch off rather than turning it on unasked. */
+function applyRevealBundle(data: any): void {
+  const reveal = data?.scene_reveal
+  if (!reveal || typeof reveal !== 'object') { sceneReveal.enabled = false; return }
+  sceneReveal.enabled = reveal.enabled === true
+  if (typeof reveal.pace === 'string') sceneReveal.pace = reveal.pace
+  if (typeof reveal.coherence === 'string') sceneReveal.coherence = reveal.coherence
+  if (Number.isFinite(Number(reveal.seed))) sceneReveal.seed = Number(reveal.seed)
+  if (Number.isFinite(Number(reveal.cap_per_effect))) sceneReveal.cap_per_effect = Number(reveal.cap_per_effect)
+  if (typeof reveal.no_immediate_repeat === 'boolean') sceneReveal.no_immediate_repeat = reveal.no_immediate_repeat
+  sceneReveal.pool = Array.isArray(reveal.pool) ? [...reveal.pool] : []
+}
+
+function revealName(id: string): string {
+  return revealLibrary.value.find(preset => preset.id === id)?.name || id
+}
+
+function toggleRevealPool(id: string, on: boolean): void {
+  sceneReveal.pool = on
+    ? [...new Set([...sceneReveal.pool, id])]
+    : sceneReveal.pool.filter(candidate => candidate !== id)
+}
+
+async function loadRevealLibrary(): Promise<void> {
+  try {
+    const r = await get<{ reveals: typeof revealLibrary.value }>(`/projects/${slug.value}/video-editor/reveals/catalog`)
+    revealLibrary.value = r.reveals || []
+  } catch { /* non-fatal: the engine's own default pool still renders */ }
+}
+
+/** The plan the render will use, from the same resolver the assembly calls. */
+async function loadRevealPlan(): Promise<void> {
+  if (!sceneReveal.enabled) { revealPlan.value = null; return }
+  revealPlanLoading.value = true
+  try {
+    const r = await post<{ plan: typeof revealPlan.value }>(`/projects/${slug.value}/video-editor/reveals/plan`, {
+      episode_id: episodeId.value,
+      scene_reveal: revealPayload(),
+    })
+    revealPlan.value = r.plan || null
+  } catch (error: any) {
+    revealPlan.value = null
+    showError(error?.data?.detail || error?.message || 'Could not plan the episode\'s reveals')
+  } finally {
+    revealPlanLoading.value = false
+  }
+}
+
+/** Reroll one scene: a new derived pick, stored with the scene so a re-render keeps it. */
+async function rerollRevealScene(sceneId: string): Promise<void> {
+  const candidates = sceneReveal.pool.length ? sceneReveal.pool : revealLibrary.value.map(preset => preset.id)
+  if (!candidates.length) return
+  const current = revealPlan.value?.scenes.find(entry => entry.scene_id === sceneId)?.preset_id
+  const choices = candidates.filter(id => id !== current)
+  const pick = (choices.length ? choices : candidates)[Math.floor(Math.random() * (choices.length ? choices.length : candidates.length))]!
+  try {
+    await put(`/projects/${slug.value}/video-editor/reveals/scene-choice`, {
+      episode_id: episodeId.value,
+      scene_id: sceneId,
+      preset_id: pick,
+      reroll: Date.now(),
+    })
+    await loadRevealPlan()
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Could not save the scene\'s reveal choice')
+  }
+}
+
+/** Only what the engine reads, so the fingerprint and the plan cannot disagree with the panel. */
+function revealPayload(): Record<string, unknown> {
+  if (!sceneReveal.enabled) return { enabled: false }
+  return {
+    enabled: true,
+    pace: sceneReveal.pace,
+    coherence: sceneReveal.coherence,
+    seed: Number(sceneReveal.seed) || 0,
+    cap_per_effect: Math.max(0, Math.round(Number(sceneReveal.cap_per_effect) || 0)),
+    no_immediate_repeat: sceneReveal.no_immediate_repeat !== false,
+    ...(sceneReveal.pool.length ? { pool: [...sceneReveal.pool] } : {}),
+  }
+}
+
 const animationsCatalog = ref<Array<{ id: string; label: string; category: string; hint?: string }>>([])
 
 async function loadAnimationsCatalog() {
@@ -3412,6 +3625,17 @@ const animationPresets = usePresets({
     breathe_base_zoom: sceneAnimation.breathe_base_zoom,
     pool: [...sceneAnimation.pool],
     randomize_mode: sceneAnimation.randomize_mode,
+    // The reveal look travels with the animation preset — pool, pace, coherence and cap are
+    // reusable configuration. **The seed does not**: the design keeps one seed per episode, and a
+    // preset that restored a seed would make two episodes share a randomisation.
+    reveal: {
+      enabled: sceneReveal.enabled,
+      pace: sceneReveal.pace,
+      coherence: sceneReveal.coherence,
+      cap_per_effect: sceneReveal.cap_per_effect,
+      no_immediate_repeat: sceneReveal.no_immediate_repeat,
+      pool: [...sceneReveal.pool],
+    },
   }),
   apply: (data: any) => {
     if (!data) return
@@ -3422,6 +3646,14 @@ const animationPresets = usePresets({
       if (data[k] !== undefined) (sceneAnimation as any)[k] = data[k]
     }
     if (Array.isArray(data.pool)) sceneAnimation.pool = [...data.pool]
+    if (data.reveal && typeof data.reveal === 'object') {
+      sceneReveal.enabled = data.reveal.enabled === true
+      if (typeof data.reveal.pace === 'string') sceneReveal.pace = data.reveal.pace
+      if (typeof data.reveal.coherence === 'string') sceneReveal.coherence = data.reveal.coherence
+      if (Number.isFinite(Number(data.reveal.cap_per_effect))) sceneReveal.cap_per_effect = Number(data.reveal.cap_per_effect)
+      if (typeof data.reveal.no_immediate_repeat === 'boolean') sceneReveal.no_immediate_repeat = data.reveal.no_immediate_repeat
+      sceneReveal.pool = Array.isArray(data.reveal.pool) ? [...data.reveal.pool] : []
+    }
   },
 })
 
@@ -4396,6 +4628,10 @@ const timelinePresets = usePresets({
     post_audio: { ...postAudio },
     transition: { ...transition, pool: [...transition.pool] },
     scene_animation: { ...sceneAnimation, pool: [...sceneAnimation.pool] },
+    // The reveal look rides in the timeline slot, which is where the batch flattener reads it from.
+    // Without this a one-click Pipeline batch would render without reveals while the page showed
+    // them — the drift the flatten test exists to catch.
+    scene_reveal: revealBundleSnapshot(),
   }),
   apply: (data: any) => {
     if (!data) return
@@ -4560,9 +4796,11 @@ function snapshotTimelineData() {
     post_audio: { ...postAudio },
     transition: { ...transition, pool: [...transition.pool] },
     scene_animation: { ...sceneAnimation, pool: [...sceneAnimation.pool] },
+    scene_reveal: revealBundleSnapshot(),
   }
 }
 function applyTimelineData(data: any) {
+  applyRevealBundle(data)
   if (!data) return
   applyTitleImagePreset(titleImage, data.title_image)
   if (data.scene_recycling) Object.assign(sceneRecycling, data.scene_recycling)
@@ -5699,7 +5937,7 @@ async function normalizeVideoAssemblyPathsInState(): Promise<void> {
 const { checkFfmpeg, scanAssets, scanError, generateVideo: runGenerateVideo, buildPayload: buildVideoAssemblyPayload } = useVideoAssemblyIo({
   slug, episodeId, selectedEpisode, visualSource, ffmpegStatus, scannedAssets, scanning, scenes,
   excludeIntroFromEffects,
-  logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
+  logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, sceneReveal, postAudio,
   colorGrading, vignette, filmGrain, agedArchiveFilm, letterbox, frame, chromaKey, sceneEffects,
   overlays,
   compilationLayout: {
@@ -6263,6 +6501,29 @@ onUnmounted(() => {
 }
 
 /* Catalog-loading state for transitions/animations selectors. */
+.reveal-panel {
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-secondary);
+}
+.reveal-toggle { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; }
+.reveal-pool {
+  max-height: 210px; overflow-y: auto; border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 8px; background: var(--bg-primary);
+}
+.reveal-pool-row { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; font-weight: 500; }
+.reveal-approx { color: var(--warning, #d97706); }
+.reveal-plan-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.reveal-plan { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.reveal-plan li { display: flex; align-items: center; gap: 10px; font-size: var(--font-sm); }
+.reveal-plan-scene {
+  min-width: 22px; text-align: center; border-radius: 999px; padding: 1px 6px;
+  background: var(--bg-secondary); color: var(--text-muted); font-size: var(--font-xs);
+}
+.reveal-plan-name { flex: 1; }
+.reveal-plan-badge {
+  font-size: var(--font-xs); padding: 1px 6px; border-radius: 999px;
+  background: rgba(115, 168, 223, .18); color: var(--motion-blue, #73a8df);
+}
 .catalog-loading { margin-top: 8px; }
 
 /* Color-picker: small swatch input + hex text input combo. */

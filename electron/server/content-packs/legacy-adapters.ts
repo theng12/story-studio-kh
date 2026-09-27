@@ -8,6 +8,8 @@ import { parseSubtitleStyleDocument } from '../contracts/subtitle-style-schema.j
 import { parseSceneMotionDocument, parseSceneOverlayDocument } from '../contracts/scene-effects-schema.js'
 import type { BuiltInSubtitlePreset } from '../contracts/subtitle-presets.js'
 import type { BuiltInMotion, BuiltInOverlay } from '../contracts/scene-effect-presets.js'
+import type { BuiltInReveal } from '../contracts/scene-reveal-presets.js'
+import { normalizeSceneReveal } from '../contracts/scene-reveal.js'
 import type { MotionCategory, OverlayCategory } from '../contracts/scene-effects.js'
 import { resolveMotionProfile } from '../services/motion-profiles.js'
 import { resolveRecencyStrategy } from '../services/recency-strategies.js'
@@ -20,11 +22,14 @@ type StyleDocument = Extract<ContentPackDocument, { kind: 'visual-style' }>
 type SubtitleStyleDocumentPack = Extract<ContentPackDocument, { kind: 'subtitle-style' }>
 type SceneEffectDocumentPack = Extract<ContentPackDocument, { kind: 'scene-effect' }>
 type OverlayDocumentPack = Extract<ContentPackDocument, { kind: 'overlay' }>
+type RevealDocumentPack = Extract<ContentPackDocument, { kind: 'reveal' }>
 
 /** A caption look from a pack, in the exact shape the built-in gallery uses. */
 export type PackSubtitlePreset = BuiltInSubtitlePreset & { origin: ContentOrigin }
 export type PackSceneMotion = BuiltInMotion & { origin: ContentOrigin }
 export type PackSceneOverlay = BuiltInOverlay & { origin: ContentOrigin }
+/** A reveal from a pack, in the exact shape the built-in library uses. */
+export type PackSceneReveal = BuiltInReveal & { origin: ContentOrigin }
 
 /** Kept local to the main process so the renderer never imports pack files. */
 export interface ContentPackVisualStyle {
@@ -340,6 +345,36 @@ export function contentPackDocumentToSceneOverlay(
     description: document.description,
     ...(document.approximation ? { approximation: document.approximation } : {}),
     document: parseSceneOverlayDocument(document.overlay),
+    origin,
+  }
+}
+
+/**
+ * A reveal pack document → the exact shape the built-in reveal library uses.
+ *
+ * `normalizeSceneReveal` is the engine's own reader, so a pack's document goes through the same
+ * defaults, clamps and unknown-field rejection every built-in did. The pack's `category` must agree
+ * with the document's own `family` — `schemas.ts` ties them, and the engine reads the family — so a
+ * disagreement is refused here rather than rendered as something the buyer did not choose.
+ */
+export function contentPackDocumentToSceneReveal(
+  document: RevealDocumentPack,
+  origin: ContentOrigin,
+): PackSceneReveal {
+  const reveal = normalizeSceneReveal(document.reveal)
+  if (reveal.family !== document.category) {
+    throw new Error(
+      `reveal category "${document.category}" does not match the document's own family `
+      + `"${reveal.family}"; a pack's category must be the family it ships`,
+    )
+  }
+  return {
+    id: document.id,
+    name: document.name,
+    family: reveal.family,
+    description: document.description,
+    ...(document.approximation ? { approximation: document.approximation } : {}),
+    document: reveal,
     origin,
   }
 }

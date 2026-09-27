@@ -85,6 +85,8 @@ export interface VideoAssemblyIoState {
   sceneRecycling: any
   transition: any
   sceneAnimation: any
+  /** v1.4.232 — the episode's reveal settings; absent means reveals are off. */
+  sceneReveal?: any
   postAudio: any
   colorGrading: any
   vignette: any
@@ -277,6 +279,26 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       scene_animation: { ...s.sceneAnimation },
       animation_pool: s.sceneAnimation.pool,
       animation_randomize: s.sceneAnimation.randomize_mode,
+      // Reveals: off unless the episode turned them on, and then exactly the settings the plan
+      // panel was built from — the assembly resolves its own plan from these, so a mismatch here
+      // would render something the page never showed.
+      scene_reveal: s.sceneReveal
+        ? {
+            enabled: s.sceneReveal.enabled === true,
+            ...(s.sceneReveal.enabled === true
+              ? {
+                  pace: s.sceneReveal.pace,
+                  coherence: s.sceneReveal.coherence,
+                  seed: Number(s.sceneReveal.seed) || 0,
+                  cap_per_effect: Math.max(0, Math.round(Number(s.sceneReveal.cap_per_effect) || 0)),
+                  no_immediate_repeat: s.sceneReveal.no_immediate_repeat !== false,
+                  ...(Array.isArray(s.sceneReveal.pool) && s.sceneReveal.pool.length
+                    ? { pool: [...s.sceneReveal.pool] }
+                    : {}),
+                }
+              : {}),
+          }
+        : { enabled: false },
       post_audio: { ...s.postAudio },
       scene_recycling: {
         seconds_per_scene: s.sceneRecycling.seconds_per_scene,

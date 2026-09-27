@@ -18,6 +18,8 @@ import {
   BUILT_IN_OVERLAYS,
   BUILT_IN_SCENE_MOTIONS,
 } from '../contracts/scene-effect-presets.js'
+import { BUILT_IN_SCENE_REVEALS } from '../contracts/scene-reveal-presets.js'
+import { REVEAL_FAMILIES, normalizeSceneReveal } from '../contracts/scene-reveal.js'
 import type { ContentPackDocument, ContentPackItemKind, ContentPackManifest } from './types.js'
 import { FONT_STYLES, TEXT_STYLES } from '../models/thumbnail-styles.js'
 
@@ -192,6 +194,11 @@ export const ContentPackItemKindSchema = z.enum([
   'subtitle-style',
   'scene-effect',
   'overlay',
+  // v1.4.232 — the reveal engine (1.4.229) made an arrival a DESCRIPTION the compiler turns into an
+  // FFmpeg graph, so a reveal pack ships that description and nothing else, exactly like the three
+  // above. It is the fourth of the same shape, and the reveal pool the design calls for is what it
+  // is for: the six wipes the engine ships stay the free starter set.
+  'reveal',
   // v1.4.57 — thumbnail lettering, on exactly the principle the three above
   // established: a look is a DESCRIPTION the engine interprets. The thumbnail
   // prompt builder already turns a lettering phrase into an instruction for
@@ -473,6 +480,16 @@ const SceneEffectDocumentPackSchema = z.object({
   motion: engineBody,
 }).strict()
 
+const RevealDocumentPackSchema = z.object({
+  kind: z.literal('reveal'),
+  ...baseDocument,
+  /** Which family the arrival belongs to. A pack cannot invent one. */
+  category: z.enum(REVEAL_FAMILIES),
+  approximation: safeText(2000).optional(),
+  /** A complete `SceneRevealDocument`. The engine's own normaliser reads it at load. */
+  reveal: engineBody,
+}).strict()
+
 const OverlayDocumentPackSchema = z.object({
   kind: z.literal('overlay'),
   ...baseDocument,
@@ -483,10 +500,13 @@ const OverlayDocumentPackSchema = z.object({
 }).strict()
 
 /** Built-in ids a pack must never claim, per kind. */
-const BUILT_IN_IDS: Readonly<Record<'subtitle-style' | 'scene-effect' | 'overlay' | 'lettering-style', ReadonlySet<string>>> = {
+const BUILT_IN_IDS: Readonly<Record<'subtitle-style' | 'scene-effect' | 'overlay' | 'lettering-style' | 'reveal', ReadonlySet<string>>> = {
   'subtitle-style': new Set(BUILT_IN_SUBTITLE_PRESETS.map(preset => preset.id)),
   'scene-effect': new Set([...BUILT_IN_SCENE_MOTIONS, ...BUILT_IN_FOOTAGE_MOTIONS].map(entry => entry.id)),
   overlay: new Set(BUILT_IN_OVERLAYS.map(entry => entry.id)),
+  // The engine's own twenty presets. A reveal pack adds arrivals; it may never
+  // take the name of one every project already draws from its default pool.
+  reveal: new Set(BUILT_IN_SCENE_REVEALS.map(entry => entry.id)),
   // The app's own font and treatment ids. A pack may not claim one: the buyer
   // would pay for a style that silently loses to a built-in, or worse, changes
   // what every existing thumbnail prompt means.
@@ -578,6 +598,7 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
   SubtitleStyleDocumentPackSchema,
   SceneEffectDocumentPackSchema,
   OverlayDocumentPackSchema,
+  RevealDocumentPackSchema,
   LetteringStyleDocumentPackSchema,
   MetadataFormulaDocumentSchema,
 ]).superRefine((document, ctx) => {
@@ -596,7 +617,8 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
     return
   }
   if (document.kind === 'subtitle-style' || document.kind === 'scene-effect'
-    || document.kind === 'overlay' || document.kind === 'lettering-style') {
+    || document.kind === 'overlay' || document.kind === 'lettering-style'
+    || document.kind === 'reveal') {
     // A pack ADDS to the library. It never replaces a built-in, and it never
     // shadows one silently: the free starter sets keep working with any pack
     // installed, and a pack claiming a built-in id is refused here rather than
@@ -620,6 +642,22 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
         label: 'subtitle style',
         parse: parseSubtitleStyleDocument,
       })
+      return
+    }
+    if (document.kind === 'reveal') {
+      // The reveal engine has no Zod schema of its own: its reader is
+      // `normalizeSceneReveal`, which is what the compiler and the planner call, and a pack
+      // document goes through exactly that. Validating it here with a second schema would be a
+      // rule free to disagree with the one that actually renders — so the check is the reader
+      // itself, plus the family agreement the adapter also enforces.
+      const reveal = normalizeSceneReveal(document.reveal)
+      if (reveal.family !== document.category) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['category'],
+          message: `category "${document.category}" must be the family the reveal document itself states ("${reveal.family}")`,
+        })
+      }
       return
     }
     if (document.kind === 'scene-effect') {

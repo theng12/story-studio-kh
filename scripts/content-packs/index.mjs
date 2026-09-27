@@ -41,6 +41,7 @@ const KIND_ORDER = [
   'subtitle-style',
   'scene-effect',
   'overlay',
+  'reveal',
 ]
 
 const KIND_LABELS = {
@@ -54,6 +55,7 @@ const KIND_LABELS = {
   'subtitle-style': 'Subtitle styles',
   'scene-effect': 'Scene effects',
   'overlay': 'Overlays',
+  reveal: 'Reveal effects',
 }
 
 async function findPackJsonFiles(dir) {

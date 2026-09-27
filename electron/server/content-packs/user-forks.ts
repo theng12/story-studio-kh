@@ -276,7 +276,8 @@ export async function forkLegacyContentForEdit(input: {
   projectSlug?: string
 }, options: UserForkOptions = {}): Promise<{ fork_id: UserForkId; source: ContentCatalogSource }> {
   if (input.kind === 'visual-style' || input.kind === 'subtitle-style'
-    || input.kind === 'scene-effect' || input.kind === 'overlay') {
+    || input.kind === 'scene-effect' || input.kind === 'overlay'
+    || input.kind === 'reveal') {
     throw Object.assign(
       new Error(`Legacy ${input.kind} user overrides are not supported`),
       { statusCode: 400, expose: true },

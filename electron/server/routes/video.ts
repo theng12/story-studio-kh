@@ -775,6 +775,137 @@ router.get('/projects/:slug/video-editor/preview-transition', async (req, res) =
   }
 })
 
+// ── Reveal effects: the library, the plan, and a scene's own choice ──────
+
+/**
+ * The reveal library the picker offers: the engine's presets, then installed packs.
+ *
+ * Same shape as the animations catalog above, and the same rule — a pack appends and never replaces
+ * a built-in, so with nothing installed this is exactly the twenty presets 1.4.229 shipped.
+ */
+router.get('/projects/:slug/video-editor/reveals/catalog', async (_req, res) => {
+  try {
+    const { listRevealPresets } = await import('../services/style-effect-loader.js')
+    const library = await listRevealPresets()
+    res.json({
+      reveals: library.map(entry => ({
+        id: entry.id,
+        name: entry.name,
+        family: entry.family,
+        description: entry.description,
+        ...(entry.approximation ? { approximation: entry.approximation } : {}),
+        origin: entry.origin,
+        // The design's own words for what this family is for, so the picker can group and explain
+        // without a second copy of the engine's table living in the renderer.
+        document: {
+          transition: entry.document.transition,
+          hold: entry.document.hold,
+          timing: entry.document.timing,
+        },
+      })),
+    })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not load the reveal library'))
+  }
+})
+
+/**
+ * The reveal plan for one episode: what will actually render, scene by scene.
+ *
+ * Resolved by the same function the assembly calls, with the settings the caller sends, so the page
+ * shows the render rather than a guess at it. The plan is deterministic given those settings, which
+ * is why this can be a pure read with no cache and no stored state.
+ */
+router.post('/projects/:slug/video-editor/reveals/plan', async (req, res) => {
+  const { slug } = req.params
+  const episodeId = String(req.body?.episode_id || '').trim()
+  if (!episodeId) return res.status(400).json({ detail: 'episode_id is required' })
+  try {
+    const fs = await import('fs/promises')
+    const { existsSync } = await import('fs')
+    const { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } = await import('../services/utils.js')
+    const { listRevealPresets } = await import('../services/style-effect-loader.js')
+    const { resolveSceneReveals } = await import('../lib/reveal-assembly.js')
+    const { SCENE_PLAN_FILENAME } = await import('../generators/scene-plan.js')
+
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as {
+      scenes?: Array<{ id: string, start_sec: number, end_sec: number, reveal?: { preset_id: string, reroll?: number } }>
+    }
+    const scenes = plan.scenes ?? []
+    const settings = (req.body?.scene_reveal ?? {}) as Record<string, unknown>
+    const library = await listRevealPresets()
+    // The stored per-scene choices are the episode's own: a caller does not have to send them, and a
+    // caller that sends its own overrides wins, because that is what the assembly will render with.
+    const stored = scenes
+      .filter(scene => scene.reveal?.preset_id)
+      .map(scene => ({ scene_id: scene.id, preset_id: scene.reveal!.preset_id, ...(scene.reveal!.reroll ? { reroll: scene.reveal!.reroll } : {}) }))
+    const resolved = resolveSceneReveals({
+      scenes: scenes.map((scene, index) => ({
+        scene_id: scene.id,
+        scene_index: index,
+        window_seconds: Math.max(0.5, scene.end_sec - scene.start_sec),
+        narration_seconds: Math.max(0.5, scene.end_sec - scene.start_sec),
+      })),
+      settings: {
+        ...(settings as object),
+        ...(Array.isArray(settings.overrides) && settings.overrides.length ? {} : { overrides: stored }),
+      } as never,
+      library,
+    })
+    res.json({ plan: resolved, scenes: scenes.map((scene, index) => ({ scene_id: scene.id, scene_index: index, stored_reveal: scene.reveal ?? null })) })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not plan the episode\'s reveals'))
+  }
+})
+
+/** Save one scene's manual reveal choice (or clear it) in the episode's own scene plan. */
+router.put('/projects/:slug/video-editor/reveals/scene-choice', async (req, res) => {
+  const { slug } = req.params
+  const episodeId = String(req.body?.episode_id || '').trim()
+  const sceneId = String(req.body?.scene_id || '').trim()
+  if (!episodeId || !sceneId) return res.status(400).json({ detail: 'episode_id and scene_id are required' })
+  const presetId = req.body?.preset_id === null ? null : String(req.body?.preset_id || '').trim()
+  if (presetId !== null && !presetId) return res.status(400).json({ detail: 'preset_id is required' })
+  try {
+    const fs = await import('fs/promises')
+    const { existsSync } = await import('fs')
+    const { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } = await import('../services/utils.js')
+    const { withLock, writeJsonAtomic } = await import('../lib/atomic-store.js')
+    const { SCENE_PLAN_FILENAME } = await import('../generators/scene-plan.js')
+
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
+    const changed = await withLock(planPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as {
+        scenes?: Array<{ id: string, reveal?: { preset_id: string, reroll?: number } }>
+      }
+      const scene = (fresh.scenes ?? []).find(candidate => candidate.id === sceneId)
+      if (!scene) return 0
+      if (presetId === null) {
+        if (!scene.reveal) return 0
+        delete scene.reveal
+      } else {
+        // A reroll is what makes a second pick a *new* choice: the number travels into the plan so
+        // the same preset chosen twice is not mistaken for the stored one.
+        const reroll = Number(req.body?.reroll)
+        scene.reveal = Number.isFinite(reroll) && reroll > 0
+          ? { preset_id: presetId, reroll: Math.trunc(reroll) }
+          : { preset_id: presetId }
+      }
+      await writeJsonAtomic(planPath, fresh)
+      return 1
+    })
+    if (!changed) return res.status(404).json({ detail: 'Scene not found, or it already had that choice' })
+    res.json({ ok: true })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not save the scene\'s reveal choice'))
+  }
+})
+
 // ── Animations catalog + previews ───────────────────────────────────────
 
 router.get('/projects/:slug/video-editor/animations/catalog', async (_req, res) => {

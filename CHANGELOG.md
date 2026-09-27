@@ -4,6 +4,31 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.232 — 2026-09-27
+
+- **Reveal effects ship end to end.** The engine landed in 1.4.229 and nothing could choose one; now
+  Video Assembly has a **Reveal effects** panel: on/off, pace, how often the look changes
+  (every scene / once per act / once per episode), an episode seed, a cap per effect, and the pool
+  of arrivals to draw from. The panel lists the **planned arrivals** — each scene's look with its
+  reveal and hold — from the same resolver the render calls, so what you read is what renders.
+- **A per-scene reroll.** Scene 7's arrival can be redrawn on its own; the choice is saved with that
+  scene in the episode's own scene plan, and it is a *new* choice rather than the old one written
+  twice. Everything else stays deterministic: the same seed and pool reproduce the same episode.
+- **The payout is the pacing.** A scene at Slow is a 1.6 s arrival and a 10.4 s hold — one image
+  carrying a whole narration line. Measured on a six-scene sequence: **72 s from 6 images where the
+  5 s/image baseline needs 15 — 9 fewer, 2.5×**, and three frames sampled inside one hold differ,
+  so the hold drifts rather than freezing. Receipt:
+  `docs/receipts/reveal-episode-slow-20260927/`.
+- **Presets ship as Content Packs.** A new `reveal` pack kind carries a reveal document and its
+  family; installed packs append to the library, and a pack may never claim one of the engine's own
+  twenty preset ids or disagree with its own document's family.
+- **The pace never trims your script.** The pace band sets how long a scene *wants* to be; a long
+  narration line wins, and the hold absorbs the difference rather than the scene being cut short.
+- **Two honest limitations, both named in `docs/reveal-effects.md`:** holds do not yet snap to
+  narration lines or music beats (the plan is resolved before those are read, and the render
+  fingerprint depends on that order), and the Image Pool path recycles stills on its own timing, so
+  reveals do not apply there.
+
 ## v1.4.231 — 2026-09-27
 
 - **You can ask a video model for a clip with no sound — where the model offers the choice.** Motion

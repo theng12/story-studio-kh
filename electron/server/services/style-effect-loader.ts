@@ -43,9 +43,11 @@ import { registryOptionsForCurrentJob } from '../content-packs/project-pins.js'
 import {
   contentPackDocumentToSceneMotion,
   contentPackDocumentToSceneOverlay,
+  contentPackDocumentToSceneReveal,
   contentPackDocumentToSubtitlePreset,
   type PackSceneMotion,
   type PackSceneOverlay,
+  type PackSceneReveal,
   type PackSubtitlePreset,
 } from '../content-packs/legacy-adapters.js'
 import type { ContentPackDocument, ContentPackItemKind } from '../content-packs/types.js'
@@ -57,6 +59,7 @@ import {
   BUILT_IN_SCENE_MOTIONS,
 } from '../contracts/scene-effect-presets.js'
 import { FOOTAGE_MOTION_CATEGORY, SCENE_EFFECT_SCHEMA_VERSION } from '../contracts/scene-effects.js'
+import { BUILT_IN_SCENE_REVEALS } from '../contracts/scene-reveal-presets.js'
 
 /** One pack item that did not make it into the library, and why. */
 export interface ContentEntryRefusal {
@@ -74,6 +77,8 @@ export interface SubtitleStyleCatalog {
 
 export interface SceneEffectLibrary {
   schema_version: typeof SCENE_EFFECT_SCHEMA_VERSION
+  /** The reveal library — the engine's own presets, then installed reveal packs. */
+  reveals: PackSceneReveal[]
   scene_motions: PackSceneMotion[]
   footage_motions: PackSceneMotion[]
   overlays: PackSceneOverlay[]
@@ -239,8 +244,10 @@ export async function listSceneEffectLibrary(
     'overlay',
     refusals,
   )
+  const reveals = await listRevealPresets(options)
   return {
     schema_version: SCENE_EFFECT_SCHEMA_VERSION,
+    reveals,
     scene_motions: appendPackEntries(
       withBuiltInOrigin(BUILT_IN_SCENE_MOTIONS),
       stillPackMotions,
@@ -257,6 +264,35 @@ export async function listSceneEffectLibrary(
     grouped_overlays: groupOverlays(mergedOverlays),
     refusals,
   }
+}
+
+/**
+ * The reveal library: the engine's own presets, then whatever packs installed.
+ *
+ * Same contract as the caption and effect libraries above — built-ins are the floor, a pack only
+ * appends, a colliding id is refused by name, and a broken pack costs its own entries and nothing
+ * else. The reveal engine's defaults stay usable with no pack installed, which is what makes the
+ * six-wipe default pool a promise rather than a hope.
+ */
+export async function listRevealPresets(
+  options: ContentPackRegistryOptions = {},
+): Promise<Array<PackSceneReveal>> {
+  const refusals: ContentEntryRefusal[] = []
+  const packReveals = await packEntriesFor(
+    'reveal',
+    options,
+    (entry, origin) => contentPackDocumentToSceneReveal(
+      entry.value as Extract<ContentPackDocument, { kind: 'reveal' }>,
+      origin,
+    ),
+    refusals,
+  )
+  return appendPackEntries(
+    withBuiltInOrigin(BUILT_IN_SCENE_REVEALS),
+    packReveals,
+    'reveal',
+    refusals,
+  )
 }
 
 /** Resolve one move by id and engine, the way `preview-effect` needs it. */

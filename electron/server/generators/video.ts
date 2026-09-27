@@ -24,6 +24,12 @@ import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeW
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
+import { renderRevealClip, revealClipPath } from '../lib/reveal-render.js'
+import {
+  plannedRevealForScene,
+  resolveSceneReveals,
+  type ResolvedSceneReveals,
+} from '../lib/reveal-assembly.js'
 import { mulberry32 } from '../lib/seeded-random.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
@@ -99,7 +105,7 @@ import type {
   VideoDurationConfig, VideoColorGrading, VideoVignetteConfig,
   VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoAgedArchiveFilm, VideoLetterbox, VideoFrameConfig,
   BackgroundPlate, ForegroundDefaults, ForegroundPosition,
-  VideoSceneAnimation, VideoPostAudio, ScenePlan, ContextualCue, SoundDesignCue,
+  VideoSceneAnimation, VideoPostAudio, VideoScene, ScenePlan, ContextualCue, SoundDesignCue,
 } from '../models/types.js'
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -1594,6 +1600,23 @@ export async function generateVideo(job: Job): Promise<void> {
   const resolvedSceneAnimation = sceneEffectLibrary
     ? resolveVideoAssemblySceneAnimation(req, req.scenes.length)
     : null
+  // Reveal effects: one plan for the episode, resolved before the fingerprint so a changed reveal
+  // re-renders and an unchanged one reuses its clips. Duration comes from the plan, which is why it
+  // has to be resolved this early — the timeline reads the same numbers.
+  const resolvedSceneReveals = sceneEffectLibrary
+    ? resolveSceneReveals({
+        scenes: req.scenes.map((scene, index) => ({
+          scene_id: sceneIdForIndex(scene, index),
+          scene_index: index,
+          act_index: actIndexForScene(scene),
+          window_seconds: resolveRevealWindowSeconds(scene, req.scene_recycling?.seconds_per_scene || 10),
+          narration_seconds: narrationForScene(scene),
+          snap: snapCandidatesForScene(scene, req),
+        })),
+        settings: req.scene_reveal,
+        library: sceneEffectLibrary.reveals,
+      })
+    : undefined
   const renderFingerprint = sceneEffectLibrary
     ? await buildVideoAssemblyRenderFingerprint({
         request: renderFingerprintRequest,
@@ -1608,6 +1631,7 @@ export async function generateVideo(job: Job): Promise<void> {
         resolved_sound_design_cues: resolvedSoundDesignCues,
         resolved_scene_effect_library: sceneEffectLibrary,
         resolved_scene_animation: resolvedSceneAnimation,
+        resolved_scene_reveals: resolvedSceneReveals,
         content_pack_provenance: job.content_pack_provenance || [],
       })
     : null
@@ -1947,6 +1971,29 @@ export async function generateVideo(job: Job): Promise<void> {
       )
     }
 
+    // ── Reveal effects: the plan's durations are the timeline's durations ──────
+    // A reveal plus a hold is what lets one image carry a whole narration window, so the pace plan
+    // — not the uniform recycling default — decides how long a revealed scene stays. The plan was
+    // resolved before the fingerprint, from the same window cascade this timeline uses, so the two
+    // cannot disagree. A scene the plan could not cover keeps its own duration.
+    if (resolvedSceneReveals?.enabled) {
+      let revealed = 0
+      for (const scene of resolvedSceneReveals.scenes) {
+        if (scene.scene_index < 0 || scene.scene_index >= sceneClipDurations.length) continue
+        const planned = Math.max(0.5, scene.hold.total_seconds)
+        if (Math.abs(planned - sceneClipDurations[scene.scene_index]!) > 0.01) revealed++
+        sceneClipDurations[scene.scene_index] = planned
+      }
+      const total = sceneClipDurations.reduce((sum, value) => sum + value, 0)
+      job.output_lines.push(
+        `Reveal effects: ON — pace ${resolvedSceneReveals.pace}, coherence `
+        + `${resolvedSceneReveals.coherence}, seed ${resolvedSceneReveals.seed}, `
+        + `${resolvedSceneReveals.scenes.length} scene(s) planned`
+        + (revealed ? `, ${revealed} duration(s) set by the plan` : '')
+        + `; scene track ${total.toFixed(1)}s`,
+      )
+    }
+
     // ── Audio-coverage gate (v1.0.522, plan-strict only) ──────────────────
     // "Every second of narration must have a scene." Refuse to render when
     // >2s of the narration has no planned scene — the post-audio tail
@@ -2014,6 +2061,8 @@ export async function generateVideo(job: Job): Promise<void> {
           randomizeMode: resolvedSceneAnimation!.randomize_mode,
           seed: resolvedSceneAnimation!.seed,
           picks: resolvedSceneAnimation!.picks,
+          ...(resolvedSceneReveals?.enabled ? { reveals: resolvedSceneReveals } : {}),
+          crf: quality.crf,
         },
         sceneClipDurations,
         exactSceneTiming ? planTransitionTail : 0,
@@ -2291,6 +2340,8 @@ export async function generateVideo(job: Job): Promise<void> {
           randomizeMode: resolvedSceneAnimation!.randomize_mode,
           seed: resolvedSceneAnimation!.seed,
           picks: resolvedSceneAnimation!.picks,
+          ...(resolvedSceneReveals?.enabled ? { reveals: resolvedSceneReveals } : {}),
+          crf: quality.crf,
         },
         sceneClipDurations,
         planTransitionTail,
@@ -2906,6 +2957,75 @@ function buildCompilationOverlays(
 
 // ── Prepare Scene Clips ───────────────────────────────────────────────────
 
+/**
+ * A scene's stable identity as the reveal planner sees it.
+ *
+ * The plan's ids travel into the fingerprint and into the per-scene overrides the UI saves, so they
+ * have to be the *plan's* ids rather than positions: a scene inserted at the top would otherwise
+ * move every override down one and re-dress the episode. Position is the fallback only for a scene
+ * the plan did not name.
+ */
+function sceneIdForIndex(scene: VideoScene, index: number): string {
+  const stable = (scene as { plan_scene_id?: unknown }).plan_scene_id
+  return typeof stable === 'string' && stable ? stable : `scene:${index}`
+}
+
+/** The act a scene belongs to, for the `act` coherence mode: its chapter, by first appearance. */
+function actIndexForScene(scene: VideoScene): number | undefined {
+  const chapter = typeof scene.chapter_slug === 'string' ? scene.chapter_slug.trim() : ''
+  if (!chapter) return undefined
+  const seen = scene.__revealChapterOrder ??= new Map<string, number>()
+  if (!seen.has(chapter)) seen.set(chapter, seen.size)
+  return seen.get(chapter)
+}
+
+/**
+ * The window a scene has to fill, in the order the authoritative plan states it.
+ *
+ * The plan's own duration wins, then an explicit scene duration, then the uniform recycling
+ * default — the same cascade `sceneClipDurations` uses below, and deliberately the same order so
+ * the reveal plan and the timeline cannot disagree about how long a scene is.
+ */
+function resolveRevealWindowSeconds(scene: VideoScene, recyclingDefault: number): number {
+  const stated = typeof scene.duration === 'number' && Number.isFinite(scene.duration) && scene.duration > 0
+    ? scene.duration
+    : undefined
+  if (stated) return stated
+  // The same fallback the timeline uses, passed in rather than restated: a plan built on a
+  // different default would put the reveal's own length out of step with the scene's window.
+  return recyclingDefault
+}
+
+/**
+ * A scene's narration length, when the scene itself is narration-derived.
+ *
+ * `planSceneHold` raises a scene's total to its narration length, so passing this is what stops a
+ * pace band from trimming a long line. A scene with no narration window (a B-Roll scene, a
+ * title-driven beat) passes nothing and the band decides.
+ */
+function narrationForScene(scene: VideoScene): number | undefined {
+  const planned = (scene as { __scene_plan_duration?: boolean }).__scene_plan_duration
+  if (!planned) return undefined
+  const stated = typeof scene.duration === 'number' && Number.isFinite(scene.duration) && scene.duration > 0
+    ? scene.duration
+    : undefined
+  return stated
+}
+
+/**
+ * The narration lines and beats a scene's hold may snap to.
+ *
+ * **Deliberately empty for now, and that is a real limitation rather than an oversight.** The
+ * planner accepts both, and the numbers exist in `audio_sentences.json` and in the Sound Design
+ * cue list — but neither is loaded at the point the plan is resolved (the plan has to be resolved
+ * before the render fingerprint, and those reads happen after it). Snapping is a refinement on top
+ * of a hold that already fits the window, so it is the part to leave out rather than to load late
+ * and disagree with the fingerprint. Recorded in `docs/reveal-effects.md`.
+ */
+function snapCandidatesForScene(_scene: VideoScene, _req: GenerateVideoRequest): undefined {
+  return undefined
+}
+
 /** Keep generator-only normalization off the durable request persisted by the queue. */
 export function createVideoAssemblyExecutionRequest(params: Job['params']): GenerateVideoRequest {
   return structuredClone(params) as GenerateVideoRequest
@@ -2977,6 +3097,8 @@ export interface VideoAssemblySceneClipRecovery {
   renderFingerprint: string
   /** Test seam: production always uses the real FFmpeg runner. */
   encodeSceneClip?: (args: string[], options: { timeoutMs: number }) => Promise<unknown>
+  /** Test seam for the reveal path, exactly like `encodeSceneClip`: production runs FFmpeg. */
+  runRevealClip?: (args: string[], options: { timeoutMs?: number }) => Promise<unknown>
   /** Test seam: production always persists through the durable job queue. */
   persistCheckpoint?: (job: Job) => Promise<void>
 }
@@ -2998,6 +3120,10 @@ export async function prepareSceneClips(
     randomizeMode: 'off' | 'single' | 'per-scene'
     seed?: number
     picks?: string[]
+    /** The episode's reveal plan, when reveals are on. A scene it covers renders a reveal clip. */
+    reveals?: ResolvedSceneReveals
+    /** The pace's own size, because a reveal clip is rendered at the canvas, not cropped to it. */
+    crf?: number
   },
   /** v1.0.81+: sentence-aligned per-scene durations. Index-aligned with
    *  `scenes`. When provided, scene i renders for perSceneDurations[i]
@@ -3129,6 +3255,42 @@ export async function prepareSceneClips(
     const pickedType = picks[i]
     const durLog = Math.abs(duration - defaultDuration) > 0.05 ? ` [dur=${duration.toFixed(2)}s]` : ''
     const tagLog = `${isVideoScene ? ' [video]' : (pickedType !== sceneAnimation.type ? ` [anim=${pickedType}]` : '')}${durLog}`
+
+    // A revealed still does not go through the animation-filter path at all: the reveal engine owns
+    // the whole graph (its own field, its own zoompan drift, its own micro-events), so its clip is
+    // rendered first and this branch takes it as the scene's clip. A *video* scene never takes a
+    // reveal — it already moves, and dressing footage in a wipe is not what "reveal effects" means
+    // here — and a scene the plan does not cover keeps the shipped behaviour exactly.
+    const reveal = isVideoScene ? undefined : plannedRevealForScene(animationOpts?.reveals, i)
+    if (reveal && !reusable.has(i)) {
+      const revealPath = revealClipPath(tempDir, i)
+      const rendered = await renderRevealClip({
+        ...(recovery?.runRevealClip ? { run: recovery.runRevealClip } : {}),
+        imagePath: scene.image_path,
+        outPath: revealPath,
+        document: reveal.document,
+        pace: animationOpts!.reveals!.pace,
+        // The clip's own window: the plan already decided it, and the timeline was given the same
+        // number, so a reveal that rendered to any other length would drift from the script.
+        windowSeconds: duration,
+        narrationSeconds: (scene as { __scene_plan_duration?: boolean }).__scene_plan_duration
+          ? duration
+          : undefined,
+        width: w,
+        height: h,
+        fps: quality.fps,
+        crf: animationOpts?.crf,
+      })
+      clipPaths[i] = revealPath
+      preparedCount++
+      job.output_lines.push(
+        `Scene clips: ${preparedCount}/${scenes.length} done [reveal ${reveal.preset_id} `
+        + `${rendered.plan.reveal_seconds.toFixed(2)}s + hold ${rendered.plan.hold_seconds.toFixed(2)}s`
+        + `${rendered.plan.micro_event_offsets.length
+          ? ` + ${rendered.plan.micro_event_offsets.length} micro-event(s)` : ''}]`,
+      )
+      return
+    }
 
     const vfParts = isVideoScene
       // crop-fill: scale up to cover the canvas, then centre-crop the overflow

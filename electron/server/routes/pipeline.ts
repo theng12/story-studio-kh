@@ -1409,6 +1409,12 @@ export function flattenVideoAssemblyBundle(
     if (Array.isArray(timeline.scene_animation.pool)) out.animation_pool = timeline.scene_animation.pool
     if (timeline.scene_animation.randomize_mode) out.animation_randomize = timeline.scene_animation.randomize_mode
   }
+  // The reveal look is resolved fresh on every render, so a batch that dropped it would render a
+  // visibly different episode from the one the panel showed — the drift this flattener exists to
+  // prevent. Only the engine's own keys travel; an absent block stays absent (reveals off).
+  if (timeline.scene_reveal && typeof timeline.scene_reveal === 'object') {
+    out.scene_reveal = timeline.scene_reveal
+  }
   if (timeline.title_image?.enabled && timeline.title_image.image_path) {
     out.title_image = timeline.title_image
   }

@@ -1,0 +1,87 @@
+{
+  "script": "scripts/reveal-episode-check.mts",
+  "pace": "slow",
+  "coherence": "scene",
+  "seed": 7,
+  "window_seconds": 12,
+  "canvas": {
+    "width": 1280,
+    "height": 720,
+    "fps": 24,
+    "crf": 20
+  },
+  "library_source": "19 preset(s)",
+  "scenes": [
+    {
+      "scene": 1,
+      "preset": "reveal-centre",
+      "seconds": 12,
+      "reveal": 1.6,
+      "hold": 10.4,
+      "file": "scene-01.mp4"
+    },
+    {
+      "scene": 2,
+      "preset": "reveal-diagonal",
+      "seconds": 12,
+      "reveal": 1.6,
+      "hold": 10.4,
+      "file": "scene-02.mp4"
+    },
+    {
+      "scene": 3,
+      "preset": "reveal-curtain",
+      "seconds": 12,
+      "reveal": 1.6,
+      "hold": 10.4,
+      "file": "scene-03.mp4"
+    },
+    {
+      "scene": 4,
+      "preset": "reveal-centre",
+      "seconds": 12,
+      "reveal": 1.6,
+      "hold": 10.4,
+      "file": "scene-04.mp4"
+    },
+    {
+      "scene": 5,
+      "preset": "reveal-diagonal",
+      "seconds": 12,
+      "reveal": 1.6,
+      "hold": 10.4,
+      "file": "scene-05.mp4"
+    },
+    {
+      "scene": 6,
+      "preset": "reveal-rows",
+      "seconds": 12,
+      "reveal": 1.6,
+      "hold": 10.4,
+      "file": "scene-06.mp4"
+    }
+  ],
+  "totals": {
+    "scenes": 6,
+    "seconds": 72,
+    "seconds_per_image": 12,
+    "uniform_five_second_images": 15,
+    "images_saved": 9
+  },
+  "hold_samples": [
+    "hold-2.0s.png",
+    "hold-6.8s.png",
+    "hold-11.6s.png"
+  ],
+  "outputs": {
+    "episode": "reveal-episode--slow.mp4",
+    "clips": [
+      "scene-01.mp4",
+      "scene-02.mp4",
+      "scene-03.mp4",
+      "scene-04.mp4",
+      "scene-05.mp4",
+      "scene-06.mp4"
+    ]
+  }
+}

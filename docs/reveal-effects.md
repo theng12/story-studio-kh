@@ -1,6 +1,7 @@
 # Reveal effects — the decided design, and what shipped
 
-**Status: the engine is built and verified; the surfaces are not wired yet.** This file is the
+**Status: shipped end to end in 1.4.232 — the engine, the surfaces, the Content Pack kind and the
+assembly integration. The sections at the end say what each release built.** This file is the
 design the owner approved on 2026-09-26, moved into the repository (it lived in `_orchestra/`
 until the work started, so that it rides this repo's release cycle from here on). The section at
 the end says exactly which half is done and which half is next — read that first if you are
@@ -132,22 +133,41 @@ considered or as padding.
 - 24 engine tests (`electron/server/__tests__/reveal-engine.test.ts`), including the chain
   arithmetic, the graph's label closure, and every randomisation rule.
 
-**Not built yet — the next slice, in this order:**
+**Built in 1.4.232 — the surfaces, the pack kind and the assembly integration:**
 
-1. **The surfaces.** Nothing in the UI can choose a reveal yet. The settings belong beside the
-   existing animation randomisation (`animation_pool` / `animation_randomize` / `animation_seed`
-   on the video-assembly request): a pool, a seed, a coherence mode, a pace, and a per-scene
-   reroll. The plan is already computed deterministically, so the UI only has to *show* it.
-2. **The Content Pack kind.** The design says presets ship as Content Packs. The engine's presets
-   are built-ins today; a `reveal` kind in `content-packs/schemas.ts` (the shape `scene-effect`
-   already uses) is what makes them portable, and it is a small, well-worn change.
-3. **The assembly integration — this is the payout.** A reveal clip is longer than the still clip
-   it replaces (reveal + hold), so a scene carries 10–15 s instead of 5 and an episode needs
-   roughly 2.4× fewer images. That needs `prepareSceneClips` to render reveal clips when the
-   episode enables them, and the timeline to take its durations from `planSceneHold` rather than
-   the uniform recycling default.
-4. **The full-episode check** the design asks for: one episode at Slow pace, watched end to end,
-   to judge whether the pacing reads as considered or as padding.
+| Piece | Where |
+| --- | --- |
+| The episode's settings in, one planned clip per scene out (the plan the UI shows and the render uses) | `electron/server/lib/reveal-assembly.ts` |
+| The reveal library: the engine's presets, then installed `reveal` packs, built-ins first and never shadowed | `services/style-effect-loader.ts` (`listRevealPresets`) |
+| `kind: 'reveal'` — a pack ships a `SceneRevealDocument` and its family, nothing else | `electron/server/content-packs/schemas.ts` |
+| The assembly: reveal clips rendered per scene, and the timeline's durations taken from the plan | `generators/video.ts` (`prepareSceneClips`, `resolveSceneReveals`) |
+| The routes: the library, the plan, and one scene's stored choice | `routes/video.ts` (`/video-editor/reveals/*`) |
+| The per-scene choice, saved with the scene it belongs to | `ScenePlanEntry.reveal` in `model`/`scene_plan.json` |
+| The panel: enable, pace, coherence, seed, cap, pool, the planned arrivals, and a per-scene reroll | `frontend/pages/projects/[slug]/video-assembly.vue` |
+| The episode-scale check (see the receipts below) | `scripts/reveal-episode-check.mts` |
+
+**Three rules the integration enforces rather than trusts:**
+
+1. **The pace never shortens a scene the plan already timed.** `planSceneHold` clamps to the pace
+   band, and a band's ceiling is below a long narration line's window — so the resolver takes the
+   longer of the two and lets the hold absorb the difference. A 20 s line is 20 s at every pace.
+2. **A revealed still is not a video scene.** Footage already moves, so it keeps the shipped
+   crop-fill path and is never dressed in a wipe.
+3. **The seed is per episode, so it is not in the animation preset.** Pool, pace, coherence and cap
+   travel in a preset; the seed does not, because a preset that restored one would make two
+   episodes share a randomisation.
+
+**Not built, and named as a limitation rather than left to be discovered:**
+
+- **Hold snapping to narration lines and beats is not wired.** The planner accepts both
+  (`planSceneHold`'s `snap`), and the numbers exist in `audio_sentences.json` and the Sound Design
+  cue list — but neither is loaded at the point the plan is resolved, and that point is fixed by
+  the render fingerprint: the plan has to be resolved *before* the fingerprint, and those reads
+  happen after it. Snapping refines a hold that already fits its window, so it is the part to leave
+  out rather than to load late and disagree with the fingerprint.
+- **The Image Pool path does not reveal.** It recycles a pool of stills at
+  `seconds_per_image`, and its durations are not the scene plan's; reveals are a Scene Plan
+  feature.
 
 **One honest approximation, already labelled in the app:** the draw-on family is a directional
 wipe across the line art, not a stroke-ordered trace — reproducing the order a hand would draw
@@ -171,3 +191,34 @@ list. The runs behind the table above:
 The arrival was also read frame by frame (0.25 s apart) for `reveal-rows` at Slow: dark field →
 a sliver at 0.75 s → a third at 1.25 s → complete at 2.4 s, which is the reveal length the pace
 chose.
+
+---
+
+## The 1.4.232 episode-scale check
+
+The design's last verification item is *"a full episode at Slow pace, to see whether the pacing
+reads as considered or as padding"*. `scripts/reveal-episode-check.mts` is the closest honest form
+of that on a machine with no episode in it: real stills, the **real** plan through the same
+resolver Video Assembly calls, the **real** render path, concatenated, with a receipt.
+
+```
+npx tsx scripts/reveal-episode-check.mts \
+  --images scene-1.png,…,scene-6.png --pace slow --window 12 --out /tmp/reveal-episode-slow
+```
+
+**Measured `[M]`, 2026-09-27, on this Mac, 1280×720 @ 24 fps:**
+
+| Result | Value |
+| --- | --- |
+| Scenes rendered | 6, each 1.6 s reveal + 10.4 s hold = **12.0 s** |
+| Sequence length | **72.0 s** |
+| The same window at the 5 s/image the design compares against | 15 images |
+| **Images saved** | **9 — 2.5×, which is the ~2.4× the design predicts** |
+| Looks chosen | `reveal-centre`, `reveal-diagonal`, `reveal-curtain`, `reveal-centre`, `reveal-diagonal`, `reveal-rows` — no immediate repeats, all from the default pool |
+| The hold drifts | three frames sampled inside one hold (2.0 s, 6.8 s, 11.6 s) differ in bytes and in picture: `docs/receipts/reveal-episode-slow-20260927/hold-drift-3-frames.png` |
+| Receipt | `docs/receipts/reveal-episode-slow-20260927/receipt.json` |
+
+**What this is not:** an episode. There is no narration, so each scene's window is the `--window`
+given rather than a sentence boundary, and the concat is a stream copy rather than the assembly's
+xfade chain. The timeline's own arithmetic is pinned by the assembly's tests; this check is about
+pacing and image count.
