@@ -150,7 +150,12 @@ export function resolveSceneReveals(input: {
     // narration line at a pace that tops out at 14 s would otherwise cut six seconds of narration
     // off the episode. The band is a look; the timeline is the script. The reveal keeps the length
     // the pace chose and the hold absorbs the rest.
-    const hold: RevealHoldPlan = planned.total_seconds >= scene.window_seconds
+    // **A snapped hold is not shortened, it is aimed.** The guard below exists to stop the pace
+    // band from cutting a long narration line short; a snap is the opposite case — `planSceneHold`
+    // moved the total a fraction of a second to land on a line or a beat, on purpose, and clamping
+    // it back to the window would silently undo the very thing the caller asked for. So the guard
+    // applies only when the plan did not snap.
+    const hold: RevealHoldPlan = planned.snapped_to !== 'window' || planned.total_seconds >= scene.window_seconds
       ? planned
       : {
           ...planned,
@@ -170,6 +175,33 @@ export function resolveSceneReveals(input: {
   }
 
   return { enabled: true, pace, seed, coherence, pool, scenes, durations }
+}
+
+/**
+ * How long one image lasts at this pace, when the episode only states its current setting.
+ *
+ * The Image Pool path recycles stills on `seconds_per_image` and never had a per-scene window to
+ * plan against. Asked for reveals, the pace is what should decide how long each still stays — the
+ * whole point of the feature is that one image carries more of the narration — so the pool asks
+ * this before it builds its play order. Resolving a throwaway one-scene plan is the honest way to
+ * ask: it is the same `planSceneHold` the real plan uses, so the pool's image count and the render's
+ * durations cannot disagree.
+ *
+ * Returns the window unchanged when reveals are off, so a caller can use it unconditionally.
+ */
+export function revealSecondsForImage(
+  settings: SceneRevealSettings | undefined,
+  windowSeconds: number,
+  library?: Array<{ id: string; document: SceneRevealDocument }>,
+): number {
+  if (!settings?.enabled) return windowSeconds
+  const probe = resolveSceneReveals({
+    scenes: [{ scene_id: 'probe', scene_index: 0, window_seconds: Math.max(0.5, windowSeconds) }],
+    settings,
+    library,
+  })
+  const planned = probe.scenes[0]?.hold.total_seconds
+  return typeof planned === 'number' && Number.isFinite(planned) && planned > 0 ? planned : windowSeconds
 }
 
 /**

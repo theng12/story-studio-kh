@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.234 — 2026-09-27
+
+- **Holds now land on your narration lines and your music beats.** A reveal's hold could only be as
+  long as its scene's window; it can now end where the line it is covering ends, or where a sound
+  cue lands, when that is within a third of a second of where the pace already put it. It is a
+  tolerance rather than a magnet on purpose: a line a second and a half away would stretch or crush
+  the scene to hit it, which is the padding the pace setting exists to avoid. The job log says how
+  many holds snapped and to what.
+- **The Image Pool reveals too, and its pace changes how many images an episode needs.** The pool
+  recycles stills at a fixed seconds-per-image; with reveals on, the pace decides how long one
+  still stays, and the play order is built from that number — so a slower pace needs **fewer
+  images** to cover the same narration. That is the saving the whole feature is for, and it now
+  reaches both visual sources.
+- **A snapped hold is exempt from the "never shorter than the window" rule**, deliberately: the
+  rule stops the pace from cutting a long narration line short, while a snap moves the hold a
+  fraction of a second to land on the line. Applying both would have undone every snap in silence,
+  which the tests now pin in both directions.
+
 ## v1.4.233 — 2026-09-27
 
 - **The reveal library has nineteen presets, not twenty, and now says so.** Fifteen wipes, three

@@ -2990,6 +2990,9 @@ export interface VideoScene {
   /** Internal, per-request: chapter → act index, filled while the reveal plan is resolved so a
    *  scene's act is its chapter's first-appearance order rather than a second pass over the list. */
   __revealChapterOrder?: Map<string, number>
+  /** The scene plan's own start on the stitched-audio timeline, when the caller supplies it. Read
+   *  by the reveal planner so a hold can snap to the narration line or beat at its own clock. */
+  start_sec?: number
   /** Follow narration clips hold their final frame during assembly, including
    * transition tails after a nominally long clip. */
   clip_shortfall_mode?: 'hold'

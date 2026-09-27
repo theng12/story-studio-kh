@@ -26,6 +26,7 @@ import { defaultSceneReveal, normalizeSceneReveal } from '../contracts/scene-rev
 import {
   plannedRevealForScene,
   resolveSceneReveals,
+  revealSecondsForImage,
 } from '../lib/reveal-assembly.js'
 import { REVEAL_PACE_SETTINGS } from '../lib/reveal-pacing.js'
 
@@ -305,4 +306,85 @@ test('a revealed still renders through the reveal engine, and a video scene does
 
   await fs.rm(workDir, { recursive: true, force: true })
   await isolated.cleanup()
+})
+
+// ── Snapping: the hold can end where the narration line does ─────────────
+
+test('a hold snaps to a narration line end that is nearly its own length', () => {
+  // The scene's window runs 12.4 s; the line inside it ends at 12.1 s. Snapping is a tolerance,
+  // not a magnet: 0.3 s away is the line's own rhythm, so the hold takes it.
+  const plan = resolveSceneReveals({
+    scenes: [{
+      scene_id: 'scene-1',
+      scene_index: 0,
+      window_seconds: 12.4,
+      narration_seconds: 12.4,
+      snap: { narration_line_ends: [4.2, 8.1, 12.1] },
+    }],
+    settings: { enabled: true, seed: 4, pace: 'slow' },
+  })
+  const entry = plan.scenes[0]!
+  assert.equal(entry.hold.snapped_to, 'narration-line')
+  assert.equal(entry.hold.total_seconds, 12.1)
+  assert.ok(Math.abs(entry.hold.reveal_seconds + entry.hold.hold_seconds - 12.1) < 1e-6,
+    'reveal + hold must still be exactly the snapped scene')
+  assert.equal(plan.durations[0], 12.1)
+})
+
+test('a beat is used when no line is near, and nothing is used when neither is', () => {
+  const withBeat = resolveSceneReveals({
+    scenes: [{
+      // At Standard a 9.6 s window lands on the band's 9.0 s ceiling, and a beat 0.2 s away is
+      // inside the snap tolerance while the line at 3.9 s is nowhere near it.
+      scene_id: 'scene-1', scene_index: 0, window_seconds: 9.6,
+      snap: { narration_line_ends: [3.9], beat_seconds: [9.2] },
+    }],
+    settings: { enabled: true, seed: 4, pace: 'standard' },
+  })
+  assert.equal(withBeat.scenes[0]!.hold.snapped_to, 'beat')
+  assert.equal(withBeat.scenes[0]!.hold.total_seconds, 9.2)
+
+  const nothingNear = resolveSceneReveals({
+    scenes: [{
+      scene_id: 'scene-1', scene_index: 0, window_seconds: 12.4,
+      snap: { narration_line_ends: [1.0, 6.2], beat_seconds: [2.5] },
+    }],
+    settings: { enabled: true, seed: 4, pace: 'slow' },
+  })
+  assert.equal(nothingNear.scenes[0]!.hold.snapped_to, 'window',
+    'a candidate 3 s away would stretch or crush the scene to hit it — that is the padding the pace exists to avoid')
+})
+
+test('snapping moves a hold by the tolerance at most, never to a line it is nowhere near', () => {
+  // A short scene at Slow is raised to the band's floor — that is the image-carrying rule, and it
+  // is deliberate. What a snap must never do is drag the hold somewhere else entirely: a candidate
+  // 11 s past the pace's own choice is not "the line this scene ends on", it is a different moment.
+  const plan = resolveSceneReveals({
+    scenes: [{
+      scene_id: 'scene-1', scene_index: 0, window_seconds: 6.2,
+      snap: { narration_line_ends: [20] },
+    }],
+    settings: { enabled: true, seed: 4, pace: 'slow' },
+  })
+  const entry = plan.scenes[0]!
+  assert.equal(entry.hold.snapped_to, 'window')
+  assert.equal(entry.hold.total_seconds, REVEAL_PACE_SETTINGS.slow.min_total_seconds)
+  assert.ok(entry.hold.total_seconds < 20 - 5, 'the far line must not have been used')
+})
+
+// ── The Image Pool: the pace decides how long one still stays ────────────
+
+test('the pool stays on its own seconds_per_image until reveals are asked for', () => {
+  assert.equal(revealSecondsForImage(undefined, 5), 5)
+  assert.equal(revealSecondsForImage({ enabled: false }, 5), 5)
+})
+
+test('a pace turns one pool image into a longer stay, which is fewer images', () => {
+  const fast = revealSecondsForImage({ enabled: true, pace: 'fast', seed: 1 }, 5)
+  const slow = revealSecondsForImage({ enabled: true, pace: 'slow', seed: 1 }, 5)
+  assert.ok(slow > 5, `Slow must hold a pool image longer than the pool setting, got ${slow}`)
+  assert.ok(fast >= 5 && fast < slow, `Fast (${fast}) must not reach Slow (${slow})`)
+  // The count that follows is arithmetic on the same number the pool builds its order from.
+  assert.ok(Math.ceil(60 / slow) < Math.ceil(60 / 5),
+    'a longer stay must need fewer images to cover the same narration')
 })

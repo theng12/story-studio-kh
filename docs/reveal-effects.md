@@ -157,17 +157,22 @@ considered or as padding.
    travel in a preset; the seed does not, because a preset that restored one would make two
    episodes share a randomisation.
 
-**Not built, and named as a limitation rather than left to be discovered:**
+**Both of the gaps 1.4.232 named are closed in 1.4.234:**
 
-- **Hold snapping to narration lines and beats is not wired.** The planner accepts both
-  (`planSceneHold`'s `snap`), and the numbers exist in `audio_sentences.json` and the Sound Design
-  cue list — but neither is loaded at the point the plan is resolved, and that point is fixed by
-  the render fingerprint: the plan has to be resolved *before* the fingerprint, and those reads
-  happen after it. Snapping refines a hold that already fits its window, so it is the part to leave
-  out rather than to load late and disagree with the fingerprint.
-- **The Image Pool path does not reveal.** It recycles a pool of stills at
-  `seconds_per_image`, and its durations are not the scene plan's; reveals are a Scene Plan
-  feature.
+- **Holds snap to narration lines and beats.** `audio_sentences.json` is read once, *before* the
+  render fingerprint is built — it used to be read after, which is what made its line ends
+  unreachable for the plan, since the fingerprint hashes the resolved plan. Each scene's candidates
+  are offsets from its own start (a snap decides a *duration*, and an absolute timestamp is a
+  different clock), a candidate the scene does not cover is never offered, and a snapped hold is
+  exempt from the "never shorter than the window" guard: snapping aims a hold by a fraction of a
+  second on purpose, and clamping it back would silently undo the request. The job log names how
+  many holds snapped and to what.
+- **The Image Pool reveals, and its pace changes the image count.** The pool recycles stills at
+  `seconds_per_image`; with reveals on, the pace decides how long one still stays, and that number
+  is what the play order is built from — so a longer stay means **fewer images cover the same
+  narration**. The pool's scenes are rebuilt later than the Scene Plan's (the opening has to be
+  measured first), so its plan is resolved there and folded into the recovery fingerprint, which
+  keeps a second render from reusing clips that were made from a different plan.
 
 **One honest approximation, already labelled in the app:** the draw-on family is a directional
 wipe across the line art, not a stroke-ordered trace — reproducing the order a hand would draw

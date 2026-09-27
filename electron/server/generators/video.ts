@@ -28,6 +28,7 @@ import { renderRevealClip, revealClipPath } from '../lib/reveal-render.js'
 import {
   plannedRevealForScene,
   resolveSceneReveals,
+  revealSecondsForImage,
   type ResolvedSceneReveals,
 } from '../lib/reveal-assembly.js'
 import { mulberry32 } from '../lib/seeded-random.js'
@@ -1474,6 +1475,35 @@ export async function generateVideo(job: Job): Promise<void> {
     resolvedSoundDesignCues = await approvedSoundDesignMixCues(req.sound_design.cues as SoundDesignCue[])
   }
 
+  // **The narration's own line ends, read before the reveal plan is resolved.** A hold can snap to
+  // the end of the line it is covering, and that is a fact about the script — not about the render
+  // — so it belongs with the other authoritative inputs. It used to be read after the render
+  // fingerprint was built, which made it unreachable for the plan: the fingerprint hashes the
+  // resolved plan, so the plan cannot depend on anything read after it. Reading it here is what
+  // lets the plan snap without moving the fingerprint or making it lie.
+  let sentenceSidecar: Awaited<ReturnType<typeof import('../lib/sentence-timing.js').parseSentenceSidecar>> = null
+  let sentenceReadNote = ''
+  if (req.scene_reveal?.enabled) {
+    try {
+      const sentencesPath = path.join(episodeDir, 'audio_sentences.json')
+      const rawSentences = await fs.readFile(sentencesPath, 'utf-8').catch(() => null)
+      if (rawSentences) {
+        const { parseSentenceSidecar } = await import('../lib/sentence-timing.js')
+        sentenceSidecar = parseSentenceSidecar(JSON.parse(rawSentences))
+      } else {
+        sentenceReadNote = 'audio_sentences.json is missing — re-run Audio Merge to emit it.'
+      }
+    } catch (error: any) {
+      sentenceReadNote = error?.message || 'read error'
+    }
+  }
+  // Absolute narration line ends, for the reveal plan's snapping. Empty when the sidecar is absent,
+  // which is not an error: a project that never opted into sentence alignment has no line ends, and
+  // a hold then stays on its window exactly as it did before snapping existed.
+  const narrationLineEnds: number[] = (sentenceSidecar?.sections ?? [])
+    .flatMap(section => section.sentences.map(sentence => Number(sentence.end_s)))
+    .filter(value => Number.isFinite(value) && value > 0)
+
   const videoDir = await resolveEpisodeSubfolderDir(project_slug, code, 'video', episodeDir, names.video)
   await fs.mkdir(videoDir, { recursive: true })
 
@@ -1611,7 +1641,17 @@ export async function generateVideo(job: Job): Promise<void> {
           act_index: actIndexForScene(scene),
           window_seconds: resolveRevealWindowSeconds(scene, req.scene_recycling?.seconds_per_scene || 10),
           narration_seconds: narrationForScene(scene),
-          snap: snapCandidatesForScene(scene, req),
+          snap: snapCandidatesForScene({
+            scene,
+            index,
+            narration_line_ends: narrationLineEnds,
+            // A beat is a cue boundary: where a bed starts or ends, or where a one-shot lands.
+            beat_seconds: resolvedSoundDesignCues.flatMap(cue => (
+              [cue.start_sec, cue.end_sec].filter((value): value is number => (
+                typeof value === 'number' && Number.isFinite(value)))
+            )),
+            scene_start_seconds: sceneStartForIndex(req.scenes, index),
+          }),
         })),
         settings: req.scene_reveal,
         library: sceneEffectLibrary.reveals,
@@ -1904,10 +1944,10 @@ export async function generateVideo(job: Job): Promise<void> {
       const fmt = await getEffectiveFormat(project_slug)
       if (fmt.imagePrompts.alignment === 'sentence') {
         const sentencesPath = path.join(episodeDir, 'audio_sentences.json')
-        const raw = await fs.readFile(sentencesPath, 'utf-8').catch(() => null)
+        const raw = sentenceSidecar ? 'read-once' : await fs.readFile(sentencesPath, 'utf-8').catch(() => null)
         if (raw) {
           const { parseSentenceSidecar, assignScenesToSentences } = await import('../lib/sentence-timing.js')
-          const parsed = parseSentenceSidecar(JSON.parse(raw))
+          const parsed = sentenceSidecar ?? parseSentenceSidecar(JSON.parse(raw as string))
           if (parsed && parsed.sections.length > 0) {
             const fallback = req.scene_recycling?.seconds_per_scene || 4
             const result = assignScenesToSentences(
@@ -1990,6 +2030,12 @@ export async function generateVideo(job: Job): Promise<void> {
         + `${resolvedSceneReveals.coherence}, seed ${resolvedSceneReveals.seed}, `
         + `${resolvedSceneReveals.scenes.length} scene(s) planned`
         + (revealed ? `, ${revealed} duration(s) set by the plan` : '')
+        + (() => {
+          const snapped = resolvedSceneReveals.scenes.filter(scene => scene.hold.snapped_to !== 'window')
+          if (!snapped.length) return ''
+          const kinds = new Set(snapped.map(scene => scene.hold.snapped_to))
+          return `, ${snapped.length} hold(s) snapped to ${[...kinds].join(' / ')}`
+        })()
         + `; scene track ${total.toFixed(1)}s`,
       )
     }
@@ -2312,7 +2358,17 @@ export async function generateVideo(job: Job): Promise<void> {
         throw new Error('Video Assembly is blocked: the configured opening is as long as the merged narration, so Image Pool has no scene time left.')
       }
       const imagePool = await resolveImagePoolSelection(project_slug, code, bodyDuration)
-      const playOrder = buildImagePoolPlayOrder(imagePool, bodyDuration)
+      // **The pace decides how long one still stays, so it decides how many stills are needed.**
+      // The pool's own `seconds_per_image` is the window a still gets with reveals off; with them
+      // on, the pace's band says how long that image *wants* to stay — and a longer stay means fewer
+      // images cover the same narration, which is the saving this feature exists for. Asked before
+      // the play order is built, because the order is what fixes the count.
+      const secondsPerImage = revealSecondsForImage(
+        req.scene_reveal,
+        imagePool.seconds_per_image,
+        sceneEffectLibrary?.reveals,
+      )
+      const playOrder = buildImagePoolPlayOrder({ ...imagePool, seconds_per_image: secondsPerImage }, bodyDuration)
       req.scenes = playOrder.map((item, index) => ({
         image_path: item.path,
         duration: item.duration,
@@ -2322,9 +2378,61 @@ export async function generateVideo(job: Job): Promise<void> {
         clip_shortfall_mode: 'hold',
       }))
       job.output_lines.push(
-        `Image Pool body: ${playOrder.length} frozen interval(s) cover ${bodyDuration.toFixed(2)}s after a measured ${preSceneDuration.toFixed(2)}s opening.`,
+        `Image Pool body: ${playOrder.length} frozen interval(s) cover ${bodyDuration.toFixed(2)}s after a measured ${preSceneDuration.toFixed(2)}s opening.`
+        + (req.scene_reveal?.enabled && Math.abs(secondsPerImage - imagePool.seconds_per_image) > 0.01
+          ? ` Reveal pace ${req.scene_reveal.pace ?? 'standard'} holds each image ${secondsPerImage.toFixed(2)}s `
+            + `instead of ${imagePool.seconds_per_image}s — ${playOrder.length} image(s) instead of `
+            + `${Math.ceil(bodyDuration / imagePool.seconds_per_image)}.`
+          : ''),
       )
-      sceneClipDurations = req.scenes.map(scene => Math.max(1 / quality.fps, Number(scene.duration) || imagePool.seconds_per_image))
+      sceneClipDurations = req.scenes.map(scene => Math.max(1 / quality.fps, Number(scene.duration) || secondsPerImage))
+
+      // The plan for THESE scenes. The one resolved earlier was built from the pool scenes the
+      // asset scan produced — before the opening was measured — so its windows can differ by a
+      // frame or two; re-resolving here is what makes the plan, the durations and the clips the
+      // same statement. Its fingerprint contribution is folded in below, because the plan is what
+      // the clips were rendered from and a checkpoint that ignored it could reuse the wrong ones.
+      let poolReveals: ResolvedSceneReveals | undefined
+      let poolFingerprint = renderFingerprint
+      if (resolvedSceneReveals?.enabled && sceneEffectLibrary) {
+        poolReveals = resolveSceneReveals({
+          scenes: req.scenes.map((scene: VideoScene, index: number) => ({
+            scene_id: sceneIdForIndex(scene, index),
+            scene_index: index,
+            window_seconds: Math.max(0.5, Number(scene.duration) || secondsPerImage),
+            snap: snapCandidatesForScene({
+              scene,
+              index,
+              narration_line_ends: narrationLineEnds,
+              beat_seconds: resolvedSoundDesignCues.flatMap(cue => (
+                [cue.start_sec, cue.end_sec].filter((value): value is number => (
+                  typeof value === 'number' && Number.isFinite(value)))
+              )),
+              scene_start_seconds: sceneStartForIndex(req.scenes, index),
+            }),
+          })),
+          settings: req.scene_reveal,
+          library: sceneEffectLibrary.reveals,
+        })
+        for (const scene of poolReveals.scenes) {
+          if (scene.scene_index >= 0 && scene.scene_index < sceneClipDurations.length) {
+            sceneClipDurations[scene.scene_index] = Math.max(0.5, scene.hold.total_seconds)
+          }
+        }
+        if (renderFingerprint && videoAssemblyCheckpoint) {
+          poolFingerprint = await buildVideoAssemblyRenderFingerprint({
+            parent_render_fingerprint: renderFingerprint,
+            scene_reveals: poolReveals,
+            scene_durations: sceneClipDurations,
+          })
+          videoAssemblyCheckpoint.render_fingerprint = poolFingerprint
+        }
+        job.output_lines.push(
+          `Reveal effects (Image Pool): pace ${poolReveals.pace}, seed ${poolReveals.seed}, `
+          + `${poolReveals.scenes.length} still(s) planned; scene track `
+          + `${sceneClipDurations.reduce((sum, value) => sum + value, 0).toFixed(1)}s`,
+        )
+      }
       planTransitionTail = 0
       if (exactSceneTiming && sceneClipDurations.length >= 2 && req.transition && req.transition !== 'none' && getTransition(req.transition)?.xfade) {
         const minWindow = Math.min(...sceneClipDurations)
@@ -2340,14 +2448,14 @@ export async function generateVideo(job: Job): Promise<void> {
           randomizeMode: resolvedSceneAnimation!.randomize_mode,
           seed: resolvedSceneAnimation!.seed,
           picks: resolvedSceneAnimation!.picks,
-          ...(resolvedSceneReveals?.enabled ? { reveals: resolvedSceneReveals } : {}),
+          ...(poolReveals ? { reveals: poolReveals } : {}),
           crf: quality.crf,
         },
         sceneClipDurations,
         planTransitionTail,
         sceneEffectLibrary!.scene_motions,
-        videoAssemblyCheckpoint && renderFingerprint
-          ? { checkpoint: videoAssemblyCheckpoint, renderFingerprint }
+        videoAssemblyCheckpoint && poolFingerprint
+          ? { checkpoint: videoAssemblyCheckpoint, renderFingerprint: poolFingerprint }
           : undefined,
         1 / quality.fps,
       )
@@ -3003,6 +3111,22 @@ function resolveRevealWindowSeconds(scene: VideoScene, recyclingDefault: number)
  * pace band from trimming a long line. A scene with no narration window (a B-Roll scene, a
  * title-driven beat) passes nothing and the band decides.
  */
+/**
+ * The absolute second a scene starts on the timeline.
+ *
+ * The scene plan's own `start_sec` is the authority — it is what the narration was cut against.
+ * Failing that (an Image Pool body, or a plan written before the field existed) the running sum of
+ * the scenes' durations is the only statement available, and it is the same clock the snap
+ * candidates are on: both come from the merged narration.
+ */
+function sceneStartForIndex(scenes: VideoScene[], index: number): number {
+  const planned = Number((scenes[index] as { start_sec?: number }).start_sec)
+  if (Number.isFinite(planned) && planned >= 0) return planned
+  let total = 0
+  for (let i = 0; i < index; i++) total += Math.max(0, Number(scenes[i]?.duration) || 0)
+  return total
+}
+
 function narrationForScene(scene: VideoScene): number | undefined {
   const planned = (scene as { __scene_plan_duration?: boolean }).__scene_plan_duration
   if (!planned) return undefined
@@ -3022,8 +3146,33 @@ function narrationForScene(scene: VideoScene): number | undefined {
  * of a hold that already fits the window, so it is the part to leave out rather than to load late
  * and disagree with the fingerprint. Recorded in `docs/reveal-effects.md`.
  */
-function snapCandidatesForScene(_scene: VideoScene, _req: GenerateVideoRequest): undefined {
-  return undefined
+function snapCandidatesForScene(input: {
+  scene: VideoScene
+  index: number
+  /** Absolute narration line ends, seconds, from `audio_sentences.json`. */
+  narration_line_ends: number[]
+  /** Absolute cue boundaries from the approved Sound Design mix. */
+  beat_seconds: number[]
+  /** Absolute start of this scene's window on the timeline. */
+  scene_start_seconds: number
+}): { narration_line_ends?: number[]; beat_seconds?: number[] } | undefined {
+  // `planSceneHold` compares candidates against a *duration*, so a scene's candidates are offsets
+  // from its own start: "the line that ends 4.2 s in" is a hold length, "the line that ends at
+  // 4.2 s" is a timestamp on a different clock. A candidate outside the scene is not offered —
+  // snapping to a line the scene does not cover would stretch or crush it to hit a moment it has
+  // nothing to do with, which is the padding the pace setting exists to avoid.
+  const window = Math.max(0.5, Number(input.scene.duration) || 0)
+  const offsets = (values: number[]): number[] => [...new Set(values
+    .map(value => Number((value - input.scene_start_seconds).toFixed(3)))
+    .filter(offset => Number.isFinite(offset) && offset > 0.5 && offset < window - 0.2))]
+    .sort((a, b) => a - b)
+  const lines = offsets(input.narration_line_ends)
+  const beats = offsets(input.beat_seconds)
+  if (!lines.length && !beats.length) return undefined
+  return {
+    ...(lines.length ? { narration_line_ends: lines } : {}),
+    ...(beats.length ? { beat_seconds: beats } : {}),
+  }
 }
 
 /** Keep generator-only normalization off the durable request persisted by the queue. */
