@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.237 — 2026-09-28
+
+- **The window's traffic lights no longer land on the logo when you scroll.** On the channels page
+  the bar that reserves the strip along the top — the one carrying the Page guide and the version —
+  **scrolled away with the page**, so the page header slid up underneath the close, minimise and
+  zoom buttons, which are part of the window and cannot move. The cause was one line: that bar's
+  style said `position: sticky` and then, further down the same rule, `position: relative`, added
+  when the version chip was layered on top of it. When a rule sets the same property twice the last
+  one wins, so the bar was never sticky. `sticky` already does everything `relative` was there for,
+  so the duplicate is gone and the strip stays put.
+- **And a check so the next one cannot hide the same way.** A property written twice in one rule
+  leaves the first copy sitting in the file looking like it works, which is why this needed a
+  screenshot to find rather than a reading. The test suite now rejects any rule that sets a property
+  twice, and pins that the titlebar strip is sticky and that the version chip keeps a positioned
+  ancestor.
+
 ## v1.4.236 — 2026-09-28
 
 - **A retired model can no longer be quietly swapped for a different one.** Music top-ups resolved

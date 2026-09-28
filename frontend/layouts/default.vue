@@ -54,17 +54,27 @@ function openWhatsNew() { _whatsNew.open() }
   min-height: 100vh;
 }
 .top-bar {
+  /* **`position` is declared ONCE here, and that is the fix.** It used to appear twice —
+     `sticky` at the top of this rule and `relative` below it, added for the version chip — and
+     the second won. A later declaration in the same rule silently overwrites an earlier one, so
+     the bar was `relative`: it scrolled away with the page, and once it was gone the page content
+     slid up under the window's traffic lights, which are OS chrome pinned to the top-left and
+     cannot move. The owner saw exactly that — *"the 3 traffic light is blocking the logo and
+     stuff… basically when i scrolled"* — on the channels page.
+     `sticky` is itself a positioned value, so it is already the containing block the absolutely
+     positioned chip below needs; `relative` bought nothing and cost the reservation of the
+     titlebar strip. Measured in the **built** CSS, per this repo's own rule that a declaration
+     which loses is indistinguishable from one never written:
+     `…flex-shrink:0;position:relative;top:0` — the minifier kept the loser and dropped `sticky`. */
   position: sticky;
   top: 0;
   z-index: 200;
   background: var(--bg-secondary);
   flex-shrink: 0;
-  /* v1.0.132+ — Layer the version chip on top of the drag region.
-     position: relative on the bar; absolute on the chip wrapper so the
-     drag rectangle covers the full width and the chip sits in the
-     upper-right corner. Pointer-events on the chip override the
-     drag-region's grab cursor so click + hover work normally. */
-  position: relative;
+  /* v1.0.132+ — the version chip is layered on top of the drag region: `sticky` on the bar (a
+     containing block, see above), `absolute` on the chip wrapper, so the drag rectangle covers
+     the full width and the chip sits in the upper-right corner. Pointer-events on the chip opt it
+     out of the drag region so click and hover work normally. */
 }
 .titlebar-drag {
   height: 38px;
