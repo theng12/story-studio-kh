@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.238 — 2026-09-28
+
+- **Installing Story Studio no longer throws away the version it replaces.** Installing is one
+  command now — `bash scripts/release/install-local.sh` — and it keeps the app it is replacing in
+  `_trash/app/`, named with the version it was, so going back is one copy away. The old instructions
+  were four commands typed by hand, and the step that moved the old app assumed a folder that only
+  exists if a previous install made it. Twice it was not there and the install carried on anyway,
+  writing the new app over the old one: that is how **1.4.236 was lost** when 1.4.237 went in. The
+  folder is the owner's to empty, so it is now created every time, and if the old app cannot be moved
+  aside the install **stops** rather than quietly replacing it.
+
 ## v1.4.237 — 2026-09-28
 
 - **The window's traffic lights no longer land on the logo when you scroll.** On the channels page
