@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.ts'
+import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.ts'
+
+/** A sentence the gateway can publish when the fleet behind a product is down. */
+const FLEET_OUTAGE_REASON = 'every Mac offering this model is offline'
 
 const models = [
   { id: 'writer-fast', available: true },
@@ -61,6 +64,47 @@ test('an untiered legacy catalog keeps its existing first-usable default', () =>
 test('account-locked teaser models stay visible but are never selectable or chosen by default', () => {
   assert.equal(selectLiveGenStudioModel('locked-economy', lockedModels), null)
   assert.equal(selectLiveGenStudioModel('', lockedModels)?.id, 'open-economy')
+})
+
+test('a gateway lock reason is rendered verbatim, never rewritten as an account problem', () => {
+  assert.equal(
+    genStudioModelLockReason({ locked: true, lock_reason: FLEET_OUTAGE_REASON }),
+    FLEET_OUTAGE_REASON,
+  )
+  const longReason = 'Every Mac offering this model is offline; the product returns by itself once one is back.'
+  assert.equal(genStudioModelLockReason({ locked: true, lock_reason: longReason }), longReason)
+})
+
+test('the paid-account lock code keeps its own sentence', () => {
+  assert.equal(
+    genStudioModelLockReason({ locked: true, lock_reason: 'requires_paid_account' }),
+    'Requires a paid GenStudio account.',
+  )
+})
+
+test('a locked row with no usable reason never blames the account or billing', () => {
+  for (const lock_reason of [undefined, null, '', '   ']) {
+    const sentence = genStudioModelLockReason({ locked: true, lock_reason })
+    assert.equal(sentence, 'Temporarily unavailable.')
+    assert.doesNotMatch(sentence, /account|billing|paid|subscri/i)
+  }
+})
+
+test('an unlocked row states no lock reason even when a stale one rides along', () => {
+  assert.equal(genStudioModelLockReason({ locked: false, lock_reason: FLEET_OUTAGE_REASON }), '')
+  assert.equal(genStudioModelLockReason({ lock_reason: FLEET_OUTAGE_REASON }), '')
+})
+
+test('the lock-reason call sites pass the gateway sentence through unchanged', () => {
+  for (const path of [
+    '../components/ModelSelector.vue',
+    '../components/ImageModelPicker.vue',
+    '../composables/useGenStudioTranscription.ts',
+  ]) {
+    const source = readFileSync(new URL(path, import.meta.url), 'utf8')
+    assert.match(source, /genStudioModelLockReason\(model\)/)
+    assert.doesNotMatch(source, /Locked for this GenStudio account/)
+  }
 })
 
 test('no catalog model means no selection rather than reviving a retired id', () => {

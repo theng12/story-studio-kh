@@ -44,11 +44,22 @@ export function isUsableLiveGenStudioModel(
     && (!requireVision || model.supports_vision === true)
 }
 
+/**
+ * The sentence to show beside a locked catalogue row, or '' when it is open.
+ *
+ * The gateway publishes its own `lock_reason`, and that sentence is the only
+ * honest source for WHY a product is locked: a fleet outage ("every Mac
+ * offering this model is offline") is not an account problem, and substituting
+ * a billing sentence here sends the owner to the wrong remedy. So anything the
+ * gateway states is passed through verbatim; only the known
+ * `requires_paid_account` code gets Story's own sentence, and only a locked row
+ * that states no reason at all gets the generic one.
+ */
 export function genStudioModelLockReason(model: Pick<LiveGenStudioModel, 'locked' | 'lock_reason'>): string {
   if (model.locked !== true) return ''
-  return model.lock_reason === 'requires_paid_account'
-    ? 'Requires a paid GenStudio account.'
-    : 'Locked for this GenStudio account.'
+  if (model.lock_reason === 'requires_paid_account') return 'Requires a paid GenStudio account.'
+  const published = typeof model.lock_reason === 'string' ? model.lock_reason : ''
+  return published.trim() ? published : 'Temporarily unavailable.'
 }
 
 /**

@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.235 — 2026-09-28
+
+- **A model that is unavailable now says why, in the words of whatever told us.** When the
+  GenStudio endpoint reported a model as locked, the reason was replaced with a fixed sentence
+  about your account — so a studio whose Macs were all switched off read as *"Locked for this
+  GenStudio account."*, which sends you to billing for an outage. The reason the endpoint gives is
+  now shown exactly as it was sent (for example *"No Mac offering this model is reachable — every
+  Studio Hub location that offers it is offline or not taking customer work."*). The paid-account
+  sentence is unchanged when that is genuinely what the endpoint says, and a locked model with no
+  stated reason says only that it is temporarily unavailable — never anything about an account.
+
 ## v1.4.234 — 2026-09-27
 
 - **Holds now land on your narration lines and your music beats.** A reveal's hold could only be as
