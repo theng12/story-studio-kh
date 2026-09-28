@@ -14,6 +14,7 @@ import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { hashStylePreviewKey } from '../services/style-preview-cache.js'
 import { hashPreviewKey } from '../services/image-preview-cache.js'
 import { listImageModels } from '../lib/genstudio-client.js'
+import { requestedImageModelName } from '../generators/images.js'
 import { registry } from '../providers/registry.js'
 import '../providers/image/genstudio.js'
 
@@ -773,4 +774,48 @@ test('style previews use one GenStudio-only proof and no direct provider fallbac
   assert.doesNotMatch(source, /resolveApiKeyForProvider/)
   assert.doesNotMatch(source, /registry\.getImageProvider/)
   assert.doesNotMatch(source, /landscape:|character:|interior:|action:|closeup:/)
+})
+
+/**
+ * v1.4.236 — a job that names no image model is refused, never given one.
+ *
+ * `generateImages` resolved its model with `req.model || 'grok-imagine'`. That id is hardcoded and
+ * has since been retired from the live catalogue, so the fallback sent an unnamed job at a product
+ * the operator never chose — and the failure it produced named that product, which reads as a
+ * catalogue problem rather than a missing field. The image form's own initial value is
+ * `model: ''`, so this is reachable by opening the page and generating before touching the picker.
+ */
+test('an image job that names no model is refused rather than given a retired default', () => {
+  assert.throws(() => requestedImageModelName(''), /No image model was named/)
+  assert.throws(() => requestedImageModelName(undefined), /No image model was named/)
+  assert.throws(() => requestedImageModelName(null), /No image model was named/)
+  assert.throws(() => requestedImageModelName('   '), /No image model was named/)
+})
+
+test('a named image model is passed through untouched', () => {
+  // Including one the catalogue will reject: refusing THAT is resolveImageModelConfig's job, and
+  // the two must stay separate or the error stops saying which of the two things went wrong.
+  assert.equal(requestedImageModelName('genstudio-image-fast-v1'), 'genstudio-image-fast-v1')
+  assert.equal(requestedImageModelName('  genstudio-image-fast-v1  '), 'genstudio-image-fast-v1')
+})
+
+test('no generator carries a hardcoded image-model fallback any more', () => {
+  // The rule, not the spelling: the id that was there is gone, and so is the shape that reached it.
+  //
+  // **Comments are stripped first, deliberately.** The fix's own comment quotes the line it
+  // replaced, because "this used to say `req.model || 'grok-imagine'`" is the part a future reader
+  // needs and the repo records this shape every time it bites. Matching raw source would force the
+  // history out of the file to keep a test green — the tail wagging the dog, and the same trap as a
+  // test that pins a count instead of the invariant. What must not exist is the *code*.
+  const source = readFileSync(new URL('../generators/images.ts', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+  assert.doesNotMatch(source, /grok-imagine/)
+  assert.doesNotMatch(source, /req\.model\s*\|\|/)
+  // **And that the guard is actually reached.** A helper that exists and is never called keeps
+  // every test above green while the generator goes on inventing a model — the "wired to nothing"
+  // shape this repo has been bitten by before (the Fleet page's Test and Remove buttons). The
+  // assignment is asserted, not just the definition.
+  assert.match(source, /const modelName = requestedImageModelName\(req\.model\)/,
+    'generateImages must resolve its model through the guard, not merely have one available')
 })

@@ -181,6 +181,46 @@ export function musicTrackFilename(title: string, jobId: string, takeIndex: numb
   return `${stem || 'track'}-${jobId.slice(-8)}-take${takeIndex}.mp3`
 }
 
+/**
+ * Which music model a job will be charged for — resolved against the live catalogue, never
+ * remembered, and **never substituted**.
+ *
+ * This was one expression, `models.find(m => m.id === params.model) || models[0]`, under a comment
+ * reading *"a retired product must fail here, before anything is charged."* It did not fail. The
+ * `||` collapsed two genuinely different requests into one answer, and the expensive half was the
+ * named one: a job carrying a **retired** id was silently swapped for whichever music model the
+ * account lists first — a different product, at a different price, charged to a customer who chose
+ * neither. The comment described the intent and the next line broke it.
+ *
+ * A job naming **no** id is the other case, and it is deliberate rather than an oversight. The
+ * Music page sends none and prices `models[0]` on screen *beside that model's own name*
+ * (`frontend/pages/projects/[slug]/music.vue`), so the fallback is the model the customer was shown
+ * a price for, never an unnamed one. **Do not "fix" it into a refusal** — the page's figure would
+ * then describe a model nothing will use. It is a named, priced, displayed choice; the defect was
+ * only ever the silent swap.
+ *
+ * A pure function so the rule is testable by calling it: the previous shape could only be pinned by
+ * reading the source, and a source-level assertion cannot tell a live rule from a comment.
+ */
+export function resolveMusicModel<T extends { id: string }>(
+  models: readonly T[], requested: string | undefined | null,
+): T {
+  const wanted = (requested || '').trim()
+  if (wanted) {
+    const named = models.find(m => m.id === wanted)
+    if (!named) {
+      throw new Error(
+        `The music model "${wanted}" is no longer offered for this account, so nothing was charged. `
+        + 'Pick a current model and start the job again.',
+      )
+    }
+    return named
+  }
+  const first = models[0]
+  if (!first) throw new Error('GenStudio KH publishes no music model for this account.')
+  return first
+}
+
 export async function generateMusicLibraryTracks(job: Job): Promise<void> {
   const params = job.params as unknown as MusicGenerateParams
   const brief = (params.brief || '').trim()
@@ -191,11 +231,9 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
   const dir = await getLibraryDir(job.project_slug)
   if (!dir) throw new Error(`Project ${job.project_slug} has no folder on disk.`)
 
-  // Resolve the model against the live catalogue rather than trusting a saved
-  // id: a retired product must fail here, before anything is charged.
+  // Resolve the model against the live catalogue rather than trusting a saved id.
   const models = await listMusicModels(apiKey)
-  const model = models.find(m => m.id === params.model) || models[0]
-  if (!model) throw new Error('GenStudio KH publishes no music model for this account.')
+  const model = resolveMusicModel(models, params.model)
 
   const apiKeys = { genstudio: apiKey }
   const planned = await planMusicTracks(

@@ -284,6 +284,31 @@ export async function resolveImageDirs(projectSlug: string, promptsPath: string,
   return { bgDir, thumbDir, episodeDir }
 }
 
+/**
+ * The image model this job asked for — **refused if it asked for none.**
+ *
+ * This line read `req.model || 'grok-imagine'`. `grok-imagine` is a hardcoded product id, and by
+ * the time anyone looked it had been retired from the live catalogue — so a job arriving without a
+ * model was routed at a product nobody had chosen, at that product's price, and the failure it
+ * eventually produced named a model the operator had never selected. `resolveImageModelConfig`
+ * already refuses an id that is not in the catalogue; the defect was that this line supplied one
+ * rather than asking for it.
+ *
+ * The form's own default is `model: ''`, so the empty case is reachable — from the page before a
+ * picker is touched, and from any caller that forgets the field. Rule 7's *"never hardcode a paid
+ * model as the form default"* and rule 1's *"never invent a fallback"* are one requirement seen from
+ * two sides: the selection belongs to the caller, and a generator that guesses it is spending money
+ * on a choice nobody made. Named rather than inlined so a test can call it — the previous shape
+ * could only be pinned by reading the source, which cannot tell a live rule from a comment.
+ */
+export function requestedImageModelName(model: string | undefined | null): string {
+  const name = (model || '').trim()
+  if (!name) {
+    throw new Error('No image model was named for this job. Choose one and start it again.')
+  }
+  return name
+}
+
 export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   const { project_slug, episode_id, params } = job
   const req = params as GenerateImagesRequest
@@ -315,7 +340,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
 
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
-  const modelName = req.model || 'grok-imagine'
+  const modelName = requestedImageModelName(req.model)
   // The key is resolved first because the model's capabilities now come from
   // the live GenStudio catalogue rather than a synthesised constant.
   const apiKey = await getApiKey('genstudio').catch(() => '')

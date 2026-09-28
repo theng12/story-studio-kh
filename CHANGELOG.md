@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.236 — 2026-09-28
+
+- **A retired model can no longer be quietly swapped for a different one.** Music top-ups resolved
+  their model with `models.find(m => m.id === params.model) || models[0]` — directly under a comment
+  reading *"a retired product must fail here, before anything is charged."* It did not fail. A job
+  naming a model that is no longer sold was silently moved to whichever music model the account
+  lists first: a different product, at a different price, charged as though it had been chosen. The
+  comment described the intent and the next line broke it. A named model the catalogue no longer
+  offers is now **refused by name, before anything is charged**.
+- **Image jobs that name no model are refused instead of being given a retired one.** `generateImages`
+  resolved `req.model || 'grok-imagine'` — a hardcoded product id, retired from the live catalogue
+  since. A job without a model was routed at that product, and the error it eventually produced
+  named a model nobody had picked, which reads as a catalogue fault rather than a missing field. The
+  Images form starts with no model selected, so this was reachable by generating before touching the
+  picker.
+- **Unchanged on purpose:** when a music top-up names *no* model at all, the first published model is
+  still used — that is what the Music page prices on screen beside that model's own name, so the
+  figure shown is the model used. The defect was only ever the silent substitution of a *named*
+  model. Both halves are pinned by tests that call the rule rather than read the source, and the old
+  expression was put back to confirm those tests go red on it.
+
+---
+
 ## v1.4.235 — 2026-09-28
 
 - **A model that is unavailable now says why, in the words of whatever told us.** When the

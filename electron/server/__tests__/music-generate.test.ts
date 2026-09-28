@@ -22,6 +22,7 @@ import {
   MUSIC_GENSTUDIO_MODALITY,
   musicFleetBusyRetryPlan,
   musicTrackFilename,
+  resolveMusicModel,
 } from '../generators/music-generate.js'
 import { FLEET_BUSY_RETRY_DELAYS_MS } from '../lib/genstudio-fleet-busy.js'
 
@@ -181,5 +182,53 @@ describe('a saved track is usable by the mix builder', () => {
     const body = await readFile(SRC, 'utf8')
     assert.match(body, /could not be measured, so a mix will skip it/,
       'a track that will never be chosen must not look like one that simply was not chosen')
+  })
+})
+
+/**
+ * v1.4.236 — which model a top-up is charged for, when the catalogue has moved.
+ *
+ * These call `resolveMusicModel` rather than reading the source, deliberately. The defect was one
+ * character of intent: `models.find(m => m.id === params.model) || models[0]` sat directly under
+ * *"a retired product must fail here, before anything is charged"* and did the opposite. A
+ * source-level assertion would have pinned the spelling; a behavioural one pins the rule, and the
+ * rule is what the next edit is free to break.
+ */
+describe('a retired model fails before anything is charged', () => {
+  const catalogue = [
+    { id: 'suno-v5', credits_per_track: 12 },
+    { id: 'suno-v4-5', credits_per_track: 8 },
+  ]
+
+  test('a named model the catalogue no longer offers is refused, not swapped', () => {
+    assert.throws(
+      () => resolveMusicModel(catalogue, 'suno-v3-retired'),
+      /no longer offered[\s\S]{0,80}nothing was charged/,
+      'substituting a different product spends money on a model the customer did not choose',
+    )
+  })
+
+  test('the refusal names the refused model, so the operator knows what to change', () => {
+    assert.throws(() => resolveMusicModel(catalogue, 'suno-v3-retired'), /suno-v3-retired/)
+  })
+
+  test('a named model that IS offered resolves to that model, not the first one', () => {
+    // The second entry is the cheaper one on purpose: resolving to `models[0]` here would charge
+    // the wrong price while still looking like it worked.
+    assert.equal(resolveMusicModel(catalogue, 'suno-v4-5').id, 'suno-v4-5')
+  })
+
+  test('no model named keeps the first entry — the model the Music page prices', () => {
+    // Deliberate and load-bearing: `frontend/pages/projects/[slug]/music.vue` sends no id and
+    // prints `models[0]`'s price beside its own name. Refusing here would leave that figure
+    // describing a model nothing uses.
+    assert.equal(resolveMusicModel(catalogue, '').id, 'suno-v5')
+    assert.equal(resolveMusicModel(catalogue, undefined).id, 'suno-v5')
+    assert.equal(resolveMusicModel(catalogue, '   ').id, 'suno-v5')
+  })
+
+  test('an empty catalogue refuses rather than returning nothing', () => {
+    assert.throws(() => resolveMusicModel([], ''), /no music model/)
+    assert.throws(() => resolveMusicModel([], 'suno-v5'), /no longer offered/)
   })
 })
