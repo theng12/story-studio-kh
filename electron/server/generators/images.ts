@@ -787,11 +787,37 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       && !isTerminalGenStudioImageTaskFailure(entry)
       ? entry
       : null
+    // **A `prepared` entry has reserved an idempotency key and nothing else, so
+    // "no such job" for that key is authoritative that no provider work exists.**
+    // That is the one reading under which submitting again is safe, and the only
+    // one that lets a retry make progress.
+    //
+    // Without this the recovery fell through to `uncertain`, which this generator
+    // throws on — so a job whose submit never landed failed forever, once per
+    // attempt, with `Could not confirm the prepared image by its idempotency key:
+    // GenStudio KH request failed: No such job.` The gateway had no such job
+    // because none was ever created, which is exactly what the message said and
+    // exactly what nothing acted on.
+    //
+    // Mirrors `continuity-render.ts`'s `preparedReplay` and the branch
+    // `manifest-recovery.ts` already implements (`!entry.task_id &&
+    // entry.last_state === 'prepared'`). Safe because `allowPreparedReplayOnAbsent`
+    // only fires when GenStudio *authoritatively* reports the key absent — a 404,
+    // never a timeout or an uncertain network answer. `reclaimable` already
+    // carries `!force`, so an explicit fresh render still owns a new identity and
+    // is never replayed.
+    const preparedReplay = Boolean(
+      reclaimable
+      && !reclaimable.task_id
+      && reclaimable.idempotency_key
+      && reclaimable.last_state === 'prepared',
+    )
     const recovery = await tryRecoverImageFromManifestEntry(
       reclaimable,
       apiKey,
       resolvedModelConfig,
       () => jq.isCancelled(job.job_id),
+      { allowPreparedReplayOnAbsent: preparedReplay },
     )
     let carried: TaskManifestEntry | null = entry
     if (recovery.kind === 'terminal-failed' || recovery.kind === 'artifact-unavailable') {

@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.239 — 2026-09-29
+
+- **A thumbnail whose submit never landed now retries instead of failing forever.** When the gateway
+  answered `No such job` for a prepared image's idempotency key, that was the *gateway* saying no
+  provider work existed — the one reading under which submitting again cannot duplicate paid work.
+  Nothing acted on it: the recovery fell through to `uncertain`, which the image generator throws on,
+  so every attempt failed with *"Could not confirm the prepared image by its idempotency key:
+  GenStudio KH request failed: No such job."* The message named the cause exactly, once per attempt,
+  and the job could never progress. The thumbnail path now passes `allowPreparedReplayOnAbsent` for a
+  `prepared` entry that has an idempotency key and no task — the same allowance
+  `continuity-render` has always made, and gated the same way: only a **recovery** may replay, never
+  an explicit fresh render, and only when the gateway *authoritatively* reports the key absent (a
+  404, never a timeout or an uncertain answer).
+
 ## v1.4.238 — 2026-09-28
 
 - **Installing Story Studio no longer throws away the version it replaces.** Installing is one

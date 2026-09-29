@@ -2189,3 +2189,88 @@ test('a Continuity paid-wait latch wins after another active worker fails while 
     await temp.cleanup()
   }
 })
+
+test('a thumbnail left prepared with no task is replayed, not failed forever', async () => {
+  // **The gateway had no such job because none was ever created.** That is an
+  // authoritative answer, and the one reading under which submitting again
+  // cannot duplicate paid work.
+  //
+  // Before this, the recovery fell through to `uncertain` — which the image
+  // generator throws on — so a thumbnail whose submit never landed failed once
+  // per attempt, forever, with `Could not confirm the prepared image by its
+  // idempotency key: GenStudio KH request failed: No such job.` The message
+  // named the cause exactly and nothing acted on it.
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input, init) => {
+      const response = await originalFetch(input, init)
+      const url = String(input)
+      if (url.startsWith(`${service.baseUrl}/v1/image/models`) && response.headers.get('content-type')?.includes('application/json')) {
+        const models = await response.clone().json() as Array<Record<string, any>>
+        return Response.json(models.map(model => ({
+          ...model, chargeable: true,
+          output_options: model.output_options.map((row: Record<string, unknown>) => ({
+            ...row, credits_per_image: 4, price_version: 'mock-image-price-v1',
+          })),
+        })))
+      }
+      return response
+    }
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    const { toMdPath } = await import('../lib/episode-artifacts.js')
+    const { recordTaskStrict } = await import('../services/task-manifest.js')
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    await import('../providers/image/genstudio.js')
+
+    const thumbnail = await createContinuityFixture('Prepared thumbnail replay')
+    const promptPath = toMdPath(thumbnail.paths.thumb_prompts_docx)
+    await fs.mkdir(path.dirname(promptPath), { recursive: true })
+    await fs.writeFile(promptPath, '# Thumbnail Prompts\n\n## Thumbnail 1: First\n\nA moonlit archive.\n')
+
+    const now = new Date().toISOString()
+    const thumbJob: any = {
+      job_id: 'prepared-thumbnail-replay', project_slug: thumbnail.project.slug, type: 'thumb_images', episode_id: thumbnail.episodeId,
+      title: 'Prepared thumbnail replay', status: 'running', created_at: now, started_at: now, finished_at: null,
+      local_execution_complete: false, error: null, output_lines: [],
+      params: { episode_id: thumbnail.episodeId, mode: 'thumbs', model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
+    }
+    await writeAuthoritativeFixture(thumbJob)
+
+    const { generateImages, resolveImageDirs } = await import('../generators/images.js')
+    const { thumbDir } = await resolveImageDirs(thumbnail.project.slug, promptPath, thumbnail.episodeId)
+    await fs.mkdir(thumbDir, { recursive: true })
+    // The state a failed submit leaves behind: an identity reserved, and no task.
+    // No `request_scope`, deliberately — that is the pre-scope shape, and the one
+    // whose `input_hash` the generator cannot be expected to reproduce here.
+    const filename = `${thumbnail.episodeId.toUpperCase()}_Thumb01_v1.png`
+    await recordTaskStrict(thumbDir, filename, {
+      provider: 'genstudio-image',
+      task_id: '',
+      submitted_at: now,
+      idempotency_key: `prepared-thumbnail-${thumbnail.episodeId}`,
+      last_state: 'prepared',
+    })
+
+    service.queueScenario('image', { states: ['accepted', 'succeeded'], reservedCredits: 4, finalCredits: 4 })
+    assert.equal(await generateImages(thumbJob), undefined)
+    await sharp(path.join(thumbDir, filename)).stats()
+    assert.equal(
+      service.providerSubmissionCount('image'), 1,
+      'a prepared entry that GenStudio says is absent must be submitted once — not twice, and not failed',
+    )
+    assert.ok(
+      !thumbJob.output_lines.some((line: string) => line.includes('Could not confirm the prepared image')),
+      'the replay must not still report the prepared image as unconfirmable',
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+    await service.close()
+    await temp.cleanup()
+  }
+})
