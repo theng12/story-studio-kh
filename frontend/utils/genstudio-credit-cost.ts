@@ -11,7 +11,18 @@
  * switch recomputes it with no cache to invalidate.
  */
 
+import type { PriceTruth } from './genstudio-price-usd.js'
+import { describeUsdPrice } from './genstudio-price-usd.js'
+
 export type CreditBasis =
+  /** The provider's own USD price (gateway `price_source: "provider"`). Never a credit figure. */
+  | 'provider'
+  /** Read from the provider's own pricing page (gateway `price_source: "provider_page"`). */
+  | 'provider-page'
+  /** Runs on the owner's own Macs (`price_source: "local"`): no per-use cost. */
+  | 'local'
+  /** Nobody stated a price. Neutral on purpose: unlike `unpublished`, not styled as a warning. */
+  | 'not-published'
   /** Published per-unit price. Total depends on how much is generated. */
   | 'rate'
   /** Rate multiplied by a count Story Studio knows. Clearly not the charge. */
@@ -41,9 +52,17 @@ export interface CreditDisplay {
   title: string
   /** Commercial terms that must remain visible without relying on hover. */
   notice?: string
+  /** The pricing page a `provider-page` price was read from. */
+  url?: string
+  /** One line per stated variant when a unit is priced several ways ("$0.04 / image — 1K"). */
+  variants?: string[]
 }
 
 export const CREDIT_BASIS_LABEL: Record<CreditBasis, string> = {
+  provider: 'Provider price',
+  'provider-page': 'Pricing page',
+  local: 'Cost',
+  'not-published': 'Cost',
   rate: 'Rate',
   estimate: 'Estimate',
   quote: 'Quote',
@@ -58,6 +77,11 @@ export function formatCredits(credits: number): string {
   return `${rounded.toLocaleString()} credit${rounded === 1 ? '' : 's'}`
 }
 
+/*
+ * A row that carries gateway price truth (`price_source`) is priced in USD by what the provider
+ * stated. Its `credits_*` fields are zero-valued parser shapes, so every describer below asks
+ * `describeUsdPrice` first and never lets them reach a credit display.
+ */
 function publishedNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
@@ -72,7 +96,7 @@ export function unpublishedCost(what = 'This action'): CreditDisplay {
   }
 }
 
-export interface PricedImageModel {
+export interface PricedImageModel extends PriceTruth {
   display_name?: string
   chargeable?: boolean
   credits_per_image?: number | null
@@ -103,6 +127,8 @@ export function describeImageModelRate(
   model: PricedImageModel | null | undefined,
   opts: { referenceGuided?: boolean } = {},
 ): CreditDisplay {
+  const usd = describeUsdPrice(model)
+  if (usd) return usd
   if (!model || model.chargeable === false) return describeImageUnitCost(model, null, opts)
 
   const options = Array.isArray(model.output_options) ? model.output_options : []
@@ -153,6 +179,8 @@ export function describeImageUnitCost(
   option: PricedImageOption | null | undefined,
   opts: { referenceGuided?: boolean } = {},
 ): CreditDisplay {
+  const usd = describeUsdPrice(model)
+  if (usd) return usd
   if (!model) return unpublishedCost()
   const label = model.display_name || 'This model'
   if (model.chargeable === false) {
@@ -234,7 +262,7 @@ export function describeImageBatchEstimate(
  * total is explicitly deferred — a made-up number here would be worse than no
  * number at all.
  */
-export function describeChatRate(model: {
+export function describeChatRate(model: PriceTruth & {
   display_name?: string
   chargeable?: boolean
   input_credits_per_million_tokens?: number | null
@@ -249,6 +277,8 @@ export function describeChatRate(model: {
   standard_output_credits_per_million_tokens?: number | null
   minimum_credits?: number | null
 } | null | undefined): CreditDisplay {
+  const usd = describeUsdPrice(model)
+  if (usd) return usd
   if (!model) return unpublishedCost()
   const label = model.display_name || 'This model'
   if (model.chargeable === false) {
@@ -319,12 +349,14 @@ export function describeVideoVariantRate(variant: {
  * every published variant has a published price; the variant selector then
  * shows the exact row that will be submitted.
  */
-export function describeVideoModelRate(model: {
+export function describeVideoModelRate(model: PriceTruth & {
   display_name?: string
   variants?: Array<{
     credits_per_video?: number | null
   }>
 } | null | undefined): CreditDisplay {
+  const usd = describeUsdPrice(model)
+  if (usd) return usd
   const label = model?.display_name || 'This video model'
   const variants = Array.isArray(model?.variants) ? model.variants : []
   if (!variants.length) return unpublishedCost(label)
@@ -377,7 +409,7 @@ export function describeWebResearchRate(model: {
 }
 
 /** TTS rate. A `/v1/tts/quotes` figure supersedes this — label that a quote. */
-export function describeVoiceRate(model: {
+export function describeVoiceRate(model: PriceTruth & {
   display_name?: string
   credits_per_1000_characters?: number | null
   standard_credits?: number | null
@@ -385,6 +417,8 @@ export function describeVoiceRate(model: {
   sale_ends_at?: string | null
   sale_disclaimer?: string | null
 } | null | undefined): CreditDisplay {
+  const usd = describeUsdPrice(model)
+  if (usd) return usd
   const rate = publishedNumber(model?.credits_per_1000_characters)
   if (rate === null) return unpublishedCost(model?.display_name || 'This voice model')
   let text = `${formatCredits(rate)} / 1,000 characters`
@@ -495,7 +529,7 @@ export function describeActualCost(credits: number | null | undefined): CreditDi
   }
 }
 
-export interface PricedMusicModel {
+export interface PricedMusicModel extends PriceTruth {
   display_name?: string
   credits_per_request?: number | null
   /** Undiscounted list price. Present whether or not a sale is running. */
@@ -530,6 +564,8 @@ export interface PricedMusicModel {
  * would understate what the customer gets and overstate what a song costs.
  */
 export function describeMusicUnitCost(model: PricedMusicModel | null | undefined): CreditDisplay {
+  const usd = describeUsdPrice(model)
+  if (usd) return usd
   if (!model) return unpublishedCost()
   const label = model.display_name || 'This model'
 

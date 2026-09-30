@@ -762,6 +762,9 @@ export interface JobEnqueuedResponse {
     dispatch_state?: 'pre_dispatch' | 'dispatched'
     model_id?: string
     credit_cost?: number
+    /** Provider-stated USD cost of the finished job. Absent means "not stated", never $0. */
+    cost_usd?: number
+    cost_source?: 'provider'
     remaining_credits?: number
     reserved_credits?: number
     settled_credits?: number

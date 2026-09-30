@@ -204,7 +204,7 @@
             <span>Longer clips are trimmed. If narration exceeds the listed maximum, the final frame holds for the visible shortfall.</span>
           </div>
           <div v-if="selectedResolutionVariants.length" class="batch-cost" aria-live="polite">
-            <strong>{{ batchPlans.length }} {{ batchPlans.length === 1 ? 'clip' : 'clips' }} · Listed total {{ formatCredits(batchListedTotal) }}</strong>
+            <strong>{{ batchPlans.length }} {{ batchPlans.length === 1 ? 'clip' : 'clips' }}<template v-if="!videoHasUsdPrice"> · Listed total {{ formatCredits(batchListedTotal) }}</template></strong>
             <span>The current catalogue rows are shown for planning; the provider quote is authoritative when each request is accepted.</span>
             <span v-if="existingClipCount">Existing clips stay out of this batch.</span>
           </div>
@@ -258,6 +258,7 @@
             <span><small>Next request</small><strong>{{ formatSeconds(scene.duration_plan.requested_seconds) }}</strong></span>
             <span><small>Adjustment</small><strong>{{ scene.duration_plan.adjustment_label }}</strong></span>
             <span
+              v-if="!videoHasUsdPrice"
               :title="`Minimum ${scene.duration_plan.variant.minimum_credits} credits · price list ${scene.duration_plan.variant.price_version}`"
             ><small>Current listed cost</small><strong>Listed cost {{ formatCredits(scene.duration_plan.variant.credits_per_video) }}</strong></span>
           </div>
@@ -318,6 +319,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-cost'
+import { hasPriceTruth } from '~/utils/genstudio-price-usd'
 import { variantsForVideoOperation } from '~/utils/genstudio-video-variants'
 import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModels'
 
@@ -534,7 +536,7 @@ const i2vModels = computed(() => {
         price: rate.text,
         priceTitle: rate.title,
         meta: variant
-          ? `${variant.duration_seconds}s at ${variant.resolution} — ${variant.credits_per_video} credits`
+          ? `${variant.duration_seconds}s at ${variant.resolution}${hasPriceTruth(model) ? '' : ` — ${variant.credits_per_video} credits`}`
           : noVariant,
         description: (variant
           ? `The cheapest published option is selected first (${variant.duration_seconds}s at ${variant.resolution}). `
@@ -574,6 +576,8 @@ const selectedVideoModel = computed(() => {
     : videoModel.value
   return genStudioVideoModels.value.find(item => item.id === raw) || null
 })
+// A row with gateway price truth carries zero-valued credit shapes; those are never shown as a cost.
+const videoHasUsdPrice = computed(() => hasPriceTruth(selectedVideoModel.value))
 const selectedVideoVariants = computed<VideoVariant[]>(() => (
   variantsForVideoOperation(selectedVideoModel.value?.variants, STORY_STUDIO_VIDEO_OPERATION)
 ))

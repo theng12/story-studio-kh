@@ -14,7 +14,7 @@
     <!-- Price of the CURRENT selection, in GenStudio's published terms. A
          computed, so switching model re-prices immediately. -->
     <p v-if="selectedModel" class="notice notice-cost" :class="`basis-${unitCost.basis}`" :title="unitCost.title">
-      {{ CREDIT_BASIS_LABEL[unitCost.basis] }}: {{ unitCost.text }}
+      {{ CREDIT_BASIS_LABEL[unitCost.basis] }}: {{ unitCost.text }} <PriceDetails :cost="unitCost" />
     </p>
     <!-- An enforced limit has to be visible at the point of choosing. Shown
          only in reference mode, only when the selected model publishes a

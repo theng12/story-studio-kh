@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { useApi } from './useApi.js'
+import type { PriceTruth } from '../utils/genstudio-price-usd.js'
 import {
   createGenStudioCatalogCache,
   GENSTUDIO_CATALOG_STALE_CEILING_MS,
@@ -31,7 +32,7 @@ export interface GenStudioImageOutputOption {
  * Optional here means GenStudio published nothing for that model — render "—"
  * or omit the control rather than filling in a plausible value.
  */
-export interface GenStudioImageModelInfo {
+export interface GenStudioImageModelInfo extends PriceTruth {
   id: string
   display_name: string
   provider_name?: string

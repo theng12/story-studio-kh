@@ -18,6 +18,7 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     const genStudioModelLockReason = () => ''
     const describeVideoModelRate = () => ''
     const formatCredits = value => String(value)
+    const hasPriceTruth = () => false
     const variantsForVideoOperation = (rows, operation) => Array.isArray(rows) ? rows.filter(row => row.operation === operation) : []
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined

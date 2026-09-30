@@ -5,9 +5,11 @@ import { GENSTUDIO_CATALOG_STALE_CEILING_MS } from './useGenStudioCatalogCache.j
 import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 import { formatCredits, unpublishedCost, type CreditDisplay } from '../utils/genstudio-credit-cost.js'
+import type { PriceTruth } from '../utils/genstudio-price-usd.js'
+import { describeUsdPrice } from '../utils/genstudio-price-usd.js'
 import { normalizeGenStudioLoadedAt } from '../utils/genstudio-freshness.js'
 
-export interface GenStudioTranscriptionModel {
+export interface GenStudioTranscriptionModel extends PriceTruth {
   id: string
   display_name: string
   /**
@@ -54,11 +56,13 @@ export interface GenStudioTranscriptionModel {
  * this app never renders an unpublished price as free, and never multiplies
  * the rate into a total (the quote at submission is the only real figure).
  */
-export function describeTranscriptionRate(model: {
+export function describeTranscriptionRate(model: PriceTruth & {
   display_name?: string
   credits_per_second?: number
   minimum_credits?: number
 }): CreditDisplay {
+  const usd = describeUsdPrice(model)
+  if (usd) return usd
   const rate = typeof model.credits_per_second === 'number' && Number.isFinite(model.credits_per_second)
     && model.credits_per_second > 0
     ? model.credits_per_second

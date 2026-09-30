@@ -180,6 +180,9 @@ export interface GenStudioJob {
   model_id?: string
   model_revision_id?: string
   credit_cost?: number
+  /** USD the provider charged, present only when it stated one (`cost_source: "provider"`). Absent is not $0. */
+  cost_usd?: number
+  cost_source?: 'provider'
   remaining_credits?: number
   /**
    * Settlement values, exactly as GenStudio publishes them. `released_credits`
@@ -1039,6 +1042,93 @@ function parseGenStudioCatalogLock(value: unknown): GenStudioCatalogLock {
 }
 
 /**
+ * Who stated a model's price, and the price in USD by unit (gateway 0.2.82+).
+ *
+ * The zero-valued `credits_*` fields on the same row are parser shapes, NOT
+ * prices — nothing here may read them as "free". Absent on older gateways, in
+ * which case every field is omitted and the row shows no price at all.
+ * `price_usd` is kept for `provider` / `provider_page` / `local`; unit keys are read
+ * verbatim (`per_image`, `input_per_1m_tokens`, ...) and never derived. A pricing-page row
+ * (0.2.83) also carries `price_url`, and lists a unit the page prices several ways in
+ * `price_variants` instead of `price_usd`.
+ */
+export interface GenStudioPriceVariant {
+  unit: string
+  /** Which size / quality / tier this number is for. */
+  variant: string
+  /** A USD number, or (for `unit: "other"`) the page's own words in `unit_text`. Never both invented. */
+  usd?: number
+  unit_text?: string
+  source_url?: string
+}
+
+export interface GenStudioPriceTruth {
+  price_source?: 'provider' | 'provider_page' | 'local' | 'unpublished'
+  price_usd?: Record<string, number> | null
+  price_as_of?: string | null
+  /** `provider_page` only: the provider's own pricing page the number was read from. */
+  price_url?: string
+  /** `provider_page` only: a unit the page prices several ways. Never picked between, never in `price_usd`. */
+  price_variants?: GenStudioPriceVariant[]
+}
+
+function httpUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const text = value.trim()
+  return /^https?:\/\//i.test(text) ? text : undefined
+}
+
+export function parseGenStudioPriceTruth(value: unknown): GenStudioPriceTruth {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const row = value as Record<string, unknown>
+  const source = row.price_source
+  if (source !== 'provider' && source !== 'provider_page' && source !== 'local' && source !== 'unpublished') return {}
+  if (source === 'unpublished') return { price_source: source, price_usd: null, price_as_of: null }
+  const usd: Record<string, number> = {}
+  if (row.price_usd && typeof row.price_usd === 'object' && !Array.isArray(row.price_usd)) {
+    for (const [unit, amount] of Object.entries(row.price_usd)) {
+      if (typeof amount === 'number' && Number.isFinite(amount) && amount >= 0) usd[unit] = amount
+    }
+  }
+  const variants: GenStudioPriceVariant[] = source !== 'provider_page' || !Array.isArray(row.price_variants) ? [] : row.price_variants.flatMap((item: any) => {
+    const sourceUrl = httpUrl(item?.source_url)
+    const hasUsd = typeof item?.usd === 'number' && Number.isFinite(item.usd) && item.usd >= 0
+    const unitText = typeof item?.unit_text === 'string' ? item.unit_text.trim() : ''
+    return typeof item?.unit === 'string' && item.unit.trim() && typeof item?.variant === 'string' && item.variant.trim() && (hasUsd || unitText)
+      ? [{
+        unit: item.unit.trim(),
+        variant: item.variant.trim(),
+        ...(hasUsd ? { usd: item.usd } : { unit_text: unitText }),
+        ...(sourceUrl ? { source_url: sourceUrl } : {}),
+      }]
+      : []
+  })
+  // A "priced" row with no usable number is unpublished, never free. (A page row that only lists variants is priced: it varies.)
+  if (source !== 'local' && !Object.keys(usd).length && !variants.length) return { price_source: 'unpublished', price_usd: null, price_as_of: null }
+  const asOf = typeof row.price_as_of === 'string' && row.price_as_of.trim() ? row.price_as_of.trim() : null
+  const url = source === 'provider_page' ? httpUrl(row.price_url) : undefined
+  return {
+    price_source: source,
+    price_usd: usd,
+    price_as_of: source === 'local' ? null : asOf,
+    ...(url ? { price_url: url } : {}),
+    ...(variants.length ? { price_variants: variants } : {}),
+  }
+}
+
+/**
+ * The provider-stated USD cost of a job (gateway 0.2.82+), carried through verbatim. The gateway
+ * omits both keys unless the provider stated a charge, so absence stays absence: nothing here
+ * defaults to 0 or derives a cost from tokens x price.
+ */
+export function providerCostUsd(job: { cost_usd?: unknown; cost_source?: unknown } | null | undefined): { cost_usd?: number; cost_source?: 'provider' } {
+  const cost = job?.cost_usd
+  return job?.cost_source === 'provider' && typeof cost === 'number' && Number.isFinite(cost) && cost >= 0
+    ? { cost_usd: cost, cost_source: 'provider' }
+    : {}
+}
+
+/**
  * Identifiers a published product answers to, beyond the one in `id`.
  *
  * GenStudio products carry a raw `public_model_id` AND an owner-defined
@@ -1080,7 +1170,7 @@ function parseGenStudioProductAliases(value: unknown): GenStudioProductAliases {
   }
 }
 
-export interface GenStudioTranscriptionModel extends GenStudioCatalogLock {
+export interface GenStudioTranscriptionModel extends GenStudioCatalogLock, GenStudioPriceTruth {
   id: string
   display_name: string
   /**
@@ -1169,7 +1259,7 @@ export interface GenStudioImageOutputOption {
  * Nothing that GenStudio does not publish appears on this interface, so a
  * capability cannot be invented on the way through the transport.
  */
-export interface GenStudioImageModel extends GenStudioCatalogLock, GenStudioProductAliases {
+export interface GenStudioImageModel extends GenStudioCatalogLock, GenStudioPriceTruth, GenStudioProductAliases {
   id: string
   display_name: string
   /** Published model creator/provider label. Absent until GenStudio supplies it. */
@@ -1423,7 +1513,7 @@ export interface GenStudioVoice {
 }
 
 /** `TTSModelResponse` — the selection and pricing axis for speech. */
-export interface GenStudioTtsModel extends GenStudioCatalogLock {
+export interface GenStudioTtsModel extends GenStudioCatalogLock, GenStudioPriceTruth {
   id: string
   display_name: string
   provider_id: string
@@ -1464,7 +1554,7 @@ export interface GenStudioTtsModel extends GenStudioCatalogLock {
 }
 
 /** `GET /v1/music/models` — an account-visible music product published by GenStudio. */
-export interface GenStudioMusicModel extends GenStudioCatalogLock {
+export interface GenStudioMusicModel extends GenStudioCatalogLock, GenStudioPriceTruth {
   id: string
   display_name: string
   /** Display only; absent means GenStudio published no provider. */
@@ -1654,7 +1744,7 @@ export function readPublishedLimitSource(value: unknown): GenStudioLimitSource |
     : null
 }
 
-export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProductAliases {
+export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioPriceTruth, GenStudioProductAliases {
   id: string
   display_name: string
   /** Published model creator/provider label. Absent until GenStudio supplies it. */
@@ -1885,7 +1975,7 @@ export interface GenStudioVideoVariant {
   price_version: string
 }
 
-export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioProductAliases {
+export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioPriceTruth, GenStudioProductAliases {
   id: string
   display_name: string
   description?: string
@@ -2052,6 +2142,8 @@ interface GenStudioChatJob extends GenStudioResearchEnvelope {
   retry_at?: string | null
   routing_status_code?: string | null
   credit_cost?: number
+  cost_usd?: number
+  cost_source?: 'provider'
   remaining_credits?: number
   price_version?: string | null
   /** True when this response replayed an existing job for the same key. */
@@ -3021,6 +3113,7 @@ async function recordGenStudioEvidence(
     })(),
     model_id: job.model_id || job.model_revision_id,
     credit_cost: Number.isFinite(job.credit_cost) ? job.credit_cost : undefined,
+    ...providerCostUsd(job),
     remaining_credits: Number.isFinite(job.remaining_credits) ? job.remaining_credits : undefined,
     // Settlement is forwarded ONLY when GenStudio published it. An absent field
     // stays absent so the UI can say "not settled yet" instead of inventing a
@@ -4625,6 +4718,7 @@ export async function listTtsModelsSnapshot(
             .map((code: string) => code.trim())
           : [],
         ...parseGenStudioCatalogLock(value),
+        ...parseGenStudioPriceTruth(value),
         ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
         // This is a model-local hint, not something Story Studio may derive
         // from the provider name or id. Absent, null, and malformed values
@@ -4692,6 +4786,7 @@ export async function listMusicModelsSnapshot(
         description,
         coming_soon: value.coming_soon,
         ...parseGenStudioCatalogLock(value),
+        ...parseGenStudioPriceTruth(value),
         credits_per_request: value.credits_per_request,
         minimum_credits: value.minimum_credits,
         price_version: value.price_version.trim(),
@@ -5055,6 +5150,7 @@ export async function listChatModelsSnapshot(
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
     ...parseGenStudioCatalogLock(value),
+    ...parseGenStudioPriceTruth(value),
     context_window_tokens: readPublishedTokenLimit(
       value?.context_window_tokens,
       value?.context_limit_tokens,
@@ -5205,6 +5301,7 @@ export async function listVideoModelsSnapshot(
       : undefined,
     available: value?.available === true,
     ...parseGenStudioCatalogLock(value),
+    ...parseGenStudioPriceTruth(value),
     ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
     // Every published mode survives the transport. Story Studio submits only
     // image-to-video, but that is enforced where a request is built, not by
@@ -6814,6 +6911,7 @@ function chatJobEvidence(job: GenStudioChatJob): GenStudioJob {
     ...(job.queue_eta_seconds !== undefined ? { queue_eta_seconds: job.queue_eta_seconds } : {}),
     ...(job.queue_reason !== undefined ? { queue_reason: job.queue_reason } : {}),
     ...(Number.isFinite(job.credit_cost) ? { credit_cost: job.credit_cost } : {}),
+    ...providerCostUsd(job),
     ...(Number.isFinite(job.remaining_credits) ? { remaining_credits: job.remaining_credits } : {}),
     ...(job.price_version ? { price_version: job.price_version } : {}),
   }
@@ -7682,6 +7780,7 @@ export async function listTranscriptionModelsSnapshot(
         : 0,
       qualification_only: value?.qualification_only !== false,
       ...parseGenStudioCatalogLock(value),
+      ...parseGenStudioPriceTruth(value),
       // GenStudio publishes a per-SECOND rate. Reading `credits_per_minute`
       // here (a field it does not publish) made every model parse as 0.
       credits_per_second: Number.isFinite(value?.credits_per_second)
@@ -7738,6 +7837,7 @@ async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Pr
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
     ...parseGenStudioCatalogLock(value),
+    ...parseGenStudioPriceTruth(value),
     execution_label: typeof value?.execution_label === 'string' ? value.execution_label.trim() : undefined,
     credits_per_image: Number.isFinite(value?.credits_per_image)
       ? Math.max(0, value.credits_per_image)

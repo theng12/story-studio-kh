@@ -19,13 +19,14 @@
 import type { GenStudioTtsControl, TtsControlValues } from '~/utils/tts-controls'
 import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
 import type { RelaxedQueueHint } from '~/utils/genstudio-relaxed-queue'
+import type { PriceTruth } from '~/utils/genstudio-price-usd'
 
 /**
  * `TTSModelResponse`. Every field is published by GenStudio except the last
  * one, which the Story Studio backend adds and which is labelled as ours
  * wherever it is shown.
  */
-export interface GenStudioTtsModel {
+export interface GenStudioTtsModel extends PriceTruth {
   id: string
   display_name: string
   provider_id: string

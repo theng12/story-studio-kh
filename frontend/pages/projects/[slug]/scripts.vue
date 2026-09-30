@@ -155,7 +155,7 @@
           <!-- Published rate for the SELECTED product, never a total: script
                length in tokens is unknown until the model has written it. -->
           <p v-if="selectedChatModel" class="script-rate" :class="`basis-${chatRateNote.basis}`" :title="chatRateNote.title">
-            {{ CREDIT_BASIS_LABEL[chatRateNote.basis] }}: {{ chatRateNote.text }} — the total depends on length, and GenStudio reports the actual charge per job.
+            {{ CREDIT_BASIS_LABEL[chatRateNote.basis] }}: {{ chatRateNote.text }} <PriceDetails :cost="chatRateNote" /> — the total depends on length, and GenStudio reports the actual charge per job.
           </p>
         </div>
         <div class="form-group">

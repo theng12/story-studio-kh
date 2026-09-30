@@ -736,6 +736,15 @@
           <span v-if="i < checkedStepsOrdered.length - 1" class="chain-arrow">→</span>
         </span>
       </div>
+      <div v-if="batchEstimate && !preflighting" class="batch-estimate text-sm mt-2" data-testid="batch-estimate">
+        <strong>Estimated provider cost: {{ batchEstimate.priced.length ? formatUsd(batchEstimate.totalUsd) : 'nothing priced' }}</strong>
+        <span class="text-muted"> — an estimate from the prices the providers last published; the finished jobs report the real cost.</span>
+        <ul>
+          <li v-for="line in batchEstimate.priced" :key="line.id">{{ line.label }}: {{ formatUsd(line.usd) }} ({{ line.detail }})</li>
+          <li v-for="line in batchEstimate.free" :key="line.id">{{ line.label }}: free</li>
+          <li v-for="line in batchEstimate.notIncluded" :key="line.id" class="text-muted">{{ line.label }}: not included — {{ line.reason }}</li>
+        </ul>
+      </div>
       <p v-if="repairMode" class="text-muted text-sm mt-2">
         Valid completed outputs are kept. Story Studio reconnects to saved provider work first. For each
         selected item still missing after a confirmed terminal failure or expired artifact, this action
@@ -788,6 +797,7 @@ import {
 } from '~/composables/useProjectFlow'
 import { localMediaStatusLabel, type LocalMediaCleanupStatus } from '~/composables/useEpisodes'
 import type { AudioQualityMode, AudioQualityPlan } from '~/types/audio-quality'
+import { ESTIMATE_STEPS, estimateBatchUsd, formatUsd, stepQuantity, type EstimateStep } from '~/utils/genstudio-price-usd'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Pipeline')
@@ -2364,6 +2374,55 @@ const preflightEligibleApplicableStepCount = computed(() => {
   return selectedApplicableStages(new Set(eligible))
 })
 
+// ── Cost estimate (Run Batch) ───────────────────────────────────────────
+// Prices come from the live catalogue rows already on the page (`price_usd`); no new gateway
+// call. The model for each step is the one its active preset names.
+const chatCatalog = useGenStudioChatModels()
+const imageCatalog = useGenStudioImageModels()
+const mediaCatalog = useGenStudioMediaModels()
+
+function presetModelId(stepId: StepId): string {
+  const preset = listForStep(stepById(stepId)).find(x => x.id === activePresetIdFor(stepId))
+  const data = preset?.data ?? preset
+  const model = data?.form?.model ?? data?.model
+  return typeof model === 'string' ? model.trim().replace(/^genstudio-video:/, '') : ''
+}
+
+const batchEstimate = computed(() => {
+  if (repairMode.value) return null
+  const eligible = preflightEligibleEpisodeIds.value
+  const runEpisodes = episodes.value.filter(ep => eligible ? eligible.includes(ep.episode_code) : selectedEpisodes.has(ep.episode_code))
+  const policies = modelPoliciesForRun() as Record<string, unknown>
+  const steps: EstimateStep[] = []
+  for (const step of checkedStepsOrdered.value) {
+    const spec = ESTIMATE_STEPS[step.id]
+    if (!spec) continue
+    // Only episodes that still have this step to do (Force re-run redoes every one).
+    const todo = runEpisodes.filter(ep => isStepApplicableForEpisode(step.id, ep)
+      && (forceRerun.value || !isStepDoneForEpisode(step.id, ep.status)))
+    if (!todo.length) continue
+    const modelId = presetModelId(step.id)
+    const model = !modelId ? null
+      : spec.catalog === 'chat' ? chatCatalog.find(modelId)
+        : spec.catalog === 'image' ? imageCatalog.find(modelId)
+          : (spec.catalog === 'tts' ? mediaCatalog.voiceModels.value : mediaCatalog.videoModels.value).find(m => m.id === modelId)
+    steps.push({
+      id: step.id,
+      label: step.label,
+      model: model ?? null,
+      unit: spec.unit,
+      unitNote: spec.unitNote,
+      quantity: stepQuantity(step.id, todo.map(ep => ({
+        scenesTotal: ep.scene_images?.total ?? 0,
+        scenesPresent: ep.scene_images?.present ?? 0,
+      })), forceRerun.value),
+      ...(policies[step.id] ? { modelOverride: 'this run picks the model from a model policy, not the preset' } : {}),
+    })
+  }
+  const estimate = estimateBatchUsd(steps)
+  return estimate.priced.length || estimate.free.length || estimate.notIncluded.length ? estimate : null
+})
+
 function blockedEpisodes(value: unknown): BlockedEpisode[] {
   if (!Array.isArray(value)) return []
   return value.flatMap((item: any) => {
@@ -2447,6 +2506,8 @@ function openRepairConfirm(): void { void openConfirm(true) }
 
 async function openConfirm(repair: boolean) {
   if (!canRun.value) return
+  // The estimate reads prices off the shared catalogue caches; each skips the network while fresh.
+  void Promise.allSettled([chatCatalog.refresh(), imageCatalog.refresh(), mediaCatalog.refresh()])
   const requestId = ++preflightRequestId
   const targetSlug = slug.value
   repairMode.value = repair
@@ -2957,6 +3018,7 @@ async function submit() {
 .problems-card { border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.05); }
 
 /* ── Confirm modal chain preview ──────────────────────────────────────── */
+.batch-estimate ul { margin: 4px 0 0; padding-left: 18px; }
 .chain-preview {
   display: flex; align-items: center; gap: 4px;
   flex-wrap: wrap;

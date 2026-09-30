@@ -113,8 +113,8 @@
             <template v-if="selectedTtsModel.provider_name">
               Served by <strong>{{ selectedTtsModel.provider_name }}</strong>.
             </template>
-            <span :title="modelRate.title">{{ modelRate.text }}</span>,
-            minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request.
+            <span :title="modelRate.title">{{ modelRate.text }}</span><PriceDetails :cost="modelRate" /><template v-if="!ttsHasUsdPrice">,
+            minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request</template>.
             <span v-if="modelRate.notice"> {{ modelRate.notice }}</span>
             <template v-if="selectedTtsModel.supports_voice_cloning"> Supports voice cloning.</template>
             <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
@@ -659,6 +659,7 @@ import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
+import { hasPriceTruth } from '~/utils/genstudio-price-usd'
 import { genstudioStaleNote } from '~/utils/genstudio-freshness'
 import {
   describeRelaxedQueueHint,
@@ -741,7 +742,7 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
       // `.length` on null would throw and take the Audio page down; this makes
       // it degrade to "no languages stated" instead.
       ...(model.supported_languages?.length ? [`Languages ${model.supported_languages.join(', ')}`] : []),
-      `Minimum ${formatCredits(model.minimum_credits)} per request`,
+      ...(hasPriceTruth(model) ? [] : [`Minimum ${formatCredits(model.minimum_credits)} per request`]),
       `Up to ${model.maximum_input_characters.toLocaleString()} characters per request`,
     ].join(' · '),
     description: model.description,
@@ -864,6 +865,8 @@ const selectedVoiceProviderText = computed(() => {
 
 /** The model's published rate, shown before there is any text to quote. */
 const modelRate = computed(() => describeVoiceRate(selectedTtsModel.value))
+// A row with gateway price truth carries zero-valued credit shapes; its minimum is never a price.
+const ttsHasUsdPrice = computed(() => hasPriceTruth(selectedTtsModel.value))
 
 /**
  * Whether the selected model takes Story Studio's inline pause/emotion tags.

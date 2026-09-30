@@ -202,7 +202,7 @@
           @switched="onOutputOptionSwitched"
         />
         <p v-if="selectedGenStudioModel" class="sr-cost" :class="`basis-${sceneImageCost.basis}`" :title="sceneImageCost.title">
-          {{ CREDIT_BASIS_LABEL[sceneImageCost.basis] }}: {{ sceneImageCost.text }}
+          {{ CREDIT_BASIS_LABEL[sceneImageCost.basis] }}: {{ sceneImageCost.text }} <PriceDetails :cost="sceneImageCost" />
         </p>
         <label
           class="sr-auto-approve"

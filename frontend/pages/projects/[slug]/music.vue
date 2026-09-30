@@ -127,7 +127,7 @@
         :class="`basis-${musicCost.basis}`"
         :title="musicCost.title"
       >
-        {{ CREDIT_BASIS_LABEL[musicCost.basis] }}: {{ musicCost.text }}
+        {{ CREDIT_BASIS_LABEL[musicCost.basis] }}: {{ musicCost.text }} <PriceDetails :cost="musicCost" />
         <span class="text-muted">— {{ musicModel.display_name }}</span>
       </p>
 

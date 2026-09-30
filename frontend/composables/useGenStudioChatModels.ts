@@ -1,4 +1,5 @@
 import { useApi } from './useApi.js'
+import type { PriceTruth } from '../utils/genstudio-price-usd.js'
 import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
 
 /**
@@ -9,7 +10,7 @@ import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
  * Studio shows the published rate and defers the total to the figure
  * GenStudio reports on the finished job.
  */
-export interface GenStudioChatModelInfo {
+export interface GenStudioChatModelInfo extends PriceTruth {
   id: string
   display_name: string
   provider_name?: string

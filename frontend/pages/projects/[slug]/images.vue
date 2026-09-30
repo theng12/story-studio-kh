@@ -117,7 +117,7 @@
         @switched="onOutputOptionSwitched"
       />
       <p v-if="activeGenStudioModel" class="image-cost" :class="`basis-${imageUnitCost.basis}`" :title="imageUnitCost.title">
-        {{ CREDIT_BASIS_LABEL[imageUnitCost.basis] }}: {{ imageUnitCost.text }}
+        {{ CREDIT_BASIS_LABEL[imageUnitCost.basis] }}: {{ imageUnitCost.text }} <PriceDetails :cost="imageUnitCost" />
       </p>
 
       <div class="grid-3">

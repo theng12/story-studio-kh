@@ -4,6 +4,30 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.243 — 2026-09-30
+
+- **Model pickers now show what a model really costs, and say so when nobody has published a price.** The
+  gateway (0.2.82) states, per model, who gave the price: the provider, your own Macs, or nobody. A provider
+  price shows in real dollars with its unit and date (for example "$0.075 / 1M input tokens · $0.30 / 1M
+  output tokens · as of 2026-09-30"), your own Macs read "Free — your fleet", and a model nobody has priced
+  reads "Price not published" (not $0, not free). This covers the chat, image, video, voice, transcription
+  and music pickers. The zero credit figures the gateway still sends only to keep old readers working are
+  never shown as a price. A gateway that does not send the new fields behaves exactly as before.
+  A price the owner researched from the provider's own pricing page reads "from pricing page, <date>" with a
+  link to that page; when the page lists several prices for one thing (by size, quality or tier) they are all
+  listed as "varies" and none is picked.
+- **A finished job shows the cost its provider stated.** When the provider's own response states what it
+  charged, the Jobs ledger shows it ("$0.0027754454 provider cost"). When it did not, nothing is shown, never
+  "$0".
+- **Run Batch shows an estimated provider cost before anything starts.** It multiplies each paid step's known
+  per-unit price by what that step will use where Story Studio genuinely knows the amount (one image per scene
+  still to render, one clip per scene; a pricing-page price counts too), calls your own Macs' steps free, and lists every step it could not
+  price as "not included" with the reason (price not published, priced per token so the length is unknown,
+  scene count not known until Scene Plan has run, the page lists several prices for it, the model comes from a model policy, ...). It is labelled an
+  estimate and adds no new gateway calls.
+
+---
+
 ## v1.4.242 — 2026-09-30
 
 - **`npm run typecheck` is green again, and now runs as part of `npm test`.** The frontend type-check

@@ -72,10 +72,14 @@
             {{ displayState(remote) }}
             <small v-if="remote.failure_code" class="gs-batch-diagnostic">{{ remote.failure_code }}</small>
           </strong>
-          <span v-if="chargedFor(remote) > 0">{{ chargedFor(remote).toLocaleString() }} credits charged</span>
-          <span v-else-if="returnedFor(remote) > 0">{{ returnedFor(remote).toLocaleString() }} credits returned</span>
-          <span v-else-if="heldFor(remote) > 0">{{ heldFor(remote).toLocaleString() }} credits on hold</span>
-          <span v-else>—</span>
+          <span>
+            <template v-if="chargedFor(remote) > 0">{{ chargedFor(remote).toLocaleString() }} credits charged</template>
+            <template v-else-if="returnedFor(remote) > 0">{{ returnedFor(remote).toLocaleString() }} credits returned</template>
+            <template v-else-if="heldFor(remote) > 0">{{ heldFor(remote).toLocaleString() }} credits on hold</template>
+            <template v-else-if="!describeJobCostUsd(remote)">—</template>
+            <!-- The provider's own stated charge. Absent means "not stated" and prints nothing, never $0. -->
+            <small v-if="describeJobCostUsd(remote)" class="gs-batch-diagnostic">{{ describeJobCostUsd(remote) }}</small>
+          </span>
           <!-- When this item last moved. `updated_at` is rewritten on every
                record write including the terminal one, so for a settled item
                it IS the settlement time — the per-item clock the job contract
@@ -95,6 +99,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { effectiveGenStudioTaskState } from '@shared/provider-task-state'
+import { describeJobCostUsd } from '../utils/genstudio-price-usd.js'
 
 type RemoteJob = {
   id: string
@@ -110,6 +115,8 @@ type RemoteJob = {
   settled_credits?: number
   released_credits?: number
   failure_code?: string | null
+  cost_usd?: number
+  cost_source?: string
   cancelled?: boolean | null
   /** Rewritten on every record write, terminal write included. */
   updated_at?: string

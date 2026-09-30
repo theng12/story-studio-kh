@@ -22,7 +22,7 @@
         </span>
         <span class="output-dims">{{ option.width.toLocaleString() }}×{{ option.height.toLocaleString() }} px</span>
         <span class="output-cost" :class="`basis-${costFor(option).basis}`" :title="costFor(option).title">
-          {{ CREDIT_BASIS_LABEL[costFor(option).basis] }}: {{ costFor(option).text }}
+          {{ CREDIT_BASIS_LABEL[costFor(option).basis] }}: {{ costFor(option).text }} <PriceDetails :cost="costFor(option)" />
         </span>
       </button>
     </div>

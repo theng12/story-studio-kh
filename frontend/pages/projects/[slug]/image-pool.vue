@@ -157,7 +157,7 @@
           @switched="onOutputOptionSwitched"
         />
         <p v-if="selectedGenStudioModel" class="ip-cost" :class="`basis-${genBatchCost.basis}`" :title="genBatchCost.title">
-          {{ CREDIT_BASIS_LABEL[genBatchCost.basis] }}: {{ genBatchCost.text }}
+          {{ CREDIT_BASIS_LABEL[genBatchCost.basis] }}: {{ genBatchCost.text }} <PriceDetails :cost="genBatchCost" />
         </p>
         <div class="ip-actions mt-3">
           <button class="btn btn-primary" :disabled="generating || !genModel || !promptLines.length || !selectedPool?.online" @click="generateIntoPool">

@@ -1,9 +1,10 @@
+import type { PriceTruth } from '../utils/genstudio-price-usd.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 import { GENSTUDIO_CATALOG_STALE_CEILING_MS } from './useGenStudioCatalogCache.js'
 import { normalizeGenStudioLoadedAt } from '../utils/genstudio-freshness.js'
 
 /** A `/v1/tts/models` row — the same catalogue the voice picker selects from. */
-export interface GenStudioVoiceModelInfo {
+export interface GenStudioVoiceModelInfo extends PriceTruth {
   id: string
   display_name: string
   provider_id: string
@@ -38,7 +39,7 @@ export interface GenStudioVideoControl {
   note: string | null
 }
 
-export interface GenStudioVideoModelInfo {
+export interface GenStudioVideoModelInfo extends PriceTruth {
   id: string
   display_name: string
   description?: string
