@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.242 — 2026-09-30
+
+- **`npm run typecheck` is green again, and now runs as part of `npm test`.** The frontend type-check
+  reported 269 errors, all in `electron/server/**`, because one type reference dragged the whole server
+  into the frontend's (deliberately lax) compiler: a request type in `models/types.ts` named its reveal
+  settings through the reveal engine, which pulls in every service. The settings type now lives next to the
+  reveal selection code it describes, so the frontend no longer type-checks the server under the wrong
+  rules. Nothing at run time changed.
+
+---
+
 ## v1.4.241 — 2026-09-30
 
 - **A job waiting for a Mac now says so.** When the gateway is running a job but no Mac has started it,

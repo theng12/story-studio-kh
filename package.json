@@ -1,7 +1,7 @@
 {
   "name": "story-studio-kh",
   "productName": "Story Studio KH",
-  "version": "1.4.241",
+  "version": "1.4.242",
   "private": true,
   "description": "Story Studio KH \u2014 continuity-first video pipeline for YouTube channels. Research, scripts, voice, narration-timed scenes, optional motion, and assembly across scenes, listicle, and character-locked formats.",
   "author": "",
@@ -39,12 +39,12 @@
     "test:frontend": "cd frontend && npx nuxi prepare && node ../scripts/testing/run-lane-tests.mjs frontend",
     "test:release": "node scripts/testing/run-lane-tests.mjs release",
     "test:content-packs": "node scripts/testing/run-lane-tests.mjs content-packs",
-    "test": "npm run test:backend && npm run test:frontend && npm run test:release && npm run test:content-packs",
+    "test": "npm run typecheck && npm run test:backend && npm run test:frontend && npm run test:release && npm run test:content-packs",
     "lint": "eslint electron/server electron/main.ts",
     "lint:fix": "eslint electron/server electron/main.ts --fix",
     "typecheck:electron": "tsc -p electron/tsconfig.json --noEmit",
     "typecheck": "npm run typecheck:electron && npm --prefix frontend run typecheck",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run build",
+    "verify": "npm run lint && npm test && npm run build",
     "reset-server-auth": "npx tsx scripts/reset-server-auth.ts"
   },
   "dependencies": {

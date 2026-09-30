@@ -33,6 +33,7 @@ import {
 } from '../contracts/scene-reveal-presets.js'
 import { deriveSeed, mulberry32 } from './seeded-random.js'
 import type { RevealCoherence } from '../contracts/scene-reveal.js'
+import type { RevealPace } from './reveal-pacing.js'
 
 export interface RevealSceneInput {
   /** Stable scene identity, used for the derived seed and for overrides. */
@@ -55,6 +56,23 @@ export interface RevealOverride {
   /** Bumped by a reroll so the override is a *new* choice, not the old one. */
   reroll?: number
   document?: SceneRevealDocument
+}
+
+/** What an episode states about reveals. Every field optional: absent means the design's default. */
+export interface SceneRevealSettings {
+  /** Off unless asked for. A reveal changes how an episode looks, so it is never a silent default. */
+  enabled?: boolean
+  /** Preset ids the episode may draw from. Empty or absent means the engine's default pool. */
+  pool?: string[]
+  /** The episode's seed; per-scene effects are derived from it, so a re-render is identical. */
+  seed?: number
+  coherence?: RevealCoherence
+  pace?: RevealPace
+  /** Per-preset cap per episode; `0` means no cap. */
+  cap_per_effect?: number
+  no_immediate_repeat?: boolean
+  /** Manual per-scene choices from the UI, including rerolls. */
+  overrides?: RevealOverride[]
 }
 
 export interface RevealPlanEntry {

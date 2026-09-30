@@ -3689,11 +3689,11 @@ export interface GenerateVideoRequest {
    * duration comes from the pace plan rather than the uniform recycling default — which is what
    * lets one image carry 10–15 s and an episode need roughly 2.4× fewer of them.
    *
-   * Typed as the engine's own settings object (`lib/reveal-assembly.ts`) so the request and the
+   * Typed as the engine's own settings object (`lib/reveal-selection.ts`) so the request and the
    * planner cannot drift: a field the planner reads but the request cannot carry would be a
    * control that does nothing.
    */
-  scene_reveal?: import('../lib/reveal-assembly.js').SceneRevealSettings
+  scene_reveal?: import('../lib/reveal-selection.js').SceneRevealSettings
   post_audio?: VideoPostAudio       // what happens after narration ends, default fade-to-black
   audio_gap?: number                // seconds of silence between narration chapters, default 5
   narration_chapters?: string[]     // individual chapter audio file paths (for gap insertion)

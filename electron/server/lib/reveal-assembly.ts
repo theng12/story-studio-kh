@@ -22,25 +22,8 @@ import {
 } from '../contracts/scene-reveal.js'
 import { BUILT_IN_SCENE_REVEALS, DEFAULT_REVEAL_POOL } from '../contracts/scene-reveal-presets.js'
 import { isRevealPace, planSceneHold, type RevealHoldPlan, type RevealPace } from './reveal-pacing.js'
-import { planEpisodeReveals, type RevealOverride, type RevealPlanEntry } from './reveal-selection.js'
+import { planEpisodeReveals, type RevealPlanEntry, type SceneRevealSettings } from './reveal-selection.js'
 import { listRevealPresets } from '../services/style-effect-loader.js'
-
-/** What an episode states about reveals. Every field optional: absent means the design's default. */
-export interface SceneRevealSettings {
-  /** Off unless asked for. A reveal changes how an episode looks, so it is never a silent default. */
-  enabled?: boolean
-  /** Preset ids the episode may draw from. Empty or absent means the engine's default pool. */
-  pool?: string[]
-  /** The episode's seed; per-scene effects are derived from it, so a re-render is identical. */
-  seed?: number
-  coherence?: RevealCoherence
-  pace?: RevealPace
-  /** Per-preset cap per episode; `0` means no cap. */
-  cap_per_effect?: number
-  no_immediate_repeat?: boolean
-  /** Manual per-scene choices from the UI, including rerolls. */
-  overrides?: RevealOverride[]
-}
 
 export interface PlannedSceneReveal {
   scene_id: string
